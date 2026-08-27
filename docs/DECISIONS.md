@@ -650,3 +650,62 @@ The decisions below are new.
   reproduce". The one instruction AGENTS.md gives for checking those numbers could not reproduce them. The
   regenerated JSON is a strict superset — every previously committed value is byte-identical — and the new
   row reproduces AGENTS.md lines 45–72 exactly.
+
+## 2026-08-27 — Phase 1, `tvx-nifti` (§6.1)
+
+No frozen signature changed; every item below resolves something §6.1 left implicit, or records a
+measurement. `crates/tvx-nifti/src/lib.rs`'s module docs carry the first two.
+
+- 2026-08-27 — **`want_linear` gates ladder rows 1–2** — rows 1–2 are §6.1's `NEAREST` rows, and the
+  same section says `want_linear` is false exactly when the layer is a label or
+  `interpolation === 'nearest'`, so the rows are read as `is_label && !want_linear`. Read literally
+  as `is_label` alone they would also claim `vol_u8.nii`, whose 60 integral values in 0…234 satisfy
+  the `is_label` rule verbatim, and `crates/tvx-nifti/tests/fixtures.rs`'s frozen
+  `gpu_payload_follows_the_selection_ladder` expects `R8` for it. The alternative — narrowing
+  `is_label` so a small-integer scalar volume fails it — was rejected because §6.1 fixes that rule
+  explicitly and names the float32 atlas it must keep catching.
+- 2026-08-27 — **The normalised rows map a stored integer code to physical units, not GL's `[0,1]`
+  read** — §6.1 row 4 fixes `scale = (max−min)/65535`, `offset = min`, which is dimensionally
+  consistent only if the shader multiplies the code `0..=65535`. Rows 3/6/7/8 follow the same shape
+  with their own full scale (255 for `R8`); `R32F` and the two label rows carry `scale = 1,
+  offset = 0`. A degenerate `max == min` yields `scale = 1, offset = min` and an all-zero texture,
+  so a constant volume decodes back to its value instead of dividing by zero. The engine's §7.3
+  shader has to agree; this is the crate's half of that contract, and the exactness claim it implies
+  is tested (`the_r16_row_round_trips_a_16_bit_input_exactly`).
+- 2026-08-27 — **The exact-percentile path is bounded by the value span, not by the dtype** — §6.1
+  promises percentiles "exact for integer dtypes", which 65536 bins cannot deliver for an integer
+  volume wider than 65536 distinct values. The fine histogram is one bin per integer when every
+  physical value is integral **and** `max − min ≤ 65535` (every label volume, every 8/16-bit scalar,
+  and `vol_scl.nii`'s ±29,350 physical range); otherwise the bins are uniform and a percentile is
+  its bin's lower edge, below the true value by less than `(max − min)/65536` — the accuracy §6.1
+  states for float. `testdata/vol_u32.nii` spans 234,000 and is the case that separates the two.
+  Percentiles are nearest-rank (numpy's `method='inverted_cdf'`).
+- 2026-08-27 — **`is_label`'s first pass exits early** — an anatomical scan fails "integral,
+  finite, non-negative" within a chunk, so `T1.nii.gz` does not pay for a full extra 13.6 M-sample
+  walk at load: `read_nifti` on it drops from 114.5 ms to 100.1 ms `[M2Max]`, and the whole CPU
+  share of §9.1 row 1 (read + stats + `gpu_payload`) from 201.7 ms to 188.4 ms.
+- 2026-08-27 — **§9.1 row 1, CPU share, measured** `[M2Max]` (Apple M2 Max, macOS 15.7, rustc
+  1.93.0, `cargo bench -p tvx-nifti`, criterion medians): `m2m_ernie/T1.nii.gz` read 100.1 ms,
+  `stats` 46.7 ms, `gpu_payload` → R16 43.3 ms, **the three together 188.4 ms** against the row's
+  400 ms-to-first-frame budget on machine A, leaving the GL upload and first draw the rest. Also
+  `final_tissues.nii.gz` read 57.1 ms, `labeling.nii.gz` `label_index` 37.2 ms and → R8UI 52.5 ms.
+  The row stays `[TARGET]` until Phase 3 measures a whole frame; this is the parser's share of it.
+- 2026-08-27 — **`serde_json` promoted from `tvx-nifti`'s dev-dependencies to its dependencies, and
+  `flate2` added to its dev-dependencies** — `header_json` is "every raw header field" (§6.1)
+  including a NaN `scl_slope`, which needs the manifest's `"NaN"`/`"Infinity"` string encoding
+  rather than hand-rolled escaping; the real-data qform test decompresses `T1.nii.gz` to patch
+  `sform_code`, and a `[dependencies]` entry is not visible to integration tests. Both crates are
+  already in the frozen §12.3 set and already appear under `tvx-nifti` in `Cargo.lock`, so the
+  lockfile is byte-identical — this adds no dependency to the workspace.
+- 2026-08-27 — **Ladder fallbacks §6.1's table leaves blank** — u32/i32 without `norm16` takes
+  `R32F` when `float_linear`, else `R8`; a float volume carrying NaN/Inf without `float_linear`
+  takes `R16` when `norm16` (non-finite samples land in code 0), else `R8`. In no branch does a
+  non-label layer get `R16UI` — that is the silent black-slice case §6.1 names — and `R16F` is never
+  selected, which `every_ladder_row_is_reachable_and_none_of_them_is_r16f` asserts over every
+  fixture × 3 capability sets × both `want_linear` values.
+- 2026-08-27 — **Out-of-range and non-index inputs** — `Volume::stats` has no `Result` in its frozen
+  signature, so `vol >= nvols` returns an all-zero `FieldStats` rather than panicking; `label_index`
+  and `gpu_payload` return `Error::Parse` for the same input. `label_index` refuses a volume whose
+  physical samples are not integral and non-negative, refuses the two colour dtypes, and refuses ids
+  whose span exceeds 2^24 or whose count exceeds 65536 — its `dense_of` is as long as the largest
+  id (531 entries for `labeling.nii.gz`), and ids absent from the volume map to dense 0.

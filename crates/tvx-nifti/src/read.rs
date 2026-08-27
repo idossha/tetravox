@@ -6,7 +6,6 @@ use byteorder::ByteOrder;
 use tvx_core::{Error, Phase, ProgressSink, Result};
 
 use crate::header::RawHeader;
-use crate::scan::Scan;
 use crate::{DataType, SpaceUnit, TimeUnit, Units, Volume, VolumeData};
 
 /// Progress is reported (and cancellation polled) once per chunk of this many samples/bytes.
@@ -387,12 +386,11 @@ fn label_test(v: &Volume, p: &mut dyn ProgressSink) -> Result<bool> {
     if v.datatype.is_color() {
         return Ok(false);
     }
-    let s = Scan::of(v, None, p)?;
-    if !s.all_integral || s.finite == 0 || s.min < 0.0 {
+    let Some((min, max)) = crate::scan::integral_range(v, None, p)? else {
         return Ok(false);
-    }
+    };
     if v.intent_code == 1002 {
         return Ok(true);
     }
-    Ok(crate::stats::unique_count_at_most(v, None, s.min, s.max, 4096, p)?.is_some())
+    Ok(crate::stats::unique_count_at_most(v, None, min, max, 4096, p)?.is_some())
 }

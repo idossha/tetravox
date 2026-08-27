@@ -4,6 +4,8 @@
 //! The raw samples themselves are never rewritten (ARCHITECTURE.md §6.1); scaling is applied here,
 //! on the way past, and carried separately in `GpuPayload{scale, offset}`.
 
+use std::cell::Cell;
+
 use tvx_core::{Error, Phase, ProgressSink, Result};
 
 use crate::{Volume, VolumeData};
@@ -28,7 +30,7 @@ fn range(v: &Volume, vol: Option<usize>) -> Option<(usize, usize)> {
 }
 
 macro_rules! walk_slice {
-    ($src:expr, $lo:expr, $hi:expr, $slope:expr, $inter:expr, $p:expr, $f:expr) => {{
+    ($src:expr, $lo:expr, $hi:expr, $slope:expr, $inter:expr, $p:expr, $f:expr, $stop:expr) => {{
         let mut i = $lo;
         while i < $hi {
             let end = (i + CHUNK).min($hi);
@@ -40,11 +42,49 @@ macro_rules! walk_slice {
             if $p.aborted() {
                 return Err(Error::Cancelled);
             }
+            if $stop() {
+                break;
+            }
         }
     }};
 }
 
-/// Feed every physical sample of `vol` to `f`, in storage order.
+/// Feed every physical sample of `vol` to `f`, in storage order, stopping at the first chunk
+/// boundary past which `stop` is true. `f` and `stop` communicate through shared `Cell`s, which is
+/// why neither takes `&mut` state.
+pub(crate) fn for_each_while<F: Fn(f64), S: Fn() -> bool>(
+    v: &Volume,
+    vol: Option<usize>,
+    p: &mut dyn ProgressSink,
+    f: F,
+    stop: S,
+) -> Result<()> {
+    let Some((lo, hi)) = range(v, vol) else {
+        return Err(Error::Parse(format!(
+            "volume index {} is out of range (nvols = {})",
+            vol.unwrap_or(0),
+            v.nvols
+        )));
+    };
+    let (slope, inter) = (v.scl_slope as f64, v.scl_inter as f64);
+    match &v.data {
+        VolumeData::U8(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::I8(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::U16(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::I16(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::U32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::I32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::F32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::F64(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::Rgb24(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+        VolumeData::Rgba32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, stop),
+    }
+    Ok(())
+}
+
+/// Feed every physical sample of `vol` to `f`, in storage order. Separate from
+/// [`for_each_while`] so the hot paths — `stats`, `gpu_payload` — take a plain `FnMut` with no
+/// interior-mutability check per sample.
 pub(crate) fn for_each<F: FnMut(f64)>(
     v: &Volume,
     vol: Option<usize>,
@@ -59,19 +99,57 @@ pub(crate) fn for_each<F: FnMut(f64)>(
         )));
     };
     let (slope, inter) = (v.scl_slope as f64, v.scl_inter as f64);
+    let go = || false;
     match &v.data {
-        VolumeData::U8(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::I8(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::U16(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::I16(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::U32(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::I32(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::F32(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::F64(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::Rgb24(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
-        VolumeData::Rgba32(d) => walk_slice!(d, lo, hi, slope, inter, p, f),
+        VolumeData::U8(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::I8(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::U16(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::I16(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::U32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::I32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::F32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::F64(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::Rgb24(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
+        VolumeData::Rgba32(d) => walk_slice!(d, lo, hi, slope, inter, p, f, go),
     }
     Ok(())
+}
+
+/// §6.1's `is_label` first pass — all samples integral, finite and non-negative — with an early
+/// exit. `T1.nii.gz` fails it on its first negative voxel, so an anatomical scan never pays for a
+/// full extra walk at load (§9.1 row 1). Returns the physical `(min, max)` when it passes.
+pub(crate) fn integral_range(
+    v: &Volume,
+    vol: Option<usize>,
+    p: &mut dyn ProgressSink,
+) -> Result<Option<(f64, f64)>> {
+    let ok = Cell::new(true);
+    let n = Cell::new(0u64);
+    let min = Cell::new(f64::INFINITY);
+    let max = Cell::new(f64::NEG_INFINITY);
+    for_each_while(
+        v,
+        vol,
+        p,
+        |x| {
+            if !ok.get() {
+                return;
+            }
+            if !x.is_finite() || x < 0.0 || x != x.trunc() {
+                ok.set(false);
+                return;
+            }
+            n.set(n.get() + 1);
+            if x < min.get() {
+                min.set(x);
+            }
+            if x > max.get() {
+                max.set(x);
+            }
+        },
+        || !ok.get(),
+    )?;
+    Ok((ok.get() && n.get() > 0).then(|| (min.get(), max.get())))
 }
 
 /// What one pass over the physical samples learns. `min`/`max` ignore non-finite samples.
