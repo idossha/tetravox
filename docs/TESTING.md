@@ -249,10 +249,15 @@ with no change of shape.
   `PLAYWRIGHT_BROWSERS_PATH` are pinned to those paths on both runners, because macOS would otherwise use
   `~/Library/Caches` and the cache keys would not match.
 * **`pnpm exec electron --version` is its own step**, before the e2e, exactly as §12.2 requires: a failed
-  ~100 MB download is then a red step with an obvious name, not a mysterious e2e failure.
+  ~100 MB download is then a red step with an obvious name, not a mysterious e2e failure. **On Linux it
+  is `electron --no-sandbox --version`**: the `chrome-sandbox` helper in the npm tarball is not
+  root-owned setuid, and Chromium aborts (`SIGTRAP`) rather than run unsandboxed — even for `--version`.
+  Same reason `packages/app/e2e/fixtures.ts` passes `--no-sandbox` on every Linux launch (§12.2).
 * **`TETRAVOX_TESTDATA` is unset**, and a step asserts it — real-data tests skip in CI by design.
 * An **Xvfb** is started on the Linux runner and exported as `DISPLAY`, because Electron needs an X server
-  and the Phase-1 app E2E will run there.
+  and the app E2E and the headed `chromium-angle` project both run there. The step waits on `xdpyinfo`
+  before exporting `DISPLAY`, so a display that never came up is a red Xvfb step rather than an
+  unexplained Electron crash three steps later.
 * **Packaging in Phase 0 is the macOS `.dmg` step only**, inside the `test` job, without
   `continue-on-error`: `pnpm package` builds this platform's artefacts only (§12.1), and Linux artefacts
   are never built on macOS. Until `packages/app` has a `package` script the step is a documented no-op;

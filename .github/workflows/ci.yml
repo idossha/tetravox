@@ -128,16 +128,49 @@ jobs:
       # after this one; on macOS nothing is needed.
       - name: Start Xvfb (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb x11-utils
           Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          # Xvfb backgrounds immediately and is not listening yet; a step that exports DISPLAY and
+          # walks away hands the next step a display that may not answer. Wait for it, and fail here
+          # rather than as an unexplained Electron crash later.
+          for _ in $(seq 1 30); do
+            if xdpyinfo -display :99 >/dev/null 2>&1; then
+              echo "Xvfb is answering on :99"
+              echo "DISPLAY=:99" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Xvfb never came up on :99" >&2
+          exit 1
 
       # §12.2, explicitly: a failed electron download must be its own red step, not a mysterious e2e
       # failure. On a cold cache this is where the ~100 MB binary is fetched.
+      #
+      # `--no-sandbox` on Linux, and it is not optional. Chromium's SUID sandbox helper ships inside
+      # the npm tarball as a plain user-owned file, and Chromium refuses to run rather than drop the
+      # sandbox silently:
+      #   FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary
+      #   was found, but is not configured correctly. ... chrome-sandbox is owned by root and has
+      #   mode 4755.
+      # It aborts with SIGTRAP before printing the version, so even `--version` fails. The packaged
+      # AppImage has the same problem, which is why §12.2 already says Linux needs `--no-sandbox` and
+      # why `packages/app/e2e/fixtures.ts` passes it on every Linux launch. `chown root` + `chmod
+      # 4755` on the binary would be the other fix; it is rejected here because it would make this
+      # step the only place in the project that runs Electron sandboxed, so a sandbox regression
+      # would still not be caught, at the cost of a sudo write into node_modules.
       - name: Warm up the electron binary
-        run: pnpm exec electron --version
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            pnpm exec electron --no-sandbox --version
+          else
+            pnpm exec electron --version
+          fi
 
       - name: Install the pinned Chromium
         run: pnpm exec playwright install --with-deps chromium
