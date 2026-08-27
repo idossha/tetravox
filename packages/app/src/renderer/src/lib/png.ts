@@ -126,3 +126,64 @@ export function encodePng({ width, height, pixels, dpi }: EncodePngOptions): Uin
   parts.push(chunk('IDAT', zlibStored(raw)), chunk('IEND', new Uint8Array(0)));
   return concat(parts);
 }
+
+// ------------------------------------------------------------------------------------------------
+// Reading a PNG back — the screenshot dialog's own assertion. `docs/PHASE2-OWNERSHIP.md`: "`lib/png.ts`
+// is yours, and it is where the screenshot dialog's **pHYs** parse/assert lives."
+// ------------------------------------------------------------------------------------------------
+
+export interface PngInfo {
+  width: number;
+  height: number;
+  bitDepth: number;
+  colorType: number;
+  /** From the `pHYs` chunk, converted back from pixels-per-metre; undefined when absent. */
+  dpi?: number;
+  /** The raw `pHYs` fields, for a caller that wants the integers rather than the rounded DPI. */
+  physical?: { xPerUnit: number; yPerUnit: number; unit: number };
+}
+
+/**
+ * Read a PNG's `IHDR` and `pHYs` **without decoding pixels**.
+ *
+ * §11's obligation on the screenshot spec is "the screenshot's pHYs chunk carries the requested DPI —
+ * **parse the chunk, do not eyeball the image**". The dialog checks it against its own request before
+ * reporting success, so a `dpi` the engine silently dropped shows up in the app and not only in a
+ * test. Walking chunks is twenty lines and needs no pixel path, which is why this is a reader beside
+ * the encoder rather than a dependency — §12.3 freezes the dependency list.
+ */
+export function readPngInfo(bytes: Uint8Array): PngInfo | null {
+  const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 8 + 25) return null;
+  if (!SIGNATURE.every((b, i) => bytes[i] === b)) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  let at = 8;
+  let info: PngInfo | null = null;
+  while (at + 8 <= bytes.length) {
+    const length = view.getUint32(at);
+    const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+    const body = at + 8;
+    // A length that runs past the buffer is a truncated file, not a chunk to guess at.
+    if (body + length + 4 > bytes.length) break;
+    if (type === 'IHDR' && length >= 13) {
+      info = {
+        width: view.getUint32(body),
+        height: view.getUint32(body + 4),
+        bitDepth: bytes[body + 8] as number,
+        colorType: bytes[body + 9] as number,
+      };
+    } else if (type === 'pHYs' && info !== null && length >= 9) {
+      const xPerUnit = view.getUint32(body);
+      const yPerUnit = view.getUint32(body + 4);
+      const unit = bytes[body + 8] as number;
+      info.physical = { xPerUnit, yPerUnit, unit };
+      // Unit 1 is metres; unit 0 means "aspect ratio only" and carries no DPI at all.
+      if (unit === 1) info.dpi = Math.round(xPerUnit * 0.0254);
+    } else if (type === 'IEND') {
+      break;
+    }
+    at = body + length + 4;
+  }
+  return info;
+}

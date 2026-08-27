@@ -76,6 +76,12 @@ export interface NoGlEngineOptions {
   parseFailSubstring?: string | null;
   /** Deterministic clock for tests. */
   now?: () => number;
+  /**
+   * **Phase 2, appended.** Give loaded volumes a `toTemplate` (§4.3), so the §8 coordinate bar's
+   * MNI column is reachable in an E2E. Off by default, because absent is the honest default on
+   * subject data — a SimNIBS `m2m` T1 is `sform_code = 2` — and both states must be testable.
+   */
+  toTemplate?: boolean;
 }
 
 const CANONICAL_SLICES: readonly { id: ViewId; mode: SliceView['mode']; normal: vec3; up: vec3 }[] =
@@ -114,6 +120,7 @@ export class NoGlEngine implements Engine {
   private readonly stepMs: number;
   private readonly parseFailSubstring: string | null;
   private readonly clock: () => number;
+  private readonly withTemplate: boolean;
   private readonly heap = new Map<DatasetId, number>();
   private readonly cancelled = new Set<DatasetId>();
   private seq = 0;
@@ -128,6 +135,7 @@ export class NoGlEngine implements Engine {
     this.stepMs = options.stepMs ?? 60;
     this.parseFailSubstring = options.parseFailSubstring ?? null;
     this.clock = options.now ?? (() => performance.now());
+    this.withTemplate = options.toTemplate === true;
 
     const slices: SliceView[] = CANONICAL_SLICES.map((s) => ({
       id: s.id,
@@ -276,10 +284,14 @@ export class NoGlEngine implements Engine {
       throw error;
     }
 
+    // A mesh gets a `.msh.opt` exactly when one was admitted beside it (§7.6, §5 rule 9's sidecar
+    // rule) — the same condition the real loader uses, so the "defaults from X.msh.opt" chip
+    // appears here for the same reason it appears there.
+    const hasOpt = src.kind === 'path' && src.sidecars?.opt !== undefined;
     const dataset =
       kind === 'volume'
-        ? makeVolume(id, name, path, this.seq, this.seq)
-        : makeMesh(id, name, path, this.seq, this.seq);
+        ? makeVolume(id, name, path, this.seq, this.seq, { toTemplate: this.withTemplate })
+        : makeMesh(id, name, path, this.seq, this.seq, { opt: hasOpt });
     this.state.datasets.set(id, dataset);
     this.emit('progress', { datasetId: id, phase: 'upload', done: 1, total: 1 });
     this.emit('datasets', [...this.state.datasets.values()]);
@@ -613,6 +625,17 @@ export class NoGlEngine implements Engine {
   // Persistence
   // ------------------------------------------------------------------------------------------
 
+  /**
+   * §4.6's `ViewSpec`. Two Phase-2 details the Phase-1 version left out, both of which the shell's
+   * persistence path depends on and neither of which changes what an existing field means:
+   *
+   *  * `absPath` beside `path`, so `lib/scene.ts` can rewrite the pair into §4.6's
+   *    "relative to the scene file, with an absolute fallback";
+   *  * `visibleLabels` as a plain `number[]`, because a `Uint32Array` does not survive
+   *    `JSON.stringify` — it serialises as `{"0":1,"1":2}` and comes back as an object. The real
+   *    engine's `toViewSpec` already does this; the stand-in has to agree or the round trip differs
+   *    between the two implementations for a reason that has nothing to do with the shell.
+   */
   serialize(): ViewSpec {
     return {
       version: 1,
@@ -621,9 +644,16 @@ export class NoGlEngine implements Engine {
         kind: d.kind,
         name: d.name,
         path: d.path ?? d.name,
-        fingerprint: '0'.repeat(16),
+        ...(d.path === undefined ? {} : { absPath: d.path }),
+        // §4.6 wants a real digest; it has no producer yet (W-WASM Gap 1, §5 rule 3 forbids
+        // computing it here), so the stand-in emits the same placeholder the real engine does.
+        fingerprint: '',
       })),
-      layers: this.state.layers.map((l) => ({ ...l }) as ViewSpec['layers'][number]),
+      layers: this.state.layers.map((l) => ({
+        ...l,
+        visibleLabels:
+          'visibleLabels' in l && l.visibleLabels !== undefined ? [...l.visibleLabels] : undefined,
+      })) as ViewSpec['layers'],
       activeLayerId: this.state.activeLayerId,
       slices: this.state.slices,
       view3d: this.state.view3d,
@@ -637,16 +667,33 @@ export class NoGlEngine implements Engine {
     };
   }
 
+  /**
+   * Restore the **presentation** half of a spec, and nothing more.
+   *
+   * This mirrors `packages/engine`'s `applyViewSpec` deliberately, including what it does *not* do:
+   * `spec.layers` and `spec.activeLayerId` are not restored, because the datasets a load re-adds get
+   * fresh ids and the remap is audit **P2-07**, which is E-SCENE's. The shell reconciles on top
+   * (`lib/scene.ts`'s `layersToRestore`), and it must be exercised against a stand-in that behaves
+   * like the engine it stands in for — a stand-in that restored layers would hide the very gap the
+   * reconcile exists for.
+   */
   async load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
     for (const ref of spec.datasets) {
       const path = resolve(ref);
       if (path === null) continue;
       await this.addDataset({ kind: 'path', path });
     }
+    this.state.slices = spec.slices;
+    this.state.view3d = spec.view3d;
+    this.state.layout = spec.layout;
     this.state.cursor = spec.cursor;
     this.state.radiological = spec.radiological;
-    this.state.layout = spec.layout;
+    this.state.background = spec.background;
+    this.state.lighting = spec.lighting;
+    this.state.annotations = spec.annotations;
+    this.state.transparency = spec.transparency;
     this.emit('cursor', this.state.cursor);
+    this.requestRender();
   }
 
   destroy(): void {

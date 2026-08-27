@@ -3,7 +3,7 @@
  * browser tab). Paths and small JSON only — there is deliberately no byte channel to reach for.
  */
 
-import type { OpenedPath, TetravoxBridge } from '../../preload/index';
+import type { OpenedPath, SceneCommand, SceneIoResult, TetravoxBridge } from '../../preload/index';
 
 const ABSENT: TetravoxBridge = {
   openDialog: async () => [],
@@ -13,6 +13,14 @@ const ABSENT: TetravoxBridge = {
   phase0Fixture: async () => null,
   onOpened: () => () => {},
   log: () => {},
+  // Phase 2's scene IO. A context with no bridge has no filesystem at all, so "the user cancelled"
+  // and "there is nowhere to write" are the same answer — and the reason is carried, not swallowed.
+  openSceneDialog: async () => null,
+  saveSceneDialog: async () => null,
+  relocateDialog: async () => null,
+  readSceneFile: async () => ({ ok: false, error: 'no preload bridge' }),
+  writeSceneFile: async () => ({ ok: false, error: 'no preload bridge' }),
+  onSceneCommand: () => () => {},
 };
 
 export function bridge(): TetravoxBridge {
@@ -23,4 +31,4 @@ export function hasBridge(): boolean {
   return (globalThis as { tetravox?: TetravoxBridge }).tetravox !== undefined;
 }
 
-export type { OpenedPath };
+export type { OpenedPath, SceneCommand, SceneIoResult };

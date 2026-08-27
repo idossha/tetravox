@@ -49,6 +49,14 @@ export function sendOpened(win: BrowserWindow | null, opened: readonly OpenedPat
   win?.webContents.send('tetravox:opened', opened);
 }
 
+/** The scene commands the File menu can ask the renderer to run (§4.6, §8). */
+export type SceneCommand = 'new' | 'open' | 'save' | 'saveAs';
+
+/** Ask the renderer to run a scene command. Main never builds or parses a `ViewSpec` itself. */
+export function sendSceneCommand(win: BrowserWindow | null, command: SceneCommand): void {
+  win?.webContents.send('tetravox:scene-command', command);
+}
+
 export function buildMenu(getWindow: () => BrowserWindow | null): void {
   const isMac = process.platform === 'darwin';
   const template: Electron.MenuItemConstructorOptions[] = [
@@ -63,6 +71,30 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
             const win = getWindow();
             sendOpened(win, await showOpenDialog(win));
           },
+        },
+        { type: 'separator' },
+        // Scene save/load is *asked for* here and *done* in the renderer: only the renderer holds
+        // the `Engine` whose `serialize()` produces the `ViewSpec` (§4.6, §8), and main has no
+        // business reconstructing one. The menu therefore sends a command, not a result.
+        {
+          label: 'New Scene',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => sendSceneCommand(getWindow(), 'new'),
+        },
+        {
+          label: 'Open Scene…',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => sendSceneCommand(getWindow(), 'open'),
+        },
+        {
+          label: 'Save Scene',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => sendSceneCommand(getWindow(), 'save'),
+        },
+        {
+          label: 'Save Scene As…',
+          accelerator: 'CmdOrCtrl+Shift+S',
+          click: () => sendSceneCommand(getWindow(), 'saveAs'),
         },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },

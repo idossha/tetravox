@@ -1947,3 +1947,41 @@ Each entry below names the problem, the fix, and the evidence.
   and the tissue/point rows are `div`s with `role="listitem"` rather than `li`s, because
   A-SHELL's `shell.spec.ts` counts `[data-testid="layer-list"] li` and a nested list would break a
   spec this owner does not own.
+- 2026-08-27 — **A-SHELL (`p2/shell`): three decisions the §8 shell had to take to reach the
+  Phase-2 items, none of which touches a frozen interface.**
+  1. **Scene IO is a second, narrower channel on the preload bridge, with its own write
+     allow-list.** §8 needs the renderer to read and write `*.tetravox.json`, and §5's bridge
+     deliberately has no `readFile`. `main/scene-io.ts` adds one: reads go through the existing
+     `tetravox://file/…` allow-list (`paths.ts`), **writes go through a separate list that only the
+     Save dialog fills** — being able to read `T1.nii.gz` must never imply being able to overwrite
+     it — and both directions are capped at 8 MiB, three orders above a real `ViewSpec` and three
+     below `ernie.msh`. That cap is the line between "small JSON" and "a byte channel" written in
+     code rather than in a comment. Rejected: a general `readTextFile`/`writeTextFile` pair, which
+     would have been an arbitrary-file primitive for anything that gets script into the renderer.
+  2. **The shell reconciles layers after `Engine.load`, and the reconcile is designed to become a
+     no-op.** Audit **P2-07** records that `applyViewSpec` "does not restore `layers` or
+     `activeLayerId`, and cannot as written": the datasets a load re-adds get fresh ids. E-SCENE owns
+     fixing that. Until then a saved scene reopens with datasets and no layers, which is not a
+     restored scene — so `lib/scene.ts`'s `layersToRestore` asks the engine for the spec layers that
+     have no live counterpart, matched by `(datasetId, kind, name)` against a dataset-id map built
+     from the path each ref resolved to. When P2-07 lands, `liveLayers` covers the spec and it
+     returns `[]`: the same code path, one branch colder. Rejected: waiting for E-SCENE, which would
+     have left A-SHELL's persistence gate item untestable for two integration stages.
+  3. **The `.msh.opt` chip lives in `app/.../ui/`, not in the mesh property editor.** §7.6 and the
+     ownership map split that feature — E-SCENE seeds from `MeshMeta.opt` in `fromMeta`, A-SHELL owns
+     the chip and Reset — but the natural home for the chip is A-PROPS's `panels/layers/mesh/`.
+     `ui/MshOptChip.tsx` is therefore a self-contained component the shell mounts in the right-hand
+     column, and it is exported so A-PROPS's tissue table can render the same one rather than build a
+     second. One implementation, one owner, no shared-file edit.
+
+  Also recorded, because both were found by running the real data rather than by reading the
+  contract: **`DatasetRef.name` is `VolumeMeta.name`, which the loader derives from the source URL
+  and which is the whole absolute path on ernie `[DATA]`** — the Save dialog was about to offer
+  `_Users_idohaber_…_T1.tetravox.json` — so `defaultSceneName` and the relocate row take the
+  basename; and **`e2e/fixtures.ts` now gives every launch a private `--user-data-dir`**, because
+  `app.requestSingleInstanceLock()` is keyed by the userData directory, which for an unpackaged
+  Electron app is shared by every checkout of this repo on the machine. While another one holds it a
+  launched app quits **before creating a window**, and Playwright reports "Target page, context or
+  browser has been closed" with `exitCode 0` — a failure that looks like a crash in the code under
+  test and is not one. Reproduced against a second worktree's e2e run; the same shape appears in CI
+  the moment two jobs share a runner.

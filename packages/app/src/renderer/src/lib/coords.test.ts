@@ -3,9 +3,12 @@ import {
   applyMat4,
   formatNumber,
   formatTriple,
+  invertMat4,
   parseTriple,
   roundVoxel,
+  templateToWorld,
   voxelToWorld,
+  worldToTemplate,
   worldToVoxel,
 } from './coords';
 import type { mat4 } from '@tetravox/engine';
@@ -101,5 +104,57 @@ describe('applyMat4 against the reference T1 affine', () => {
       T1_AFFINE[13] as number,
       T1_AFFINE[14] as number,
     ]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Phase 2 (appended): the MNI column's arithmetic — audit P2-10.
+// ------------------------------------------------------------------------------------------------
+
+describe('invertMat4', () => {
+  it("inverts the real T1 affine to the reference file's own inverse", () => {
+    const inverse = invertMat4(T1_AFFINE);
+    expect(inverse).not.toBeNull();
+    for (let i = 0; i < 16; i++) {
+      expect(inverse?.[i] as number).toBeCloseTo(T1_INVERSE[i] as number, 4);
+    }
+  });
+
+  it('round-trips a point through the affine and back to the voxel it started at', () => {
+    const inverse = invertMat4(T1_AFFINE) as mat4;
+    const world = voxelToWorld(T1_AFFINE, [128, 128, 104]);
+    expect(roundVoxel(applyMat4(inverse, world))).toEqual([128, 128, 104]);
+  });
+
+  it('inverts a sheared matrix too, which a rigid-only special case would get wrong', () => {
+    // Column-major: x' = x + 0.5y, y' = y, z' = z, plus a translation.
+    const sheared: mat4 = Float32Array.from([1, 0, 0, 0, 0.5, 1, 0, 0, 0, 0, 1, 0, 3, -2, 7, 1]);
+    const inverse = invertMat4(sheared) as mat4;
+    const point: [number, number, number] = [11, -4, 2];
+    const back = applyMat4(inverse, applyMat4(sheared, point));
+    for (let i = 0; i < 3; i++) expect(back[i] as number).toBeCloseTo(point[i] as number, 5);
+  });
+
+  it('returns null for a singular matrix rather than a plausible-looking wrong answer', () => {
+    const flat: mat4 = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+    expect(invertMat4(flat)).toBeNull();
+  });
+});
+
+describe('world ↔ template', () => {
+  /** A 12 mm anterior shift, column-major — the stand-in engine\'s `mniToTemplate`. */
+  const TO_MNI: mat4 = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 12, 0, 1]);
+
+  it('applies `toTemplate.matrix` forward for the read-out', () => {
+    expect(worldToTemplate(TO_MNI, [-42, 18, 6])).toEqual([-42, 30, 6]);
+  });
+
+  it('inverts it for a coordinate the user typed', () => {
+    expect(templateToWorld(TO_MNI, [-42, 30, 6])).toEqual([-42, 18, 6]);
+  });
+
+  it('refuses rather than guessing when the transform cannot be inverted', () => {
+    const singular: mat4 = Float32Array.from([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    expect(templateToWorld(singular, [0, 0, 0])).toBeNull();
   });
 });
