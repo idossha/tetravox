@@ -37,6 +37,19 @@ export default tseslint.config(
     },
   },
   {
+    // Node scripts: plain ESM, no TypeScript, so `no-undef` is live and the runtime's own globals
+    // have to be declared. (`globals` is not a dependency and the lockfile is frozen — §12.3.)
+    files: ['scripts/**/*.{mjs,js}'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        performance: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
     // The §7.1 lint applies to our source, including shader strings — not to this config.
     files: ['packages/**/*.{ts,tsx,js,jsx}', 'scripts/**/*.{ts,js}'],
     rules: {

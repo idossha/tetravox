@@ -131,21 +131,55 @@ pnpm --filter @tetravox/wasm run e2e -- realdata
 
 `cargo run --release -p tvx-geom --example measure -- $TETRAVOX_TESTDATA/m2m_ernie/ernie.msh`
 
-| Step | `ernie.msh` | Budget (§6.3) |
-|---|---|---|
-| `read_msh` | 80 ms | < 1.5 s native |
-| `orient_surface` (1,177,213 tris) | 113 ms | — |
-| `morton_reorder` (4,722,625 tets) | **109 ms** | < 250 ms **WASM** |
-| `build_tet_blocks` (73,792 blocks) | 63 ms | < 500 ms WASM |
-| `build_point_locator` | 179 ms | — |
-| `tag_surfaces` → 1,177,213 tris / 582,126 verts / 10 tags | 37 ms | — |
-| `locate_point` (bbox centre) | 2.1 ms | ≤ 50 ms (§8 hover) |
-| `extract_boundary` (topo = None) | 678 ms | — |
-| `plane_cut`, axial through the bbox centre | 15.1 ms **with** the block index | — |
-| `plane_cut`, same plane, degenerate index | 29.6 ms | — |
+**Every row below is printed by that command.** Three of them were not, in the first version of this
+table: `examples/measure.rs` stopped after `locate_point`, so the `extract_boundary` and `plane_cut`
+figures were attributed to a command that could not produce them. The example runs them now.
 
-The block index is worth ~2× on this plane, and its output is bit-identical either way (§6.3, asserted
-in `crates/tvx-geom/tests/real_data.rs`).
+**Native numbers, native comparisons.** The first version of this table also put `< 250 ms WASM` and
+`< 500 ms WASM` in a Budget column beside native measurements. Those budgets are in the WASM table
+below; a native figure has never been evidence for one, and the substitution is exactly what hid
+§9.1 row 10's miss.
+
+| Step | `ernie.msh` | Note |
+|---|---|---|
+| `read_msh` | 77 ms | §6.2's budget is < 1.5 s **native** — this one is like for like |
+| `orient_surface` (1,177,213 tris) | 100 ms | |
+| `morton_reorder` (4,722,625 tets) | 93 ms | the budget (< 250 ms) is WASM; see below |
+| `build_tet_blocks` (73,792 blocks) | 62 ms | the budget (< 500 ms) is WASM |
+| `build_point_locator` | 188 ms | |
+| `tag_surfaces` → 1,177,213 tris / 582,126 verts / 10 tags | 36 ms | |
+| `locate_point` (bbox centre) | 2.1 ms | §8 budgets the *hover round trip* at ≤ 50 ms |
+| `extract_boundary` (topo = None) | 624 ms | §9.1 row 19's 1.5 s bar is WASM, and is for `grey_Thalamus_TI.msh` |
+| `plane_cut` axial through the bbox centre | **10.4 ms** indexed / 24.3 ms degenerate | 62,966 cap triangles |
+| `plane_cut` oblique through the bbox centre | **13.7 ms** indexed / 27.2 ms degenerate | 76,217 cap triangles |
+
+The block index is worth ~2.1× on these planes — not the ~10× §9.1 row 10's old evidence cell
+implied — and its output is bit-identical either way (§6.3, asserted in
+`crates/tvx-geom/tests/real_data.rs`).
+
+## `plane_cut` in WASM — §9.1 row 10, in the environment the row is written for
+
+```sh
+node scripts/bench-wasm-cut.mjs                                   # the op, on V8
+pnpm --filter @tetravox/wasm run e2e -- realdata -g "row 10"      # the worker round trip, Chromium
+```
+
+| Plane | The op (`mesh_cut`, wasm/V8) | Worker round trip (Chromium) | Native | §9.1 row 10 |
+|---|---|---|---|---|
+| mid-axial, 62,966 cap tris | **12.9 ms** | 16.9 ms | 10.4 ms | < 15 ms ✔ |
+| oblique `[1,1,1]`, 76,217 cap tris | **16.6 ms** | 21.2 ms | 13.7 ms | < 30 ms ✔ |
+
+The three columns measure three different things and none of them substitutes for another: the op is
+the §6.3 function plus building the JS result arrays; the round trip adds a `postMessage` and the
+transfer of ~5 MB of typed arrays, and is what §9.1 row 11's cut-plane drag will have to fit inside;
+native is the same Rust with the system allocator instead of dlmalloc.
+
+**Row 10's recorded evidence (2.7 / 3.1 ms `[M2Max]`) is a prototype's and this implementation does
+not reproduce it** — 4.8× off. The budget is met; the evidence cell was not. Two changes closed most
+of the gap between the first Phase-1 implementation and these numbers, both in `plane_cut`: the cut
+polygon is a fixed-size stack buffer rather than a `Vec` per cut tet (~63,000 allocate/free pairs
+per plane under dlmalloc), and the tag-boundary pass sorts 24-byte keys with an index into
+`edge_segments` instead of 48-byte tuples carrying the endpoints. 16.1 → 12.9 ms on the op.
 
 `morton_reorder` was **478 ms** in its first form — sorting an index array and looking up
 `codes[i]` on each of three radix passes. Moving the code into the sort key so every pass reads

@@ -202,6 +202,68 @@ test('ernie.msh: counts, tags, bbox — and the §9.2 load-path bar', async ({ p
   expect(heapMb, '§9.2 load path for ernie.msh').toBeLessThanOrEqual(380);
 });
 
+/**
+ * §9.1 row 10's neighbourhood: `cut` on ernie, mid-axial and oblique, **through the real worker**.
+ *
+ * Phase 1 shipped no wasm measurement of the cut at all — the benchmarks doc printed a *native*
+ * figure under a heading carrying the WASM budget. There are two honest numbers here and they are
+ * different on purpose:
+ *
+ * * **the op**, `mesh_cut` on the wasm module — that is row 10's own metric, measured by
+ *   `node scripts/bench-wasm-cut.mjs`;
+ * * **the round trip**, the op plus posting the result arrays across the thread boundary — what a
+ *   caller pays, and what §9.1 row 11's cut-plane drag has to fit inside. That is what this test
+ *   measures, because it is the only one an in-browser harness can see.
+ *
+ * The assertion is deliberately loose. §9.1's rows are Phase 3's to sign off on two reference
+ * machines, and a tight wall-clock bar in a CI-bound e2e is a flake generator; the bar here exists
+ * so a 4× regression cannot pass quietly, and the printed line is the measurement.
+ */
+test('cut on ernie through the worker, mid-axial and oblique (§9.1 row 10)', async ({ page }) => {
+  test.slow();
+  await open(page);
+  const loaded = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fsUrl(ERNIE), sidecars: { opt: fsUrl(ERNIE_OPT) } },
+    format: 'auto',
+  });
+  const meta = loaded.result?.meta as { handle: number; bounds: { min: number[]; max: number[] } };
+  const handle = meta.handle;
+  const c = [0, 1, 2].map((k) => (meta.bounds.min[k]! + meta.bounds.max[k]!) / 2);
+  const k = 1 / Math.sqrt(3);
+  const planes = {
+    axial: { normal: [0, 0, 1] as [number, number, number], offset: -c[2]! },
+    oblique: {
+      normal: [k, k, k] as [number, number, number],
+      offset: -(c[0]! * k + c[1]! * k + c[2]! * k),
+    },
+  };
+
+  const measured: Record<string, { ms: number; tris: number }> = {};
+  for (const [name, plane] of Object.entries(planes)) {
+    let best = Number.POSITIVE_INFINITY;
+    let tris = 0;
+    // Best of 7: the first call pays for a cold arena, and one sample measures the machine's mood.
+    for (let i = 0; i < 7; i += 1) {
+      const out = await must(page, 'cut', { handle, planes: [plane] }, `cut-${name}-${i}`);
+      const result = out.result as { cuts: Array<{ tag: ArraySummary }> };
+      tris = result.cuts[0]!.tag.length;
+      best = Math.min(best, out.elapsedMs);
+    }
+    measured[name] = { ms: best, tris };
+    console.log(
+      `[§9.1 row 10] cut ${name} through the bbox centre, worker round trip: best of 7 = ` +
+        `${best.toFixed(2)} ms, ${tris} cap triangles`
+    );
+  }
+
+  // §6.3's own `[M2Max]` count for the mid-axial plane, so the timing is of the right work.
+  expect(measured.axial!.tris).toBe(62_966);
+  expect(measured.oblique!.tris).toBe(76_217);
+  // 17 / 22 ms `[M2Max]` at the time of writing, against a 15 / 30 ms op budget plus the transfer.
+  expect(measured.axial!.ms, 'a 4x regression in the canonical cut').toBeLessThan(60);
+  expect(measured.oblique!.ms, 'a 4x regression in the oblique cut').toBeLessThan(90);
+});
+
 test('ernie_seeg.msh: the declared worst case, against the ≤ 1.0 GB load-path bar', async ({
   page,
 }) => {

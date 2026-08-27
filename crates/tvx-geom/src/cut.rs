@@ -42,16 +42,62 @@ fn cut_vertex(nodes: &[[f32; 3]], i0: u32, i1: u32, d0: f32, d1: f32) -> PolyVer
     }
 }
 
-/// Clip a cut polygon by one *other* plane (Sutherland–Hodgman).
+/// The cut polygon of one tet, on the stack.
+///
+/// A tet's cap is a triangle or a quad; each of the ≤ 5 *other* clip planes can add at most one
+/// vertex to a convex polygon, so 9 is the true bound and 12 is the round number above it. This is
+/// a fixed-size buffer rather than a `Vec` because `plane_cut` visits ~63,000 cut tets for one
+/// mid-axial plane on ernie and a `Vec` per tet is ~63,000 allocate/free pairs — free enough under
+/// the system allocator to hide, and the difference between meeting and missing §9.1 row 10 under
+/// wasm's dlmalloc, which is the environment the row is written for.
+const MAX_POLY: usize = 12;
+
+#[derive(Clone, Copy)]
+struct Poly {
+    v: [PolyVert; MAX_POLY],
+    n: usize,
+}
+
+impl Poly {
+    const EMPTY: PolyVert = PolyVert {
+        pos: [0.0; 3],
+        interp: CutInterp {
+            n0: 0,
+            n1: 0,
+            t: 0.0,
+        },
+        real_to_next: false,
+    };
+
+    fn new() -> Self {
+        Self {
+            v: [Self::EMPTY; MAX_POLY],
+            n: 0,
+        }
+    }
+
+    fn push(&mut self, pv: PolyVert) {
+        if self.n < MAX_POLY {
+            self.v[self.n] = pv;
+            self.n += 1;
+        }
+    }
+
+    fn as_slice(&self) -> &[PolyVert] {
+        &self.v[..self.n]
+    }
+}
+
+/// Clip a cut polygon by one *other* plane (Sutherland–Hodgman), into `out`.
 ///
 /// A vertex introduced here lies on the clip plane, **not** on a mesh edge, so it has no honest
 /// `CutInterp`. It is marked `n0 == n1` — read that as "sample node `n0` directly" — and the edge
 /// leaving it is flagged not-real so no wireframe draws it. See `docs/DECISIONS.md`.
-fn clip_by(poly: &[PolyVert], plane: &Plane) -> Vec<PolyVert> {
-    let n = poly.len();
-    let mut out: Vec<PolyVert> = Vec::with_capacity(n + 2);
+fn clip_by(poly: &Poly, plane: &Plane, out: &mut Poly) {
+    out.n = 0;
+    let n = poly.n;
     for i in 0..n {
-        let (cur, nxt) = (poly[i], poly[(i + 1) % n]);
+        let (cur, nxt) = (poly.v[i], poly.v[(i + 1) % n]);
         let (dc, dn) = (signed(plane, cur.pos), signed(plane, nxt.pos));
         if dc >= 0.0 {
             out.push(cur);
@@ -72,7 +118,6 @@ fn clip_by(poly: &[PolyVert], plane: &Plane) -> Vec<PolyVert> {
             });
         }
     }
-    out
 }
 
 /// Exact per-element caps for up to 6 planes (§6.3).
@@ -103,8 +148,14 @@ pub fn plane_cut(
             edge_segments: Vec::new(),
             boundary_segments: Vec::new(),
         };
-        // (edge key lo, edge key hi, tag, the two endpoints) for the local boundary pass.
-        let mut poly_edges: Vec<(u64, u64, i32, [f32; 6])> = Vec::new();
+        // (edge key lo, edge key hi, tag, index into `cut.edge_segments`) for the local boundary
+        // pass. The endpoints are **not** carried here: every real edge has already been pushed to
+        // `edge_segments`, so an index costs 4 bytes against 24 and halves what the sort below
+        // moves — ~200,000 entries for one mid-axial plane on ernie.
+        let mut poly_edges: Vec<(u64, u64, i32, u32)> = Vec::new();
+        // Reused across every cut tet — see `Poly`.
+        let mut poly = Poly::new();
+        let mut clipped = Poly::new();
 
         for b in 0..nblocks {
             let a = &blocks.aabb[b * 6..b * 6 + 6];
@@ -148,7 +199,7 @@ pub fn plane_cut(
 
                 // The cut polygon, in cyclic order. Both 1-3 orientations give a triangle; the
                 // 2-2 split gives the quad (ac, ad, bd, bc), whose edges each lie on one tet face.
-                let mut poly: Vec<PolyVert> = Vec::with_capacity(4);
+                poly.n = 0;
                 let v = |i: usize, j: usize| cut_vertex(&mesh.nodes, tet[i], tet[j], d[i], d[j]);
                 if np == 1 {
                     let a = pos[0];
@@ -171,32 +222,37 @@ pub fn plane_cut(
                 }
 
                 // Wind the cap so its normal faces the removed side: it closes the kept solid.
-                if poly.len() >= 3 {
-                    let nrm = cross(sub(poly[1].pos, poly[0].pos), sub(poly[2].pos, poly[0].pos));
+                if poly.n >= 3 {
+                    let nrm = cross(
+                        sub(poly.v[1].pos, poly.v[0].pos),
+                        sub(poly.v[2].pos, poly.v[0].pos),
+                    );
                     if dot(nrm, plane.normal) > 0.0 {
-                        poly.reverse();
+                        let n = poly.n;
+                        poly.v[..n].reverse();
                         // `real_to_next` is a property of the edge *leaving* a vertex, so reversing
                         // the ring moves each flag one step back.
-                        let flags: Vec<bool> = poly.iter().map(|p| p.real_to_next).collect();
-                        let n = poly.len();
-                        for i in 0..n {
-                            poly[i].real_to_next = flags[(i + 1) % n];
+                        let first = poly.v[0].real_to_next;
+                        for i in 0..n - 1 {
+                            poly.v[i].real_to_next = poly.v[i + 1].real_to_next;
                         }
+                        poly.v[n - 1].real_to_next = first;
                     }
                 }
 
                 for (qi, other) in planes.iter().enumerate() {
-                    if qi != pi && poly.len() >= 3 {
-                        poly = clip_by(&poly, other);
+                    if qi != pi && poly.n >= 3 {
+                        clip_by(&poly, other, &mut clipped);
+                        std::mem::swap(&mut poly, &mut clipped);
                     }
                 }
-                if poly.len() < 3 {
+                if poly.n < 3 {
                     continue;
                 }
 
                 let tag = mesh.tet_tags[t];
                 let gmsh = crate::util::tet_gmsh_number(mesh, t);
-                for pv in &poly {
+                for pv in poly.as_slice() {
                     cut.positions.extend_from_slice(&pv.pos);
                     cut.interp.push(pv.interp);
                 }
@@ -204,20 +260,20 @@ pub fn plane_cut(
                 // (mask 0b111); for a quad it is (a,b,c) then (a,c,d), and bit i means "the edge
                 // opposite vertex i is a real element edge" — so the invented diagonal a-c is bit 1
                 // of the first triangle and bit 2 of the second, giving 0b101 and 0b011 (§6.3).
-                let n = poly.len();
+                let n = poly.n;
                 for i in 1..n - 1 {
                     let (v0, v1, v2) = (0usize, i, i + 1);
                     let mut m = 0u8;
                     // Edge opposite vertex 0 of this triangle is v1->v2.
-                    if poly[v1].real_to_next {
+                    if poly.v[v1].real_to_next {
                         m |= 0b001;
                     }
                     // Edge opposite vertex 1 is v2->v0: real only when it closes the ring.
-                    if v2 == n - 1 && poly[v2].real_to_next {
+                    if v2 == n - 1 && poly.v[v2].real_to_next {
                         m |= 0b010;
                     }
                     // Edge opposite vertex 2 is v0->v1: real only on the first fan triangle.
-                    if v1 == 1 && poly[v0].real_to_next {
+                    if v1 == 1 && poly.v[v0].real_to_next {
                         m |= 0b100;
                     }
                     cut.edge_mask.push(m);
@@ -228,23 +284,26 @@ pub fn plane_cut(
                 // boundary. The identity `popcount(edge_mask).sum() * 6 == edge_segments.len()`
                 // holds by construction.
                 for i in 0..n {
-                    if !poly[i].real_to_next {
+                    if !poly.v[i].real_to_next {
                         continue;
                     }
-                    let (p0, p1) = (poly[i].pos, poly[(i + 1) % n].pos);
+                    let (p0, p1) = (poly.v[i].pos, poly.v[(i + 1) % n].pos);
                     cut.edge_segments.extend_from_slice(&p0);
                     cut.edge_segments.extend_from_slice(&p1);
-                    let ka = edge_key(poly[i].interp);
-                    let kb = edge_key(poly[(i + 1) % n].interp);
+                    let ka = edge_key(poly.v[i].interp);
+                    let kb = edge_key(poly.v[(i + 1) % n].interp);
                     let (ka, kb) = if ka <= kb { (ka, kb) } else { (kb, ka) };
-                    poly_edges.push((ka, kb, tag, [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]]));
+                    let seg = (cut.edge_segments.len() / 6 - 1) as u32;
+                    poly_edges.push((ka, kb, tag, seg));
                 }
             }
         }
 
         // Tag-boundary contours: a cap edge shared by two cut tets of the same tag is interior to
         // one tissue and is dropped; anything else (a silhouette edge, or a tag change) is drawn.
-        poly_edges.sort_unstable_by(|a, b| (a.0, a.1, a.2).cmp(&(b.0, b.1, b.2)));
+        // Keyed on (edge, tag) only: the segment index is never a tiebreak, so the output does not
+        // depend on the order edges happened to be produced in (§6.3's determinism rule).
+        poly_edges.sort_unstable_by_key(|e| (e.0, e.1, e.2));
         let mut i = 0;
         while i < poly_edges.len() {
             let mut j = i + 1;
@@ -256,7 +315,11 @@ pub fn plane_cut(
             }
             let same_tag = j - i == 2 && poly_edges[i].2 == poly_edges[j - 1].2;
             if !same_tag {
-                cut.boundary_segments.extend_from_slice(&poly_edges[i].3);
+                let seg = poly_edges[i].3 as usize * 6;
+                let e: [f32; 6] = cut.edge_segments[seg..seg + 6]
+                    .try_into()
+                    .expect("6 floats");
+                cut.boundary_segments.extend_from_slice(&e);
             }
             i = j;
         }

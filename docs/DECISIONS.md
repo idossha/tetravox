@@ -1264,3 +1264,23 @@ Each entry below names the problem, the fix, and the evidence.
   2,427,261 tag-differing interior. Note the two censuses are **not** comparable key for key —
   `extract_boundary` labels a derived face with its *tet* tag while `tag_surfaces` uses the stored
   `1xxx` tri tag — so only the totals and the per-file electrode counts are cross-checked.
+- 2026-08-27 — **§9.1 row 10 is met, measured in wasm, and its recorded evidence was wrong.** The
+  row's target is a WASM one; Phase 1 measured `plane_cut` **natively** and printed the figure in
+  `docs/benchmarks/phase1.md` under a heading carrying the WASM budget — two different numbers with
+  one label, which is what kept the miss invisible. Measured properly, the first Phase-1
+  implementation was 16.1 ms against a < 15 ms bar, and the row's own evidence cell (2.7 ms axial /
+  3.1 ms oblique `[M2Max]`) is a v1 *prototype's* number this implementation does not reproduce —
+  4.8× off, and the largest single discrepancy anywhere in §9.
+  Two changes to `plane_cut` closed it, both about what the hot loop allocates and moves rather than
+  about the maths: the cut polygon is a fixed-size stack buffer instead of a `Vec` per cut tet
+  (~63,000 allocate/free pairs per plane on ernie, cheap under the system allocator and not under
+  wasm's dlmalloc), and the tag-boundary pass sorts 24-byte keys carrying an index into
+  `edge_segments` instead of 48-byte tuples carrying the endpoints. Output is bit-identical — the
+  §11 cut-index-equivalence tests are what say so.
+  **Now: 12.9 ms axial / 16.6 ms oblique in wasm** (`node scripts/bench-wasm-cut.mjs`), 10.4 / 13.7 ms
+  native, and 16.9 / 21.2 ms for the *worker round trip* in Chromium
+  (`packages/wasm/e2e/realdata.spec.ts`, which is the measurement Phase 1 shipped none of). Those
+  three measure three different things and the benchmarks doc now says so in a table rather than
+  letting one stand in for another. The e2e's own assertion is deliberately loose — §9.1 is Phase 3's
+  to sign off, and a tight wall-clock bar in CI is a flake generator — so it catches a 4× regression
+  and the printed line is the evidence.
