@@ -29,8 +29,11 @@ import type { OpenRequest } from '../open/sources';
 import { bridge } from '../bridge';
 import { ShellContext } from './context';
 import { CoordinateBar } from '../panels/coordinate/CoordinateBar';
+import { HeaderPanel } from '../panels/info/HeaderPanel';
 import { InfoPanel } from '../panels/info/InfoPanel';
 import { LayerPanel } from '../panels/layers/LayerPanel';
+import { MshOptChip } from './MshOptChip';
+import { ShellDialogs } from './ShellDialogs';
 import { StatusBar } from './StatusBar';
 import { Toasts } from './Toasts';
 import { Toolbar } from '../toolbar/Toolbar';
@@ -128,10 +131,31 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     };
   }, [controller]);
 
+  // ---- scene commands from the File menu (§4.6, §8) ---------------------------------------------
+  // Main owns the accelerators, the renderer owns the `Engine` whose `serialize()` makes the spec.
+  useEffect(() => {
+    if (controller === null) return;
+    return bridge().onSceneCommand((command) => void controller.runSceneCommand(command));
+  }, [controller]);
+
   // ---- §7.5 keyboard map -----------------------------------------------------------------------
   useEffect(() => {
     if (controller === null) return;
     const onKeyDown = (event: KeyboardEvent): void => {
+      // `?` and F1 open the help sheet. They are handled *here* rather than in `keymap.ts`, which is
+      // E-SCENE's file and is the §7.5 map — opening a shell panel is not a §7.5 binding. `resolveKey`
+      // returns null for both, so this cannot shadow a command.
+      if (
+        !isEditableTarget(event.target) &&
+        (event.key === '?' || event.key === 'F1') &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        controller.toggleKeyboardHelp();
+        return;
+      }
       const command = resolveKey({
         key: event.key,
         ctrlKey: event.ctrlKey,
@@ -214,11 +238,20 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                 className="flex w-80 min-w-64 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
               >
                 <CoordinateBar />
-                <InfoPanel />
+                {/* §7.6's chip is mounted here rather than inside the mesh property editor, which
+                    is A-PROPS's directory. It renders nothing unless the active layer is a mesh
+                    that had a `.msh.opt` beside it — see `MshOptChip.tsx`. */}
+                <MshOptChip />
+                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                  <InfoPanel />
+                  <div className="border-t border-tvx-line" />
+                  <HeaderPanel />
+                </div>
               </aside>
             </div>
             <StatusBar />
             <Toasts />
+            <ShellDialogs />
           </>
         )}
       </div>

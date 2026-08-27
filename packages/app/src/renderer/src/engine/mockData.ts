@@ -18,6 +18,7 @@ import type {
   LayerId,
   MeshDataset,
   MeshTag,
+  MshOptions,
   PercentileKey,
   Stats,
   VolumeDataset,
@@ -129,12 +130,27 @@ function looksLikeLabels(name: string): boolean {
   return /label|tissue|seg|aparc|aseg|atlas/i.test(name);
 }
 
+/**
+ * A plausible `toTemplate` (§4.3) for the coordinate bar's MNI column (audit P2-10).
+ *
+ * `sform_code`/`qform_code` = 4 is MNI152, and E-SCENE derives the real one in `scene/fromMeta.ts`.
+ * The stand-in offers one **only when asked** (`?mockTemplate=1`) so both of the shell's states —
+ * the column live, and the column greyed with its reason — are reachable in an E2E. On subject data
+ * absent is the common case: a SimNIBS `m2m` T1 is `sform_code = 2`, not 4.
+ *
+ * A 12 mm anterior shift and no rotation, so a test can assert an offset rather than a matrix.
+ */
+export function mniToTemplate(): NonNullable<VolumeDataset['toTemplate']> {
+  return { name: 'MNI152', kind: 'affine', matrix: scaleTranslate([1, 1, 1], [0, 12, 0]) };
+}
+
 export function makeVolume(
   id: DatasetId,
   name: string,
   path: string | undefined,
   handle: number,
-  workerId: number
+  workerId: number,
+  options: { toTemplate?: boolean } = {}
 ): VolumeDataset {
   const isLabel = looksLikeLabels(name);
   const dims: vec3 = [256, 256, 208];
@@ -192,10 +208,29 @@ export function makeVolume(
       filterable: !isLabel,
       chunked: false,
     },
+    ...(options.toTemplate === true ? { toTemplate: mniToTemplate() } : {}),
+    // §8's header panel shows this verbatim. Shaped after a real 348-byte NIfTI header rather than
+    // three fields, because the panel's real-data gate item is that `scl_slope` reads **1** — the
+    // on-disk value — and not nibabel's NaN (`AGENTS.md`); a stub with no `scl_slope` could not
+    // catch a panel that dropped it.
     headerJson: JSON.stringify({
-      dim: [3, ...dims],
+      sizeof_hdr: 348,
+      dim: [3, ...dims, 1, 1, 1, 1],
       datatype: isLabel ? 512 : 16,
-      pixdim: [-1, 1, 1, 1],
+      bitpix: isLabel ? 16 : 32,
+      pixdim: [-1, 1, 1, 1, 0, 0, 0, 0],
+      scl_slope: 1,
+      scl_inter: 0,
+      qform_code: options.toTemplate === true ? 4 : 2,
+      sform_code: options.toTemplate === true ? 4 : 2,
+      quatern_b: 0.5,
+      quatern_c: -0.5,
+      quatern_d: -0.5,
+      qoffset_x: origin[0],
+      qoffset_y: origin[1],
+      qoffset_z: origin[2],
+      xyzt_units: 2,
+      descrip: 'Tetravox stand-in volume',
     }),
     worker: { id: workerId },
     handle,
@@ -221,12 +256,35 @@ const TAG_COLORS: readonly [number, number, number, number][] = [
   [0.98, 0.85, 0.2, 1],
 ];
 
+/**
+ * The `MshOptions` a `<mesh>.msh.opt` sidecar seeds (§6.2, §7.6).
+ *
+ * `fromMeta` is the one place that divides by 255 (§4.1), so these are already 0..1 — the same form
+ * the engine's real `MeshMeta.opt` arrives in after conversion. Tag 3 is hidden and tags 1 and 2 are
+ * recoloured away from the default palette, so the "defaults from X.msh.opt" chip's Reset has
+ * something visibly different to restore.
+ */
+export function mockMshOptions(tags: readonly MeshTag[]): MshOptions {
+  const tagColor: Record<number, [number, number, number, number]> = {};
+  const tagVisible: Record<number, boolean> = {};
+  for (const [index, tag] of tags.entries()) {
+    tagColor[tag.id] = [0.1 + index * 0.12, 0.8 - index * 0.1, 0.4, 1];
+    tagVisible[tag.id] = tag.id !== 3;
+  }
+  return {
+    tagColor,
+    tagVisible,
+    views: [{ name: 'TI_max', customMin: 0, customMax: 0.5, showScale: true, rangeType: 2 }],
+  };
+}
+
 export function makeMesh(
   id: DatasetId,
   name: string,
   path: string | undefined,
   handle: number,
-  workerId: number
+  workerId: number,
+  options: { opt?: boolean } = {}
 ): MeshDataset {
   const hasTris = !/tetonly|grey_/i.test(name);
   const tags: MeshTag[] = MESH_TAGS.filter((t) => hasTris || t.kind === 'tet').map((t, i) => ({
@@ -270,6 +328,7 @@ export function makeMesh(
     ],
     tags,
     skipped: [],
+    ...(options.opt === true ? { opt: mockMshOptions(tags) } : {}),
     orient: { components: 1, openComponents: 0, nonManifoldEdges: 0, flippedComponents: 0 },
     topologyBuilt: false,
     worker: { id: workerId },

@@ -20,12 +20,15 @@ import type {
   Capabilities,
   Dataset,
   DatasetId,
+  DatasetRef,
   Layer,
   LayerId,
   LayoutKind,
   ProbeResult,
   QualityLevel,
+  ScreenshotOptions,
   ViewId,
+  ViewSpec,
   vec3,
 } from '@tetravox/engine';
 import type { LoadCard } from '../lib/loads';
@@ -34,8 +37,13 @@ import type { MetricsState } from '../lib/metrics';
 import { EMPTY_METRICS } from '../lib/metrics';
 import type { EngineImpl } from '../engine/factory';
 
-/** §8's coordinate bar: `World RAS` | `Voxel (active layer)`. `MNI` arrives with `toTemplate` (Phase 2). */
-export type CoordSpace = 'ras' | 'voxel';
+/**
+ * §8's coordinate bar: `World RAS` | `Voxel (active layer)` | `MNI`.
+ *
+ * `'mni'` is Phase 2's (audit P2-10). The option is offered only when a volume dataset carries a
+ * `toTemplate`, and rendered **greyed** otherwise, so its absence is visible rather than silent.
+ */
+export type CoordSpace = 'ras' | 'voxel' | 'mni';
 
 export type EngineStatus = 'pending' | 'ready' | 'webgl2-null' | 'failed';
 
@@ -45,6 +53,14 @@ export interface ScreenshotRecord {
   /** The blob really started with the 8-byte PNG signature. */
   isPng: boolean;
   at: number;
+  // -- Phase 2, appended: what the PNG's own chunks said (§11: parse it, do not eyeball it) -------
+  /** `IHDR` width/height, so the status bar reports the file's size, not the pane's. */
+  width?: number;
+  height?: number;
+  /** From the `pHYs` chunk. Absent when the file carries none. */
+  dpi?: number;
+  /** What `ScreenshotOptions.dpi` asked for, so a mismatch is a visible pair, not a silent drop. */
+  requestedDpi?: number;
 }
 
 export interface UiState {
@@ -80,7 +96,60 @@ export interface UiState {
   heapBytes: Record<DatasetId, number>;
   lastLoadMs: Record<DatasetId, number>;
   lastScreenshot: ScreenshotRecord | null;
+
+  // -- Phase 2, A-SHELL (appended; §8's scene save/load, dialogs and header panel) ----------------
+  /** The scene file this session is attached to, so `Save` can write without asking again (§4.6). */
+  sceneFile: SceneFileRecord | null;
+  /** The last scene save/load failure, shown next to the toolbar's scene controls. */
+  sceneError: string | null;
+  /** Which modal is up. One at a time: they are all full-window, so a stack would only hide one. */
+  dialog: DialogKind;
+  /** The relocate dialog's rows, populated by `loadScene` before it raises the dialog. */
+  relocate: RelocateRequest | null;
+  /** The options the screenshot dialog opens with; edits are kept so a reopen resumes them. */
+  screenshotOptions: ScreenshotOptions;
+  /** The dataset whose raw header the info panel's header block is showing; null = the active one. */
+  headerDatasetId: DatasetId | null;
 }
+
+/** Where this scene lives on disk, and when it was last written there. */
+export interface SceneFileRecord {
+  path: string;
+  name: string;
+  savedAt: number | null;
+}
+
+export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard';
+
+/** One row of the relocate dialog: the ref, what was tried for it, and what the user picked. */
+export interface RelocateRow {
+  ref: DatasetRef;
+  tried: string[];
+  picked: string | null;
+}
+
+export interface RelocateRequest {
+  spec: ViewSpec;
+  scenePath: string;
+  /** Refs that resolved on their own, mapped to the path that worked. Not shown; carried through. */
+  resolved: Record<string, string>;
+  missing: RelocateRow[];
+}
+
+/** §8's screenshot defaults — what the toolbar used before the dialog existed, unchanged. */
+export const DEFAULT_SCREENSHOT_OPTIONS: ScreenshotOptions = {
+  target: 'grid',
+  background: 'scene',
+  include: {
+    colorbar: true,
+    orientationLabels: true,
+    crosshair: true,
+    cornerInfo: true,
+    scaleBar: false,
+  },
+  autoTrim: false,
+  dpi: 144,
+};
 
 export const INITIAL_UI: UiState = {
   status: 'pending',
@@ -109,6 +178,12 @@ export const INITIAL_UI: UiState = {
   heapBytes: {},
   lastLoadMs: {},
   lastScreenshot: null,
+  sceneFile: null,
+  sceneError: null,
+  dialog: 'none',
+  relocate: null,
+  screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,
+  headerDatasetId: null,
 };
 
 export type UiStore = StoreApi<UiState>;
@@ -141,4 +216,47 @@ export function layersTopFirst(state: UiState): Layer[] {
 export function activeVolumeDataset(state: UiState): Dataset | null {
   const dataset = datasetOf(state, activeLayer(state));
   return dataset?.kind === 'volume' ? dataset : null;
+}
+
+// -- Phase 2, A-SHELL (appended) -----------------------------------------------------------------
+
+/**
+ * The `toTemplate` the coordinate bar's MNI column uses, or null when no loaded volume has one.
+ *
+ * The active layer's dataset first, so a scene with a subject volume *and* an MNI-space overlay
+ * reports the space of the thing the user is looking at; otherwise the topmost volume that carries
+ * one, because "some dataset in this scene is in MNI" is still worth offering. `sform_code`/
+ * `qform_code` = 4 is what makes a volume MNI152, and deriving that is E-SCENE's `scene/fromMeta.ts`
+ * (audit P2-10) — the app only reads the field.
+ */
+export function templateSource(state: UiState): {
+  dataset: Dataset;
+  toTemplate: NonNullable<Extract<Dataset, { kind: 'volume' }>['toTemplate']>;
+} | null {
+  const active = datasetOf(state, activeLayer(state));
+  if (active?.kind === 'volume' && active.toTemplate !== undefined) {
+    return { dataset: active, toTemplate: active.toTemplate };
+  }
+  for (let i = state.layers.length - 1; i >= 0; i--) {
+    const layer = state.layers[i] as Layer;
+    const dataset = state.datasets.find((d) => d.id === layer.datasetId);
+    if (dataset?.kind === 'volume' && dataset.toTemplate !== undefined) {
+      return { dataset, toTemplate: dataset.toTemplate };
+    }
+  }
+  return null;
+}
+
+/** The dataset whose raw header the info panel shows: the pinned one, else the active layer's. */
+export function headerDataset(state: UiState): Dataset | null {
+  if (state.headerDatasetId !== null) {
+    return state.datasets.find((d) => d.id === state.headerDatasetId) ?? null;
+  }
+  return datasetOf(state, activeLayer(state));
+}
+
+/** The active layer's mesh dataset, when it has one — what the `.msh.opt` chip hangs off (§7.6). */
+export function activeMeshDataset(state: UiState): Extract<Dataset, { kind: 'mesh' }> | null {
+  const dataset = datasetOf(state, activeLayer(state));
+  return dataset?.kind === 'mesh' ? dataset : null;
 }

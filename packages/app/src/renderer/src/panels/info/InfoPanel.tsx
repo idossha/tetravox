@@ -131,7 +131,9 @@ export function InfoPanel(): React.JSX.Element {
   const hoverProbe = useUi((s) => s.hoverProbe);
   const hover = useUi((s) => s.hover);
   return (
-    <div data-testid="info-panel" className="flex flex-col overflow-y-auto">
+    // The right column scrolls as a whole (`ui/Shell.tsx`), so this block does not scroll itself —
+    // two nested scrollers would hide the header panel behind a second, invisible scrollbar.
+    <div data-testid="info-panel" className="flex shrink-0 flex-col">
       <Block
         title="Cursor"
         testId="info-cursor"

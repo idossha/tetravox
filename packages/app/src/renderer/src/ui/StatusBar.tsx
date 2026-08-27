@@ -92,7 +92,33 @@ export function StatusBar(): React.JSX.Element {
           value={gpuMs === null ? '—' : `${gpuMs.toFixed(1)} ms`}
         />
       )}
-      {quality !== 'full' && <Cell label="quality" testId="status-quality" value={quality} />}
+      {/* §7.2: "never degrade silently" is only true if the bar says so. Two readouts, because the
+          two states mean different things to the reader: `interacting` is the *expected* drop while
+          a gesture is live (§7.2's interacting QualityLevel — dprScale 1, msaa 0, edges off, caps
+          decimated), and `reduced` is the adaptive hook saying this machine cannot hold the budget.
+          One shared label would make a permanent degradation look like a transient one. */}
+      {quality === 'interacting' && (
+        <span
+          data-testid="status-interacting"
+          className="flex items-baseline gap-1 text-tvx-accent"
+          title="A gesture is in flight: reduced sampling and no edges until it settles (§7.2)"
+        >
+          <span aria-hidden="true">●</span>
+          interacting
+        </span>
+      )}
+      {quality !== 'full' && (
+        <Cell
+          label="quality"
+          testId="status-quality"
+          value={quality}
+          title={
+            quality === 'interacting'
+              ? 'The interacting QualityLevel (§7.2): dprScale 1, msaa 0, edges off, caps decimated'
+              : 'Degraded to hold the frame budget (§7.2) — the drop is reported, never silent'
+          }
+        />
+      )}
 
       {datasets.map((dataset) => (
         <span key={dataset.id} className="flex items-baseline gap-1">
@@ -113,7 +139,26 @@ export function StatusBar(): React.JSX.Element {
       {lastScreenshot !== null && (
         <span data-testid="status-screenshot" className="ml-auto text-tvx-dim">
           screenshot {lastScreenshot.isPng ? 'PNG' : lastScreenshot.type} ·{' '}
+          {lastScreenshot.width === undefined
+            ? ''
+            : `${lastScreenshot.width}×${lastScreenshot.height} · `}
           {formatBytes(lastScreenshot.bytes)}
+          {/* §11: the DPI is read out of the file's own pHYs chunk, never assumed. A mismatch with
+              what was asked for is shown rather than swallowed. */}
+          {lastScreenshot.dpi !== undefined && (
+            <span
+              data-testid="status-screenshot-dpi"
+              className={
+                lastScreenshot.requestedDpi !== undefined &&
+                lastScreenshot.requestedDpi !== lastScreenshot.dpi
+                  ? ' text-tvx-warn'
+                  : ''
+              }
+            >
+              {' · '}
+              {lastScreenshot.dpi} dpi
+            </span>
+          )}
         </span>
       )}
     </footer>
