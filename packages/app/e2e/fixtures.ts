@@ -110,6 +110,14 @@ export interface LaunchOptions {
   search?: string;
   /** Extra environment for the launched app — `TETRAVOX_DOWNLOAD_DIR` for the screenshot leg. */
   env?: Record<string, string>;
+  /**
+   * Record a WebM of the window into this directory (the walk-through recorder's only caller).
+   *
+   * Playwright writes the video when the app is closed, so a spec that uses it must `app.close()`
+   * rather than leaving the process to the runner. Off everywhere else: a video per launch would
+   * cost every e2e run a few MB for nothing.
+   */
+  recordVideo?: string;
 }
 
 /**
@@ -161,18 +169,23 @@ export async function launchApp(
       ? undefined
       : ({ ...process.env, ...options.env } as Record<string, string>);
 
+  const recordVideo =
+    options.recordVideo === undefined ? {} : { recordVideo: { dir: options.recordVideo } };
+
   if (target === 'packaged') {
     const executablePath = packagedExecutable();
     if (executablePath === null) throw new Error('packaged artefact missing');
     return electron.launch({
       executablePath,
       args: [...DETERMINISM_ARGS, ...profile, ...linuxSandbox, ...args],
+      ...recordVideo,
       ...(env === undefined ? {} : { env }),
     });
   }
   return electron.launch({
     args: [APP_ROOT, ...DETERMINISM_ARGS, ...profile, ...linuxSandbox, ...args],
     cwd: APP_ROOT,
+    ...recordVideo,
     ...(env === undefined ? {} : { env }),
   });
 }
