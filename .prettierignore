@@ -1,0 +1,15 @@
+pnpm-lock.yaml
+Cargo.lock
+target/
+node_modules/
+packages/wasm/pkg/
+dist/
+out/
+test-results/
+playwright-report/
+README.md
+
+# The contract and its measured reference values are hand-formatted and must not be reflowed.
+docs/
+AGENTS.md
+scripts/refvalues/
