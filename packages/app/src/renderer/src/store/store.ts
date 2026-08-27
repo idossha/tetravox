@@ -80,6 +80,23 @@ export interface UiState {
   heapBytes: Record<DatasetId, number>;
   lastLoadMs: Record<DatasetId, number>;
   lastScreenshot: ScreenshotRecord | null;
+
+  // -- A-PROPS (§8's property editors) — appended, per the shared-file rule in
+  //    docs/PHASE2-OWNERSHIP.md. Both are chrome: the engine has no opinion about either.
+  /**
+   * Per layer, the §7.4 switches whose geometry is being built in a worker right now — `'edges'`,
+   * `'elmField'`, `'label'`. §7.4: "the first toggle of `edges.surface`, the first switch to an
+   * element field, and the first `colorMode:'label'` on a given mask are **async loads with a
+   * progress state**, not instant checkboxes."
+   */
+  meshPending: Record<LayerId, string[]>;
+  /**
+   * Per layer, the indices into `MeshLayer.clip.planes` of the planes whose offset follows the
+   * cursor. This is **app** state, not layer state, because the frozen `ClipPlane` (§4.4) has no
+   * `followCursor` field — so it does not survive `serialize()` / `load()`. Recorded, with the
+   * frozen-interface request it implies, in `docs/DECISIONS.md`.
+   */
+  clipFollowsCursor: Record<LayerId, number[]>;
 }
 
 export const INITIAL_UI: UiState = {
@@ -109,6 +126,8 @@ export const INITIAL_UI: UiState = {
   heapBytes: {},
   lastLoadMs: {},
   lastScreenshot: null,
+  meshPending: {},
+  clipFollowsCursor: {},
 };
 
 export type UiStore = StoreApi<UiState>;

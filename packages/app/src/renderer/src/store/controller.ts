@@ -24,6 +24,10 @@ import type {
   ViewId,
   VolumeLayer,
   vec3,
+  // A-PROPS, appended: the property editors patch a `Layer` of any kind, and the clip-plane
+  // 'follow cursor' affordance patches a `MeshLayer` from a `cursor` event.
+  Layer,
+  MeshLayer,
 } from '@tetravox/engine';
 import type { UiStore } from './store';
 import { activeLayer, datasetOf } from './store';
@@ -36,6 +40,9 @@ import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
 import { formatTriple, parseTriple, roundVoxel, voxelToWorld, worldToVoxel } from '../lib/coords';
 import { bridge } from '../bridge';
+// A-PROPS, appended: the clip-plane 'follow cursor' arithmetic, kept pure and unit-tested beside the
+// editor that offers it (§8 forbids logic in React, not a pure function the controller calls).
+import { planesThroughCursor } from '../panels/layers/mesh/state';
 
 function errorCode(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
@@ -567,5 +574,123 @@ export class ShellController {
   /** The four layouts the §8 toolbar offers. */
   get layouts(): readonly LayoutKind[] {
     return LAYOUT_CYCLE;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // §8 property editors (A-PROPS) — appended, per the shared-file rule in
+  // docs/PHASE2-OWNERSHIP.md. Nothing above this line changed.
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * One control, one §4.7 call. The editors under `panels/layers/*` compute a `Partial<Layer>` with
+   * a pure function and hand it here; this is the only place they reach an `Engine`.
+   */
+  patchLayer<T extends Layer>(id: LayerId, patch: Partial<T>): void {
+    if (Object.keys(patch).length === 0) return;
+    this.engine.updateLayer<T>(id, patch);
+    this.engine.requestRender();
+  }
+
+  /**
+   * The same call, for the three §7.4 switches that are **async loads with a progress state, not
+   * instant checkboxes**: the first `edges.surface`, the first element field and the first
+   * `colorMode:'label'` on a given mask each make the dataset's worker build the de-indexed geometry
+   * variant. The panel shows a pending badge for `key` until the engine has settled — `whenSettled()`
+   * (§7.2) is the frozen facade's own "what you asked for is on screen", so the badge cannot outlive
+   * the build or clear before it starts.
+   */
+  async patchLayerAsync<T extends Layer>(
+    id: LayerId,
+    patch: Partial<T>,
+    key: 'edges' | 'elmField' | 'label'
+  ): Promise<void> {
+    if (Object.keys(patch).length === 0) return;
+    this.setMeshPending(id, key, true);
+    try {
+      this.engine.updateLayer<T>(id, patch);
+      this.engine.requestRender();
+      await this.engine.whenSettled();
+    } finally {
+      this.setMeshPending(id, key, false);
+    }
+  }
+
+  private setMeshPending(id: LayerId, key: string, on: boolean): void {
+    this.store.setState((s) => {
+      const current = s.meshPending[id] ?? [];
+      const next = on
+        ? current.includes(key)
+          ? current
+          : [...current, key]
+        : current.filter((k) => k !== key);
+      if (next.length === current.length) return {};
+      const map = { ...s.meshPending };
+      if (next.length === 0) delete map[id];
+      else map[id] = next;
+      return { meshPending: map };
+    });
+  }
+
+  /** Jump the cursor to a world point — the points panel's "go to this electrode". */
+  setCursorWorld(world: vec3): void {
+    this.engine.setCursor(world);
+  }
+
+  /**
+   * 'Follow cursor' for a clip plane: while it is on, the plane's `offset` is re-derived from the
+   * cursor on every `cursor` event, so the cut sweeps with the crosshair.
+   *
+   * The flag is app state — the frozen `ClipPlane` has no `followCursor` field (see `store.ts` and
+   * `docs/DECISIONS.md`) — but the arithmetic is not in React: `planesThroughCursor` is a pure
+   * function in `panels/layers/mesh/state.ts` and this class is its only caller.
+   */
+  setClipFollowsCursor(layerId: LayerId, index: number, on: boolean): void {
+    this.store.setState((s) => {
+      const current = s.clipFollowsCursor[layerId] ?? [];
+      const next = on
+        ? current.includes(index)
+          ? current
+          : [...current, index].sort((a, b) => a - b)
+        : current.filter((i) => i !== index);
+      const map = { ...s.clipFollowsCursor };
+      if (next.length === 0) delete map[layerId];
+      else map[layerId] = next;
+      return { clipFollowsCursor: map };
+    });
+    if (!on) return;
+    this.ensureClipCursorSubscription();
+    this.applyClipFollowsCursor(layerId);
+  }
+
+  /** Move every following plane of `layerId` — or of every layer — through the current cursor. */
+  applyClipFollowsCursor(layerId?: LayerId): void {
+    const state = this.store.getState();
+    const cursor = state.cursor;
+    for (const [id, indices] of Object.entries(state.clipFollowsCursor)) {
+      if (layerId !== undefined && id !== layerId) continue;
+      const layer = state.layers.find((l) => l.id === id);
+      if (layer === undefined || layer.kind !== 'mesh') continue;
+      const patch = planesThroughCursor(layer, indices, cursor);
+      if (Object.keys(patch).length > 0) this.engine.updateLayer<MeshLayer>(id, patch);
+    }
+    this.engine.requestRender();
+  }
+
+  private clipCursorSubscribed = false;
+
+  /**
+   * One `cursor` subscription for every following plane, attached on first use and torn down by
+   * `detach()` with the rest. One per plane would re-issue the same `updateLayer` once per plane per
+   * cursor event.
+   */
+  private ensureClipCursorSubscription(): void {
+    if (this.clipCursorSubscribed) return;
+    this.clipCursorSubscribed = true;
+    this.unsubscribers.push(
+      this.engine.on('cursor', () => {
+        if (Object.keys(this.store.getState().clipFollowsCursor).length === 0) return;
+        this.applyClipFollowsCursor();
+      })
+    );
   }
 }
