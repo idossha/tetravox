@@ -460,7 +460,7 @@ export interface DatasetRef {
   id: DatasetId; kind: 'volume' | 'mesh'; name: string;
   path: string;                     // relative to the scene file
   absPath?: string;                 // fallback when the relative path misses
-  fingerprint: string;              // "<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>", 16 hex each
+  fingerprint: string;              // `tvxfp1-<len:16hex>-<hash:16hex>` — see below
 }
 export type SerializableLayer =
   Omit<Layer, 'visibleLabels'> & { visibleLabels?: number[]; label?: { name: string; mode: string;
@@ -480,6 +480,36 @@ export interface ViewSpec {
 
 `LabelTable`s are **not** serialised; they are re-derived from the dataset and its LUT on load. A missing dataset
 opens a "relocate" dialog keyed on `fingerprint`.
+
+**`fingerprint` — `tvxfp1`, normative.** The producer is `tvx_core::fingerprint` (§6.0), called by
+`load_volume` / `load_mesh` over the bytes the loader was handed and **before** the parser frees them (§5 rule 5).
+§5 rule 3 forbids the UI thread from ever seeing those bytes, so it cannot be computed anywhere else; it reaches
+the scene as `VolumeMeta.fingerprint` / `MeshMeta.fingerprint` (§6.5.1).
+
+```text
+fingerprint(bytes) = "tvxfp1-" ++ hex16(len) ++ "-" ++ hex16(h)
+```
+
+* `len` is `bytes.len()` as a u64, 16 lower-case hex digits.
+* `h` is **FNV-1a-64** (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) over a canonical stream,
+  finished with MurmurHash3's `fmix64` avalanche, formatted the same way.
+* The canonical stream is the 8 bytes of `len` **little-endian**, then the sampled chunks in ascending offset
+  order.
+* The chunks are the whole slice when `len ≤ 8 MiB`; otherwise exactly three 1 MiB windows — at `0`, at
+  `len/2 − 512 KiB`, and at `len − 1 MiB`. Above 8 MiB those never overlap, so any file is digested over 3 MiB.
+
+This **identifies** a file; it does not authenticate one. A cryptographic digest would mean a new workspace
+dependency (frozen, §12.3) and ~180 MB of SHA-256 on the load path for `ernie.msh`. The algorithm is written out
+rather than delegated to a hasher's default because the string is persisted in a `*.tetravox.json` and has to
+mean the same thing on every platform and in every future build; it uses only `^`, `*` and shifts on u64, so it
+is identical on wasm32 and native — the same portability argument §6.3's determinism rule makes for geometry.
+Two files of different length always differ, because `len` is both a field of the string and the prefix of the
+hashed stream. An edit to a file larger than 8 MiB that touches none of the three windows is **not** detected;
+that is the accepted price of not reading 180 MB twice for a dialog that asks "is this the file you moved?".
+The digest is of the bytes the loader was handed, i.e. **after** `.gz` inflation (§5 rule 4 inflates in the
+worker), so a `.nii` and a `.nii.gz` of one volume share a fingerprint — the dialog is matching the dataset, not
+the container. A mesh's sidecars (`.msh.opt`, `_LUT.txt`) are **not** digested: recolouring a tissue must not
+make the file look like a different one.
 
 ### 4.7 Engine facade
 
@@ -750,6 +780,11 @@ impl LabelTable {
 
 pub struct Aabb { pub min: [f32; 3], pub max: [f32; 3] }
 
+/// §4.6 `DatasetRef.fingerprint`: `tvxfp1-<len:16hex>-<hash:16hex>`. Lives here, not in a loader, so every
+/// loader produces the same string by construction. The algorithm is normative and written out in §4.6;
+/// `fingerprint::{TAG, FULL_LIMIT, CHUNK, sample_ranges}` expose its constants for tests.
+pub fn fingerprint(bytes: &[u8]) -> String;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("parse: {0}")]        Parse(String),
@@ -861,6 +896,9 @@ Rules:
   `want_linear` is false when the layer is a label or `interpolation === 'nearest'`.
 * Volumes whose `max(dims) > caps.max_3d` (2048 `[M2Max]`, spec floor 256) fail loudly at load with a downsample
   offer — never a silently incomplete texture at draw time.
+* `read_nifti` **takes ownership of the byte vector and frees it before returning**, so §4.6's `fingerprint` is
+  taken by the caller (`tvx_wasm::volume::load`) over `&bytes` on the line above the call — never afterwards,
+  and never on the UI thread (§5 rule 3).
 
 ### 6.2 `tvx-mesh-io`
 
@@ -955,6 +993,8 @@ entry points are gone.
   the largest reference file, reaches 15,787,627 `[DATA]`.)
 * Only element types 2 (tri3) and 4 (tet4) are kept in v1; everything else is counted into `skipped`, not an error.
 * `read_msh` **takes ownership of the byte vector and frees it (and any inflate output) before returning.**
+  §4.6's `fingerprint` is therefore taken by the caller (`tvx_wasm::mesh::load`) before the call, over the mesh
+  bytes alone — the `.msh.opt` / `_LUT.txt` sidecars are not part of it.
 * Tag names and colours, in order: `$PhysicalNames` → sibling `<mesh>_LUT.txt` (SimNIBS
   `#No.\tLabel Name:\tR G B A`) → sibling `<mesh>.msh.opt` (`Physical Volume(" GM",2)` + `Mesh.Color.<Ordinal>`)
   → deterministic glasbey-like palette. Rule: **surface tag `1xxx` inherits the colour of volume tag `1xxx − 1000`**.
@@ -1172,6 +1212,9 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 // from `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2), and flattening keeps the
 // wasm-bindgen surface free of a shared type. `load_volume` produces volume 0's payload; `volume_frame`
 // produces any other index's. Both run §6.1's `stats` / `label_index` / `gpu_payload` for that index.
+// Both loaders call `tvx_core::fingerprint(&bytes)` **before** handing the vector to the parser, and put the
+// result on `VolumeMeta.fingerprint` / `MeshMeta.fingerprint` (§4.6, §6.5.1). It is the only field of either
+// meta that cannot be recovered from the parsed dataset, because the bytes are gone by then (§5 rule 5).
 #[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, lut_bytes: Option<Vec<u8>>,
                                    float_linear: bool, norm16: bool, max_3d: u32, want_linear: bool,
                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
@@ -1344,6 +1387,7 @@ export interface ProbeHitT {                         // `locate` result; mirrors
 
 export interface VolumeMeta {
   handle: number; name: string;
+  fingerprint: string;                // §4.6 `tvxfp1-<len:16hex>-<hash:16hex>`, digested in the worker
   dims: [number, number, number]; nvols: number;
   affine: Mat4x4; spacing: [number, number, number];
   dtype: 'u8'|'i8'|'u16'|'i16'|'u32'|'i32'|'f32'|'f64'|'rgb24'|'rgba32';
@@ -1368,6 +1412,7 @@ export interface MeshFieldMeta {
 }
 export interface MeshMeta {
   handle: number; name: string;
+  fingerprint: string;                // §4.6, over the mesh bytes alone — sidecars are not digested
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
   appliedTransform: Mat4x4;           // baked into the node coordinates by the loader; identity when none (§4.3)
   dataSpace?: string;                 // GIfTI CoordinateSystem strings, verbatim (§6.2)

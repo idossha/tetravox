@@ -1414,3 +1414,26 @@ Each entry below names the problem, the fix, and the evidence.
   `layers/runtime.ts` unclaimed. Also recorded: audit id **P2-11** now appears by name (it is §10's
   whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
   "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.
+
+- 2026-08-27 — **`DatasetRef.fingerprint` has a producer: `tvxfp1`, in `tvx-core`, called by both loaders
+  before the bytes are freed** (W-WASM Phase-2 gap 1). §4.6 required the field, §8 keys the relocate dialog
+  on it, and nothing computed it: `VolumeMeta` and `MeshMeta` had no such member and `scene/serialize.ts`
+  wrote `''`. §5 rule 3 puts the file bytes out of the UI thread's reach and §5 rule 5 has the parser free
+  them before it returns, so there is exactly one line where the digest can be taken — above the
+  `read_nifti` / `read_msh` call in `tvx_wasm::{volume,mesh}::load` — and that is where it is taken.
+  The algorithm is **FNV-1a-64 over `len` (u64 LE) followed by sampled chunks, finished with `fmix64`**,
+  printed as `tvxfp1-<len:16hex>-<hash:16hex>`; the chunks are the whole file up to 8 MiB and three
+  non-overlapping 1 MiB windows (head, middle, tail) above it. §4.6's original `"<size>-<sha256 of first
+  1 MiB>-<sha256 of last 1 MiB>"` is amended to it in the same commit: **SHA-256 would be a new workspace
+  dependency and the dependency set is frozen** (§12.3), and this string identifies a file rather than
+  authenticating one. It is written out normatively instead of being delegated to a hasher's default because
+  it is persisted in a `*.tetravox.json` and must mean the same thing on every platform and in every future
+  build — `^`, `*` and shifts on u64 only, so wasm32 and native agree by construction, and the e2e asserts
+  the Rust output against an independent TypeScript implementation of the same spec over the same fixture
+  bytes. Two consequences are deliberate and tested: a `.nii` and a `.nii.gz` of one volume share a
+  fingerprint (the digest is of the **inflated** bytes, because §5 rule 4 inflates in the worker), and a
+  mesh's `.msh.opt` / `_LUT.txt` sidecars are outside it, so recolouring a tissue does not make the file
+  look like a different one. An edit to a file over 8 MiB that misses all three windows is not detected —
+  the accepted price of not reading 180 MB twice for a dialog that asks "is this the file you moved?".
+  Hashing every byte of every file, and hashing on the UI thread — both rejected, the first on the load
+  budget (§9.1) and the second by §5 rule 3.

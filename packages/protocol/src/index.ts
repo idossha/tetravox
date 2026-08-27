@@ -111,6 +111,13 @@ export interface ProbeHitT {
 export interface VolumeMeta {
   handle: number;
   name: string;
+  /**
+   * §4.6 `DatasetRef.fingerprint` — `tvxfp1-<len:16hex>-<hash:16hex>`, digested in the dataset
+   * worker over the bytes the loader was handed, before §5 rule 5 drops them
+   * (`tvx_core::fingerprint`). The UI thread never sees those bytes (§5 rule 3), so this is the
+   * only place the value can come from.
+   */
+  fingerprint: string;
   dims: [number, number, number];
   nvols: number;
   affine: Mat4x4;
@@ -161,6 +168,12 @@ export interface MeshFieldMeta {
 export interface MeshMeta {
   handle: number;
   name: string;
+  /**
+   * §4.6 `DatasetRef.fingerprint` — `tvxfp1-<len:16hex>-<hash:16hex>` over the mesh bytes alone;
+   * the `.msh.opt` / `_LUT.txt` sidecars are not digested, so recolouring a tag does not make the
+   * mesh look like a different file.
+   */
+  fingerprint: string;
   nNodes: number;
   nTris: number;
   nTets: number;

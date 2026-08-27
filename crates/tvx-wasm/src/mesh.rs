@@ -197,11 +197,20 @@ fn opt_to_js(o: &MshOptions) -> js_sys::Object {
 }
 
 /// §6.5.1 `MeshMeta`. `name` is the worker's to fill: `load_mesh` is handed bytes, not a path.
-fn meta(handle: u32, st: &handles::MeshState, orient: &tvx_geom::OrientReport) -> JsValue {
+///
+/// `fingerprint` is §4.6's `tvxfp1` digest, taken by [`load`] over the input bytes **before** the
+/// parser consumes and frees them (§5 rule 5), so it is threaded in rather than recomputed.
+fn meta(
+    handle: u32,
+    st: &handles::MeshState,
+    orient: &tvx_geom::OrientReport,
+    fingerprint: &str,
+) -> JsValue {
     let m = &st.mesh;
     let o = jsv::obj();
     jsv::set_u32(&o, "handle", handle);
     jsv::set_str(&o, "name", "");
+    jsv::set_str(&o, "fingerprint", fingerprint);
     jsv::set_usize(&o, "nNodes", m.nodes.len());
     jsv::set_usize(&o, "nTris", m.tris.len());
     jsv::set_usize(&o, "nTets", m.tets.len());
@@ -318,6 +327,10 @@ pub fn load(
         None => None,
     };
 
+    // §4.6 / §5 rule 3: over the bytes the loader was handed, before `read_msh` (or its sibling)
+    // takes ownership and frees them (§5 rule 5). The sidecars are **not** in it — a `.msh.opt`
+    // edit must not make the mesh look like a different file.
+    let fingerprint = tvx_core::fingerprint(&bytes);
     let mut mesh = dispatch(bytes, format, p)?;
     // §6.2: a `.label.gii` carries its `<LabelTable>` on the mesh (it used to need a second parse
     // of the same bytes through an additive entry point).
@@ -354,7 +367,7 @@ pub fn load(
     }
 
     let handle = handles::insert(handles::Dataset::Mesh(Box::new(st)));
-    let m = handles::with_mesh(handle, |st| Ok(meta(handle, st, &orient)))?;
+    let m = handles::with_mesh(handle, |st| Ok(meta(handle, st, &orient, &fingerprint)))?;
     let out = jsv::obj();
     jsv::set(&out, "meta", &m);
     Ok(out.into())
