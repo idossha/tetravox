@@ -1283,12 +1283,22 @@ export class TetravoxEngine implements Engine, PointerHost {
         continue;
       }
       if (this.#dirty) {
-        // Render on the next frame, then loop: a worker result may have dirtied it again.
-        await new Promise<void>((resolve) => {
-          const raf = globalThis.requestAnimationFrame;
-          if (typeof raf === 'function') raf(() => resolve());
-          else setTimeout(resolve, 16);
-        });
+        // The **first** repaint goes through the pump: waiting one frame lets the rAF-scheduled
+        // render this call would otherwise duplicate happen, and lets a result that is about to
+        // land do so before the frame is drawn.
+        //
+        // Every repaint **after** that is synchronous. The loop reaches here again only because a
+        // worker result dirtied the frame again, and there is nothing left for a vsync wait to
+        // coalesce — while the wait itself is not free: the R4 sweep pays exactly one per landed
+        // cut, and two `await rAF`s per step quantised a 12.9 ms cut plus its draw into 33.3 ms,
+        // i.e. two 60 Hz frames, which is a measurement of the display and not of the viewer.
+        if (!drew) {
+          await new Promise<void>((resolve) => {
+            const raf = globalThis.requestAnimationFrame;
+            if (typeof raf === 'function') raf(() => resolve());
+            else setTimeout(resolve, 16);
+          });
+        }
         if (this.#dirty) this.#renderFrame();
         drew = true;
         continue;

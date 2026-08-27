@@ -2122,3 +2122,30 @@ Each entry below names the problem, the fix, and the evidence.
   is no `MeshTag.visible` for it to duplicate. This is the mesh half of the same rule the volume
   half now follows with `VolumeLayer.labelColors`: **the file's colours live on the dataset, the
   user's live on the layer, and a Reset is deleting a key.**
+- 2026-08-27 — **`whenSettled()` draws once even when nothing is dirty, and waits for at most one
+  vsync per call** (Phase-2 integrator, both found by running E-DERIVED's R4 specs on the merged
+  tree). §7.2 makes this method mean "what you asked for is on screen", and it was not quite either
+  thing. **(1)** With nothing dirty it returned without drawing, so a resource that only a *draw*
+  discovers — the element-field table `fillIn2D` reads through `ownerTet`, the surface tables a
+  glyph's origins come from — had not even been requested yet. Measured on `Thalamus_TI.msh` with
+  `TI_max` on the cut: the frame after `whenSettled()` was the **tag** colouring and the frame after
+  that was the colormap, so a pixel assertion or a golden taken at the documented moment
+  photographed the wrong picture — the failure mode §11 exists to prevent. It now draws once, and
+  the existing loop waits for whatever that registers. **(2)** Every repaint inside the loop waited
+  a full `requestAnimationFrame`. The first one should: it lets the pump's own scheduled render
+  happen instead of being duplicated. The ones after it are reached only because a worker result
+  dirtied the frame again, and there is nothing left for a vsync to coalesce — while the wait costs
+  a display frame each. R4's 20-step sweep paid two per step, which quantised a 12.9 ms cut plus its
+  draw into **33.3 ms — two 60 Hz frames** — and put the measurement at 30.0–33.3 fps against R4's
+  ≥ 30 bar, i.e. a gate that was measuring the display and flaking on it. One vsync per call: the
+  same sweep is **44–47 fps over three runs** (median step 20–23 ms), which is the round trip R4
+  actually names.
+- 2026-08-27 — **A test that dispatches N inputs must wait for N to be handled, not for N to be
+  sent** (Phase-2 integrator; E-SCENE recorded the same property for `page.mouse.wheel` and it is
+  true of `page.keyboard.press` too). `pointer.spec.ts`'s R2 clamp test pressed `+` eighty times in
+  a tight loop and asserted the 0.05 mm/px floor; on the headed ANGLE project one press occasionally
+  outran the handler and the value landed at **0.06** — one 1.2× step short — while SwiftShader won
+  the race every time. It now presses until the clamped value is observed, with a generous bound, so
+  the assertion after it still fails if the clamp itself is wrong. Worth recording as a rule rather
+  than a fix: on the golden-authority project this class of flake is invisible, so it will keep
+  arriving through the GPU leg.

@@ -178,6 +178,23 @@ const settle = async (page: Page): Promise<void> => {
  * one it does not, which is how a step of `1` was read as `2.5`: two notches, one reading. Waiting
  * for the cursor to actually move is the only synchronisation that means anything here.
  */
+/**
+ * Press `key` until `mmPerPx` reaches `want`, or give up after `limit` presses.
+ *
+ * Same race as {@link wheelNotch}, one input away: `page.keyboard.press` resolves once the event has
+ * been *dispatched*, so a tight loop of 80 presses can outrun the handler and land one step short of
+ * the clamp — 0.06 instead of 0.05, seen on the headed ANGLE project and never on SwiftShader.
+ * Pressing until the value arrives is the only synchronisation that means anything; the limit is
+ * generous, and the assertion after the call is what fails if the clamp is wrong.
+ */
+async function pressZoomUntil(page: Page, key: string, want: number, limit: number): Promise<void> {
+  for (let i = 0; i < limit; i += 1) {
+    if ((await cameraOf(page, 'axial')).mmPerPx === want) return;
+    await page.keyboard.press(key);
+  }
+  await settle(page);
+}
+
 async function wheelNotch(page: Page, deltaY: number): Promise<void> {
   const before = (await cursorOf(page))[2];
   await page.mouse.wheel(0, deltaY);
@@ -548,12 +565,12 @@ test('@angle R2: `+` and `-` zoom about the pane centre, and mmPerPx is clamped 
   await settle(page);
   expect((await cameraOf(page, 'axial')).mmPerPx).toBeCloseTo(fit.mmPerPx, 9);
 
-  for (let i = 0; i < 40; i += 1) await page.keyboard.press('-');
+  await pressZoomUntil(page, '-', 20, 80);
   await settle(page);
-  expect((await cameraOf(page, 'axial')).mmPerPx).toBe(20);
-  for (let i = 0; i < 80; i += 1) await page.keyboard.press('+');
+  expect((await cameraOf(page, 'axial')).mmPerPx, 'clamped at the 20 mm/px ceiling').toBe(20);
+  await pressZoomUntil(page, '+', 0.05, 160);
   await settle(page);
-  expect((await cameraOf(page, 'axial')).mmPerPx).toBe(0.05);
+  expect((await cameraOf(page, 'axial')).mmPerPx, 'clamped at the 0.05 mm/px floor').toBe(0.05);
   expect(errors).toEqual([]);
 });
 

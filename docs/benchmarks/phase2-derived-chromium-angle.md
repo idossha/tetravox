@@ -11,8 +11,8 @@ Data: `m2m_ernie/ernie.msh` (847,165 nodes / 1,177,213 tris / 4,722,625 tets), n
 
 | Sweep | Steps | Total | Per step (median) | Worst step | End-to-end fps | Bar |
 |---|---|---|---|---|---|---|
-| `1x1` axial | 20 × 1 mm | 600.4 ms | 32.7 ms | 34.0 ms | **33.3 fps** | ≥ 30 |
-| `2x2` (3 panes + 3D) | 20 × 1 mm | 617.2 ms | 33.0 ms | 34.0 ms | **32.4 fps** | ≥ 30 |
+| `1x1` axial | 20 × 1 mm | 433.8 ms | 19.8 ms | 34.4 ms | **46.1 fps** | ≥ 30 |
+| `2x2` (3 panes + 3D) | 20 × 1 mm | 432.4 ms | 20.8 ms | 34.6 ms | **46.3 fps** | ≥ 30 |
 
 Context from §9.1 row 10: `plane_cut` on ernie is **12.9 ms axial / 16.6 ms oblique in WASM**
 and the worker round trip for the same planes is 16.9 / 21.2 ms. A one-pane step is that round
