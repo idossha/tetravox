@@ -27,9 +27,17 @@
 import type { GpuCapsT } from '@tetravox/protocol';
 import type { ComputeClient } from '@tetravox/wasm';
 import type { ProbeRow } from '../api';
-import type { GpuStore, LabelStyleGpu, SurfaceGeometry, VolumeGpu } from '../render/gpu';
+import type { CutManager } from '../compute/cut-manager';
+import type {
+  CapGeometry,
+  GpuStore,
+  LabelStyleGpu,
+  SurfaceGeometry,
+  VolumeGpu,
+} from '../render/gpu';
 import { isSliceView } from '../scene/store';
 import type {
+  Dataset,
   DatasetId,
   Layer,
   LayerId,
@@ -69,6 +77,24 @@ export interface LayerRuntimeContext {
    * different format from frame 0.
    */
   gpuCaps(): GpuCapsT;
+  /**
+   * The engine's one `cut` owner (`compute/cut-manager.ts`, E-MESH).
+   *
+   * Every consumer of a cut goes through it under its own key — `'3d-clip'` for a mesh layer's clip
+   * planes, `'pane:<viewId>'` for a 2D pane's cursor plane — so §7.4's caps and §7.4's 2D
+   * `contoursIn2D` / `fillIn2D` share one request per plane set and one latest-wins queue per
+   * consumer. A runtime never issues the `cut` op itself.
+   */
+  readonly cuts: CutManager;
+  /**
+   * Any dataset in the scene, by id — the one cross-dataset lookup a runtime is allowed.
+   *
+   * It exists for §4.4's `IsolateSpec.labelVolume`, which is "the one cross-dataset op in v1"
+   * (§5 rule 2): the criterion names *another* dataset's volume, and its samples travel to the mesh's
+   * worker as a **structured clone** of `VolumeDataset.data`, never a transfer — transferring would
+   * detach the array §4.3 keeps on the UI thread for probes.
+   */
+  dataset(id: DatasetId): Dataset | undefined;
 }
 
 /** One (layer, plane) slice draw: §7.3's "one draw per (layer, plane)". */
@@ -94,12 +120,59 @@ export interface VolumeDrawItem {
   labelStyle?: LabelStyleGpu;
 }
 
+/** A `texelFetch`-only table uploaded by `render/gpu.ts` — a field table or a label palette. */
+export interface MeshTableTex {
+  texture: WebGLTexture;
+  width: number;
+  size: number;
+}
+
+/**
+ * Everything §7.4's mesh pass needs that is not already in `layer` / `ds` / `geom`, resolved by the
+ * layer runtime.
+ *
+ * It exists because the *decision* — which geometry variant, which colour source, whether the async
+ * field/label load has landed — belongs to `layers/mesh.ts`, and the pass only draws. Absent means
+ * "Phase 1's uniform tag colour", which is also the correct state while a table is still loading.
+ */
+export interface MeshDrawStyle {
+  /** `MESH_COLOR_SOURCE` (`shaders/mesh.ts`): 0 uniform · 1 node field · 2 element field · 3 label. */
+  colorSource: 0 | 1 | 2 | 3;
+  /** The `R32F` node / element field table, when `colorSource` is 1, 2 or 3. */
+  fieldTable?: MeshTableTex;
+  /** The `N x 2 RGBA8` label palette (row 0 colour+visibility, row 1 selection). */
+  palette?: MeshTableTex;
+  /** Tags whose sub-draw carries R5's edge emphasis even when `edges.surface` is off. */
+  emphasisTags: readonly number[];
+  /** A label is selected, so the shader compiles R5's screen-space boundary band. */
+  labelEmphasis: boolean;
+  /**
+   * §7.4's cap material. A `MESH_COLOR_SOURCE` value resolved for the **cap** rather than for the
+   * surface: `capColorMode:'tag'` pins it to `capTag`, `'inherit'` follows the layer's `colorMode`
+   * as far as a cut vertex can (a `.annot` label is node-borne and undefined between two nodes, so
+   * it falls back to the tet tag).
+   */
+  capColorSource?: 0 | 1 | 2 | 4;
+  /** The `N x 2 RGBA8` **tet-tag** palette a `capTag` cap reads (row 0 colour, alpha = visible). */
+  capPalette?: MeshTableTex;
+}
+
 /** One mesh surface draw, with the per-tag sub-ranges §7.4 draws it in. */
 export interface MeshDrawItem {
   kind: 'mesh';
   layer: MeshLayer;
   ds: MeshDataset;
   geom: SurfaceGeometry;
+  /** Appended in Phase 2; absent is Phase 1's behaviour exactly. */
+  style?: MeshDrawStyle;
+  /**
+   * §7.4's exact caps, from `compute/cut-manager.ts` under `CUT_KEY_3D_CLIP`.
+   *
+   * Absent when the layer has no enabled clip plane, when `clip.caps` is off, or while the first cut
+   * for a newly-moved plane is still in flight — in which case the clipped surface draws with no cap
+   * for one frame, rather than with the previous plane's cap in the wrong place.
+   */
+  caps?: CapGeometry;
 }
 
 export type DrawItem = VolumeDrawItem | MeshDrawItem;
@@ -127,6 +200,13 @@ export interface MeshPickItem {
   layer: MeshLayer;
   ds: MeshDataset;
   geom: SurfaceGeometry;
+  /**
+   * §7.4's caps, so the pick pass reproduces the surface a double-click actually lands on.
+   *
+   * §7.2.3's `kindBit` is 1 for these — "0 for a triangle and 1 for a tet (cut caps)" — and the
+   * element number comes from the cap's own per-vertex `ownerTet`, which is a Gmsh **tet** number.
+   */
+  caps?: CapGeometry;
 }
 
 export type PickItem = VolumePickItem | MeshPickItem;

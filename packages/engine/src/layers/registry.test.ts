@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { LAYER_KINDS, createLayerRuntime } from './registry';
+import { CutManager } from '../compute/cut-manager';
 import type { LayerRuntimeContext } from './runtime';
 import { PICK_OPACITY_MIN, pickableIn, visibleIn } from './runtime';
 import { defaultLayerFor } from '../scene/defaults';
@@ -43,6 +44,9 @@ const EMPTY_CONTEXT: LayerRuntimeContext = {
   // no planes and no worker means no 3D draw item and no frame request.
   slicePlanes: () => [],
   gpuCaps: () => ({ floatLinear: true, norm16: true, max3d: 2048 }),
+  // No dataset resolves, so every `requestCut` is a no-op — which is what a registry test wants.
+  cuts: new CutManager(() => undefined),
+  dataset: () => undefined,
 };
 
 const AXIAL: SliceView = {

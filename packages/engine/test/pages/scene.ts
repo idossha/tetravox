@@ -22,11 +22,17 @@ if (params.get('norm16') === '0') forceCaps.norm16 = false;
 if (params.get('floatLinear') === '0') forceCaps.floatLinear = false;
 if (params.get('clipDistance') === '0') forceCaps.clipDistance = false;
 
+// §7.4 / §11's clip-path axis. Both spellings work: the query parameter a spec sets per test, and
+// the `TETRAVOX_FORCE_DISCARD_CLIP` env var §11 names, which a spec forwards into the URL so the
+// whole suite can be run once on each path.
+const forceDiscardClip = params.get('forceDiscardClip') === '1';
+
 const engine = create(canvas, {
   aa: params.get('aa') === 'on' ? 'auto' : 'off',
   dpr: Number(params.get('dpr') ?? '1') || 1,
   deterministic: true,
   forceCaps: Object.keys(forceCaps).length > 0 ? forceCaps : undefined,
+  forceDiscardClip,
 }) as TetravoxEngine;
 
 declare global {
