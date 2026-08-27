@@ -241,7 +241,8 @@ with no change of shape.
 
 `.github/workflows/ci.yml`.
 
-* **`test`** on `ubuntu-24.04` (**golden authority**) and `macos-latest`: pinned Rust toolchain from
+* **`test`** on `ubuntu-24.04` (**golden authority**, every event) and `macos-latest` (**push to `main`
+  and `workflow_dispatch` only** — macOS bills 10x on a private repo, §12.1): pinned Rust toolchain from
   `rust-toolchain.toml` → `cargo fmt` / `clippy -D warnings` / `cargo test` → `pnpm wasm` → `pnpm
   typecheck` / `pnpm lint` / `pnpm test` → `pnpm e2e`. Caches: cargo (registry, git, `~/.cargo/bin`,
   `target`), the pnpm store, `~/.cache/electron`, `~/.cache/ms-playwright`. `ELECTRON_CACHE` and

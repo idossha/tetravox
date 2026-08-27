@@ -1414,3 +1414,26 @@ Each entry below names the problem, the fix, and the evidence.
   `layers/runtime.ts` unclaimed. Also recorded: audit id **P2-11** now appears by name (it is §10's
   whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
   "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.
+
+- 2026-08-27 — **The macOS `test` leg runs on push-to-`main` and `workflow_dispatch`, never on
+  `pull_request`; ubuntu-24.04 runs on everything.** GitHub bills macOS runner minutes at **10x** the
+  Linux rate on a private repo, and the first CI runs showed a full `test` leg is minutes, not seconds,
+  so every PR iteration was costing ten Linux runs' worth of budget for a second opinion on a matrix
+  whose *authority* is the other leg: §11 makes `ubuntu-24.04` the golden authority, and §11's own rule
+  is that a golden passing on macOS and failing on ubuntu must be regenerated on ubuntu. Implemented in
+  the **matrix**, `os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') ||
+  fromJSON('["ubuntu-24.04", "macos-latest"]') }}`, so the job list, the steps, every cache and the
+  packaged-`.dmg` e2e stay exactly as they were on the events that do run macOS. A job-level
+  `if: matrix.os != 'macos-latest' || …` was tried first and is **not a valid workflow**: the `matrix`
+  context does not exist in `jobs.<id>.if` (only `github`, `needs`, `vars`, `inputs` do), and the run
+  dies in 0 s with "This run likely failed because of a workflow file issue" and zero jobs — measured,
+  run 33122604659. `matrix` is evaluated early enough to read `github.event_name`, so dropping the leg
+  from the matrix is the mechanism that actually exists. The consequence is accepted and named: a PR green on ubuntu can still turn
+  `main` red on a macOS-only failure — the `.dmg` package step and the packaged E2E (ROADMAP Phase-0
+  gate 2) exist on no other leg — so macOS is a pre-merge gate on `main` rather than a per-PR one, and
+  the fix for such a break is a follow-up PR whose merge to `main` re-runs it. Deleting the macOS leg
+  outright — rejected: it is the only place the `.dmg` and its packaged e2e are built, and §12.1
+  requires them. Making it `workflow_dispatch`-only — rejected: nothing would then run it by default
+  and it would rot. Keeping it on `pull_request` and relying on `paths-ignore` — rejected: this
+  repository's PRs touch engine and app code, which is exactly what the leg tests, so it would almost
+  never skip.

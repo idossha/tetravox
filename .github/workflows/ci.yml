@@ -1,9 +1,10 @@
 # Tetravox CI — docs/ARCHITECTURE.md §12.
 #
-# `test` runs on ubuntu-24.04 (the §11/§12.1 **golden authority**) and macos-latest. The `package` legs of
-# the §12.1 matrix are carried here from day one, as docs/ROADMAP.md Phase 0 requires, but they are
-# Phase 3's to make green and only run on demand — Phase 0 proves `pnpm package` on the host platform
-# only, via the macOS `.dmg` step inside `test`.
+# `test` runs on ubuntu-24.04 (the §11/§12.1 **golden authority**) on every event, and on macos-latest
+# for push-to-main and workflow_dispatch only — macOS minutes bill 10x on a private repo (§12.1).
+# The `package` legs of the §12.1 matrix are carried here from day one, as docs/ROADMAP.md Phase 0
+# requires, but they are Phase 3's to make green and only run on demand — Phase 0 proves
+# `pnpm package` on the host platform only, via the macOS `.dmg` step inside `test`.
 name: CI
 
 on:
@@ -29,7 +30,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        # COST POLICY (DECISIONS 2026-08-27, §12.1): macOS runners bill 10x the minutes of Linux on a
+        # private repo, so the macOS leg runs on push-to-main and workflow_dispatch only, NOT on
+        # pull_request. ubuntu-24.04 is the golden authority (§11) and runs on every event, so a PR
+        # is still gated on the runner whose goldens are authoritative; macOS is a pre-merge check
+        # on main.
+        #
+        # This is the matrix and not a job-level `if:` because **the `matrix` context does not exist
+        # in `jobs.<id>.if`** — only `github`, `needs`, `vars` and `inputs` do. A job `if` reading
+        # `matrix.os` is not a false condition, it is an invalid workflow: the run fails in 0s with
+        # "This run likely failed because of a workflow file issue" and no jobs at all (measured,
+        # run 33122604659). `matrix` itself, by contrast, is evaluated early enough to read
+        # `github.event_name`, so the leg is dropped from the matrix rather than skipped inside it.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') || fromJSON('["ubuntu-24.04", "macos-latest"]') }}
     steps:
       - uses: actions/checkout@v5
 
