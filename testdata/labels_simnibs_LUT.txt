@@ -1,0 +1,8 @@
+#No.	Label Name:				R	G	B	A
+0	Unknown					0	0	0	0
+1	WM					230	230	210	255
+2	GM					129	129	129	255
+3	CSF					104	163	255	255
+5	Scalp					255	239	179	255
+10	Muscle					255	166	133	255
+530	Deep_label				20	180	90	255

@@ -62,7 +62,7 @@ tetravox/
 │   ├── engine/                   # @tetravox/engine — WebGL2 renderer, scene model, views, interaction, colormaps.
 │   │                             #   Framework-free, browser-compatible. Exports MockEngine for UI tests.
 │   └── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
-├── testdata/                     # synthetic fixtures from scripts/gen-fixtures.py + expected.json (committed, < 2 MB)
+├── testdata/                     # synthetic fixtures from scripts/gen-fixtures.py + manifest.json (committed, < 2 MB)
 ├── scripts/                      # build-wasm.sh, gen-fixtures.py, bench.ts, refvalues/{mesh,nifti}_refvalues.py
 ├── docs/                         # ARCHITECTURE.md (this), DECISIONS.md, FORMATS.md, ROADMAP.md, BENCHMARKS.md, USER_GUIDE.md
 └── .github/workflows/ci.yml      # the matrix in §12
@@ -2105,10 +2105,15 @@ Examples that must exist:
 * One Phase-0 e2e asserts `Capabilities` is non-null and logs it, so every CI run records which renderer produced
   the goldens.
 
-**Fixture expectations.** `scripts/gen-fixtures.py` writes `testdata/expected.json` (node counts, per-tag element
-counts, field min/mean/max, voxel values at listed indices) computed with nibabel and **committed**, so Rust
-real-data tests assert numbers without needing Python at test time. Reference values for the *real* dataset come
-from `scripts/refvalues/{mesh,nifti}_refvalues.py` and are transcribed into `AGENTS.md`.
+**Fixture expectations.** `scripts/gen-fixtures.py` writes `testdata/manifest.json` (dims, dtype, affine,
+per-voxel spot values, node/element counts, per-tag counts, field names and statistics, bounding boxes) and
+**commits** it, so Rust tests assert numbers without needing Python at test time. **Every number in it comes
+from an independent reader, never from the writer beside it**: nibabel for NIfTI / GIfTI / FreeSurfer,
+`simnibs.mesh_io.read_msh` for Gmsh v2.2, and the Gmsh 4.14 Python API for Gmsh v4.1 and for STL/PLY/OBJ. The
+handful of expectations no third-party reader produces — the `.msh.opt` tag→colour→visibility mapping and the
+LUT tables — are marked `"groundTruth": "authored"` in the manifest's `sidecars` section, and Gmsh is still used
+to prove the `.msh.opt` parses. Reference values for the *real* dataset come from
+`scripts/refvalues/{mesh,nifti}_refvalues.py` and are transcribed into `AGENTS.md`.
 
 **Named tests that must exist (each pins a decision that has already been misread once):**
 

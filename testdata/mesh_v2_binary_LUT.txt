@@ -1,0 +1,5 @@
+#No.	Label Name:				R	G	B	A
+1	Tissue_A				230	230	210	255
+2	Tissue_B				129	129	129	255
+1001	Tissue_A_surface			104	163	255	255
+1002	Tissue_B_surface			255	239	179	255
