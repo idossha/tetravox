@@ -71,7 +71,6 @@ fn no_progress_never_aborts() {
 // -------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "phase-1: parser not implemented"]
 fn parse_simnibs_reads_a_tab_separated_lut() {
     // "#No.\tLabel Name:\tR G B A" — the SimNIBS format of `final_tissues_LUT.txt`.
     for name in ["labels_simnibs_LUT.txt", "mesh_v2_binary_LUT.txt"] {
@@ -92,7 +91,6 @@ fn parse_simnibs_reads_a_tab_separated_lut() {
 }
 
 #[test]
-#[ignore = "phase-1: parser not implemented"]
 fn parse_freesurfer_reads_a_colour_lut() {
     let (want, text) = lut("labels_freesurfer_LUT.txt");
     let t = LabelTable::parse_freesurfer(&text).unwrap();
@@ -110,7 +108,6 @@ fn parse_freesurfer_reads_a_colour_lut() {
 }
 
 #[test]
-#[ignore = "phase-1: parser not implemented"]
 fn label_tables_are_keyed_by_id_never_indexed_by_it() {
     // §4.2: SimNIBS/FreeSurfer ids are sparse and reach 530 `[DATA]`. The fixture LUT ends
     // at 530 for exactly that reason.
@@ -124,7 +121,6 @@ fn label_tables_are_keyed_by_id_never_indexed_by_it() {
 }
 
 #[test]
-#[ignore = "phase-1: parser not implemented"]
 fn generic_and_itksnap_parsers_accept_their_own_shapes() {
     // No committed fixture: neither format appears in the reference dataset, and both are
     // a couple of lines. They are written inline so the signatures stay exercised.
@@ -144,7 +140,6 @@ fn generic_and_itksnap_parsers_accept_their_own_shapes() {
 }
 
 #[test]
-#[ignore = "phase-1: BitMask not implemented"]
 fn bitmask_round_trips_through_bytes() {
     // `isolate` hands a BitMask to `surface` / `boundary` / `cut` / `marchingTets` by id;
     // `as_bytes` / `from_bytes` is how it crosses a boundary when it must.

@@ -682,7 +682,8 @@ Crate dependency direction (no cycles): `tvx-core` ← `tvx-nifti` ← `tvx-geom
 ```rust
 pub struct Plane { pub normal: [f32; 3], pub offset: f32 }          // keep side: normal·x + offset >= 0
 
-pub struct BitMask { bits: Vec<u64>, len: usize }
+pub struct BitMask { bits: Vec<u8>, len: usize }   // u8, not u64: `as_bytes` cannot borrow a
+                                                   // Vec<u64> as &[u8] without `unsafe` (forbidden)
 impl BitMask {
     pub fn new_all(len: usize, value: bool) -> Self;
     pub fn get(&self, i: usize) -> bool;

@@ -7,9 +7,9 @@
 //! Crate dependency direction (no cycles, §6):
 //! `tvx-core` ← `tvx-nifti` ← `tvx-geom`; `tvx-core` ← `tvx-mesh-io` ← `tvx-geom`; `tvx-wasm` ← all four.
 //!
-//! Phase 0 ships signatures only; bodies are `unimplemented!("phase 1")`.
-
 #![forbid(unsafe_code)]
+
+mod lut;
 
 /// A half-space. **Keep side: `normal·x + offset >= 0`** (§6.0).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -22,34 +22,73 @@ pub struct Plane {
 /// `surface` / `boundary` / `cut` / `marchingTets` take by `maskId` (§6.5.2).
 #[derive(Clone, Debug)]
 pub struct BitMask {
-    #[allow(dead_code)] // phase 1
-    bits: Vec<u64>,
-    #[allow(dead_code)] // phase 1
+    /// §6.0's snippet spells this `Vec<u64>`; it is `Vec<u8>` here because `as_bytes(&self) -> &[u8]`
+    /// is frozen and **cannot be written over a `Vec<u64>` without `unsafe`**, which this crate forbids.
+    /// The field is private, so the frozen public surface is unchanged. `count_ones` still folds eight
+    /// bytes at a time. See `docs/DECISIONS.md` (2026-08-27).
+    bits: Vec<u8>,
     len: usize,
 }
 
 #[allow(clippy::len_without_is_empty)] // §6.0 fixes the public surface; `is_empty` is not part of it.
 impl BitMask {
     pub fn new_all(len: usize, value: bool) -> Self {
-        unimplemented!("phase 1: {len} {value}")
+        let mut bits = vec![if value { 0xFF } else { 0x00 }; len.div_ceil(8)];
+        // The tail bits past `len` must be zero, or `count_ones` over-counts on a `true` fill.
+        if value && !len.is_multiple_of(8) {
+            if let Some(last) = bits.last_mut() {
+                *last = (1u8 << (len % 8)) - 1;
+            }
+        }
+        Self { bits, len }
     }
     pub fn get(&self, i: usize) -> bool {
-        unimplemented!("phase 1: {i}")
+        i < self.len && (self.bits[i >> 3] >> (i & 7)) & 1 == 1
     }
     pub fn set(&mut self, i: usize, v: bool) {
-        unimplemented!("phase 1: {i} {v}")
+        if i >= self.len {
+            return;
+        }
+        let (byte, bit) = (i >> 3, (i & 7) as u32);
+        if v {
+            self.bits[byte] |= 1u8 << bit;
+        } else {
+            self.bits[byte] &= !(1u8 << bit);
+        }
     }
     pub fn count_ones(&self) -> usize {
-        unimplemented!("phase 1")
+        let mut n = 0u32;
+        let mut it = self.bits.chunks_exact(8);
+        for c in &mut it {
+            n += u64::from_le_bytes(c.try_into().expect("chunks_exact(8)")).count_ones();
+        }
+        for b in it.remainder() {
+            n += b.count_ones();
+        }
+        n as usize
     }
     pub fn len(&self) -> usize {
-        unimplemented!("phase 1")
+        self.len
     }
     pub fn as_bytes(&self) -> &[u8] {
-        unimplemented!("phase 1")
+        &self.bits
     }
     pub fn from_bytes(len: usize, bytes: &[u8]) -> Result<Self> {
-        unimplemented!("phase 1: {} {}", len, bytes.len())
+        let want = len.div_ceil(8);
+        if bytes.len() < want {
+            // A short buffer is an error, never a silently truncated mask.
+            return Err(Error::Parse(format!(
+                "bitmask: {len} bits need {want} bytes, got {}",
+                bytes.len()
+            )));
+        }
+        let mut bits = bytes[..want].to_vec();
+        if !len.is_multiple_of(8) {
+            if let Some(last) = bits.last_mut() {
+                *last &= (1u8 << (len % 8)) - 1;
+            }
+        }
+        Ok(Self { bits, len })
     }
 }
 
@@ -103,24 +142,26 @@ pub struct LabelTable {
 }
 
 impl LabelTable {
+    /// Linear scan: §4.2 forbids indexing by id (they are sparse and reach 530 `[DATA]`), and no
+    /// per-voxel path goes through here — the dense remap of §6.1's `label_index` does that job.
     pub fn get(&self, id: u32) -> Option<&LabelEntry> {
-        unimplemented!("phase 1: {id}")
+        self.entries.iter().find(|e| e.id == id)
     }
     /// `FreeSurferColorLUT.txt`.
     pub fn parse_freesurfer(text: &str) -> Result<Self> {
-        unimplemented!("phase 1: {}", text.len())
+        lut::freesurfer(text)
     }
     /// SimNIBS `#No.\tLabel Name:\tR G B A`.
     pub fn parse_simnibs(text: &str) -> Result<Self> {
-        unimplemented!("phase 1: {}", text.len())
+        lut::simnibs(text)
     }
     /// ITK-SNAP label description file.
     pub fn parse_itksnap(text: &str) -> Result<Self> {
-        unimplemented!("phase 1: {}", text.len())
+        lut::itksnap(text)
     }
     /// `id r g b [a] [name]`.
     pub fn parse_generic(text: &str) -> Result<Self> {
-        unimplemented!("phase 1: {}", text.len())
+        lut::generic(text)
     }
 }
 

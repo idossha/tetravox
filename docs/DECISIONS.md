@@ -940,3 +940,27 @@ wasm-pack regenerates it from the crate's doc comments.
   machine snapped the window to 588 px the moment it was shown, and the two side panels (18 rem + 20 rem)
   left the view grid at exactly zero width; `setBounds` from main did not survive the tiler, so the app
   defends its own floor and the E2E waits for a non-zero grid box rather than for a window size.
+
+## 2026-08-27 — Phase 1 integration, `tvx-core` (§6.0)
+
+- 2026-08-27 — **`BitMask.bits` is `Vec<u8>`, not §6.0's `Vec<u64>`.** `as_bytes(&self) -> &[u8]` is
+  frozen and returns a *borrow*. Producing one from a `Vec<u64>` needs a reinterpreting cast, and
+  `tvx-core` is `#![forbid(unsafe_code)]`; the alternatives were allocating a fresh `Vec<u8>` on every
+  call (so `as_bytes` could not return a reference at all — a signature change) or dropping the forbid.
+  The field is **private**, so §12.3's frozen public surface is untouched, but §6.0's snippet spelled the
+  storage out, so the snippet is corrected in the same commit. `count_ones` still folds eight bytes at a
+  time through `u64::from_le_bytes`, so nothing is lost but the type name. `new_all(len, true)` and
+  `from_bytes` both mask the tail bits past `len` to zero — otherwise `count_ones` over-reports by up to
+  seven on any length that is not a multiple of 8.
+- 2026-08-27 — **A LUT line that does not parse is skipped, not fatal; a file that yields *no* entries
+  is `Error::Parse`.** Real `FreeSurferColorLUT.txt` and SimNIBS LUTs carry trailing prose and ragged
+  columns (`final_tissues_LUT.txt` writes `2 \t  Gray-Matter`, an id followed by space *and* tab), so a
+  strict line parser rejects working files. Rejecting the whole file only when it produced nothing keeps
+  a genuinely wrong format loud.
+- 2026-08-27 — **`parse_freesurfer` takes the alpha column verbatim.** `LabelEntry::color` is RGBA and
+  FreeSurfer's fourth column is documented as transparency, but the committed
+  `labels_freesurfer_LUT.txt` fixture's authored expectation in `testdata/manifest.json` is
+  `[255, 0, 0, 0]` — the column as written. Inverting it here would contradict the fixture. This is the
+  opposite of `tvx-mesh-io`'s `.annot` reader, which *does* invert, because a FreeSurfer **colortable**
+  is a different container with a documented transparency field; the two are not the same format and
+  the divergence is deliberate.
