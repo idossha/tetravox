@@ -156,6 +156,13 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     };
   }, [controller, engine, store]);
 
+  // A stable context value: `controller` and `store` never change identity between renders, and an
+  // inline object literal here would re-render every consumer on every keystroke in the coordinate bar.
+  const shellContext = useMemo(
+    () => (controller === null ? null : { controller, store }),
+    [controller, store]
+  );
+
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
     if (controller === null) return;
@@ -180,7 +187,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
   }
 
   return (
-    <ShellContext.Provider value={controller === null ? null : { controller, store }}>
+    <ShellContext.Provider value={shellContext}>
       <div
         data-testid="shell"
         data-engine-impl={impl}

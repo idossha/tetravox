@@ -46,9 +46,12 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** A request plus the ticket of the card that is already on screen for it. */
+type QueuedRequest = OpenRequest & { ticket: number };
+
 export class ShellController {
   private readonly unsubscribers: (() => void)[] = [];
-  private queue: OpenRequest[] = [];
+  private queue: QueuedRequest[] = [];
   private draining = false;
   private inflight: { ticket: number; datasetId: DatasetId | null } | null = null;
   private ticketSeq = 0;
@@ -168,7 +171,9 @@ export class ShellController {
     if (requests.length === 0) return;
     const now = this.now();
     const cards = requests.map((r) => loads.newCard(++this.ticketSeq, r.name, r.path, now));
-    this.queue.push(...requests.map((r, i) => ({ ...r, ticket: cards[i]?.ticket })));
+    this.queue.push(
+      ...requests.map((r, i) => ({ ...r, ticket: (cards[i] as loads.LoadCard).ticket }))
+    );
     this.store.setState((s) => ({ loads: [...s.loads, ...cards] }));
     void this.drain();
   }
@@ -189,8 +194,8 @@ export class ShellController {
     this.draining = true;
     try {
       while (this.queue.length > 0) {
-        const next = this.queue.shift() as OpenRequest & { ticket?: number };
-        const ticket = next.ticket ?? 0;
+        const next = this.queue.shift() as QueuedRequest;
+        const ticket = next.ticket;
         const card = this.store.getState().loads.find((c) => c.ticket === ticket);
         // Cancelled while queued: never started, so there is no worker to terminate.
         if (card === undefined || card.cancelRequested) {
@@ -288,7 +293,7 @@ export class ShellController {
       // Never started, so there is no worker to terminate — and no `addDataset` promise that would
       // ever settle this card. Dropping it from the queue without closing it here is what left the
       // card spinning at "queued" forever.
-      this.queue = this.queue.filter((r) => (r as { ticket?: number }).ticket !== ticket);
+      this.queue = this.queue.filter((r) => r.ticket !== ticket);
       this.store.setState((s) => ({
         loads: loads.failCard(s.loads, ticket, 'cancelled before it started', this.now(), true),
       }));
