@@ -51,6 +51,14 @@ const COLORMAPS = [
 
 const COLORMAP_OPTIONS = COLORMAPS.map((c) => ({ value: c, label: c }));
 
+/**
+ * A **stable** empty array for the `meshPending` selector. `useUi` is `useSyncExternalStore`: a
+ * selector that builds a fresh `[]` on every call reports a changed snapshot every render, and React
+ * tears the whole tree down with "Maximum update depth exceeded" — from a fallback, not from a bug in
+ * what it falls back to.
+ */
+const NONE: readonly string[] = [];
+
 export function FieldSection({
   dataset,
   layer,
@@ -59,7 +67,7 @@ export function FieldSection({
   layer: MeshLayer;
 }): React.JSX.Element {
   const controller = useController();
-  const pending = useUi((s) => s.meshPending[layer.id] ?? []);
+  const pending = useUi((s) => s.meshPending[layer.id] ?? NONE);
   const patch = (p: Partial<MeshLayer>): void => controller.patchLayer(layer.id, p);
 
   const field = layer.field === undefined ? null : findField(dataset, fieldKey(layer.field));

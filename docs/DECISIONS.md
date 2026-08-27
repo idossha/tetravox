@@ -1414,3 +1414,33 @@ Each entry below names the problem, the fix, and the evidence.
   `layers/runtime.ts` unclaimed. Also recorded: audit id **P2-11** now appears by name (it is §10's
   whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
   "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.
+
+- 2026-08-27 — **A-PROPS (mesh / iso / points editors): four decisions, and one frozen-interface
+  request left with the integrator.** (1) **The colour picker converts 8-bit hex to §4.1's 0..1
+  floats, in `panels/layers/mesh/state.ts`.** §4.1 names `scene/fromMeta.ts` as the only place that
+  divides by 255, and that rule is about **wire** colours — `MeshTag.color`, `MshOptions.tagColor`;
+  a colour the user just picked in an `<input type="color">` never came off a wire, and R5 requires
+  a picker whose edits land in `tagStyle.color`. The round trip is exact because every hex value is
+  `k / 255` (§11's "make the colours exact 8-bit values"), so a swatch shown for a tag colour and
+  saved back unedited is byte-identical, and `expectPixel`'s "the pixel is exactly the tag colour"
+  still holds after a recolour. (2) **A clip plane's 'follow cursor' is app state, and the frozen
+  `ClipPlane` should gain a `followCursor` flag.** §7.5 asks for a cut plane that sweeps, and the
+  offset that puts a plane through the cursor is `−dot(n, cursor)` — one line, but there is nowhere
+  in §4.4 to record *that the plane follows*. It therefore lives in `UiState.clipFollowsCursor` and
+  is re-applied from the `cursor` event by the controller, with the arithmetic in a pure, tested
+  function rather than in React. **Consequence, filed for W-WASM/the integrator rather than worked
+  around: the flag does not survive `serialize()` / `load()`** (§4.6 serialises layers, not app
+  state), so a saved scene reopens with the plane where it was but no longer following. The fix is
+  `ClipPlane.followCursor?: boolean` in `packages/engine/src/scene/types.ts`, which A-PROPS may not
+  edit. (3) **Every editor checks `layer.kind` before it touches a hook.** `LayerProperties`
+  dispatches on the kind and a layer's kind never changes, so the hook order is stable per mounted
+  instance — and it is what lets `properties.test.tsx` assert the registry at all, since the app's
+  vitest project runs under `node` with no DOM. (4) **The three §7.4 async switches get their
+  progress state from `whenSettled()`.** The first `edges.surface`, the first element field and the
+  first `colorMode:'label'` build the de-indexed variant in the worker; there is no per-layer
+  progress event in §4.7, and inventing one would be a frozen-interface change for a spinner. Also
+  recorded, because it cost a debugging session each: a `useUi` selector that returns a fresh `[]`
+  fallback re-renders forever (React #185 — `useSyncExternalStore` compares snapshots by identity),
+  and the tissue/point rows are `div`s with `role="listitem"` rather than `li`s, because
+  A-SHELL's `shell.spec.ts` counts `[data-testid="layer-list"] li` and a nested list would break a
+  spec this owner does not own.

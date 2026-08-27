@@ -133,12 +133,14 @@ function PointsEditor({
               onPointerDown={(e) => e.stopPropagation()}
               onChange={(e) => setQuery(e.currentTarget.value)}
             />
-            <ul
+            <div
+              role="list"
               data-testid={`points-list-${points.id}`}
               className="flex max-h-40 flex-col overflow-y-auto"
             >
               {shown.map((row) => (
-                <li
+                <div
+                  role="listitem"
                   key={row.index}
                   data-testid={`points-row-${points.id}-${row.index}`}
                   data-overridden={row.overridden}
@@ -192,9 +194,9 @@ function PointsEditor({
                       ↺
                     </button>
                   ) : null}
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           </>
         )}
       </Section>

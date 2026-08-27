@@ -106,9 +106,10 @@ export function TissueTable({
           No tag matches “{query}”.
         </p>
       ) : (
-        <ul data-testid={`mesh-tissue-list-${layer.id}`} className="flex flex-col">
+        <div role="list" data-testid={`mesh-tissue-list-${layer.id}`} className="flex flex-col">
           {shown.map((row) => (
-            <li
+            <div
+              role="listitem"
               key={row.tag}
               data-testid={`mesh-tag-row-${layer.id}-${row.tag}`}
               data-visible={row.visible}
@@ -182,9 +183,9 @@ export function TissueTable({
                   patch(setTagOpacity(layer, row.tag, Number(e.currentTarget.value)))
                 }
               />
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
 
       <Row label="Solid colour">

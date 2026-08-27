@@ -32,6 +32,9 @@ import {
   setClipOffset,
 } from './state';
 
+/** A stable empty array for the `clipFollowsCursor` selector — see the note in `FieldSection.tsx`. */
+const NONE: readonly number[] = [];
+
 /**
  * How far the offset slider must reach. `offset = −dot(n, p)` for a unit `n`, so over the bounding
  * box the extreme is the corner farthest from the origin — which is what this is. The mesh bounds are
@@ -59,7 +62,7 @@ export function ClipPlanes({
 }): React.JSX.Element {
   const controller = useController();
   const cursor = useUi((s) => s.cursor);
-  const following = useUi((s) => s.clipFollowsCursor[layer.id] ?? []);
+  const following = useUi((s) => s.clipFollowsCursor[layer.id] ?? NONE);
   const patch = (p: Partial<MeshLayer>): void => controller.patchLayer(layer.id, p);
   const planes = layer.clip.planes;
   const limit = offsetRange(dataset);
