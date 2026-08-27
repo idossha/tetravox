@@ -9,6 +9,8 @@
   --color-tvx-text: #d8d8e4;
   --color-tvx-dim: #82829a;
   --color-tvx-accent: #6ee7ff;
+  --color-tvx-danger: #ff6b6b;
+  --color-tvx-warn: #ffc857;
 }
 
 html,
@@ -26,4 +28,25 @@ body {
     -apple-system,
     'Segoe UI',
     sans-serif;
+}
+
+/* The shell's three repeated controls, so a hundred class strings do not drift apart. Tailwind 4
+   resolves `@apply` against the same theme tokens above. */
+@layer components {
+  .tvx-btn {
+    @apply rounded border border-tvx-line bg-tvx-bg/40 px-2 py-1 text-xs text-tvx-text
+      transition-colors hover:border-tvx-accent hover:text-tvx-accent
+      disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-tvx-line
+      disabled:hover:text-tvx-text;
+  }
+  .tvx-btn-sm {
+    @apply px-1.5 py-0.5 text-[10px];
+  }
+  .tvx-btn-on {
+    @apply border-tvx-accent text-tvx-accent;
+  }
+  .tvx-input {
+    @apply rounded border border-tvx-line bg-tvx-bg/60 px-2 py-1 text-tvx-text outline-none
+      focus:border-tvx-accent;
+  }
 }
