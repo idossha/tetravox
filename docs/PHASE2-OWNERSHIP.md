@@ -14,19 +14,36 @@ Read first: `docs/ARCHITECTURE.md` (the contract), `docs/ROADMAP.md` (Phase 2's 
 
 | Owner | One sentence | Primary directories |
 |---|---|---|
-| **E-SLICE** | §7.3 complete: the volume slice shader and everything that feeds it | `engine/src/layers/volume.ts`, `render/passes/slice.ts`, `shaders/slice.ts`, `shaders/chunks/`, `overlay/colorbar.ts`, `color/` |
+| **E-SLICE** | §7.3 complete: the volume slice shader and everything that feeds it | `engine/src/layers/volume.ts`, `render/passes/slice.ts`, `shaders/slice.ts`, `shaders/chunks/{ladder,lut}.ts`, `overlay/colorbar.ts`, `color/` |
 | **E-MESH** | §7.4 complete: the mesh shader, clip planes, exact caps, isolation | `engine/src/layers/mesh.ts`, `render/passes/mesh.ts`, `shaders/mesh.ts`, `compute/cut-manager.ts`, `compute/isolate-manager.ts` |
 | **E-DERIVED** | Everything derived from a mesh that is *not* the mesh surface: 2D contours, `fillIn2D`, glyphs, isosurfaces, points | `engine/src/layers/{iso,points}.ts`, `render/passes/overlay.ts` (contour items), `shaders/` (new programs), `overlay/` (new items) |
-| **E-SCENE** | Interaction, probing, persistence, screenshots, oblique affordances | `engine/src/input/` (new), `scene/`, `view/`, `overlay/gizmo.ts`, `render/screenshot.ts`, `datasets/` |
-| **A-PROPS** | The §8 property editors, region panel and histogram | `app/src/renderer/src/panels/` |
-| **A-SHELL** | Toolbar, dialogs, coordinate bar, probing panels, keyboard help | `app/src/renderer/src/{toolbar,dialogs,keyboard,ui}/` |
-| **W-WASM** | The two protocol/wasm gaps this map found — and nothing else | `crates/`, `packages/protocol`, `packages/wasm` |
+| **E-SCENE** | Interaction, probing, persistence, screenshots, oblique affordances | `engine/src/input/` (new), `scene/`, `view/`, `overlay/` **except** `colorbar.ts` (chrome, crosshair, gizmo), `render/screenshot.ts`, `datasets/`, `app/.../keyboard/keymap.ts` |
+| **A-PROPS** | The §8 property editors, region panel and histogram | `app/src/renderer/src/panels/{layers,regions,histogram}/` |
+| **A-SHELL** | Toolbar, dialogs, coordinate bar, probing panels, keyboard help | `app/src/renderer/src/{toolbar,dialogs,ui,lib,open,engine}/`, `keyboard/KeyboardHelp.tsx`, `panels/{info,coordinate}/` |
+| **W-WASM** | The two protocol/wasm gaps this map found — and nothing else | `crates/`, `packages/protocol`, `packages/wasm`, and the §12.3 frozen files (one named exception below) |
+
+**This table is a summary; where it and an owner's own section disagree, the section wins.** Two
+directories are split down the middle and the glance row cannot show it: `app/.../panels/` is
+A-PROPS's except `panels/{info,coordinate}/`, which are A-SHELL's, and `app/.../keyboard/` is
+A-SHELL's except `keymap.ts`, which is E-SCENE's (§7.5's bindings are engine semantics; the help
+sheet that renders them is shell).
+
+**Nothing in the two packages is unowned.** What the rows above do not claim falls into three
+buckets: the **shared** files in the next section (`engine.ts`, `render/gpu.ts`, `layers/registry.ts`,
+`layers/runtime.ts`, `render/passes/{pass,pick,overlay}.ts`, `renderer.ts`, `gl/state.ts`,
+`scene/{store,defaults}.ts`, the two barrels, `shaders/chunks/caps.ts`, and the app's
+`properties.tsx` / `store/*` / `engine/mockEngine.ts`); the **frozen** files (`api.ts`,
+`scene/types.ts`, and the protocol/wasm surface); and the **integrator's** — `engine/src/gl/` apart
+from `state.ts`, `engine/src/render/font.ts`, `engine/src/worker/`, `engine/src/index.ts`,
+`scripts/`, `docs/` and the root configs. On the app side there is no remainder at all: A-SHELL's
+section closes over everything under `app/src/` that this map does not name. Ask before editing an
+integrator file; never edit one as a side effect of a feature.
 
 ---
 
 ## Shared-file rules
 
-**A shared file is one that more than one owner must append to. There are eleven, and they are all
+**A shared file is one that more than one owner must append to. There are eighteen, and they are all
 additive-only.** Append a registration, a branch or a method at the **end** of its section; never
 reorder, never repurpose, never reformat an existing entry. A rebase conflict inside a shared file
 means someone broke this rule.
@@ -41,6 +58,13 @@ means someone broke this rule.
 | `engine/src/render/passes/pick.ts` | §7.2.3 must reproduce **every** discard | append one branch per item kind; the *decision* lives in your `layers/*.ts` |
 | `engine/src/render/passes/overlay.ts` | one buffer, one draw | append one item; the *geometry* lives in your `overlay/*.ts` |
 | `engine/src/render/gpu.ts` | GPU resources keyed by dataset | append an upload/drop path and its key builder |
+| `engine/src/gl/state.ts` | §7.2's per-pass GL state, and §7.4's clip-distance set | append a **complete** block to `GL_STATE` — every field named; never change what an existing block means |
+| `engine/src/layers/runtime.ts` | `LayerRuntime`, `DrawItem`, `PickItem` — the §4.4 layer seam | append a `DrawItem` / `PickItem` variant or a runtime member; never narrow an existing one |
+| `engine/src/scene/defaults.ts` | the per-kind defaults `fromMeta` seeds from | append a layer kind's defaults; **never change an existing default** — it moves every golden that layer appears in |
+| `engine/src/shaders/index.ts` | the program barrel | append an export |
+| `engine/src/overlay/index.ts` | the pass-3 item barrel | append an export |
+| `engine/src/shaders/chunks/caps.ts` | what all four programs `#include` | append a chunk; never edit one another program interpolates |
+| `app/.../engine/mockEngine.ts` | `NoGlEngine implements Engine` | append the member your `Engine` change added, or the app stops compiling |
 | `app/.../panels/layers/properties.tsx` | kind → editor | append a registration |
 | `app/.../store/controller.ts` | the only place the app calls `Engine` | append methods; never change an existing one's signature |
 | `app/.../store/store.ts` | the UI store | append fields; never rename |
@@ -50,6 +74,17 @@ means someone broke this rule.
 every §6 Rust signature may be changed **only by W-WASM**, and only with a `docs/ARCHITECTURE.md`
 edit and a `docs/DECISIONS.md` line **in the same commit**. If your feature needs a frozen field,
 file it with W-WASM; do not add it yourself and do not work around it with a cast.
+
+**One named exception, and only one.** **E-SCENE may make exactly one edit to
+`packages/engine/src/api.ts`: the in-plane cursor nudge P2-09 needs** (working name
+`nudgeCursor(viewId, dx, dy)`, or an extended `stepCursor` signature — E-SCENE picks the shape). It
+is carved out rather than handed to W-WASM because the interface change and its only implementation
+are the same three lines in the same feature, and splitting them across two branches that merge two
+stages apart would leave `Engine` with a member nothing implements. The carve-out does **not** relax
+the rule around it: that commit carries the `docs/ARCHITECTURE.md` §4.7/§7.5 edit and the
+`docs/DECISIONS.md` line, appends the member to `MockEngine` in the same file and to `NoGlEngine` in
+`app/.../engine/mockEngine.ts`, and touches nothing else in `api.ts`. Any *other* frozen change,
+including a second one E-SCENE turns out to want, goes to W-WASM.
 
 **Lockfiles stay frozen** (AGENTS rule 5). No owner adds a dependency without the integrator.
 
@@ -97,7 +132,13 @@ alongside the others; only its pointer layer is a blocker.
 `shaders/chunks/{ladder,lut}.ts` · `color/colormaps.ts` · `overlay/colorbar.ts`
 **Appends to:** `render/passes/pick.ts` (the slice branch's threshold/label discards) ·
 `render/gpu.ts` (the 4D texture path) · `layers/registry.ts` (nothing new) ·
-`scene/defaults.ts` (new layer defaults)
+`scene/defaults.ts` (new layer defaults, appended — never edit an existing one) ·
+`shaders/chunks/caps.ts` and `shaders/index.ts` and `overlay/index.ts` (shared: append only) ·
+`gl/state.ts` (the `showIn3D` planes draw in `opaque3d`, which exists — append only if you need a
+block that does not)
+**Not yours, though it sits in your directory:** `shaders/chunks/caps.ts` — all four programs
+interpolate it (`shaders/{slice,mesh,pick,overlay}.ts`), which is what its own header means by
+"what both of them read and neither of them owns alone".
 **Contract:** §7.3 in full · §7.6 (colormaps, LUTs, `negative`) · §4.2 (`Scale`, `Threshold`) ·
 §7.0.5 (analytic AA for label outlines and threshold edges) · §8's colour bars
 
@@ -156,7 +197,10 @@ alongside the others; only its pointer layer is a blocker.
 `compute/cut-manager.ts` · `compute/isolate-manager.ts`
 **Appends to:** `render/passes/pick.ts` (clip planes, isolation mask, face culling) ·
 `render/gpu.ts` (de-indexed variant, node-field texture, the cap VBO set) · `gl/program.ts` (nothing:
-the variant cache already keys on the clip-plane count) · `scene/defaults.ts`
+the variant cache already keys on the clip-plane count) · `scene/defaults.ts` (appended, never
+edited) · `shaders/chunks/caps.ts` and `shaders/index.ts` (shared: append only) ·
+`gl/state.ts` (§7.4's cap rule is `GlState.clipDistances(count, except)` — **use it, do not issue a
+raw `gl.enable(CLIP_DISTANCE0_WEBGL + i)`**; gate the first non-empty set on `caps.clipDistance`)
 **Contract:** §7.4 in full · §7.2's two-phase transparency · §7.6's tag palette · §6.3's `plane_cut`,
 `isolate`, `build_topology`
 
@@ -230,7 +274,11 @@ new `overlay/contours.ts` · the mesh colour bar's `ColorbarSpec` producer
 **Appends to:** `render/passes/overlay.ts` (the contour item) · `render/passes/mesh.ts` (nothing —
 isosurfaces are `SurfacePayload`s and draw through the existing mesh path; coordinate with E-MESH if
 that changes) · `layers/registry.ts` (nothing: `iso` and `points` are already registered) ·
-`render/gpu.ts` (instance buffers)
+`render/gpu.ts` (instance buffers) · `shaders/index.ts` and `overlay/index.ts` (shared barrels: your
+new `{contour,glyph,points}.ts` programs and your `contours.ts` item are appended exports) ·
+`layers/runtime.ts` (shared: a new `DrawItem` variant if a glyph draw is not a `mesh` item) ·
+`renderer.ts` (a fifth pass, appended to the sequence — it enters a `gl/state.ts` block like every
+other pass and inherits nothing from pass 4)
 **Consumes, does not own:** `compute/cut-manager.ts` (E-MESH)
 **Contract:** §7.4's last bullets · §7.0.6 · §7.2 pass 1 and pass 3
 
@@ -246,9 +294,10 @@ that changes) · `layers/registry.ts` (nothing: `iso` and `points` are already r
 | The **mesh** colour bar: produce a `ColorbarSpec` from `MeshFieldInfo` (name, `units`, `Scale`, threshold notch) and hand it to E-SLICE's `overlay/colorbar.ts` | ROADMAP P2 · §8 |
 
 **A decision to make early, and record in DECISIONS:** glyph origins. Surface glyphs need nothing new
-— `SurfacePayload.positions` + `ownerElm` + a field texture is enough, computed on the GPU. Glyphs on
-*interior* tets have no origin source in §6.5.2 (see W-WASM item 2). Decide the scope before writing
-the shader.
+— `SurfacePayload.positions` + `ownerElm` + a field texture is enough, computed on the GPU — and
+neither does the `clipToCutPlane` case, which reads `CutPayload.positions` + `ownerTet`. Only
+*unrestricted interior* tets have no origin source in §6.5.2 (see W-WASM item 2). Decide whether v1
+needs them at all before writing the shader; "surface and cut-plane only" closes W-WASM gap 2.
 
 ### §11 obligations
 
@@ -283,10 +332,15 @@ the shader.
 ## E-SCENE — interaction, probing, persistence, screenshots, oblique
 
 **Owns:** new `engine/src/input/` · `engine/src/scene/{store,serialize,fromMeta,defaults}.ts` ·
-`engine/src/view/` · `engine/src/overlay/gizmo.ts` · `engine/src/render/screenshot.ts` ·
-`engine/src/datasets/` · `app/.../keyboard/keymap.ts`
+`engine/src/view/` · `engine/src/overlay/{gizmo,crosshair,chrome,builder,letters,corner,badge}.ts`
+(the whole pass-3 chrome except `colorbar.ts`, which is E-SLICE's) ·
+`engine/src/render/screenshot.ts` · `engine/src/datasets/` · `app/.../keyboard/keymap.ts`
 **Appends to:** `engine.ts` (the frame pump, `interacting`, the `hover` emission) ·
-`render/passes/overlay.ts` (the gizmo item)
+`render/passes/overlay.ts` (the gizmo item) · `overlay/index.ts` (shared barrel) ·
+`scene/defaults.ts` (appended, never edited) · `gl/state.ts` (only if a gizmo item needs a block
+`blend2d` does not give it)
+**One frozen-file carve-out, and its terms:** see [Shared-file rules](#shared-file-rules) — the
+single `api.ts` edit P2-09 needs, with the ARCHITECTURE and DECISIONS lines in the same commit.
 **Contract:** §7.5 in full · §7.2's frame pump · §4.6 · §4.7's `screenshot` / `serialize` / `load` ·
 §8's info panel and coordinate bar
 
@@ -297,10 +351,10 @@ the shader.
 | **P2-01 — §7.5's pointer interaction, all of it.** 2D: left-click/drag sets the cursor; wheel = slice ±1; ⌘/Ctrl+wheel = zoom; right-drag = window/level on the **active** layer, falling back to the topmost non-label volume; middle/space-drag = pan; `Shift+drag` = the active layer's opacity. 3D: left orbit (arcball), right pan, wheel dolly, double-click = `setCursorFromPick`. **This is the one Phase-1-scope hole** (audit §4) | audit P2-01 · §7.5 |
 | **P2-02 — `interacting`**: entered on pointerdown / wheel / key-repeat / gizmo drag, left `settleMs` (default 120 ms) after the last input; the `interacting` `QualityLevel` (`dprScale 1`, `msaa 0`, `edges false`, `capDecimation`); leaving it triggers **exactly one** full-quality re-render. **Forbidden in the fallback set: any knob that changes displayed *values*** — `interpolation` is a reading. Plus the adaptive hook that reads `#frameTimes` and emits `quality`; **never degrade silently** | audit P2-02 · §7.2 |
 | **P2-03 — per-view dirty bits** in the frame pump | audit P2-03 |
-| **P2-04 — the `hover` event**, hover probe rows, and **element info**; §8's targets are **volume hover ≤ 16 ms, mesh hover ≤ 50 ms**, the latter via latest-wins on the layer's own key so a hover never queues behind a cut | ROADMAP P2 · audit P2-04 · §8 |
+| **P2-04 — the `hover` event**, hover probe rows, and the **element-info *source*** — the `ProbeRow` / `PickResult` fields an element panel reads. **A-SHELL renders it; you produce it, and neither of you does the other half.** §8's targets are **volume hover ≤ 16 ms, mesh hover ≤ 50 ms**, the latter via latest-wins on the layer's own key so a hover never queues behind a cut | ROADMAP P2 · audit P2-04 · §8 |
 | **P2-06 — the screenshot spec**: `target: 'view'` crop, `width` / `height` / `scale`, `dpi` written into the PNG **pHYs** chunk, the `include` toggles, `autoTrim`. §7.0.4: `blitFramebuffer` cannot resolve **and** rescale in one call, so resolve and SSAA downsample are two steps | ROADMAP P2 · audit P2-06 |
 | **P2-07 — scene save/load**: `ViewSpec` with `version`, **paths relative to the scene file with an absolute fallback**, fingerprints, the dataset-**id remap** on load (without it `spec.layers` cannot be restored), and `activeLayerId`. `scene/serialize.ts` names all four gaps | ROADMAP P2 · audit P2-07 |
-| **P2-09 — arrows nudge the cursor in-plane**, distinct from PgUp/PgDn's slice step. §7.5 lists them separately; today both step along the normal. The app may not compute the basis (§8 forbids logic in React), so this needs an engine-side in-plane nudge | audit P2-09 |
+| **P2-09 — arrows nudge the cursor in-plane**, distinct from PgUp/PgDn's slice step. §7.5 lists them separately; today both step along the normal. The app may not compute the basis (§8 forbids logic in React), so this needs an engine-side in-plane nudge — and the frozen `Engine` has only `stepCursor(viewId, steps)`, "±1 voxel along the view normal". **This is the one `api.ts` edit that is not W-WASM's**: it is E-SCENE's under the named carve-out in [Shared-file rules](#shared-file-rules), and it ships with the §4.7/§7.5 ARCHITECTURE edit, the DECISIONS line, and the new member appended to `MockEngine` and `NoGlEngine`, in one commit | audit P2-09 |
 | **P2-10 — `toTemplate`** and `ProbeResult.mni`. **No protocol change is needed**: `VolumeMeta.headerJson` carries the full NIfTI header, and `sform_code`/`qform_code` = 4 is MNI152. Derive it in `scene/fromMeta.ts` | ROADMAP P2 · audit P2-10 |
 | **Keyboard map completion** — every §7.5 binding reachable and listed, including the pointer gestures above | ROADMAP P2 |
 | **Radiological toggle** — already shipped; keep §11's three orientation tests green as the pointer layer starts moving cameras | ROADMAP P2 |
@@ -335,10 +389,12 @@ the shader.
 
 ## A-PROPS — the §8 property editors, region panel and histogram
 
-**Owns:** `app/src/renderer/src/panels/` — `layers/{volume,mesh,iso,points}/`, `regions/`,
-`histogram/`
+**Owns:** `app/src/renderer/src/panels/layers/`, `panels/regions/`, `panels/histogram/`.
+**Not** `panels/{info,coordinate}/`, which are A-SHELL's — `panels/` is the one directory two owners
+share, and it is split by subdirectory, not by file.
 **Appends to:** `panels/layers/properties.tsx` (registrations) · `store/controller.ts` (methods) ·
-`store/store.ts` (fields)
+`store/store.ts` (fields) · `app/.../engine/mockEngine.ts` (shared: only if an `Engine` member you
+drive did not exist — and then only after its owner has landed it)
 **Contract:** §8's left panel, tissue table, histogram and region panel · §4.4's layer fields
 
 ### Items
@@ -379,9 +435,12 @@ cuts the other way here: assert **state**, not pixels.
 
 ## A-SHELL — toolbar, dialogs, coordinate bar, probing panels, keyboard help
 
-**Owns:** `app/src/renderer/src/{toolbar,dialogs,keyboard/KeyboardHelp.tsx,ui}/` ·
-`panels/{info,coordinate}/`
-**Appends to:** `store/controller.ts` · `store/store.ts`
+**Owns:** `app/src/renderer/src/{toolbar,dialogs,ui,lib,open,engine}/` ·
+`keyboard/KeyboardHelp.tsx` (**not** `keyboard/keymap.ts`, which is E-SCENE's) ·
+`panels/{info,coordinate}/` · everything else under `app/src/` the map does not name
+(`App.tsx`, `main.tsx`, `bridge.ts`, `src/main/`, `src/preload/`)
+**Appends to:** `store/controller.ts` · `store/store.ts` · `app/.../engine/mockEngine.ts` (shared)
+`lib/png.ts` is yours, and it is where the screenshot dialog's **pHYs** parse/assert lives.
 **Contract:** §8's toolbar, info panel, coordinate bar, status bar, scene save/load
 
 ### Items
@@ -393,7 +452,7 @@ cuts the other way here: assert **state**, not pixels.
 | **Scene save/load + relocate dialog** (`dialogs/RelocateDialog.tsx`): `Engine.load(spec, resolve)` calls `resolve(ref)` per `DatasetRef`; this dialog turns a `null` into a path the user picked, and shows whether the `fingerprint` matches | ROADMAP P2 · §8 |
 | **Coordinate bar MNI column** — appears when the dataset has `toTemplate` (E-SCENE populates it) | ROADMAP P2 · audit P2-10 |
 | **The "defaults from X.msh.opt" chip and one-click Reset** — E-SCENE seeds from `MeshMeta.opt`; the chip and Reset are yours | ROADMAP P2 · §7.6 |
-| **Probing panels**: the `Mouse` block filled from the `hover` event (E-SCENE emits it), element info, and the **header panel** (`VolumeMeta.headerJson` verbatim) | ROADMAP P2 · §8 |
+| **Probing panels**: the `Mouse` block filled from the `hover` event (E-SCENE emits it), the element-info panel **rendered from the rows E-SCENE's P2-04 supplies** (you do not compute them), and the **header panel** (`VolumeMeta.headerJson` verbatim) | ROADMAP P2 · §8 |
 | **Keyboard help** (`keyboard/KeyboardHelp.tsx`) — rows generated from `keymap.ts`, so a sheet can never list a binding the resolver does not implement | ROADMAP P2 |
 | **Status bar**: surface the `QualityLevel` when it drops below full — §7.2's "never degrade silently" is only true if the bar says so | §7.2 · §8 |
 | **The UX walk-through GIF** — a Phase-2 gate item in its own right | ROADMAP P2 gate |
@@ -417,9 +476,16 @@ cuts the other way here: assert **state**, not pixels.
 
 ## W-WASM — the two protocol/wasm gaps, and nothing else
 
-**Not "none".** The audit and this map found exactly two. Both change a **frozen interface** (§12.3),
-so each ships with a `docs/ARCHITECTURE.md` edit and a `docs/DECISIONS.md` line **in the same
-commit**, and W-WASM merges **first** so nobody rebases across it twice.
+**Not "none".** The audit and this map found exactly two **protocol/wasm** gaps. Both change a
+**frozen interface** (§12.3), so each ships with a `docs/ARCHITECTURE.md` edit and a
+`docs/DECISIONS.md` line **in the same commit**, and W-WASM merges **first** so nobody rebases
+across it twice.
+
+**"Two" counts the gaps that need Rust.** Phase 2 needs a third frozen-interface change and it is
+deliberately **not** W-WASM's: P2-09's in-plane cursor nudge is a new `Engine` member in
+`packages/engine/src/api.ts` with no protocol, WASM or Rust side at all, and it is E-SCENE's under
+the one named carve-out in [Shared-file rules](#shared-file-rules). Nothing else in this map touches
+a frozen file. If a fourth turns up, it is W-WASM's by default.
 
 ### Gap 1 — `DatasetRef.fingerprint` has no producer
 
@@ -444,9 +510,12 @@ commit**, and W-WASM merges **first** so nobody rebases across it twice.
   magnitude. **No new geometry from WASM.**" Origins still have to come from somewhere.
 * **Surface** glyphs need nothing new: `SurfacePayload.positions` + `ownerElm` + a field texture
   already give a per-triangle origin and value.
-* Glyphs on **interior tets** — which is what `ernie_TDCS_1_scalar.msh`'s `E` field over all
-  5,900,498 elements invites — have no origin source: no §6.5.2 op returns element centroids or bulk
-  node positions.
+* **Cut-plane-restricted** glyphs need nothing new either: E-DERIVED's own `clipToCutPlane` case is
+  served by `CutPayload.positions` + `ownerTet` (`packages/protocol/src/index.ts`), which already
+  give a per-cut-polygon origin and the tet it came from.
+* What has **no** origin source is the unrestricted case: glyphs on **interior tets** with no cut
+  plane active — which is what `ernie_TDCS_1_scalar.msh`'s `E` field over all 5,900,498 elements
+  invites. No §6.5.2 op returns element centroids or bulk node positions.
 * **Decision required before E-DERIVED writes the shader.** If surface-only, close this as "none" and
   record it in DECISIONS. If volumetric, it is a `field`-result extension or a new op, hence a
   §6.3 + §6.4 + §6.5.2 change and an ARCHITECTURE edit.
@@ -467,6 +536,29 @@ commit**, and W-WASM merges **first** so nobody rebases across it twice.
 | Region-panel centroids | `labelCentroids` |
 | `toTemplate` / MNI | derivable from `VolumeMeta.headerJson` (`sform_code`/`qform_code` = 4); **no protocol change** |
 | Mesh probing / element info | `locate` → `ProbeHitT` with every node and element field |
+
+---
+
+## The audit's `P2-xx` items, all eleven, by id
+
+`docs/review/2026-08-27-phase1-audit.md` closes with `P2-01`…`P2-11`. Every one is claimed below, so
+an owner can check the audit's list against this map by id rather than by prose. Three items have
+two owners because the audit gave them two — an engine half and a shell half — and in each the split
+is *produce* against *render*, never a shared implementation.
+
+| Id | Owner(s) | Where it is claimed |
+|---|---|---|
+| P2-01 | E-SCENE | first item, "§7.5's pointer interaction, all of it" |
+| P2-02 | E-SCENE | `interacting` + `settleMs` + the `QualityLevel` + the adaptive hook |
+| P2-03 | E-SCENE | per-view dirty bits |
+| P2-04 | E-SCENE **produces**, A-SHELL **renders** | `hover` + probe rows + the element-info source; A-SHELL's probing-panels item draws them |
+| P2-05 | E-SLICE | the 4D index over `volumeFrame` |
+| P2-06 | E-SCENE (engine) + A-SHELL (dialog) | the screenshot spec; `ScreenshotDialog.tsx` |
+| P2-07 | E-SCENE (engine) + A-SHELL (dialog) | `serialize`/`load`; `RelocateDialog.tsx` |
+| P2-08 | A-PROPS | the `floatLinear`-absent flag |
+| P2-09 | E-SCENE | the in-plane nudge — **and the one `api.ts` carve-out** |
+| P2-10 | E-SCENE (`toTemplate`) + A-SHELL (the MNI column) | derived in `scene/fromMeta.ts`; rendered in the coordinate bar |
+| **P2-11** | split, by content | it is not one feature but §10's whole "missing (Phase 2)" column, so it is the only id this map does not name in an owner's section. Its six contents: **property editors** → A-PROPS · **colour bars** → E-SLICE (the renderer and the volume spec) + E-DERIVED (the mesh spec) · **histogram** → A-PROPS · **region panel** → A-PROPS · **tissue table** → A-PROPS (the panel), E-MESH (`tagStyle`, which backs it) · **`.msh.opt` chip + Reset** → A-SHELL (the chip), E-SCENE (the seeding in `fromMeta`) |
 
 ---
 

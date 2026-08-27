@@ -1320,7 +1320,10 @@ Each entry below names the problem, the fix, and the evidence.
   background pixel from a fragment that happens to match it.
 - 2026-08-27 — Two smaller ones in the same commit: `removeDataset` re-points a dangling
   `activeLayerId` the way `removeLayer` already did (otherwise `[`/`]` and `v` were no-ops until the
-  user clicked another row), and `destroy()` clears `#lastViewProj` / `#lastRects` / `#locateCache`.
+  user clicked another row), and `destroy()` clears `#lastViewProj` / `#lastRects` and the mesh probe
+  cache. (That last one was `#locateCache` on `engine.ts` when this was written; the layer split moved
+  it to `MeshLayerRuntime.#located`, cleared in `dispose()`, which `destroy()` calls. Same behaviour,
+  different home.)
 - 2026-08-27 — **`#renderFrame`'s `frame.cpuMs` is cumulative, and is deliberately NOT fixed here.**
   `t0` is taken before the first pane and the event is emitted inside the per-view loop, so in a 2×2
   layout the fourth pane reports the whole frame. Correcting it changes every number in
@@ -1389,3 +1392,25 @@ Each entry below names the problem, the fix, and the evidence.
   projects — state is state, and each draw sees the same state it saw before. Landing it after the
   Phase-2 branches, when six passes and four owners would have to be converted at once — rejected:
   four is the cheapest this ever gets.
+
+- 2026-08-27 — **`docs/PHASE2-OWNERSHIP.md` amendments, before any Phase-2 branch was cut.** Three
+  seams in the first draft would have become merge conflicts. (1) **P2-09 is a frozen-file change and
+  it is E-SCENE's, by one named carve-out.** The in-plane cursor nudge needs a new `Engine` member —
+  `stepCursor(viewId, steps)` is "±1 voxel along the view normal" and the app may not compute the
+  basis (§8) — so the map both assigned P2-09 to E-SCENE and closed `api.ts` to everyone but W-WASM.
+  Carving it out beats moving the item to W-WASM: the interface change and its only implementation
+  are the same feature, and splitting them across branches that merge two stages apart leaves
+  `Engine` with a member nothing implements. The carve-out keeps every other term of the frozen rule,
+  including the ARCHITECTURE and DECISIONS lines in the same commit. (2) **The shared-file list was
+  short by seven.** By the doc's own definition — a file more than one owner appends to —
+  `scene/defaults.ts`, `layers/runtime.ts`, `shaders/index.ts`, `overlay/index.ts`,
+  `shaders/chunks/caps.ts`, `app/.../engine/mockEngine.ts` and the new `gl/state.ts` all qualified
+  and none was listed; each now carries the in-file banner the other eleven already had.
+  `shaders/chunks/caps.ts` in particular sat inside E-SLICE's directory while all four programs read
+  it, which its own header had already said was nobody's file. (3) **The "Owners at a glance" table
+  contradicted the detail sections** on `panels/`, `keyboard/` and `shaders/chunks/`, and agents read
+  the glance table first; it now says which directories are split and where the split falls, and a
+  closing clause makes the map total rather than leaving `overlay/*`, `app/.../lib/` and
+  `layers/runtime.ts` unclaimed. Also recorded: audit id **P2-11** now appears by name (it is §10's
+  whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
+  "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.

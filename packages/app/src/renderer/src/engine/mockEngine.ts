@@ -19,6 +19,11 @@
  *
  * It also implements the three optional `engine/commands.ts` members, which is what makes `r`, `1..6`
  * and `c` live in the shell before the real engine has a camera.
+ *
+ * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** This class implements the
+ * frozen `Engine` interface, so **every** `Engine` member added in Phase 2 must be appended here in
+ * the same commit or the app stops compiling. Append the member; never change what an existing one
+ * models, because the shell E2E asserts against this behaviour.
  */
 
 import type {

@@ -8,6 +8,9 @@
  * Chunks are plain strings interpolated into a template literal. There is no `#include` runtime:
  * `Program` splices `#define`s in after the `#version` line and compiles the result (`gl/program.ts`),
  * and the §7.1 variant cache keys on those defines.
+ *
+ * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Append an export for your
+ * program; never reorder or re-export someone else's under a new name.
  */
 
 export { MESH_FS, MESH_VS } from './mesh';

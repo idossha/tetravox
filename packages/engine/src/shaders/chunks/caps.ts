@@ -11,6 +11,11 @@
  *   slice program is compiled in two variants keyed on `IS_LABEL` and declares **both** sampler
  *   precisions — the `#if` picks which one is actually used.
  *
+ * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only, and this file is nobody's.**
+ * All four programs interpolate it — `shaders/{slice,mesh,pick,overlay}.ts` — so it sits in
+ * E-SLICE's directory without being E-SLICE's file. Append a chunk; never edit one another program
+ * already reads.
+ *
  * Named `caps` because these are the capability-shaped half of a program's header: what the compiler
  * must be told before the driver's own defaults decide for it.
  */
