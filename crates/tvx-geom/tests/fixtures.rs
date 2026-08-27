@@ -39,10 +39,61 @@ fn tet_only() -> Mesh {
 /// The trap it exists for: a 3x21-bit packed u64 face key aliases distinct faces above
 /// 2^21 nodes and silently merges them as interior, deleting real boundary faces. §6.3
 /// therefore mandates a counting sort on the face's minimum vertex, with no packed key.
-#[allow(dead_code)]
 fn big_node_count_mesh(k: u32) -> Mesh {
-    let _ = k;
-    unimplemented!("phase 1: build the slab once tvx-mesh-io::Mesh can be constructed by hand")
+    // A k x k x 1 slab of unit cubes, each cut into the same 6 tets tvx-geom uses elsewhere.
+    // (k+1)^2 * 2 nodes, so k = 1024 gives 2,101,250 > 2^21 = 2,097,152.
+    let (kx, ky) = (k as usize, k as usize);
+    let (nx, ny) = (kx + 1, ky + 1);
+    let mut nodes = Vec::with_capacity(nx * ny * 2);
+    for z in 0..2usize {
+        for y in 0..ny {
+            for x in 0..nx {
+                nodes.push([x as f32, y as f32, z as f32]);
+            }
+        }
+    }
+    let at = |x: usize, y: usize, z: usize| ((z * ny + y) * nx + x) as u32;
+    // The Freudenthal decomposition about the 0-7 diagonal: neighbouring cubes agree on every
+    // shared face, so the slab is a valid conforming tet mesh.
+    const CUBE_TETS: [[usize; 4]; 6] = [
+        [0, 1, 3, 7],
+        [0, 3, 2, 7],
+        [0, 2, 6, 7],
+        [0, 6, 4, 7],
+        [0, 4, 5, 7],
+        [0, 5, 1, 7],
+    ];
+    let mut tets = Vec::with_capacity(kx * ky * 6);
+    for y in 0..ky {
+        for x in 0..kx {
+            let c: Vec<u32> = (0..8)
+                .map(|n| at(x + (n & 1), y + ((n >> 1) & 1), (n >> 2) & 1))
+                .collect();
+            for t in CUBE_TETS {
+                tets.push([c[t[0]], c[t[1]], c[t[2]], c[t[3]]]);
+            }
+        }
+    }
+    let n_tets = tets.len();
+    Mesh {
+        bounds: tvx_core::Aabb {
+            min: [0.0, 0.0, 0.0],
+            max: [kx as f32, ky as f32, 1.0],
+        },
+        nodes,
+        tris: Vec::new(),
+        tri_tags: Vec::new(),
+        tets,
+        tet_tags: vec![1; n_tets],
+        tri_edge_mask: None,
+        node_fields: Vec::new(),
+        elm_fields: Vec::new(),
+        physical_names: Vec::new(),
+        gmsh_node_numbers: None,
+        gmsh_elm_numbers: None,
+        tet_perm: (0..n_tets as u32).collect(),
+        skipped: Vec::new(),
+    }
 }
 
 // -------------------------------------------------------------------------------------
@@ -93,7 +144,6 @@ fn the_face_key_mesh_is_documented_as_generated_at_test_time() {
 // -------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn tag_surfaces_groups_the_stored_triangles_without_topology() {
     // §6.3: the default 3D representation of a mesh that HAS surface elements is its own
     // tagged triangles. No topology, no geometry work beyond grouping and normals.
@@ -138,19 +188,30 @@ fn tag_surfaces_groups_the_stored_triangles_without_topology() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn extract_boundary_rescues_a_tri_less_mesh() {
     // grey_Thalamus_TI.msh has 0 triangles and 1,340,029 tets; the fixture is the same
     // shape at 48 tets. The boundary of the 2x2x2 lattice is its 48 exterior faces.
     let m = tet_only();
     assert!(m.tris.is_empty());
     let s = extract_boundary(&m, None, None, SurfaceVariant::Indexed, &mut NoProgress).unwrap();
-    let want = fx::u64_of(&fx::manifest()["writerNotes"]["lattice"]["exteriorFaces"]);
-    assert_eq!(s.owner_elm.len() as u64, want, "48 exterior faces");
+    // §6.3 (ARCHITECTURE.md line 1081): extract_boundary "keeps singletons AND tag-differing
+    // pairs". This fixture has two tet tags (24 + 24) and 8 tag-differing interior faces, so the
+    // face set is 48 + 8 = 56 — exactly the 56 triangles its tri-carrying twin stores, which is
+    // the invariant `the_fixture_mesh_is_the_surface_invariant_in_miniature` asserts above and the
+    // whole reason extract_boundary exists. The Phase-0 draft of this line expected 48 (singletons
+    // only); that would have made a tri-less mesh render a *different* surface from an identical
+    // mesh that happens to store its triangles. See docs/DECISIONS.md (2026-08-27, integration).
+    let notes = &fx::manifest()["writerNotes"]["lattice"];
+    let want =
+        fx::u64_of(&notes["exteriorFaces"]) + fx::u64_of(&notes["tagDifferingInteriorFaces"]);
+    assert_eq!(
+        s.owner_elm.len() as u64,
+        want,
+        "48 exterior + 8 interface faces"
+    );
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn extract_boundary_with_and_without_topology_agree() {
     let m = lattice();
     let topo = build_topology(&m, &mut NoProgress).unwrap();
@@ -169,7 +230,6 @@ fn extract_boundary_with_and_without_topology_agree() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn boundary_extraction_survives_more_than_2_pow_21_nodes() {
     // §11's face-key-width test. A 3x21-bit packed u64 key aliases distinct faces here and
     // silently deletes real boundary faces; §6.3's counting sort on the minimum vertex has
@@ -183,7 +243,6 @@ fn boundary_extraction_survives_more_than_2_pow_21_nodes() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn build_topology_counts_faces_and_boundary_faces() {
     // 48 tets x 4 faces = 192 face slots; the 2x2x2 lattice has 48 boundary faces.
     let m = lattice();
@@ -195,7 +254,6 @@ fn build_topology_counts_faces_and_boundary_faces() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn plane_cut_is_bit_identical_with_and_without_the_block_index() {
     // §6.3 / §11 "cut index equivalence", on the fixture rather than on ernie.
     let m = lattice();
@@ -222,7 +280,6 @@ fn plane_cut_is_bit_identical_with_and_without_the_block_index() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn cut_edge_masks_follow_the_1_3_and_2_2_rule() {
     // §6.3, normative: a 1-3 split emits one triangle with mask 0b111; a 2-2 split emits
     // (a,b,c) with mask 0b101 and (a,c,d) with mask 0b011, so the invented diagonal is
@@ -242,17 +299,18 @@ fn cut_edge_masks_follow_the_1_3_and_2_2_rule() {
             "unexpected edge mask {m:#05b}"
         );
     }
-    // Every unmasked edge is a real cut edge, so their count matches edge_segments.
-    let unmasked: usize = masks.iter().map(|m| (3 - m.count_ones()) as usize).sum();
+    // Every *set* bit is a real element edge, and every real element edge is emitted once into
+    // edge_segments as 6 floats. A 1-3 split contributes 3; a 2-2 split contributes 2 + 2 = 4, the
+    // invented diagonal being masked off in both of its triangles.
+    let real: usize = masks.iter().map(|m| m.count_ones() as usize).sum();
     assert_eq!(
-        unmasked * 6,
-        0,
-        "PHASE 1: replace with the edge_segments identity"
+        real * 6,
+        cuts[0].edge_segments.len(),
+        "every set mask bit is one edge_segments entry"
     );
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn isolate_accepts_the_worked_wire_example_shape() {
     // §6.5.1's criteria travel as JSON; the fixture exercises the tag and box arms.
     let m = lattice();
@@ -268,7 +326,6 @@ fn isolate_accepts_the_worked_wire_example_shape() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn a_mask_narrows_the_boundary() {
     let m = lattice();
     let mut mask = BitMask::new_all(m.tets.len(), false);
@@ -291,7 +348,6 @@ fn a_mask_narrows_the_boundary() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn locate_point_returns_the_whole_probe() {
     // §6.3: one round trip. `gmsh_elm` is what the UI shows, `tet_index` never leaves.
     let m = lattice();
@@ -305,18 +361,28 @@ fn locate_point_returns_the_whole_probe() {
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn orientation_and_normals_are_reported() {
     let m = lattice();
     let mut tris = m.tris.clone();
     let report = orient_surface(&m.nodes, &mut tris);
-    assert_eq!(report.non_manifold_edges, 0);
+    // A tagged tissue surface is a *complex*, not a manifold: the 8 stored interface triangles at
+    // z = 0 meet the exterior wall along the equator, so each of those 8 edges carries three
+    // triangles. That is the same shape as the real data — `m2m_ernie/ernie.msh` reports
+    // components 696 / open 510 / non-manifold 10,311 / flipped 41, asserted in
+    // `tests/real_data.rs::orient_surface_reports_the_tissue_complex`. The Phase-0 draft of this
+    // line expected 0, which is only true of a single closed shell; a report that said 0 here
+    // would mean orient_surface was not looking. See docs/DECISIONS.md (2026-08-27, integration).
+    assert_eq!(report.non_manifold_edges, 8, "the equator of the lattice");
+    // Three, not one: a non-manifold edge joins no two triangles unambiguously, so it contributes
+    // no adjacency and the equator separates the lower shell, the upper shell and the membrane.
+    // Walking *through* an ambiguous edge would propagate one arbitrary winding choice across the
+    // seam and silently mis-orient whichever side lost the coin toss.
+    assert_eq!(report.components, 3, "the equator separates three sheets");
     let n = vertex_normals(&m.nodes, &tris);
     assert_eq!(n.len(), m.nodes.len() * 3);
 }
 
 #[test]
-#[ignore = "phase-1: geometry not implemented"]
 fn contours_and_marching_tets_run_on_the_fixture() {
     let m = lattice();
     let plane = Plane {

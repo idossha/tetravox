@@ -38,9 +38,30 @@
 
 #![forbid(unsafe_code)]
 
-use tvx_core::{Aabb, BitMask, Field, Plane, ProgressSink, Result};
-use tvx_mesh_io::{ElmField, Mesh};
-use tvx_nifti::{Volume, VolumeData};
+mod bucket;
+mod cut;
+mod fields;
+mod isolate;
+mod labels;
+mod locator;
+mod march;
+mod morton;
+mod normals;
+mod surface;
+mod util;
+mod voxel;
+
+pub use cut::{plane_cut, surface_contours};
+pub use fields::{elm_to_node, node_to_elm};
+pub use isolate::isolate;
+pub use labels::label_centroids;
+pub use locator::{build_point_locator, locate_point};
+pub use march::{marching_cubes, marching_tets};
+pub use morton::{build_tet_blocks, morton_reorder};
+pub use normals::{face_normals, orient_surface, vertex_normals};
+pub use surface::{build_topology, extract_boundary, tag_surfaces};
+
+use tvx_core::Aabb;
 
 /// Whether a [`SurfaceBuffers`] is index-shared (smooth normals) or de-indexed (face normals, per-corner
 /// attributes for the §7.4 barycentric wireframe).
@@ -117,16 +138,11 @@ pub struct TetBlocks {
 /// A uniform grid over tet centroids, backing [`locate_point`].
 #[derive(Clone, Debug)]
 pub struct PointLocator {
-    #[allow(dead_code)] // phase 1
-    cell: [f32; 3],
-    #[allow(dead_code)] // phase 1
-    dims: [u32; 3],
-    #[allow(dead_code)] // phase 1
-    origin: [f32; 3],
-    #[allow(dead_code)] // phase 1
-    starts: Vec<u32>,
-    #[allow(dead_code)] // phase 1
-    items: Vec<u32>,
+    pub(crate) cell: [f32; 3],
+    pub(crate) dims: [u32; 3],
+    pub(crate) origin: [f32; 3],
+    pub(crate) starts: Vec<u32>,
+    pub(crate) items: Vec<u32>,
 }
 
 /// Where a cut vertex sits on its parent edge, so the engine can interpolate any node field onto the cap
@@ -265,166 +281,9 @@ pub struct LabelCentroid {
     pub count: u64,
 }
 
-// --- load-time (called inside loadMesh, not exported individually — see §6.4)
-
-/// Reorder tets by the 30-bit Morton code of their centroid; returns `tet_perm`.
-/// **< 250 ms WASM on ernie.** Permutes `tet_tags` and every tet-side `elm_fields` entry with them.
-pub fn morton_reorder(mesh: &mut Mesh) -> Vec<u32> {
-    unimplemented!("phase 1: {}", mesh.tets.len())
-}
-
-/// Per-64-tet-block AABBs over the Morton-ordered tets. **< 500 ms WASM on ernie.**
-pub fn build_tet_blocks(mesh: &Mesh, blk: usize) -> TetBlocks {
-    unimplemented!("phase 1: {} {blk}", mesh.tets.len())
-}
-
-pub fn build_point_locator(mesh: &Mesh) -> PointLocator {
-    unimplemented!("phase 1: {}", mesh.tets.len())
-}
-
-/// Consistently orient `tris` and report what was found.
-// `&mut Vec` rather than `&mut [_]` is §6.3 verbatim and therefore frozen (§12.3).
-#[allow(clippy::ptr_arg)]
-pub fn orient_surface(nodes: &[[f32; 3]], tris: &mut Vec<[u32; 3]>) -> OrientReport {
-    unimplemented!("phase 1: {} {}", nodes.len(), tris.len())
-}
-
-/// Area-weighted smooth normals, 3 per node.
-pub fn vertex_normals(nodes: &[[f32; 3]], tris: &[[u32; 3]]) -> Vec<f32> {
-    unimplemented!("phase 1: {} {}", nodes.len(), tris.len())
-}
-
-/// Flat normals, 3 per triangle.
-pub fn face_normals(nodes: &[[f32; 3]], tris: &[[u32; 3]]) -> Vec<f32> {
-    unimplemented!("phase 1: {} {}", nodes.len(), tris.len())
-}
-
-// --- exported ops (§6.4)
-
-/// The mesh's own tagged triangles, grouped by tag. Takes **no topology** (§6.3).
-pub fn tag_surfaces(
-    mesh: &Mesh,
-    variant: SurfaceVariant,
-    p: &mut dyn ProgressSink,
-) -> Result<SurfaceBuffers> {
-    unimplemented!("phase 1: {} {variant:?} {}", mesh.tris.len(), p.aborted())
-}
-
-/// Unique-face boundary of the (optionally masked) tet set. With `topo = None` it does a one-shot
-/// counting sort of the 4·N canonical face keys, keeps singletons and tag-differing pairs, and **drops
-/// the key buffer before returning** (§6.3).
-pub fn extract_boundary(
-    mesh: &Mesh,
-    topo: Option<&TetTopology>,
-    mask: Option<&BitMask>,
-    variant: SurfaceVariant,
-    p: &mut dyn ProgressSink,
-) -> Result<SurfaceBuffers> {
-    unimplemented!(
-        "phase 1: {} {} {} {variant:?} {}",
-        mesh.tets.len(),
-        topo.is_some(),
-        mask.is_some(),
-        p.aborted()
-    )
-}
-
-/// Explicit, awaitable, progress-reporting (§6.3). Never called lazily from inside a drag.
-pub fn build_topology(mesh: &Mesh, p: &mut dyn ProgressSink) -> Result<TetTopology> {
-    unimplemented!("phase 1: {} {}", mesh.tets.len(), p.aborted())
-}
-
-/// Exact per-element caps for up to 6 planes; each `Cut` is clipped by the *other* planes.
-pub fn plane_cut(
-    mesh: &Mesh,
-    blocks: &TetBlocks,
-    planes: &[Plane],
-    mask: Option<&BitMask>,
-) -> Result<Vec<Cut>> {
-    unimplemented!(
-        "phase 1: {} {} {} {}",
-        mesh.tets.len(),
-        blocks.blk,
-        planes.len(),
-        mask.is_some()
-    )
-}
-
-/// Evaluate the isolation predicate over the tets. The `label_volume` criterion samples the cloned label
-/// volume (§5 rule 2) at tet centroids through `world_to_voxel` (nearest).
-pub fn isolate(
-    mesh: &Mesh,
-    crit: &IsolateCriteria,
-    label_volume: Option<&VolumeData>,
-    p: &mut dyn ProgressSink,
-) -> Result<BitMask> {
-    unimplemented!(
-        "phase 1: {} {:?} {} {}",
-        mesh.tets.len(),
-        crit.combine,
-        label_volume.is_some(),
-        p.aborted()
-    )
-}
-
-/// Volume-weighted mean of the adjacent tets.
-pub fn elm_to_node(mesh: &Mesh, field: &ElmField) -> Result<Field> {
-    unimplemented!("phase 1: {} {}", mesh.tets.len(), field.name)
-}
-
-pub fn node_to_elm(mesh: &Mesh, field: &Field) -> Result<ElmField> {
-    unimplemented!("phase 1: {} {}", mesh.tets.len(), field.name)
-}
-
-pub fn marching_cubes(
-    vol: &Volume,
-    vol_index: usize,
-    iso: f32,
-    smooth: bool,
-    p: &mut dyn ProgressSink,
-) -> Result<SurfaceBuffers> {
-    unimplemented!(
-        "phase 1: {:?} {vol_index} {iso} {smooth} {}",
-        vol.dims,
-        p.aborted()
-    )
-}
-
-pub fn marching_tets(
-    mesh: &Mesh,
-    node_field: &[f32],
-    iso: f32,
-    mask: Option<&BitMask>,
-    p: &mut dyn ProgressSink,
-) -> Result<SurfaceBuffers> {
-    unimplemented!(
-        "phase 1: {} {} {iso} {} {}",
-        mesh.tets.len(),
-        node_field.len(),
-        mask.is_some(),
-        p.aborted()
-    )
-}
-
-/// Tag-boundary contour segments of the surface triangles against `plane`; 6 floats per segment.
-pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>> {
-    unimplemented!(
-        "phase 1: {} {} {}",
-        mesh.tris.len(),
-        plane.offset,
-        mask.is_some()
-    )
-}
-
-/// One round trip: the tag and every node/element field value at `p` (§6.3).
-pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit> {
-    let _ = grid;
-    unimplemented!("phase 1: {} {p:?}", mesh.tets.len())
-}
-
-pub fn label_centroids(vol: &Volume, vol_index: usize) -> Result<Vec<LabelCentroid>> {
-    unimplemented!("phase 1: {:?} {vol_index}", vol.dims)
-}
+// --- load-time (§6.3) and the exported ops (§6.4) are implemented in the modules re-exported at
+// the top of this file. The signatures below are frozen (§12.3); each module carries the rules it
+// implements in its own header.
 
 #[cfg(test)]
 mod tests {

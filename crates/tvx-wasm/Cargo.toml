@@ -10,17 +10,16 @@ publish.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-# `tvx-geom` (§6.3) is still the Phase-0 `unimplemented!()` stub, and calling one of those from wasm
-# traps the module instead of returning an error (§5 rule 8). Every §6.3 call site therefore lives in
-# `src/geom.rs` behind this feature: off, the geometry ops answer `Error::Unsupported` and the module
-# stays alive; on, they are `tvx_geom::*` one-to-one.
+# Every §6.3 call site lives in `src/geom.rs` behind this feature. It was added because calling a
+# Phase-0 `unimplemented!()` from wasm traps the module rather than returning an error (§5 rule 8),
+# which would have taken the whole mesh half of the protocol down with it.
 #
-# THE INTEGRATOR FLIPS `default = ["geom"]` IN THE COMMIT THAT LANDS A REAL `tvx-geom`.
-# `cargo clippy --workspace --all-targets --features geom` keeps the enabled arm compiling meanwhile.
-# Turning it on also requires a real `tvx-core` — `BitMask` is a stub too, and `mesh_isolate` counts
-# its bits.
+# **ON since the Phase-1 integration** — `tvx-geom` and `tvx-core` both have real bodies now, so the
+# geometry ops call `tvx_geom::*` one-to-one. The switch is kept rather than deleted so that
+# `--no-default-features` still builds a module with the geometry ops answering
+# `Error::Unsupported`, which is what `packages/wasm/e2e/geometry.spec.ts` probes at runtime.
 [features]
-default = []
+default = ["geom"]
 geom = []
 
 [dependencies]

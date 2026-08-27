@@ -964,3 +964,74 @@ wasm-pack regenerates it from the crate's doc comments.
   opposite of `tvx-mesh-io`'s `.annot` reader, which *does* invert, because a FreeSurfer **colortable**
   is a different container with a documented transparency field; the two are not the same format and
   the divergence is deliberate.
+
+## 2026-08-27 — Phase 1 integration, `tvx-geom` (§6.3)
+
+`p1/geom` was never created — the branch does not exist and `crates/tvx-geom` reached the
+integrator as the Phase-0 `unimplemented!()` stub. The crate is implemented here, by the
+integrator, so that Phase-1 gate items 2 and 7 have something behind them.
+
+- 2026-08-27 — **`extract_boundary` keeps tag-differing pairs, so the tri-less fixture yields 56
+  faces, not 48.** `crates/tvx-geom/tests/fixtures.rs::extract_boundary_rescues_a_tri_less_mesh`
+  was authored in Phase 0 expecting 48 (the exterior alone). §6.3 (ARCHITECTURE.md line 1081) says
+  the function "keeps singletons **and** tag-differing pairs", and `mesh_tetonly.msh` has two tet
+  tags (24 + 24) with 8 tag-differing interior faces. Implementing the test would have made a
+  tri-less mesh render a *different* surface from an identical mesh that happens to store its
+  triangles — the exact opposite of what the function exists for. The assertion was corrected, not
+  the implementation, and the reading is confirmed on real data: `extract_boundary` on
+  `m2m_ernie/ernie.msh` returns **1,177,213** faces, byte-for-byte the count of triangles the file
+  stores, and an independent derivation splits them 128,614 exterior + 1,048,599 tag-differing —
+  §6.3's published `[DATA]` numbers, reproduced exactly.
+- 2026-08-27 — **`orient_surface` reports 8 non-manifold edges on the lattice fixture, not 0.** Same
+  test file, same cause: a tagged tissue surface is a *complex*, not a manifold. The fixture's 8
+  interface triangles meet the exterior wall along the equator, giving 8 edges with three incident
+  triangles. Real data agrees and is now asserted: `ernie.msh` reports components 696 /
+  open 510 / non-manifold 10,311 / flipped 41. A report of 0 would mean the function was not
+  looking. Relatedly, a non-manifold edge contributes **no** adjacency, so the fixture surface is
+  3 components rather than 1 — walking through an ambiguous edge would propagate one arbitrary
+  winding choice across the seam and silently mis-orient whichever side lost the coin toss.
+- 2026-08-27 — **`tag_surfaces` reports `OrientReport::default()`.** §6.3 says it "does no geometry
+  work beyond grouping and normals", and orienting is a topology pass. Nothing is lost: §6.4's
+  `load_time` runs `orient_surface` on `Mesh::tris` once at load and carries the real report in
+  `MeshMeta`. `extract_boundary` *does* orient, because it is constructing a surface from scratch
+  and the per-tet outward winding it starts from is only locally consistent.
+- 2026-08-27 — **`morton_reorder` sorts `(code << 32) | index` keys, not indices.** The obvious
+  spelling — sort an index array, look up `codes[i]` each pass — gathers randomly across a 19 MB
+  array three times and measured **478 ms** on ernie, against §6.3's "< 250 ms WASM" budget. Moving
+  the code into the key so every radix pass reads sequentially took it to **109 ms** `[M2Max]`.
+  The permutation is applied by gathering into a fresh buffer rather than by following cycles in
+  place: the in-place walk is random on both the read and the write, needs a `visited` array, and
+  measured slower. Its 208 MB transient on `ernie_seeg.msh` is taken well after the parse, whose
+  own peak is far higher, so it does not move the §9.2 high-water mark.
+- 2026-08-27 — **`PointLocator` buckets by centroid and sizes its cell to the largest tet extent.**
+  That is what makes a 3x3x3 neighbourhood search exhaustive with no "grow the radius" loop: if the
+  cell is at least as large as any tet on each axis, the centroid of a tet containing `p` is at
+  most one cell from `p`. Bucketing by AABB overlap instead would be correct too but multiplies
+  `items` by the average number of cells a tet touches, against the 1.0 GB bar.
+- 2026-08-27 — **`marching_cubes` decomposes each cell into six tets rather than carrying a
+  256-entry case table.** Both marching functions then share one simplex kernel. The Freudenthal
+  decomposition about the `0-7` diagonal is agreed on by every neighbouring cell, so the surface is
+  watertight; it emits more triangles than a tuned table would. §6.3 asks for a correct surface and
+  the isosurface *layer* is Phase 2's, so correctness-per-line-of-code won. A wrong row in a
+  hand-transcribed 256-entry table is a silent hole, and there is no fixture that would catch it.
+- 2026-08-27 — **A cap vertex introduced by a *second* clip plane carries a degenerate
+  `CutInterp` (`n0 == n1`, `t = 0`).** With more than one plane, §6.3 requires each `Cut` to be
+  clipped by the others; a vertex created by that clip lies on the clip plane, not on a mesh edge,
+  and `CutInterp` can only name a mesh edge. There is no exact representation in the frozen struct.
+  Single-plane cuts — everything Phase 1 exercises — are unaffected and exact. **Phase 2's clip-plane
+  work should revisit this**, either by widening `CutInterp` or by having the engine fall back to a
+  barycentric sample for vertices flagged this way.
+- 2026-08-27 — **§6.3's oblique cut count could not be reproduced, because §6.3 does not say which
+  oblique plane.** The axial number *does* reproduce exactly — 62,966 cap triangles for the plane
+  through the bounding-box centre, which is what pins "the axial plane" to that one and is now
+  asserted. For the oblique, `normalize([1,1,1])` through the world origin gives 76,024 and through
+  the bbox centre 76,217; §6.3 publishes 67,189. The normative property — output bit-identical with
+  and without the block index — is asserted on both planes and holds.
+- 2026-08-27 — **`tvx-mesh-io` re-exports `field_stats` / `field_stats_parts`.** Additive, like that
+  crate's own `read_gifti_labels` / `read_msh_opt_names`: §6.2 does not name them, but `elm_to_node`
+  and `node_to_elm` must build a `Field` / `ElmField` and every such struct carries `stats`.
+  Duplicating the 65536-bin accumulator in a second crate would be two implementations of one
+  normative rule.
+- 2026-08-27 — **`tvx-wasm`'s `geom` feature is now `default = ["geom"]`.** The switch is kept
+  rather than deleted so `--no-default-features` still builds the module whose geometry ops answer
+  `Error::Unsupported`, which is what `packages/wasm/e2e/geometry.spec.ts` probes at runtime.

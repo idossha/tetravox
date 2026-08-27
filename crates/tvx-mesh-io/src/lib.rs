@@ -50,6 +50,11 @@ mod util;
 
 pub use gifti::read_labels as read_gifti_labels;
 pub use mshopt::read_names as read_msh_opt_names;
+/// Exact [`FieldStats`] over field values (§6.0's "no sampling" rule). **Additive**, like the two
+/// re-exports above: §6.2 does not name it, but `tvx-geom`'s `elm_to_node` / `node_to_elm` must
+/// build a `Field` / `ElmField`, and every such struct carries `stats`. Duplicating the 65536-bin
+/// accumulator in a second crate would be two implementations of one normative rule.
+pub use stats::{field_stats, field_stats_parts};
 
 use tvx_core::{Aabb, Field, FieldStats, LabelTable, ProgressSink, Result};
 
