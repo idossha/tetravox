@@ -210,6 +210,12 @@ pub fn mesh_isolate(
 
 /// `source` is `'node' | 'elm'`, `component` is `'mag' | '0' | '1' | '2'`.
 /// Returns `{ values, stats, n, partial }`.
+///
+/// **Ordering is part of the contract** (§6.5.2). `node` values are indexed by the internal node
+/// index — what `SurfacePayload.nodeIndex` and `CutPayload.interpNodes` carry. `elm` values are
+/// `[tris…, tets…]` in the **file's element order**, with the tet block un-permuted out of §6.3's
+/// Morton order, so row `i` is the file's `i`-th element and `MeshMeta.identityElementNumbers`
+/// says whether its Gmsh number is `i + 1`.
 #[wasm_bindgen]
 pub fn mesh_field(
     handle: u32,

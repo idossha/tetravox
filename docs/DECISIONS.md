@@ -1469,3 +1469,32 @@ Each entry below names the problem, the fix, and the evidence.
   P2-04's probe rows read. A regression test pins it with the sliver's real coordinates, because the
   failure is a property of those f32 values. Tightening the barycentric `EPS` instead — rejected: the
   weights are not near zero, they are meaningless.
+
+- 2026-08-27 — **`field`'s element values are the file's element order, and `MeshMeta` says whether
+  `gmsh - 1` may index them.** Found in the W-WASM re-check of Phase-2 protocol coverage. §7.4 builds
+  its element-field texture with `texelFetch(elmFieldTex, …)` per triangle, keyed by
+  `SurfacePayload.ownerElm` / `CutPayload.ownerTet` / `meshCentroids.ownerTet` — all **Gmsh element
+  numbers** (§6.2). The `field` op handed the tet block out in §6.3's **Morton** order, and
+  `tet_perm` never crosses the wire, so no consumer could turn a Gmsh number into a row: R4's gate
+  ("`Thalamus_TI.msh` with `TI_max` element colouring on the cut, cross-checked through `locate`")
+  was unimplementable, and the failure mode is a cut coloured with *other elements'* values — a
+  picture that looks entirely plausible and is wrong, which is the case §11 exists for. `elm_values`
+  now un-permutes the tet block, so row `i` is the file's `i`-th element for tris and tets alike, and
+  §6.5.2 states the ordering of both `source` kinds as part of the contract. `MeshMeta` gains
+  `identityElementNumbers` (true iff §6.2's identity rule holds, i.e. `gmsh_elm_numbers` is `None`,
+  which is every reference file and every format without element numbering): it is what licenses
+  `gmsh - 1`, so a consumer can detect the exotic case and colour by tag instead of silently painting
+  the wrong elements. Shipping `tet_perm` in `MeshMeta` instead — rejected: 19 MB on the wire for
+  ernie, to undo a permutation the worker can undo in one pass at query time. Leaving the ordering
+  undocumented and letting E-MESH discover it — rejected: no engine code consumes `field` yet, which
+  is exactly why W-WASM merges first.
+- 2026-08-27 — **`contours` is stored-triangles-only, and that is documented rather than patched.**
+  Same re-check: `grey_Thalamus_TI.msh` has 1,340,029 tets and **0 triangles**, so the `contours` op
+  answers with zero segments on the very mesh R4 names for mesh-only cross-sections. It is not a gap
+  — a tet mesh's `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with
+  `fillIn2D`'s polygons on the same latest-wins key, so the consumer makes one call, not two. The
+  trap was the silence, so §6.5.2, `surface_contours`' own doc comment and
+  `packages/wasm/e2e/contours.spec.ts` now say which producer serves which mesh, on the fixture and
+  on `grey_Thalamus_TI.msh` itself. Making `contours` fall back to the tet path — rejected: it would
+  need `TetBlocks` in a §6.3 signature that has none, and it would hide the distinction the 2D
+  overlay has to make anyway.

@@ -179,6 +179,16 @@ export interface MeshMeta {
   nTris: number;
   nTets: number;
   hasTris: boolean;
+  /**
+   * `true` iff the file numbers its elements exactly `1..N` in (tris then tets) order — §6.2's
+   * identity rule, which is the case for every reference `.msh` and for every format with no
+   * element numbering at all.
+   *
+   * It is what licenses `gmsh - 1` as the row index into the `field` / `elmToNode` element values
+   * for an `ownerElm` / `ownerTet`. When it is `false` that arithmetic is wrong, and a consumer
+   * must colour by tag rather than paint every element with another element's value.
+   */
+  identityElementNumbers: boolean;
   /** Baked into the node coordinates by the loader; identity when none (§4.3). */
   appliedTransform: Mat4x4;
   /** GIfTI CoordinateSystem strings, verbatim (§6.2). */
@@ -391,7 +401,16 @@ export interface OpResult {
   cut: CutResult;
   /** The client owns `maskId` and must `freeMask`. */
   isolate: { maskId: number; visibleTets: number; generation: number };
+  /**
+   * `source: 'node'` ⇒ one value per node, indexed by the INTERNAL node index — the same index
+   * `SurfacePayload.nodeIndex` and `CutPayload.interpNodes` carry.
+   *
+   * `source: 'elm'` ⇒ `[tris…, tets…]` in **the file's element order**, so row `i` is the file's
+   * `i`-th element and, when `MeshMeta.identityElementNumbers` is true, its Gmsh number is `i + 1`.
+   * That is what makes `ownerElm` / `ownerTet` usable as a lookup key (§6.5.2).
+   */
   field: { values: Float32Array; stats: StatsT; n: number; partial: boolean };
+  /** `nodeToElm`'s values follow the same element order as `field`'s. */
   elmToNode: { name: string; values: Float32Array; stats: StatsT };
   locate: { hit: ProbeHitT | null };
   marchingCubes: SurfacePayload;

@@ -267,6 +267,7 @@ export interface MeshDataset {
   transformedSpace?: string;
   bounds: Aabb;                       // of the delivered (world-mm) node coordinates, before `transform`
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
+  identityElementNumbers: boolean;    // §6.2's identity rule holds ⇒ `gmsh - 1` is a valid element row
   fields: MeshFieldInfo[];
   tags: MeshTag[];
   skipped: { elemType: number; count: number }[];
@@ -1558,12 +1559,12 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `buildTopology` | `{ handle: number }` | `{ faces: number; boundaryFaces: number }` | explicit, awaitable, progress-reporting |
 | `cut` | `{ handle: number; planes: PlaneT[] /* ≤6 */; maskId?: number; recycle?: boolean }` | `CutResult` | one `Cut` per plane, each clipped by the others. `recycle: true` ⇒ the worker passes its `CutOut` pool and the result is the `'recycled'` variant; otherwise `'buffers'` (§6.4) |
 | `isolate` | `{ handle: number; criteria: IsolateCriteriaT; labelVolume?: ArrayBuffer }` | `{ maskId: number; visibleTets: number; generation: number }` | client owns `maskId` and must `freeMask`. `labelVolume` is required iff `criteria.labelVolume` is set, is **cloned not transferred** (§5 rule 2), and is the only bulk argument any op takes |
-| `field` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel }` | `{ values: Float32Array; stats: StatsT; n: number; partial: boolean }` | |
-| `elmToNode` | `{ handle: number; direction: 'elmToNode' \| 'nodeToElm'; name: string }` | `{ name: string; values: Float32Array; stats: StatsT }` | both directions of §6.3's pair |
+| `field` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel }` | `{ values: Float32Array; stats: StatsT; n: number; partial: boolean }` | **ordering is part of the contract.** `node` ⇒ one value per INTERNAL node index (what `SurfacePayload.nodeIndex` and `CutPayload.interpNodes` carry). `elm` ⇒ `[tris…, tets…]` in the **file's element order**, so row `i` is the file's `i`-th element and, when `MeshMeta.identityElementNumbers`, its Gmsh number is `i + 1` — which is what makes `ownerElm` / `ownerTet` a usable lookup key. The tet block is **un-permuted** on the way out: §6.3 stores it in Morton order |
+| `elmToNode` | `{ handle: number; direction: 'elmToNode' \| 'nodeToElm'; name: string }` | `{ name: string; values: Float32Array; stats: StatsT }` | both directions of §6.3's pair; `nodeToElm` uses `field`'s element order |
 | `locate` | `{ handle: number; world: [number,number,number] }` | `{ hit: ProbeHitT \| null }` | one round trip: §6.3 `locate_point` returns the whole `ProbeHit`. `elementId` is always a Gmsh element number. Latest-wins on its own key |
 | `marchingCubes` | `{ handle: number; volumeIndex: number; iso: number; smooth: boolean }` | `SurfacePayload` | |
 | `marchingTets` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel; iso: number; maskId?: number }` | `SurfacePayload` | |
-| `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment |
+| `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment. **Stored triangles only.** A tri-less tet mesh (`grey_Thalamus_TI.msh`: 1,340,029 tets, 0 tris `[DATA]`) answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
 | `labelCentroids` | `{ handle: number; volumeIndex: number }` | `{ centroids: { id: number; centroid: [number,number,number]; count: number }[] }` | |
 | `meshCentroids` | `{ handle: number; maskId?: number; stride: number; tags?: number[] }` | `{ positions: Float32Array; ownerTet: Uint32Array }` | glyph origins for a **volumetric** `GlyphSpec` (§7.4): 3 floats and one Gmsh element number per origin, Morton order, no geometry. `maskId`/`tags` filter first, then every `stride`-th survivor; `stride: 0` is `Error::Parse`. Also serves the region panel's jump-to-centroid for a **mesh tissue tag** — the mean of a strided sample is 0.0156 mm off the true one on ernie's GM `[M2Max]` |
 | `free` | `{ handle: number }` | `{}` | the client then calls `worker.terminate()` |

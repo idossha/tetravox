@@ -215,6 +215,10 @@ fn meta(
     jsv::set_usize(&o, "nTris", m.tris.len());
     jsv::set_usize(&o, "nTets", m.tets.len());
     jsv::set_bool(&o, "hasTris", !m.tris.is_empty());
+    // §6.2's identity rule holds iff the file numbers its elements 1..N in (tris then tets) order.
+    // When it does, a consumer can turn an `ownerElm` / `ownerTet` into a row of `field`'s element
+    // values with `gmsh - 1`; when it does not, it must not (§6.5.1).
+    jsv::set_bool(&o, "identityElementNumbers", m.gmsh_elm_numbers.is_none());
     // §4.3: what the loader baked into the node coordinates. `tvx-mesh-io` applies GIfTI's
     // CoordinateSystemTransformMatrix but its frozen `Mesh` has nowhere to report *which* matrix
     // (docs/DECISIONS.md), so identity is what this layer can honestly claim.
@@ -624,10 +628,36 @@ fn stats_are_reusable(ncomp: usize, c: &Component) -> bool {
     matches!(c, Component::Mag) || (ncomp <= 1 && matches!(c, Component::At(0)))
 }
 
-fn elm_values(f: &ElmField) -> Vec<f32> {
+/// One element field as the wire carries it: `[tris…, tets…]` in **the file's element order**
+/// (§6.5.2), so row *i* is the file's *i*-th element and §6.2's identity rule makes its Gmsh number
+/// `i + 1` — which is what `SurfacePayload.ownerElm`, `CutPayload.ownerTet` and
+/// `meshCentroids.ownerTet` all carry.
+///
+/// The tet block therefore has to be **un-permuted**: §6.3 reorders tets by Morton code at load and
+/// permutes every tet-side `ElmField` with them, so `f.tet[j]` is Morton tet `j`, whose file row is
+/// `tet_perm[j]`. Handing that order out would key `E`/`TI_max` to the wrong element for every
+/// consumer that only knows a Gmsh number — a picture that looks entirely plausible and is wrong
+/// (§11). The tri block is never reordered, so it is already in file order.
+fn elm_values(mesh: &Mesh, f: &ElmField) -> Vec<f32> {
+    let nc = f.ncomp.max(1);
+    let ntets = f.tet.len() / nc;
     let mut v = Vec::with_capacity(f.tri.len() + f.tet.len());
     v.extend_from_slice(&f.tri);
-    v.extend_from_slice(&f.tet);
+    if mesh.tet_perm.len() != ntets {
+        // No permutation was built (no tets, or §6.3 not built in): the order is already the file's.
+        v.extend_from_slice(&f.tet);
+        return v;
+    }
+    let base = v.len();
+    v.resize(base + f.tet.len(), f32::NAN);
+    for j in 0..ntets {
+        let row = mesh.tet_perm[j] as usize;
+        if row >= ntets {
+            continue;
+        }
+        let dst = base + row * nc;
+        v[dst..dst + nc].copy_from_slice(&f.tet[j * nc..(j + 1) * nc]);
+    }
     v
 }
 
@@ -656,7 +686,7 @@ pub fn field(handle: u32, source: &str, name: &str, component: &str) -> Result<J
             "elm" => {
                 let f = find_elm_field(&st.mesh, name)?;
                 (
-                    select(&elm_values(f), f.ncomp, &c)?,
+                    select(&elm_values(&st.mesh, f), f.ncomp, &c)?,
                     &f.stats,
                     f.ncomp,
                     f.partial,
@@ -693,7 +723,11 @@ pub fn convert_field(handle: u32, direction: &str, source_name: &str) -> Result<
             "nodeToElm" => {
                 let f = find_node_field(&st.mesh, source_name)?;
                 let out = geom::node_to_elm(&st.mesh, f)?;
-                (out.name.clone(), elm_values(&out), out.stats.clone())
+                (
+                    out.name.clone(),
+                    elm_values(&st.mesh, &out),
+                    out.stats.clone(),
+                )
             }
             other => {
                 return Err(Error::Parse(format!(
