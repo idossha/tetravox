@@ -14,7 +14,8 @@
  * demands.
  */
 
-import { BrowserWindow, app, ipcMain } from 'electron';
+import { BrowserWindow, app, ipcMain, session } from 'electron';
+import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
@@ -40,6 +41,56 @@ app.commandLine.appendSwitch('enable-webgl-developer-extensions');
 let mainWindow: BrowserWindow | null = null;
 const getWindow = (): BrowserWindow | null => mainWindow;
 
+/**
+ * The renderer's launch query, from `--tvx-search=<querystring>` or `TETRAVOX_SEARCH`.
+ *
+ * The window is loaded with `loadURL('tetravox://app/index.html')` (§5) and there is nowhere else to
+ * put a launch option the renderer can read on its **first** render — an IPC round trip is a commit
+ * too late. It carries exactly two kinds of thing, both dev/test only: `ui=phase0`, which selects the
+ * Phase-0 walking skeleton that ROADMAP gate items 2/3/8 are proved by, and the stand-in engine's
+ * knobs (`engine=`, `mockStepMs=`, `mockParseFail=`, `forceWebgl2Null=`).
+ *
+ * `collectCliPaths` already drops anything starting with `-`, so this never looks like a file. The
+ * value is re-serialised rather than concatenated, so a malformed one cannot smuggle a second `?` or
+ * a `#` into the URL.
+ */
+export function launchSearch(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  const PREFIX = '--tvx-search=';
+  const fromArgv = argv.find((arg) => arg.startsWith(PREFIX))?.slice(PREFIX.length);
+  const raw = fromArgv ?? env['TETRAVOX_SEARCH'] ?? '';
+  if (raw === '') return '';
+  const search = new URLSearchParams(raw).toString();
+  return search === '' ? '' : `?${search}`;
+}
+
+/**
+ * Where the §8 screenshot button's PNG lands.
+ *
+ * The renderer hands the `Blob` to an `<a download>`; Electron's default for a download with no
+ * `savePath` is a **Save As dialog**, which would hang the app behind a modal nobody asked for and
+ * would hang the E2E outright. Setting the path turns it into a plain write and lets main log where
+ * the file went. `TETRAVOX_DOWNLOAD_DIR` redirects it, which is how the E2E asserts a real PNG
+ * rather than a MIME type.
+ */
+function installDownloadHandler(): void {
+  session.defaultSession.on('will-download', (_event, item) => {
+    const dir = process.env['TETRAVOX_DOWNLOAD_DIR'] ?? app.getPath('downloads');
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      // Fall through: `setSavePath` into a missing directory fails the item, which is reported below.
+    }
+    const target = join(dir, item.getFilename());
+    item.setSavePath(target);
+    item.once('done', (_e, state) => {
+      console.log(`[tetravox] download ${state}: ${target}`);
+    });
+  });
+}
+
 /** Phase-0 fixture: a real file on disk in both dev and packaged, for the gate's file-fetch leg. */
 function phase0FixturePath(): string {
   return app.isPackaged
@@ -51,6 +102,10 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1280,
     height: 860,
+    // Below this the §8 three-column layout has nothing left for the view grid: the two side panels
+    // are 18 rem and 20 rem, so a window narrower than ~960 px would show panels and no viewport.
+    minWidth: 960,
+    minHeight: 600,
     show: false,
     backgroundColor: '#0b0b0f',
     title: 'Tetravox',
@@ -68,11 +123,12 @@ function createWindow(): BrowserWindow {
 
   win.once('ready-to-show', () => win.show());
 
+  const search = launchSearch(process.argv);
   const devServer = process.env['ELECTRON_RENDERER_URL'];
   if (devServer && process.env['TETRAVOX_FORCE_PROTOCOL'] !== '1') {
-    void win.loadURL(devServer);
+    void win.loadURL(devServer + search);
   } else {
-    void win.loadURL('tetravox://app/index.html');
+    void win.loadURL(`tetravox://app/index.html${search}`);
   }
   return win;
 }
@@ -128,6 +184,7 @@ if (!app.requestSingleInstanceLock()) {
     // 3. Serve the scheme (§5, directive A2).
     handleScheme(rendererRoot);
     buildMenu(getWindow);
+    installDownloadHandler();
 
     const cliPaths = toOpened(collectCliPaths(process.argv, app.getAppPath(), process.cwd()));
     startupPaths = [...startupPaths, ...cliPaths];

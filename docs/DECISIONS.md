@@ -883,3 +883,60 @@ wasm-pack regenerates it from the crate's doc comments.
   §9.1 row 1's 400 ms is a whole-frame budget on machine A and stays `[TARGET]`; the 366–370 ms above is
   fetch + inflate + parse + stats + `gpu_payload` + the transfer to the UI thread on an M2 Max, with
   the GL upload and first draw still to come.
+## 2026-08-27 — Phase 1: the app shell (`packages/app`)
+
+- 2026-08-27 — **The shell is developed against an app-local `NoGlEngine`, not `packages/engine`'s
+  `MockEngine`.** §4.7 says `MockEngine` "implements it with no GL so the app agent can build the entire
+  UI in Phase 1", but at the end of Phase 0 every member of it throws `'phase 1'`, and it lives inside
+  `packages/engine/src/api.ts` — one of §12.3's five frozen files, owned by the engine agent for the whole
+  of Phase 1. Filling in those bodies from the app's worktree would be editing a frozen file *and*
+  writing into another agent's package (AGENTS rule 3). `packages/app/src/renderer/src/engine/mockEngine.ts`
+  implements the same frozen `Engine` **interface**, imported from `@tetravox/engine`, so the compiler
+  still proves the shell only ever uses contract members; `engine/factory.ts` chooses between it and the
+  real `create()` on one constant, `ENGINE_IMPL`, with `?engine=real|mock` as a per-window override.
+  **The integration step is flipping that constant.** Rejected: unfreezing `api.ts` to fill `MockEngine`
+  in (needs an ARCHITECTURE edit for something no contract reader would call a contract change), and
+  waiting for the real engine (which is the coupling Phase 1's split exists to avoid).
+- 2026-08-27 — **Two §8 behaviours have no member on the frozen §4.7 facade, and the app duck-types them
+  rather than editing it.** (a) §7.5's `r` (reset view) and `1..6` (A/P/L/R/S/I presets) need `fit()` and
+  the preset rotations, which are engine maths; `setView(id, patch)` could carry a whole `Camera3D`, but
+  computing one in the app would put scene-bounds fitting in React, which §8's last line forbids. §7.5's
+  `c` edits `Scene.annotations`, and `Scene` is exposed `Readonly` with no setter at all. (b) §8's status
+  bar owes "wasm `heapBytes` per dataset", which §6.5.2 stamps on every `Res` — and `EngineEvents` carries
+  none, so it stops at the engine. `engine/commands.ts` declares both as optional interfaces
+  (`resetView`/`cameraPreset`/`setAnnotations`, `heapBytes(id)`) and probes for them at runtime: an engine
+  that has them gets the behaviour, one that does not shows a disabled control. `NoGlEngine` implements
+  all four. **The integrator closes this one of two ways** — the real engine implements the same four
+  members (no contract change, since an implementation may exceed its interface), or §4.7 grows them in
+  an ARCHITECTURE edit. Leaving it duck-typed forever is not the third option: it is a gap, recorded so
+  it is not mistaken for a design.
+- 2026-08-27 — **Loads run one at a time.** `Engine.addDataset` resolves with a `Dataset` only at the end
+  of a load, while `EngineEvents.progress` carries the `datasetId` from the first phase — so a load card
+  exists before it knows its own id, and §8's Cancel can be pressed in that window. Sequencing makes
+  "this progress event belongs to the one unbound card" unambiguous, and it is also the right memory
+  answer: with worker-per-dataset (§5 rule 1) two 492 MB meshes in flight is two wasm heaps at once
+  (§9.2). A cancel pressed before the id exists is recorded on the card and issued as `cancelDataset` the
+  moment the first progress event reveals the id; a cancel on a *queued* card never starts a worker at
+  all. Rejected: correlating parallel loads by request order (a guess the moment two loads interleave),
+  and having the card wait for `addDataset` to resolve before showing anything (which would forfeit
+  ROADMAP Phase-1 gate 1's "progress visible within 200 ms").
+- 2026-08-27 — **The §8 shell is the default UI and the Phase-0 walking skeleton moved behind
+  `?ui=phase0`, reached from a new `--tvx-search=<querystring>` launch switch.** ROADMAP gate items 2, 3
+  and 8 are proved by that component and by nothing else, and CI runs its packaged E2E with
+  `TETRAVOX_REQUIRE_PACKAGED=1` where a skip is a failure — so it had to stay reachable, unchanged, in
+  the **packaged** artefact. The window is loaded with `loadURL('tetravox://app/index.html')` (§5) and an
+  IPC round trip lands a commit too late for a first render, so the query string is the only place a
+  launch option can travel; it is re-serialised through `URLSearchParams` so a malformed value cannot
+  smuggle a second `?` or a `#`, and `collectCliPaths` already drops `-`-prefixed argv so it never looks
+  like a file. The same switch carries the stand-in's knobs (`engine=`, `mockStepMs=`, `mockParseFail=`,
+  `forceWebgl2Null=`). Rejected: `webPreferences.additionalArguments` (readable only from the preload,
+  which would then need a synchronous bridge member for something that is not app state).
+- 2026-08-27 — **Main sets a save path for downloads, and the window has a `minWidth`.** The §8
+  screenshot button hands its `Blob` to an `<a download>`; Electron's default for a download with no
+  `savePath` is a **Save As dialog**, so the button would open a modal nobody asked for and would hang
+  the E2E outright. `will-download` now writes to `app.getPath('downloads')`, redirectable with
+  `TETRAVOX_DOWNLOAD_DIR` — which is what lets the E2E decode a real PNG off disk instead of asserting a
+  MIME type. Separately, `minWidth: 960` exists because a tiling window manager on the development
+  machine snapped the window to 588 px the moment it was shown, and the two side panels (18 rem + 20 rem)
+  left the view grid at exactly zero width; `setBounds` from main did not survive the tiler, so the app
+  defends its own floor and the E2E waits for a non-zero grid box rather than for a window size.
