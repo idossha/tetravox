@@ -81,12 +81,22 @@ describe('layerSummary', () => {
 });
 
 describe('the editor registry', () => {
-  it('has an entry for every §4.4 kind, and none of them draws in Phase 1', () => {
+  it('has an entry for every §4.4 kind', () => {
     for (const kind of KINDS) {
       const element = LayerProperties({ layer: layer(kind), dataset: volume() });
       expect(element, kind).not.toBeUndefined();
     }
-    for (const Editor of [VolumeProperties, MeshProperties, IsoProperties, PointsProperties]) {
+  });
+
+  it('routes a volume layer to A-PROPS’ editor', () => {
+    // `LayerProperties` returns `<Editor …/>`; creating the element does not call the component, so
+    // this asserts the registration without needing a renderer for an editor that reads context.
+    const element = LayerProperties({ layer: layer('volume'), dataset: volume() });
+    expect(element?.type).toBe(VolumeProperties);
+  });
+
+  it('draws nothing for the kinds whose editors are still Phase 2’s', () => {
+    for (const Editor of [MeshProperties, IsoProperties, PointsProperties]) {
       expect(Editor({ layer: layer('volume'), dataset: volume() })).toBeNull();
     }
   });

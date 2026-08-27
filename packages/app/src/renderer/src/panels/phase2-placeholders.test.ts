@@ -2,14 +2,17 @@
  * The Phase-2 placeholders exist, are typed, and render nothing.
  *
  * A module nobody imports is a module nobody compiles against in practice — the props of the
- * relocate dialog and the histogram are the seams two owners have to agree on, so they are exercised
- * here rather than left to be discovered when the first one is wired up.
+ * relocate dialog are a seam two owners have to agree on, so they are exercised here rather than
+ * left to be discovered when the first one is wired up.
+ *
+ * The histogram and the region panel have **left** this list: A-PROPS implemented both, they read
+ * React context and hold state, and a function component with hooks cannot be called outside a
+ * renderer. What replaced these two assertions is `histogram/*.test.ts`, `regions/regions.test.ts`
+ * and the Playwright-Electron specs that drive the real DOM.
  */
 
 import { describe, expect, it } from 'vitest';
 import type { DatasetRef, ScreenshotOptions } from '@tetravox/engine';
-import { Histogram } from './histogram/Histogram';
-import { RegionPanel } from './regions/RegionPanel';
 import { RelocateDialog } from '../dialogs/RelocateDialog';
 import { ScreenshotDialog } from '../dialogs/ScreenshotDialog';
 import { KeyboardHelp } from '../keyboard/KeyboardHelp';
@@ -33,16 +36,6 @@ const MISSING: DatasetRef[] = [
 
 describe('Phase-2 placeholders', () => {
   it('render nothing and cost nothing to mount', () => {
-    expect(RegionPanel({ layerId: 'layer1' })).toBeNull();
-    expect(
-      Histogram({
-        stats: { min: 0, max: 1, mean: 0.5, std: 0.1, percentiles: {} } as never,
-        window: { lo: 0, hi: 1 },
-        threshold: null,
-        onWindow: () => {},
-        onThreshold: () => {},
-      })
-    ).toBeNull();
     expect(
       RelocateDialog({ missing: MISSING, onResolved: () => {}, onCancel: () => {} })
     ).toBeNull();
