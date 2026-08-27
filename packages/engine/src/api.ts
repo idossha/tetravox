@@ -9,6 +9,11 @@
  * `./gl/caps` (§7.1) — and nothing else.
  *
  * `MockEngine` implements `Engine` with no GL so the app agent can build the entire UI in Phase 1.
+ *
+ * §4.7 originally required this file to import "exactly two things" — the §4.1-§4.6 types and
+ * `Capabilities`. Phase 1 adds a third: `create()` must return a *working* engine synchronously, and
+ * the working engine is `./engine`. The alternative was inlining the whole WebGL2 renderer into this
+ * frozen file. ARCHITECTURE.md §4.7 was amended in the same commit (§12.3's rule for a frozen file).
  */
 
 import type {
@@ -29,6 +34,7 @@ import type {
   vec3,
 } from './scene/types';
 import type { Capabilities } from './gl/caps';
+import { TetravoxEngine } from './engine';
 
 /** Maps 1:1 onto protocol `LoadSource` (§6.5.1). */
 export type DatasetSource =
@@ -170,9 +176,9 @@ export interface Engine {
 }
 
 export function create(canvas: HTMLCanvasElement, opts?: EngineOptions): Engine {
-  void canvas;
-  void opts;
-  throw new Error('phase 1');
+  // The implementation lives in `./engine`. This file stays the facade plus `MockEngine`; the one
+  // value import at the top is what §4.7 was amended for (see docs/DECISIONS.md, 2026-08-27).
+  return new TetravoxEngine(canvas, opts);
 }
 
 /**

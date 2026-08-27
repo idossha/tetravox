@@ -13,6 +13,11 @@
 import { fileURLToPath } from 'node:url';
 
 const port = Number(process.env.TETRAVOX_TEST_PORT ?? 5199);
+// The scene page loads real NIfTI/mesh bytes over `/@fs/<abs path>`: the committed fixtures live at
+// the repository root (outside this package) and `$TETRAVOX_TESTDATA` lives outside the repository
+// entirely. Both must be admitted explicitly, because `fs.strict` is on.
+const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+const realData = process.env.TETRAVOX_TESTDATA;
 
 export default {
   root: fileURLToPath(new URL('..', import.meta.url)),
@@ -24,6 +29,6 @@ export default {
     host: '127.0.0.1',
     port,
     strictPort: true,
-    fs: { strict: true },
+    fs: { strict: true, allow: realData ? [repoRoot, realData] : [repoRoot] },
   },
 };

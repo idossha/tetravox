@@ -18,6 +18,8 @@
  *   `EngineOptions.forceCaps`.
  */
 
+import { probeContextCapabilities } from './context';
+
 export interface Capabilities {
   /** `WEBGL_debug_renderer_info` */
   renderer: string;
@@ -45,6 +47,30 @@ export interface Capabilities {
 }
 
 export function probeCapabilities(gl: WebGL2RenderingContext): Capabilities {
-  void gl;
-  throw new Error('phase 1');
+  // §7.1: one implementation. `context.ts` holds it because that is the only place allowed to call
+  // `getExtension`, and this frozen signature delegates rather than duplicating the probe.
+  return probeContextCapabilities(gl);
+}
+
+/**
+ * Apply `EngineOptions.forceCaps` (§7.1, §11).
+ *
+ * **May only ever REMOVE a capability, never add one** — a test axis that could invent
+ * `norm16: true` on SwiftShader would render a texture format the driver does not have. Each field
+ * is therefore ANDed with the probed value.
+ */
+export function applyForcedCaps(
+  probed: Capabilities,
+  forced?: Partial<Pick<Capabilities, 'norm16' | 'floatLinear' | 'clipDistance' | 'timerQuery'>>
+): Capabilities {
+  if (forced === undefined) return probed;
+  const out: Capabilities = { ...probed };
+  if (forced.norm16 !== undefined) out.norm16 = probed.norm16 && forced.norm16;
+  if (forced.floatLinear !== undefined) out.floatLinear = probed.floatLinear && forced.floatLinear;
+  if (forced.clipDistance !== undefined) {
+    out.clipDistance = probed.clipDistance && forced.clipDistance;
+    if (!out.clipDistance) out.maxClipDistances = 0;
+  }
+  if (forced.timerQuery !== undefined) out.timerQuery = probed.timerQuery && forced.timerQuery;
+  return out;
 }

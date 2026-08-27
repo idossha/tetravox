@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>tetravox — scene</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+      }
+      /* No CSS sizing: the canvas is exactly its backing store at deviceScaleFactor 1, so canvas
+         pixels, CSS pixels and golden-PNG pixels are the same grid (§11). */
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl" width="768" height="768"></canvas>
+    <script type="module" src="./scene.ts"></script>
+  </body>
+</html>

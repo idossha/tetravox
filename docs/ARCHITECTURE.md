@@ -475,8 +475,11 @@ opens a "relocate" dialog keyed on `fingerprint`.
 ### 4.7 Engine facade
 
 `packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. `MockEngine` implements it
-with no GL so the app agent can build the entire UI in Phase 1. It imports exactly two things — the §4.1–§4.6
-types from `./scene/types` and `Capabilities` from `./gl/caps` (§7.1) — and nothing else.
+with no GL so the app agent can build the entire UI in Phase 1. It imports the §4.1–§4.6 types from
+`./scene/types`, `Capabilities` from `./gl/caps` (§7.1), and — from Phase 1 — the concrete `TetravoxEngine` from
+`./engine`, which is the single **value** import and exists only so `create()` can return a working engine
+synchronously. Nothing else. (Phase 0 said "exactly two things"; the third was added when `create()` stopped
+throwing. `./engine` imports back from `./api` with `import type` only, so there is no runtime cycle.)
 
 ```ts
 export type DatasetSource =                     // maps 1:1 onto protocol `LoadSource` (§6.5.1)

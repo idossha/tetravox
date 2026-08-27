@@ -18,11 +18,12 @@ import type { NoGlEngineOptions } from './mockEngine';
 export type EngineImpl = 'real' | 'mock';
 
 /**
- * INTEGRATOR: flip to `'real'` once `packages/engine`'s `create()` returns a working engine. Nothing
- * else in `packages/app` needs to change — the shell only ever calls §4.7 members (plus the two
- * optional ones in `./commands.ts`, which degrade to disabled controls when absent).
+ * The real WebGL2 engine, since the Phase-1 integration. `packages/engine`'s `create()` returns a
+ * working engine and implements the four duck-typed members of `./commands.ts`, so every §8 control
+ * is live. `?engine=mock` still selects the stand-in, which is what the shell's own unit and E2E
+ * tests use so they stay independent of a GPU.
  */
-export const ENGINE_IMPL: EngineImpl = 'mock';
+export const ENGINE_IMPL: EngineImpl = 'real';
 
 /** `?engine=` wins over `ENGINE_IMPL`; anything else is ignored rather than guessed at. */
 export function engineImpl(search = globalThis.location?.search ?? ''): EngineImpl {
