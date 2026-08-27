@@ -29,7 +29,7 @@ import type { UiStore } from './store';
 import { activeLayer, datasetOf } from './store';
 import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
-import type { Command } from '../lib/keymap';
+import type { Command } from '../keyboard/keymap';
 import { LAYOUT_CYCLE, layoutCells, nextLayout } from '../lib/layout';
 import * as loads from '../lib/loads';
 import * as toasts from '../lib/toasts';

@@ -11,8 +11,8 @@
  */
 
 import type { ProbeResult, ProbeRow } from '@tetravox/engine';
-import { formatNumber, formatTriple } from '../lib/coords';
-import { useUi } from './context';
+import { formatNumber, formatTriple } from '../../lib/coords';
+import { useUi } from '../../ui/context';
 
 function valueText(value: ProbeRow['value']): string {
   if (value === undefined) return '—';

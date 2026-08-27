@@ -25,7 +25,7 @@ import {
   requestCancel,
   startCard,
 } from './loads';
-import { PRESET_KEYS, resolveKey } from './keymap';
+import { PRESET_KEYS, resolveKey } from '../keyboard/keymap';
 import { isToastWorthy, pruneToasts, pushToast, titleForCode } from './toasts';
 import { encodePng } from './png';
 

@@ -48,7 +48,7 @@ import type {
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
-import type { CameraPreset } from '../lib/keymap';
+import type { CameraPreset } from '../keyboard/keymap';
 import { PHASES } from '../lib/loads';
 import { encodePng } from '../lib/png';
 import { defaultLayer, guessKind, makeMesh, makeVolume } from './mockData';

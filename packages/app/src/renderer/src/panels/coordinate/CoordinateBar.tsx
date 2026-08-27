@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { useController, useUi } from './context';
+import { useController, useUi } from '../../ui/context';
 
 export function CoordinateBar(): React.JSX.Element {
   const controller = useController();

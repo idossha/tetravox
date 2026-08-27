@@ -5,7 +5,7 @@
  * This component owns three things and nothing else:
  *  * the canvas the engine draws into, and the engine's lifetime;
  *  * the four §8 ways a file arrives — menu / ⌘O (both over IPC from main), drag-and-drop, CLI argv;
- *  * the §7.5 keyboard map, resolved by `lib/keymap.ts` and executed by the controller.
+ *  * the §7.5 keyboard map, resolved by `keyboard/keymap.ts` and executed by the controller.
  *
  * Every one of those ends in an `Engine` call. There is no scene state in React.
  *
@@ -23,17 +23,17 @@ import { createEngine, engineImpl, webgl2Available } from '../engine/factory';
 import { ShellController } from '../store/controller';
 import { uiStore } from '../store/store';
 import type { UiStore } from '../store/store';
-import { isEditableTarget, resolveKey } from '../lib/keymap';
+import { isEditableTarget, resolveKey } from '../keyboard/keymap';
 import { requestFromDroppedFile, requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import { bridge } from '../bridge';
 import { ShellContext } from './context';
-import { CoordinateBar } from './CoordinateBar';
-import { InfoPanel } from './InfoPanel';
-import { LayerPanel } from './LayerPanel';
+import { CoordinateBar } from '../panels/coordinate/CoordinateBar';
+import { InfoPanel } from '../panels/info/InfoPanel';
+import { LayerPanel } from '../panels/layers/LayerPanel';
 import { StatusBar } from './StatusBar';
 import { Toasts } from './Toasts';
-import { Toolbar } from './Toolbar';
+import { Toolbar } from '../toolbar/Toolbar';
 import { ViewGrid } from './ViewGrid';
 import { Webgl2Error } from './Webgl2Error';
 

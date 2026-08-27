@@ -5,29 +5,17 @@
  * The list is shown **top first** while `Scene.layers` is bottom → top (§4.4), so "move up" is
  * `reorderLayers` toward the end of the array. Every control here is one §4.7 call.
  *
- * The per-kind property editor is Phase 2's (histogram widget, tissue table, region panel); what
- * ships here is the row itself plus the read-only summary a Phase-1 user needs to tell two layers
- * apart — dims and dtype for a volume, node/element counts and tags for a mesh.
+ * The per-kind property editor is Phase 2's (histogram widget, tissue table, region panel), and it
+ * lives one directory down per kind — `volume/`, `mesh/`, `iso/`, `points/` — behind the registry in
+ * `properties.tsx`. What ships here is the row itself plus the read-only summary a Phase-1 user needs
+ * to tell two layers apart.
  */
 
-import type { Dataset, Layer } from '@tetravox/engine';
-import { formatBytes } from '../lib/metrics';
+import type { Layer } from '@tetravox/engine';
+import { formatBytes } from '../../lib/metrics';
 import { LoadCards } from './LoadCards';
-import { useController, useUi } from './context';
-
-function summary(dataset: Dataset | undefined, layer: Layer): string {
-  if (dataset === undefined) return layer.kind;
-  if (dataset.kind === 'volume') {
-    const dims = dataset.dims.join('×');
-    const four =
-      dataset.nvols > 1
-        ? ` · vol ${(layer as { volumeIndex?: number }).volumeIndex ?? 0}/${dataset.nvols - 1}`
-        : '';
-    return `${dims} ${dataset.dtype}${dataset.isLabel ? ' · labels' : ''}${four}`;
-  }
-  const tris = dataset.hasTris ? `${dataset.nTris.toLocaleString()} tris` : 'no tris';
-  return `${dataset.nNodes.toLocaleString()} nodes · ${tris} · ${dataset.nTets.toLocaleString()} tets`;
-}
+import { LayerProperties, layerSummary } from './properties';
+import { useController, useUi } from '../../ui/context';
 
 function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
   const controller = useController();
@@ -128,9 +116,12 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
       </div>
 
       <p className="mt-0.5 truncate font-mono text-[10px] text-tvx-dim">
-        {summary(dataset, layer)}
+        {layerSummary(dataset, layer)}
         {heap === undefined ? '' : ` · heap ${formatBytes(heap)}`}
       </p>
+
+      {/* The per-kind editor (§8). Every one of the four is Phase 2's, so this renders nothing. */}
+      <LayerProperties layer={layer} dataset={dataset} />
     </li>
   );
 }

@@ -7,8 +7,8 @@
 
 import { useCallback } from 'react';
 import { LAYOUT_LABEL } from '../lib/layout';
-import { KEYMAP_HELP } from '../lib/keymap';
-import { useController, useUi } from './context';
+import { KEYMAP_HELP } from '../keyboard/keymap';
+import { useController, useUi } from '../ui/context';
 
 export function Toolbar(): React.JSX.Element {
   const controller = useController();

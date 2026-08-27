@@ -7,10 +7,10 @@
  * `cancelled` as soon as the rejection lands.
  */
 
-import { cardElapsedMs, cardPercent, isActive } from '../lib/loads';
-import type { LoadCard } from '../lib/loads';
-import { formatDuration } from '../lib/metrics';
-import { useController, useUi } from './context';
+import { cardElapsedMs, cardPercent, isActive } from '../../lib/loads';
+import type { LoadCard } from '../../lib/loads';
+import { formatDuration } from '../../lib/metrics';
+import { useController, useUi } from '../../ui/context';
 
 const STATE_LABEL: Record<LoadCard['state'], string> = {
   queued: 'queued',
