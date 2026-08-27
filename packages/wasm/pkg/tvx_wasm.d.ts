@@ -8,6 +8,10 @@
  *
  * A JS constructor is mandatory — the worker allocates and owns these arrays; wasm only `copy_from`s
  * into them.
+ *
+ * **wasm-bindgen consumes a `CutOut` passed by value**, so the pool the worker keeps is the nine typed
+ * arrays, not this wrapper: it builds a fresh `new CutOut(…)` over the same arrays for each call, which
+ * costs nothing — the wrapper only holds references to them.
  */
 export class CutOut {
     free(): void;
@@ -75,6 +79,7 @@ export function load_mesh(bytes: Uint8Array, format: string, opt_bytes: Uint8Arr
  * §6.1's `stats` / `label_index` / `gpu_payload` for that index.
  *
  * Resolves to the `loadVolume` op result: `{ meta, data, gpuBytes, labelIds?, denseIndexOf? }` (§6.5.2).
+ * `meta.name` comes back empty — the worker owns the `LoadSource` and fills it in.
  */
 export function load_volume(bytes: Uint8Array, lut_bytes: Uint8Array | null | undefined, float_linear: boolean, norm16: boolean, max_3d: number, want_linear: boolean, on_progress: Function): any;
 
@@ -162,7 +167,7 @@ export function tvx_ping_bytes(bytes: Uint8Array): number;
  * Phase-0 liveness: the crate version, so the shell can prove it instantiated *this* module.
  *
  * No op maps to it (§6.4). It exists because ROADMAP Phase-0 gate 2 demands a packaged artefact whose
- * triangle colour came from a real WASM call, and every other export is an `unimplemented!()` stub
+ * triangle colour came from a real WASM call, and every other export was an `unimplemented!()` stub
  * until Phase 1.
  */
 export function tvx_version(): string;
@@ -223,9 +228,11 @@ export interface InitOutput {
     readonly volume_frame: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly volume_label_centroids: (a: number, b: number) => [number, number, number];
     readonly volume_marching_cubes: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly wasm_heap_bytes: () => number;
     readonly free_mask: (a: number, b: number) => void;
     readonly free: (a: number) => void;
-    readonly wasm_heap_bytes: () => number;
+    readonly __wbindgen_exn_store: (a: number) => void;
+    readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

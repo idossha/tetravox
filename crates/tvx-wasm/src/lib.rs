@@ -1,11 +1,26 @@
 //! `tvx-wasm` — the worker-side wasm-bindgen surface.
 //!
 //! This crate is [`docs/ARCHITECTURE.md` §6.4](../../../docs/ARCHITECTURE.md) verbatim; every export is
-//! **frozen** (§12.3) and maps one-to-one onto a §6.5.2 op. Phase 0 ships signatures only.
+//! **frozen** (§12.3) and maps one-to-one onto a §6.5.2 op. Every body below is a thin adapter: it
+//! validates its string/scalar arguments, calls the crate that owns the work, and shapes the result
+//! into the §6.5.1 payload. The handle table, the sidecar LUT parse and the §6.2 tag ladder are the
+//! only state this crate owns — see [`handles`], [`lut`] and [`mesh`].
 //!
 //! **No export takes an abort argument.** Cancellation is `worker.terminate()` (§1, §5 rule 6);
 //! `on_progress` is present wherever an op can exceed one frame, and the `js_sys::Function` is called at
 //! section boundaries (every ~1 M records).
+//!
+//! **Errors.** A failure comes back as a rejected `JsValue` shaped `{ code, message }`, with `code`
+//! drawn from §6.5's `ErrorCode` union ([`err`]). A Rust `panic!` is *not* one of those: it traps the
+//! module, the worker sees a `WebAssembly.RuntimeError`, and the client tears the worker down and
+//! marks the dataset failed (§5 rule 8).
+//!
+//! **`tvx-geom` is not built in by default.** Every §6.3 call site lives in [`geom`] behind the
+//! `geom` cargo feature, because `tvx-geom` is still the Phase-0 `unimplemented!()` stub and calling
+//! one from wasm traps the module rather than returning an error. With the feature off the geometry
+//! ops answer `{ code: 'unsupported' }` and everything else — both loaders, `volumeFrame`, `field`,
+//! `free`, `freeMask`, `wasm_heap_bytes` — works normally. The integrator turns it on in the commit
+//! that lands a real `tvx-geom` (`docs/DECISIONS.md`).
 //!
 //! **Memory rules for results (never violated, §6.4):**
 //!
@@ -15,6 +30,9 @@
 //! > `copy_from` (one memcpy, no wasm-side output allocation). **Never** hand a `js_sys::*Array::view()`
 //! > onto `wasm.memory.buffer` across a call boundary: `memory.grow` detaches every outstanding view.
 //! > Never use `&mut [MaybeUninit<T>]` for outputs — two copies.
+//!
+//! Every bulk array here crosses as `js_sys::*Array::from(&slice)`, which allocates a fresh JS typed
+//! array and memcpys into it — an owned buffer, never a view.
 //!
 //! Op → export, exhaustive (§6.5.2):
 //! `loadVolume`→[`load_volume`] · `loadMesh`→[`load_mesh`] · `volumeFrame`→[`volume_frame`] ·
@@ -32,7 +50,28 @@
 // wasm-bindgen surface carries no shared type.
 #![allow(clippy::too_many_arguments)]
 
+pub mod err;
+pub mod geom;
+pub mod handles;
+pub mod jsv;
+pub mod lut;
+pub mod mesh;
+pub mod progress;
+pub mod stats;
+pub mod surface;
+pub mod volume;
+
+use progress::JsProgress;
+use tvx_nifti::GpuCaps;
 use wasm_bindgen::prelude::*;
+
+fn caps_of(float_linear: bool, norm16: bool, max_3d: u32) -> GpuCaps {
+    GpuCaps {
+        float_linear,
+        norm16,
+        max_3d,
+    }
+}
 
 /// `load_volume` and `volume_frame` take [`tvx_nifti::GpuCaps`] flattened into scalars rather than a
 /// struct: the caps come from `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2),
@@ -42,6 +81,7 @@ use wasm_bindgen::prelude::*;
 /// §6.1's `stats` / `label_index` / `gpu_payload` for that index.
 ///
 /// Resolves to the `loadVolume` op result: `{ meta, data, gpuBytes, labelIds?, denseIndexOf? }` (§6.5.2).
+/// `meta.name` comes back empty — the worker owns the `LoadSource` and fills it in.
 #[wasm_bindgen]
 pub fn load_volume(
     bytes: Vec<u8>,
@@ -52,16 +92,15 @@ pub fn load_volume(
     want_linear: bool,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (
+    let mut p = JsProgress::new(on_progress);
+    volume::load(
         bytes,
         lut_bytes,
-        float_linear,
-        norm16,
-        max_3d,
+        caps_of(float_linear, norm16, max_3d),
         want_linear,
-        on_progress,
-    );
-    unimplemented!("phase 1")
+        &mut p,
+    )
+    .map_err(err::map)
 }
 
 /// `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'`; `auto` dispatches through
@@ -75,8 +114,8 @@ pub fn load_mesh(
     lut_bytes: Option<Vec<u8>>,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (bytes, format, opt_bytes, lut_bytes, on_progress);
-    unimplemented!("phase 1")
+    let mut p = JsProgress::new(on_progress);
+    mesh::load(bytes, format, opt_bytes, lut_bytes, &mut p).map_err(err::map)
 }
 
 /// The **only** way to display a 4D index ≠ 0 (§6.5.2). Returns `VolumeFrameT`.
@@ -89,8 +128,13 @@ pub fn volume_frame(
     max_3d: u32,
     want_linear: bool,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, vol_index, float_linear, norm16, max_3d, want_linear);
-    unimplemented!("phase 1")
+    volume::frame(
+        handle,
+        vol_index as usize,
+        caps_of(float_linear, norm16, max_3d),
+        want_linear,
+    )
+    .map_err(err::map)
 }
 
 /// [`tvx_geom::tag_surfaces`] when the mesh has tris, else [`tvx_geom::extract_boundary`].
@@ -102,8 +146,8 @@ pub fn mesh_surface(
     variant: &str,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, mask_id, variant, on_progress);
-    unimplemented!("phase 1")
+    let mut p = JsProgress::new(on_progress);
+    mesh::surface_op(handle, mask_id, variant, &mut p).map_err(err::map)
 }
 
 /// Always [`tvx_geom::extract_boundary`]; used after isolation/clip.
@@ -114,8 +158,8 @@ pub fn mesh_boundary(
     variant: &str,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, mask_id, variant, on_progress);
-    unimplemented!("phase 1")
+    let mut p = JsProgress::new(on_progress);
+    mesh::boundary_op(handle, mask_id, variant, &mut p).map_err(err::map)
 }
 
 /// Explicit, awaitable, progress-reporting. Returns `{ faces, boundaryFaces }`.
@@ -124,8 +168,8 @@ pub fn mesh_build_topology(
     handle: u32,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, on_progress);
-    unimplemented!("phase 1")
+    let mut p = JsProgress::new(on_progress);
+    mesh::build_topology(handle, &mut p).map_err(err::map)
 }
 
 /// `planes` is 4 f32 per plane (`normal.xyz`, `offset`), ≤ 6 planes.
@@ -146,8 +190,7 @@ pub fn mesh_cut(
     mask_id: Option<u32>,
     out: Option<CutOut>,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, planes, mask_id, out);
-    unimplemented!("phase 1")
+    mesh::cut(handle, planes, mask_id, out).map_err(err::map)
 }
 
 /// `criteria_json` is `JSON.stringify(IsolateCriteriaT)`, deserialised into
@@ -161,8 +204,8 @@ pub fn mesh_isolate(
     label_volume: Option<Vec<u8>>,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, criteria_json, label_volume, on_progress);
-    unimplemented!("phase 1")
+    let mut p = JsProgress::new(on_progress);
+    mesh::isolate(handle, criteria_json, label_volume, &mut p).map_err(err::map)
 }
 
 /// `source` is `'node' | 'elm'`, `component` is `'mag' | '0' | '1' | '2'`.
@@ -174,8 +217,7 @@ pub fn mesh_field(
     name: &str,
     component: &str,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, source, name, component);
-    unimplemented!("phase 1")
+    mesh::field(handle, source, name, component).map_err(err::map)
 }
 
 /// Both directions of §6.3's pair: `direction` is `'elmToNode' | 'nodeToElm'`.
@@ -185,16 +227,14 @@ pub fn mesh_convert_field(
     direction: &str,
     source_name: &str,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, direction, source_name);
-    unimplemented!("phase 1")
+    mesh::convert_field(handle, direction, source_name).map_err(err::map)
 }
 
 /// One round trip: [`tvx_geom::locate_point`] returns the whole `ProbeHit`. `elementId` in the result is
 /// always a Gmsh element number (§6.2).
 #[wasm_bindgen]
 pub fn mesh_locate(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsValue> {
-    let _ = (handle, x, y, z);
-    unimplemented!("phase 1")
+    mesh::locate(handle, x, y, z).map_err(err::map)
 }
 
 #[wasm_bindgen]
@@ -205,8 +245,8 @@ pub fn volume_marching_cubes(
     smooth: bool,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, vol_index, iso, smooth, on_progress);
-    unimplemented!("phase 1")
+    let mut p = JsProgress::new(on_progress);
+    volume::marching_cubes(handle, vol_index as usize, iso, smooth, &mut p).map_err(err::map)
 }
 
 #[wasm_bindgen]
@@ -219,47 +259,43 @@ pub fn mesh_marching_tets(
     mask_id: Option<u32>,
     on_progress: &js_sys::Function,
 ) -> Result<JsValue, JsValue> {
-    let _ = (handle, source, name, component, iso, mask_id, on_progress);
-    unimplemented!("phase 1")
+    let mut p = JsProgress::new(on_progress);
+    mesh::marching_tets(handle, source, name, component, iso, mask_id, &mut p).map_err(err::map)
 }
 
 /// `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment.
 #[wasm_bindgen]
 pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>) -> Result<JsValue, JsValue> {
-    let _ = (handle, plane, mask_id);
-    unimplemented!("phase 1")
+    mesh::contours(handle, plane, mask_id).map_err(err::map)
 }
 
 #[wasm_bindgen]
 pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue> {
-    let _ = (handle, vol_index);
-    unimplemented!("phase 1")
+    volume::label_centroids(handle, vol_index as usize).map_err(err::map)
 }
 
 /// Drop the dataset behind `handle` and every mask attached to it. The client then calls
 /// `worker.terminate()` — that is the only way to give wasm linear memory back (§5 rule 1).
 #[wasm_bindgen]
 pub fn free(handle: u32) {
-    let _ = handle;
-    unimplemented!("phase 1")
+    handles::free(handle);
 }
 
 #[wasm_bindgen]
 pub fn free_mask(handle: u32, mask_id: u32) {
-    let _ = (handle, mask_id);
-    unimplemented!("phase 1")
+    handles::free_mask(handle, mask_id);
 }
 
 /// Stamped onto every `Res` (§6.5) and read by the §9 memory bar and `scripts/bench.ts`.
 #[wasm_bindgen]
 pub fn wasm_heap_bytes() -> u32 {
-    unimplemented!("phase 1")
+    handles::heap_bytes()
 }
 
 /// Phase-0 liveness: the crate version, so the shell can prove it instantiated *this* module.
 ///
 /// No op maps to it (§6.4). It exists because ROADMAP Phase-0 gate 2 demands a packaged artefact whose
-/// triangle colour came from a real WASM call, and every other export is an `unimplemented!()` stub
+/// triangle colour came from a real WASM call, and every other export was an `unimplemented!()` stub
 /// until Phase 1.
 #[wasm_bindgen]
 pub fn tvx_version() -> String {
@@ -326,6 +362,10 @@ mod tests {
 ///
 /// A JS constructor is mandatory — the worker allocates and owns these arrays; wasm only `copy_from`s
 /// into them.
+///
+/// **wasm-bindgen consumes a `CutOut` passed by value**, so the pool the worker keeps is the nine typed
+/// arrays, not this wrapper: it builds a fresh `new CutOut(…)` over the same arrays for each call, which
+/// costs nothing — the wrapper only holds references to them.
 #[wasm_bindgen]
 pub struct CutOut {
     /// 3 per vertex.
