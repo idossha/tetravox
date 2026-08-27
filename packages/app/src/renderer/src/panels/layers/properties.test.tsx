@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Dataset, Layer, MeshDataset, VolumeDataset } from '@tetravox/engine';
+import type { LayerPropertiesProps } from './properties';
 import { LayerProperties, layerSummary } from './properties';
 import { IsoProperties } from './iso/IsoProperties';
 import { MeshProperties } from './mesh/MeshProperties';
@@ -73,21 +74,56 @@ describe('layerSummary', () => {
     );
   });
 
-  it('falls back to the kind while the dataset has not landed, and for the Phase-2 kinds', () => {
+  it('falls back to the kind while the dataset has not landed', () => {
     expect(layerSummary(undefined, layer('volume'))).toBe('volume');
-    expect(layerSummary(volume(), layer('iso'))).toBe('iso');
-    expect(layerSummary(mesh(), layer('points'))).toBe('points');
+  });
+
+  // A-PROPS (half 2), Phase 2: the `iso` and `points` editors have landed, so their summaries are
+  // no longer the bare kind. `docs/PHASE2-OWNERSHIP.md`: "properties.test.tsx stays exhaustive over
+  // §4.4's four kinds as each editor lands."
+  it('describes an isosurface by its level and its source', () => {
+    expect(layerSummary(volume(), layer('iso', { iso: 0.5 }))).toBe('iso 0.5000 · T1.nii.gz');
+    expect(
+      layerSummary(
+        mesh(),
+        layer('iso', {
+          iso: 1.25,
+          source: { datasetId: 'ds2', field: { source: 'elm', name: 'TI_max', component: 'mag' } },
+        })
+      )
+    ).toBe('iso 1.250 · TI_max');
+  });
+
+  it('describes a points layer by its count and shape', () => {
+    expect(layerSummary(mesh(), layer('points', { points: [], shape: 'sphere' }))).toBe(
+      '0 points · sphere'
+    );
+    expect(
+      layerSummary(
+        mesh(),
+        layer('points', { points: [{ name: 'Fp1', position: [1, 2, 3] }], shape: 'dot' })
+      )
+    ).toBe('1 point · dot');
   });
 });
 
 describe('the editor registry', () => {
-  it('has an entry for every §4.4 kind, and none of them draws in Phase 1', () => {
+  /**
+   * Every editor checks `layer.kind` **before** it touches a hook, which is what makes this callable
+   * at all: the app's vitest project runs under `node` with no DOM (see `vitest.config.ts`), so a
+   * mounted editor belongs in the Playwright-Electron E2E and a mismatched kind is the one call that
+   * is meaningful here. It asserts the registry is exhaustive *and* that the guard is in front.
+   */
+  it('has an editor for every §4.4 kind, and each declines a layer of another kind', () => {
+    const editors: Record<(typeof KINDS)[number], (p: LayerPropertiesProps) => unknown> = {
+      volume: VolumeProperties,
+      mesh: MeshProperties,
+      iso: IsoProperties,
+      points: PointsProperties,
+    };
     for (const kind of KINDS) {
-      const element = LayerProperties({ layer: layer(kind), dataset: volume() });
-      expect(element, kind).not.toBeUndefined();
-    }
-    for (const Editor of [VolumeProperties, MeshProperties, IsoProperties, PointsProperties]) {
-      expect(Editor({ layer: layer('volume'), dataset: volume() })).toBeNull();
+      const other = kind === 'volume' ? 'mesh' : 'volume';
+      expect(editors[kind]({ layer: layer(other), dataset: volume() }), kind).toBeNull();
     }
   });
 
