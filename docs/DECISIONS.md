@@ -1651,3 +1651,13 @@ Each entry below names the problem, the fix, and the evidence.
   reads the corner block in a 2×2. `DrawInput.viewFit` remembers what each pane was fitted at
   (`resetView`, and the auto-fit on the first dataset), so "zoom" means what a user means by it and
   `r` always returns the readout to nothing.
+
+- 2026-08-27 — **`page.mouse.wheel` resolves before the page has handled the wheel** (E-SCENE, found
+  by running both Playwright projects together). It resolves once the event is *dispatched* to the
+  renderer, so a `whenSettled()` immediately after it sees an engine with nothing pending and returns
+  at once — and the next `cursorOf` reads the cursor from before the notch. The SwiftShader project
+  happened to win that race on every run; the headed **ANGLE** one does not, and §7.5's anti-drift
+  test read a one-voxel step as `2.5` — two notches, one reading. `pointer.spec.ts`'s `wheelNotch`
+  now waits for the cursor to actually move before settling. Worth recording because it is a property
+  of `page.mouse.wheel`, not of this test: any spec that wheels and then reads state needs the same
+  wait, and the failure is invisible on the golden-authority project.

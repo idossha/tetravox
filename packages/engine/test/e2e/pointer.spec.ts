@@ -169,6 +169,26 @@ const settle = async (page: Page): Promise<void> => {
 };
 
 /**
+ * One wheel notch, **waited on**.
+ *
+ * `page.mouse.wheel` resolves once the event has been *dispatched* to the renderer, not once the
+ * page has handled it, and `whenSettled()` called a microsecond later sees an engine with nothing
+ * pending and returns straight away — so a `cursorOf` right after it can read the cursor from before
+ * the notch. On the SwiftShader project the handler happened to win that race; on the headed ANGLE
+ * one it does not, which is how a step of `1` was read as `2.5`: two notches, one reading. Waiting
+ * for the cursor to actually move is the only synchronisation that means anything here.
+ */
+async function wheelNotch(page: Page, deltaY: number): Promise<void> {
+  const before = (await cursorOf(page))[2];
+  await page.mouse.wheel(0, deltaY);
+  await page.waitForFunction(
+    (z) => (window.__tvxEngine!.scene.cursor[2] as number) !== z,
+    before as number
+  );
+  await settle(page);
+}
+
+/**
  * The crosshair's centroid inside one pane, in pane pixels — how R1's "the 3D crosshair moves" is
  * measured.
  *
@@ -703,14 +723,12 @@ test('@angle §7.5: the wheel steps slices along the normal, reversibly — §11
   // exactly one voxel, which is what the rule is about.
   const preStart = await cursorOf(page);
   await page.mouse.move(CANVAS / 2, CANVAS / 2);
-  await page.mouse.wheel(0, -100);
-  await settle(page);
+  await wheelNotch(page, -100);
   const start = await cursorOf(page);
   expect(start[0], 'the snap never moves the cursor in-plane').toBeCloseTo(preStart[0], 9);
   expect(start[1]).toBeCloseTo(preStart[1], 9);
 
-  await page.mouse.wheel(0, -100);
-  await settle(page);
+  await wheelNotch(page, -100);
   const stepped = await cursorOf(page);
   expect(stepped[2] - start[2], 'one notch is one 1 mm voxel along the axial normal').toBeCloseTo(
     1,
@@ -719,11 +737,9 @@ test('@angle §7.5: the wheel steps slices along the normal, reversibly — §11
   expect(stepped[0], 'and nothing in-plane').toBeCloseTo(start[0], 9);
   expect(stepped[1]).toBeCloseTo(start[1], 9);
 
-  for (let i = 0; i < 20; i += 1) await page.mouse.wheel(0, -100);
-  await settle(page);
+  for (let i = 0; i < 20; i += 1) await wheelNotch(page, -100);
   expect((await cursorOf(page))[2] - stepped[2]).toBeCloseTo(20, 9);
-  for (let i = 0; i < 20; i += 1) await page.mouse.wheel(0, 100);
-  await settle(page);
+  for (let i = 0; i < 20; i += 1) await wheelNotch(page, 100);
   expect(await cursorOf(page), 'the snap makes stepping exactly reversible').toEqual(stepped);
 
   expect(errors).toEqual([]);
