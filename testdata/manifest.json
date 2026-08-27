@@ -1,0 +1,10486 @@
+{
+ "conventions": {
+  "affine": "4x4 row-major [row][col]; maps voxel (i,j,k,1) -> world RAS mm (ARCHITECTURE.md \u00a73)",
+  "colors": "rgba255 = 0..255 bytes, the \u00a74.1 wire form",
+  "gmshElementTypes": "2 = tri3, 4 = tet4, 3 = quad4 (n-gon, exercises tri_edge_mask)",
+  "meshElementNumbers": "1-based Gmsh element numbers (\u00a76.2); tris are the first block",
+  "nonFinite": "\"NaN\" / \"Infinity\" / \"-Infinity\" appear as JSON strings",
+  "spotValues": "raw = on-disk sample; physical = raw*sclSlope+sclInter (never folded, \u00a76.1)",
+  "voxelOrder": "i fastest, then j, then k, then volume index"
+ },
+ "description": "Ground truth for the committed synthetic fixtures in testdata/. Every number here was produced by an INDEPENDENT reader \u2014 nibabel for NIfTI/GIfTI/FreeSurfer, simnibs.mesh_io.read_msh for Gmsh v2.2, the Gmsh 4.14 Python API for Gmsh v4.1 and for STL/PLY/OBJ \u2014 never by the writer in scripts/gen-fixtures.py. Regenerate with `python3 scripts/gen-fixtures.py`.",
+ "freesurfer": {
+  "lh.fixture.annot": {
+   "bytes": 280,
+   "colortable": [
+    {
+     "denseIndex": 0,
+     "name": "Unknown",
+     "packedId": 1639705,
+     "rgba255": [
+      25,
+      5,
+      25,
+      0
+     ]
+    },
+    {
+     "denseIndex": 1,
+     "name": "Alpha",
+     "packedId": 255,
+     "rgba255": [
+      255,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "denseIndex": 2,
+     "name": "Beta",
+     "packedId": 32768,
+     "rgba255": [
+      0,
+      128,
+      0,
+      0
+     ]
+    },
+    {
+     "denseIndex": 3,
+     "name": "Gamma",
+     "packedId": 16711680,
+     "rgba255": [
+      0,
+      0,
+      255,
+      0
+     ]
+    }
+   ],
+   "denseLabelRange": [
+    0,
+    3
+   ],
+   "denseLabels": [
+    0,
+    1,
+    2,
+    3,
+    0,
+    1,
+    2,
+    3,
+    0,
+    1,
+    2,
+    3,
+    0,
+    1,
+    2,
+    3
+   ],
+   "n": 16,
+   "rawLabelRange": [
+    255,
+    16711680
+   ],
+   "rawLabels": [
+    1639705,
+    255,
+    32768,
+    16711680,
+    1639705,
+    255,
+    32768,
+    16711680,
+    1639705,
+    255,
+    32768,
+    16711680,
+    1639705,
+    255,
+    32768,
+    16711680
+   ]
+  },
+  "lh.fixture.curv": {
+   "bytes": 79,
+   "first": 1.25,
+   "last": -1.25,
+   "n": 16,
+   "stats": {
+    "max": 1.683012724,
+    "mean": 0.216506366,
+    "min": -1.25,
+    "n": 16,
+    "nFinite": 16,
+    "sum": 3.464101851
+   }
+  },
+  "lh.fixture.surf": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732050896
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 468,
+   "firstNode": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "firstTri": [
+    0,
+    1,
+    5
+   ],
+   "lastNode": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "lastTri": [
+    10,
+    15,
+    14
+   ],
+   "nodes": 16,
+   "tris": 18
+  }
+ },
+ "gifti": {
+  "surf.func.gii": {
+   "arrays": [
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "datatypeCode": 16,
+     "dims": [
+      16
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "intent": "shape",
+     "intentCode": 2005,
+     "stats": {
+      "max": 3.200000048,
+      "mean": 0.0,
+      "min": -3.200000048,
+      "n": 16,
+      "nFinite": 16,
+      "sum": 0.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bytes": 911
+  },
+  "surf.label.gii": {
+   "arrays": [
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_INT32",
+     "datatypeCode": 8,
+     "dims": [
+      16
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "intent": "label",
+     "intentCode": 1002,
+     "stats": {
+      "max": 11.0,
+      "mean": 5.25,
+      "min": 0.0,
+      "n": 16,
+      "nFinite": 16,
+      "sum": 84.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bytes": 1173,
+   "labelTable": [
+    {
+     "key": 0,
+     "name": "Unknown",
+     "rgba255": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "key": 3,
+     "name": "Alpha",
+     "rgba255": [
+      255,
+      0,
+      0,
+      255
+     ]
+    },
+    {
+     "key": 7,
+     "name": "Beta",
+     "rgba255": [
+      0,
+      128,
+      0,
+      255
+     ]
+    },
+    {
+     "key": 11,
+     "name": "Gamma",
+     "rgba255": [
+      0,
+      0,
+      255,
+      255
+     ]
+    }
+   ]
+  },
+  "surf_ascii.surf.gii": {
+   "arrays": [
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "bboxTransformed": {
+      "max": [
+       32.5,
+       16.0,
+       13.982050896
+      ],
+      "min": [
+       -27.5,
+       -24.0,
+       2.25
+      ]
+     },
+     "bboxUntransformed": {
+      "max": [
+       30.0,
+       20.0,
+       6.732050896
+      ],
+      "min": [
+       -30.0,
+       -20.0,
+       -5.0
+      ]
+     },
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "datatypeCode": 16,
+     "dims": [
+      16,
+      3
+     ],
+     "encoding": "ASCII",
+     "endian": "LittleEndian",
+     "first": [
+      -30.0,
+      -20.0,
+      5.0
+     ],
+     "intent": "pointset",
+     "intentCode": 1008,
+     "last": [
+      30.0,
+      20.0,
+      -5.0
+     ],
+     "stats": {
+      "max": 30.0,
+      "mean": 0.288675154,
+      "min": -30.0,
+      "n": 48,
+      "nFinite": 48,
+      "sum": 13.856407404
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       2.5
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       -4.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       7.25
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_SCANNER_ANAT"
+    },
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_INT32",
+     "datatypeCode": 8,
+     "dims": [
+      18,
+      3
+     ],
+     "encoding": "ASCII",
+     "endian": "LittleEndian",
+     "first": [
+      0,
+      1,
+      5
+     ],
+     "intent": "triangle",
+     "intentCode": 1009,
+     "last": [
+      10,
+      15,
+      14
+     ],
+     "stats": {
+      "max": 15.0,
+      "mean": 7.5,
+      "min": 0.0,
+      "n": 54,
+      "nFinite": 54,
+      "sum": 405.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bytes": 2108
+  },
+  "surf_b64.surf.gii": {
+   "arrays": [
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "bboxTransformed": {
+      "max": [
+       32.5,
+       16.0,
+       13.982050896
+      ],
+      "min": [
+       -27.5,
+       -24.0,
+       2.25
+      ]
+     },
+     "bboxUntransformed": {
+      "max": [
+       30.0,
+       20.0,
+       6.732050896
+      ],
+      "min": [
+       -30.0,
+       -20.0,
+       -5.0
+      ]
+     },
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "datatypeCode": 16,
+     "dims": [
+      16,
+      3
+     ],
+     "encoding": "Base64Binary",
+     "endian": "LittleEndian",
+     "first": [
+      -30.0,
+      -20.0,
+      5.0
+     ],
+     "intent": "pointset",
+     "intentCode": 1008,
+     "last": [
+      30.0,
+      20.0,
+      -5.0
+     ],
+     "stats": {
+      "max": 30.0,
+      "mean": 0.288675154,
+      "min": -30.0,
+      "n": 48,
+      "nFinite": 48,
+      "sum": 13.856407404
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       2.5
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       -4.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       7.25
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_SCANNER_ANAT"
+    },
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_INT32",
+     "datatypeCode": 8,
+     "dims": [
+      18,
+      3
+     ],
+     "encoding": "Base64Binary",
+     "endian": "LittleEndian",
+     "first": [
+      0,
+      1,
+      5
+     ],
+     "intent": "triangle",
+     "intentCode": 1009,
+     "last": [
+      10,
+      15,
+      14
+     ],
+     "stats": {
+      "max": 15.0,
+      "mean": 7.5,
+      "min": 0.0,
+      "n": 54,
+      "nFinite": 54,
+      "sum": 405.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bytes": 2014
+  },
+  "surf_gzipb64.surf.gii": {
+   "arrays": [
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "bboxTransformed": {
+      "max": [
+       32.5,
+       16.0,
+       13.982050896
+      ],
+      "min": [
+       -27.5,
+       -24.0,
+       2.25
+      ]
+     },
+     "bboxUntransformed": {
+      "max": [
+       30.0,
+       20.0,
+       6.732050896
+      ],
+      "min": [
+       -30.0,
+       -20.0,
+       -5.0
+      ]
+     },
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "datatypeCode": 16,
+     "dims": [
+      16,
+      3
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "first": [
+      -30.0,
+      -20.0,
+      5.0
+     ],
+     "intent": "pointset",
+     "intentCode": 1008,
+     "last": [
+      30.0,
+      20.0,
+      -5.0
+     ],
+     "stats": {
+      "max": 30.0,
+      "mean": 0.288675154,
+      "min": -30.0,
+      "n": 48,
+      "nFinite": 48,
+      "sum": 13.856407404
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       2.5
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       -4.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       7.25
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_SCANNER_ANAT"
+    },
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_INT32",
+     "datatypeCode": 8,
+     "dims": [
+      18,
+      3
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "first": [
+      0,
+      1,
+      5
+     ],
+     "intent": "triangle",
+     "intentCode": 1009,
+     "last": [
+      10,
+      15,
+      14
+     ],
+     "stats": {
+      "max": 15.0,
+      "mean": 7.5,
+      "min": 0.0,
+      "n": 54,
+      "nFinite": 54,
+      "sum": 405.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bytes": 1706
+  }
+ },
+ "msh": {
+  "mesh_noncontig.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 5462,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      102,
+      110,
+      104
+     ],
+     "last": [
+      152,
+      146,
+      154
+     ]
+    },
+    "4": {
+     "first": [
+      102,
+      104,
+      110,
+      128
+     ],
+     "last": [
+      128,
+      148,
+      130,
+      154
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": false,
+    "count": 104,
+    "first": 10,
+    "last": 319,
+    "sorted": [
+     10,
+     13,
+     16,
+     19,
+     22,
+     25
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 56,
+    "4": 48
+   },
+   "fields": [
+    {
+     "first": [
+      -1.0
+     ],
+     "firstIds": [
+      10,
+      16,
+      22,
+      28
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      10,
+      316
+     ],
+     "last": [
+      -77.5
+     ],
+     "magnitudeStats": null,
+     "n": 52,
+     "name": "elm_gap",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": -1.0,
+      "mean": -39.25,
+      "min": -77.5,
+      "n": 52,
+      "nFinite": 52,
+      "sum": -2041.0
+     }
+    },
+    {
+     "first": [
+      -3.0
+     ],
+     "firstIds": [
+      10,
+      13,
+      16,
+      19
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      10,
+      319
+     ],
+     "last": [
+      48.5
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "elm_scalar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 48.5,
+      "mean": 22.75,
+      "min": -3.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 2366.0
+     }
+    },
+    {
+     "first": [
+      -1.11
+     ],
+     "firstIds": [
+      102,
+      104,
+      106,
+      108
+     ],
+     "gmshDataType": "NodeData",
+     "idRange": [
+      102,
+      154
+     ],
+     "last": [
+      1.11
+     ],
+     "magnitudeStats": null,
+     "n": 27,
+     "name": "node_scalar",
+     "ncomp": 1,
+     "source": "node",
+     "stats": {
+      "max": 1.11,
+      "mean": 0.0,
+      "min": -1.11,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 0.0
+     }
+    }
+   ],
+   "firstNodeByNumber": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "lastNodeByNumber": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": false,
+    "first": 102,
+    "last": 154
+   },
+   "nodes": 27,
+   "physicalNames": [
+    [
+     2,
+     1001,
+     "Tissue_A_surface"
+    ],
+    [
+     2,
+     1002,
+     "Tissue_B_surface"
+    ],
+    [
+     3,
+     1,
+     "Tissue_A"
+    ],
+    [
+     3,
+     2,
+     "Tissue_B"
+    ]
+   ],
+   "physicalTagCountsDim2": {
+    "1001": 24,
+    "1002": 32
+   },
+   "physicalTagCountsDim3": {
+    "1": 24,
+    "2": 24
+   },
+   "reader": "gmsh 4.14.0 python api"
+  },
+  "mesh_tetonly.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 2912,
+   "elements": 48,
+   "fields": [
+    {
+     "first": [
+      25.0
+     ],
+     "last": [
+      48.5
+     ],
+     "magnitudeStats": null,
+     "n": 48,
+     "name": "elm_scalar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 48.5,
+      "mean": 36.75,
+      "min": 25.0,
+      "n": 48,
+      "nFinite": 48,
+      "sum": 1764.0
+     }
+    }
+   ],
+   "firstElementNodes": [
+    1,
+    2,
+    5,
+    14
+   ],
+   "firstNode": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "gmsh": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "bytes": 2912,
+    "connectivity1Based": {
+     "4": {
+      "first": [
+       1,
+       2,
+       5,
+       14
+      ],
+      "last": [
+       14,
+       24,
+       15,
+       27
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 48,
+     "first": 1,
+     "last": 48,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "4": 48
+    },
+    "fields": [
+     {
+      "first": [
+       25.0
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       48
+      ],
+      "last": [
+       48.5
+      ],
+      "magnitudeStats": null,
+      "n": 48,
+      "name": "elm_scalar",
+      "ncomp": 1,
+      "source": "elm",
+      "stats": {
+       "max": 48.5,
+       "mean": 36.75,
+       "min": 25.0,
+       "n": 48,
+       "nFinite": 48,
+       "sum": 1764.0
+      }
+     }
+    ],
+    "firstNodeByNumber": [
+     -10.0,
+     -10.0,
+     -10.0
+    ],
+    "lastNodeByNumber": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 27
+    },
+    "nodes": 27,
+    "physicalNames": [
+     [
+      3,
+      1,
+      "Tissue_A"
+     ],
+     [
+      3,
+      2,
+      "Tissue_B"
+     ]
+    ],
+    "physicalTagCountsDim2": {},
+    "physicalTagCountsDim3": {
+     "1": 24,
+     "2": 24
+    },
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "hasTris": false,
+   "lastElementNodes": [
+    14,
+    24,
+    15,
+    27
+   ],
+   "lastNode": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodes": 27,
+   "reader": "simnibs.mesh_io.read_msh",
+   "tetTagCounts": {
+    "1": 24,
+    "2": 24
+   },
+   "tets": 48,
+   "triTagCounts": {},
+   "tris": 0,
+   "trisFirst": true
+  },
+  "mesh_v2_ascii.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 6577,
+   "elements": 104,
+   "fields": [
+    {
+     "first": [
+      0.0,
+      1.0,
+      2.5
+     ],
+     "last": [
+      25.75,
+      -11.875,
+      2.5
+     ],
+     "magnitudeStats": {
+      "max": 28.466262926,
+      "mean": 14.439858216,
+      "min": 2.657536453,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 1501.745254414
+     },
+     "n": 104,
+     "name": "E",
+     "ncomp": 3,
+     "source": "elm",
+     "stats": {
+      "max": 25.75,
+      "mean": 3.3125,
+      "min": -11.875,
+      "n": 312,
+      "nFinite": 312,
+      "sum": 1033.5
+     }
+    },
+    {
+     "first": [
+      -3.0
+     ],
+     "last": [
+      48.5
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "elm_scalar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 48.5,
+      "mean": 22.75,
+      "min": -3.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 2366.0
+     }
+    },
+    {
+     "first": [
+      -1.11
+     ],
+     "last": [
+      1.11
+     ],
+     "magnitudeStats": null,
+     "n": 27,
+     "name": "node_scalar",
+     "ncomp": 1,
+     "source": "node",
+     "stats": {
+      "max": 1.11,
+      "mean": 0.0,
+      "min": -1.11,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 0.0
+     }
+    },
+    {
+     "first": [
+      -5.0,
+      2.5,
+      -1.25
+     ],
+     "last": [
+      5.0,
+      -2.5,
+      1.25
+     ],
+     "magnitudeStats": {
+      "max": 5.728219619,
+      "mean": 4.351196472,
+      "min": 0.0,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 117.48230474
+     },
+     "n": 27,
+     "name": "node_vector",
+     "ncomp": 3,
+     "source": "node",
+     "stats": {
+      "max": 5.0,
+      "mean": 0.0,
+      "min": -5.0,
+      "n": 81,
+      "nFinite": 81,
+      "sum": 0.0
+     }
+    }
+   ],
+   "firstElementNodes": [
+    1,
+    5,
+    2
+   ],
+   "firstNode": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "gmsh": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "bytes": 6577,
+    "connectivity1Based": {
+     "2": {
+      "first": [
+       1,
+       5,
+       2
+      ],
+      "last": [
+       26,
+       23,
+       27
+      ]
+     },
+     "4": {
+      "first": [
+       1,
+       2,
+       5,
+       14
+      ],
+      "last": [
+       14,
+       24,
+       15,
+       27
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 104,
+     "first": 1,
+     "last": 104,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "2": 56,
+     "4": 48
+    },
+    "fields": [
+     {
+      "first": [
+       0.0,
+       1.0,
+       2.5
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       104
+      ],
+      "last": [
+       25.75,
+       -11.875,
+       2.5
+      ],
+      "magnitudeStats": {
+       "max": 28.466262926,
+       "mean": 14.439858216,
+       "min": 2.657536453,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 1501.745254414
+      },
+      "n": 104,
+      "name": "E",
+      "ncomp": 3,
+      "source": "elm",
+      "stats": {
+       "max": 25.75,
+       "mean": 3.3125,
+       "min": -11.875,
+       "n": 312,
+       "nFinite": 312,
+       "sum": 1033.5
+      }
+     },
+     {
+      "first": [
+       -3.0
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       104
+      ],
+      "last": [
+       48.5
+      ],
+      "magnitudeStats": null,
+      "n": 104,
+      "name": "elm_scalar",
+      "ncomp": 1,
+      "source": "elm",
+      "stats": {
+       "max": 48.5,
+       "mean": 22.75,
+       "min": -3.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 2366.0
+      }
+     },
+     {
+      "first": [
+       -1.11
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "NodeData",
+      "idRange": [
+       1,
+       27
+      ],
+      "last": [
+       1.11
+      ],
+      "magnitudeStats": null,
+      "n": 27,
+      "name": "node_scalar",
+      "ncomp": 1,
+      "source": "node",
+      "stats": {
+       "max": 1.11,
+       "mean": 0.0,
+       "min": -1.11,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     },
+     {
+      "first": [
+       -5.0,
+       2.5,
+       -1.25
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "NodeData",
+      "idRange": [
+       1,
+       27
+      ],
+      "last": [
+       5.0,
+       -2.5,
+       1.25
+      ],
+      "magnitudeStats": {
+       "max": 5.728219619,
+       "mean": 4.351196472,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 117.48230474
+      },
+      "n": 27,
+      "name": "node_vector",
+      "ncomp": 3,
+      "source": "node",
+      "stats": {
+       "max": 5.0,
+       "mean": 0.0,
+       "min": -5.0,
+       "n": 81,
+       "nFinite": 81,
+       "sum": 0.0
+      }
+     }
+    ],
+    "firstNodeByNumber": [
+     -10.0,
+     -10.0,
+     -10.0
+    ],
+    "lastNodeByNumber": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 27
+    },
+    "nodes": 27,
+    "physicalNames": [
+     [
+      2,
+      1001,
+      "Tissue_A_surface"
+     ],
+     [
+      2,
+      1002,
+      "Tissue_B_surface"
+     ],
+     [
+      3,
+      1,
+      "Tissue_A"
+     ],
+     [
+      3,
+      2,
+      "Tissue_B"
+     ]
+    ],
+    "physicalTagCountsDim2": {
+     "1001": 24,
+     "1002": 32
+    },
+    "physicalTagCountsDim3": {
+     "1": 24,
+     "2": 24
+    },
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "hasTris": true,
+   "lastElementNodes": [
+    14,
+    24,
+    15,
+    27
+   ],
+   "lastNode": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodes": 27,
+   "reader": "simnibs.mesh_io.read_msh",
+   "tetTagCounts": {
+    "1": 24,
+    "2": 24
+   },
+   "tets": 48,
+   "triTagCounts": {
+    "1001": 24,
+    "1002": 32
+   },
+   "tris": 56,
+   "trisFirst": true
+  },
+  "mesh_v2_binary.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 9139,
+   "elements": 104,
+   "fields": [
+    {
+     "first": [
+      0.0,
+      1.0,
+      2.5
+     ],
+     "last": [
+      25.75,
+      -11.875,
+      2.5
+     ],
+     "magnitudeStats": {
+      "max": 28.466262926,
+      "mean": 14.439858216,
+      "min": 2.657536453,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 1501.745254414
+     },
+     "n": 104,
+     "name": "E",
+     "ncomp": 3,
+     "source": "elm",
+     "stats": {
+      "max": 25.75,
+      "mean": 3.3125,
+      "min": -11.875,
+      "n": 312,
+      "nFinite": 312,
+      "sum": 1033.5
+     }
+    },
+    {
+     "first": [
+      -3.0
+     ],
+     "last": [
+      48.5
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "elm_scalar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 48.5,
+      "mean": 22.75,
+      "min": -3.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 2366.0
+     }
+    },
+    {
+     "first": [
+      -1.11
+     ],
+     "last": [
+      1.11
+     ],
+     "magnitudeStats": null,
+     "n": 27,
+     "name": "node_scalar",
+     "ncomp": 1,
+     "source": "node",
+     "stats": {
+      "max": 1.11,
+      "mean": 0.0,
+      "min": -1.11,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 0.0
+     }
+    },
+    {
+     "first": [
+      -5.0,
+      2.5,
+      -1.25
+     ],
+     "last": [
+      5.0,
+      -2.5,
+      1.25
+     ],
+     "magnitudeStats": {
+      "max": 5.728219619,
+      "mean": 4.351196472,
+      "min": 0.0,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 117.48230474
+     },
+     "n": 27,
+     "name": "node_vector",
+     "ncomp": 3,
+     "source": "node",
+     "stats": {
+      "max": 5.0,
+      "mean": 0.0,
+      "min": -5.0,
+      "n": 81,
+      "nFinite": 81,
+      "sum": 0.0
+     }
+    }
+   ],
+   "firstElementNodes": [
+    1,
+    5,
+    2
+   ],
+   "firstNode": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "gmsh": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "bytes": 9139,
+    "connectivity1Based": {
+     "2": {
+      "first": [
+       1,
+       5,
+       2
+      ],
+      "last": [
+       26,
+       23,
+       27
+      ]
+     },
+     "4": {
+      "first": [
+       1,
+       2,
+       5,
+       14
+      ],
+      "last": [
+       14,
+       24,
+       15,
+       27
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 104,
+     "first": 1,
+     "last": 104,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "2": 56,
+     "4": 48
+    },
+    "fields": [
+     {
+      "first": [
+       0.0,
+       1.0,
+       2.5
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       104
+      ],
+      "last": [
+       25.75,
+       -11.875,
+       2.5
+      ],
+      "magnitudeStats": {
+       "max": 28.466262926,
+       "mean": 14.439858216,
+       "min": 2.657536453,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 1501.745254414
+      },
+      "n": 104,
+      "name": "E",
+      "ncomp": 3,
+      "source": "elm",
+      "stats": {
+       "max": 25.75,
+       "mean": 3.3125,
+       "min": -11.875,
+       "n": 312,
+       "nFinite": 312,
+       "sum": 1033.5
+      }
+     },
+     {
+      "first": [
+       -3.0
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       104
+      ],
+      "last": [
+       48.5
+      ],
+      "magnitudeStats": null,
+      "n": 104,
+      "name": "elm_scalar",
+      "ncomp": 1,
+      "source": "elm",
+      "stats": {
+       "max": 48.5,
+       "mean": 22.75,
+       "min": -3.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 2366.0
+      }
+     },
+     {
+      "first": [
+       -1.11
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "NodeData",
+      "idRange": [
+       1,
+       27
+      ],
+      "last": [
+       1.11
+      ],
+      "magnitudeStats": null,
+      "n": 27,
+      "name": "node_scalar",
+      "ncomp": 1,
+      "source": "node",
+      "stats": {
+       "max": 1.11,
+       "mean": 0.0,
+       "min": -1.11,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     },
+     {
+      "first": [
+       -5.0,
+       2.5,
+       -1.25
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "NodeData",
+      "idRange": [
+       1,
+       27
+      ],
+      "last": [
+       5.0,
+       -2.5,
+       1.25
+      ],
+      "magnitudeStats": {
+       "max": 5.728219619,
+       "mean": 4.351196472,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 117.48230474
+      },
+      "n": 27,
+      "name": "node_vector",
+      "ncomp": 3,
+      "source": "node",
+      "stats": {
+       "max": 5.0,
+       "mean": 0.0,
+       "min": -5.0,
+       "n": 81,
+       "nFinite": 81,
+       "sum": 0.0
+      }
+     }
+    ],
+    "firstNodeByNumber": [
+     -10.0,
+     -10.0,
+     -10.0
+    ],
+    "lastNodeByNumber": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 27
+    },
+    "nodes": 27,
+    "physicalNames": [
+     [
+      2,
+      1001,
+      "Tissue_A_surface"
+     ],
+     [
+      2,
+      1002,
+      "Tissue_B_surface"
+     ],
+     [
+      3,
+      1,
+      "Tissue_A"
+     ],
+     [
+      3,
+      2,
+      "Tissue_B"
+     ]
+    ],
+    "physicalTagCountsDim2": {
+     "1001": 24,
+     "1002": 32
+    },
+    "physicalTagCountsDim3": {
+     "1": 24,
+     "2": 24
+    },
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "hasTris": true,
+   "lastElementNodes": [
+    14,
+    24,
+    15,
+    27
+   ],
+   "lastNode": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodes": 27,
+   "reader": "simnibs.mesh_io.read_msh",
+   "tetTagCounts": {
+    "1": 24,
+    "2": 24
+   },
+   "tets": 48,
+   "triTagCounts": {
+    "1001": 24,
+    "1002": 32
+   },
+   "tris": 56,
+   "trisFirst": true
+  },
+  "mesh_v2_binary_gmsh.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 11203,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      5,
+      2
+     ],
+     "last": [
+      26,
+      23,
+      27
+     ]
+    },
+    "4": {
+     "first": [
+      1,
+      2,
+      5,
+      18
+     ],
+     "last": [
+      18,
+      24,
+      14,
+      27
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 104,
+    "first": 1,
+    "last": 104,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 56,
+    "4": 48
+   },
+   "fields": [
+    {
+     "first": [
+      0.0,
+      1.0,
+      2.5
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      1,
+      104
+     ],
+     "last": [
+      25.75,
+      -11.875,
+      2.5
+     ],
+     "magnitudeStats": {
+      "max": 28.466262926,
+      "mean": 14.439858216,
+      "min": 2.657536453,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 1501.745254414
+     },
+     "n": 104,
+     "name": "E",
+     "ncomp": 3,
+     "source": "elm",
+     "stats": {
+      "max": 25.75,
+      "mean": 3.3125,
+      "min": -11.875,
+      "n": 312,
+      "nFinite": 312,
+      "sum": 1033.5
+     }
+    },
+    {
+     "first": [
+      -3.0
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      1,
+      104
+     ],
+     "last": [
+      48.5
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "elm_scalar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 48.5,
+      "mean": 22.75,
+      "min": -3.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 2366.0
+     }
+    },
+    {
+     "first": [
+      -1.11
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "NodeData",
+     "idRange": [
+      1,
+      27
+     ],
+     "last": [
+      1.11
+     ],
+     "magnitudeStats": null,
+     "n": 27,
+     "name": "node_scalar",
+     "ncomp": 1,
+     "source": "node",
+     "stats": {
+      "max": 1.11,
+      "mean": 0.0,
+      "min": -1.11,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 0.0
+     }
+    },
+    {
+     "first": [
+      -5.0,
+      2.5,
+      -1.25
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "NodeData",
+     "idRange": [
+      1,
+      27
+     ],
+     "last": [
+      5.0,
+      -2.5,
+      1.25
+     ],
+     "magnitudeStats": {
+      "max": 5.728219619,
+      "mean": 4.351196472,
+      "min": 0.0,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 117.48230474
+     },
+     "n": 27,
+     "name": "node_vector",
+     "ncomp": 3,
+     "source": "node",
+     "stats": {
+      "max": 5.0,
+      "mean": 0.0,
+      "min": -5.0,
+      "n": 81,
+      "nFinite": 81,
+      "sum": 0.0
+     }
+    }
+   ],
+   "firstNodeByNumber": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "lastNodeByNumber": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": true,
+    "first": 1,
+    "last": 27
+   },
+   "nodes": 27,
+   "physicalNames": [
+    [
+     2,
+     1001,
+     "Tissue_A_surface"
+    ],
+    [
+     2,
+     1002,
+     "Tissue_B_surface"
+    ],
+    [
+     3,
+     1,
+     "Tissue_A"
+    ],
+    [
+     3,
+     2,
+     "Tissue_B"
+    ]
+   ],
+   "physicalTagCountsDim2": {
+    "1001": 24,
+    "1002": 32
+   },
+   "physicalTagCountsDim3": {
+    "1": 24,
+    "2": 24
+   },
+   "reader": "gmsh 4.14.0 python api"
+  },
+  "mesh_v41_ascii.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 6359,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      5,
+      2
+     ],
+     "last": [
+      26,
+      23,
+      27
+     ]
+    },
+    "4": {
+     "first": [
+      1,
+      2,
+      5,
+      14
+     ],
+     "last": [
+      14,
+      24,
+      15,
+      27
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 104,
+    "first": 1,
+    "last": 104,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 56,
+    "4": 48
+   },
+   "fields": [
+    {
+     "first": [
+      0.0,
+      1.0,
+      2.5
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      1,
+      104
+     ],
+     "last": [
+      25.75,
+      -11.875,
+      2.5
+     ],
+     "magnitudeStats": {
+      "max": 28.466262926,
+      "mean": 14.439858216,
+      "min": 2.657536453,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 1501.745254414
+     },
+     "n": 104,
+     "name": "E",
+     "ncomp": 3,
+     "source": "elm",
+     "stats": {
+      "max": 25.75,
+      "mean": 3.3125,
+      "min": -11.875,
+      "n": 312,
+      "nFinite": 312,
+      "sum": 1033.5
+     }
+    },
+    {
+     "first": [
+      -3.0
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      1,
+      104
+     ],
+     "last": [
+      48.5
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "elm_scalar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 48.5,
+      "mean": 22.75,
+      "min": -3.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 2366.0
+     }
+    },
+    {
+     "first": [
+      -1.11
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "NodeData",
+     "idRange": [
+      1,
+      27
+     ],
+     "last": [
+      1.11
+     ],
+     "magnitudeStats": null,
+     "n": 27,
+     "name": "node_scalar",
+     "ncomp": 1,
+     "source": "node",
+     "stats": {
+      "max": 1.11,
+      "mean": 0.0,
+      "min": -1.11,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 0.0
+     }
+    },
+    {
+     "first": [
+      -5.0,
+      2.5,
+      -1.25
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "NodeData",
+     "idRange": [
+      1,
+      27
+     ],
+     "last": [
+      5.0,
+      -2.5,
+      1.25
+     ],
+     "magnitudeStats": {
+      "max": 5.728219619,
+      "mean": 4.351196472,
+      "min": 0.0,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 117.48230474
+     },
+     "n": 27,
+     "name": "node_vector",
+     "ncomp": 3,
+     "source": "node",
+     "stats": {
+      "max": 5.0,
+      "mean": 0.0,
+      "min": -5.0,
+      "n": 81,
+      "nFinite": 81,
+      "sum": 0.0
+     }
+    }
+   ],
+   "firstNodeByNumber": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "lastNodeByNumber": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": true,
+    "first": 1,
+    "last": 27
+   },
+   "nodes": 27,
+   "physicalNames": [
+    [
+     2,
+     1001,
+     "Tissue_A_surface"
+    ],
+    [
+     2,
+     1002,
+     "Tissue_B_surface"
+    ],
+    [
+     3,
+     1,
+     "Tissue_A"
+    ],
+    [
+     3,
+     2,
+     "Tissue_B"
+    ]
+   ],
+   "physicalTagCountsDim2": {
+    "1001": 24,
+    "1002": 32
+   },
+   "physicalTagCountsDim3": {
+    "1": 24,
+    "2": 24
+   },
+   "reader": "gmsh 4.14.0 python api",
+   "roundTripToV22ReadBySimnibs": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "hasTris": true,
+    "nodes": 27,
+    "tetTagCounts": {
+     "1": 24,
+     "2": 24
+    },
+    "tets": 48,
+    "triTagCounts": {
+     "1001": 24,
+     "1002": 32
+    },
+    "tris": 56
+   }
+  },
+  "mesh_v41_binary.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 11648,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      5,
+      2
+     ],
+     "last": [
+      26,
+      23,
+      27
+     ]
+    },
+    "4": {
+     "first": [
+      1,
+      2,
+      5,
+      14
+     ],
+     "last": [
+      14,
+      24,
+      15,
+      27
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 104,
+    "first": 1,
+    "last": 104,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 56,
+    "4": 48
+   },
+   "fields": [
+    {
+     "first": [
+      0.0,
+      1.0,
+      2.5
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      1,
+      104
+     ],
+     "last": [
+      25.75,
+      -11.875,
+      2.5
+     ],
+     "magnitudeStats": {
+      "max": 28.466262926,
+      "mean": 14.439858216,
+      "min": 2.657536453,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 1501.745254414
+     },
+     "n": 104,
+     "name": "E",
+     "ncomp": 3,
+     "source": "elm",
+     "stats": {
+      "max": 25.75,
+      "mean": 3.3125,
+      "min": -11.875,
+      "n": 312,
+      "nFinite": 312,
+      "sum": 1033.5
+     }
+    },
+    {
+     "first": [
+      -3.0
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "ElementData",
+     "idRange": [
+      1,
+      104
+     ],
+     "last": [
+      48.5
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "elm_scalar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 48.5,
+      "mean": 22.75,
+      "min": -3.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 2366.0
+     }
+    },
+    {
+     "first": [
+      -1.11
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "NodeData",
+     "idRange": [
+      1,
+      27
+     ],
+     "last": [
+      1.11
+     ],
+     "magnitudeStats": null,
+     "n": 27,
+     "name": "node_scalar",
+     "ncomp": 1,
+     "source": "node",
+     "stats": {
+      "max": 1.11,
+      "mean": 0.0,
+      "min": -1.11,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 0.0
+     }
+    },
+    {
+     "first": [
+      -5.0,
+      2.5,
+      -1.25
+     ],
+     "firstIds": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "gmshDataType": "NodeData",
+     "idRange": [
+      1,
+      27
+     ],
+     "last": [
+      5.0,
+      -2.5,
+      1.25
+     ],
+     "magnitudeStats": {
+      "max": 5.728219619,
+      "mean": 4.351196472,
+      "min": 0.0,
+      "n": 27,
+      "nFinite": 27,
+      "sum": 117.48230474
+     },
+     "n": 27,
+     "name": "node_vector",
+     "ncomp": 3,
+     "source": "node",
+     "stats": {
+      "max": 5.0,
+      "mean": 0.0,
+      "min": -5.0,
+      "n": 81,
+      "nFinite": 81,
+      "sum": 0.0
+     }
+    }
+   ],
+   "firstNodeByNumber": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "lastNodeByNumber": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": true,
+    "first": 1,
+    "last": 27
+   },
+   "nodes": 27,
+   "physicalNames": [
+    [
+     2,
+     1001,
+     "Tissue_A_surface"
+    ],
+    [
+     2,
+     1002,
+     "Tissue_B_surface"
+    ],
+    [
+     3,
+     1,
+     "Tissue_A"
+    ],
+    [
+     3,
+     2,
+     "Tissue_B"
+    ]
+   ],
+   "physicalTagCountsDim2": {
+    "1001": 24,
+    "1002": 32
+   },
+   "physicalTagCountsDim3": {
+    "1": 24,
+    "2": 24
+   },
+   "reader": "gmsh 4.14.0 python api",
+   "roundTripToV22ReadBySimnibs": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "hasTris": true,
+    "nodes": 27,
+    "tetTagCounts": {
+     "1": 24,
+     "2": 24
+    },
+    "tets": 48,
+    "triTagCounts": {
+     "1001": 24,
+     "1002": 32
+    },
+    "tris": 56
+   }
+  }
+ },
+ "mshOptParsedByGmsh": {
+  "Mesh.Color.One": [
+   230,
+   230,
+   210,
+   255
+  ],
+  "Mesh.Color.Two": [
+   129,
+   129,
+   129,
+   255
+  ],
+  "Mesh.SurfaceFaces": 1.0,
+  "Mesh.VolumeFaces": 0.0,
+  "View[0].ColormapNumber": 2.0,
+  "View[0].CustomMax": 3.5,
+  "View[0].CustomMin": -1.5,
+  "View[0].RangeType": 2.0,
+  "View[0].SaturateValues": 1.0,
+  "View[0].ShowScale": 1.0,
+  "View[0].VectorType": 1.0
+ },
+ "notGenerated": [
+  {
+   "instead": "crates/tvx-geom/tests/fixtures.rs::big_node_count_mesh() builds one in memory at test time (a k x k x 1 grid of shared-vertex tets), and the real-data test uses m2m_ernie/ernie_seeg.msh (2,301,899 nodes, 22 bits) per AGENTS.md.",
+   "what": "a mesh with >= 2**21 nodes for \u00a711's face-key-width test",
+   "why": "2,097,152 nodes is ~25 MB of coordinates and ~100 MB of tets; there is no encoding of it that fits the 2 MB committed-fixture budget."
+  },
+  {
+   "instead": "the Rust test truncates vol_u8.nii's magic to `ni1\\0` in memory.",
+   "what": "a two-file .hdr/.img NIfTI",
+   "why": "\u00a76.1 rejects it by name (Error::Unsupported(\"two-file NIfTI\")); no valid fixture is needed to assert a rejection."
+  },
+  {
+   "instead": "the Rust test rewrites surf_ascii.surf.gii's Encoding attribute in memory.",
+   "what": "GIfTI ExternalFileBinary",
+   "why": "\u00a76.2 rejects it by name; the byte-slice signature has no sibling-file access."
+  }
+ ],
+ "sidecars": {
+  "labels_freesurfer_LUT.txt": {
+   "appliesTo": [
+    "labels_freesurfer.nii.gz"
+   ],
+   "bytes": 409,
+   "expected": [
+    {
+     "id": 0,
+     "name": "Unknown",
+     "rgba255": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "id": 3,
+     "name": "Alpha",
+     "rgba255": [
+      255,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "id": 7,
+     "name": "Beta",
+     "rgba255": [
+      0,
+      128,
+      0,
+      0
+     ]
+    },
+    {
+     "id": 11,
+     "name": "Gamma",
+     "rgba255": [
+      0,
+      0,
+      255,
+      0
+     ]
+    },
+    {
+     "id": 42,
+     "name": "Delta",
+     "rgba255": [
+      220,
+      190,
+      20,
+      0
+     ]
+    }
+   ],
+   "format": "freesurfer",
+   "groundTruth": "authored"
+  },
+  "labels_simnibs_LUT.txt": {
+   "appliesTo": [
+    "labels_simnibs.nii.gz",
+    "labels_float32.nii.gz"
+   ],
+   "bytes": 216,
+   "expected": [
+    {
+     "id": 0,
+     "name": "Unknown",
+     "rgba255": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "id": 1,
+     "name": "WM",
+     "rgba255": [
+      230,
+      230,
+      210,
+      255
+     ]
+    },
+    {
+     "id": 2,
+     "name": "GM",
+     "rgba255": [
+      129,
+      129,
+      129,
+      255
+     ]
+    },
+    {
+     "id": 3,
+     "name": "CSF",
+     "rgba255": [
+      104,
+      163,
+      255,
+      255
+     ]
+    },
+    {
+     "id": 5,
+     "name": "Scalp",
+     "rgba255": [
+      255,
+      239,
+      179,
+      255
+     ]
+    },
+    {
+     "id": 10,
+     "name": "Muscle",
+     "rgba255": [
+      255,
+      166,
+      133,
+      255
+     ]
+    },
+    {
+     "id": 530,
+     "name": "Deep_label",
+     "rgba255": [
+      20,
+      180,
+      90,
+      255
+     ]
+    }
+   ],
+   "format": "simnibs",
+   "groundTruth": "authored"
+  },
+  "mesh_v2_binary.msh.opt": {
+   "appliesTo": [
+    "mesh_v2_ascii.msh",
+    "mesh_v2_binary.msh"
+   ],
+   "bytes": 1054,
+   "expected": {
+    "tagColor": {
+     "1": [
+      230,
+      230,
+      210,
+      255
+     ],
+     "1001": [
+      230,
+      230,
+      210,
+      255
+     ],
+     "1002": [
+      129,
+      129,
+      129,
+      255
+     ],
+     "2": [
+      129,
+      129,
+      129,
+      255
+     ]
+    },
+    "tagName": {
+     "1": " Tissue_A",
+     "1001": " Tissue_A",
+     "1002": " Tissue_B",
+     "2": " Tissue_B"
+    },
+    "tagVisible": {
+     "1": false,
+     "1001": false,
+     "1002": true,
+     "2": true
+    },
+    "views": [
+     {
+      "colormapNumber": 2,
+      "customMax": 3.5,
+      "customMin": -1.5,
+      "name": null,
+      "rangeType": 2,
+      "saturateValues": true,
+      "showScale": true,
+      "vectorType": 1
+     }
+    ]
+   },
+   "groundTruth": "authored (see MSH_OPT_EXPECTED in scripts/gen-fixtures.py)"
+  },
+  "mesh_v2_binary_LUT.txt": {
+   "bytes": 168,
+   "expected": [
+    {
+     "id": 1,
+     "name": "Tissue_A",
+     "rgba255": [
+      230,
+      230,
+      210,
+      255
+     ]
+    },
+    {
+     "id": 2,
+     "name": "Tissue_B",
+     "rgba255": [
+      129,
+      129,
+      129,
+      255
+     ]
+    },
+    {
+     "id": 1001,
+     "name": "Tissue_A_surface",
+     "rgba255": [
+      104,
+      163,
+      255,
+      255
+     ]
+    },
+    {
+     "id": 1002,
+     "name": "Tissue_B_surface",
+     "rgba255": [
+      255,
+      239,
+      179,
+      255
+     ]
+    }
+   ],
+   "format": "simnibs",
+   "groundTruth": "authored"
+  }
+ },
+ "surfaces": {
+  "patch_ascii.stl": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732051
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 3359,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      2,
+      3
+     ],
+     "last": [
+      27,
+      51,
+      45
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 18,
+    "first": 1,
+    "last": 18,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 18
+   },
+   "firstNodeByNumber": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "lastNodeByNumber": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": false,
+    "first": 1,
+    "last": 51
+   },
+   "physicalNames": [],
+   "physicalTagCountsDim2": {},
+   "physicalTagCountsDim3": {},
+   "reader": "gmsh 4.14.0 python api",
+   "readerNote": "STL has no vertex table. Gmsh welds coincident vertices (weldedNodes); a non-welding reader produces unweldedVertices instead. Either is contract-legal for read_stl (\u00a76.2); the triangle count and the bbox are the invariants.",
+   "unweldedVertices": 54,
+   "weldedNodes": 16
+  },
+  "patch_binary.stl": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732050896
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 984,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      2,
+      3
+     ],
+     "last": [
+      27,
+      51,
+      45
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 18,
+    "first": 1,
+    "last": 18,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 18
+   },
+   "firstNodeByNumber": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "lastNodeByNumber": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": false,
+    "first": 1,
+    "last": 51
+   },
+   "physicalNames": [],
+   "physicalTagCountsDim2": {},
+   "physicalTagCountsDim3": {},
+   "reader": "gmsh 4.14.0 python api",
+   "readerNote": "STL has no vertex table. Gmsh welds coincident vertices (weldedNodes); a non-welding reader produces unweldedVertices instead. Either is contract-legal for read_stl (\u00a76.2); the triangle count and the bbox are the invariants.",
+   "unweldedVertices": 54,
+   "weldedNodes": 16
+  },
+  "patch_quad.obj": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732051
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 437,
+   "connectivity1Based": {
+    "3": {
+     "first": [
+      1,
+      2,
+      6,
+      5
+     ],
+     "last": [
+      11,
+      12,
+      16,
+      15
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 9,
+    "first": 1,
+    "last": 9,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "3": 9
+   },
+   "firstNodeByNumber": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "lastNodeByNumber": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": true,
+    "first": 1,
+    "last": 16
+   },
+   "nodes": 16,
+   "physicalNames": [],
+   "physicalTagCountsDim2": {},
+   "physicalTagCountsDim3": {},
+   "reader": "gmsh 4.14.0 python api"
+  },
+  "patch_quad_ascii.ply": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732051
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 562,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      2,
+      6
+     ],
+     "last": [
+      11,
+      12,
+      16
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 9,
+    "first": 1,
+    "last": 9,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 9
+   },
+   "expectedFromEquivalentObj": {
+    "bbox": {
+     "max": [
+      30.0,
+      20.0,
+      6.732051
+     ],
+     "min": [
+      -30.0,
+      -20.0,
+      -5.0
+     ]
+    },
+    "connectivity1Based": {
+     "3": {
+      "first": [
+       1,
+       2,
+       6,
+       5
+      ],
+      "last": [
+       11,
+       12,
+       16,
+       15
+      ]
+     }
+    },
+    "elementsByGmshType": {
+     "3": 9
+    },
+    "nodes": 16
+   },
+   "firstNodeByNumber": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "lastNodeByNumber": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": false,
+    "first": 1,
+    "last": 16
+   },
+   "nodes": 15,
+   "physicalNames": [],
+   "physicalTagCountsDim2": {},
+   "physicalTagCountsDim3": {},
+   "reader": "gmsh 4.14.0 python api",
+   "readerNote": "Gmsh 4.14's PLY reader truncates each quad to its first three indices, so the numbers above are Gmsh's, NOT what a correct reader must produce. The file holds the same 16 vertices and 9 quads as patch_quad.obj; use that entry (Gmsh reads OBJ n-gons correctly, element type 3) as the expectation for read_ply."
+  },
+  "patch_tri.obj": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732051
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 499,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      2,
+      6
+     ],
+     "last": [
+      11,
+      16,
+      15
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 18,
+    "first": 1,
+    "last": 18,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 18
+   },
+   "firstNodeByNumber": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "lastNodeByNumber": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": true,
+    "first": 1,
+    "last": 16
+   },
+   "nodes": 16,
+   "physicalNames": [],
+   "physicalTagCountsDim2": {},
+   "physicalTagCountsDim3": {},
+   "reader": "gmsh 4.14.0 python api"
+  },
+  "patch_tri_ascii.ply": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732051
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 623,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      2,
+      6
+     ],
+     "last": [
+      11,
+      16,
+      15
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 18,
+    "first": 1,
+    "last": 18,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 18
+   },
+   "firstNodeByNumber": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "lastNodeByNumber": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": true,
+    "first": 1,
+    "last": 16
+   },
+   "nodes": 16,
+   "physicalNames": [],
+   "physicalTagCountsDim2": {},
+   "physicalTagCountsDim3": {},
+   "reader": "gmsh 4.14.0 python api"
+  },
+  "patch_tri_binary.ply": {
+   "bbox": {
+    "max": [
+     30.0,
+     20.0,
+     6.732050896
+    ],
+    "min": [
+     -30.0,
+     -20.0,
+     -5.0
+    ]
+   },
+   "bytes": 622,
+   "connectivity1Based": {
+    "2": {
+     "first": [
+      1,
+      2,
+      6
+     ],
+     "last": [
+      11,
+      16,
+      15
+     ]
+    }
+   },
+   "elementNumbers": {
+    "contiguousFrom1": true,
+    "count": 18,
+    "first": 1,
+    "last": 18,
+    "sorted": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ]
+   },
+   "elementsByGmshType": {
+    "2": 18
+   },
+   "firstNodeByNumber": [
+    -30.0,
+    -20.0,
+    5.0
+   ],
+   "lastNodeByNumber": [
+    30.0,
+    20.0,
+    -5.0
+   ],
+   "nodeNumbers": {
+    "contiguousFrom1": true,
+    "first": 1,
+    "last": 16
+   },
+   "nodes": 16,
+   "physicalNames": [],
+   "physicalTagCountsDim2": {},
+   "physicalTagCountsDim3": {},
+   "reader": "gmsh 4.14.0 python api"
+  }
+ },
+ "totalFixtureBytes": 80684,
+ "version": 1,
+ "volumes": {
+  "labels_float32.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 165,
+   "datatypeCode": 16,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f32",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 1002,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "float32",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 5.0,
+     "raw": 5.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.0,
+     "raw": 2.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 5.0,
+     "raw": 5.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 3.0,
+     "raw": 3.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.0,
+     "raw": 2.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 1.0,
+     "raw": 1.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 530.0,
+    "mean": 82.433333333,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 4946.0
+   },
+   "uniqueCount": 7,
+   "uniqueValues": [
+    0.0,
+    1.0,
+    2.0,
+    3.0,
+    5.0,
+    10.0,
+    530.0
+   ]
+  },
+  "labels_freesurfer.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 133,
+   "datatypeCode": 8,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i32",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "int32",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 42.0,
+     "raw": 42.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 7.0,
+     "raw": 7.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 42.0,
+     "raw": 42.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 11.0,
+     "raw": 11.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 3.0,
+     "raw": 3.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 42.0,
+    "mean": 12.6,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 756.0
+   },
+   "uniqueCount": 5,
+   "uniqueValues": [
+    0.0,
+    3.0,
+    7.0,
+    11.0,
+    42.0
+   ]
+  },
+  "labels_simnibs.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 154,
+   "datatypeCode": 512,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u16",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "uint16",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 5.0,
+     "raw": 5.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.0,
+     "raw": 2.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 5.0,
+     "raw": 5.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 3.0,
+     "raw": 3.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.0,
+     "raw": 2.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 1.0,
+     "raw": 1.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 530.0,
+    "mean": 82.433333333,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 4946.0
+   },
+   "uniqueCount": 7,
+   "uniqueValues": [
+    0.0,
+    1.0,
+    2.0,
+    3.0,
+    5.0,
+    10.0,
+    530.0
+   ]
+  },
+  "vol_4d.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 433,
+   "datatypeCode": 16,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f32",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "float32",
+   "nvols": 3,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -3.5,
+     "raw": -3.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 246.5,
+     "raw": 246.5,
+     "volume": 1,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 496.5,
+     "raw": 496.5,
+     "volume": 2,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -2.5,
+     "raw": -2.5,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 247.5,
+     "raw": 247.5,
+     "volume": 1,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 497.5,
+     "raw": 497.5,
+     "volume": 2,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 4.0,
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 254.0,
+     "raw": 254.0,
+     "volume": 1,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 504.0,
+     "raw": 504.0,
+     "volume": 2,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 46.5,
+     "raw": 46.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 296.5,
+     "raw": 296.5,
+     "volume": 1,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 546.5,
+     "raw": 546.5,
+     "volume": 2,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 24.5,
+     "raw": 24.5,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 274.5,
+     "raw": 274.5,
+     "volume": 1,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 524.5,
+     "raw": 524.5,
+     "volume": 2,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 55.0,
+     "raw": 55.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 305.0,
+     "raw": 305.0,
+     "volume": 1,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 555.0,
+     "raw": 555.0,
+     "volume": 2,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.25,
+     "raw": 2.25,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 252.25,
+     "raw": 252.25,
+     "volume": 1,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 502.25,
+     "raw": 502.25,
+     "volume": 2,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 49.25,
+     "raw": 49.25,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 299.25,
+     "raw": 299.25,
+     "volume": 1,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 549.25,
+     "raw": 549.25,
+     "volume": 2,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 555.0,
+    "mean": 275.75,
+    "min": -3.5,
+    "n": 180,
+    "nFinite": 180,
+    "sum": 49635.0
+   },
+   "uniqueCount": 180
+  },
+  "vol_asym.nii": {
+   "affine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 864,
+   "datatypeCode": 2,
+   "dims": [
+    8,
+    8,
+    8
+   ],
+   "dtype": "u8",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 0.0,
+   "niftiVersion": 1,
+   "numpyDtype": "uint8",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -3.5,
+    -3.5,
+    -3.5
+   ],
+   "quatern": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -3.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -3.5,
+      -3.5,
+      -3.5,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      0.5,
+      -3.5,
+      -3.5,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -3.5,
+      -0.5,
+      -3.5,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -3.5,
+      -3.5,
+      -1.5,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -1.5,
+      -2.5,
+      -2.5,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      0.5,
+      -0.5,
+      -1.5,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -0.5,
+      -1.5,
+      -3.5,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -2.5,
+      -2.5,
+      -1.5,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 255.0,
+    "mean": 13.447265625,
+    "min": 0.0,
+    "n": 512,
+    "nFinite": 512,
+    "sum": 6885.0
+   },
+   "uniqueCount": 2,
+   "uniqueValues": [
+    0.0,
+    255.0
+   ]
+  },
+  "vol_bigendian.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 472,
+   "datatypeCode": 4,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "endian": "big",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": ">i2",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -11700.0,
+     "raw": -11700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -11300.0,
+     "raw": -11300.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -8700.0,
+     "raw": -8700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 8300.0,
+     "raw": 8300.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -500.0,
+     "raw": -500.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 11700.0,
+     "raw": 11700.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -9400.0,
+     "raw": -9400.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 9400.0,
+     "raw": 9400.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 11700.0,
+    "mean": 0.0,
+    "min": -11700.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_f32.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 254,
+   "datatypeCode": 16,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f32",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "float32",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -3.5,
+     "raw": -3.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -2.5,
+     "raw": -2.5,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 4.0,
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 46.5,
+     "raw": 46.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 24.5,
+     "raw": 24.5,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 55.0,
+     "raw": 55.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.25,
+     "raw": 2.25,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 49.25,
+     "raw": 49.25,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 55.0,
+    "mean": 25.75,
+    "min": -3.5,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 1545.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_f64.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 832,
+   "datatypeCode": 64,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f64",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "float64",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -3.5,
+     "raw": -3.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -2.5,
+     "raw": -2.5,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 4.0,
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 46.5,
+     "raw": 46.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 24.5,
+     "raw": 24.5,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 55.0,
+     "raw": 55.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.25,
+     "raw": 2.25,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 49.25,
+     "raw": 49.25,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 55.0,
+    "mean": 25.75,
+    "min": -3.5,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 1545.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_i16.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 249,
+   "datatypeCode": 4,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "int16",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -11700.0,
+     "raw": -11700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -11300.0,
+     "raw": -11300.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -8700.0,
+     "raw": -8700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 8300.0,
+     "raw": 8300.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -500.0,
+     "raw": -500.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 11700.0,
+     "raw": 11700.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -9400.0,
+     "raw": -9400.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 9400.0,
+     "raw": 9400.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 11700.0,
+    "mean": 0.0,
+    "min": -11700.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_i32.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 345,
+   "datatypeCode": 8,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i32",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "int32",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -117000.0,
+     "raw": -117000.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -113000.0,
+     "raw": -113000.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -87000.0,
+     "raw": -87000.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 83000.0,
+     "raw": 83000.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -5000.0,
+     "raw": -5000.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 117000.0,
+     "raw": 117000.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -94000.0,
+     "raw": -94000.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 94000.0,
+     "raw": 94000.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 117000.0,
+    "mean": 0.0,
+    "min": -117000.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_i8.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 412,
+   "datatypeCode": 256,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i8",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "int8",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -117.0,
+     "raw": -117.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -113.0,
+     "raw": -113.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -87.0,
+     "raw": -87.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 83.0,
+     "raw": 83.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -5.0,
+     "raw": -5.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 117.0,
+     "raw": 117.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -94.0,
+     "raw": -94.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 94.0,
+     "raw": 94.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 117.0,
+    "mean": 0.0,
+    "min": -117.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_nifti2.nii": {
+   "affine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 784,
+   "datatypeCode": 16,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f32",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 0.0,
+   "niftiVersion": 2,
+   "numpyDtype": "float32",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -3.5,
+     "raw": -3.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -2.5,
+     "raw": -2.5,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 4.0,
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 46.5,
+     "raw": 46.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "physical": 24.5,
+     "raw": 24.5,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "physical": 55.0,
+     "raw": 55.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.25,
+     "raw": 2.25,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936491,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 49.25,
+     "raw": 49.25,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987298,
+      11.151923789,
+      2.446152423,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 55.0,
+    "mean": 25.75,
+    "min": -3.5,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 1545.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_qfac_neg.nii": {
+   "affine": [
+    [
+     0.0,
+     0.0,
+     3.0,
+     -7.25
+    ],
+    [
+     -1.5,
+     0.0,
+     -0.0,
+     11.5
+    ],
+    [
+     0.0,
+     2.0,
+     -0.0,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "qform",
+   "allIntegralNonNegative": false,
+   "bytes": 472,
+   "datatypeCode": 4,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 6.0,
+   "maxAbsSformQformDelta": null,
+   "niftiVersion": 1,
+   "numpyDtype": "int16",
+   "nvols": 1,
+   "pixdim": [
+    -1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": -1.0,
+   "qformAffine": [
+    [
+     0.0,
+     0.0,
+     3.0,
+     -7.25
+    ],
+    [
+     -1.5,
+     0.0,
+     -0.0,
+     11.5
+    ],
+    [
+     0.0,
+     2.0,
+     -0.0,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     0.0,
+     0.0,
+     -3.0,
+     -7.25
+    ],
+    [
+     -1.5,
+     0.0,
+     0.0,
+     11.5
+    ],
+    [
+     0.0,
+     2.0,
+     0.0,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 1,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.5,
+    -0.5,
+    -0.5
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     0.0,
+     0.0,
+     3.0,
+     -7.25
+    ],
+    [
+     -1.5,
+     0.0,
+     -0.0,
+     11.5
+    ],
+    [
+     0.0,
+     2.0,
+     -0.0,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 0,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -11700.0,
+     "raw": -11700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -11300.0,
+     "raw": -11300.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      5.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -8700.0,
+     "raw": -8700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      2.25,
+      1.0
+     ]
+    },
+    {
+     "physical": 8300.0,
+     "raw": 8300.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -1.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -500.0,
+     "raw": -500.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.25,
+      8.5,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 11700.0,
+     "raw": 11700.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -1.25,
+      5.5,
+      2.25,
+      1.0
+     ]
+    },
+    {
+     "physical": -9400.0,
+     "raw": -9400.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -7.25,
+      7.0,
+      0.25,
+      1.0
+     ]
+    },
+    {
+     "physical": 9400.0,
+     "raw": 9400.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -1.25,
+      10.0,
+      -1.75,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 11700.0,
+    "mean": 0.0,
+    "min": -11700.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_ramp4.nii": {
+   "affine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 416,
+   "datatypeCode": 2,
+   "dims": [
+    4,
+    4,
+    4
+   ],
+   "dtype": "u8",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 0.0,
+   "niftiVersion": 1,
+   "numpyDtype": "uint8",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "quatern": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      0.0,
+      3.0,
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      0.0,
+      0.0,
+      2.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 2.0,
+     "raw": 2.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      2.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 3.0,
+     "raw": 3.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      3.0,
+      2.0,
+      0.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 1.0,
+     "raw": 1.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      1.0,
+      1.0,
+      2.0,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 3.0,
+    "mean": 1.5,
+    "min": 0.0,
+    "n": 64,
+    "nFinite": 64,
+    "sum": 96.0
+   },
+   "uniqueCount": 4,
+   "uniqueValues": [
+    0.0,
+    1.0,
+    2.0,
+    3.0
+   ]
+  },
+  "vol_rgb24.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": null,
+   "bytes": 532,
+   "datatypeCode": 128,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "rgb24",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "[('R', 'u1'), ('G', 'u1'), ('B', 'u1')]",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": [
+      0.0,
+      255.0,
+      64.0
+     ],
+     "raw": [
+      0.0,
+      255.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      4.0,
+      251.0,
+      64.0
+     ],
+     "raw": [
+      4.0,
+      251.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      30.0,
+      225.0,
+      64.0
+     ],
+     "raw": [
+      30.0,
+      225.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      200.0,
+      55.0,
+      64.0
+     ],
+     "raw": [
+      200.0,
+      55.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      112.0,
+      143.0,
+      64.0
+     ],
+     "raw": [
+      112.0,
+      143.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      234.0,
+      21.0,
+      64.0
+     ],
+     "raw": [
+      234.0,
+      21.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      23.0,
+      232.0,
+      64.0
+     ],
+     "raw": [
+      23.0,
+      232.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      211.0,
+      44.0,
+      64.0
+     ],
+     "raw": [
+      211.0,
+      44.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 255.0,
+    "mean": 106.333333333,
+    "min": 0.0,
+    "n": 180,
+    "nFinite": 180,
+    "sum": 19140.0
+   },
+   "uniqueCount": null,
+   "uniqueValues": []
+  },
+  "vol_rgba32.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": null,
+   "bytes": 592,
+   "datatypeCode": 2304,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "rgba32",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "[('R', 'u1'), ('G', 'u1'), ('B', 'u1'), ('A', 'u1')]",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": [
+      0.0,
+      255.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      0.0,
+      255.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      4.0,
+      251.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      4.0,
+      251.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      30.0,
+      225.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      30.0,
+      225.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      200.0,
+      55.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      200.0,
+      55.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      112.0,
+      143.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      112.0,
+      143.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      234.0,
+      21.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      234.0,
+      21.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      23.0,
+      232.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      23.0,
+      232.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": [
+      211.0,
+      44.0,
+      64.0,
+      200.0
+     ],
+     "raw": [
+      211.0,
+      44.0,
+      64.0,
+      200.0
+     ],
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 255.0,
+    "mean": 129.75,
+    "min": 0.0,
+    "n": 240,
+    "nFinite": 240,
+    "sum": 31140.0
+   },
+   "uniqueCount": null,
+   "uniqueValues": []
+  },
+  "vol_scl.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 472,
+   "datatypeCode": 4,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "float64",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": -100.0,
+   "sclSlopeOnDisk": 2.5,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -73475.0,
+     "raw": -29350.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -70975.0,
+     "raw": -28350.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -54725.0,
+     "raw": -21850.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 51525.0,
+     "raw": 20650.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -3475.0,
+     "raw": -1350.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 72775.0,
+     "raw": 29150.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -59100.0,
+     "raw": -23600.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 58400.0,
+     "raw": 23400.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 72775.0,
+    "mean": -350.0,
+    "min": -73475.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": -21000.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_scl_nan.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 472,
+   "datatypeCode": 4,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "int16",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": "NaN",
+   "sclSlopeOnDisk": "NaN",
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": -11700.0,
+     "raw": -11700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -11300.0,
+     "raw": -11300.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": -8700.0,
+     "raw": -8700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 8300.0,
+     "raw": 8300.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -500.0,
+     "raw": -500.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 11700.0,
+     "raw": 11700.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": -9400.0,
+     "raw": -9400.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 9400.0,
+     "raw": 9400.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 11700.0,
+    "mean": 0.0,
+    "min": -11700.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_u16.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 472,
+   "datatypeCode": 512,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u16",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "uint16",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 400.0,
+     "raw": 400.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 3000.0,
+     "raw": 3000.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 20000.0,
+     "raw": 20000.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 11200.0,
+     "raw": 11200.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 23400.0,
+     "raw": 23400.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 2300.0,
+     "raw": 2300.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 21100.0,
+     "raw": 21100.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 23400.0,
+    "mean": 11700.0,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 702000.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_u32.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 592,
+   "datatypeCode": 768,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u32",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "uint32",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 4000.0,
+     "raw": 4000.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 30000.0,
+     "raw": 30000.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 200000.0,
+     "raw": 200000.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 112000.0,
+     "raw": 112000.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 234000.0,
+     "raw": 234000.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 23000.0,
+     "raw": 23000.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 211000.0,
+     "raw": 211000.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 234000.0,
+    "mean": 117000.0,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 7020000.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_u8.nii": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 412,
+   "datatypeCode": 2,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u8",
+   "endian": "little",
+   "gzipped": false,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "uint8",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 4.0,
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 30.0,
+     "raw": 30.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 200.0,
+     "raw": 200.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 112.0,
+     "raw": 112.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 234.0,
+     "raw": 234.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 23.0,
+     "raw": 23.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 211.0,
+     "raw": 211.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 234.0,
+    "mean": 117.0,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 7020.0
+   },
+   "uniqueCount": 60
+  },
+  "vol_u8.nii.gz": {
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 183,
+   "datatypeCode": 2,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u8",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 1.06e-07,
+   "niftiVersion": 1,
+   "numpyDtype": "uint8",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.5,
+    2.0,
+    3.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.299038106,
+     -0.866025403,
+     0.750000002,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038105,
+     11.5
+    ],
+    [
+     -1e-09,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.25,
+    11.5,
+    -3.75
+   ],
+   "quatern": [
+    0.25,
+    0.066987298,
+    0.25
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "physical": 0.0,
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 4.0,
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 30.0,
+     "raw": 30.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 200.0,
+     "raw": 200.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 112.0,
+     "raw": 112.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "physical": 234.0,
+     "raw": 234.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "physical": 23.0,
+     "raw": 23.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -5.084936619,
+      16.75,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "physical": 211.0,
+     "raw": 211.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -5.316987336,
+      11.151923895,
+      2.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 234.0,
+    "mean": 117.0,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 7020.0
+   },
+   "uniqueCount": 60
+  }
+ },
+ "writerNotes": {
+  "lattice": {
+   "exteriorFaces": 48,
+   "nodes": 27,
+   "tagDifferingInteriorFaces": 8,
+   "tets": 48,
+   "tris": 56
+  },
+  "noncontig": {
+   "firstElementNumber": 10,
+   "firstNodeNumber": 102,
+   "gapFieldRecords": 52,
+   "lastElementNumber": 319
+  },
+  "patch": {
+   "quads": 9,
+   "triangles": 18,
+   "vertices": 16
+  }
+ }
+}

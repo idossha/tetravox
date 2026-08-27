@@ -11,3 +11,6 @@ publish.workspace = true
 thiserror.workspace = true
 # `Aabb` is a member of `tvx_geom::IsolateCriteria`, which §6.3 derives `serde::Deserialize` on.
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

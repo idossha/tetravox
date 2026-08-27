@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE GIFTI SYSTEM "http://www.nitrc.org/frs/download.php/115/gifti.dtd">
+<GIFTI Version="1.0" NumberOfDataArrays="1"><MetaData /><LabelTable><Label Key="0" Red="0.0" Green="0.0" Blue="0.0" Alpha="0.0">Unknown</Label><Label Key="3" Red="1.0" Green="0.0" Blue="0.0" Alpha="1.0">Alpha</Label><Label Key="7" Red="0.0" Green="0.5019607843137255" Blue="0.0" Alpha="1.0">Beta</Label><Label Key="11" Red="0.0" Green="0.0" Blue="1.0" Alpha="1.0">Gamma</Label></LabelTable><DataArray Intent="NIFTI_INTENT_LABEL" DataType="NIFTI_TYPE_INT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="1" Encoding="GZipBase64Binary" Endian="LittleEndian" ExternalFileName="" ExternalFileOffset="0" Dim0="16"><MetaData /><CoordinateSystemTransformMatrix><DataSpace>NIFTI_XFORM_UNKNOWN</DataSpace><TransformedSpace>NIFTI_XFORM_UNKNOWN</TransformedSpace><MatrixData>  1.000000   0.000000   0.000000   0.000000
+  0.000000   1.000000   0.000000   0.000000
+  0.000000   0.000000   1.000000   0.000000
+  0.000000   0.000000   0.000000   1.000000</MatrixData></CoordinateSystemTransformMatrix><Data>eJxjYGBgYAZidiDmZoAAUvgACkAAVQ==</Data></DataArray></GIFTI>

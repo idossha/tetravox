@@ -1,0 +1,8 @@
+# Tetravox fixture LUT - FreeSurferColorLUT.txt format
+#No. Label Name:                            R   G   B   A
+
+  0  Unknown                                 0   0   0   0
+  3  Alpha                                 255   0   0   0
+  7  Beta                                    0 128   0   0
+ 11  Gamma                                   0   0 255   0
+ 42  Delta                                 220 190  20   0

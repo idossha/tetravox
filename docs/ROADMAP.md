@@ -38,7 +38,7 @@ A phase is done when **every** gate item below passes, on real data where the it
 - vitest; Playwright Chromium with the §11 launch args and `expectPixel`; Playwright-Electron E2E; the §12.1 CI
   **test** legs. The workflow file carries the `package` legs from day one, but they are **Phase 3's** to make
   green — Phase 0 only proves the local `pnpm package` on its own platform.
-- `scripts/gen-fixtures.py` → `testdata/` + `testdata/expected.json`: tiny NIfTI in every accepted dtype incl.
+- `scripts/gen-fixtures.py` → `testdata/` + `testdata/manifest.json`: tiny NIfTI in every accepted dtype incl.
   `.gz`, **one with `sform_code = 0, qform_code = 1, pixdim[0] = −1`** (the only case that catches a missing
   qfac) and **one with `scl_slope = NaN`**; tiny msh v2 ascii/binary + v4.1 with node and element data, one with
   non-contiguous element ids and a gap; tiny GIfTI in all three supported encodings; FreeSurfer surface + curv +

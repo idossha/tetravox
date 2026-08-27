@@ -13,3 +13,8 @@ README.md
 docs/
 AGENTS.md
 scripts/refvalues/
+
+# Generated ground truth: `manifest.json` is written by scripts/gen-fixtures.py with a
+# fixed 1-space indent and sorted keys, so it stays diffable across regenerations. A
+# reflow would make every rerun look like a content change.
+testdata/

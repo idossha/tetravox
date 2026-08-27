@@ -375,3 +375,61 @@ The decisions below are new.
 - 2026-08-27 — **`docs/`, `AGENTS.md` and `scripts/refvalues/` are in `.prettierignore`** — the contract and
   its measured reference values are hand-formatted, and a reflow would rewrite 1,446 lines of
   `ARCHITECTURE.md` and re-key the refvalue JSON for no gain.
+
+## 2026-08-27 — Phase 0 stage 2 (fixtures): generation and ground-truth deviations
+
+- 2026-08-27 — **`testdata/manifest.json`, not `testdata/expected.json`** (§2's tree and §11's "Fixture
+  expectations" paragraph edited in the same commit, plus the matching lines in `docs/ROADMAP.md` and
+  `AGENTS.md`) — the file carries provenance, reader-limitation notes and a `notGenerated` section
+  alongside the expectations, so "manifest" is what it is. One name, changed once, before anything
+  reads it.
+- 2026-08-27 — **The manifest's ground truth comes from three independent readers, and the script says
+  which produced each number.** nibabel reads the NIfTI / GIfTI / FreeSurfer fixtures;
+  `simnibs.mesh_io.read_msh` reads the Gmsh v2.2 files; the Gmsh 4.14 Python API (shipped inside
+  `simnibs_python`) reads the v4.1 files, the non-contiguous-numbering file and STL/PLY/OBJ. Where two
+  readers can see the same file they both do and the manifest carries both, and each v4.1 file is
+  additionally converted back to v2.2 by Gmsh and re-read by SimNIBS
+  (`roundTripToV22ReadBySimnibs`). `scripts/gen-fixtures.py` therefore re-executes **itself** under
+  `$TETRAVOX_SIMNIBS_PYTHON` (default `~/Applications/SimNIBS-4.6/bin/simnibs_python`) for the mesh
+  half; the fixture-*writing* half still needs nothing but python3 + numpy + nibabel.
+- 2026-08-27 — **Gmsh 4.1 fixtures are converted by Gmsh, as §6.2 already anticipated** — there is no
+  other local v4.1 implementation and SimNIBS refuses v4. Regenerating them needs `simnibs_python`;
+  the committed files do not.
+- 2026-08-27 — **No `>= 2**21`-node mesh is committed** for §11's face-key-width test. 2,097,152 nodes
+  is ~25 MB of coordinates and ~100 MB of tets against a 2 MB fixture budget (§2). Instead
+  `crates/tvx-geom/tests/fixtures.rs::big_node_count_mesh()` builds one in memory at test time, and
+  the real-data half of that test uses `m2m_ernie/ernie_seeg.msh` (2,301,899 nodes = 22 bits) as
+  AGENTS.md already specifies. The manifest's `notGenerated` section records this, and a live test
+  asserts the note is still there.
+- 2026-08-27 — **`mesh_v2_binary.msh` follows SimNIBS's binary dialect, `mesh_v2_binary_gmsh.msh`
+  follows Gmsh's, and both are committed.** SimNIBS's writer emits **no** newline before `$EndNodes`,
+  `$EndElements`, `$EndNodeData` or `$EndElementData`; Gmsh's emits one, and SimNIBS's own reader
+  rejects its data sections for exactly that reason. Every reference `.msh` in the dataset is the
+  first dialect, so the reader must accept the second without being written against it. §6.2's
+  normative layout is unchanged — this is whitespace either side of the section terminator.
+- 2026-08-27 — **Gmsh's PLY reader truncates n-gons**, keeping only the first three indices of a quad,
+  so it is not usable as ground truth for `patch_quad_ascii.ply`. That entry carries a `readerNote`
+  and an `expectedFromEquivalentObj` block pointing at `patch_quad.obj`, which holds the same 16
+  vertices and 9 quads and which Gmsh reads correctly (element type 3). The n-gon /
+  `tri_edge_mask` expectation is therefore anchored on the OBJ.
+- 2026-08-27 — **STL's node count is reader policy, and the manifest records both answers.** STL has
+  no vertex table; Gmsh welds coincident vertices (`weldedNodes` = 16), a non-welding reader keeps 3
+  per facet (`unweldedVertices` = 54). §6.2 does not choose, so the test accepts either and pins the
+  triangle count and the bounding box instead.
+- 2026-08-27 — **`.msh.opt` and the `_LUT.txt` sidecars are ground-truthed by authoring, not by a
+  reader** (`"groundTruth": "authored"` in the manifest's `sidecars` section) — no third-party parser
+  yields §6.2's `MshOptions` or §6.0's `LabelTable`. Gmsh is still used to prove the `.msh.opt`
+  *parses* and to read back its option values (`mshOptParsedByGmsh`), and the file is written in
+  SimNIBS's real syntax, `Physical Volume (" GM",2) = { 2 };` and `Hide "*"` / `Show {...}` included,
+  copied from `m2m_ernie/ernie.msh.opt`.
+- 2026-08-27 — **`serde_json` added as a dev-dependency of `tvx-core`, `tvx-nifti` and `tvx-mesh-io`**,
+  and `[[bench]]` sections added to `tvx-nifti`, `tvx-mesh-io` and `tvx-geom`. `serde_json` is already
+  in §12.3's frozen set and already in `Cargo.lock`, so neither lockfile moved; the integration tests
+  need it to read `manifest.json` and the criterion targets need `harness = false`.
+- 2026-08-27 — **Bench routine bodies are no-ops with a `// PHASE 1:` marker.** `cargo test --benches`
+  runs every `harness = false` target once, so a real call into an `unimplemented!()` stub would turn
+  the workspace red today. The setup around each routine (fixture loading, the `TETRAVOX_TESTDATA`
+  skip, the ernie rows §6.2 and §6.3 state budgets for) is real.
+- 2026-08-27 — **`testdata/` added to `.prettierignore`.** `manifest.json` is generated with a fixed
+  1-space indent and sorted keys so regenerations diff cleanly; a Prettier reflow would make every
+  rerun look like a content change.
