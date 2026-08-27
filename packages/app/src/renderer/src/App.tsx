@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DragEvent } from 'react';
 import type { OpenedPath } from '../../preload/index';
 import { BACKGROUND, CANVAS_HEIGHT, CANVAS_WIDTH, PING_SEED, colorFromPing } from './phase0';
-import type { Phase0Report, WorkerRequest, WorkerResponse } from './phase0';
+import type { DropRecord, Phase0Report, WorkerRequest, WorkerResponse } from './phase0';
 import { Webgl2Unavailable, createContext, drawTriangle, readPixel } from './triangle';
 
 const bridge = (): Window['tetravox'] => window.tetravox;
@@ -19,8 +19,8 @@ function hex([r, g, b]: readonly [number, number, number]): string {
   return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 }
 
-/** One round-trip to the Phase-0 worker. Rejects if it reports a failure. */
-async function askWorker(fileUrl: string | null): Promise<WorkerResponse> {
+/** One round-trip to a fresh Phase-0 worker. Rejects if it reports a failure. */
+async function askWorker(request: WorkerRequest): Promise<WorkerResponse> {
   const worker = new Worker(new URL('../workers/phase0-worker.ts', import.meta.url), {
     type: 'module',
     name: 'tetravox-phase0',
@@ -29,7 +29,7 @@ async function askWorker(fileUrl: string | null): Promise<WorkerResponse> {
     return await new Promise<WorkerResponse>((resolve, reject) => {
       worker.onmessage = (event: MessageEvent<WorkerResponse>) => resolve(event.data);
       worker.onerror = (event) => reject(new Error(event.message || 'worker error'));
-      worker.postMessage({ kind: 'start', seed: PING_SEED, fileUrl } satisfies WorkerRequest);
+      worker.postMessage(request);
     });
   } finally {
     // §5 rule 1: closing a dataset is `worker.terminate()`. Here it is just tidiness, but the
@@ -38,11 +38,59 @@ async function askWorker(fileUrl: string | null): Promise<WorkerResponse> {
   }
 }
 
+/**
+ * One dropped file, taken down whichever §8 branch applies (ROADMAP Phase-0 gate 8).
+ *
+ * The path branch allow-lists the path (§5 rule 9) and lets the worker `fetch` the resulting
+ * `tetravox://file/…`. The fallback branch posts the `File` itself — structured-cloneable, and the
+ * only branch left when `getPathForFile` returns `''`. Note what is *not* here: the UI thread never
+ * calls `file.arrayBuffer()`, and no `ArrayBuffer` crosses IPC (§5 rule 3, AGENTS rule 7).
+ *
+ * Phase 1 replaces the digest with a real `LoadSource` and a parse; the branch decision is this one.
+ */
+async function ingestDrop(
+  file: File,
+  path: string
+): Promise<{ record: DropRecord; opened: OpenedPath | null }> {
+  const base = { name: file.name, path: null, url: null, bytes: null, digest: null, error: null };
+
+  let opened: OpenedPath | null = null;
+  let request: WorkerRequest;
+  if (path === '') {
+    request = { kind: 'digest', source: { kind: 'file', file } };
+  } else {
+    opened = await bridge().allowPath(path);
+    if (opened === null) {
+      return { record: { ...base, branch: 'path', path, error: 'not allow-listed' }, opened: null };
+    }
+    request = { kind: 'digest', source: { kind: 'url', url: opened.url } };
+  }
+
+  const located = {
+    ...base,
+    branch: path === '' ? ('file' as const) : ('path' as const),
+    path: opened?.path ?? null,
+    url: opened?.url ?? null,
+  };
+  try {
+    const response = await askWorker(request);
+    if (response.kind !== 'digested') {
+      const message = response.kind === 'failed' ? response.message : `unexpected ${response.kind}`;
+      return { record: { ...located, error: message }, opened };
+    }
+    return { record: { ...located, bytes: response.bytes, digest: response.digest }, opened };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { record: { ...located, error: message }, opened };
+  }
+}
+
 export function App(): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startedRef = useRef(false);
   const [report, setReport] = useState<Phase0Report | null>(null);
   const [opened, setOpened] = useState<OpenedPath[]>([]);
+  const [drops, setDrops] = useState<DropRecord[]>([]);
 
   const note = useCallback((message: string) => {
     bridge().log(message);
@@ -70,6 +118,7 @@ export function App(): React.JSX.Element {
       locationProtocol: window.location.protocol,
       origin: window.location.origin,
       openedPaths: [] as string[],
+      drops: [] as DropRecord[],
     };
 
     void (async () => {
@@ -82,8 +131,14 @@ export function App(): React.JSX.Element {
         }
 
         const fixture = await bridge().phase0Fixture();
-        const response = await askWorker(fixture?.url ?? null);
-        if (response.kind === 'failed') throw new Error(response.message);
+        const response = await askWorker({
+          kind: 'start',
+          seed: PING_SEED,
+          fileUrl: fixture?.url ?? null,
+        });
+        if (response.kind !== 'ready') {
+          throw new Error(response.kind === 'failed' ? response.message : `got ${response.kind}`);
+        }
 
         const canvas = canvasRef.current;
         if (canvas === null) throw new Error('canvas missing');
@@ -133,29 +188,27 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     if (report !== null)
-      window.__tetravox_phase0 = { ...report, openedPaths: opened.map((o) => o.path) };
-  }, [report, opened]);
+      window.__tetravox_phase0 = { ...report, openedPaths: opened.map((o) => o.path), drops };
+  }, [report, opened, drops]);
 
   const onDrop = useCallback(
     (event: DragEvent<HTMLDivElement>): void => {
       event.preventDefault();
-      // §8: `webUtils.getPathForFile` first. When it returns '' the renderer must NOT call
-      // `file.arrayBuffer()` — Phase 1 posts the `File` itself to the worker as
-      // `LoadSource.kind: 'file'`. Phase 0 only logs which branch a drop took.
+      // §8: `webUtils.getPathForFile` first, and the `File` itself only when it returns ''. The
+      // `dataTransfer.files` list does not survive the first `await`, so snapshot it here.
+      const files = Array.from(event.dataTransfer.files);
       void (async () => {
-        for (const file of Array.from(event.dataTransfer.files)) {
+        for (const file of files) {
           const path = bridge().getDroppedFilePath(file);
-          if (path === '') {
-            note(`drop: no path for "${file.name}" -> LoadSource.kind:'file' fallback (Phase 1)`);
-            continue;
-          }
-          const allowed = await bridge().allowPath(path);
-          if (allowed === null) {
-            note(`drop: ${path} (unreadable)`);
-            continue;
-          }
-          setOpened((prev) => [...prev, allowed]);
-          note(`drop: ${allowed.path}`);
+          const { record, opened: allowed } = await ingestDrop(file, path);
+          if (allowed !== null) setOpened((prev) => [...prev, allowed]);
+          setDrops((prev) => [...prev, record]);
+          note(
+            record.error !== null
+              ? `drop: ${record.name} (${record.branch}) failed: ${record.error}`
+              : `drop: ${record.name} via ${record.branch} -> ${record.bytes} B ` +
+                  `digest=0x${(record.digest ?? 0).toString(16)}`
+          );
         }
       })();
     },
@@ -174,6 +227,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div
+      data-testid="drop-target"
       className="flex h-full flex-col bg-tvx-bg text-tvx-text"
       onDragOver={(event) => event.preventDefault()}
       onDrop={onDrop}

@@ -13,12 +13,12 @@
 // destructuring pattern". `({}, testInfo)` is therefore mandatory, not stylistic.
 /* eslint-disable no-empty-pattern */
 
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import type { Phase0Report } from '../src/renderer/src/phase0';
-import { APP_ROOT, launchApp, packagedExecutable } from './fixtures';
+import type { DropRecord, Phase0Report } from '../src/renderer/src/phase0';
+import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 import { FIXTURE_BYTES, tvxPing, tvxPingBytes } from './expected';
 import { decodePng, pixelAt } from './png';
@@ -54,10 +54,8 @@ test.describe('Phase-0 walking skeleton', () => {
 
   test.beforeAll(async ({}, workerInfo) => {
     const target = workerInfo.project.name as LaunchTarget;
-    test.skip(
-      target === 'packaged' && packagedExecutable() === null,
-      'no packaged artefact — run `pnpm package` first'
-    );
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
     app = await launchApp(target);
     page = await app.firstWindow();
     report = await readReport(page);
@@ -153,13 +151,135 @@ test.describe('Phase-0 walking skeleton', () => {
   });
 });
 
+/**
+ * ROADMAP Phase-0 gate 8: drop a `.nii.gz` **and** a `.msh` onto the window, exercising both §8
+ * branches. `testdata/` is the fixtures stage's output — a real gzip NIfTI and a real Gmsh v2.2 ASCII
+ * mesh, not two blobs of the same shape.
+ */
+const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
+const DROPPED = ['vol_u8.nii.gz', 'mesh_v2_ascii.msh'] as const;
+
+/** The bytes on disk, and the digest WASM must arrive at, computed here from the algorithm. */
+const DROPPED_EXPECTED = DROPPED.map((name) => {
+  const bytes = new Uint8Array(readFileSync(join(TESTDATA, name)));
+  return { name, path: join(TESTDATA, name), bytes: bytes.byteLength, digest: tvxPingBytes(bytes) };
+});
+
+/** Wait until the renderer has published `count` drop records, then return them. */
+async function readDrops(page: Page, count: number): Promise<DropRecord[]> {
+  await page.waitForFunction((n) => (window.__tetravox_phase0?.drops.length ?? 0) >= n, count, {
+    timeout: 30_000,
+  });
+  return page.evaluate(() => window.__tetravox_phase0?.drops ?? []);
+}
+
+test.describe('drag and drop (§8)', () => {
+  let app: ElectronApplication;
+  let page: Page;
+
+  test.beforeAll(async ({}, workerInfo) => {
+    const target = workerInfo.project.name as LaunchTarget;
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
+    app = await launchApp(target);
+    page = await app.firstWindow();
+    await readReport(page);
+  });
+
+  test.afterAll(async () => {
+    await app?.close();
+  });
+
+  test('a dropped .nii.gz and .msh reach WASM by path, via webUtils.getPathForFile', async () => {
+    // A `File` only carries a path when Chromium made it from the filesystem. `setInputFiles` does
+    // exactly that (it is CDP `DOM.setFileInputFiles` over real paths), and moving those `File`s into
+    // a `DataTransfer` preserves the binding — which is what makes `webUtils.getPathForFile` answer,
+    // and is the closest a test can get to a native drop without an OS-level drag.
+    await page.evaluate(() => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.id = 'tvx-drop-probe';
+      document.body.appendChild(input);
+    });
+    await page.setInputFiles(
+      '#tvx-drop-probe',
+      DROPPED_EXPECTED.map((f) => f.path)
+    );
+    await page.evaluate(() => {
+      const input = document.getElementById('tvx-drop-probe') as HTMLInputElement;
+      const transfer = new DataTransfer();
+      for (const file of Array.from(input.files ?? [])) transfer.items.add(file);
+      document
+        .querySelector('[data-testid="drop-target"]')
+        ?.dispatchEvent(
+          new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true })
+        );
+      input.remove();
+    });
+
+    const drops = await readDrops(page, 2);
+    expect(drops).toHaveLength(2);
+    for (const [i, expected] of DROPPED_EXPECTED.entries()) {
+      const record = drops[i];
+      expect(record, `drop ${i}`).toBeDefined();
+      expect(record?.error).toBeNull();
+      expect(record?.name).toBe(expected.name);
+      // The path branch: a path came back, it was allow-listed, and the worker fetched it over the
+      // privileged scheme rather than being handed bytes by the UI thread.
+      expect(record?.branch).toBe('path');
+      expect(record?.path).toBe(expected.path);
+      expect(record?.url).toBe(`tetravox://file/${encodeURIComponent(expected.path)}`);
+      expect(record?.bytes).toBe(expected.bytes);
+      expect(record?.digest).toBe(expected.digest);
+    }
+
+    // A dropped path is a path the user named, so it joins the §5 rule 9 allow-list.
+    const opened = await page.evaluate(() => window.__tetravox_phase0?.openedPaths ?? []);
+    for (const expected of DROPPED_EXPECTED) expect(opened).toContain(expected.path);
+  });
+
+  test('the same two files reach WASM as File bytes when there is no path (§8 fallback)', async () => {
+    // A `File` built in the page has no filesystem binding, so `getPathForFile` returns '' — the
+    // fallback branch, which posts the `File` itself to the worker. Same bytes as the path branch,
+    // so the digests must match the ones above exactly: one file, two routes, one answer.
+    const payload = DROPPED_EXPECTED.map((f) => ({
+      name: f.name,
+      bytes: [...new Uint8Array(readFileSync(f.path))],
+    }));
+    await page.evaluate((files) => {
+      const transfer = new DataTransfer();
+      for (const file of files) {
+        transfer.items.add(new File([new Uint8Array(file.bytes)], file.name));
+      }
+      document
+        .querySelector('[data-testid="drop-target"]')
+        ?.dispatchEvent(
+          new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true })
+        );
+    }, payload);
+
+    const drops = await readDrops(page, 4);
+    expect(drops).toHaveLength(4);
+    for (const [i, expected] of DROPPED_EXPECTED.entries()) {
+      const record = drops[i + 2];
+      expect(record, `fallback drop ${i}`).toBeDefined();
+      expect(record?.error).toBeNull();
+      expect(record?.name).toBe(expected.name);
+      expect(record?.branch).toBe('file');
+      expect(record?.path).toBeNull();
+      expect(record?.url).toBeNull();
+      expect(record?.bytes).toBe(expected.bytes);
+      expect(record?.digest).toBe(expected.digest);
+    }
+  });
+});
+
 test.describe('path capture', () => {
   test('a CLI argument reaches the renderer as a path, never as bytes', async ({}, testInfo) => {
     const target = testInfo.project.name as LaunchTarget;
-    test.skip(
-      target === 'packaged' && packagedExecutable() === null,
-      'no packaged artefact — run `pnpm package` first'
-    );
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
     const fixture = join(APP_ROOT, 'resources', 'phase0-fixture.bin');
     const app = await launchApp(target, { args: [fixture] });
     try {

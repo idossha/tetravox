@@ -12,7 +12,7 @@
 /// <reference lib="webworker" />
 
 import init, { tvx_ping, tvx_ping_bytes, tvx_version } from '@tetravox/wasm/pkg';
-import type { WorkerRequest, WorkerResponse } from '../src/phase0';
+import type { DropSource, WorkerRequest, WorkerResponse } from '../src/phase0';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -36,9 +36,28 @@ function observeStreaming(): void {
   };
 }
 
+/**
+ * The bytes behind a dropped file, read **here** and never on the UI thread (§5 rule 3). Both §8
+ * branches end in the same place — a `Uint8Array` handed straight to WASM — which is what lets the
+ * e2e assert one digest against both.
+ */
+async function readSource(source: DropSource): Promise<Uint8Array> {
+  if (source.kind === 'url') {
+    const response = await fetch(source.url);
+    if (!response.ok) throw new Error(`${source.url} -> ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  }
+  return new Uint8Array(await source.file.arrayBuffer());
+}
+
 async function run(request: WorkerRequest): Promise<WorkerResponse> {
   observeStreaming();
   await init();
+
+  if (request.kind === 'digest') {
+    const bytes = await readSource(request.source);
+    return { kind: 'digested', bytes: bytes.byteLength, digest: tvx_ping_bytes(bytes) };
+  }
 
   let fileBytes: number | null = null;
   let fileDigest: number | null = null;

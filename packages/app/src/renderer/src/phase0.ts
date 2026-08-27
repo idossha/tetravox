@@ -27,9 +27,38 @@ export interface Phase0Result {
   fileDigest: number | null;
 }
 
-export type WorkerRequest = { kind: 'start'; seed: number; fileUrl: string | null };
+/**
+ * Where a dropped file's bytes come from (§8, ROADMAP Phase-0 gate 8).
+ *
+ * `url` is the allow-listed `tetravox://file/…` for a path `webUtils.getPathForFile` returned; `file`
+ * is the §8 fallback — a `File` with no backing path, structured-cloned to the worker whole. Neither
+ * puts bytes on the UI thread: the worker is what calls `fetch` / `File.arrayBuffer` (§5 rule 3).
+ */
+export type DropSource = { kind: 'url'; url: string } | { kind: 'file'; file: File };
+
+export type WorkerRequest =
+  { kind: 'start'; seed: number; fileUrl: string | null } | { kind: 'digest'; source: DropSource };
+
 export type WorkerResponse =
-  ({ kind: 'ready' } & Phase0Result) | { kind: 'failed'; message: string };
+  | ({ kind: 'ready' } & Phase0Result)
+  | { kind: 'digested'; bytes: number; digest: number }
+  | { kind: 'failed'; message: string };
+
+/** One dropped file and which §8 branch carried its bytes to WASM. */
+export interface DropRecord {
+  name: string;
+  /** `'path'` — `getPathForFile` answered; `'file'` — it returned `''` and the `File` itself went. */
+  branch: 'path' | 'file';
+  /** The absolute path, on the `'path'` branch only. */
+  path: string | null;
+  /** Its allow-listed `tetravox://file/…` URL, on the `'path'` branch only. */
+  url: string | null;
+  /** Bytes the *worker* read. Phase 1 parses them; Phase 0 proves they arrived. */
+  bytes: number | null;
+  /** `tvx_ping_bytes()` over exactly those bytes — the same digest either branch takes. */
+  digest: number | null;
+  error: string | null;
+}
 
 /**
  * The triangle's colour, byte-exact. The framebuffer is plain RGBA8 with no sRGB encode, so these
@@ -70,4 +99,6 @@ export interface Phase0Report {
   origin: string;
   /** Paths captured from the menu, CLI argv, `open-file` or a drop — logged, not loaded (Phase 0). */
   openedPaths: string[];
+  /** One entry per file of every drop the window has seen, in drop order (gate 8). */
+  drops: DropRecord[];
 }

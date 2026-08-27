@@ -44,9 +44,21 @@ describe('§6.4 wasm export surface', () => {
   it('has no op-reachable export that the op table never names', () => {
     // The reverse direction. `free`/`free_mask` are ops; the wasm-bindgen lifecycle helpers
     // (`initSync`, the default init) are not, and are excluded by name rather than by heuristic.
-    const lifecycle = new Set(['initSync', 'wasm_heap_bytes']);
+    //
+    // §6.4's trailing block declares three more exports no op maps to, *by design*: the Phase-0
+    // liveness trio the packaged artefact calls straight from its worker (ROADMAP Phase-0 gate 2 —
+    // every op-reachable export is `unimplemented!()` until Phase 1, so none of them is callable
+    // yet). They are listed one by one rather than matched by prefix, so a fourth unwired export is
+    // still a failure.
+    const notOpReachable = new Set([
+      'initSync',
+      'wasm_heap_bytes',
+      'tvx_version',
+      'tvx_ping',
+      'tvx_ping_bytes',
+    ]);
     const mapped = new Set<string>(OP_NAMES.map((op) => OP_TO_EXPORT[op]));
-    const orphans = [...exports].filter((name) => !mapped.has(name) && !lifecycle.has(name));
+    const orphans = [...exports].filter((name) => !mapped.has(name) && !notOpReachable.has(name));
     expect(
       orphans,
       'a §6.4 export no §6.5.2 op can reach is either dead or an unwired feature'

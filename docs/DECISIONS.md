@@ -556,3 +556,40 @@ The decisions below are new.
   loudly with a pointer to what Phase 3 must add (`pnpm package` plus the artefact smoke test). Phase 0's
   packaging proof is the macOS-only `.dmg` step inside the `test` job — no `continue-on-error`, and a
   documented no-op only while `packages/app` has no `package` script.
+
+## 2026-08-27 — Phase 0 integration: merging the three stages and closing gate 8
+
+- 2026-08-27 — **`packages/wasm/src/index.test.ts`'s orphan-export check now names the Phase-0 liveness
+  trio explicitly.** The harness stage asserted that every §6.4 export is reachable from some §6.5.2 op;
+  the app stage added `tvx_version` / `tvx_ping` / `tvx_ping_bytes`, which no op maps to *by design*
+  (§6.4's trailing block says so). Neither branch was wrong on its own and the merge was textually
+  clean — the failure only exists in the union, which is what integration is for. The three are listed
+  one by one rather than skipped by a `tvx_ping*` prefix, so a *fourth* unwired export is still red.
+- 2026-08-27 — **ROADMAP Phase-0 gate 8 (drag-and-drop) was implemented at integration time**, not by
+  the app stage: the drop *handler* shipped there, but the fixtures it needs — a real `.nii.gz` and a
+  real `.msh` — only exist once `p0/fixtures` is merged, so no single stage branch could have written
+  the test. `testdata/vol_u8.nii.gz` and `testdata/mesh_v2_ascii.msh` are now dropped in both §8
+  branches and both digest through WASM.
+- 2026-08-27 — **The renderer's Phase-0 report gained `drops: DropRecord[]`, and the Phase-0 worker a
+  second request kind (`digest`).** Gate 8 says the two files must "load", and Phase 0 has no loader, so
+  the strongest true statement is *the bytes reached WASM* — the same claim gate 3 makes about the
+  fixture. Each branch therefore ends in `tvx_ping_bytes` over the bytes the **worker** read, and the
+  e2e asserts the same expected digest for the same file down both branches: one file, two routes, one
+  answer. `phase0.ts` is not one of §12.3's five frozen interfaces, so this needs no contract edit.
+  What deliberately did *not* change: the UI thread still never calls `file.arrayBuffer()`, and no
+  `ArrayBuffer` crosses IPC (§5 rule 3).
+- 2026-08-27 — **The e2e drops files it got from a hidden `<input type="file">`, moved into a
+  `DataTransfer`.** A `File` only answers `webUtils.getPathForFile` when Chromium built it from the
+  filesystem; Playwright's `setInputFiles` is CDP `DOM.setFileInputFiles` over real paths, and the
+  binding survives `DataTransfer.items.add`, so the dispatched `drop` event carries path-backed `File`s
+  — verified on this machine, both files, exact paths. A `new File([bytes], name)` built in the page has
+  no binding and returns `''`, which is precisely the fallback branch. Rejected: driving a native OS
+  drag, which Playwright cannot do into an Electron window.
+- 2026-08-27 — **`packagedUnavailable()` replaces `packagedExecutable() === null` at the three
+  `test.skip` sites, and also skips a *stale* artefact.** `pnpm e2e` rebuilds `out/` but never
+  repackages, so a `release/` from an earlier commit launches happily and fails on assertions about code
+  it does not contain — which is how gate 8 first presented, as `Cannot read properties of undefined`
+  inside a page evaluation. Staleness is measured against `packages/app/src` and `packages/wasm/pkg`,
+  **not** against `out/`: `pnpm e2e`'s own build re-stamps `out/` every run and would mark every
+  artefact stale. The mtime read on the artefact side is `app.asar`'s, because the Electron binary is
+  copied out of a downloaded zip and can carry the zip's timestamps.
