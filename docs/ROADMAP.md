@@ -116,8 +116,8 @@ green, plus `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -
 **What CI can and cannot say about any of this.** `.github/workflows/ci.yml` carries a step that
 *asserts `TETRAVOX_TESTDATA` is unset*, deliberately (§11, AGENTS rule 2: real-data tests skip, never
 fail). The consequence belongs here rather than only in the benchmarks doc: **every gate item above,
-all 26 `tvx-geom` + `tvx-nifti` real-data tests and every number in this table are reproducible only
-on a machine with the reference dataset.** `cargo test --workspace` returns the same 189-passed count
+the 35 real-data tests across `tvx-geom` (16), `tvx-mesh-io` (10) and `tvx-nifti` (9), and every
+number in this table are reproducible only on a machine with the reference dataset.** `cargo test --workspace` returns the same 189-passed count
 with the variable set and unset, so the count itself cannot distinguish a run that exercised ernie
 from one that did not — read the `[bench]`/`[§9.x]` lines, or `-- --nocapture`, for that. What CI
 does police is the synthetic half: `testdata/` and its manifest, the analytic pixel tests, lint,
