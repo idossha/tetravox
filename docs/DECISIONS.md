@@ -2033,3 +2033,75 @@ Each entry below names the problem, the fix, and the evidence.
   §7.6's `.json` colormaps and every LUT file write them, and only `MeshTag.color` / `LabelEntry.color`
   are normalised at the wire. A second `× 255` in the app saturated every channel and painted the
   strip white, which is how it was caught.
+
+## 2026-08-27 — Phase 2, E-DERIVED (contours, `fillIn2D`, glyphs, isosurfaces, points)
+
+- 2026-08-27 — **Glyph origins are surface-and-cut-plane only; W-WASM gap 2 closes as "none".** The
+  map asked E-DERIVED to decide this "before writing the shader". Decided: no new §6.3 function, no
+  new §6.5.2 op, no protocol change. §7.4 already says "**No new geometry from WASM**", and both
+  origin sources it leaves open are enough — a de-indexed `SurfacePayload` gives a per-triangle
+  centroid and its `ownerElm`, and `CutPayload` gives the same for the `clipToCutPlane` case. The
+  shader takes triangle `uFirst + gl_InstanceID · uStride` and averages its three vertices, reading
+  them out of an `R32F` table that is the payload's own `positions` array uploaded unchanged, so the
+  origin costs no CPU work and no extra memory beyond one texture. What is *not* served is the
+  unrestricted interior case — glyphs on tets no surface and no plane touches — which is the case
+  `ernie_TDCS_1_scalar.msh`'s `E` over 5,900,498 elements invites and which would need element
+  centroids from `tvx-geom`. Rejected for v1 on two grounds: the picture it draws is a solid block of
+  arrows nobody can read, and every reference workflow (a field on the GM surface, a field on a cut)
+  is already covered. If Phase 3 wants it, it is a `field`-result extension and it is W-WASM's.
+- 2026-08-27 — **The derived pass runs between `mesh` and `overlay`, not appended after it.**
+  `renderer.ts`'s shared-file rule is "append a pass to the sequence in `renderView`; **never
+  reorder**", and appending literally at the end would put `fillIn2D`, points and isosurfaces on top
+  of the crosshair and the corner info. §7.2 is unambiguous about where they belong — points,
+  isosurfaces and cut caps are **pass 1**, contours are **pass 3**, and R4 says the mesh fill draws
+  over the base volume and under the crosshair — so the only placement the contract allows is before
+  the overlay. No existing entry moves: `slice` → `mesh` → `overlay` keep their order and their
+  relative order, and the new call is one line between two of them. The pass enters a complete
+  `gl/state.ts` block and disables every clip distance, so it inherits nothing from pass 2 and leaks
+  nothing into pass 3. Drawing contours in the overlay pass's own buffer instead — rejected: the
+  overlay is "one buffer, one draw" of screen-space chrome geometry, and instancing 200,000 boundary
+  segments through a CPU-built vertex list is exactly the per-element work §5 rule 7 forbids.
+- 2026-08-27 — **`fillIn2D` and `contoursIn2D` default to `true` when a mesh is opened**, changing
+  two Phase-1 defaults in `scene/defaults.ts` against that file's "never change an existing default"
+  rule. R4 states it outright ("Default when a mesh is opened: fill **and** contours on"), and
+  `docs/requirements/2026-08-27-maintainer.md` says a maintainer requirement wins over the contract
+  where they conflict. The rule's stated reason — "it moves every golden that layer appears in" —
+  does not apply: Phase 1 drew no mesh in any 2D pane, so no committed golden contains one, and
+  `gate2` / `gate5`'s mesh scenes are `3d-only` where no cut is requested at all.
+- 2026-08-27 — **A per-face value reaches the fill shader as a table texture, never as a per-vertex
+  attribute.** The cut's `tag` and `ownerTet` are one texel per triangle in `R32UI`, fetched at
+  `gl_VertexID / 3` — §7.4's own mechanism for a de-indexed draw — and the `tag` upload is a
+  zero-copy `Uint32Array` view over the worker's `Int32Array`. Expanding either to three vertices on
+  the UI thread would be 62,966 triangles of per-element work per sweep step (§5 rule 7, AGENTS rule
+  7) and 12× the bytes. The tag *colour* is then a `tag → RGBA8` LUT indexed by the raw tag rather
+  than by a dense remap: tags are not contiguous (tag 4 is absent from ernie) and reach 2102 on the
+  SEEG meshes, so the direct table is 8.4 KB against a remap plus a search. Alpha in that LUT carries
+  `tagStyle` visibility and opacity, which is what makes R5's "hiding a tag removes its colour while
+  the others are unchanged" true by construction rather than by a second draw.
+- 2026-08-27 — **`derived/cut-source.ts` ships the `CutSource` contract *and* a worker-backed
+  implementation, rather than waiting for `compute/cut-manager.ts`.** The four methods
+  (`requestCut` / `getCut` / `onCut` / `releaseCut`, latest-wins per `(datasetId, key)`, keys
+  `pane:<viewId>` and `3d-clip`) are the shape agreed with E-MESH, and E-MESH owns the file that will
+  implement them. But R4 is a **gate item on this branch**, with real-data pixel assertions and a
+  measured sweep, and the integration order lands E-MESH one stage earlier — so a branch that only
+  had a fake would ship an untested feature. `PaneCutSource` implements the interface over the `cut`
+  op directly; swapping it for `CutManager` is one construction site in `engine.ts` and nothing else,
+  because nothing else names the implementation. It requests `recycle: false` throughout: the
+  recycled path hands geometry back through the worker's own `CutOut` pool, which only E-MESH's
+  GPU-side cap uploader can read, and §6.4 calls the buffers path "the correctness reference".
+- 2026-08-27 — **`defaultLayerFor` takes an optional `kind`.** `Engine.addLayer({ kind: 'iso' })`
+  could not work before it: the facade built the layer from `defaultLayerFor(id, ds)` and then
+  re-imposed `kind: base.kind`, so a caller-requested kind the function never produced was silently
+  replaced by the dataset's. One optional parameter, defaulting to the dataset's own kind, leaves
+  every Phase-1 call site unchanged and makes `layers/registry.ts`'s exhaustiveness over §4.4's four
+  kinds reachable rather than theoretical.
+- 2026-08-27 — **The `PaneCutSource` stand-in above is gone; `CutManager` is the implementation**
+  (Phase-2 integrator, stage 4 of the merge). The entry above predicted the swap would be "one
+  construction site in `engine.ts` and nothing else, because nothing else names the implementation",
+  and that is what it was. `derived/cut-source.ts` is now the consumer's *view* of E-MESH's manager —
+  its `CutSnapshot` / `CutRequestOptions` types re-exported, the four-method `CutSource` interface,
+  and a type-level `CutManager extends CutSource` assertion that goes red in `pnpm typecheck` rather
+  than in a Playwright run three stages later. `derived/cut-source.test.ts` was rewritten to assert
+  the same four guarantees against the **real** manager through that interface, so the seam is
+  pinned rather than claimed. What the stand-in's tests covered is covered there or in
+  `compute/cut-manager.test.ts`, which is a superset.

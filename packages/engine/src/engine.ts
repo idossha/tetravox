@@ -1260,8 +1260,19 @@ export class TetravoxEngine implements Engine, PointerHost {
    * §7.2: resolves after `interacting` has cleared, all pending worker requests for visible layers
    * have landed, and one full-quality frame has completed. Every golden awaits this — without it
    * the adaptive pump makes every golden racy.
+   *
+   * **It always draws at least once, even when nothing is dirty.** Some resources are discovered
+   * only *by* a draw and requested lazily from inside it — the element-field table `fillIn2D` reads
+   * through `ownerTet`, and the surface tables a glyph's origins come from (`derived/store.ts`).
+   * Returning without drawing therefore reported "settled" for a frame whose lazy request had not
+   * been made yet, and the next frame changed. Measured on `Thalamus_TI.msh` with `TI_max` on the
+   * cut: the frame after `whenSettled()` was the **tag** colouring and the one after that was the
+   * colormap — so every pixel assertion and every golden of a field-coloured 2D cut photographed
+   * the wrong picture, which is exactly what §11 exists to prevent. Drawing first makes the request
+   * register in `#inFlight`, and the loop below then waits for it like any other.
    */
   async whenSettled(): Promise<void> {
+    let drew = false;
     for (let guard = 0; guard < 100; guard += 1) {
       if (this.#inFlight.size > 0) {
         await Promise.allSettled([...this.#inFlight]);
@@ -1279,6 +1290,15 @@ export class TetravoxEngine implements Engine, PointerHost {
           else setTimeout(resolve, 16);
         });
         if (this.#dirty) this.#renderFrame();
+        drew = true;
+        continue;
+      }
+      if (!drew) {
+        // Nothing is dirty and nothing has been drawn under this call: draw once, so a lazy
+        // request a draw would make is made and waited for rather than deferred to the caller's
+        // next frame.
+        this.#renderFrame();
+        drew = true;
         continue;
       }
       return;

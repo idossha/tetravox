@@ -19,16 +19,16 @@
  *   attribute, so the value is interpolated across the triangle and the colormap is sampled per
  *   fragment.
  *
- * Every per-face fetch happens in the **vertex** shader and leaves as `flat` — vertex shaders have
- * a default `highp` for every type, so no `precision` declaration is needed for an integer sampler,
- * and a `flat` varying cannot be smeared across the triangle by interpolation.
+ * Every per-face fetch happens in the **vertex** shader and leaves as `flat`: a `flat` varying
+ * cannot be smeared across the triangle by interpolation, which is what makes "the pixel is exactly
+ * the tag colour" hold in the interior *and* along the polygon's own edges.
  *
  * **No CPU expansion.** There is no per-vertex `tag` attribute and no per-triangle loop anywhere on
  * the UI thread: the tables are uploaded as textures exactly as the worker produced them (§5 rule 7,
  * AGENTS rule 7).
  */
 
-import { PRECISION_FLOAT, PRECISION_INT, VERSION } from './chunks/caps';
+import { PRECISION_FLOAT, PRECISION_INT, PRECISION_USAMPLER2D, VERSION } from './chunks/caps';
 
 /** How a fill fragment gets its colour. Keyed into the §7.1 variant cache as `FILL_MODE`. */
 export const FILL_MODE = { tag: 0, elmField: 1, nodeField: 2 } as const;
@@ -36,6 +36,10 @@ export const FILL_MODE = { tag: 0, elmField: 1, nodeField: 2 } as const;
 export const FILL2D_VS = `${VERSION}
 ${PRECISION_FLOAT}
 ${PRECISION_INT}
+// ESSL 3.00's vertex language defaults int, float and sampler2D to highp but says nothing about the
+// integer sampler types, so an undeclared usampler2D is a compile error — measured, not assumed:
+// "'usampler2D' : No precision specified" [SwS].
+${PRECISION_USAMPLER2D}
 layout(location = 0) in vec3 aPos;        // world mm, de-indexed cut triangles
 layout(location = 1) in float aValue;     // FILL_MODE 2 only: the node field, interpolated per vertex
 

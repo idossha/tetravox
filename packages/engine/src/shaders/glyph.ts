@@ -23,11 +23,13 @@
  * shared 24-triangle template is not dataset geometry and is exactly what §7.4 asks for.
  */
 
-import { PRECISION_FLOAT, PRECISION_INT, VERSION } from './chunks/caps';
+import { PRECISION_FLOAT, PRECISION_INT, PRECISION_USAMPLER2D, VERSION } from './chunks/caps';
 
 export const GLYPH_VS = `${VERSION}
 ${PRECISION_FLOAT}
 ${PRECISION_INT}
+// The vertex language has no default precision for an integer sampler; see shaders/fill2d.ts.
+${PRECISION_USAMPLER2D}
 layout(location = 0) in vec3 aPos;        // unit arrow template, +Z, length 1, radius ~0.06
 layout(location = 1) in vec3 aNormal;
 

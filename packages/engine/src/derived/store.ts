@@ -112,6 +112,16 @@ export class DerivedStore {
 
   readonly #panes = new Map<string, PaneCutGeometry>();
   readonly #paneKeys = new Map<string, { datasetId: DatasetId; cutKey: string }>();
+  /**
+   * One `onCut` subscription per cut key, so a landed cut **repaints the pane**.
+   *
+   * `paneCut` is pull-based — it requests during the draw and reads the snapshot back — which is
+   * right for a pane whose plane is derived from the cursor, but it leaves nothing to notice that
+   * the answer arrived. Without this a cross-section only appeared on the next frame something else
+   * happened to dirty, and `whenSettled()` reported a settled scene whose cut was not on screen.
+   * Keyed by `${datasetId} ${cutKey}` and not by layer, because the cut is the dataset's.
+   */
+  readonly #cutSubs = new Map<string, () => void>();
   readonly #tagLuts = new Map<LayerId, TagLutEntry>();
   readonly #fields = new Map<string, FieldEntry>();
   readonly #points = new Map<LayerId, PointEntry>();
@@ -156,6 +166,7 @@ export class DerivedStore {
     const cutKey = cutKeyForPane(viewId);
     this.#paneKeys.set(key, { datasetId: ds.id, cutKey });
     if (ds.nTets > 0) {
+      this.#subscribeCut(ds.id, cutKey);
       this.#cuts.requestCut(ds.id, cutKey, [plane], opts);
       const snap = this.#cuts.getCut(ds.id, cutKey);
       if (snap === null) return this.#panes.get(key) ?? null;
@@ -445,6 +456,26 @@ export class DerivedStore {
   // Lifecycle
   // -------------------------------------------------------------------------------------------
 
+  /** Repaint when this key's cut lands. Idempotent: one subscription per `(dataset, key)`. */
+  #subscribeCut(datasetId: DatasetId, cutKey: string): void {
+    const id = `${datasetId} ${cutKey}`;
+    if (this.#cutSubs.has(id)) return;
+    this.#cutSubs.set(
+      id,
+      this.#cuts.onCut(datasetId, cutKey, () => {
+        this.#requestRender();
+      })
+    );
+  }
+
+  /** Unsubscribe and release one cut key. */
+  #releaseCut(datasetId: DatasetId, cutKey: string): void {
+    const id = `${datasetId} ${cutKey}`;
+    this.#cutSubs.get(id)?.();
+    this.#cutSubs.delete(id);
+    this.#cuts.releaseCut(datasetId, cutKey);
+  }
+
   /** Drop one layer's per-pane geometry — its cut keys go with it. */
   dropLayer(id: LayerId): void {
     for (const [k, g] of [...this.#panes]) {
@@ -452,7 +483,7 @@ export class DerivedStore {
       this.#disposePane(g);
       this.#panes.delete(k);
       const meta = this.#paneKeys.get(k);
-      if (meta !== undefined) this.#cuts.releaseCut(meta.datasetId, meta.cutKey);
+      if (meta !== undefined) this.#releaseCut(meta.datasetId, meta.cutKey);
       this.#paneKeys.delete(k);
     }
     const lut = this.#tagLuts.get(id);
@@ -470,6 +501,11 @@ export class DerivedStore {
   }
 
   dropDataset(id: DatasetId): void {
+    for (const [k, off] of [...this.#cutSubs]) {
+      if (!k.startsWith(`${id} `)) continue;
+      off();
+      this.#cutSubs.delete(k);
+    }
     const s = this.#surfaces.get(id);
     if (s !== undefined) {
       this.#gl.deleteTexture(s.positions.texture);
@@ -491,6 +527,8 @@ export class DerivedStore {
     for (const g of this.#panes.values()) this.#disposePane(g);
     this.#panes.clear();
     this.#paneKeys.clear();
+    for (const off of this.#cutSubs.values()) off();
+    this.#cutSubs.clear();
     for (const l of this.#tagLuts.values()) this.#gl.deleteTexture(l.table.texture);
     this.#tagLuts.clear();
     for (const e of this.#points.values()) {
