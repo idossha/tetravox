@@ -26,6 +26,7 @@
 
 import type { ComputeClient } from '@tetravox/wasm';
 import type { ProbeRow } from '../api';
+import type { CutManager } from '../compute/cut-manager';
 import type { GpuStore, SurfaceGeometry, VolumeGpu } from '../render/gpu';
 import { isSliceView } from '../scene/store';
 import type {
@@ -50,6 +51,15 @@ export interface LayerRuntimeContext {
   requestRender(): void;
   /** Register a promise with `whenSettled()`, so a golden waits for it (§7.2). */
   track<T>(p: Promise<T>): Promise<T>;
+  /**
+   * The engine's one `cut` owner (`compute/cut-manager.ts`, E-MESH).
+   *
+   * Every consumer of a cut goes through it under its own key — `'3d-clip'` for a mesh layer's clip
+   * planes, `'pane:<viewId>'` for a 2D pane's cursor plane — so §7.4's caps and §7.4's 2D
+   * `contoursIn2D` / `fillIn2D` share one request per plane set and one latest-wins queue per
+   * consumer. A runtime never issues the `cut` op itself.
+   */
+  readonly cuts: CutManager;
 }
 
 /** One (layer, plane) slice draw: §7.3's "one draw per (layer, plane)". */

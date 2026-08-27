@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { LAYER_KINDS, createLayerRuntime } from './registry';
+import { CutManager } from '../compute/cut-manager';
 import type { LayerRuntimeContext } from './runtime';
 import { PICK_OPACITY_MIN, pickableIn, visibleIn } from './runtime';
 import { defaultLayerFor } from '../scene/defaults';
@@ -29,6 +30,8 @@ const EMPTY_CONTEXT: LayerRuntimeContext = {
   client: () => undefined,
   requestRender: () => {},
   track: <T>(p: Promise<T>) => p,
+  // No dataset resolves, so every `requestCut` is a no-op — which is what a registry test wants.
+  cuts: new CutManager(() => undefined),
 };
 
 const AXIAL: SliceView = {

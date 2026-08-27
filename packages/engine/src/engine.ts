@@ -36,6 +36,7 @@ import { GpuStore, surfaceKey } from './render/gpu';
 import { Renderer } from './render/renderer';
 import { TRANSPARENT, encodeFrame } from './render/screenshot';
 import type { DrawInput } from './render/renderer';
+import { CutManager } from './compute/cut-manager';
 import { createLayerRuntime } from './layers/registry';
 import { buildLabelPalette } from './layers/volume';
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
@@ -102,6 +103,16 @@ export class TetravoxEngine implements Engine {
   readonly #layers = new Map<LayerId, LayerRuntime>();
   /** One worker per dataset (§5 rule 1). */
   readonly #workers = new Map<DatasetId, DatasetRuntime>();
+  /**
+   * The engine's one owner of the `cut` op (§6.5.2), keyed by `(datasetId, key)` so §7.4's 3D caps
+   * and each 2D pane's cross-section never supersede one another (`compute/cut-manager.ts`).
+   */
+  readonly #cuts = new CutManager((id) => {
+    const rt = this.#workers.get(id);
+    const ds = this.#store.dataset(id);
+    if (rt === undefined || ds === undefined || ds.kind !== 'mesh') return undefined;
+    return { client: rt.client, handle: ds.handle };
+  });
   readonly #listeners = new Map<string, Set<Listener>>();
 
   #nextId = 1;
@@ -129,6 +140,7 @@ export class TetravoxEngine implements Engine {
       client: (id: DatasetId) => this.#workers.get(id)?.client,
       requestRender: () => this.requestRender(),
       track: <T>(p: Promise<T>) => this.#track(p),
+      cuts: this.#cuts,
     };
   }
 
@@ -363,6 +375,7 @@ export class TetravoxEngine implements Engine {
     }
     this.#gpu.dropVolume(id);
     this.#gpu.dropSurfaces(id);
+    this.#cuts.releaseDataset(id);
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#emit('layers', [...this.#scene.layers]);
@@ -785,6 +798,7 @@ export class TetravoxEngine implements Engine {
       globalThis.cancelAnimationFrame(this.#raf);
     }
     if (this.#settleTimer !== null) clearTimeout(this.#settleTimer);
+    this.#cuts.dispose();
     for (const id of [...this.#workers.keys()]) this.#teardown(id);
     for (const rt of this.#layers.values()) rt.dispose();
     this.#layers.clear();
