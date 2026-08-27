@@ -70,12 +70,42 @@ export interface VolumeDrawItem {
   gpu: VolumeGpu;
 }
 
+/** A `texelFetch`-only table uploaded by `render/gpu.ts` — a field table or a label palette. */
+export interface MeshTableTex {
+  texture: WebGLTexture;
+  width: number;
+  size: number;
+}
+
+/**
+ * Everything §7.4's mesh pass needs that is not already in `layer` / `ds` / `geom`, resolved by the
+ * layer runtime.
+ *
+ * It exists because the *decision* — which geometry variant, which colour source, whether the async
+ * field/label load has landed — belongs to `layers/mesh.ts`, and the pass only draws. Absent means
+ * "Phase 1's uniform tag colour", which is also the correct state while a table is still loading.
+ */
+export interface MeshDrawStyle {
+  /** `MESH_COLOR_SOURCE` (`shaders/mesh.ts`): 0 uniform · 1 node field · 2 element field · 3 label. */
+  colorSource: 0 | 1 | 2 | 3;
+  /** The `R32F` node / element field table, when `colorSource` is 1, 2 or 3. */
+  fieldTable?: MeshTableTex;
+  /** The `N x 2 RGBA8` label palette (row 0 colour+visibility, row 1 selection). */
+  palette?: MeshTableTex;
+  /** Tags whose sub-draw carries R5's edge emphasis even when `edges.surface` is off. */
+  emphasisTags: readonly number[];
+  /** A label is selected, so the shader compiles R5's screen-space boundary band. */
+  labelEmphasis: boolean;
+}
+
 /** One mesh surface draw, with the per-tag sub-ranges §7.4 draws it in. */
 export interface MeshDrawItem {
   kind: 'mesh';
   layer: MeshLayer;
   ds: MeshDataset;
   geom: SurfaceGeometry;
+  /** Appended in Phase 2; absent is Phase 1's behaviour exactly. */
+  style?: MeshDrawStyle;
 }
 
 export type DrawItem = VolumeDrawItem | MeshDrawItem;

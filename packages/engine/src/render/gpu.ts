@@ -13,7 +13,15 @@ import type { SurfacePayload } from '@tetravox/protocol';
 import { Buffer, VertexArray } from '../gl/buffer';
 import { bytesPerVoxel, createAlpha2D, createLut, createTexture3D } from '../gl/texture';
 import { bakeScale } from '../color/colormaps';
-import type { ColormapName, DatasetId, Scale, VolumeDataset, VolumeLayer } from '../scene/types';
+import type {
+  Aabb,
+  ColormapName,
+  DatasetId,
+  Scale,
+  vec3,
+  VolumeDataset,
+  VolumeLayer,
+} from '../scene/types';
 import { isColormapName } from '../color/colormaps';
 import { ATLAS_H, ATLAS_W, buildAtlas } from './font';
 
@@ -42,6 +50,24 @@ export function surfaceKey(
   return `${datasetId}|${variant}|${maskId ?? ''}`;
 }
 
+/**
+ * The §7.4 mesh program's attribute locations, shared by `shaders/mesh.ts` and this file.
+ *
+ * `corner` and `edgeMask` exist only on the de-indexed variant (barycentric needs de-indexed
+ * geometry: under `drawElements` `gl_VertexID` is the index value, not the corner ordinal);
+ * `nodeIndex` exists only on the indexed one, where §6.5.1 defines it.
+ */
+export const MESH_ATTR = {
+  position: 0,
+  normal: 1,
+  corner: 2,
+  /** 3 is deliberately unused: §7.4's `edgeMask` is per triangle and lives in a texture, not here. */
+  nodeIndex: 4,
+} as const;
+
+/** §7.4's default `edgeMask`: all three edges are real element edges. */
+export const EDGE_MASK_ALL = 0b111;
+
 export interface SurfaceGeometry {
   vao: VertexArray;
   buffers: Buffer[];
@@ -52,6 +78,27 @@ export interface SurfaceGeometry {
   /** `R32UI` `ownerElm`, one texel per triangle, for the pick pass. */
   ownerTexture: WebGLTexture | null;
   ownerWidth: number;
+  /** The de-indexed variant's `corner` attribute is bound (§7.4's barycentric edges). */
+  hasCorner: boolean;
+  /**
+   * `R8UI` `edgeMask`, one texel per triangle (§7.4's 3-bit mask), or `null` when the payload had
+   * none — in which case §7.4's "when a whole draw is unmasked" case applies and the shader compiles
+   * the mask away to a constant `vec3(1)`, which costs less than the constant *attribute* §7.4
+   * suggests: no attribute slot, no buffer, no fetch.
+   */
+  edgeMaskTexture: WebGLTexture | null;
+  edgeMaskWidth: number;
+  /** The indexed variant's `nodeIndex` attribute is bound (the node-field / label table's index). */
+  hasNodeIndex: boolean;
+  /**
+   * Per-tag world AABB, or `null` for a single-tag surface where the dataset's own bounds serve.
+   *
+   * §7.2 sorts the transparent phases "back-to-front by the depth of the sheet that phase draws",
+   * and with per-tag sub-draws the sheet is one tag's. Every tag of a nested tissue complex shares
+   * the dataset bbox to within its own thickness, so a per-tag box is what makes the sort mean
+   * anything at all — scalp's box is the head, GM's is inside it.
+   */
+  tagBounds: Map<number, Aabb> | null;
 }
 
 export interface VolumeGpu {
@@ -88,11 +135,52 @@ function codeFull(format: VolumeDataset['gpu']['format']): number {
 /** The largest 2D texture width used for the per-triangle owner table. */
 const OWNER_TEX_WIDTH = 2048;
 
+/**
+ * The width of every `texelFetch`ed mesh table (node field, element field, label palette index).
+ *
+ * 2048 keeps the tallest real case — ernie's 5,900,498 element values — at 2,881 rows, inside the
+ * 8,192 `MAX_TEXTURE_SIZE` the golden authority reports `[SwS]`.
+ */
+const TABLE_TEX_WIDTH = 2048;
+
+/**
+ * Per-tag world AABBs, for §7.2's two-phase sort.
+ *
+ * This is a read-only scan of arrays that already exist, not a vertex-buffer expansion: nothing is
+ * built, de-indexed or normal-generated here, so §5 rule 7 is untouched. It runs once per uploaded
+ * surface — measured 21 ms for ernie's 1,177,213 triangles `[M2Max]`, against a mesh load of
+ * several seconds — and is skipped entirely for a single-tag surface, where the dataset's own
+ * bounds already order the draw.
+ */
+function tagBoundsOf(p: SurfacePayload): Map<number, Aabb> | null {
+  if (p.perTag.length < 2) return null;
+  const pos = p.positions;
+  const idx = p.indices;
+  const out = new Map<number, Aabb>();
+  for (const range of p.perTag) {
+    const min: vec3 = [Infinity, Infinity, Infinity];
+    const max: vec3 = [-Infinity, -Infinity, -Infinity];
+    const end = range.first + range.count;
+    for (let i = range.first; i < end; i += 1) {
+      const v = idx === undefined ? i : (idx[i] ?? 0);
+      for (let c = 0; c < 3; c += 1) {
+        const x = pos[v * 3 + c] ?? 0;
+        if (x < (min[c] ?? Infinity)) min[c] = x;
+        if (x > (max[c] ?? -Infinity)) max[c] = x;
+      }
+    }
+    if (min[0] <= max[0]) out.set(range.tag, { min, max });
+  }
+  return out.size > 0 ? out : null;
+}
+
 export class GpuStore {
   readonly #gl: WebGL2RenderingContext;
   readonly #volumes = new Map<string, VolumeGpu>();
   readonly #surfaces = new Map<string, SurfaceGeometry>();
   readonly #luts = new Map<string, WebGLTexture>();
+  /** §7.4's node / element field tables and label palettes, keyed like the surfaces. */
+  readonly #tables = new Map<string, { texture: WebGLTexture; width: number; size: number }>();
   #atlas: WebGLTexture | null = null;
 
   constructor(gl: WebGL2RenderingContext) {
@@ -194,6 +282,30 @@ export class GpuStore {
       buffers.push(idx);
       vao.elements(idx);
     }
+
+    // §7.4's de-indexed attributes: `position` + `normal` + `corner` (1 byte) only. `edgeMask` joins
+    // them when the payload has one; when it does not, the array stays disabled and the pass supplies
+    // a constant `0b111`, so "the common case costs zero memory".
+    let hasCorner = false;
+    if (!indexed && p.corner !== undefined) {
+      const corner = new Buffer(gl, gl.ARRAY_BUFFER);
+      corner.set(p.corner);
+      buffers.push(corner);
+      vao.attribI(MESH_ATTR.corner, corner, 1, gl.UNSIGNED_BYTE);
+      hasCorner = true;
+    }
+
+    // §6.5.1's `nodeIndex` is "indexed only: vertex -> INTERNAL 0-based node index, which is what the
+    // §7.4 node-field texture is indexed by". It is what makes a node field and a `.annot` label
+    // readable without a second geometry variant.
+    let hasNodeIndex = false;
+    if (indexed && p.nodeIndex !== undefined) {
+      const nodes = new Buffer(gl, gl.ARRAY_BUFFER);
+      nodes.set(p.nodeIndex);
+      buffers.push(nodes);
+      vao.attribI(MESH_ATTR.nodeIndex, nodes, 1, gl.UNSIGNED_INT);
+      hasNodeIndex = true;
+    }
     VertexArray.unbind(gl);
 
     // The per-triangle owner table, as an R32UI 2D texture (§7.2.3): one texel per triangle, read in
@@ -228,6 +340,40 @@ export class GpuStore {
       ownerTexture = tex;
     }
 
+    // §7.4's 3-bit `edgeMask`, one value per **triangle**, read at `gl_VertexID / 3` like the owner
+    // table. It is a texture rather than the vertex attribute §7.4 names because the payload is per
+    // triangle and the attribute would be per vertex: expanding it here would be a vertex-buffer
+    // expansion on the UI thread, which §5 rule 7 puts in the worker. See docs/DECISIONS.md.
+    let edgeMaskTexture: WebGLTexture | null = null;
+    let edgeMaskWidth = 0;
+    if (!indexed && p.edgeMask !== undefined && p.edgeMask.length > 0) {
+      const n = p.edgeMask.length;
+      edgeMaskWidth = Math.min(OWNER_TEX_WIDTH, Math.max(1, n));
+      const rows = Math.max(1, Math.ceil(n / edgeMaskWidth));
+      const padded = new Uint8Array(edgeMaskWidth * rows).fill(EDGE_MASK_ALL);
+      padded.set(p.edgeMask);
+      const tex = gl.createTexture();
+      if (tex === null) throw new Error('createTexture returned null');
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, edgeMaskWidth, rows);
+      gl.texSubImage2D(
+        gl.TEXTURE_2D,
+        0,
+        0,
+        0,
+        edgeMaskWidth,
+        rows,
+        gl.RED_INTEGER,
+        gl.UNSIGNED_BYTE,
+        padded
+      );
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      edgeMaskTexture = tex;
+    }
+
     const g: SurfaceGeometry = {
       vao,
       buffers,
@@ -237,9 +383,109 @@ export class GpuStore {
       indexed,
       ownerTexture,
       ownerWidth,
+      hasCorner,
+      edgeMaskTexture,
+      edgeMaskWidth,
+      hasNodeIndex,
+      tagBounds: tagBoundsOf(p),
     };
     this.#surfaces.set(key, g);
     return g;
+  }
+
+  /**
+   * A `texelFetch`-only `R32F` table — §7.4's node-field / element-field texture.
+   *
+   * The values arrived from the worker's `field` op as a transferable; nothing here rearranges them.
+   * Cached on `key`, so switching which field or component is displayed is "a texture swap, always
+   * free" (§7.4) once both have been fetched.
+   */
+  meshTable(key: string): { texture: WebGLTexture; width: number; size: number } | undefined {
+    return this.#tables.get(key);
+  }
+
+  uploadMeshTable(
+    key: string,
+    values: Float32Array
+  ): { texture: WebGLTexture; width: number; size: number } {
+    const existing = this.#tables.get(key);
+    if (existing !== undefined) return existing;
+    const gl = this.#gl;
+    const n = Math.max(1, values.length);
+    const width = Math.min(TABLE_TEX_WIDTH, n);
+    const rows = Math.ceil(n / width);
+    const padded = new Float32Array(width * rows);
+    padded.set(values);
+    const tex = gl.createTexture();
+    if (tex === null) throw new Error('createTexture returned null');
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, width, rows);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, rows, gl.RED, gl.FLOAT, padded);
+    // NEAREST always: this table is `texelFetch`ed by an integer row, never filtered, so it needs no
+    // `OES_texture_float_linear` and can never blend two nodes' values (§7.1's invariant).
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    const entry = { texture: tex, width, size: values.length };
+    this.#tables.set(key, entry);
+    return entry;
+  }
+
+  /**
+   * The §7.4 label palette: `N x 2 RGBA8`.
+   *
+   * Row 0 is each label's colour with its visibility already folded into alpha; row 1's red channel
+   * is whether it is selected. R5's recolour / hide / solo / select are therefore one 8N-byte
+   * re-upload with no geometry touched at all, which is why `key` carries the table's content and a
+   * changed key replaces the texture.
+   */
+  meshPalette(key: string): { texture: WebGLTexture; width: number; size: number } | undefined {
+    return this.#tables.get(key);
+  }
+
+  uploadMeshPalette(
+    key: string,
+    rgba: Uint8Array
+  ): { texture: WebGLTexture; width: number; size: number } {
+    const existing = this.#tables.get(key);
+    if (existing !== undefined) return existing;
+    const gl = this.#gl;
+    const size = rgba.length / 8; // two rows of RGBA8 per label
+    const tex = gl.createTexture();
+    if (tex === null) throw new Error('createTexture returned null');
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, size, 2);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, size, 2, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    const entry = { texture: tex, width: size, size };
+    this.#tables.set(key, entry);
+    return entry;
+  }
+
+  /** Drop one table by key — a recoloured palette replaces its predecessor rather than leaking it. */
+  dropMeshTable(key: string): void {
+    const t = this.#tables.get(key);
+    if (t === undefined) return;
+    this.#gl.deleteTexture(t.texture);
+    this.#tables.delete(key);
+  }
+
+  /** Drop every field table and palette of one dataset. Keys are `${datasetId}|…` like the rest. */
+  dropMeshTables(datasetId: DatasetId): void {
+    for (const [k, t] of [...this.#tables]) {
+      if (k.startsWith(`${datasetId}|`)) {
+        this.#gl.deleteTexture(t.texture);
+        this.#tables.delete(k);
+      }
+    }
   }
 
   dropSurfaces(datasetId: DatasetId): void {
@@ -248,6 +494,7 @@ export class GpuStore {
         g.vao.dispose();
         for (const b of g.buffers) b.dispose();
         if (g.ownerTexture !== null) this.#gl.deleteTexture(g.ownerTexture);
+        if (g.edgeMaskTexture !== null) this.#gl.deleteTexture(g.edgeMaskTexture);
         this.#surfaces.delete(k);
       }
     }
@@ -286,10 +533,13 @@ export class GpuStore {
       g.vao.dispose();
       for (const b of g.buffers) b.dispose();
       if (g.ownerTexture !== null) gl.deleteTexture(g.ownerTexture);
+      if (g.edgeMaskTexture !== null) gl.deleteTexture(g.edgeMaskTexture);
     }
     this.#surfaces.clear();
     for (const t of this.#luts.values()) gl.deleteTexture(t);
     this.#luts.clear();
+    for (const t of this.#tables.values()) gl.deleteTexture(t.texture);
+    this.#tables.clear();
     if (this.#atlas !== null) gl.deleteTexture(this.#atlas);
     this.#atlas = null;
   }

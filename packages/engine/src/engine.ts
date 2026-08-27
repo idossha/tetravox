@@ -37,6 +37,8 @@ import { Renderer } from './render/renderer';
 import { TRANSPARENT, encodeFrame } from './render/screenshot';
 import type { DrawInput } from './render/renderer';
 import { CutManager } from './compute/cut-manager';
+import { MeshLayerRuntime } from './layers/mesh';
+import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
 import { buildLabelPalette } from './layers/volume';
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
@@ -375,6 +377,7 @@ export class TetravoxEngine implements Engine {
     }
     this.#gpu.dropVolume(id);
     this.#gpu.dropSurfaces(id);
+    this.#gpu.dropMeshTables(id);
     this.#cuts.releaseDataset(id);
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
@@ -452,6 +455,35 @@ export class TetravoxEngine implements Engine {
     this.#store.setActiveLayer(id);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
+  }
+
+  /**
+   * R5's region selection on a mesh layer: which tissue tags and which `.annot` / `.label.gii`
+   * labels are highlighted (§7.4's edges for a tag, a screen-space boundary band for a label).
+   *
+   * **Engine state, not scene state.** The frozen §4.4 `MeshLayer` has nowhere to put a selection
+   * and R5's "selection persists through scene save/load" needs a `ViewSpec` field that does not
+   * exist; that is filed with W-WASM. Until it lands a selection is per-session, and this method is
+   * the only way to set one.
+   */
+  setMeshEmphasis(layerId: LayerId, emphasis: MeshEmphasis): void {
+    const rt = this.#layers.get(layerId);
+    if (rt instanceof MeshLayerRuntime) rt.setEmphasis(emphasis);
+  }
+
+  /** What that mesh layer's §8 colour bar is made of, or `null` when it is not scalar-coloured. */
+  meshColorbarScale(layerId: LayerId): MeshScaleInfo | null {
+    const rt = this.#layers.get(layerId);
+    return rt instanceof MeshLayerRuntime ? rt.colorbarScale() : null;
+  }
+
+  /**
+   * §7.4's three async switches, as the progress state §8 asks for: `true` while the geometry
+   * variant or the field/label table this layer needs has been asked for and has not landed.
+   */
+  meshLayerLoading(layerId: LayerId): boolean {
+    const rt = this.#layers.get(layerId);
+    return rt instanceof MeshLayerRuntime ? rt.loading : false;
   }
 
   /** The runtimes in **layer order** (bottom → top, §4.4), which is the order everything consumes. */

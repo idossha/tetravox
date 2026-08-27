@@ -13,7 +13,7 @@
  * program; never reorder or re-export someone else's under a new name.
  */
 
-export { MESH_FS, MESH_VS } from './mesh';
+export { MESH_COLOR_SOURCE, MESH_FS, MESH_THRESHOLD, MESH_VS } from './mesh';
 export { OVERLAY_FS, OVERLAY_VS } from './overlay';
 export { MESH_PICK_VS, PICK_FS, SLICE_PICK_FS, SLICE_PICK_VS } from './pick';
 export { SLICE_FS, SLICE_VS } from './slice';

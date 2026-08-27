@@ -27,6 +27,12 @@ export const PRECISION_INT = 'precision highp int;';
 export const PRECISION_SAMPLER3D = 'precision highp sampler3D;';
 export const PRECISION_USAMPLER3D = 'precision highp usampler3D;';
 export const PRECISION_USAMPLER2D = 'precision highp usampler2D;';
+/**
+ * `sampler2D` at `highp`, for the §7.4 mesh program's node/element **field** table and its label
+ * palette. Both are `texelFetch`ed by an index that reaches into the millions (ernie's element field
+ * is n = 5,900,498 `[DATA]`), and a `mediump` sampler coordinate would quantise it.
+ */
+export const PRECISION_SAMPLER2D = 'precision highp sampler2D;';
 
 /**
  * The two `R32UI` outputs every pick fragment shader writes (§7.2.3).
