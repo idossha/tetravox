@@ -22,6 +22,7 @@ export { drawCornerLines } from './corner';
 export type { CornerLines } from './corner';
 export { drawCrosshair } from './crosshair';
 export type { CrosshairSpec } from './crosshair';
+export { drawCrosshair3D, CROSSHAIR_3D_ARM_PX } from './crosshair';
 export { drawGizmo } from './gizmo';
 export type { GizmoSpec } from './gizmo';
 export { drawEdgeLetters } from './letters';

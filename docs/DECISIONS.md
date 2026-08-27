@@ -1414,3 +1414,44 @@ Each entry below names the problem, the fix, and the evidence.
   `layers/runtime.ts` unclaimed. Also recorded: audit id **P2-11** now appears by name (it is §10's
   whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
   "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.
+
+- 2026-08-27 — **A 2D pane's in-plane origin is the scene bounding-box centre, not the cursor**
+  (E-SCENE, R3). §4.5 defined `SliceView.camera.center` as "relative to the cursor's projection", and
+  `sliceViewProj` implemented it literally: the pane's world-to-screen map was a function of
+  `scene.cursor`. That is the defect R3 names — *move the crosshair, not the scan*. Under it, setting
+  the cursor slides the image and leaves the crosshair pinned to the pane, so a left-click-to-set-cursor
+  gesture is not merely wrong but unwritable: the point the user clicked moves away from the pointer as
+  the click lands, and R3's gate ("the pixel colour at a fixed screen point away from the crosshair is
+  byte-identical before/after the left-drag") cannot be satisfied by any implementation of it. The
+  anchor is derived, never stored — the discipline §4.5 already applies to the slice plane — and it is
+  the bounds centre because that is the one point in the scene no gesture moves and because it
+  **coincides with the cursor at load** (§4.7 auto-centres there), which is why the change moved no
+  Phase-1 golden: every one of them is captured with `center = [0,0]` and the cursor on the bbox centre.
+  The compensation is applied in one place, `view/geometry.ts`'s `effectiveSliceView`, which
+  re-expresses `center` in the cursor-relative frame the renderer already speaks. That was chosen over
+  teaching the anchor to `sliceViewProj`, `SlicePass.quadHalfFor`, `SlicePass.#writeQuad` and
+  `OverlayPass`'s crosshair placement — four call sites in three files, two of them owned by E-SLICE
+  and by the shared pass layer — and it makes `quadHalfFor`'s `paneHalf + |center|` *correct* rather
+  than merely unchanged, since that expression always meant "quad centre to pane corner". **One
+  follow-up is owed to W-WASM**: the inline comment on `SliceView.camera.center` in the frozen
+  `scene/types.ts` still says "relative to the cursor's projection". It is a comment, not a type, so
+  nothing compiles differently; §4.5 now carries the normative paragraph and names the reword as
+  W-WASM's.
+
+- 2026-08-27 — **A mesh-only scene steps 1 mm per slice, not `bboxDiagonal / 256`** (E-SCENE, R4).
+  §7.5's fallback made a wheel notch mean a different distance per file — 1.32 mm on `ernie.msh`,
+  0.53 mm on `lh.central.gii`, 0.13 mm on a single electrode — for the one gesture whose value is that
+  it sweeps at a rate the user can predict and count. `stepMm` takes the step as an optional argument
+  (R4's "(configurable)") and defaults it to `MESH_ONLY_STEP_MM = 1`. The existing §7.5 unit test is
+  unchanged and still passes: its bounds have a 256 mm diagonal, where the two rules agree.
+
+- 2026-08-27 — **The 3D pane draws a crosshair marker, and it is a short cross rather than the 2D
+  pane's full-span rules** (E-SCENE, R1). R1's gate ends "and the 3D crosshair moves", and Phase 1
+  drew no crosshair in a `View3D` at all — `passes/overlay.ts` computed one only for a `SliceView`, so
+  the 3D pane had no way to show where the cursor was. The cursor is projected through the pane's own
+  view-projection (`worldToPane3D`) and drawn as a ±14 px cross, dropped when it is behind the eye.
+  Full-span rules were rejected: in a perspective view they read as two lines floating in space with no
+  relation to the geometry, and they cross the orientation letters on all four edges. The marker is
+  ~50 px of a 589,824 px pane, three orders below §11's `maxDiffPixelRatio: 0.002`, so **no Phase-1
+  golden was regenerated** — `gate3-t1-2x2-chrome` and `gate5-ernie-pick` both still pass against the
+  committed PNGs, which is the honest way to add an item to a pane a closed gate photographs.

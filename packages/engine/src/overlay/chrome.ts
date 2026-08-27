@@ -15,7 +15,7 @@ import type { OverlayBuilder } from './builder';
 import { overlayMetrics } from './builder';
 import { drawCornerLines } from './corner';
 import type { CornerLines } from './corner';
-import { drawCrosshair } from './crosshair';
+import { drawCrosshair, drawCrosshair3D } from './crosshair';
 import type { CrosshairSpec } from './crosshair';
 import { drawEdgeLetters } from './letters';
 import type { EdgeLetters } from './letters';
@@ -33,6 +33,11 @@ export interface ChromeInput {
   badge?: ConventionBadge;
   /** Pane pixel position of the crosshair, or `null`. */
   crosshair?: CrosshairSpec | null;
+  /**
+   * Pane pixel position of the **3D** crosshair — the cursor projected into a `View3D` — or `null`
+   * when it is behind the eye or the annotation is off (R1, appended by E-SCENE).
+   */
+  crosshair3d?: CrosshairSpec | null;
   crosshairColor: vec4;
   textColor: vec4;
   /** 1 px accent border, drawn when this pane is the active view. */
@@ -44,6 +49,7 @@ export function buildChrome(b: OverlayBuilder, c: ChromeInput): void {
   const m = overlayMetrics(c.widthPx, c.heightPx, c.uiScale);
 
   if (c.crosshair != null) drawCrosshair(b, m, c.crosshair, c.crosshairColor);
+  if (c.crosshair3d != null) drawCrosshair3D(b, m, c.crosshair3d, c.crosshairColor);
   if (c.letters !== undefined) drawEdgeLetters(b, m, c.letters, c.textColor);
   if (c.cornerLines !== undefined) drawCornerLines(b, m, c.cornerLines, c.textColor);
   if (c.badge !== undefined) drawBadge(b, m, c.badge, c.textColor);

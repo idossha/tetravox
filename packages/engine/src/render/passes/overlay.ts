@@ -23,7 +23,13 @@ import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
 import { FLOATS_PER_VERTEX, OverlayBuilder, badgeFor, buildChrome } from '../../overlay';
 import type { EdgeLetters } from '../../overlay';
 import { isSliceView, topVolume } from '../../scene/store';
-import { edgeLetters, sliceBasis, voxelAxisAlong, worldToVoxel } from '../../view/geometry';
+import {
+  edgeLetters,
+  sliceBasis,
+  voxelAxisAlong,
+  worldToPane3D,
+  worldToVoxel,
+} from '../../view/geometry';
 import type { Scene, SliceView, vec3, vec4, VolumeDataset } from '../../scene/types';
 
 const TEXT_COLOR: vec4 = [0.92, 0.94, 0.98, 1];
@@ -63,6 +69,7 @@ export class OverlayPass implements FramePass {
 
     let letters: EdgeLetters | undefined;
     let crosshair: { x: number; y: number } | null = null;
+    let crosshair3d: { x: number; y: number } | null = null;
     const cornerLines: string[] = [];
 
     if (isSliceView(view)) {
@@ -84,6 +91,12 @@ export class OverlayPass implements FramePass {
         letters = edgeLetters({ right, up, normal: [0, 0, 1] });
       }
       if (a.cornerInfo) cornerLines.push('3D');
+      // R1: "the 3D crosshair moves". The cursor projected through the pane's own view-projection,
+      // in the pane's pixels, with a bottom-left origin like every other overlay item.
+      if (a.crosshair) {
+        const p = worldToPane3D(viewProj, rect, scene.cursor);
+        if (p !== null) crosshair3d = { x: p[0], y: rect.height - 1 - p[1] };
+      }
     }
 
     buildChrome(b, {
@@ -95,6 +108,7 @@ export class OverlayPass implements FramePass {
       // §8: `Annotations.conventionBadge` is `true`, not optional — the badge is always drawn.
       badge: badgeFor(scene.radiological),
       crosshair,
+      crosshair3d,
       crosshairColor: CROSSHAIR_COLOR,
       textColor: TEXT_COLOR,
       activeBorder:
