@@ -51,6 +51,7 @@ import {
   presetRotation,
   sliceBasis,
   stepMm,
+  voxelAxisAlong,
   worldToVoxel,
 } from './view/geometry';
 import {
@@ -542,6 +543,13 @@ export class TetravoxEngine implements Engine, PointerHost {
   /**
    * §7.5: `cursor += normal · step · k`, then **snap the along-normal component to the nearest voxel
    * plane** of the stepped layer — otherwise repeated steps drift.
+   *
+   * "Along-normal component", read literally. Phase 1 rounded **all three** voxel indices, which
+   * dragged the cursor to the nearest voxel *centre* sideways as well: after a click at an arbitrary
+   * in-plane point, one wheel notch on `vol_asym.nii` moved the cursor 0.5 mm across the plane as
+   * well as 1 mm along it, and §7.5's "moves the cursor by `step_mm`" was simply false. The snap now
+   * solves for the distance **along the normal** that puts the stepping voxel index on an integer,
+   * which leaves the in-plane position untouched and is correct for an oblique plane too.
    */
   stepCursor(viewId: ViewId, steps: number): void {
     const view = this.#store.view(viewId);
@@ -560,23 +568,26 @@ export class TetravoxEngine implements Engine, PointerHost {
       c[2] + view.normal[2] * step * steps,
     ];
     if (top !== undefined) {
+      // The voxel axis this plane steps along (§8's corner index uses the same derivation, and
+      // neither may assume a voxel axis per view mode — every `m2m_*` volume permutes them).
+      const { axis } = voxelAxisAlong(view.normal, top.ds.affine);
       const v = worldToVoxel(top.ds, next);
-      const snapped: vec3 = [Math.round(v[0]), Math.round(v[1]), Math.round(v[2])];
-      const a = top.ds.affine;
-      next = [
-        (a[0] ?? 0) * snapped[0] +
-          (a[4] ?? 0) * snapped[1] +
-          (a[8] ?? 0) * snapped[2] +
-          (a[12] ?? 0),
-        (a[1] ?? 0) * snapped[0] +
-          (a[5] ?? 0) * snapped[1] +
-          (a[9] ?? 0) * snapped[2] +
-          (a[13] ?? 0),
-        (a[2] ?? 0) * snapped[0] +
-          (a[6] ?? 0) * snapped[1] +
-          (a[10] ?? 0) * snapped[2] +
-          (a[14] ?? 0),
-      ];
+      // How fast that index changes as the cursor slides along the normal: row `axis` of the
+      // inverse affine, dotted with the normal. It is non-zero by construction — `axis` is the
+      // argmax of exactly this projection.
+      const m = top.ds.inverseAffine;
+      const rate =
+        (m[axis] ?? 0) * view.normal[0] +
+        (m[4 + axis] ?? 0) * view.normal[1] +
+        (m[8 + axis] ?? 0) * view.normal[2];
+      if (Math.abs(rate) > 1e-9) {
+        const t = (Math.round(v[axis]) - v[axis]) / rate;
+        next = [
+          next[0] + view.normal[0] * t,
+          next[1] + view.normal[1] * t,
+          next[2] + view.normal[2] * t,
+        ];
+      }
     }
     this.setCursor(next);
   }

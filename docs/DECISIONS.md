@@ -1477,3 +1477,24 @@ Each entry below names the problem, the fix, and the evidence.
   cleared by `setCursor`, so it can never describe a point the cursor has left. Two `locate` keys per
   layer was the alternative and was rejected: the key belongs to `layers/mesh.ts`, which is E-MESH's,
   and doubling the in-flight requests to keep a UI panel populated is the wrong end of the problem.
+
+- 2026-08-27 — **§7.5's slice-step snap is along the normal only** (E-SCENE, found by the R1/R3 gate).
+  §7.5 says "snap **the cursor's along-normal component** to the nearest voxel plane"; Phase 1 rounded
+  all three voxel indices and rebuilt the world point from them, which also dragged the cursor
+  sideways to the nearest voxel *centre*. On `vol_asym.nii` one wheel notch after a click moved the
+  cursor 1 mm along the normal **and 0.5 mm across the plane**, so §7.5's "moves the cursor by
+  `step_mm`" was false and a click-then-scroll walked the crosshair off the anatomy the user had
+  picked. The snap now solves for the distance along the normal that puts the stepping voxel index
+  (`voxelAxisAlong`, the same derivation §8's corner index uses) on an integer: exact for canonical
+  planes, correct for oblique, and it cannot touch the in-plane position. It surfaced only once a
+  pointer could put the cursor at an arbitrary in-plane point — before P2-01 every cursor came from
+  `setCursor`, a pick, or a step, and the last two are already on the grid.
+
+- 2026-08-27 — **Harness note: two worktrees cannot share the Playwright test-server port.**
+  `playwright.config.ts` sets `reuseExistingServer: !CI` on a fixed 5199, so a second worktree running
+  `pnpm e2e` silently drives the *first* worktree's Vite — which serves that worktree's source and
+  whose `fs.allow` rejects this one's `testdata/`, producing `403 Forbidden` on every fixture and a
+  stack trace naming a directory the run has nothing to do with. `TETRAVOX_TEST_PORT` already exists
+  for this; Phase-2's parallel branches need to use it (`TETRAVOX_TEST_PORT=59xx pnpm --filter
+  @tetravox/engine exec playwright test`). Recorded rather than fixed: the port default is
+  `docs/TESTING.md`'s and the integrator's, not E-SCENE's.
