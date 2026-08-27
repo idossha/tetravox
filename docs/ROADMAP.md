@@ -28,6 +28,34 @@ A phase is done when **every** gate item below passes, on real data where the it
    the `File`-bytes fallback.
 9. `expectPixel` helper working, plus the e2e that asserts and logs `Capabilities`.
 
+**Gate passed — 2026-08-27**, on macOS 15.7 arm64 (M2 Max), at `ba55310` (merge of `p0/fixtures`,
+`p0/app`, `p0/harness` plus the integration fix). Every command below was run from a clean tree and is
+reproducible; the numbers are what it printed.
+
+| # | Gate item | Command that proved it | Result |
+|---|---|---|---|
+| 1 | `pnpm test && pnpm e2e` green | `pnpm test` · `pnpm e2e` | ✔ **macOS**: cargo 27 passed / 0 failed / 50 `#[ignore]`d for Phase 1; vitest 16 passed over 3 projects; Playwright 6 (engine, SwiftShader) + 20 (app, `dev` **and** `packaged`). ☐ **ubuntu-24.04 is NOT yet proven** — `.github/workflows/ci.yml` has never executed. See "Outstanding" below. |
+| 2 | The **packaged** artefact draws a WASM-coloured triangle from `tetravox://app/index.html` | `pnpm package` then `pnpm --filter @tetravox/app run e2e:packaged` | ✔ `packages/app/release/Tetravox-0.1.0-arm64.dmg` (127,560,283 B, unsigned) + `release/mac-arm64/Tetravox.app`; 10/10 green against the `.app`, incl. `location.protocol === 'tetravox:'` and `centerPixel === [229,214,52,255]` = `tvx_ping(0x54565830) >> {16,8,0}` |
+| 3 | Privileged `tetravox://`, `application/wasm`, streaming `tetravox://file/`, a module Worker handing bytes to WASM | `pnpm e2e` → `e2e/phase0.spec.ts` | ✔ `content-type: application/wasm` **and** `instantiateStreaming` observed to have run (the glue falls back silently otherwise); worker origin `tetravox://app`; 256 B fetched over `tetravox://file/…` digesting to `0xFEC415B3`; `/etc/hosts` → 403 |
+| 4 | Clean clone, **empty pnpm store**, reaches `pnpm e2e` | `git clone … p0-clone && pnpm install --store-dir …/p0-store && pnpm wasm && pnpm build && pnpm test && pnpm e2e && pnpm package` | ✔ install 6.9 s; then `cargo fmt/clippy/check/test`, `pnpm typecheck/lint/test` and both Playwright suites green, and `pnpm package` produced a `.dmg` whose `e2e:packaged` is 10/10 |
+| 5 | `cargo check --workspace` green with every §6 signature present as `unimplemented!()` | `cargo check --workspace` | ✔ Finished; also `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all -- --check` clean |
+| 6 | The five frozen §12.3 interfaces exist and compile, `MockEngine` included | `pnpm typecheck` | ✔ 4 packages Done. `packages/{protocol/src/index.ts, engine/src/scene/types.ts, engine/src/api.ts, wasm/src/index.ts}` + the committed `packages/wasm/pkg/tvx_wasm.d.ts`; `MockEngine` is a `class … implements Engine`, so the facade is provably implementable |
+| 7 | Both lockfiles committed with the §12.3 dependency list; `pnpm exec electron --version` warm-up in CI | `git ls-files Cargo.lock pnpm-lock.yaml` · `.github/workflows/ci.yml` step "Warm up the electron binary" | ✔ both tracked; the warm-up is its own step, so a failed ~100 MB download is red on its own line rather than a mysterious e2e failure |
+| 8 | Drop a `.nii.gz` **and** a `.msh`, exercising `webUtils.getPathForFile` **and** the `File`-bytes fallback | `pnpm e2e` → `e2e/phase0.spec.ts` "drag and drop (§8)" | ✔ `testdata/vol_u8.nii.gz` (183 B) and `testdata/mesh_v2_ascii.msh` (6,577 B), each down **both** branches, each digesting to the same value either way — the path branch via an allow-listed `tetravox://file/…` fetched in the worker, the fallback via the `File` structured-cloned to the worker. Green in `dev` and `packaged`. |
+| 9 | `expectPixel` working, plus an e2e that asserts and logs `Capabilities` | `pnpm --filter @tetravox/engine run e2e` | ✔ `packages/engine/test/helpers/pixels.ts::expectPixel`; `caps.spec.ts` asserts a complete `Capabilities` and attaches it. Recorded renderers: `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` for the goldens, `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)` for the app |
+
+**Outstanding at the gate** (tracked, not blocking Phase 1's start):
+
+* **ubuntu-24.04 has never run.** `.github/workflows/ci.yml` is committed and complete, but no CI run
+  exists, so gate 1's Linux half and the golden authority's own output are unverified. The committed
+  golden `packages/engine/test/golden/swiftshader/triangle.png` was captured on macOS arm64; if the
+  first ubuntu run disagrees, regenerate it **there** — ubuntu-24.04 is the authority (§11).
+* `pnpm package` is macOS-only here, as §12.1 requires. `.AppImage` / `.deb` are Phase 3's gate.
+* 50 `#[ignore = "phase-1: …"]` Rust tests are written against `testdata/manifest.json` and waiting for
+  the Phase-1 parsers. Deleting the ignore line, not the assertion, is the intended move.
+* Benches exist with real setup and no-op bodies (`// PHASE 1:`), because calling an `unimplemented!()`
+  under `cargo test --benches` would be red today.
+
 **Work:**
 - cargo + pnpm workspaces, all crate/package stubs, `rust-toolchain.toml` (stable 1.93.0),
   `scripts/build-wasm.sh` (pinned wasm-pack, `--target web`), electron-vite app, electron-builder config
