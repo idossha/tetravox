@@ -297,6 +297,30 @@ export function presetRotation(index: number): [number, number, number, number] 
 }
 
 /**
+ * Which **voxel** axis of `affine` a plane with this world normal steps along, and how far.
+ *
+ * `axis = argmax_a |dot(normal, A[:,a])|` over the 3×3 of a column-major `mat4`, and `mm` is that
+ * maximum. One definition serves §7.5's slice step *and* §8's corner "slice index", which is the
+ * point: **neither may assume a voxel axis per view mode.** Every `m2m_*` volume in the reference
+ * dataset permutes them — `T1.nii.gz` maps `world x ← k`, `world y ← −i`, `world z ← j` `[DATA]`,
+ * so its axial planes step along voxel `j` and its sagittal planes along voxel `k`.
+ */
+export function voxelAxisAlong(normal: vec3, affine: Float32Array): { axis: 0 | 1 | 2; mm: number } {
+  let axis: 0 | 1 | 2 = 2;
+  let best = -1;
+  for (let a = 0; a < 3; a += 1) {
+    // Column-major `mat4`: column `a` occupies slots `4a .. 4a+2`.
+    const col: vec3 = [affine[a * 4] ?? 0, affine[a * 4 + 1] ?? 0, affine[a * 4 + 2] ?? 0];
+    const d = Math.abs(dot3(normal, col));
+    if (d > best) {
+      best = d;
+      axis = a as 0 | 1 | 2;
+    }
+  }
+  return { axis, mm: best };
+}
+
+/**
  * §7.5's slice step, defined once so it needs no rewrite for oblique:
  * `step_mm = max over voxel axes a of |dot(normal, A[:,a])|`, where `A` is the 3×3 of the topmost
  * visible volume layer's affine. Falls back to `min(spacing)` of any volume, else
@@ -309,12 +333,7 @@ export function stepMm(
   bounds: Aabb | null
 ): number {
   if (affine !== null) {
-    let best = 0;
-    for (let a = 0; a < 3; a += 1) {
-      // Column-major `mat4`: column `a` occupies slots `4a .. 4a+2`.
-      const col: vec3 = [affine[a * 4] ?? 0, affine[a * 4 + 1] ?? 0, affine[a * 4 + 2] ?? 0];
-      best = Math.max(best, Math.abs(dot3(normal, col)));
-    }
+    const best = voxelAxisAlong(normal, affine).mm;
     if (best > 1e-6) return best;
   }
   if (spacing !== null) {

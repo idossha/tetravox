@@ -30,7 +30,13 @@ import {
   SLICE_VS,
 } from './shaders';
 import type { ViewportRect } from '../view/layout';
-import { camera3dMatrices, edgeLetters, sliceBasis, sliceViewProj } from '../view/geometry';
+import {
+  camera3dMatrices,
+  edgeLetters,
+  sliceBasis,
+  sliceViewProj,
+  voxelAxisAlong,
+} from '../view/geometry';
 import type {
   Layer,
   mat4,
@@ -377,7 +383,7 @@ export class Renderer {
         const top = topVolume(scene);
         if (top !== null) {
           const v = worldToVoxel(top.ds, c);
-          cornerLines.push(`SLICE ${Math.round(sliceIndex(view, v))}`);
+          cornerLines.push(`SLICE ${Math.round(sliceIndex(view, top.ds, v))}`);
         }
       }
     } else {
@@ -499,16 +505,18 @@ export function worldToVoxel(ds: VolumeDataset, w: vec3): vec3 {
   ];
 }
 
-/** Which voxel axis a canonical view steps along; oblique reports the dominant one. */
-function sliceIndex(view: SliceView, voxel: vec3): number {
-  switch (view.mode) {
-    case 'sagittal':
-      return voxel[0];
-    case 'coronal':
-      return voxel[1];
-    default:
-      return voxel[2];
-  }
+/**
+ * §8's corner "slice index of the active volume layer": the cursor's index **along the voxel axis
+ * the plane actually steps along**, derived from that volume's affine exactly the way the edge
+ * letters are derived from it — never a voxel axis hardcoded per view mode.
+ *
+ * The reference dataset is why: `m2m_ernie/T1.nii.gz` maps `world x ← k`, `world y ← −i`,
+ * `world z ← j` `[DATA]`, so an axial plane steps along voxel `j` and a sagittal one along voxel
+ * `k`. A `mode === 'sagittal' ? voxel[0] : …` table reports two of the three panes' numbers swapped
+ * on every SimNIBS `m2m` volume. Oblique reports the dominant axis, which is the same rule.
+ */
+function sliceIndex(view: SliceView, ds: VolumeDataset, voxel: vec3): number {
+  return voxel[voxelAxisAlong(view.normal, ds.affine).axis];
 }
 
 function sliceViewProjFor(

@@ -145,17 +145,14 @@ export function buildChrome(b: OverlayBuilder, c: ChromeInput): void {
   }
 
   if (c.letters !== undefined) {
-    const mid = c.heightPx / 2;
+    // Rounded to the pixel grid on purpose: `heightPx / 2 - (GLYPH_H * s) / 2` is a half-pixel for
+    // an odd glyph height, and a glyph quad straddling pixel centres samples the NEAREST atlas one
+    // texel row late — it drops the glyph's top row, which is the difference between an `R` and
+    // something a template match calls an `X`. Every other string here is already integral.
+    const mid = Math.round(c.heightPx / 2 - (GLYPH_H * s) / 2);
     const midX = c.widthPx / 2;
-    b.labelWithHalo(c.letters.left, pad, mid - (GLYPH_H * s) / 2, s, c.textColor, 'left');
-    b.labelWithHalo(
-      c.letters.right,
-      c.widthPx - pad,
-      mid - (GLYPH_H * s) / 2,
-      s,
-      c.textColor,
-      'right'
-    );
+    b.labelWithHalo(c.letters.left, pad, mid, s, c.textColor, 'left');
+    b.labelWithHalo(c.letters.right, c.widthPx - pad, mid, s, c.textColor, 'right');
     b.labelWithHalo(c.letters.top, midX, c.heightPx - pad - GLYPH_H * s, s, c.textColor, 'center');
     b.labelWithHalo(c.letters.bottom, midX, pad, s, c.textColor, 'center');
   }

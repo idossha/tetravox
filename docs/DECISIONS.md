@@ -1130,3 +1130,30 @@ Each entry below names the problem, the fix, and the evidence.
   a mirror about the vertical screen axis. The fixture is a 2-value integral volume, so §6.1's
   `is_label` sends it down the `R8UI` + palette path where a non-cube pixel inside the volume is
   *exactly* the scene background — which is what makes both halves of the assertion an exact RGBA.
+- 2026-08-27 — **§8's corner "slice index" is derived from the affine, like the letters, and the
+  chrome is now read back out of the framebuffer.** `sliceIndex()` hardcoded a voxel axis per view
+  mode (`sagittal → voxel[0]`, `coronal → voxel[1]`, else `voxel[2]`), which is wrong for every
+  SimNIBS `m2m` volume: `T1.nii.gz` maps world `x ← k`, `y ← −i`, `z ← j` `[DATA]`, so its axial
+  planes step along voxel `j` and its sagittal planes along voxel `k`, and the shipped goldens read
+  `AXIAL … SLICE 104` / `SAGITTAL … SLICE 128` where 128 / 104 belong. The rule is now
+  `argmax_a |dot(normal, A[:,a])|` — `voxelAxisAlong()`, the same expression §7.5's slice step
+  already used, so there is one definition and oblique is not a special case.
+  **The golden could not have caught this**: the corner block is ~300 px of a 589,824 px pane, so a
+  wrong number is 0.05 % of the image against a `maxDiffPixelRatio` of 0.002. So
+  `test/helpers/chrome.ts` decodes the chrome instead — the font is a 5×7 bitmap in the repository,
+  which makes an exact template match possible — and gate 3 now asserts all three corner lines, the
+  four edge letters and the badge, per pane, on the pixels a user sees. Reverting either this fix or
+  the preset fix fails it.
+- 2026-08-27 — **The edge letters were half a pixel off, and dropped their top row.** `buildChrome`
+  placed them at `heightPx / 2 − (GLYPH_H · s) / 2`, which is a half-pixel for an odd glyph height;
+  a glyph quad straddling pixel centres samples the NEAREST atlas one texel row late, so every
+  vertically-centred letter in every golden rendered without its first row — enough to make a
+  template match call an `R` an `X`. It is rounded to the pixel grid now. Every other string the
+  chrome draws was already integral. Six goldens move by 14–121 px each as a result.
+- 2026-08-27 — **`gate5-overlay-composite-oblique.png` was showing chrome its own test disables.**
+  Regenerating it dropped a crosshair and a corner block, 2,802 px (0.475 %) — under the 1 % macOS
+  ratio, which is why it had been passing, and *over* the 0.002 % the `ubuntu-24.04` authority uses.
+  The golden now matches what the test actually renders. This is a second instance of the same
+  lesson as the slice index: a tolerance wide enough to absorb a rasteriser is wide enough to absorb
+  a whole annotation block, so anything that must be *right* rather than merely *stable* needs an
+  assertion of its own.

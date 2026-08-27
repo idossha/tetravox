@@ -14,6 +14,7 @@ import {
   presetUp,
   sliceBasis,
   stepMm,
+  voxelAxisAlong,
 } from '../../src/view/geometry';
 import type { SliceMode, vec3 } from '../../src/scene/types';
 
@@ -126,5 +127,43 @@ describe('stepMm (§7.5)', () => {
     const bounds = { min: [0, 0, 0] as vec3, max: [256, 0, 0] as vec3 };
     expect(stepMm([0, 0, 1], null, null, bounds)).toBeCloseTo(1, 6);
     expect(stepMm([0, 0, 1], null, null, null)).toBe(1);
+  });
+});
+
+describe('the stepping voxel axis (§7.5 step, §8 corner slice index)', () => {
+  // `m2m_ernie/T1.nii.gz`'s affine, from AGENTS.md, transposed into the column-major `mat4` the
+  // engine carries (§3: `w[col * 4 + row] = m[row][col]`). It maps world x <- k, y <- -i, z <- j.
+  const T1 = new Float32Array([
+    0, -1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, -99.737457, 154.1875, -143.642273, 1,
+  ]);
+
+  it('derives the axis from the affine, not from the view mode', () => {
+    // Every SimNIBS m2m volume permutes the voxel axes, so an axial plane steps along voxel `j` and
+    // a sagittal plane along voxel `k` here. A per-mode table reports two panes' numbers swapped.
+    expect(voxelAxisAlong(presetNormal('axial'), T1).axis).toBe(1);
+    expect(voxelAxisAlong(presetNormal('coronal'), T1).axis).toBe(0);
+    expect(voxelAxisAlong(presetNormal('sagittal'), T1).axis).toBe(2);
+    // 1 mm voxels, so each step is 1 mm.
+    for (const mode of ['axial', 'coronal', 'sagittal'] as SliceMode[]) {
+      expect(voxelAxisAlong(presetNormal(mode), T1).mm).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('reports the slice index the reference volume actually has at its bbox centre', () => {
+    // 256x256x208 => the centre voxel is (127.5, 127.5, 103.5); §8's corner rounds it.
+    const centre: vec3 = [127.5, 127.5, 103.5];
+    const indexOf = (mode: SliceMode): number =>
+      Math.round(centre[voxelAxisAlong(presetNormal(mode), T1).axis]);
+    expect(indexOf('axial')).toBe(128);
+    expect(indexOf('coronal')).toBe(128);
+    expect(indexOf('sagittal')).toBe(104);
+  });
+
+  it('falls back to the dominant axis for an oblique normal', () => {
+    // normalize([1,1,1]) projects equally on world x, y and z; the affine's columns are unit axes,
+    // so the tie is broken by order and the answer is still *an* axis rather than a hardcoded one.
+    const { axis, mm } = voxelAxisAlong(presetNormal('oblique'), T1);
+    expect([0, 1, 2]).toContain(axis);
+    expect(mm).toBeCloseTo(1 / Math.sqrt(3), 6);
   });
 });

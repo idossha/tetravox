@@ -80,6 +80,45 @@ export async function readCanvasPixels(
 }
 
 /**
+ * Read a whole rectangle in **one** `readPixels`, row-major, top-left origin.
+ *
+ * `readCanvasPixels` costs one `readPixels` per point, which is fine for a handful of analytic
+ * pixels and far too slow for the thousands a glyph decode needs.
+ */
+export async function readCanvasRect(
+  target: Page | Locator,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  selector: string = DEFAULT_CANVAS_SELECTOR
+): Promise<Uint8Array> {
+  const flat = await canvasOf(target, selector).evaluate(
+    (el, [rx, ry, rw, rh]): number[] => {
+      if (!(el instanceof HTMLCanvasElement)) throw new Error('pixel target is not a <canvas>');
+      const gl = el.getContext('webgl2');
+      if (gl === null) throw new Error('canvas has no webgl2 context');
+      if (rx < 0 || ry < 0 || rx + rw > el.width || ry + rh > el.height) {
+        throw new Error(`rect ${rx},${ry} ${rw}x${rh} is outside the ${el.width}x${el.height} canvas`);
+      }
+      window.__tvxRender?.();
+      const px = new Uint8Array(rw * rh * 4);
+      // readPixels' origin is bottom-left; this module's coordinates are top-left.
+      gl.readPixels(rx, el.height - ry - rh, rw, rh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const out = new Array<number>(px.length);
+      for (let row = 0; row < rh; row += 1) {
+        const src = (rh - 1 - row) * rw * 4;
+        const dst = row * rw * 4;
+        for (let i = 0; i < rw * 4; i += 1) out[dst + i] = px[src + i] ?? 0;
+      }
+      return out;
+    },
+    [x, y, w, h] as const
+  );
+  return Uint8Array.from(flat);
+}
+
+/**
  * §11 (1) — the analytic pixel assertion.
  *
  * @param target   the page (canvas found by `selector`) or the canvas locator itself

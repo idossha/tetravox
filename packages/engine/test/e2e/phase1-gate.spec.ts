@@ -16,6 +16,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { expectGolden, readCanvasPixels } from '../helpers/pixels';
+import { readBadge, readCornerInfo, readEdgeLetters } from '../helpers/chrome';
 
 const ROOT = process.env.TETRAVOX_TESTDATA ?? '';
 const fsUrl = (rel: string): string => `/@fs${ROOT}/${rel}`;
@@ -191,6 +192,70 @@ test('gate 3: T1.nii.gz in axial, coronal, sagittal and 3D, with the full 2D chr
   );
 
   await expectGolden(page, 'gate3-t1-2x2-chrome');
+
+  // ---------------------------------------------------------------------------------------
+  // …and now read the chrome back out of the framebuffer, because the golden cannot police it:
+  // the corner block is ~300 px of a 589,824 px pane, so a wrong slice number is 0.05 % of the
+  // image and sails through `maxDiffPixelRatio: 0.002`. Phase 1 shipped exactly that.
+  //
+  // The crosshair is turned off first: it is drawn *through* the vertically centred edge letters,
+  // and one overwritten row out of seven is enough to make a template match ambiguous. Nothing
+  // else about the chrome changes.
+  await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    (engine as unknown as { setAnnotations(p: object): void }).setAnnotations({ crosshair: false });
+    await engine.whenSettled();
+  });
+
+  // `PANE` is the whole canvas; a 2x2 pane is half of it in each axis.
+  const CANVAS = PANE;
+  const HALF = PANE / 2;
+  // §7.5's 2x2: cells in order top-left, top-right, bottom-left, bottom-right, bottom-left origin.
+  const panes = {
+    axial: { x: 0, y: HALF, width: HALF, height: HALF },
+    coronal: { x: HALF, y: HALF, width: HALF, height: HALF },
+    sagittal: { x: 0, y: 0, width: HALF, height: HALF },
+    view3d: { x: HALF, y: 0, width: HALF, height: HALF },
+  } as const;
+
+  // The cursor is the scene bbox centre, and `T1.nii.gz`'s affine (AGENTS.md) is
+  // world x <- k - 99.737457, y <- -i + 154.1875, z <- j - 143.642273 over 256x256x208 voxels — so
+  // the centre is world (3.76, 26.69, -16.14) = voxel (127.5, 127.5, 103.5). The slice index of a
+  // pane is the cursor's index along the voxel axis THAT PLANE STEPS ALONG: `j` for axial, `i` for
+  // coronal, `k` for sagittal. Phase 1 hardcoded voxel[2]/voxel[1]/voxel[0] and reported 104/128/128.
+  const RAS = 'RAS 3.8 26.7 -16.1';
+  const expected = {
+    axial: { name: 'AXIAL', slice: 128, letters: { left: 'L', right: 'R', top: 'A', bottom: 'P' } },
+    coronal: {
+      name: 'CORONAL',
+      slice: 128,
+      letters: { left: 'L', right: 'R', top: 'S', bottom: 'I' },
+    },
+    sagittal: {
+      name: 'SAGITTAL',
+      slice: 104,
+      letters: { left: 'A', right: 'P', top: 'S', bottom: 'I' },
+    },
+  } as const;
+
+  for (const [id, want] of Object.entries(expected)) {
+    const pane = panes[id as keyof typeof expected];
+    const opts = { canvasHeight: CANVAS, pane };
+    const lines = await readCornerInfo(page, {
+      ...opts,
+      lineCount: 3,
+      length: Math.max(want.name.length, RAS.length, `SLICE ${want.slice}`.length),
+    });
+    expect(lines[0]?.trim(), `${id}: corner line 1 is the view name`).toBe(want.name);
+    expect(lines[1]?.trim(), `${id}: corner line 2 is the world RAS of the plane`).toBe(RAS);
+    expect(lines[2]?.trim(), `${id}: corner line 3 is the slice index of the active volume`).toBe(
+      `SLICE ${want.slice}`
+    );
+    expect(await readEdgeLetters(page, opts), `${id}: edge letters`).toEqual(want.letters);
+    expect(await readBadge(page, opts), `${id}: the convention badge`).toBe('NEU');
+  }
+  // The 3D pane carries chrome too (§8): a name, letters from the camera basis, and the badge.
+  expect(await readBadge(page, { canvasHeight: CANVAS, pane: panes.view3d })).toBe('NEU');
 });
 
 test('gate 3: the RAD/NEU badge and the edge letters follow the radiological flag', async ({
