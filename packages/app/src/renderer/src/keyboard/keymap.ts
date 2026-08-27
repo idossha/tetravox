@@ -147,3 +147,16 @@ export const POINTER_HELP =
   '2D: left click/drag cursor · wheel slice · ⌘/Ctrl+wheel or pinch zoom about the pointer · ' +
   '+ / − zoom · r fit · middle-drag, space+drag or two-finger drag pan · right-drag window/level · ' +
   'Shift+drag opacity — 3D: left orbit · right pan · wheel dolly · double-click pick';
+
+/**
+ * §7.5's **oblique affordances**, for the same help sheet.
+ *
+ * Listed rather than resolved here for the same reason as {@link POINTER_HELP}: they are engine
+ * gestures (`showGizmo`, `gizmoDrag`, `beginPlaneFromPoints`, `setSliceMode`), and only the engine
+ * knows which pane's plane is being manipulated. A user is least likely to guess these of all of
+ * §7.5, which is exactly why the sheet has to carry them.
+ */
+export const OBLIQUE_HELP =
+  'Oblique: drag the gizmo ring handles to rotate the plane · drag its stem to slide it along the ' +
+  'normal · plane-from-3-points takes the next three clicks in any 2D pane · a preset puts the ' +
+  'pane back on axial / coronal / sagittal';

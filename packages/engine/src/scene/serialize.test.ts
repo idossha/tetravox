@@ -285,6 +285,24 @@ describe('serializableLayer (§4.6 SerializableLayer)', () => {
     expect(JSON.stringify(out.label)).not.toContain('byId');
   });
 
+  it('carries R5’s volume-side selection: `visibleLabels` and `labelOpacity` survive JSON', () => {
+    // Hiding and muting regions is §4.4's `visibleLabels` / `labelOpacity`, and both are on the
+    // layer, so both round-trip with it. (A per-label **colour** edit on a volume has nowhere on
+    // `VolumeLayer` to live; it is filed as a frozen-interface need — see the report.)
+    const layer: Layer = {
+      ...defaultVolumeLayer('layer1', volumeDataset('ds1')),
+      visibleLabels: Uint32Array.from([2, 5, 530]),
+      labelOpacity: { 2: 0.4, 530: 0 },
+    };
+    const parsed = JSON.parse(JSON.stringify(serializableLayer(layer))) as SerializableLayer;
+    const patch = remapLayer(parsed, new Map([['ds1', 'ds9']])) as {
+      visibleLabels?: Uint32Array;
+      labelOpacity?: Record<number, number>;
+    };
+    expect([...(patch.visibleLabels ?? [])]).toEqual([2, 5, 530]);
+    expect(patch.labelOpacity).toEqual({ 2: 0.4, 530: 0 });
+  });
+
   it('carries R5’s edits: `tagStyle` colour, visibility and opacity survive JSON', () => {
     const mesh = defaultMeshLayer('layer3', meshDataset('ds3'));
     const layer: Layer = {
