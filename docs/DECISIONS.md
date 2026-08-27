@@ -1414,3 +1414,87 @@ Each entry below names the problem, the fix, and the evidence.
   `layers/runtime.ts` unclaimed. Also recorded: audit id **P2-11** now appears by name (it is §10's
   whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
   "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.
+
+- 2026-08-27 — **`DatasetRef.fingerprint` has a producer: `tvxfp1`, in `tvx-core`, called by both loaders
+  before the bytes are freed** (W-WASM Phase-2 gap 1). §4.6 required the field, §8 keys the relocate dialog
+  on it, and nothing computed it: `VolumeMeta` and `MeshMeta` had no such member and `scene/serialize.ts`
+  wrote `''`. §5 rule 3 puts the file bytes out of the UI thread's reach and §5 rule 5 has the parser free
+  them before it returns, so there is exactly one line where the digest can be taken — above the
+  `read_nifti` / `read_msh` call in `tvx_wasm::{volume,mesh}::load` — and that is where it is taken.
+  The algorithm is **FNV-1a-64 over `len` (u64 LE) followed by sampled chunks, finished with `fmix64`**,
+  printed as `tvxfp1-<len:16hex>-<hash:16hex>`; the chunks are the whole file up to 8 MiB and three
+  non-overlapping 1 MiB windows (head, middle, tail) above it. §4.6's original `"<size>-<sha256 of first
+  1 MiB>-<sha256 of last 1 MiB>"` is amended to it in the same commit: **SHA-256 would be a new workspace
+  dependency and the dependency set is frozen** (§12.3), and this string identifies a file rather than
+  authenticating one. It is written out normatively instead of being delegated to a hasher's default because
+  it is persisted in a `*.tetravox.json` and must mean the same thing on every platform and in every future
+  build — `^`, `*` and shifts on u64 only, so wasm32 and native agree by construction, and the e2e asserts
+  the Rust output against an independent TypeScript implementation of the same spec over the same fixture
+  bytes. Two consequences are deliberate and tested: a `.nii` and a `.nii.gz` of one volume share a
+  fingerprint (the digest is of the **inflated** bytes, because §5 rule 4 inflates in the worker), and a
+  mesh's `.msh.opt` / `_LUT.txt` sidecars are outside it, so recolouring a tissue does not make the file
+  look like a different one. An edit to a file over 8 MiB that misses all three windows is not detected —
+  the accepted price of not reading 180 MB twice for a dialog that asks "is this the file you moved?".
+  Hashing every byte of every file, and hashing on the UI thread — both rejected, the first on the load
+  budget (§9.1) and the second by §5 rule 3.
+
+- 2026-08-27 — **Volumetric glyph origins are a new op, `meshCentroids` → `mesh_centroids` →
+  `tvx_geom::tet_centroids`** (W-WASM Phase-2 gap 2; §6.5.2 now has **18** ops). §7.4 draws glyphs as
+  "one instanced draw … with per-instance origin/direction/magnitude. **No new geometry from WASM**",
+  and two of the three cases already had origins — a *surface* glyph reads `SurfacePayload.positions`
+  + `ownerElm`, a *cut-plane-restricted* one reads `CutPayload.positions` + `ownerTet`. The
+  unrestricted case (interior tets, no cut plane — what `ernie_TDCS_1_scalar.msh`'s `E` over
+  5,900,498 elements invites) had none, and the map left the scope call open. **Taken, not closed as
+  "surface only"**: the op returns *points*, one per tet, so §7.4's rule stays true — no triangles, no
+  normals, no vertex-buffer expansion — and E-DERIVED can bind `positions` as an instance attribute
+  and `ownerTet` as the key into the field texture it already builds. `stride` is the density knob a
+  4.7 M-element layer needs; `maskId` and `tags` filter **first** so a rare tissue still gets glyphs
+  (Muscle is 4,400 tets, 0.09 % of ernie, and gets 69 origins at stride 64), and the count is exactly
+  `ceil(surviving / stride)`. Output is in **Morton order**, which is what makes striding a density
+  control rather than a spatial bias — measured on ernie's GM, the mean of a 1-in-64 sample is
+  **0.0156 mm** from the mean of all 1,340,029 `[M2Max]` — and that number also settles a second
+  question: R5's "double-click → region centroid" works for a **mesh tissue tag** through this op, so
+  no `meshTagCentroids` is needed. Returning bulk node positions instead — rejected: 847,165 nodes is
+  the wrong cardinality for a per-element field and 10 MB to move. A `field`-result extension —
+  rejected: it would put geometry in an op whose contract is values.
+- 2026-08-27 — **`locate_point` gates candidates on their AABB before the barycentric test.** Found
+  while writing `meshCentroids`' cross-check ("a tet's centroid must locate into that tet"): 2 of 48
+  sampled ernie centroids located into a **scalp sliver** at (49.3, 16.2, −71.9), ~60 mm away, with
+  6·V ≈ 2.5e-7 mm³. The locator's cells must be at least as large as the largest tet — that is what
+  makes its 3×3×3 scan exhaustive — so distant candidates are normal, and an f32 barycentric test on a
+  sliver at that distance is pure cancellation: it returned `[1019.5, 601.5, 5476.4, 2885.1]`, four
+  positive weights, i.e. "inside". The AABB test is exact (a point inside a tet is inside its AABB),
+  so it can only remove wrong answers; it is also cheaper than four signed volumes. This matters
+  beyond glyphs: `locate` is what R4's gate cross-checks a cut pixel's `TI_max` through, and what
+  P2-04's probe rows read. A regression test pins it with the sliver's real coordinates, because the
+  failure is a property of those f32 values. Tightening the barycentric `EPS` instead — rejected: the
+  weights are not near zero, they are meaningless.
+
+- 2026-08-27 — **`field`'s element values are the file's element order, and `MeshMeta` says whether
+  `gmsh - 1` may index them.** Found in the W-WASM re-check of Phase-2 protocol coverage. §7.4 builds
+  its element-field texture with `texelFetch(elmFieldTex, …)` per triangle, keyed by
+  `SurfacePayload.ownerElm` / `CutPayload.ownerTet` / `meshCentroids.ownerTet` — all **Gmsh element
+  numbers** (§6.2). The `field` op handed the tet block out in §6.3's **Morton** order, and
+  `tet_perm` never crosses the wire, so no consumer could turn a Gmsh number into a row: R4's gate
+  ("`Thalamus_TI.msh` with `TI_max` element colouring on the cut, cross-checked through `locate`")
+  was unimplementable, and the failure mode is a cut coloured with *other elements'* values — a
+  picture that looks entirely plausible and is wrong, which is the case §11 exists for. `elm_values`
+  now un-permutes the tet block, so row `i` is the file's `i`-th element for tris and tets alike, and
+  §6.5.2 states the ordering of both `source` kinds as part of the contract. `MeshMeta` gains
+  `identityElementNumbers` (true iff §6.2's identity rule holds, i.e. `gmsh_elm_numbers` is `None`,
+  which is every reference file and every format without element numbering): it is what licenses
+  `gmsh - 1`, so a consumer can detect the exotic case and colour by tag instead of silently painting
+  the wrong elements. Shipping `tet_perm` in `MeshMeta` instead — rejected: 19 MB on the wire for
+  ernie, to undo a permutation the worker can undo in one pass at query time. Leaving the ordering
+  undocumented and letting E-MESH discover it — rejected: no engine code consumes `field` yet, which
+  is exactly why W-WASM merges first.
+- 2026-08-27 — **`contours` is stored-triangles-only, and that is documented rather than patched.**
+  Same re-check: `grey_Thalamus_TI.msh` has 1,340,029 tets and **0 triangles**, so the `contours` op
+  answers with zero segments on the very mesh R4 names for mesh-only cross-sections. It is not a gap
+  — a tet mesh's `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with
+  `fillIn2D`'s polygons on the same latest-wins key, so the consumer makes one call, not two. The
+  trap was the silence, so §6.5.2, `surface_contours`' own doc comment and
+  `packages/wasm/e2e/contours.spec.ts` now say which producer serves which mesh, on the fixture and
+  on `grey_Thalamus_TI.msh` itself. Making `contours` fall back to the tet path — rejected: it would
+  need `TetBlocks` in a §6.3 signature that has none, and it would hide the distinction the 2D
+  overlay has to make anyway.

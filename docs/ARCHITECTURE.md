@@ -267,6 +267,7 @@ export interface MeshDataset {
   transformedSpace?: string;
   bounds: Aabb;                       // of the delivered (world-mm) node coordinates, before `transform`
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
+  identityElementNumbers: boolean;    // §6.2's identity rule holds ⇒ `gmsh - 1` is a valid element row
   fields: MeshFieldInfo[];
   tags: MeshTag[];
   skipped: { elemType: number; count: number }[];
@@ -460,7 +461,7 @@ export interface DatasetRef {
   id: DatasetId; kind: 'volume' | 'mesh'; name: string;
   path: string;                     // relative to the scene file
   absPath?: string;                 // fallback when the relative path misses
-  fingerprint: string;              // "<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>", 16 hex each
+  fingerprint: string;              // `tvxfp1-<len:16hex>-<hash:16hex>` — see below
 }
 export type SerializableLayer =
   Omit<Layer, 'visibleLabels'> & { visibleLabels?: number[]; label?: { name: string; mode: string;
@@ -480,6 +481,39 @@ export interface ViewSpec {
 
 `LabelTable`s are **not** serialised; they are re-derived from the dataset and its LUT on load. A missing dataset
 opens a "relocate" dialog keyed on `fingerprint`.
+
+**`fingerprint` — `tvxfp1`, normative.** The producer is `tvx_core::fingerprint` (§6.0), called by
+`load_volume` / `load_mesh` over the bytes the loader was handed and **before** the parser frees them (§5 rule 5).
+§5 rule 3 forbids the UI thread from ever seeing those bytes, so it cannot be computed anywhere else; it reaches
+the scene as `VolumeMeta.fingerprint` / `MeshMeta.fingerprint` (§6.5.1).
+
+```text
+fingerprint(bytes) = "tvxfp1-" ++ hex16(len) ++ "-" ++ hex16(h)
+```
+
+* `len` is `bytes.len()` as a u64, 16 lower-case hex digits.
+* `h` is **FNV-1a-64** (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) over a canonical stream,
+  finished with MurmurHash3's `fmix64` avalanche, formatted the same way.
+* The canonical stream is the 8 bytes of `len` **little-endian**, then the sampled chunks in ascending offset
+  order.
+* The chunks are the whole slice when `len ≤ 8 MiB`; otherwise exactly three 1 MiB windows — at `0`, at
+  `len/2 − 512 KiB`, and at `len − 1 MiB`. Above 8 MiB those never overlap, so any file is digested over 3 MiB.
+
+Cost, measured native on `m2m_ernie/ernie.msh` (184,207,351 B): **8.9 ms** `[M2Max]`, i.e. 0.6 % of §9.1
+row 3's 1.5 s parse budget, because only 3 MiB of any file is ever hashed.
+
+This **identifies** a file; it does not authenticate one. A cryptographic digest would mean a new workspace
+dependency (frozen, §12.3) and ~180 MB of SHA-256 on the load path for `ernie.msh`. The algorithm is written out
+rather than delegated to a hasher's default because the string is persisted in a `*.tetravox.json` and has to
+mean the same thing on every platform and in every future build; it uses only `^`, `*` and shifts on u64, so it
+is identical on wasm32 and native — the same portability argument §6.3's determinism rule makes for geometry.
+Two files of different length always differ, because `len` is both a field of the string and the prefix of the
+hashed stream. An edit to a file larger than 8 MiB that touches none of the three windows is **not** detected;
+that is the accepted price of not reading 180 MB twice for a dialog that asks "is this the file you moved?".
+The digest is of the bytes the loader was handed, i.e. **after** `.gz` inflation (§5 rule 4 inflates in the
+worker), so a `.nii` and a `.nii.gz` of one volume share a fingerprint — the dialog is matching the dataset, not
+the container. A mesh's sidecars (`.msh.opt`, `_LUT.txt`) are **not** digested: recolouring a tissue must not
+make the file look like a different one.
 
 ### 4.7 Engine facade
 
@@ -750,6 +784,11 @@ impl LabelTable {
 
 pub struct Aabb { pub min: [f32; 3], pub max: [f32; 3] }
 
+/// §4.6 `DatasetRef.fingerprint`: `tvxfp1-<len:16hex>-<hash:16hex>`. Lives here, not in a loader, so every
+/// loader produces the same string by construction. The algorithm is normative and written out in §4.6;
+/// `fingerprint::{TAG, FULL_LIMIT, CHUNK, sample_ranges}` expose its constants for tests.
+pub fn fingerprint(bytes: &[u8]) -> String;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("parse: {0}")]        Parse(String),
@@ -861,6 +900,9 @@ Rules:
   `want_linear` is false when the layer is a label or `interpolation === 'nearest'`.
 * Volumes whose `max(dims) > caps.max_3d` (2048 `[M2Max]`, spec floor 256) fail loudly at load with a downsample
   offer — never a silently incomplete texture at draw time.
+* `read_nifti` **takes ownership of the byte vector and frees it before returning**, so §4.6's `fingerprint` is
+  taken by the caller (`tvx_wasm::volume::load`) over `&bytes` on the line above the call — never afterwards,
+  and never on the UI thread (§5 rule 3).
 
 ### 6.2 `tvx-mesh-io`
 
@@ -955,6 +997,8 @@ entry points are gone.
   the largest reference file, reaches 15,787,627 `[DATA]`.)
 * Only element types 2 (tri3) and 4 (tet4) are kept in v1; everything else is counted into `skipped`, not an error.
 * `read_msh` **takes ownership of the byte vector and frees it (and any inflate output) before returning.**
+  §4.6's `fingerprint` is therefore taken by the caller (`tvx_wasm::mesh::load`) before the call, over the mesh
+  bytes alone — the `.msh.opt` / `_LUT.txt` sidecars are not part of it.
 * Tag names and colours, in order: `$PhysicalNames` → sibling `<mesh>_LUT.txt` (SimNIBS
   `#No.\tLabel Name:\tR G B A`) → sibling `<mesh>.msh.opt` (`Physical Volume(" GM",2)` + `Mesh.Color.<Ordinal>`)
   → deterministic glasbey-like palette. Rule: **surface tag `1xxx` inherits the colour of volume tag `1xxx − 1000`**.
@@ -1079,6 +1123,10 @@ pub struct ProbeHit {
 
 pub struct LabelCentroid { pub id: u32, pub centroid: [f32; 3], pub count: u64 }
 
+/// Glyph origins for a VOLUMETRIC `GlyphSpec` (§7.4). Points, not geometry: no triangles, no normals.
+pub struct Centroids { pub positions: Vec<f32>,   // 3 per origin
+                       pub owner_tet: Vec<u32> }  // 1 per origin: Gmsh element number
+
 // --- load-time (called inside loadMesh, not exported individually — see §6.4)
 pub fn morton_reorder(mesh: &mut Mesh) -> Vec<u32>;                   // returns tet_perm; < 250 ms WASM on ernie
 pub fn build_tet_blocks(mesh: &Mesh, blk: usize /* default 64 */) -> TetBlocks;   // < 500 ms WASM on ernie
@@ -1106,6 +1154,8 @@ pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&Bi
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
 pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
 pub fn label_centroids(vol: &Volume, vol_index: usize) -> Result<Vec<LabelCentroid>>;
+pub fn tet_centroids(mesh: &Mesh, mask: Option<&BitMask>, stride: usize,
+                     tags: Option<&[i32]>) -> Result<Centroids>;
 ```
 
 Rules:
@@ -1152,6 +1202,25 @@ Rules:
 * `isolate` evaluates `label_volume` by sampling the cloned label volume (§5 rule 2) at tet centroids through
   `world_to_voxel` (nearest). The bytes arrive as `mesh_isolate`'s separate `label_volume` argument and are
   reinterpreted per `LabelVolumeCriteria.dtype`; a `dtype`/`dims`/byte-length mismatch is `Error::Parse`.
+* **`tet_centroids` is the origin source for a volumetric `GlyphSpec`** (§7.4). Surface glyphs read
+  `SurfaceBuffers.positions` + `owner_elm` and cut-plane glyphs read `Cut.positions` + `owner_tet`; interior
+  glyphs with no cut plane had neither, and §7.4 forbids new geometry from WASM, so this returns one **point**
+  per tet and nothing else. The centroid is the arithmetic mean of the four node positions (`+` and `÷` only, so
+  it is portable like every other §6.3 output); output is in **Morton order**, which is what makes a strided
+  subsample spatially spread rather than clustered by physical tag — the mean of a 1-in-64 sample of ernie's GM
+  is **0.0156 mm** from the mean of all 1,340,029 of them `[M2Max]`, so the region panel's jump-to-centroid can
+  use it for a mesh tissue tag. `mask` and `tags` filter **first** and `stride` then keeps every `stride`-th
+  survivor, so the count is `ceil(surviving / stride)` and a rare tag still gets glyphs; `stride = 0` is
+  `Error::Parse` and an unused tag is an empty result, not an error. Cost on `ernie.msh` native `[M2Max]`:
+  **39 ms** for all 4,722,625 origins (56 MB), **7.3 ms** at stride 64 (73,792 origins), **12.3 ms** at stride 64
+  restricted to tag 2 (20,938) — one O(N) pass either way, against §9.1 row 7b's "same class as #6".
+* **`locate_point` rejects a candidate by its AABB before evaluating barycentric coordinates.** The locator's
+  cells must be at least as large as the largest tet (that is what makes the 3×3×3 scan exhaustive), so on
+  `ernie.msh` a candidate can be ~60 mm from the probe point — and an f32 barycentric test on a **sliver** tet
+  (6·V ≈ 1e-8 mm³, of which ernie has many) is pure cancellation at that distance: measured 2026-08-27, it
+  returns four positive weights and claims the hit for 2 of 48 sampled tet centroids, answering with a scalp
+  sliver at (49.3, 16.2, −71.9) `[DATA]`. The AABB test is exact — a point inside a tet is inside its AABB — so
+  it can only remove wrong answers.
 * **`locate_point` returns the whole probe, not an index.** The one round trip §8 budgets at ≤ 50 ms gathers the
   tag and every node/element field value at the point; splitting the gather across a second op would double the
   latency and leave the field data on the wrong side of the boundary. `ProbeHit.gmsh_elm` is what the wire
@@ -1172,6 +1241,9 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 // from `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2), and flattening keeps the
 // wasm-bindgen surface free of a shared type. `load_volume` produces volume 0's payload; `volume_frame`
 // produces any other index's. Both run §6.1's `stats` / `label_index` / `gpu_payload` for that index.
+// Both loaders call `tvx_core::fingerprint(&bytes)` **before** handing the vector to the parser, and put the
+// result on `VolumeMeta.fingerprint` / `MeshMeta.fingerprint` (§4.6, §6.5.1). It is the only field of either
+// meta that cannot be recovered from the parsed dataset, because the bytes are gone by then (§5 rule 5).
 #[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, lut_bytes: Option<Vec<u8>>,
                                    float_linear: bool, norm16: bool, max_3d: u32, want_linear: bool,
                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
@@ -1203,6 +1275,8 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 #[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>)
                                     -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_centroids(handle: u32, mask_id: Option<u32>, stride: u32,
+                                      tags: Option<Vec<i32>>) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn free(handle: u32);
 #[wasm_bindgen] pub fn free_mask(handle: u32, mask_id: u32);
 #[wasm_bindgen] pub fn wasm_heap_bytes() -> u32;      // stamped onto every Res (§6.5), backs the §9 memory bar
@@ -1301,7 +1375,7 @@ export interface WorkerError { code: ErrorCode; message: string }
 export type OpName =
   | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
   | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingTets' | 'contours'
-  | 'labelCentroids' | 'free' | 'freeMask';       // 17 ops
+  | 'labelCentroids' | 'meshCentroids' | 'free' | 'freeMask';       // 18 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -1344,6 +1418,7 @@ export interface ProbeHitT {                         // `locate` result; mirrors
 
 export interface VolumeMeta {
   handle: number; name: string;
+  fingerprint: string;                // §4.6 `tvxfp1-<len:16hex>-<hash:16hex>`, digested in the worker
   dims: [number, number, number]; nvols: number;
   affine: Mat4x4; spacing: [number, number, number];
   dtype: 'u8'|'i8'|'u16'|'i16'|'u32'|'i32'|'f32'|'f64'|'rgb24'|'rgba32';
@@ -1368,6 +1443,7 @@ export interface MeshFieldMeta {
 }
 export interface MeshMeta {
   handle: number; name: string;
+  fingerprint: string;                // §4.6, over the mesh bytes alone — sidecars are not digested
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
   appliedTransform: Mat4x4;           // baked into the node coordinates by the loader; identity when none (§4.3)
   dataSpace?: string;                 // GIfTI CoordinateSystem strings, verbatim (§6.2)
@@ -1488,13 +1564,14 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `buildTopology` | `{ handle: number }` | `{ faces: number; boundaryFaces: number }` | explicit, awaitable, progress-reporting |
 | `cut` | `{ handle: number; planes: PlaneT[] /* ≤6 */; maskId?: number; recycle?: boolean }` | `CutResult` | one `Cut` per plane, each clipped by the others. `recycle: true` ⇒ the worker passes its `CutOut` pool and the result is the `'recycled'` variant; otherwise `'buffers'` (§6.4) |
 | `isolate` | `{ handle: number; criteria: IsolateCriteriaT; labelVolume?: ArrayBuffer }` | `{ maskId: number; visibleTets: number; generation: number }` | client owns `maskId` and must `freeMask`. `labelVolume` is required iff `criteria.labelVolume` is set, is **cloned not transferred** (§5 rule 2), and is the only bulk argument any op takes |
-| `field` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel }` | `{ values: Float32Array; stats: StatsT; n: number; partial: boolean }` | |
-| `elmToNode` | `{ handle: number; direction: 'elmToNode' \| 'nodeToElm'; name: string }` | `{ name: string; values: Float32Array; stats: StatsT }` | both directions of §6.3's pair |
+| `field` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel }` | `{ values: Float32Array; stats: StatsT; n: number; partial: boolean }` | **ordering is part of the contract.** `node` ⇒ one value per INTERNAL node index (what `SurfacePayload.nodeIndex` and `CutPayload.interpNodes` carry). `elm` ⇒ `[tris…, tets…]` in the **file's element order**, so row `i` is the file's `i`-th element and, when `MeshMeta.identityElementNumbers`, its Gmsh number is `i + 1` — which is what makes `ownerElm` / `ownerTet` a usable lookup key. The tet block is **un-permuted** on the way out: §6.3 stores it in Morton order |
+| `elmToNode` | `{ handle: number; direction: 'elmToNode' \| 'nodeToElm'; name: string }` | `{ name: string; values: Float32Array; stats: StatsT }` | both directions of §6.3's pair; `nodeToElm` uses `field`'s element order |
 | `locate` | `{ handle: number; world: [number,number,number] }` | `{ hit: ProbeHitT \| null }` | one round trip: §6.3 `locate_point` returns the whole `ProbeHit`. `elementId` is always a Gmsh element number. Latest-wins on its own key |
 | `marchingCubes` | `{ handle: number; volumeIndex: number; iso: number; smooth: boolean }` | `SurfacePayload` | |
 | `marchingTets` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel; iso: number; maskId?: number }` | `SurfacePayload` | |
-| `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment |
+| `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment. **Stored triangles only.** A tri-less tet mesh (`grey_Thalamus_TI.msh`: 1,340,029 tets, 0 tris `[DATA]`) answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
 | `labelCentroids` | `{ handle: number; volumeIndex: number }` | `{ centroids: { id: number; centroid: [number,number,number]; count: number }[] }` | |
+| `meshCentroids` | `{ handle: number; maskId?: number; stride: number; tags?: number[] }` | `{ positions: Float32Array; ownerTet: Uint32Array }` | glyph origins for a **volumetric** `GlyphSpec` (§7.4): 3 floats and one Gmsh element number per origin, Morton order, no geometry. `maskId`/`tags` filter first, then every `stride`-th survivor; `stride: 0` is `Error::Parse`. Also serves the region panel's jump-to-centroid for a **mesh tissue tag** — the mean of a strided sample is 0.0156 mm off the true one on ernie's GM `[M2Max]` |
 | `free` | `{ handle: number }` | `{}` | the client then calls `worker.terminate()` |
 | `freeMask` | `{ handle: number; maskId: number }` | `{}` | masks are also dropped when the mesh handle is freed |
 
@@ -1502,8 +1579,8 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 `Req<'cut'>` and `Res<'cut'>` are fully typed:
 
 ```ts
-export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; volumeFrame: {…}; /* …all 17… */ }
-export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: VolumeFrameT; /* …all 17… */ }
+export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; volumeFrame: {…}; /* …all 18… */ }
+export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: VolumeFrameT; /* …all 18… */ }
 ```
 
 **Op → wasm export (§6.4), one-to-one and exhaustive:**
@@ -1512,7 +1589,8 @@ export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: Vol
 `buildTopology`→`mesh_build_topology` · `cut`→`mesh_cut` · `isolate`→`mesh_isolate` · `field`→`mesh_field` ·
 `elmToNode`→`mesh_convert_field` · `locate`→`mesh_locate` · `marchingCubes`→`volume_marching_cubes` ·
 `marchingTets`→`mesh_marching_tets` · `contours`→`mesh_contours` ·
-`labelCentroids`→`volume_label_centroids` · `free`→`free` · `freeMask`→`free_mask`.
+`labelCentroids`→`volume_label_centroids` · `meshCentroids`→`mesh_centroids` · `free`→`free` ·
+`freeMask`→`free_mask`.
 `wasm_heap_bytes()` is the only export without an op; it is read after every call and stamped onto `Res`.
 This table and the `OpName` order above are the two things `packages/protocol/src/index.ts` also carries as
 runtime data — `OP_TO_EXPORT` and `OP_NAMES` (§6.5 preamble). They are declarations, not logic, and they are

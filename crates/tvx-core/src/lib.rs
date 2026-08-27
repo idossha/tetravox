@@ -9,7 +9,10 @@
 //!
 #![forbid(unsafe_code)]
 
+pub mod fingerprint;
 mod lut;
+
+pub use fingerprint::fingerprint;
 
 /// A half-space. **Keep side: `normal·x + offset >= 0`** (§6.0).
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -15,7 +15,8 @@ use tvx_core::{BitMask, NoProgress, Plane};
 use tvx_geom::{
     build_point_locator, build_tet_blocks, build_topology, extract_boundary, isolate,
     label_centroids, locate_point, marching_cubes, marching_tets, morton_reorder, orient_surface,
-    plane_cut, surface_contours, tag_surfaces, vertex_normals, IsolateCriteria, SurfaceVariant,
+    plane_cut, surface_contours, tag_surfaces, tet_centroids, vertex_normals, IsolateCriteria,
+    SurfaceVariant,
 };
 use tvx_mesh_io::{read_msh, Mesh};
 
@@ -715,4 +716,68 @@ fn marching_cubes_encloses_the_head_in_final_tissues() {
         ratio > 0.95 && ratio < 1.05,
         "enclosed volume ratio {ratio} ({got} vs {want})"
     );
+}
+
+/// §6.3 `tet_centroids` on the mesh the glyph case is written for: every tet of `ernie.msh`, then
+/// the GM tag alone, then a strided subsample of it.
+///
+/// The counts are AGENTS.md's per-tag census, the bounds are AGENTS.md's node bounding box, and the
+/// element numbers are §6.2's identity rule — `n_tris + tet_perm[j] + 1`, so the whole range is
+/// 1,177,214…5,899,838 and nothing may fall outside it.
+#[test]
+fn tet_centroids_on_ernie_are_tagged_bounded_and_strideable() {
+    let mut m = require_mesh!("m2m_ernie/ernie.msh");
+    load_time(&mut m);
+    assert_eq!(m.tets.len(), 4_722_625);
+
+    let all = tet_centroids(&m, None, 1, None).expect("centroids");
+    assert_eq!(all.owner_tet.len(), 4_722_625);
+    assert_eq!(all.positions.len(), 3 * 4_722_625);
+
+    // A centroid is a convex combination of four nodes, so it cannot leave the node bounding box.
+    // AGENTS.md's node bounding box, in f64 so the published digits survive verbatim (they do not
+    // fit an f32 literal), with a micron of slack for the f32 → f64 widening of a corner value.
+    let lo = [-84.436_612_f64, -92.398_125, -128.860_523];
+    let hi = [83.397_800_f64, 136.157_040, 99.951_712];
+    const SLACK: f64 = 1e-3;
+    for (i, p) in all.positions.chunks_exact(3).enumerate() {
+        for c in 0..3 {
+            let v = f64::from(p[c]);
+            assert!(
+                v >= lo[c] - SLACK && v <= hi[c] + SLACK,
+                "centroid {i} component {c} = {v} is outside the node bbox"
+            );
+        }
+    }
+    let first = *all.owner_tet.iter().min().expect("tets");
+    let last = *all.owner_tet.iter().max().expect("tets");
+    assert!(
+        first >= 1_177_214 && last <= 5_899_838,
+        "gmsh element numbers {first}..{last} leave the tet block"
+    );
+
+    // AGENTS.md: tag 2 (GM) has 1,340,029 tets, and `tags` filters before `stride`.
+    let gm = tet_centroids(&m, None, 1, Some(&[2])).expect("centroids");
+    assert_eq!(gm.owner_tet.len(), 1_340_029);
+    let strided = tet_centroids(&m, None, 64, Some(&[2])).expect("centroids");
+    assert_eq!(strided.owner_tet.len(), 1_340_029_usize.div_ceil(64));
+
+    // Morton order is what makes `stride` a density control rather than a spatial bias: the mean of
+    // a 1-in-64 subsample lands on the mean of the whole tag — **0.0156 mm apart** here `[M2Max]`,
+    // against a GM extent of ~135 mm. That is also what lets the Phase-2 region panel jump to a mesh
+    // tissue tag's centroid through this op instead of a second one (§6.5.2).
+    let mean = |c: &[f32]| {
+        let n = (c.len() / 3) as f64;
+        let mut m = [0.0f64; 3];
+        for p in c.chunks_exact(3) {
+            for k in 0..3 {
+                m[k] += f64::from(p[k]);
+            }
+        }
+        [m[0] / n, m[1] / n, m[2] / n]
+    };
+    let (a, b) = (mean(&gm.positions), mean(&strided.positions));
+    let d = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
+    eprintln!("[tet_centroids] GM mean {a:?} vs 1-in-64 subsample {b:?}: {d:.4} mm apart");
+    assert!(d < 0.5, "strided subsample centroid is {d} mm off");
 }

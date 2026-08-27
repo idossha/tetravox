@@ -80,10 +80,21 @@ fn raw_samples(d: &VolumeData) -> js_sys::ArrayBuffer {
 
 /// §6.5.1 `VolumeMeta`. `name` is filled in by the worker, which is the only side that knows the
 /// `LoadSource` (§6.5.2) — `load_volume` is handed bytes, not a path.
-fn meta(handle: u32, v: &Volume, gpu: &GpuPayload, lut: Option<&tvx_core::LabelTable>) -> JsValue {
+///
+/// `fingerprint` is §4.6's `tvxfp1` digest, taken by [`load`] over the input bytes **before**
+/// `read_nifti` consumes and frees them (§5 rule 5); it cannot be recomputed from the parsed
+/// `Volume`, which is why it is threaded in as an argument.
+fn meta(
+    handle: u32,
+    v: &Volume,
+    gpu: &GpuPayload,
+    lut: Option<&tvx_core::LabelTable>,
+    fingerprint: &str,
+) -> JsValue {
     let o = jsv::obj();
     jsv::set_u32(&o, "handle", handle);
     jsv::set_str(&o, "name", "");
+    jsv::set_str(&o, "fingerprint", fingerprint);
     jsv::set(
         &o,
         "dims",
@@ -119,6 +130,10 @@ pub fn load(
     want_linear: bool,
     p: &mut dyn tvx_core::ProgressSink,
 ) -> Result<JsValue> {
+    // §4.6 / §5 rule 3: the digest is taken here, in the worker, over the bytes the loader was
+    // handed — `read_nifti` takes ownership of the `Vec` and frees it before it returns (§5 rule 5),
+    // and the UI thread never sees a byte of it, so there is nowhere else it could be taken.
+    let fingerprint = tvx_core::fingerprint(&bytes);
     let vol = tvx_nifti::read_nifti(bytes, p)?;
     let lut = match &lut_bytes {
         Some(b) => Some(crate::lut::parse(&String::from_utf8_lossy(b))?),
@@ -141,7 +156,9 @@ pub fn load(
 
     // The handle is allocated last: nothing is registered unless the whole load succeeded.
     let handle = handles::insert(handles::Dataset::Volume(Box::new(vol)));
-    let m = handles::with_volume(handle, |v| Ok(meta(handle, v, &gpu, lut.as_ref())))?;
+    let m = handles::with_volume(handle, |v| {
+        Ok(meta(handle, v, &gpu, lut.as_ref(), &fingerprint))
+    })?;
     jsv::set(&out, "meta", &m);
     Ok(out.into())
 }

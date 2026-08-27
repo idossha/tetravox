@@ -38,8 +38,9 @@ export type OpName =
   | 'marchingTets'
   | 'contours'
   | 'labelCentroids'
+  | 'meshCentroids'
   | 'free'
-  | 'freeMask'; // 17 ops
+  | 'freeMask'; // 18 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -111,6 +112,13 @@ export interface ProbeHitT {
 export interface VolumeMeta {
   handle: number;
   name: string;
+  /**
+   * §4.6 `DatasetRef.fingerprint` — `tvxfp1-<len:16hex>-<hash:16hex>`, digested in the dataset
+   * worker over the bytes the loader was handed, before §5 rule 5 drops them
+   * (`tvx_core::fingerprint`). The UI thread never sees those bytes (§5 rule 3), so this is the
+   * only place the value can come from.
+   */
+  fingerprint: string;
   dims: [number, number, number];
   nvols: number;
   affine: Mat4x4;
@@ -161,10 +169,26 @@ export interface MeshFieldMeta {
 export interface MeshMeta {
   handle: number;
   name: string;
+  /**
+   * §4.6 `DatasetRef.fingerprint` — `tvxfp1-<len:16hex>-<hash:16hex>` over the mesh bytes alone;
+   * the `.msh.opt` / `_LUT.txt` sidecars are not digested, so recolouring a tag does not make the
+   * mesh look like a different file.
+   */
+  fingerprint: string;
   nNodes: number;
   nTris: number;
   nTets: number;
   hasTris: boolean;
+  /**
+   * `true` iff the file numbers its elements exactly `1..N` in (tris then tets) order — §6.2's
+   * identity rule, which is the case for every reference `.msh` and for every format with no
+   * element numbering at all.
+   *
+   * It is what licenses `gmsh - 1` as the row index into the `field` / `elmToNode` element values
+   * for an `ownerElm` / `ownerTet`. When it is `false` that arithmetic is wrong, and a consumer
+   * must colour by tag rather than paint every element with another element's value.
+   */
+  identityElementNumbers: boolean;
   /** Baked into the node coordinates by the loader; identity when none (§4.3). */
   appliedTransform: Mat4x4;
   /** GIfTI CoordinateSystem strings, verbatim (§6.2). */
@@ -349,6 +373,12 @@ export interface OpArgs {
   };
   contours: { handle: number; plane: PlaneT; maskId?: number };
   labelCentroids: { handle: number; volumeIndex: number };
+  /**
+   * Volumetric `GlyphSpec` origins (§7.4). `stride` keeps every `stride`-th tet that survives
+   * `maskId` and `tags` — filtering happens **first**, so a small tag still gets glyphs — and
+   * `stride: 0` is a parse error. `tags` absent means every tag.
+   */
+  meshCentroids: { handle: number; maskId?: number; stride: number; tags?: number[] };
   free: { handle: number };
   freeMask: { handle: number; maskId: number };
 }
@@ -371,7 +401,16 @@ export interface OpResult {
   cut: CutResult;
   /** The client owns `maskId` and must `freeMask`. */
   isolate: { maskId: number; visibleTets: number; generation: number };
+  /**
+   * `source: 'node'` ⇒ one value per node, indexed by the INTERNAL node index — the same index
+   * `SurfacePayload.nodeIndex` and `CutPayload.interpNodes` carry.
+   *
+   * `source: 'elm'` ⇒ `[tris…, tets…]` in **the file's element order**, so row `i` is the file's
+   * `i`-th element and, when `MeshMeta.identityElementNumbers` is true, its Gmsh number is `i + 1`.
+   * That is what makes `ownerElm` / `ownerTet` usable as a lookup key (§6.5.2).
+   */
   field: { values: Float32Array; stats: StatsT; n: number; partial: boolean };
+  /** `nodeToElm`'s values follow the same element order as `field`'s. */
   elmToNode: { name: string; values: Float32Array; stats: StatsT };
   locate: { hit: ProbeHitT | null };
   marchingCubes: SurfacePayload;
@@ -381,6 +420,11 @@ export interface OpResult {
   labelCentroids: {
     centroids: { id: number; centroid: [number, number, number]; count: number }[];
   };
+  /**
+   * 3 floats per origin and one Gmsh element number per origin (§6.2), in Morton order. No
+   * triangles and no normals: §7.4's "no new geometry from WASM" is what this op keeps true.
+   */
+  meshCentroids: { positions: Float32Array; ownerTet: Uint32Array };
   /** The client then calls `worker.terminate()`. */
   free: Record<string, never>;
   /** Masks are also dropped when the mesh handle is freed. */
@@ -407,6 +451,7 @@ export const OP_NAMES = [
   'marchingTets',
   'contours',
   'labelCentroids',
+  'meshCentroids',
   'free',
   'freeMask',
 ] as const satisfies readonly OpName[];
@@ -431,6 +476,7 @@ export const OP_TO_EXPORT = {
   marchingTets: 'mesh_marching_tets',
   contours: 'mesh_contours',
   labelCentroids: 'volume_label_centroids',
+  meshCentroids: 'mesh_centroids',
   free: 'free',
   freeMask: 'free_mask',
 } as const satisfies Record<OpName, string>;

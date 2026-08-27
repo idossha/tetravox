@@ -39,6 +39,7 @@
 #![forbid(unsafe_code)]
 
 mod bucket;
+mod centroids;
 mod cut;
 mod fields;
 mod isolate;
@@ -51,6 +52,7 @@ mod surface;
 mod util;
 mod voxel;
 
+pub use centroids::tet_centroids;
 pub use cut::{plane_cut, surface_contours};
 pub use fields::{elm_to_node, node_to_elm};
 pub use isolate::isolate;
@@ -271,6 +273,20 @@ pub struct ProbeHit {
     pub node_values: Vec<(String, Vec<f32>)>,
     /// Every element field, at the containing tet.
     pub elm_values: Vec<(String, Vec<f32>)>,
+}
+
+/// Glyph origins for a **volumetric** `GlyphSpec` (§7.4): one point per surviving tet, plus the Gmsh
+/// element number that keys the field texture. Not geometry — no triangles, no normals — which is what
+/// keeps §7.4's "no new geometry from WASM" true while the unrestricted glyph case still has origins.
+///
+/// Ordered by the internal Morton index (§6.3's spatial locality), so a strided subsample is spread
+/// through the volume rather than clustered by physical tag.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Centroids {
+    /// 3 per origin.
+    pub positions: Vec<f32>,
+    /// 1 per origin: Gmsh element number (§6.2's identity rule when `gmsh_elm_numbers` is `None`).
+    pub owner_tet: Vec<u32>,
 }
 
 /// One label's centre of mass, for the Phase-2 region panel's jump-to-centroid.
