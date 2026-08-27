@@ -1284,3 +1284,46 @@ Each entry below names the problem, the fix, and the evidence.
   letting one stand in for another. The e2e's own assertion is deliberately loose — §9.1 is Phase 3's
   to sign off, and a tight wall-clock bar in CI is a flake generator — so it catches a 4× regression
   and the printed line is the evidence.
+
+## 2026-08-27 — Phase-1 audit and the seams for Phase 2
+
+- 2026-08-27 — **A third pass over Phase 1, clause by clause, recorded in
+  `docs/review/2026-08-27-phase1-audit.md`.** The two verification passes asked "does the gate
+  reproduce" and got yes. This one asks "which contract clauses does the code satisfy", over 142 rows
+  of ROADMAP's three Phase-1 engine/app bullets, §7.5's every binding, §7.2, §7.0, §7.1, §4.7, §5 and
+  §8: **97 implemented, 18 partial, 27 missing**, of which 21 are Phase-2/3 features by ROADMAP. The
+  one Phase-1-scope hole is **§7.5's pointer interaction — all of it**. `packages/engine/src` installs
+  no pointer handler anywhere, so 2D click-to-cursor, wheel-slice, ⌘-wheel zoom, right-drag
+  window/level, middle/space pan, `Shift+drag` opacity, 3D orbit/pan/dolly and double-click pick are
+  absent, and with them the `interacting` state (§7.2), the `hover` event (§4.7) and §8's `Mouse`
+  block, which is wired to an event nothing emits. The keyboard half of §7.5 is complete. Recorded
+  rather than fixed: it is one coherent subsystem, it is P2-01 in the ownership map, and it is E-SCENE's.
+- 2026-08-27 — **`cancelDataset` is a no-op when no load is in flight.** It used to fall through to
+  `#teardown`, terminating a live worker while leaving the dataset in the scene — every subsequent
+  `locate` probe on that mesh went unanswered and `heapBytes` went `undefined`, with all four panes
+  still drawing it. §4.7 scopes the method to "an in-flight load" and gives `removeDataset` the job of
+  closing a dataset; the terminate belonged to the second, not the first. Reachable only by calling
+  `cancelDataset` on a finished dataset, which the app never does — so no test changed, which is also
+  why it survived two verification passes.
+- 2026-08-27 — **One slice-quad half-extent formula, in the renderer.** `TetravoxEngine.#quadHalfFor`
+  and `Renderer.#quadHalf` computed the same quantity differently: the engine's, used **only** by the
+  pick pass, omitted the pan term. §7.2.3 requires the pick pass to reproduce the main pass exactly,
+  so a panned 2D pane could be picked against a quad narrower than the one on screen and a click near
+  the edge would return `null` over a visible slice. The engine's copy is deleted and
+  `Renderer.quadHalfFor` is the single definition. No golden moves: the quad is planar and coplanar
+  with the cursor, so its size changes neither a rendered pixel (the fragment shader discards outside
+  the volume) nor an unprojected `world`.
+- 2026-08-27 — **`screenshot({background:'transparent'})` clears to zero alpha.** It previously read
+  back a frame already cleared to `scene.background`, whose alpha is 1, and returned an opaque PNG for
+  a documented §4.7 option. The clear colour is swapped for that one render and restored in a
+  `finally`. Punching the background colour out of the returned pixels — rejected: it cannot tell a
+  background pixel from a fragment that happens to match it.
+- 2026-08-27 — Two smaller ones in the same commit: `removeDataset` re-points a dangling
+  `activeLayerId` the way `removeLayer` already did (otherwise `[`/`]` and `v` were no-ops until the
+  user clicked another row), and `destroy()` clears `#lastViewProj` / `#lastRects` / `#locateCache`.
+- 2026-08-27 — **`#renderFrame`'s `frame.cpuMs` is cumulative, and is deliberately NOT fixed here.**
+  `t0` is taken before the first pane and the event is emitted inside the per-view loop, so in a 2×2
+  layout the fourth pane reports the whole frame. Correcting it changes every number in
+  `docs/benchmarks/phase1.md`, and re-baselining a published benchmark is not a refactor's business.
+  §9's performance pass (Phase 3) owns it; it is in the audit's code-quality section so it is not
+  later mistaken for a regression.

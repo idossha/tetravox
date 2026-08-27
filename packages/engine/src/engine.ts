@@ -416,6 +416,11 @@ export class TetravoxEngine implements Engine {
 
   removeDataset(id: DatasetId): void {
     this.#scene.layers = this.#scene.layers.filter((l) => l.datasetId !== id);
+    // The active layer may have been one of the removed ones; `removeLayer` already re-points it, and
+    // leaving it dangling here made `[`/`]` and `v` no-ops until the user clicked another row.
+    if (!this.#scene.layers.some((l) => l.id === this.#scene.activeLayerId)) {
+      this.#scene.activeLayerId = this.#scene.layers.at(-1)?.id ?? null;
+    }
     this.#scene.datasets.delete(id);
     this.#store.dropVolume(id);
     this.#store.dropSurfaces(id);
@@ -425,13 +430,19 @@ export class TetravoxEngine implements Engine {
     this.requestRender();
   }
 
-  /** §5 rule 6: cancelling a load is terminating its worker. */
+  /**
+   * §5 rule 6: cancelling a load is terminating its worker.
+   *
+   * With **no load in flight this is a no-op**, deliberately. Tearing the worker down here would
+   * leave the dataset in the scene with nothing behind it: `locate` probes stop answering and
+   * `heapBytes` goes `undefined`, while every pane still draws it. §4.7 scopes this method to "an
+   * in-flight load"; `removeDataset` is the one that closes a dataset.
+   */
   cancelDataset(id: DatasetId): void {
     const rt = this.#runtimes.get(id);
-    if (rt === undefined) return;
+    if (rt === undefined || rt.loadId === null) return;
     rt.cancelled = true;
-    if (rt.loadId !== null) rt.client.cancel(rt.loadId);
-    else this.#teardown(id);
+    rt.client.cancel(rt.loadId);
   }
 
   #teardown(id: DatasetId): void {
@@ -638,7 +649,9 @@ export class TetravoxEngine implements Engine {
     const dpr = this.#dpr();
     const localX = px * dpr;
     const localY = rect.height - py * dpr;
-    const half = this.#quadHalfFor(view, rect);
+    // **The renderer's formula, not a second one.** The pick quad has to be the quad on screen: a
+    // narrower one makes a click near the edge of a panned pane miss a slice the user can see.
+    const half = this.#renderer.quadHalfFor(view, rect, this.#scene);
     const hit = this.#pick.pick(
       view,
       rect,
@@ -805,15 +818,6 @@ export class TetravoxEngine implements Engine {
     return viewports(this.#scene.layout, this.#canvas.width, this.#canvas.height);
   }
 
-  #quadHalfFor(view: View, rect: ViewportRect): number {
-    if (!isSliceView(view)) return 1;
-    const paneHalf = 0.5 * Math.hypot(rect.width, rect.height) * view.camera.mmPerPx;
-    const b = this.#sceneBounds();
-    const sceneHalf =
-      0.5 * Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
-    return Math.max(paneHalf, sceneHalf) * 1.05;
-  }
-
   /** §7.2: sets a dirty bit; **never** renders synchronously. */
   requestRender(_viewId?: ViewId): void {
     this.#dirty = true;
@@ -927,7 +931,18 @@ export class TetravoxEngine implements Engine {
 
   async screenshot(opts: ScreenshotOptions): Promise<Blob> {
     await this.whenSettled();
-    this.renderNow();
+    // §4.7's `background: 'transparent'`. The frame is cleared to `scene.background`, whose alpha is
+    // 1, so reading it back and calling the result transparent produced an opaque PNG. Clear to zero
+    // for this one render and put the scene's colour back afterwards — the alternative, punching the
+    // background colour out of the pixels, cannot tell a background pixel from a fragment that
+    // happens to match it.
+    const sceneBackground = this.#scene.background;
+    if (opts.background === 'transparent') this.#scene.background = [0, 0, 0, 0];
+    try {
+      this.renderNow();
+    } finally {
+      this.#scene.background = sceneBackground;
+    }
     const gl = this.#gl;
     const w = this.#canvas.width;
     const h = this.#canvas.height;
@@ -1032,6 +1047,10 @@ export class TetravoxEngine implements Engine {
     this.#store.dispose();
     this.#timer.dispose();
     this.#listeners.clear();
+    // Three maps that describe GL objects and worker results which no longer exist.
+    this.#lastViewProj.clear();
+    this.#lastRects.clear();
+    this.#locateCache.clear();
   }
 }
 

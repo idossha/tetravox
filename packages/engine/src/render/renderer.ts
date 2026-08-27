@@ -148,6 +148,17 @@ export class Renderer {
     this.#quadBuf.update(d);
   }
 
+  /**
+   * The half-extent {@link Renderer.#quadHalf} would use, for any view.
+   *
+   * Exposed because the pick pass draws the **same** quad — §7.2.3: "the pick pass reproduces every
+   * discard of the main pass" — and a second formula for it let a panned pane hand picking a quad
+   * narrower than the one on screen, so a click near the edge missed a slice the user could see.
+   */
+  quadHalfFor(view: View, rect: ViewportRect, scene: Scene): number {
+    return isSlice(view) ? this.#quadHalf(view, rect, scene) : 1;
+  }
+
   /** Half-extent that guarantees the quad covers the pane at this zoom. */
   #quadHalf(view: SliceView, rect: ViewportRect, scene: Scene): number {
     const paneHalf = 0.5 * Math.hypot(rect.width, rect.height) * view.camera.mmPerPx;
