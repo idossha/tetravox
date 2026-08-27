@@ -70,8 +70,23 @@ function newestMtime(dir: string): number {
  * Compare against **sources** — `packages/app/src` and `crates/` — never against a build output.
  * `pnpm e2e` re-stamps `packages/app/out` on every run and `pnpm test` re-stamps
  * `packages/wasm/pkg` on every run, so either one would call a freshly built artefact stale.
+ *
+ * **`TETRAVOX_REQUIRE_PACKAGED=1` turns every skip reason into a failure.** ROADMAP Phase-0 gate 2 is
+ * proved by this project and by nothing else, so the CI leg that exists to prove it must not go green
+ * by skipping (`pnpm e2e` on a clean clone reports `10 skipped` here, which is correct there and would
+ * be a silent hole after `pnpm package`). The `e2e:packaged` step in `.github/workflows/ci.yml` sets it.
  */
 export function packagedUnavailable(): string | null {
+  const reason = packagedBlockedReason();
+  if (reason !== null && process.env['TETRAVOX_REQUIRE_PACKAGED']) {
+    throw new Error(
+      `TETRAVOX_REQUIRE_PACKAGED is set, but the packaged target is unavailable: ${reason}`
+    );
+  }
+  return reason;
+}
+
+function packagedBlockedReason(): string | null {
   const executablePath = packagedExecutable();
   if (executablePath === null) return 'no packaged artefact — run `pnpm package` first';
   const source = Math.max(

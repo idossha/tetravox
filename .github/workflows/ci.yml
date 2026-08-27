@@ -197,6 +197,28 @@ jobs:
             echo "packages/app has no 'package' script yet (Phase-0 stage 2 owns it) — nothing to build."
           fi
 
+      # ROADMAP Phase-0 gate 2 — "the packaged artefact, not the dev server, draws a WASM-coloured
+      # triangle from tetravox://app/index.html" — is proved ONLY by the `packaged` Playwright project,
+      # and `pnpm e2e` above deliberately self-skips it (nothing has been packaged at that point). So the
+      # gate needs its own step here, after the .dmg exists. `TETRAVOX_REQUIRE_PACKAGED=1` makes a skip a
+      # failure, so this leg cannot go green without actually launching the artefact.
+      - name: Packaged E2E — ROADMAP Phase-0 gate 2 (macOS only)
+        if: runner.os == 'macOS'
+        env:
+          TETRAVOX_REQUIRE_PACKAGED: '1'
+        run: pnpm --filter @tetravox/app run e2e:packaged
+
+      - name: Upload the packaged Playwright report
+        if: ${{ runner.os == 'macOS' && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-packaged-${{ matrix.os }}
+          path: |
+            packages/app/playwright-report
+            packages/app/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
   # The §12.1 `package` matrix, carried from day one (ROADMAP Phase 0) but **Phase 3's to make green**.
   # Manual only until then: `.dmg` x64 needs macos-26-intel, Linux artefacts are never built on macOS,
   # and every leg ends with an artefact smoke test that has nothing to smoke yet.

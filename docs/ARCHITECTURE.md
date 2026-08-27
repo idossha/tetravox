@@ -98,6 +98,14 @@ Rules:
      `[DATA]`; dropping `qfac` changes `m2m_ernie/T1.nii.gz`'s third column from `(1,0,0)` to `(−1,0,0)` —
      max abs affine error 2.0 mm/voxel and an A↔P flip `[DATA]`.
   3. else `diag(pixdim[1], pixdim[2], pixdim[3], 1)`.
+* **Matrix layout, once, for the whole contract.** A Rust `[[f64; 4]; 4]` is **row-major**: `m[row][col]`, so
+  `m[0]` is the first *row* and `m[i][3]` is the translation, exactly as the qform block above and
+  `testdata/manifest.json`'s `conventions.affine` write it. A wire `Mat4x4` (§6.5.1) is **flat, length 16,
+  column-major**, so `w[12..15]` is the translation. The two are transposes of each other:
+  `w[col * 4 + row] = m[row][col]`. Every crossing of that boundary — `tvx_nifti::Volume.affine` →
+  `VolumeMeta.affine`, and `MeshMeta.appliedTransform` — transposes. Nothing that serde deserialises straight
+  off the wire may be typed `[[f64; 4]; 4]`; §6.3's `LabelVolumeCriteria.world_to_voxel` is `[f64; 16]` for
+  that reason.
 * `scl_slope`/`scl_inter` are **not** folded into the samples (§6.1); they are carried and applied in the shader
   and in the CPU probe path.
 * Gmsh/SimNIBS meshes are already in the subject's world mm (same space as the m2m `T1.nii.gz`); loaded as-is.
@@ -1011,9 +1019,12 @@ pub enum Combine { All, Any }
 /// The sample array is NOT part of this struct: it arrives as `mesh_isolate`'s separate `label_volume:
 /// Option<Vec<u8>>` argument, because neither an ArrayBuffer nor a Uint32Array survives `JSON.stringify`.
 /// `dtype` names how to reinterpret those bytes; `labels` is a plain JSON array of numbers.
+/// `world_to_voxel` is a §6.5.1 `Mat4x4`: FLAT, length 16, column-major — exactly the shape the worked
+/// wire example below writes. It is deliberately NOT `[[f64; 4]; 4]`: serde accepts that only from a
+/// nested array-of-arrays, which no `Mat4x4` on the wire ever is.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct LabelVolumeCriteria { pub dims: [usize; 3], pub world_to_voxel: [[f64; 4]; 4],
+pub struct LabelVolumeCriteria { pub dims: [usize; 3], pub world_to_voxel: [f64; 16],
                                  pub dtype: String, pub volume_index: usize, pub labels: Vec<u32> }
 
 pub struct ProbeHit {
@@ -1231,7 +1242,13 @@ impl CutOut {
 
 ## 6.5 Worker protocol
 
-`packages/protocol/src/index.ts` is exactly this. Zero imports, zero runtime code beyond type guards.
+`packages/protocol/src/index.ts` is exactly this. Zero imports, and its only runtime code is the type guards
+plus **two frozen lookup tables that mirror declarations already in this section**: `OP_NAMES` (the `OpName`
+union as an array, in declaration order, `satisfies readonly OpName[]`) and `OP_TO_EXPORT` (the §6.5.2
+op → §6.4 wasm-export map, `satisfies Record<OpName, string>`). The op→export mapping is the one seam TypeScript
+cannot check on its own — a renamed wasm export is a runtime `undefined` otherwise — so it is data here and
+`packages/wasm/src/index.test.ts` asserts it against the real module. Nothing else runtime: no helpers, no
+constructors, no defaults.
 **FROZEN at the end of Phase 0 — changing it requires an ARCHITECTURE.md edit in the same commit.**
 
 ```ts
@@ -1410,7 +1427,10 @@ The worker calls `mesh_isolate(7, JSON.stringify(args.criteria), new Uint8Array(
 Rust deserialises that string straight into §6.3's `IsolateCriteria` — `rename_all = "camelCase"` matches
 `labelVolume` / `worldToVoxel` / `volumeIndex`, `#[serde(rename = "box")]` matches `box`, `"elm"` matches
 `FieldSource::Elm`, `"mag"` matches `Component::Mag`, `"all"` matches `Combine::All` — and reinterprets the byte
-argument as `u16` per `dtype`. `worldToVoxel` is column-major, like every `Mat4x4` here.
+argument as `u16` per `dtype`. `worldToVoxel` is a flat, length-16, column-major `Mat4x4`, like every `Mat4x4`
+here, and §6.3 types it `[f64; 16]` so serde reads the 16 numbers above literally — a `[[f64; 4]; 4]` there
+would fail with `invalid type: integer 0, expected an array of length 4` on this exact payload (§3, matrix
+layout).
 
 ### 6.5.2 Op table
 
@@ -1452,6 +1472,9 @@ export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: Vol
 `marchingTets`→`mesh_marching_tets` · `contours`→`mesh_contours` ·
 `labelCentroids`→`volume_label_centroids` · `free`→`free` · `freeMask`→`free_mask`.
 `wasm_heap_bytes()` is the only export without an op; it is read after every call and stamped onto `Res`.
+This table and the `OpName` order above are the two things `packages/protocol/src/index.ts` also carries as
+runtime data — `OP_TO_EXPORT` and `OP_NAMES` (§6.5 preamble). They are declarations, not logic, and they are
+frozen with the rest of the file.
 
 Lifecycle rules:
 * Progress messages carry the same `id` as their `Req`. A `Cancel` with that `id` drops the request if it is

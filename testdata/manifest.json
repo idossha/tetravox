@@ -8747,7 +8747,7 @@
    "maxAbsErrorDroppingQfac": 0.0,
    "maxAbsSformQformDelta": 1.06e-07,
    "niftiVersion": 1,
-   "numpyDtype": "float64",
+   "numpyDtype": "int16",
    "nvols": 1,
    "pixdim": [
     1.0,
@@ -8859,8 +8859,8 @@
    ],
    "spotValues": [
     {
-     "physical": -73475.0,
-     "raw": -29350.0,
+     "physical": -29350.0,
+     "raw": -11700.0,
      "volume": 0,
      "voxel": [
       0,
@@ -8875,8 +8875,8 @@
      ]
     },
     {
-     "physical": -70975.0,
-     "raw": -28350.0,
+     "physical": -28350.0,
+     "raw": -11300.0,
      "volume": 0,
      "voxel": [
       4,
@@ -8891,8 +8891,8 @@
      ]
     },
     {
-     "physical": -54725.0,
-     "raw": -21850.0,
+     "physical": -21850.0,
+     "raw": -8700.0,
      "volume": 0,
      "voxel": [
       0,
@@ -8907,8 +8907,8 @@
      ]
     },
     {
-     "physical": 51525.0,
-     "raw": 20650.0,
+     "physical": 20650.0,
+     "raw": 8300.0,
      "volume": 0,
      "voxel": [
       0,
@@ -8923,8 +8923,8 @@
      ]
     },
     {
-     "physical": -3475.0,
-     "raw": -1350.0,
+     "physical": -1350.0,
+     "raw": -500.0,
      "volume": 0,
      "voxel": [
       2,
@@ -8939,8 +8939,8 @@
      ]
     },
     {
-     "physical": 72775.0,
-     "raw": 29150.0,
+     "physical": 29150.0,
+     "raw": 11700.0,
      "volume": 0,
      "voxel": [
       4,
@@ -8955,8 +8955,8 @@
      ]
     },
     {
-     "physical": -59100.0,
-     "raw": -23600.0,
+     "physical": -23600.0,
+     "raw": -9400.0,
      "volume": 0,
      "voxel": [
       3,
@@ -8971,8 +8971,8 @@
      ]
     },
     {
-     "physical": 58400.0,
-     "raw": 23400.0,
+     "physical": 23400.0,
+     "raw": 9400.0,
      "volume": 0,
      "voxel": [
       1,
@@ -8988,12 +8988,12 @@
     }
    ],
    "stats": {
-    "max": 72775.0,
-    "mean": -350.0,
-    "min": -73475.0,
+    "max": 29150.0,
+    "mean": -100.0,
+    "min": -29350.0,
     "n": 60,
     "nFinite": 60,
-    "sum": -21000.0
+    "sum": -6000.0
    },
    "uniqueCount": 60
   },

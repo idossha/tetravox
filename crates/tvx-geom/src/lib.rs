@@ -233,8 +233,11 @@ pub enum Combine {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LabelVolumeCriteria {
     pub dims: [usize; 3],
-    /// Column-major, like every `Mat4x4` on the wire (§6.5.1).
-    pub world_to_voxel: [[f64; 4]; 4],
+    /// A §6.5.1 `Mat4x4`: **flat, length 16, column-major**, so `world_to_voxel[12..15]` is the
+    /// translation and `world_to_voxel[col * 4 + row]` is element `(row, col)` (§3, matrix layout).
+    /// Deliberately not `[[f64; 4]; 4]` — serde reads that only from a nested array-of-arrays, and no
+    /// `Mat4x4` on the wire is nested; §6.5's worked example writes these 16 numbers flat.
+    pub world_to_voxel: [f64; 16],
     pub dtype: String,
     pub volume_index: usize,
     pub labels: Vec<u32>,
@@ -437,7 +440,7 @@ mod tests {
             "field": { "source": "elm", "name": "TI_max", "component": "mag", "lo": 0.2, "hi": 0.6 },
             "labelVolume": {
                 "dims": [256, 256, 208],
-                "worldToVoxel": [[0,-1,0,0],[0,0,1,0],[1,0,0,0],[99.737457,-154.1875,143.642273,1]],
+                "worldToVoxel": [0,-1,0,0, 0,0,1,0, 1,0,0,0, 99.737457,-154.1875,143.642273,1],
                 "dtype": "u16",
                 "volumeIndex": 0,
                 "labels": [2, 3]
@@ -454,7 +457,42 @@ mod tests {
         assert_eq!(lv.dims, [256, 256, 208]);
         assert_eq!(lv.dtype, "u16");
         assert_eq!(lv.labels, vec![2, 3]);
+        // FLAT, length 16, column-major (§3, matrix layout) — the JSON above is copied out of §6.5
+        // character for character, so this is the assertion that a nested `[[f64; 4]; 4]` field would
+        // fail with `invalid type: integer 0, expected an array of length 4`.
+        assert_eq!(
+            lv.world_to_voxel,
+            [
+                0.0, -1.0, 0.0, 0.0, //
+                0.0, 0.0, 1.0, 0.0, //
+                1.0, 0.0, 0.0, 0.0, //
+                99.737457, -154.1875, 143.642273, 1.0,
+            ]
+        );
+        // The translation lives in the LAST FOUR slots, not in every fourth one.
+        assert_eq!(
+            &lv.world_to_voxel[12..15],
+            &[99.737457, -154.1875, 143.642273]
+        );
         assert!(c.sphere.is_none() && c.bbox.is_none());
+    }
+
+    /// The nested `[[f64; 4]; 4]` spelling this field used to have is not what the wire carries, and a
+    /// future "tidy-up" back to it must be red, not silently green (§3, matrix layout).
+    #[test]
+    fn world_to_voxel_rejects_a_nested_matrix() {
+        let json = r#"{
+            "labelVolume": {
+                "dims": [2, 2, 2],
+                "worldToVoxel": [[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+                "dtype": "u8",
+                "volumeIndex": 0,
+                "labels": [1]
+            },
+            "combine": "any"
+        }"#;
+        let err = serde_json::from_str::<IsolateCriteria>(json).expect_err("nested must not parse");
+        assert!(err.to_string().contains("invalid type"), "{err}");
     }
 
     /// `box` is a Rust keyword, so the field is `bbox` — but the wire name must stay `box` (§6.5.1).

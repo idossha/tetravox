@@ -595,3 +595,58 @@ The decisions below are new.
   artefact stale (observed both ways before settling on sources). The mtime read on the artefact side
   is `app.asar`'s, because the Electron binary is copied out of a downloaded zip and can carry the
   zip's timestamps.
+
+## 2026-08-27 — Phase-0 verification follow-up: two contract contradictions and two coverage holes
+
+- 2026-08-27 — **§6.3 `LabelVolumeCriteria.world_to_voxel` is `[f64; 16]`, not `[[f64; 4]; 4]`** — the wire type
+  is §6.5.1's `Mat4x4` (flat, length 16, column-major) and §6.5's normative worked example writes it flat
+  (`"worldToVoxel": [0,-1,0,0, 0,0,1,0, …]`), but serde reads `[[f64; 4]; 4]` only from a nested
+  array-of-arrays. Feeding that exact payload to the shipped struct failed with
+  `invalid type: integer 0, expected an array of length 4`. Flattening the Rust field was chosen over nesting
+  `Mat4x4`, because `packages/protocol/src/index.ts` is frozen, `Mat4x4` is flat in a dozen other places, and
+  `IsolateCriteria` is the only struct serde reads straight off the wire. §6.3 and §6.5's closing paragraph
+  edited in the same commit. The pinning test
+  `isolate_criteria_parses_the_contract_wire_example` had silently **re-grouped** the contract's flat example
+  into nested form, which is why CI was green on a contradiction; it now copies §6.5 character for character
+  and asserts the 16 values and the 12–14 translation slots, and a new test
+  `world_to_voxel_rejects_a_nested_matrix` keeps a "tidy-up" back to the nested spelling red.
+- 2026-08-27 — **§3 now states the matrix layout once, for the whole contract** — a Rust `[[f64; 4]; 4]` is
+  row-major `m[row][col]` (nibabel's layout, and `testdata/manifest.json`'s `conventions.affine`); a wire
+  `Mat4x4` is flat column-major; `w[col * 4 + row] = m[row][col]`. `tvx_nifti::Volume.affine`'s doc comment
+  said "Column-major rows as written: `affine[row][col]`", which contradicts itself, while the identically
+  typed `tvx_geom` field claimed column-major — two `[[f64; 4]; 4]` fields citing the contract for opposite
+  conventions, with an unguarded transpose (`Volume.affine` → `VolumeMeta.affine`) between them. Both doc
+  comments now point at the one §3 rule. No code behaviour changed; the Phase-1 transpose is the thing this
+  protects.
+- 2026-08-27 — **`testdata/manifest.json`'s `vol_scl.nii` ground truth was scaled twice; the generator was at
+  fault, not the reader** — `scripts/gen-fixtures.py` took `raw_arr = np.asanyarray(img.dataobj)`, which has
+  **already** applied `scl_slope`/`scl_inter`, then computed `phys = raw_arr * slope + inter` on top. The one
+  fixture whose whole purpose is §6.1's "scaling is never folded" rule therefore recorded `raw: -29350`,
+  `physical: -73475` where the disk holds −11700 and physics is −29350, and its `stats` block was wrong the
+  same way (−73475 / 72775 / −350 against −29350 / 29150 / −100). `crates/tvx-nifti/tests/fixtures.rs`
+  asserts against both, so a **correct** §6.1 reader would have gone red the moment the `#[ignore]` came off,
+  and the tempting fix would have been to make the reader wrong. Fixed with `img.dataobj.get_unscaled()`
+  (correct for every dtype including the structured RGB24/RGBA32 ones) plus a regeneration; `numpyDtype` now
+  reports the unscaled dtype for the same reason (`int16`, not `float64`). Only `vol_scl.nii` changed —
+  every other fixture has slope 1 / inter 0, and `vol_scl_nan.nii`'s NaN slope makes nibabel skip scaling.
+  Fixture *bytes* are unchanged, and `lh.fixture.surf` was restored because its only diff is the generation
+  timestamp in the FreeSurfer comment.
+- 2026-08-27 — **CI now runs the packaged E2E, and a skip there is a failure** — ROADMAP Phase-0 gate 2 is
+  proved by the `packaged` Playwright project and by nothing else, but no committed leg invoked it: the macOS
+  `test` job ended at `pnpm package`, and `pnpm e2e` self-skips `packaged` (10 skipped on a clean clone).
+  Gate 2 was green only when a human typed the extra command. A `Packaged E2E` step now follows the `.dmg`
+  step, and `packagedUnavailable()` honours `TETRAVOX_REQUIRE_PACKAGED=1` by throwing instead of returning a
+  skip reason — otherwise a broken package step would leave the new leg silently green at "10 skipped".
+- 2026-08-27 — **§6.5's preamble admits `OP_NAMES` and `OP_TO_EXPORT`** — the frozen protocol file shipped two
+  runtime tables that "zero runtime code beyond type guards" did not cover, with no ARCHITECTURE edit and no
+  decision line, which made it the precedent a Phase-1 agent could cite for editing a frozen file without the
+  paperwork. They are worth keeping — op→export is the one seam TypeScript cannot check, and
+  `packages/wasm/src/index.test.ts` uses it to catch a renamed wasm export — so the sentence was widened
+  rather than the tables moved, and both are named as declarations mirroring §6.5/§6.5.2, frozen with the
+  rest of the file.
+- 2026-08-27 — **`scripts/refvalues/mesh_refvalues.json` regenerated** — it carried five meshes and no
+  `ernie_TDCS_1_scalar.msh` row, while `mesh_refvalues.py` collects six and AGENTS.md publishes that file's
+  byte count, its six extra tri/tet tag counts and both field ranges under "re-run those scripts to
+  reproduce". The one instruction AGENTS.md gives for checking those numbers could not reproduce them. The
+  regenerated JSON is a strict superset — every previously committed value is byte-identical — and the new
+  row reproduces AGENTS.md lines 45–72 exactly.

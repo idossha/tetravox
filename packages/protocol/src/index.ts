@@ -1,9 +1,11 @@
 /**
  * `@tetravox/protocol` — the dataset-worker protocol.
  *
- * This file is `docs/ARCHITECTURE.md` §6.5 verbatim. **Zero imports, zero runtime code beyond type
- * guards.** FROZEN at the end of Phase 0 (§12.3 item 1): changing anything here requires editing
- * `docs/ARCHITECTURE.md` in the same commit and appending a line to `docs/DECISIONS.md`.
+ * This file is `docs/ARCHITECTURE.md` §6.5 verbatim. **Zero imports; the only runtime code is the type
+ * guards plus the two frozen lookup tables §6.5's preamble names — `OP_NAMES` and `OP_TO_EXPORT`, both
+ * of which mirror a declaration already in §6.5/§6.5.2.** FROZEN at the end of Phase 0 (§12.3 item 1):
+ * changing anything here requires editing `docs/ARCHITECTURE.md` in the same commit and appending a
+ * line to `docs/DECISIONS.md`.
  *
  * Every op runs on its dataset's worker (§5 rule 1: worker-per-dataset, one wasm instance each).
  * `handle` is that worker's single dataset unless stated.
@@ -434,7 +436,7 @@ export const OP_TO_EXPORT = {
 } as const satisfies Record<OpName, string>;
 
 // ---------------------------------------------------------------------------------------------
-// Type guards — the only runtime code §6.5 permits in this file.
+// Type guards — with OP_NAMES / OP_TO_EXPORT above, the only runtime code §6.5 permits in this file.
 // ---------------------------------------------------------------------------------------------
 
 export function isProgress(m: FromWorker): m is Progress {

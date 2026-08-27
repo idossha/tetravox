@@ -950,7 +950,6 @@ def raw_nifti_header(path: Path) -> bytes:
 def inspect_nifti(path: Path) -> dict:
     img = nib.load(str(path))
     hdr = img.header
-    data = np.asanyarray(img.dataobj)
     raw = raw_nifti_header(path)
     little = struct.unpack("<i", raw[:4])[0] in (348, 540)
     end = "<" if little else ">"
@@ -986,13 +985,16 @@ def inspect_nifti(path: Path) -> dict:
     chosen = sm if sform_code > 0 else (qm if qform_code > 0 else np.diag(
         [float(raw_pixdim[1]), float(raw_pixdim[2]), float(raw_pixdim[3]), 1.0]))
 
-    raw_arr = np.asanyarray(img.dataobj)
+    # `np.asanyarray(img.dataobj)` has ALREADY applied scl_slope/scl_inter — using it here and then
+    # multiplying by the on-disk slope again scales twice, which is exactly the §6.1 rule this fixture
+    # set exists to pin. `get_unscaled()` is the on-disk sample array, for every dtype including the
+    # structured RGB24/RGBA32 ones.
+    raw_arr = img.dataobj.get_unscaled()
     if raw_arr.dtype.names:  # RGB24 / RGBA32
         comps = [raw_arr[n] for n in raw_arr.dtype.names]
         raw_arr = np.stack(comps, axis=-1)
         phys = raw_arr.astype(np.float64)
     else:
-        raw_arr = np.asanyarray(img.dataobj)
         slope = raw_slope if np.isfinite(raw_slope) and raw_slope != 0 else 1.0
         inter = raw_inter if np.isfinite(raw_inter) else 0.0
         if slope == 1.0 and inter == 0.0:
@@ -1032,7 +1034,8 @@ def inspect_nifti(path: Path) -> dict:
         "nvols": nvols,
         "datatypeCode": int(raw_dtype),
         "dtype": DATATYPE_NAMES[int(raw_dtype)],
-        "numpyDtype": str(np.asanyarray(img.dataobj).dtype),
+        # The dtype of the UNSCALED on-disk array — what a §6.1 reader puts in `Volume.data`.
+        "numpyDtype": str(img.dataobj.get_unscaled().dtype),
         "affineSource": "sform" if sform_code > 0 else ("qform" if qform_code > 0 else "pixdim"),
         "sclSlopeOnDisk": f(raw_slope),
         "sclInterOnDisk": f(raw_inter),

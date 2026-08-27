@@ -60,7 +60,13 @@ pub enum VolumeData {
 pub struct Volume {
     pub dims: [usize; 3],
     pub nvols: usize,
-    /// Voxel index `(i,j,k,1)` → world RAS millimetres. Column-major rows as written: `affine[row][col]`.
+    /// Voxel index `(i,j,k,1)` → world RAS millimetres.
+    ///
+    /// **Row-major**, indexed `affine[row][col]` (§3, matrix layout): `affine[0]` is the first *row*, and
+    /// `affine[0][3] / affine[1][3] / affine[2][3]` is the translation — the same layout as
+    /// `testdata/manifest.json`'s `affine` and nibabel's `img.affine`. The wire form
+    /// `VolumeMeta.affine: Mat4x4` (§6.5.1) is the **transpose**: flat, length 16, column-major, with the
+    /// translation in slots 12–14. Whoever builds it writes `w[col * 4 + row] = affine[row][col]`.
     pub affine: [[f64; 4]; 4],
     pub spacing: [f64; 3],
     pub datatype: DataType,
