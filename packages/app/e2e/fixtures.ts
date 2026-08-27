@@ -67,18 +67,19 @@ function newestMtime(dir: string): number {
  * happily launch and then fail on assertions about code it does not contain — as a mystery
  * `undefined` deep inside a page evaluation rather than as "you did not repackage".
  *
- * The comparison is against **`src/`**, not against `out/`: `pnpm e2e`'s own `electron-vite build`
- * re-stamps `out/` every run, so `out/` would report every artefact as stale the moment it is used.
+ * Compare against **sources** — `packages/app/src` and `crates/` — never against a build output.
+ * `pnpm e2e` re-stamps `packages/app/out` on every run and `pnpm test` re-stamps
+ * `packages/wasm/pkg` on every run, so either one would call a freshly built artefact stale.
  */
 export function packagedUnavailable(): string | null {
   const executablePath = packagedExecutable();
   if (executablePath === null) return 'no packaged artefact — run `pnpm package` first';
   const source = Math.max(
     newestMtime(join(APP_ROOT, 'src')),
-    newestMtime(join(APP_ROOT, '..', 'wasm', 'pkg'))
+    newestMtime(resolve(APP_ROOT, '..', '..', 'crates'))
   );
   return source > statSync(packagedStamp(executablePath)).mtimeMs
-    ? 'packaged artefact predates packages/app/src — re-run `pnpm package`'
+    ? 'packaged artefact predates packages/app/src or crates/ — re-run `pnpm package`'
     : null;
 }
 

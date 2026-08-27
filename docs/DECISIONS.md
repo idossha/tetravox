@@ -589,7 +589,9 @@ The decisions below are new.
   `test.skip` sites, and also skips a *stale* artefact.** `pnpm e2e` rebuilds `out/` but never
   repackages, so a `release/` from an earlier commit launches happily and fails on assertions about code
   it does not contain — which is how gate 8 first presented, as `Cannot read properties of undefined`
-  inside a page evaluation. Staleness is measured against `packages/app/src` and `packages/wasm/pkg`,
-  **not** against `out/`: `pnpm e2e`'s own build re-stamps `out/` every run and would mark every
-  artefact stale. The mtime read on the artefact side is `app.asar`'s, because the Electron binary is
-  copied out of a downloaded zip and can carry the zip's timestamps.
+  inside a page evaluation. Staleness is measured against **sources** — `packages/app/src` and
+  `crates/` — and never against a build output: `pnpm e2e` re-stamps `packages/app/out` on every run
+  and `pnpm test` re-stamps `packages/wasm/pkg` on every run, so either one marks a *freshly* packaged
+  artefact stale (observed both ways before settling on sources). The mtime read on the artefact side
+  is `app.asar`'s, because the Electron binary is copied out of a downloaded zip and can carry the
+  zip's timestamps.
