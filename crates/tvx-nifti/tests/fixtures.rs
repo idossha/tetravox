@@ -1,19 +1,51 @@
 //! `tvx-nifti` against the committed synthetic fixtures (ARCHITECTURE.md §6.1, §11).
 //!
-//! Every test here is `#[ignore]`d until Phase 1 implements the reader — the crate ships
-//! `unimplemented!()` stubs, so an un-ignored test would panic. **Phase 1's job is to
-//! delete the `#[ignore]` line, not to rewrite the assertion.** The expected numbers come
-//! from `testdata/manifest.json`, which nibabel produced; they are not editable by
-//! agreement with the implementation.
+//! Phase 1 deleted the `#[ignore = "phase-1: reader not implemented"]` line each test below
+//! shipped with, and rewrote no assertion. The expected numbers come from
+//! `testdata/manifest.json`, which nibabel produced; they are not editable by agreement with
+//! the implementation.
 //!
-//! `manifest_and_fixtures_are_present` is deliberately NOT ignored: it is what keeps the
-//! fixtures and the manifest from drifting apart while the readers are still stubs.
+//! `manifest_and_fixtures_are_present` is what keeps the fixtures and the manifest from
+//! drifting apart.
 
 use tvx_core::NoProgress;
-use tvx_nifti::{read_nifti, DataType, GpuCaps, GpuFormat};
+use tvx_nifti::{read_nifti, DataType, GpuCaps, GpuFormat, VolumeData};
 
 mod common;
 use common as fx;
+
+/// The raw on-disk sample(s) at a linear voxel index. Scalars give one component; the manifest
+/// records the colour fixtures' `raw`/`physical` as the 3- or 4-component tuple, so they give
+/// that many.
+fn raw_at(data: &VolumeData, linear: usize) -> Vec<f64> {
+    match data {
+        VolumeData::U8(d) => vec![d[linear] as f64],
+        VolumeData::I8(d) => vec![d[linear] as f64],
+        VolumeData::U16(d) => vec![d[linear] as f64],
+        VolumeData::I16(d) => vec![d[linear] as f64],
+        VolumeData::U32(d) => vec![d[linear] as f64],
+        VolumeData::I32(d) => vec![d[linear] as f64],
+        VolumeData::F32(d) => vec![d[linear] as f64],
+        VolumeData::F64(d) => vec![d[linear]],
+        VolumeData::Rgb24(d) => d[linear * 3..linear * 3 + 3]
+            .iter()
+            .map(|c| *c as f64)
+            .collect(),
+        VolumeData::Rgba32(d) => d[linear * 4..linear * 4 + 4]
+            .iter()
+            .map(|c| *c as f64)
+            .collect(),
+    }
+}
+
+/// A manifest `raw` / `physical` entry: a bare number for a scalar fixture, an array for a
+/// colour one.
+fn expected_components(v: &serde_json::Value) -> Vec<f64> {
+    match v {
+        serde_json::Value::Array(_) => fx::nums(v),
+        other => vec![fx::num(other)],
+    }
+}
 
 // -------------------------------------------------------------------------------------
 // live today
@@ -98,7 +130,6 @@ fn dtype_name(d: DataType) -> &'static str {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn every_fixture_parses_with_the_manifest_geometry() {
     for (name, rec) in fx::entries("volumes") {
         let v =
@@ -120,7 +151,6 @@ fn every_fixture_parses_with_the_manifest_geometry() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn scaling_is_never_folded_into_the_samples() {
     // §6.1: apply slope/inter only when finite, non-zero and not the identity; otherwise
     // normalise to (1.0, 0.0). The RAW samples on disk are never rewritten.
@@ -164,7 +194,6 @@ fn scaling_is_never_folded_into_the_samples() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn qfac_applies_to_the_third_column_only() {
     // vol_qfac_neg.nii has sform_code = 0, qform_code = 1, pixdim[0] = -1 — the only
     // arrangement that catches a missing qfac (§3). Dropping qfac must move the affine by
@@ -184,7 +213,6 @@ fn qfac_applies_to_the_third_column_only() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn sform_wins_over_a_disagreeing_qform() {
     // Every oblique fixture stores an exact sform next to a float32-quaternion qform, so
     // the two differ slightly. §3 orders them: sform first.
@@ -204,7 +232,6 @@ fn sform_wins_over_a_disagreeing_qform() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn spot_values_match_in_raw_and_physical_units() {
     for (name, rec) in fx::entries("volumes") {
         let v = read_nifti(fx::bytes(name), &mut NoProgress).unwrap();
@@ -212,17 +239,33 @@ fn spot_values_match_in_raw_and_physical_units() {
         for spot in rec["spotValues"].as_array().unwrap() {
             let ijk = fx::usizes(&spot["voxel"]);
             let vol = spot["volume"].as_u64().unwrap() as usize;
-            let _linear = ijk[0] + dims[0] * (ijk[1] + dims[1] * (ijk[2] + dims[2] * vol));
-            // PHASE 1: index `v.data` at `_linear` (scaled by 3 or 4 for rgb24/rgba32) and
-            // compare with `spot["raw"]`, then apply v.scl_slope/v.scl_inter and compare
-            // with `spot["physical"]`. The world column is the affine test above.
-            let _ = (&spot["raw"], &spot["physical"], name);
+            let linear = ijk[0] + dims[0] * (ijk[1] + dims[1] * (ijk[2] + dims[2] * vol));
+            let got = raw_at(&v.data, linear);
+            let want_raw = expected_components(&spot["raw"]);
+            let want_phys = expected_components(&spot["physical"]);
+            assert_eq!(got.len(), want_raw.len(), "{name} at {ijk:?}: components");
+            for (c, (g, w)) in got.iter().zip(&want_raw).enumerate() {
+                fx::close(&format!("{name} raw{ijk:?}[{c}]"), *g, *w, 1e-9);
+            }
+            // §6.1: physical = raw * scl_slope + scl_inter, applied here and never on disk.
+            for (c, (g, w)) in got.iter().zip(&want_phys).enumerate() {
+                let phys = *g * v.scl_slope as f64 + v.scl_inter as f64;
+                fx::close(&format!("{name} phys{ijk:?}[{c}]"), phys, *w, 1e-6);
+            }
+            // §3's row-major affine, applied to the very voxel the manifest recorded.
+            let world = fx::nums(&spot["world"]);
+            for (r, row) in v.affine.iter().take(3).enumerate() {
+                let w = row[0] * ijk[0] as f64
+                    + row[1] * ijk[1] as f64
+                    + row[2] * ijk[2] as f64
+                    + row[3];
+                fx::close(&format!("{name} world{ijk:?}[{r}]"), w, world[r], 1e-5);
+            }
         }
     }
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn stats_are_exact_and_in_physical_units() {
     for (name, rec) in fx::entries("volumes") {
         if rec["dtype"] == "rgb24" || rec["dtype"] == "rgba32" {
@@ -258,7 +301,6 @@ fn stats_are_exact_and_in_physical_units() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn is_label_never_looks_at_the_dtype() {
     // labels_float32.nii.gz is float32 with integral values and intent_code 1002 — the
     // shape of `segmentation/labeling.nii.gz`, which an integer-dtype heuristic misreads.
@@ -289,7 +331,6 @@ fn is_label_never_looks_at_the_dtype() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn label_index_is_a_dense_remap_of_sparse_ids() {
     // labels_simnibs.nii.gz spans 0..530 with 7 unique ids, like the real atlases (§4.2:
     // LabelTable is keyed by id, never indexed by it).
@@ -305,7 +346,6 @@ fn label_index_is_a_dense_remap_of_sparse_ids() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn gpu_payload_follows_the_selection_ladder() {
     let caps_full = GpuCaps {
         float_linear: true,
@@ -357,7 +397,6 @@ fn gpu_payload_follows_the_selection_ladder() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn a_4d_volume_exposes_every_index() {
     let rec = &fx::section("volumes")["vol_4d.nii.gz"];
     assert_eq!(rec["nvols"], 3);
@@ -382,7 +421,6 @@ fn a_4d_volume_exposes_every_index() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn big_endian_and_nifti2_read_the_same_geometry_as_their_peers() {
     let be = read_nifti(fx::bytes("vol_bigendian.nii"), &mut NoProgress).unwrap();
     let le = read_nifti(fx::bytes("vol_i16.nii.gz"), &mut NoProgress).unwrap();
@@ -397,7 +435,6 @@ fn big_endian_and_nifti2_read_the_same_geometry_as_their_peers() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn gzip_and_plain_are_the_same_volume() {
     // The magic sniff, and nothing else, distinguishes them.
     let plain = read_nifti(fx::bytes("vol_u8.nii"), &mut NoProgress).unwrap();
@@ -408,7 +445,6 @@ fn gzip_and_plain_are_the_same_volume() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn unsupported_inputs_fail_by_name() {
     use tvx_core::Error;
     // §6.1: complex64/128, int64 (1024) and uint64 (1280) are Unsupported BY NAME, and so
@@ -434,7 +470,6 @@ fn unsupported_inputs_fail_by_name() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn a_volume_larger_than_max_3d_fails_loudly() {
     // §6.1: never a silently incomplete texture at draw time.
     let v = read_nifti(fx::bytes("vol_asym.nii"), &mut NoProgress).unwrap();

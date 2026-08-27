@@ -1,14 +1,14 @@
 //! `tvx-nifti` — NIfTI-1 (348) / NIfTI-2 (540) reader, exact statistics, GPU payload selection.
 //!
 //! This crate is [`docs/ARCHITECTURE.md` §6.1](../../../docs/ARCHITECTURE.md) verbatim; every public
-//! signature is **frozen** (§12.3). Phase 0 ships signatures only.
+//! signature is **frozen** (§12.3).
 //!
-//! Rules that Phase 1 must honour (§6.1), restated here so they are not lost:
+//! Rules that §6.1 states and this crate implements:
 //!
 //! * `.nii` / `.nii.gz` by magic sniff, little- **and** big-endian. Accepted datatypes: uint8, int8,
 //!   uint16, int16, uint32, int32, float32, float64, RGB24, RGBA32.
-//!   [`Error::Unsupported`] *by name* for complex64/128, int64 (1024), uint64 (1280); two-file `ni1`
-//!   (`.hdr`/`.img`) is `Error::Unsupported("two-file NIfTI")`.
+//!   [`tvx_core::Error::Unsupported`] *by name* for complex64/128, int64 (1024), uint64 (1280); two-file
+//!   `ni1` (`.hdr`/`.img`) is `Error::Unsupported("two-file NIfTI …")`.
 //! * **Scaling is never folded into the samples.** Apply slope/inter only when
 //!   `slope.is_finite() && slope != 0.0 && inter.is_finite() && (slope != 1.0 || inter != 0.0)`;
 //!   otherwise normalise to `(1.0, 0.0)`. It is carried in [`GpuPayload::scale`] / [`GpuPayload::offset`]
@@ -20,10 +20,33 @@
 //!   column only**, else `diag(pixdim[1..4], 1)` (§3).
 //! * Volumes whose `max(dims) > caps.max_3d` fail loudly at load with a downsample offer — never a
 //!   silently incomplete texture at draw time.
+//!
+//! Two things §6.1 leaves implicit, resolved here once so that every row of the ladder reads the same
+//! way (both recorded in `docs/DECISIONS.md`):
+//!
+//! * **`want_linear` gates the label rows.** Rows 1–2 are the `NEAREST` rows, and §6.1 says
+//!   `want_linear` is false exactly when the layer is a label or `interpolation === 'nearest'`. A
+//!   scalar volume whose samples happen to be small non-negative integers therefore satisfies
+//!   `is_label` — `vol_u8.nii` does, with 60 unique values in 0…234 — but still takes its dtype's row
+//!   when the caller asks for linear filtering.
+//! * **The normalised rows store a code, not a unit interval.** §6.1 row 4 fixes
+//!   `scale = (max−min)/65535`, `offset = min`, which is only dimensionally consistent if the value the
+//!   shader multiplies is the stored integer code `0..=65535` rather than GL's normalised `[0,1]` read.
+//!   Rows 3, 6, 7 and 8 follow the same shape with their own full-scale code (255 for `R8`). `R32F`
+//!   (rows 5/9) carries physical units directly, and the `R8UI`/`R16UI` label rows carry a dense index;
+//!   all three set `scale = 1`, `offset = 0`.
 
 #![forbid(unsafe_code)]
 
-use tvx_core::{FieldStats, ProgressSink, Result};
+mod header;
+mod payload;
+mod read;
+mod scan;
+mod stats;
+
+pub use read::read_nifti;
+
+use tvx_core::{FieldStats, NoProgress, Result};
 
 /// On-disk sample type (§6.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,28 +176,34 @@ pub struct LabelIndex {
     pub dense_of: Vec<u32>,
 }
 
-/// Parse a `.nii` / `.nii.gz` byte vector. Takes ownership and frees it before returning (§5 rule 5).
-pub fn read_nifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume> {
-    unimplemented!("phase 1: {} {}", bytes.len(), p.aborted())
-}
-
 impl Volume {
     /// Exact statistics of volume `vol`, in **physical** units (§6.1).
+    ///
+    /// The signature carries no [`tvx_core::ProgressSink`], so an out-of-range `vol` yields an
+    /// all-zero [`FieldStats`] rather than a panic — the caller has `nvols` to check against.
     pub fn stats(&self, vol: usize) -> FieldStats {
-        unimplemented!("phase 1: {vol}")
+        stats::field_stats(self, vol, &mut NoProgress).unwrap_or(FieldStats {
+            min: 0.0,
+            max: 0.0,
+            mean: 0.0,
+            percentiles: [0.0; 9],
+            histogram: [0; 256],
+            histogram_lo: 0.0,
+            histogram_hi: 0.0,
+        })
     }
     pub fn label_index(&self, vol: usize) -> Result<LabelIndex> {
-        unimplemented!("phase 1: {vol}")
+        payload::label_index(self, vol, &mut NoProgress)
     }
     /// The §6.1 selection ladder, first match wins. `want_linear` is false when the layer is a label
     /// or `interpolation === 'nearest'`.
     pub fn gpu_payload(&self, vol: usize, caps: &GpuCaps, want_linear: bool) -> Result<GpuPayload> {
-        unimplemented!("phase 1: {vol} {} {want_linear}", caps.max_3d)
+        payload::gpu_payload(self, vol, caps, want_linear)
     }
     /// Physical units. Probes are served from the UI thread's retained `data` array (§4.3), so this
     /// exists for the native/CLI build only (§6.4).
     pub fn sample_nearest(&self, vol: usize, world: [f32; 3]) -> Option<f32> {
-        unimplemented!("phase 1: {vol} {world:?}")
+        payload::sample_nearest(self, vol, world)
     }
 }
 

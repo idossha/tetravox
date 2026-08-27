@@ -11,10 +11,18 @@ publish.workspace = true
 tvx-core.workspace = true
 byteorder.workspace = true
 flate2.workspace = true
+# `header_json` is "every raw header field, for the UI header panel" (§6.1), including NaN slopes,
+# which need the manifest's "NaN"/"Infinity" string encoding rather than hand-rolled escaping.
+# Already in the frozen §12.3 set and already a tvx-nifti entry in Cargo.lock via dev-dependencies,
+# so promoting it here leaves the lockfile byte-identical.
+serde_json.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
 criterion.workspace = true
+# The real-data qform test decompresses T1.nii.gz to patch `sform_code` in the 348-byte header;
+# a [dependencies] entry is not visible to integration tests.
+flate2.workspace = true
 
 [[bench]]
 name = "read_nifti"

@@ -1,0 +1,336 @@
+/**
+ * The reference dataset through the real worker, in Chromium.
+ *
+ * **Skips, never fails, when `TETRAVOX_TESTDATA` is unset** (AGENTS rule 2, docs/TESTING.md). Every
+ * number asserted here is AGENTS.md's, measured by
+ * `scripts/refvalues/{mesh,nifti}_refvalues.py`; none of it is retyped from a previous run.
+ *
+ * This is the only place the §9.2 **load-path** memory bar can be measured, because
+ * `wasm_heap_bytes()` is linear memory and linear memory only exists in a browser. The bar is per
+ * *dataset worker*, so each measurement opens its own worker — which is also §5 rule 1.
+ *
+ * `TETRAVOX_TESTDATA` lives outside the repo, so `e2e/vite.config.ts` adds it to `server.fs.allow`
+ * and the worker fetches `/@fs/<absolute path>`. In the app the same bytes arrive over
+ * `tetravox://file/<percent-encoded path>`; both are a streaming `Response` the worker reads itself,
+ * and neither puts a byte on the UI thread (§5 rule 3).
+ */
+
+import { expect, test } from '@playwright/test';
+
+import type { ArraySummary } from './fixtures';
+import { CAPS_FULL, REAL_DATA, call, fsUrl, must, open } from './fixtures';
+
+const MB = 1024 * 1024;
+
+test.skip(REAL_DATA === null, 'TETRAVOX_TESTDATA is unset');
+
+const root = REAL_DATA ?? '';
+const T1 = `${root}/m2m_ernie/T1.nii.gz`;
+const FINAL_TISSUES = `${root}/m2m_ernie/final_tissues.nii.gz`;
+const FINAL_TISSUES_LUT = `${root}/m2m_ernie/final_tissues_LUT.txt`;
+const ERNIE = `${root}/m2m_ernie/ernie.msh`;
+const ERNIE_OPT = `${root}/m2m_ernie/ernie.msh.opt`;
+const ERNIE_SEEG = `${root}/m2m_ernie/ernie_seeg.msh`;
+const THALAMUS = `${root}/Simulations/Thalamus/TI/mesh/Thalamus_TI.msh`;
+const LH_CENTRAL = `${root}/m2m_ernie/surfaces/lh.central.gii`;
+
+test('T1.nii.gz loads with progress, and its VolumeMeta is AGENTS.md', async ({ page }) => {
+  await open(page);
+  const out = await must(page, 'loadVolume', {
+    source: { kind: 'url', url: fsUrl(T1) },
+    caps: CAPS_FULL,
+    wantLinear: true,
+  });
+  const meta = out.result?.meta as Record<string, unknown>;
+
+  expect(meta.name).toBe('T1.nii.gz');
+  expect(meta.dims).toEqual([256, 256, 208]);
+  expect(meta.nvols).toBe(1);
+  // The first trap AGENTS.md names: T1 is **float32**, not int16.
+  expect(meta.dtype).toBe('f32');
+  expect(meta.sclSlope).toBe(1);
+  expect(meta.sclInter).toBe(0);
+  expect(meta.isLabel).toBe(false);
+
+  const stats = meta.stats as Record<string, number>;
+  expect(stats.min).toBeCloseTo(-41.807507, 4);
+  // The second trap: the max is exactly 65535.0, above half-float's 65504 ceiling.
+  expect(stats.max).toBe(65535);
+
+  // §3's affine reference, on the wire: flat, length 16, column-major, so `w[12..15]` is the
+  // translation. The qform rebuilt with qfac = −1 on the third column reproduces this exactly;
+  // dropping qfac would flip that column from (1,0,0) to (−1,0,0) — 2.0 mm of error.
+  const affine = meta.affine as number[];
+  const rows = [
+    [0, 0, 1, -99.737457],
+    [-1, 0, 0, 154.1875],
+    [0, 1, 0, -143.642273],
+    [0, 0, 0, 1],
+  ];
+  for (let r = 0; r < 4; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      expect(affine[c * 4 + r], `affine[${r}][${c}]`).toBeCloseTo(rows[r]![c]!, 4);
+    }
+  }
+
+  // `data` is 256 × 256 × 208 float32 samples, kept for probes (§4.3).
+  expect((out.result?.data as { byteLength: number }).byteLength).toBe(256 * 256 * 208 * 4);
+
+  // §9.1 row 6 wants progress inside 200 ms; row 1 budgets 400 ms to first frame for this file.
+  expect(out.progress.length).toBeGreaterThan(0);
+  expect(new Set(out.progress.map((p) => p.phase))).toContain('parse');
+  console.log(
+    `[§9] T1.nii.gz: first progress ${out.firstProgressMs.toFixed(0)} ms, ` +
+      `loadVolume ${out.elapsedMs.toFixed(0)} ms, heap ${(out.heapBytes / MB).toFixed(1)} MB`
+  );
+
+  // §6.1's ladder on real data: float32 with a finite range and norm16 → R16, never R16F.
+  const gpu = meta.gpu as Record<string, unknown>;
+  expect(gpu.format).toBe('R16');
+  expect(gpu.filterable).toBe(true);
+  expect((out.result?.gpuBytes as { byteLength: number }).byteLength).toBe(256 * 256 * 208 * 2);
+});
+
+test('final_tissues.nii.gz is a label volume with its SimNIBS LUT', async ({ page }) => {
+  await open(page);
+  const out = await must(page, 'loadVolume', {
+    source: {
+      kind: 'url',
+      url: fsUrl(FINAL_TISSUES),
+      sidecars: { lut: fsUrl(FINAL_TISSUES_LUT) },
+    },
+    caps: CAPS_FULL,
+    wantLinear: false,
+  });
+  const meta = out.result?.meta as Record<string, unknown>;
+  expect(meta.dims).toEqual([256, 256, 208]);
+  expect(meta.dtype).toBe('u16');
+  expect(meta.isLabel).toBe(true);
+
+  const stats = meta.stats as Record<string, number>;
+  expect(stats.min).toBe(0);
+  expect(stats.max).toBe(10);
+
+  // 10 unique values (AGENTS.md); tag 4 exists in the volume even though the mesh has no tag 4.
+  const ids = out.result?.labelIds as ArraySummary;
+  expect(ids.length).toBe(10);
+
+  // The LUT the worker fetched as a role-keyed sidecar (§6.5.1).
+  const table = meta.labelTable as Array<Record<string, unknown>>;
+  expect(table.length).toBeGreaterThanOrEqual(10);
+  const wm = table.find((e) => e.id === 1);
+  expect(wm?.name).toBe('White-Matter');
+  expect(wm?.color).toEqual([230, 230, 230, 255]);
+  const scalp = table.find((e) => e.id === 5);
+  expect(scalp?.name).toBe('Scalp');
+  expect(scalp?.color).toEqual([255, 166, 133, 255]);
+
+  // §6.1 row 1: a label volume with ≤ 255 dense indices is R8UI, NEAREST.
+  expect((meta.gpu as Record<string, unknown>).format).toBe('R8UI');
+  expect((meta.gpu as Record<string, unknown>).filterable).toBe(false);
+});
+
+test('ernie.msh: counts, tags, bbox — and the §9.2 load-path bar', async ({ page }) => {
+  await open(page);
+  const out = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fsUrl(ERNIE), sidecars: { opt: fsUrl(ERNIE_OPT) } },
+    format: 'auto',
+  });
+  const meta = out.result?.meta as Record<string, unknown>;
+
+  expect(meta.name).toBe('ernie.msh');
+  expect(meta.nNodes).toBe(847_165);
+  expect(meta.nTris).toBe(1_177_213);
+  expect(meta.nTets).toBe(4_722_625);
+  expect(meta.hasTris).toBe(true);
+  expect(meta.fields, 'ernie.msh carries no fields').toEqual([]);
+
+  const bounds = meta.bounds as { min: number[]; max: number[] };
+  expect(bounds.min[0]).toBeCloseTo(-84.436612, 4);
+  expect(bounds.min[1]).toBeCloseTo(-92.398125, 4);
+  expect(bounds.min[2]).toBeCloseTo(-128.860523, 4);
+  expect(bounds.max[0]).toBeCloseTo(83.3978, 4);
+  expect(bounds.max[1]).toBeCloseTo(136.15704, 4);
+  expect(bounds.max[2]).toBeCloseTo(99.951712, 4);
+
+  const tags = meta.tags as Array<{ id: number; kind: string; count: number; name?: string }>;
+  const tri: Record<number, number> = {};
+  const tet: Record<number, number> = {};
+  for (const t of tags) (t.kind === 'tri' ? tri : tet)[t.id] = t.count;
+  expect(tri).toEqual({
+    1001: 249_245,
+    1002: 335_930,
+    1003: 121_238,
+    1005: 77_032,
+    1006: 2_178,
+    1007: 143_499,
+    1008: 158_262,
+    1009: 35_930,
+    1010: 2_317,
+    1099: 51_582,
+  });
+  expect(tet).toEqual({
+    1: 517_144,
+    2: 1_340_029,
+    3: 874_602,
+    5: 567_089,
+    6: 4_546,
+    7: 1_056_826,
+    8: 283_432,
+    9: 74_557,
+    10: 4_400,
+  });
+  // AGENTS.md: tag 4 does not exist in either census. Code that assumes 1..10 is wrong.
+  expect(tags.some((t) => t.id === 4 || t.id === 1004)).toBe(false);
+
+  // §6.2's name ladder, on the flagship file: `ernie.msh` has NO `$PhysicalNames` at all, so the
+  // `.msh.opt` sidecar is the only source of "WM"/"GM"/"CSF" (docs/DECISIONS.md).
+  const named = Object.fromEntries(
+    tags.filter((t) => t.name !== undefined).map((t) => [t.id, t.name])
+  );
+  expect(named[1]).toMatch(/WM/);
+  expect(named[2]).toMatch(/GM/);
+  expect(named[1002], 'surface tag 1xxx inherits the volume tag 1xxx − 1000').toMatch(/GM/);
+
+  // §9.2's load path: "< 2 × file size", ≤ 380 MB for ernie.msh (184,207,351 B).
+  const heapMb = out.heapBytes / MB;
+  console.log(
+    `[§9.2] ernie.msh (184,207,351 B): wasm_heap_bytes ${out.heapBytes} = ${heapMb.toFixed(1)} MB ` +
+      `(${(out.heapBytes / 184_207_351).toFixed(2)} × file), loadMesh ${out.elapsedMs.toFixed(0)} ms, ` +
+      `first progress ${out.firstProgressMs.toFixed(0)} ms`
+  );
+  expect(heapMb, '§9.2 load path for ernie.msh').toBeLessThanOrEqual(380);
+});
+
+test('ernie_seeg.msh: the declared worst case, against the ≤ 1.0 GB load-path bar', async ({
+  page,
+}) => {
+  test.slow();
+  await open(page);
+  const out = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fsUrl(ERNIE_SEEG) },
+    format: 'auto',
+  });
+  const meta = out.result?.meta as Record<string, unknown>;
+
+  // Both SEEG meshes exceed 2²¹ nodes, which is what breaks a 3×21-bit packed face key (§6.3).
+  expect(meta.nNodes).toBe(2_301_899);
+  expect(meta.nNodes).toBeGreaterThan(1 << 21);
+  expect(meta.nTris).toBe(2_612_423);
+  expect(meta.nTets).toBe(13_033_527);
+
+  const tags = meta.tags as Array<{ id: number; kind: string; count: number }>;
+  const tri = Object.fromEntries(tags.filter((t) => t.kind === 'tri').map((t) => [t.id, t.count]));
+  const tet = Object.fromEntries(tags.filter((t) => t.kind === 'tet').map((t) => [t.id, t.count]));
+  expect(tri[1013]).toBe(68_178);
+  expect(tri[1014]).toBe(91_918);
+  expect(tri[1015]).toBe(117_131);
+  expect(tet[13]).toBe(206_930);
+  expect(tet[14]).toBe(373_004);
+  expect(tet[15]).toBe(573_265);
+
+  const heapMb = out.heapBytes / MB;
+  console.log(
+    `[§9.2] ernie_seeg.msh (492,090,201 B): wasm_heap_bytes ${out.heapBytes} = ${heapMb.toFixed(1)} MB ` +
+      `(${(out.heapBytes / 492_090_201).toFixed(2)} × file), loadMesh ${out.elapsedMs.toFixed(0)} ms, ` +
+      `first progress ${out.firstProgressMs.toFixed(0)} ms`
+  );
+  // ROADMAP Phase-1 gate 7 / §9.2: the load path stays under 1.0 GB for this file.
+  expect(heapMb, '§9.2 load path for ernie_seeg.msh').toBeLessThanOrEqual(1024);
+});
+
+test('opening ernie_seeg.msh shows progress fast and cancels fast (Phase-1 gate 1)', async ({
+  page,
+}) => {
+  test.slow();
+  await open(page);
+  const outcome = await page.evaluate(async (url) => {
+    window.__tvx.open();
+    const id = window.__tvx.start('loadMesh', { source: { kind: 'url', url }, format: 'auto' });
+    const firstProgressMs = await window.__tvx.waitForProgress(10_000);
+    const t = performance.now();
+    window.__tvx.cancel(id);
+    const settled = await window.__tvx.settle();
+    return { firstProgressMs, cancelMs: performance.now() - t, settled };
+  }, fsUrl(ERNIE_SEEG));
+
+  console.log(
+    `[§9.1 row 6] ernie_seeg.msh: first progress ${outcome.firstProgressMs.toFixed(0)} ms, ` +
+      `cancel honoured in ${outcome.cancelMs.toFixed(0)} ms`
+  );
+  expect(outcome.firstProgressMs).toBeGreaterThanOrEqual(0);
+  expect(outcome.firstProgressMs, 'progress visible within 200 ms').toBeLessThan(200);
+  // Cancel is `worker.terminate()` (§5 rule 6), so it is honoured immediately rather than at the
+  // next poll — there is no poll.
+  expect(outcome.cancelMs, 'cancel honoured within 500 ms').toBeLessThan(500);
+  expect(outcome.settled.code).toBe('cancelled');
+});
+
+test('Thalamus_TI.msh carries exactly one element field (§6.5.1)', async ({ page }) => {
+  test.slow();
+  await open(page);
+  const out = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fsUrl(THALAMUS) },
+    format: 'auto',
+  });
+  const meta = out.result?.meta as Record<string, unknown>;
+  expect(meta.nNodes).toBe(847_165);
+  expect(meta.nTets).toBe(4_722_625);
+
+  const fields = meta.fields as Array<Record<string, unknown>>;
+  expect(fields).toHaveLength(1);
+  const ti = fields[0]!;
+  expect(ti.name).toBe('TI_max');
+  expect(ti.source).toBe('elm');
+  expect(ti.ncomp).toBe(1);
+  expect(ti.n).toBe(5_899_838);
+  expect(ti.partial).toBe(false);
+  const stats = ti.stats as Record<string, number>;
+  expect(stats.min).toBeCloseTo(1.0863735014567724e-12, 15);
+  expect(stats.max).toBeCloseTo(10.293712064403254, 5);
+
+  // The `field` op reads the same values back over the wire.
+  const values = await must(page, 'field', {
+    handle: meta.handle as number,
+    source: 'elm',
+    name: 'TI_max',
+    component: 'mag',
+  });
+  const v = values.result?.values as ArraySummary;
+  expect(v.length).toBe(5_899_838);
+  expect(v.max).toBeCloseTo(10.293712064403254, 5);
+  expect(v.nonFinite).toBe(0);
+});
+
+test('lh.central.gii bakes its scanner-anat transform into world mm (§3)', async ({ page }) => {
+  await open(page);
+  const out = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fsUrl(LH_CENTRAL) },
+    format: 'auto',
+  });
+  const meta = out.result?.meta as Record<string, unknown>;
+  expect(meta.nNodes).toBe(245_762);
+  expect(meta.nTris).toBe(491_520);
+  expect(meta.nTets).toBe(0);
+
+  const bounds = meta.bounds as { min: number[]; max: number[] };
+  expect(bounds.min[0]).toBeCloseTo(-64.371368, 3);
+  expect(bounds.min[1]).toBeCloseTo(-79.96286, 3);
+  expect(bounds.min[2]).toBeCloseTo(-28.561777, 3);
+  expect(bounds.max[0]).toBeCloseTo(3.572175, 3);
+  expect(bounds.max[1]).toBeCloseTo(100.309242, 3);
+  expect(bounds.max[2]).toBeCloseTo(81.128761, 3);
+});
+
+test('a path outside the served roots is refused, not read', async ({ page }) => {
+  // The dev server's `fs.allow` is the harness's stand-in for §5 rule 9's allow-list: an
+  // unrestricted `tetravox://file/<path>` would be an arbitrary-file-read primitive.
+  await open(page);
+  const out = await call(page, 'loadVolume', {
+    source: { kind: 'url', url: fsUrl('/etc/hosts') },
+    caps: CAPS_FULL,
+    wantLinear: true,
+  });
+  expect(out.ok).toBe(false);
+  expect(['io', 'parse', 'unsupported']).toContain(out.error?.code);
+});

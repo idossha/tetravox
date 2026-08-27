@@ -650,3 +650,236 @@ The decisions below are new.
   reproduce". The one instruction AGENTS.md gives for checking those numbers could not reproduce them. The
   regenerated JSON is a strict superset — every previously committed value is byte-identical — and the new
   row reproduces AGENTS.md lines 45–72 exactly.
+
+## 2026-08-27 — Phase 1, `tvx-nifti` (§6.1)
+
+No frozen signature changed; every item below resolves something §6.1 left implicit, or records a
+measurement. `crates/tvx-nifti/src/lib.rs`'s module docs carry the first two.
+
+- 2026-08-27 — **`want_linear` gates ladder rows 1–2** — rows 1–2 are §6.1's `NEAREST` rows, and the
+  same section says `want_linear` is false exactly when the layer is a label or
+  `interpolation === 'nearest'`, so the rows are read as `is_label && !want_linear`. Read literally
+  as `is_label` alone they would also claim `vol_u8.nii`, whose 60 integral values in 0…234 satisfy
+  the `is_label` rule verbatim, and `crates/tvx-nifti/tests/fixtures.rs`'s frozen
+  `gpu_payload_follows_the_selection_ladder` expects `R8` for it. The alternative — narrowing
+  `is_label` so a small-integer scalar volume fails it — was rejected because §6.1 fixes that rule
+  explicitly and names the float32 atlas it must keep catching.
+- 2026-08-27 — **The normalised rows map a stored integer code to physical units, not GL's `[0,1]`
+  read** — §6.1 row 4 fixes `scale = (max−min)/65535`, `offset = min`, which is dimensionally
+  consistent only if the shader multiplies the code `0..=65535`. Rows 3/6/7/8 follow the same shape
+  with their own full scale (255 for `R8`); `R32F` and the two label rows carry `scale = 1,
+  offset = 0`. A degenerate `max == min` yields `scale = 1, offset = min` and an all-zero texture,
+  so a constant volume decodes back to its value instead of dividing by zero. The engine's §7.3
+  shader has to agree; this is the crate's half of that contract, and the exactness claim it implies
+  is tested (`the_r16_row_round_trips_a_16_bit_input_exactly`).
+- 2026-08-27 — **The exact-percentile path is bounded by the value span, not by the dtype** — §6.1
+  promises percentiles "exact for integer dtypes", which 65536 bins cannot deliver for an integer
+  volume wider than 65536 distinct values. The fine histogram is one bin per integer when every
+  physical value is integral **and** `max − min ≤ 65535` (every label volume, every 8/16-bit scalar,
+  and `vol_scl.nii`'s ±29,350 physical range); otherwise the bins are uniform and a percentile is
+  its bin's lower edge, below the true value by less than `(max − min)/65536` — the accuracy §6.1
+  states for float. `testdata/vol_u32.nii` spans 234,000 and is the case that separates the two.
+  Percentiles are nearest-rank (numpy's `method='inverted_cdf'`).
+- 2026-08-27 — **`is_label`'s first pass exits early** — an anatomical scan fails "integral,
+  finite, non-negative" within a chunk, so `T1.nii.gz` does not pay for a full extra 13.6 M-sample
+  walk at load: `read_nifti` on it drops from 114.5 ms to 100.1 ms `[M2Max]`, and the whole CPU
+  share of §9.1 row 1 (read + stats + `gpu_payload`) from 201.7 ms to 188.4 ms.
+- 2026-08-27 — **§9.1 row 1, CPU share, measured** `[M2Max]` (Apple M2 Max, macOS 15.7, rustc
+  1.93.0, `cargo bench -p tvx-nifti`, criterion medians): `m2m_ernie/T1.nii.gz` read 100.1 ms,
+  `stats` 46.7 ms, `gpu_payload` → R16 43.3 ms, **the three together 188.4 ms** against the row's
+  400 ms-to-first-frame budget on machine A, leaving the GL upload and first draw the rest. Also
+  `final_tissues.nii.gz` read 57.1 ms, `labeling.nii.gz` `label_index` 37.2 ms and → R8UI 52.5 ms.
+  The row stays `[TARGET]` until Phase 3 measures a whole frame; this is the parser's share of it.
+- 2026-08-27 — **`serde_json` promoted from `tvx-nifti`'s dev-dependencies to its dependencies, and
+  `flate2` added to its dev-dependencies** — `header_json` is "every raw header field" (§6.1)
+  including a NaN `scl_slope`, which needs the manifest's `"NaN"`/`"Infinity"` string encoding
+  rather than hand-rolled escaping; the real-data qform test decompresses `T1.nii.gz` to patch
+  `sform_code`, and a `[dependencies]` entry is not visible to integration tests. Both crates are
+  already in the frozen §12.3 set and already appear under `tvx-nifti` in `Cargo.lock`, so the
+  lockfile is byte-identical — this adds no dependency to the workspace.
+- 2026-08-27 — **Ladder fallbacks §6.1's table leaves blank** — u32/i32 without `norm16` takes
+  `R32F` when `float_linear`, else `R8`; a float volume carrying NaN/Inf without `float_linear`
+  takes `R16` when `norm16` (non-finite samples land in code 0), else `R8`. In no branch does a
+  non-label layer get `R16UI` — that is the silent black-slice case §6.1 names — and `R16F` is never
+  selected, which `every_ladder_row_is_reachable_and_none_of_them_is_r16f` asserts over every
+  fixture × 3 capability sets × both `want_linear` values.
+- 2026-08-27 — **Out-of-range and non-index inputs** — `Volume::stats` has no `Result` in its frozen
+  signature, so `vol >= nvols` returns an all-zero `FieldStats` rather than panicking; `label_index`
+  and `gpu_payload` return `Error::Parse` for the same input. `label_index` refuses a volume whose
+  physical samples are not integral and non-negative, refuses the two colour dtypes, and refuses ids
+  whose span exceeds 2^24 or whose count exceeds 65536 — its `dense_of` is as long as the largest
+  id (531 entries for `labeling.nii.gz`), and ids absent from the volume map to dense 0.
+
+## 2026-08-27 — Phase 1, `tvx-mesh-io` (§6.2)
+
+- 2026-08-27 — **§6.2 promises two pieces of data the frozen structs have no field for, so both got an
+  *additive* entry point rather than a struct change.** §6.2 says a `.label.gii`'s `<LabelTable>` "becomes a
+  `LabelTable`", but `read_gifti` returns a `Mesh`, which has no such field; and §6.2's name ladder ends at
+  "sibling `<mesh>.msh.opt` (`Physical Volume(" GM",2)` …)", but `MshOptions` carries only
+  `tag_color` / `tag_visible` / `views`. The second gap is not academic: `m2m_ernie/ernie.msh` has **no
+  `$PhysicalNames` section at all** `[DATA]`, so its `.msh.opt` is the *only* source of "WM", "GM", "CSF" …
+  for the flagship file, and a reader that drops those names leaves the tissue table unnamed. Changing
+  either struct is an ARCHITECTURE.md edit, which is not this agent's to make, and silently discarding the
+  data is worse than a two-line addition — so `tvx_mesh_io::read_gifti_labels(&[u8]) -> Result<LabelTable>`
+  and `tvx_mesh_io::read_msh_opt_names(&[u8]) -> Result<Vec<(i32, String)>>` exist beside the frozen
+  signatures, which are untouched. **The integrator should fold them into §6.2** — most naturally as
+  `Mesh.label_table: Option<LabelTable>` and `MshOptions.tag_name: Vec<(i32, String)>` — and then delete
+  them.
+- 2026-08-27 — **`Mesh.gmsh_elm_numbers` needs the element *kind* during parsing, and it rides in bit 63 of
+  the transient id array.** §6.2 defines the array in (tris then tets) order while a file may write the
+  blocks in any order, so the reader has to remember which kind each file-order id belonged to. A parallel
+  `Vec<bool>` would cost 15.8 MB on `ernie-seeg.msh` (15,787,627 elements `[DATA]`) for a fact that is
+  discarded seconds later. Element numbers are `<= u32::MAX` by §6.2's own rule — checked at parse time, and
+  the check is what makes the trick sound — so bit 63 is free. The flag is stripped in
+  `finish_elements`, which also runs §6.2's identity test and drops the whole array when it passes, which is
+  the case for every reference `.msh` `[DATA]`.
+- 2026-08-27 — **`Mesh.Color.<Ordinal>` is indexed by *tag number*, not by declaration order.**
+  §6.2 names the syntax but not the mapping, and the two readings disagree on real data:
+  `m2m_ernie/ernie.msh.opt` declares 9 volumes (tags 1,2,3,5,6,7,8,9,10 — no 4) and 10 surfaces, so
+  declaration order would give Scalp (tag 5) `Mesh.Color.Four`. `simnibs/mesh_tools/gmsh_view.py`'s `Color`
+  defaults settle it: `Four = [255,239,179]` (bone cream, tag 4 = the old skull label) and
+  `Five = [255,166,133]` (skin, tag 5 = Scalp), i.e. ordinal *N* is Gmsh's colour-carousel slot *N* and
+  SimNIBS writes tissue *N*'s colour there. `testdata/manifest.json`'s authored expectation agrees
+  independently: its `Mesh.Color.Three` colours nothing, because no physical entity 3 is declared. A colour
+  is therefore emitted only for a tag the file actually declares, and §6.2's `1xxx → 1xxx − 1000`
+  inheritance is applied on top — which is what makes `1001` take `Mesh.Color.One` rather than
+  `Mesh.Color.Three`.
+- 2026-08-27 — **FreeSurfer colortables store *transparency*; `LabelEntry.color[3]` is `255 − t`.** §4.1's
+  wire form is RGBA, and every `.annot` in the dataset writes `t = 0` `[DATA]`, so reading `t` as alpha
+  would make every region invisible. `testdata/manifest.json` records the raw quadruple as `rgba255`
+  (`[25,5,25,0]` for `unknown`) and the committed fixture test asserts only the RGB triple, so nothing
+  pins the wrong reading.
+- 2026-08-27 — **`read_stl` welds coincident vertices by exact bit pattern.** §6.2 leaves the policy open
+  and `testdata/manifest.json` accepts either 16 welded nodes or 54 unwelded ones for `patch_*.stl`.
+  Welding is what gives an STL shared vertex normals in §6.3's `Indexed` variant, and an exact-bits key
+  never merges two points the writer meant to keep apart. `tri_edge_mask` stays `None`, as §6.2 requires.
+- 2026-08-27 — **`$NodeData`/`$ElementData` percentiles are bin-centre reconstructions.** §6.1 specifies the
+  65536-bin histogram and its error bound for volumes; `FieldStats` is shared, so mesh fields use the same
+  code. `min` and `max` are exact, the histogram is exact, and an interior percentile is the centre of its
+  bin — within `(max−min)/131072` of the true value. Nothing in `testdata/manifest.json` or AGENTS.md
+  asserts a mesh-field percentile, so this is a note, not a claim.
+
+## 2026-08-27 — Phase 1, `tvx-wasm` + `packages/wasm` (§6.4, §6.5)
+
+No frozen interface changed. `packages/protocol/src/index.ts`, `packages/wasm/src/index.ts` and every
+§6.4 signature are byte-identical to Phase 0; `packages/wasm/pkg/tvx_wasm.d.ts` changed only because
+wasm-pack regenerates it from the crate's doc comments.
+
+- 2026-08-27 — **`tvx-geom`'s call sites are behind a default-off `geom` cargo feature, and the
+  integrator flips `default = ["geom"]` when a real `tvx-geom` lands.** `p1/geom` does not exist:
+  `tvx-geom` and `tvx-core` are still the Phase-0 signature stubs, and every function in them is
+  `unimplemented!()`. Calling one from wasm is not a recoverable error — `unimplemented!()` panics,
+  a panic on `wasm32-unknown-unknown` aborts, and the trap poisons the module for the life of the
+  worker (§5 rule 8). Eleven of the seventeen §6.5.2 ops route through §6.3, and so does
+  `load_mesh`'s load-time work, so an ungated call would take down the *whole* mesh half of the
+  protocol — including `loadMesh`, `field` and `free`, which need nothing but the parsed `Mesh`.
+  So `crates/tvx-wasm/src/geom.rs` holds every §6.3 call site written exactly as it will run, with
+  two arms: with the feature, each wrapper is `tvx_geom::<same name>` one-to-one; without it, each
+  returns `Error::Unsupported` naming the function and the flag, which reaches the client as a clean
+  `{ code: 'unsupported' }` and leaves the module alive. `cargo clippy --workspace --all-targets
+  --features geom` keeps the enabled arm compiling and is part of this branch's verification.
+  Turning the feature on also needs a real `tvx-core`: `BitMask::count_ones` backs `isolate`'s
+  `visibleTets`.
+- 2026-08-27 — **With the feature off, `load_mesh` keeps `read_msh`'s identity `tet_perm` rather
+  than Morton-ordering.** §6.4 runs `morton_reorder` / `build_tet_blocks` / `build_point_locator`
+  inside `load_mesh`. `read_msh` already emits `tet_perm = 0..n` (§6.2), and §6.2's reconstruction
+  `gmsh number of tet j = n_tris + tet_perm[j] + 1` is then exactly the file's own numbering — so
+  the numbers the UI reports stay correct; what is lost is spatial locality and the block index,
+  and the only two consumers of those (`plane_cut`, `locate_point`) are themselves gated. The trio
+  is also skipped for a mesh with **no tets** even with the feature on: there is nothing to order,
+  block or locate, and every surface-only format (GIfTI, FreeSurfer, STL/PLY/OBJ) is that case.
+- 2026-08-27 — **The sidecar LUT parse lives in `tvx_wasm::lut`, not in `tvx_core::LabelTable`.**
+  §6.4's table says the text is parsed "in the worker as part of `load_volume` / `load_mesh`, from
+  their `lut_bytes` argument", and `LabelTable::parse_freesurfer` / `parse_simnibs` /
+  `parse_itksnap` / `parse_generic` are Phase-0 stubs in a crate this agent does not own (AGENTS
+  rule 3). One tolerant parser covers all three shapes, because the op table gives the worker no
+  format hint — `lut` is a role, not a type (§6.5.1) — and it is told apart by shape: three integers
+  straight after the id is §6.0's colour-first `parse_generic`, a trailing quoted string is
+  ITK-SNAP, anything else is the name-first FreeSurfer/SimNIBS column order. **The integrator should
+  delete `crates/tvx-wasm/src/lut.rs` and call `LabelTable::parse_*` once `tvx-core` lands.**
+- 2026-08-27 — **`ComputeClient` owns the queue and posts one `Req` at a time.** §6.5 says
+  latest-wins "drops *queued* requests" and that an in-flight call runs to completion, and that
+  distinction is only implementable if something knows which is which. The worker cannot: a `Req`
+  it has received is, as far as it is concerned, next. So the client holds the queue, and the
+  worker holds a second one only so a `Cancel` that races a `postMessage` still lands. A dropped or
+  cancelled request **rejects** with a `ComputeError` carrying `{ code: 'cancelled' }` rather than
+  hanging: a promise that never settles is a leak in every `await` that holds it.
+- 2026-08-27 — **`ComputeError` is not re-exported from the frozen `packages/wasm/src/index.ts`.**
+  Callers narrow on the rejected value's `code` structurally. Adding an export would be a
+  frozen-file change and it is not necessary; the integrator may widen `index.ts` later with the
+  ARCHITECTURE edit that requires.
+- 2026-08-27 — **The recycled `mesh_cut` path returns counts only; its pool never crosses to the UI
+  thread, and that is a contract gap.** §6.4 says "the worker keeps the pool; the UI thread transfers
+  the buffers **back** after upload", but §6.5.1's `CutResult` `'recycled'` variant carries
+  `{ mode, truncated, counts }` and no arrays, and `ToWorker = Req | Cancel` has no message a client
+  could hand buffers back with. Both halves are implemented in wasm exactly as §6.4 specifies —
+  plane-major packing, `plane_offsets`, and the "nothing is written on truncation" overflow protocol
+  — and the worker grows the pool by doubling and re-calls; only the hand-off is missing. **The
+  integrator needs either a `pool` field on the recycled variant or a third `ToWorker` kind before
+  the Phase-2 cut-plane drag can use it.** The buffers path, which §6.4 calls the correctness
+  reference and the only path a golden uses, is complete.
+- 2026-08-27 — **`.gz` is decided by name, then confirmed by the magic bytes.** §5 rule 4 pipes a
+  `.gz` read through `DecompressionStream('gzip')`. Measured on this repo's own dev server: vite's
+  static middleware answers a request for `vol_f32.nii.gz` with `Content-Encoding: gzip`, so `fetch`
+  inflates it before the worker sees a byte, and piping that into the gunzip a second time fails on
+  perfectly good data. The worker therefore peeks the first chunk, re-emits it, and only pipes when
+  the bytes really start with `1f 8b` — still streaming, still `.gz`-by-name. The same measurement
+  is why `Content-Length` is dropped as the progress denominator the moment `done` passes it: it is
+  the length **on the wire**, and a progress bar past 100 % is worse than one with no total.
+  `packages/wasm/e2e/protocol.spec.ts` asserts both halves.
+- 2026-08-27 — **`GpuFormatInfo.chunked` is `bytes > 16 MiB`.** §4.3 defines it as "uploaded as
+  z-slabs (§7.3)" and neither section fixes a threshold. §7.2's main-thread budget rule — "no single
+  main-thread call may exceed `frameBudget / 2`" — is 4 ms of an 8 ms frame, and §7.2's own measured
+  `texImage3D` figures (256×256×208 at 3.6–5.5 ms for R16UI's 27.3 MB, 11.1 ms for R32F's 54.5 MB)
+  put the achieved rate near 5 GB/s, so 4 ms buys ~20 MB. 16 MiB is the round number under that.
+- 2026-08-27 — **`MeshMeta.appliedTransform` is always identity, and `dataSpace` /
+  `transformedSpace` are absent.** `tvx-mesh-io` *applies* GIfTI's
+  `CoordinateSystemTransformMatrix` when the target space is scanner-anatomical — the e2e asserts
+  the transformed bounding box, so it demonstrably does — but its frozen `Mesh` has no field to
+  report *which* matrix, and the same gap swallows the two `CoordinateSystem` strings (recorded on
+  `p1/mesh-io`, 2026-08-27). This layer will not invent a matrix it was not told, so it reports the
+  honest identity. Filling those in is the same `Mesh`-shaped ARCHITECTURE edit the mesh-io agent
+  already flagged.
+- 2026-08-27 — **`MeshMeta.labelTables` is keyed by the node field named `label`.** §6.5.1 keys it
+  "by node-field name"; `tvx-mesh-io` names a GIfTI array from its `Name` metadata, falling back to
+  the short intent, which is `label` for a `.label.gii`. When no field matches and there is exactly
+  one node field, that one takes the table. `.annot` and `curv` produce no entry at all — no §6.5.2
+  op loads a field file onto an existing mesh, so `read_fs_annot` and `read_fs_curv` are currently
+  unreachable from the protocol; that is a Phase-2 op, not an omission here.
+- 2026-08-27 — **The §6.2 tag ladder is resolved once, at load, and names and colours can land on
+  different rungs.** `$PhysicalNames` → sibling `_LUT.txt` → sibling `.msh.opt` → a deterministic
+  20-entry glasbey-like palette. `$PhysicalNames` carries no colour and the palette carries no name,
+  so the two walk the same ladder independently; §6.2's `1xxx` → `1xxx − 1000` inheritance is applied
+  at every rung, including the palette, so a surface and the volume it bounds always share a colour.
+  The palette is indexed by the folded tag, never by declaration order, so it is stable under a file
+  that declares its tags in a different sequence.
+- 2026-08-27 — **`mesh_field` reuses the crate's own `stats` whenever the selection is the one
+  §6.0 already describes** — `component: 'mag'` for any `ncomp`, and component 0 of a scalar. Only
+  `component: 0 | 1 | 2` of a vector produces an array nothing has seen, and `tvx_wasm::stats`
+  computes it by §6.1's method (one pass for min/max/mean, one 65536-bin histogram, nearest-rank
+  percentiles, the 256-bin display histogram summed down from it). `'mag'` of a **scalar** field is
+  the value itself, signed — taking `|v|` there would silently rectify a signed field.
+- 2026-08-27 — **`mesh_convert_field` does not register its output on the mesh.** §6.5.2 types the
+  `elmToNode` result as `{ name, values, stats }` and says nothing about the converted field being
+  addressable afterwards, so it is a pure conversion; `marchingTets` with `source: 'elm'` runs the
+  same conversion internally (reducing to a scalar `ElmField` first, since §6.3's `marching_tets`
+  takes one value per node).
+- 2026-08-27 — **Measured `[M2Max]`** (Apple M2 Max, macOS 15.7, Chromium 151 via Playwright
+  1.62.1, release wasm, `packages/wasm/e2e/realdata.spec.ts`), against §9's bars:
+
+  | File | `wasm_heap_bytes` after load | × file | §9.2 load-path bar | op time | first `Progress` |
+  |---|---|---|---|---|---|
+  | `m2m_ernie/ernie.msh` (184,207,351 B) | 358,350,848 = **341.8 MB** | 1.95 × | ≤ 380 MB ✔ | `loadMesh` 491 ms | 12 ms |
+  | `m2m_ernie/ernie_seeg.msh` (492,090,201 B) | 956,694,528 = **912.4 MB** | 1.94 × | ≤ 1.0 GB ✔ | `loadMesh` 1,477 ms | 11 ms |
+  | `m2m_ernie/T1.nii.gz` (13.1 MB gz) | 105.3 MB | — | — | `loadVolume` 366–370 ms | 12 ms |
+  | `Simulations/Thalamus/TI/mesh/Thalamus_TI.msh` (255.0 MB) | — | — | ≤ 480 MB | `loadMesh` 750 ms | — |
+
+  ROADMAP Phase-1 gate 7 (`wasm_heap_bytes()` under the §9.2 load-path bar for `ernie_seeg.msh`) is
+  **met**: 912.4 MB against 1.0 GB. Both meshes come in ~0.14 × above §9.2's `[MODEL]` (1.81 ×),
+  which is dlmalloc's page granularity and the transient the reader frees before returning, not a
+  retained structure. §9.1 row 6's "progress visible within 200 ms" is met by an order of magnitude
+  — 11 ms — because the worker reports the `read` phase from the first fetch chunk, before any wasm
+  call; its cancel bar is met trivially, since cancel is `worker.terminate()` and takes 0 ms.
+  §9.1 row 1's 400 ms is a whole-frame budget on machine A and stays `[TARGET]`; the 366–370 ms above is
+  fetch + inflate + parse + stats + `gpu_payload` + the transfer to the UI thread on an M2 Max, with
+  the GL upload and first draw still to come.
