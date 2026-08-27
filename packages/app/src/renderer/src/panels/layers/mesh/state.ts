@@ -675,6 +675,36 @@ export function setGlyphField(
   return patchGlyphs(layer, { field: { source: field.source, name: field.name } });
 }
 
+/**
+ * The `GlyphSpec.origins` choices this mesh can actually serve (§7.4).
+ *
+ * `'surface'` always can — every mesh has a surface, stored or extracted. `'volume'` reads §6.5.2's
+ * `meshCentroids`, which returns **one point per tet**, so a mesh with none (a `.gii` surface, an
+ * `.annot`-coloured cortex) would silently draw nothing. §8 forbids a control that does nothing, so
+ * the option is offered disabled with the reason attached rather than left to fail quietly.
+ */
+export function glyphOriginsAvailable(dataset: MeshDataset): boolean {
+  return dataset.nTets > 0;
+}
+
+/** §4.4: an absent `origins` **is** `'surface'`, so the selector never shows an empty value. */
+export function glyphOrigins(spec: GlyphSpec): 'surface' | 'volume' {
+  return spec.origins ?? 'surface';
+}
+
+/**
+ * Pick the origin table. `'volume'` on a tet-less mesh is refused rather than written: it would be a
+ * layer state whose only rendering is nothing.
+ */
+export function setGlyphOrigins(
+  dataset: MeshDataset,
+  layer: MeshLayer,
+  origins: 'surface' | 'volume'
+): Partial<MeshLayer> {
+  if (origins === 'volume' && !glyphOriginsAvailable(dataset)) return {};
+  return patchGlyphs(layer, { origins });
+}
+
 /** The stride: `everyNth` is the §4.4 form the user thinks in ("one glyph per N elements"). */
 export function setGlyphStride(layer: MeshLayer, everyNth: number): Partial<MeshLayer> {
   return patchGlyphs(layer, { subsample: { everyNth: Math.max(1, Math.round(everyNth)) } });

@@ -37,6 +37,9 @@ import {
   setCutColorSource,
   setEdges,
   setFillIn2D,
+  glyphOrigins,
+  glyphOriginsAvailable,
+  setGlyphOrigins,
   setGlyphStride,
   setIsolateBox,
   setIsolateSphere,
@@ -473,6 +476,30 @@ describe('glyphs', () => {
     expect(setGlyphStride(layer, 0).glyphs?.subsample).toEqual({ everyNth: 1 });
     expect(setGlyphStride(layer, 12.7).glyphs?.subsample).toEqual({ everyNth: 13 });
     expect(disableGlyphs(layer)).toEqual({ glyphs: undefined });
+  });
+
+  it('reads an absent `origins` as §4.4’s default rather than as an empty selector value', () => {
+    const spec = defaultGlyphs(dataset())!;
+    expect(spec.origins).toBeUndefined();
+    expect(glyphOrigins(spec)).toBe('surface');
+    expect(glyphOrigins({ ...spec, origins: 'volume' })).toBe('volume');
+  });
+
+  it('offers `volume` only where §6.5.2 has tets to take centroids of', () => {
+    expect(glyphOriginsAvailable(dataset())).toBe(true);
+    // A `.gii` surface, or any triangle-only mesh: `meshCentroids` would return nothing.
+    expect(glyphOriginsAvailable(dataset({ nTets: 0 }))).toBe(false);
+  });
+
+  it('refuses to write `volume` on a tet-less mesh — a state whose only rendering is nothing', () => {
+    const layer = meshLayer({ glyphs: defaultGlyphs(dataset()) ?? undefined });
+    expect(setGlyphOrigins(dataset(), layer, 'volume').glyphs?.origins).toBe('volume');
+    expect(setGlyphOrigins(dataset(), layer, 'surface').glyphs?.origins).toBe('surface');
+    expect(setGlyphOrigins(dataset({ nTets: 0 }), layer, 'volume')).toEqual({});
+    // Going back to the surface is always allowed, tets or not.
+    expect(setGlyphOrigins(dataset({ nTets: 0 }), layer, 'surface').glyphs?.origins).toBe(
+      'surface'
+    );
   });
 });
 

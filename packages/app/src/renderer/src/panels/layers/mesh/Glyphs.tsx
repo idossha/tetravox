@@ -8,6 +8,11 @@
  *
  * The renderer is E-DERIVED's, and `clipToCutPlane` is the case §6.5.2 can already serve
  * (`CutPayload.positions` + `ownerTet`), so it is offered here with that note attached.
+ *
+ * **Origins** picks between the two tables §7.4 names: the layer's own surface (one origin per
+ * surface triangle) or §6.5.2's `meshCentroids` (one per **tet**, which is the only way the interior
+ * of `ernie_TDCS_1_scalar.msh` gets arrows at all). A mesh with no tets can only serve the first, so
+ * the control says so instead of offering a choice that would render nothing.
  */
 
 import type { MeshDataset, MeshLayer } from '@tetravox/engine';
@@ -17,11 +22,14 @@ import {
   disableGlyphs,
   enableGlyphs,
   fieldKey,
+  glyphOrigins,
+  glyphOriginsAvailable,
   glyphStrideText,
   hexToVec4,
   patchGlyphs,
   setGlyphField,
   setGlyphMaxCount,
+  setGlyphOrigins,
   setGlyphStride,
   vec4ToHex,
   vectorFields,
@@ -88,6 +96,28 @@ export function Glyphs({
               ]}
               onChange={(shape) => patch(patchGlyphs(layer, { shape }))}
             />
+          </Row>
+          <Row label="Origins">
+            <Select
+              testId={`mesh-glyph-origins-${layer.id}`}
+              value={glyphOrigins(spec)}
+              options={[
+                { value: 'surface', label: 'surface' },
+                { value: 'volume', label: 'volume (tets)' },
+              ]}
+              disabled={!glyphOriginsAvailable(dataset)}
+              onChange={(origins) => patch(setGlyphOrigins(dataset, layer, origins))}
+            />
+            <span
+              data-testid={`mesh-glyph-origins-note-${layer.id}`}
+              className="ml-auto shrink-0 text-[9px] text-tvx-dim"
+            >
+              {glyphOriginsAvailable(dataset)
+                ? glyphOrigins(spec) === 'volume'
+                  ? 'one per tet (§6.5.2 meshCentroids)'
+                  : 'one per surface triangle'
+                : 'no tets: surface only'}
+            </span>
           </Row>
           <Row label="Stride">
             <Select

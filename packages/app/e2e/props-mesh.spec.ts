@@ -513,6 +513,18 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     await setControl(page, `mesh-glyph-stride-${ids.mesh}`, '25');
     expect((await onePatch(page)).glyphs).toMatchObject({ subsample: { everyNth: 25 } });
 
+    // §4.4's default is `'surface'`, and it is written as *absent* — a selector showing "surface"
+    // over an undefined field is what keeps every scene on disk meaning what it meant.
+    expect(enabled).not.toHaveProperty('origins');
+    await expect(page.locator(`[data-testid="mesh-glyph-origins-${ids.mesh}"]`)).toHaveValue(
+      'surface'
+    );
+
+    // §6.5.2's `meshCentroids`: the one control that changes *which table* the origins come from.
+    await record(page);
+    await setControl(page, `mesh-glyph-origins-${ids.mesh}`, 'volume');
+    expect((await onePatch(page)).glyphs).toMatchObject({ origins: 'volume' });
+
     await record(page);
     await setControl(page, `mesh-glyph-scale-${ids.mesh}`, 'fixed');
     expect((await onePatch(page)).glyphs).toMatchObject({ scale: 'fixed' });
