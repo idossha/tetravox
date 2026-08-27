@@ -61,6 +61,7 @@ fn finish(nodes: Vec<[f32; 3]>, tris: Vec<[u32; 3]>, mask: Option<Vec<u8>>) -> R
         gmsh_elm_numbers: None,
         tet_perm: Vec::new(),
         skipped: Vec::new(),
+        label_table: None,
     })
 }
 

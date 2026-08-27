@@ -279,6 +279,8 @@ impl Build {
             tet_perm: (0..n_tets as u32).collect(),
             skipped: self.skipped.into_iter().collect(),
             bounds,
+            // §6.2: a `.msh` carries no `<LabelTable>`; region colours come from the tag ladder.
+            label_table: None,
         }
     }
 }

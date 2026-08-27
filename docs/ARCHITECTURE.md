@@ -884,12 +884,14 @@ pub struct Mesh {
     pub tet_perm: Vec<u32>,                    // Morton order -> original file row (§6.3)
     pub skipped: Vec<(u32, u64)>,              // (gmsh element type, count) for types we drop
     pub bounds: Aabb,
+    pub label_table: Option<LabelTable>,       // a `.label.gii`'s <LabelTable>; None elsewhere
 }
 
 pub struct MshOptions {
     pub tag_color: Vec<(i32, [u8; 4])>,
     pub tag_visible: Vec<(i32, bool)>,
     pub views: Vec<MshView>,
+    pub tag_name: Vec<(i32, String)>,          // `Physical Volume(" GM",2)`, verbatim, in file order
 }
 pub struct MshView { pub name: Option<String>, pub custom_min: Option<f32>, pub custom_max: Option<f32>,
                      pub range_type: Option<i32>, pub saturate_values: Option<bool>,
@@ -907,7 +909,19 @@ pub fn read_ply(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_obj(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format>;
 pub enum Format { Msh, Gifti, FsSurface, Stl, Ply, Obj }
+
+// Exact FieldStats over field values (§6.0's "no sampling" rule). Named here because tvx-geom's
+// elm_to_node / node_to_elm build a Field / ElmField and every such struct carries `stats`;
+// a second 65536-bin accumulator would be two implementations of one normative rule.
+pub fn field_stats(values: &[f32], ncomp: usize) -> FieldStats;
+pub fn field_stats_parts(parts: &[&[f32]], ncomp: usize) -> FieldStats;
 ```
+
+`Mesh.label_table` and `MshOptions.tag_name` are the two pieces of data the prose below promises and
+the Phase-0 structs had no field for; Phase 1 carried them out through additive `read_gifti_labels` /
+`read_msh_opt_names` entry points instead, which left `ernie.msh`'s only source of tissue names
+reachable through an undocumented door. They are fields (`docs/DECISIONS.md`, 2026-08-27), and those
+entry points are gone.
 
 **Gmsh v2 binary layout (the SimNIBS default, header `2.2 1 8`) — normative:**
 

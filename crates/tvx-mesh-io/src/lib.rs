@@ -2,9 +2,9 @@
 //! STL/PLY/OBJ.
 //!
 //! This crate is [`docs/ARCHITECTURE.md` §6.2](../../../docs/ARCHITECTURE.md) verbatim; every §6.2
-//! signature is **frozen** (§12.3). [`read_gifti_labels`] and [`read_msh_opt_names`] are **additive**
-//! — they carry data §6.2 promises but `Mesh` / `MshOptions` have no field for; see
-//! `docs/DECISIONS.md` (2026-08-27) for why, and fold them in when §6.2 grows a home for them.
+//! signature is **frozen** (§12.3). The two data §6.2 promises that Phase 1 had to carry out through
+//! additive `read_gifti_labels` / `read_msh_opt_names` entry points now have fields —
+//! [`Mesh::label_table`] and [`MshOptions::tag_name`] — and those entry points are gone.
 //!
 //! Normative rules (§6.2), restated so they are not lost:
 //!
@@ -48,12 +48,10 @@ mod stats;
 mod surf;
 mod util;
 
-pub use gifti::read_labels as read_gifti_labels;
-pub use mshopt::read_names as read_msh_opt_names;
-/// Exact [`FieldStats`] over field values (§6.0's "no sampling" rule). **Additive**, like the two
-/// re-exports above: §6.2 does not name it, but `tvx-geom`'s `elm_to_node` / `node_to_elm` must
-/// build a `Field` / `ElmField`, and every such struct carries `stats`. Duplicating the 65536-bin
-/// accumulator in a second crate would be two implementations of one normative rule.
+/// Exact [`FieldStats`] over field values (§6.0's "no sampling" rule). Named in §6.2 because
+/// `tvx-geom`'s `elm_to_node` / `node_to_elm` must build a `Field` / `ElmField` and every such
+/// struct carries `stats`; duplicating the 65536-bin accumulator in a second crate would be two
+/// implementations of one normative rule.
 pub use stats::{field_stats, field_stats_parts};
 
 use tvx_core::{Aabb, Field, FieldStats, LabelTable, ProgressSink, Result};
@@ -106,6 +104,13 @@ pub struct Mesh {
     /// `(gmsh element type, count)` for types we drop.
     pub skipped: Vec<(u32, u64)>,
     pub bounds: Aabb,
+    /// The `<LabelTable>` of a `.label.gii` (§6.2), `None` for every other format.
+    ///
+    /// §6.2 says a `.label.gii`'s table "becomes a `LabelTable`" but [`read_gifti`] returns a
+    /// `Mesh`; Phase 1 carried it out through an additive `read_gifti_labels` instead, which put
+    /// the flagship file's only source of region names behind an undocumented door. It is a field
+    /// now (`docs/DECISIONS.md`, 2026-08-27).
+    pub label_table: Option<LabelTable>,
 }
 
 /// A parsed `.msh.opt` sidecar (§6.2). Colours are RGBA 0..255 (§4.1).
@@ -114,6 +119,12 @@ pub struct MshOptions {
     pub tag_color: Vec<(i32, [u8; 4])>,
     pub tag_visible: Vec<(i32, bool)>,
     pub views: Vec<MshView>,
+    /// `Physical Volume(" GM",2)` names, in declaration order — the last rung of §6.2's name
+    /// ladder, and the **only** source of tissue names for `m2m_ernie/ernie.msh`, which has no
+    /// `$PhysicalNames` at all `[DATA]`. Verbatim, leading space included: the display layer trims
+    /// (see `tvx-wasm`'s `resolve_tags`), because trimming here would silently disagree with
+    /// `$PhysicalNames` and with `testdata/manifest.json`'s recorded expectation.
+    pub tag_name: Vec<(i32, String)>,
 }
 
 /// One `View[n]` block of a `.msh.opt` (§6.2).

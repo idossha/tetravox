@@ -307,28 +307,21 @@ pub fn load(
     lut_bytes: Option<Vec<u8>>,
     p: &mut dyn ProgressSink,
 ) -> Result<JsValue> {
-    // A `.label.gii`'s `<LabelTable>` has to be read before `read_gifti` takes the bytes.
-    let gifti_labels = if format == "gii"
-        || (format == "auto" && matches!(tvx_mesh_io::sniff(&bytes, None), Ok(Format::Gifti)))
-    {
-        tvx_mesh_io::read_gifti_labels(&bytes).ok()
-    } else {
-        None
-    };
     let opt = match &opt_bytes {
         Some(b) => Some(tvx_mesh_io::read_msh_opt(b)?),
         None => None,
     };
-    let opt_names = match &opt_bytes {
-        Some(b) => tvx_mesh_io::read_msh_opt_names(b).unwrap_or_default(),
-        None => Vec::new(),
-    };
+    let opt_names: Vec<(i32, String)> =
+        opt.as_ref().map(|o| o.tag_name.clone()).unwrap_or_default();
     let table = match &lut_bytes {
         Some(b) => Some(lut::parse(&String::from_utf8_lossy(b))?),
         None => None,
     };
 
     let mut mesh = dispatch(bytes, format, p)?;
+    // §6.2: a `.label.gii` carries its `<LabelTable>` on the mesh (it used to need a second parse
+    // of the same bytes through an additive entry point).
+    let gifti_labels = mesh.label_table.take();
     let (names, colors) = resolve_tags(&mesh, table.as_ref(), opt.as_ref(), &opt_names);
     let (blocks, locator, orient) = geom::load_time(&mut mesh);
 

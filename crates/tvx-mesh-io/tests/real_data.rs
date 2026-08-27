@@ -15,9 +15,7 @@
 use std::path::{Path, PathBuf};
 
 use tvx_core::{NoProgress, Phase, ProgressSink};
-use tvx_mesh_io::{
-    read_fs_annot, read_fs_surface, read_gifti, read_msh, read_msh_opt, read_msh_opt_names, Mesh,
-};
+use tvx_mesh_io::{read_fs_annot, read_fs_surface, read_gifti, read_msh, read_msh_opt, Mesh};
 
 /// `None` ⇒ the whole test skips (§11 rule 2 / TESTING.md).
 fn root() -> Option<PathBuf> {
@@ -394,7 +392,8 @@ fn ernie_msh_opt_names_and_colours_every_tissue_tag() {
     assert!(mesh(&root.join("m2m_ernie/ernie.msh"))
         .physical_names
         .is_empty());
-    let names = read_msh_opt_names(&raw).unwrap();
+    // §6.2's `MshOptions.tag_name` (Phase 1 read these through an additive `read_msh_opt_names`).
+    let names = &opt.tag_name;
     assert_eq!(names.len(), 19, "9 volumes + 10 surfaces");
     let name = |t: i32| {
         names
@@ -402,6 +401,11 @@ fn ernie_msh_opt_names_and_colours_every_tissue_tag() {
             .find(|(k, _)| *k == t)
             .map(|(_, n)| n.trim().to_string())
     };
+    // Verbatim, leading space and all — the display layer trims (`tvx-wasm::resolve_tags`).
+    assert_eq!(
+        names.iter().find(|(k, _)| *k == 5).map(|(_, n)| n.as_str()),
+        Some(" Scalp")
+    );
     assert_eq!(name(1).as_deref(), Some("WM"));
     assert_eq!(name(2).as_deref(), Some("GM"));
     assert_eq!(name(1099).as_deref(), Some("Internal_air_surface"));

@@ -45,8 +45,7 @@ fn ordinal_index(name: &str) -> Option<i32> {
 struct Parsed {
     /// Tags declared by a `Physical …(…, tag)` statement, in declaration order.
     declared: Vec<i32>,
-    /// The names those statements carry, same order. §6.2 lists `.msh.opt` as a source of tag
-    /// names, but [`MshOptions`] has no field for them — see [`read_names`].
+    /// The names those statements carry, same order → [`MshOptions::tag_name`].
     names: Vec<(i32, String)>,
     carousel: Vec<(i32, [u8; 4])>,
     visible: Vec<(i32, bool)>,
@@ -137,6 +136,7 @@ pub fn read(bytes: &[u8]) -> Result<MshOptions> {
         tag_color,
         tag_visible: p.visible,
         views: p.views,
+        tag_name: p.names,
     })
 }
 
@@ -176,23 +176,6 @@ fn declare_physical(p: &mut Parsed, rest: &str) {
         p.declared.push(tag);
         p.names.push((tag, name));
     }
-}
-
-/// The tag names a `.msh.opt` carries.
-///
-/// §6.2's name ladder ends at `<mesh>.msh.opt`, and for `m2m_ernie/ernie.msh` that sidecar is the
-/// **only** source — the mesh itself has no `$PhysicalNames` `[DATA]`. [`MshOptions`] has no field
-/// for them, so this is an **additive** entry point rather than a change to a frozen signature
-/// (`docs/DECISIONS.md`, 2026-08-27).
-pub fn read_names(bytes: &[u8]) -> Result<Vec<(i32, String)>> {
-    let text = String::from_utf8_lossy(bytes);
-    let mut p = Parsed::default();
-    for raw in text.lines() {
-        if let Some(rest) = raw.trim().strip_prefix("Physical ") {
-            declare_physical(&mut p, rest);
-        }
-    }
-    Ok(p.names)
 }
 
 fn split_assignment(line: &str) -> Option<(&str, &str)> {

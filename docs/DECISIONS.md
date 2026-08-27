@@ -1226,3 +1226,15 @@ Each entry below names the problem, the fix, and the evidence.
     channels of a pixel, so each sampled pixel is **fitted** against its own tag's colour and the
     residual is the test. Measured residuals are 0.09 and 0.11 of 255; fitting the *other* tag's
     colour to the same pixel needs a negative `s`.
+- 2026-08-27 — **`Mesh.label_table` and `MshOptions.tag_name` exist; `read_gifti_labels` and
+  `read_msh_opt_names` are gone.** The earlier `tvx-mesh-io` entry above argued for those two
+  additive functions and then said what should happen next: *"The integrator should fold them into
+  §6.2 — most naturally as `Mesh.label_table: Option<LabelTable>` and
+  `MshOptions.tag_name: Vec<(i32, String)>` — and then delete them."* The tag did neither, so a
+  frozen crate's real public surface was wider than the contract that freezes it, and the tissue
+  names for `ernie.msh` — whose only source is the `.msh.opt` sidecar, the file having no
+  `$PhysicalNames` — were reachable only through an undocumented door. Done as described, with §6.2
+  edited in the same commit (§12.3). `field_stats` / `field_stats_parts` stay, and are now *named*
+  in §6.2 rather than merely present: `tvx-geom` cannot build a `Field` without them and a second
+  65536-bin accumulator would be two implementations of one normative rule. A side benefit:
+  `load_mesh` no longer parses a `.label.gii` twice — the table rides on the mesh.

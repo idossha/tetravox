@@ -494,6 +494,9 @@ pub fn read(bytes: &[u8], p: &mut dyn ProgressSink) -> Result<Mesh> {
     }
 
     let tri_tags = vec![0i32; tris.len()];
+    // §6.2: a `.label.gii`'s `<LabelTable>` becomes a `LabelTable`. `parse` always builds one; an
+    // empty table means the file had none.
+    let label_table = (!doc.labels.entries.is_empty()).then_some(doc.labels);
     Ok(Mesh {
         bounds: bounds_of(&nodes),
         nodes,
@@ -510,16 +513,8 @@ pub fn read(bytes: &[u8], p: &mut dyn ProgressSink) -> Result<Mesh> {
         gmsh_elm_numbers: None,
         tet_perm: Vec::new(),
         skipped: Vec::new(),
+        label_table,
     })
-}
-
-/// §6.2 says a `.label.gii`'s `<LabelTable>` becomes a [`LabelTable`], but the frozen `read_gifti`
-/// returns a [`Mesh`], which has no field for one (`docs/DECISIONS.md`, 2026-08-27). This
-/// **additive** helper is where that table lives until the contract has somewhere to put it; no
-/// frozen signature changed.
-pub fn read_labels(bytes: &[u8]) -> Result<LabelTable> {
-    let mut p = tvx_core::NoProgress;
-    Ok(parse(bytes, &mut p, false)?.labels)
 }
 
 fn short_intent(intent: &str) -> String {
