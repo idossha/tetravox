@@ -1437,3 +1437,24 @@ Each entry below names the problem, the fix, and the evidence.
   and it would rot. Keeping it on `pull_request` and relying on `paths-ignore` — rejected: this
   repository's PRs touch engine and app code, which is exactly what the leg tests, so it would almost
   never skip.
+
+- 2026-08-27 — **The `chromium-angle` Playwright project is not registered on Linux.** §11's second
+  renderer class exists to reach a *platform GPU* — it is the only place `EXT_texture_norm16`, and so
+  the R16 branch of the §6.1 ladder, can execute. A GitHub `ubuntu-24.04` runner has no GPU, so the
+  project's own fallback assumption ("it still falls back to software and the R16 test skips — the leg
+  is then honestly empty") does not hold there: headed Chromium under Xvfb with no GPU intermittently
+  hands the page a WebGL2 context that is already gone, and the first shader compile in a fresh page
+  fails with an **empty** info log (`vertex shader failed to compile: (no log)`, from
+  `src/gl/program.ts`) — the signature of a lost context, never of a GLSL error. Measured on two
+  consecutive runs of the same commit (run 33122955835, attempts 1 and 2): attempt 1 failed the first
+  `@angle` test, attempt 2 the first two, and the later ones passed in both. Not a product defect and
+  not a shader defect: `chromium-swiftshader`, headless, compiles the identical shader and passes every
+  one of those same tests on the same runner in the same run, goldens included. So on Linux the leg
+  adds no assertion that is not already made — every `@angle` test also runs on the SwiftShader project
+  — and adds a flake; `ANGLE_LEG` in `packages/engine/playwright.config.ts` drops it, and
+  `TETRAVOX_ANGLE_LEG=1` restores it for a Linux workstation with a real GPU. macOS, where §11 puts the
+  leg and where it actually reaches ANGLE/Metal, is untouched. Retrying the flaky tests — rejected:
+  `retries: 0` is deliberate in a pixel harness, and a retry would hide a real context loss as easily
+  as this one. Forcing the leg to SwiftShader with `--use-gl=angle --use-angle=swiftshader` — rejected:
+  it would make the project a duplicate of `chromium-swiftshader` by construction, which is exactly the
+  thing §11 says the second renderer class must not be.

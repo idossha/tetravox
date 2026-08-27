@@ -25,7 +25,7 @@
  * (subpixel text rendering differs per platform), `--hide-scrollbars` (no chrome in the frame).
  */
 
-import { defineConfig } from '@playwright/test';
+import { defineConfig, type PlaywrightTestProject } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { GOLDEN_THRESHOLD, goldenMaxDiffPixelRatio } from './test/helpers/pixels';
 
@@ -47,6 +47,61 @@ export const SWIFTSHADER_ARGS = ['--enable-unsafe-swiftshader', ...DETERMINISM_A
 // test-page server is that package's vite binary pointed at this package's config. `pnpm --filter`
 // runs it with cwd = packages/app, which is why the config path is absolute.
 const VITE_CONFIG = fileURLToPath(new URL('./test/vite.config.ts', import.meta.url));
+
+/**
+ * Whether to register the `chromium-angle` project at all (§11's second renderer class).
+ *
+ * **It is off on Linux**, and the reason is measured, not assumed. On `ubuntu-24.04` there is no GPU,
+ * so headed Chromium under Xvfb runs on SwiftShader — and it intermittently hands the page a WebGL2
+ * context that is already gone: the first shader compile in a fresh page fails with an **empty** info
+ * log (`vertex shader failed to compile: (no log)`, from `src/gl/program.ts`), which is what a lost
+ * context looks like and what a genuine GLSL error never does. Two consecutive CI runs of the same
+ * commit (run 33122955835, attempts 1 and 2) failed *different* subsets — attempt 1 the first
+ * `@angle` test, attempt 2 the first two — and the later tests passed in both. The shader itself is
+ * fine: `chromium-swiftshader`, headless, compiles it and passes every one of these tests on the same
+ * runner in the same run.
+ *
+ * The project exists to reach a **platform GPU** — it is the only place `EXT_texture_norm16`, and so
+ * the R16 branch of the §6.1 ladder, can execute. A runner with no GPU cannot give it one, so on
+ * Linux CI it is SwiftShader a second time: every `@angle` test also runs on `chromium-swiftshader`
+ * above, so nothing is asserted here that is not asserted there, and all the leg contributes is the
+ * flake. §11 puts this leg on macOS/ANGLE, where it still runs unconditionally.
+ *
+ * `TETRAVOX_ANGLE_LEG=1` forces it back on — for a Linux workstation that really does have a GPU,
+ * which is the one place on this platform where the leg does its job.
+ */
+const ANGLE_LEG = process.platform !== 'linux' || Boolean(process.env.TETRAVOX_ANGLE_LEG);
+
+/** §11's second renderer class, registered only when the platform can actually give it a GPU. */
+const angleProject: PlaywrightTestProject = {
+  // §11's **second leg**, and the only place the R16 branch of the §6.1 ladder can execute.
+  //
+  // The golden authority has no `EXT_texture_norm16` (§7.1 `[SwS]`), so `T1.nii.gz` is R32F in
+  // every golden and R16 in the shipping renderer. §11's answer is explicit: the coverage
+  // "comes from analytic `expectPixel` tests run **twice** on the macOS/ANGLE leg". Phase 1
+  // implemented the test and not the leg, so the R16 half self-skipped in every environment
+  // that existed — on a format that is the primary path for real data.
+  //
+  // `headless: false` + `channel: 'chromium'` is what selects the full browser and lets it
+  // reach the platform GPU; `--enable-unsafe-swiftshader` is deliberately absent, because this
+  // project exists to NOT be SwiftShader. On a machine with a GPU but no norm16, `caps.norm16` is
+  // false and the R16 test skips with its reason — the leg is then honestly empty rather than
+  // silently missing. On a machine with **no GPU at all** it is not honestly empty, it is flaky;
+  // that is what `ANGLE_LEG` above is about, and why this project is not registered on Linux.
+  //
+  // **`@angle` only.** No golden is captured here: §11 stores goldens per renderer class and
+  // `test/golden/angle-metal/` does not exist, so running a golden test on this project would
+  // demand a capture rather than a comparison. The tag marks the analytic tests, which are the
+  // ones §11 asks to run twice.
+  name: 'chromium-angle',
+  grep: /@angle/,
+  use: {
+    browserName: 'chromium',
+    channel: 'chromium',
+    headless: false,
+    launchOptions: { args: DETERMINISM_ARGS },
+  },
+};
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -94,34 +149,7 @@ export default defineConfig({
         launchOptions: { args: SWIFTSHADER_ARGS },
       },
     },
-    {
-      // §11's **second leg**, and the only place the R16 branch of the §6.1 ladder can execute.
-      //
-      // The golden authority has no `EXT_texture_norm16` (§7.1 `[SwS]`), so `T1.nii.gz` is R32F in
-      // every golden and R16 in the shipping renderer. §11's answer is explicit: the coverage
-      // "comes from analytic `expectPixel` tests run **twice** on the macOS/ANGLE leg". Phase 1
-      // implemented the test and not the leg, so the R16 half self-skipped in every environment
-      // that existed — on a format that is the primary path for real data.
-      //
-      // `headless: false` + `channel: 'chromium'` is what selects the full browser and lets it
-      // reach the platform GPU; `--enable-unsafe-swiftshader` is deliberately absent, because this
-      // project exists to NOT be SwiftShader. On a machine or runner with no GPU it still falls
-      // back to software, `caps.norm16` is false and the R16 test skips with its reason — the leg
-      // is then honestly empty rather than silently missing.
-      //
-      // **`@angle` only.** No golden is captured here: §11 stores goldens per renderer class and
-      // `test/golden/angle-metal/` does not exist, so running a golden test on this project would
-      // demand a capture rather than a comparison. The tag marks the analytic tests, which are the
-      // ones §11 asks to run twice.
-      name: 'chromium-angle',
-      grep: /@angle/,
-      use: {
-        browserName: 'chromium',
-        channel: 'chromium',
-        headless: false,
-        launchOptions: { args: DETERMINISM_ARGS },
-      },
-    },
+    ...(ANGLE_LEG ? [angleProject] : []),
   ],
 
   webServer: {
