@@ -80,10 +80,16 @@ import {
   zoomAboutCentre,
 } from './input';
 import type { PaneHit, PointerHost } from './input';
-import { meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
+import { applyAffine, meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
 import { defaultLayerFor, VIEW3D_ID } from './scene/defaults';
 import { SceneStore, isSliceView } from './scene/store';
-import { applyViewSpec, toViewSpec } from './scene/serialize';
+import {
+  applyViewSpec,
+  fingerprintFromMeta,
+  isRestorableKind,
+  remapLayer,
+  toViewSpec,
+} from './scene/serialize';
 import { looksLikeVolume, sourceName, toLoadSource } from './datasets/source';
 import type {
   Annotations,
@@ -174,6 +180,14 @@ export class TetravoxEngine implements Engine, PointerHost {
   /** The view-projection each pane last rendered with, so a pick reuses it exactly (§7.2.3). */
   readonly #lastViewProj = new Map<ViewId, mat4>();
   readonly #lastRects = new Map<ViewId, ViewportRect>();
+  /**
+   * §4.6's `DatasetRef.fingerprint`, kept per dataset because `scene/types.ts` is frozen and
+   * `Dataset` has nowhere to hold it. Filled from the loader's meta when it carries one — see
+   * `scene/serialize.ts`'s `fingerprintFromMeta`, and W-WASM's gap 1.
+   */
+  readonly #fingerprints = new Map<DatasetId, string>();
+  /** §4.6's "relative to the scene file" — see {@link TetravoxEngine.setSceneDir}. */
+  #sceneDir: string | null = null;
 
   /** Read-only view of the scene the store owns. */
   get #scene(): Scene {
@@ -378,6 +392,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     const palette = buildLabelPalette(ds, labelIds);
     this.#gpu.uploadVolume(`${id}|0`, ds, gpuBytes, meta.gpu, !ds.isLabel, palette);
 
+    this.#fingerprints.set(id, fingerprintFromMeta(meta));
     this.#store.addDataset(ds);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#onFirstDataset();
@@ -401,6 +416,7 @@ export class TetravoxEngine implements Engine, PointerHost {
           rt.client.call(`surface:${id}`, 'boundary', { handle: ds.handle, variant: 'indexed' })
         );
     this.#gpu.uploadSurface(surfaceKey(id, 'indexed'), payload);
+    this.#fingerprints.set(id, fingerprintFromMeta(meta));
     this.#store.addDataset(ds);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#onFirstDataset();
@@ -447,6 +463,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     }
     this.#gpu.dropVolume(id);
     this.#gpu.dropSurfaces(id);
+    this.#fingerprints.delete(id);
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#emit('layers', [...this.#scene.layers]);
@@ -713,7 +730,27 @@ export class TetravoxEngine implements Engine, PointerHost {
       }
       return this.#cursorRows.get(row.layerId) ?? row;
     });
-    return { world, rows };
+    const mni = this.#toTemplate(world);
+    return mni !== null ? { world, mni, rows } : { world, rows };
+  }
+
+  /**
+   * §4.7's `ProbeResult.mni` (P2-10) — the cursor through the scene's template transform.
+   *
+   * The topmost **visible** volume layer first, because that is the one every other readout in §8
+   * describes (the corner slice index, the window/level target); any other volume that carries a
+   * `toTemplate` second, so a hidden atlas still answers when the layer on top is a mesh field. When
+   * nothing claims a template the field is absent and §8's MNI column does not appear.
+   */
+  #toTemplate(world: vec3): vec3 | null {
+    const top = this.#store.topVolume();
+    if (top?.ds.toTemplate !== undefined) return applyAffine(top.ds.toTemplate.matrix, world);
+    for (const ds of this.#scene.datasets.values()) {
+      if (ds.kind === 'volume' && ds.toTemplate !== undefined) {
+        return applyAffine(ds.toTemplate.matrix, world);
+      }
+    }
+    return null;
   }
 
   // -----------------------------------------------------------------------------------------
@@ -1234,20 +1271,73 @@ export class TetravoxEngine implements Engine, PointerHost {
   }
 
   // -----------------------------------------------------------------------------------------
-  // Serialisation — §4.6. Phase 2 owns the relocate dialog; the shape is here from Phase 1.
+  // Serialisation — §4.6 / P2-07. The relocate dialog is the app's half (§8).
   // -----------------------------------------------------------------------------------------
 
-  serialize(): ViewSpec {
-    return toViewSpec(this.#scene);
+  /**
+   * Where the scene file lives, for §4.6's "paths **relative to the scene file**".
+   *
+   * §4.7's `serialize()` takes no argument and is frozen, so the one thing the engine cannot derive —
+   * where the host is about to write the file — is told to it instead. Left `null`, `serialize()`
+   * measures relative paths from the datasets' own common directory, which is the best guess
+   * available and is exactly right for the common case of a scene saved beside its data. `absPath` is
+   * written either way, so nothing depends on this being set.
+   */
+  setSceneDir(dir: string | null): void {
+    this.#sceneDir = dir;
   }
 
+  get sceneDir(): string | null {
+    return this.#sceneDir;
+  }
+
+  serialize(): ViewSpec {
+    return toViewSpec(this.#scene, {
+      sceneDir: this.#sceneDir,
+      fingerprints: this.#fingerprints,
+    });
+  }
+
+  /**
+   * §4.7's `load` — datasets, then **layers**, then views (P2-07).
+   *
+   * The order is forced. `addDataset` hands back a fresh `DatasetId`, so the spec's ids are stale the
+   * moment the first one lands: layers can only be recreated once the old→new map exists, and the
+   * views' `layerVisibility` and `activeLayerId` only once the layers have theirs. Phase 1 restored
+   * neither and could not have — `scene/serialize.ts` said so.
+   *
+   * `resolve` is §8's relocate hook: it returns the path to open for a `DatasetRef`, or `null` to
+   * skip. A skipped dataset takes its layers with it (`remapLayer` returns `null`), so a partly
+   * relocated scene opens as the part that resolved rather than as a scene full of layers pointing at
+   * nothing. `scene/serialize.ts`'s `candidatePaths` is the "relative first, absolute fallback"
+   * policy a host should try before it asks the user.
+   */
   async load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
+    const idMap = new Map<DatasetId, DatasetId>();
     for (const ref of spec.datasets) {
       const path = resolve(ref);
       if (path === null) continue;
-      await this.addDataset({ kind: 'path', path });
+      const ds = await this.addDataset({ kind: 'path', path });
+      idMap.set(ref.id, ds.id);
     }
-    applyViewSpec(this.#store, spec);
+
+    const layerMap = new Map<LayerId, LayerId>();
+    for (const serialized of spec.layers) {
+      // Only the kinds `scene/defaults.ts` can seed today; `addLayer` derives a layer's kind from its
+      // dataset, so an `iso` or `points` layer would come back as a volume or a mesh one. Their
+      // defaults are E-DERIVED's, and this restores them unchanged the day they land.
+      if (!isRestorableKind(serialized.kind)) continue;
+      const patch = remapLayer(serialized, idMap);
+      if (patch === null) continue;
+      const created = this.addLayer(patch as NewLayer);
+      layerMap.set(serialized.id, created.id);
+    }
+
+    applyViewSpec(this.#store, spec, layerMap);
+    const active = spec.activeLayerId;
+    this.#store.setActiveLayer(active !== null ? (layerMap.get(active) ?? null) : null);
+    this.#emit('layers', [...this.#scene.layers]);
+    this.#emit('cursor', this.#scene.cursor);
     this.requestRender();
   }
 

@@ -1532,3 +1532,43 @@ Each entry below names the problem, the fix, and the evidence.
   three notches out (about the pane centre, so `camera.center` stays `[0,0]`) before measuring, and the
   "`r` restores the fit" leg zooms **out** rather than in for the same reason. It passed locally
   because the local run has the real data; it would have failed on the first CI run.
+
+- 2026-08-27 — **`serialize()` is told where the scene file will live; it does not guess twice**
+  (E-SCENE, P2-07). §4.6 wants `DatasetRef.path` relative to the scene file and §4.7's `serialize()`
+  is frozen with no argument, so the one fact the engine cannot derive — the directory the host is
+  about to write to — is set on the concrete engine (`TetravoxEngine.setSceneDir`, outside the frozen
+  facade, like the rest of P2-01's surface). Unset, it measures from the datasets' own **common
+  directory**, which is exactly right for a scene saved beside its data and never worse than the
+  absolute path it also always writes. Resolution is the caller's (`load(spec, resolve)` is the
+  relocate hook), so the "scene-relative first, absolute fallback" order ships as one exported
+  function, `candidatePaths` — one implementation rather than one per host. A Vite `/@fs/<abs>` alias
+  is deliberately **not** treated as opaque: it is structurally a path, and treating it as one is what
+  lets the §11 harness exercise the relative-path code instead of skipping past it.
+
+- 2026-08-27 — **Restoring a scene is datasets, then layers, then views — in that order** (E-SCENE,
+  P2-07). `addDataset` mints a fresh `DatasetId`, so the spec's ids are stale from the first load:
+  layers can only be recreated once the old→new map exists, and `activeLayerId` /
+  `SliceView.layerVisibility` / `View3D.layerVisibility` only once the layers have theirs. Phase 1
+  restored neither and, as `scene/serialize.ts` said at the time, could not have. `remapLayer` also
+  rewrites the **second** dataset two layer kinds name — `MeshLayer.isolate.labelVolume` and
+  `IsosurfaceLayer.source` — and drops an isolation whose label volume did not come back rather than
+  leaving it pointed at whichever dataset now holds that id. A dataset the hook cannot place takes its
+  layers with it, so a partly relocated scene opens as the part that resolved.
+
+- 2026-08-27 — **`DatasetRef.fingerprint` is read from the meta, not asserted onto it** (E-SCENE,
+  P2-07 / W-WASM gap 1). The fingerprint has to be computed over the input bytes inside the dataset's
+  worker (§5 rule 3), and `VolumeMeta` / `MeshMeta` do not carry the field yet — it is W-WASM's, in a
+  frozen file E-SCENE may not touch. `fingerprintFromMeta` therefore reads whatever is on the meta,
+  accepts only a string and yields `''` otherwise. A cast that *declared* the field would have been a
+  lie about the wire; `''` is what §4.6's consumer, the relocate dialog, already reads as "cannot
+  verify", and the field lights up the day W-WASM lands with no change on this side.
+
+- 2026-08-27 — **`toTemplate` is derived from `sform_code`/`qform_code`, and only from the form the
+  reader actually used** (E-SCENE, P2-10). NIfTI-1 code 4 is `NIFTI_XFORM_MNI_152`, so a volume with
+  it is *already* in MNI152 mm and the transform is the identity — which is why the field is still a
+  matrix: `MNI305`, or a real registration, slots into the same shape. `headerJson` carries the codes
+  **and** the derived `affineSource`, so the check is against the form `affine_of` chose: a volume with
+  `sform_code = 2` and a stale `qform_code = 4` is in scanner space, and reporting MNI for it would put
+  a coordinate in a paper that is wrong by centimetres. Code 5 (`TEMPLATE_OTHER`) names no template
+  and claims nothing. No protocol change, exactly as the ownership map's "explicitly not gaps" table
+  predicted.

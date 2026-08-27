@@ -81,6 +81,48 @@ function typedArrayFor(dtype: VolumeMeta['dtype'], data: ArrayBuffer): TypedArra
   }
 }
 
+/**
+ * §4.3's `toTemplate`, derived from the NIfTI header — P2-10, and **no protocol change** (the
+ * ownership map's "explicitly not gaps" table says so; this is why).
+ *
+ * `VolumeMeta.headerJson` carries every raw header field, including `sform_code` / `qform_code` and
+ * the `affineSource` the reader chose between them (`crates/tvx-nifti/src/read.rs`). NIfTI-1 defines
+ * code **4** as `NIFTI_XFORM_MNI_152`: the world coordinates that affine produces *are* MNI152 mm. So
+ * the transform from world RAS to the template is the **identity**, and `ProbeResult.mni` is the
+ * cursor itself — which is why a matrix is still the right shape when it is `I`: a future `MNI305`,
+ * or a real registration, slots into the same field.
+ *
+ * The code consulted is the one belonging to the affine that was actually **used**, never "either of
+ * them": a volume with `sform_code = 2` (scanner anat — what every `m2m_ernie` volume has `[DATA]`)
+ * and a stale `qform_code = 4` is in scanner space, and reporting MNI for it would put a coordinate
+ * in a paper that is wrong by centimetres. Codes other than 4 — including 5,
+ * `NIFTI_XFORM_TEMPLATE_OTHER`, which names no particular template — yield `undefined`, and §8's MNI
+ * column then does not appear.
+ */
+export function toTemplateFromHeader(headerJson: string): VolumeDataset['toTemplate'] {
+  let header: Record<string, unknown>;
+  try {
+    header = JSON.parse(headerJson) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+  const source = header.affineSource;
+  const key = source === 'qform' ? 'qform_code' : source === 'sform' ? 'sform_code' : null;
+  if (key === null) return undefined;
+  // 4 = NIFTI_XFORM_MNI_152.
+  if (header[key] !== 4) return undefined;
+  return { name: 'MNI152', kind: 'affine', matrix: identity4() };
+}
+
+/** `matrix · world`, for `ProbeResult.mni` (§4.7). Column-major `mat4`, like everything in §3. */
+export function applyAffine(m: Float32Array, w: vec3): vec3 {
+  return [
+    (m[0] ?? 0) * w[0] + (m[4] ?? 0) * w[1] + (m[8] ?? 0) * w[2] + (m[12] ?? 0),
+    (m[1] ?? 0) * w[0] + (m[5] ?? 0) * w[1] + (m[9] ?? 0) * w[2] + (m[13] ?? 0),
+    (m[2] ?? 0) * w[0] + (m[6] ?? 0) * w[1] + (m[10] ?? 0) * w[2] + (m[14] ?? 0),
+  ];
+}
+
 /** World-space AABB of a volume: all eight voxel-grid corners through the affine. */
 export function volumeBounds(dims: vec3, affine: Float32Array): Aabb {
   const min: vec3 = [Infinity, Infinity, Infinity];
@@ -116,6 +158,7 @@ export function volumeDatasetFromMeta(
   const affine = new Float32Array(meta.affine);
   const inverseAffine = identity4();
   glMat4.invert(asGl(inverseAffine), asGl(affine));
+  const toTemplate = toTemplateFromHeader(meta.headerJson);
   return {
     kind: 'volume',
     id,
@@ -139,6 +182,10 @@ export function volumeDatasetFromMeta(
     units: meta.units,
     gpu: meta.gpu,
     headerJson: meta.headerJson,
+    // P2-10: derived here, from the header the loader already sends (§8's MNI column, §4.7's
+    // `ProbeResult.mni`). Assigned only when it exists, so the field stays absent rather than
+    // becoming an explicit `undefined` a `JSON.stringify` would have to carry.
+    ...(toTemplate !== undefined ? { toTemplate } : {}),
     worker,
     handle: meta.handle,
   };
