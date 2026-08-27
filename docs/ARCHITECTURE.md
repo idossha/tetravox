@@ -64,7 +64,8 @@ tetravox/
 │   └── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
 ├── testdata/                     # synthetic fixtures from scripts/gen-fixtures.py + expected.json (committed, < 2 MB)
 ├── scripts/                      # build-wasm.sh, gen-fixtures.py, bench.ts, refvalues/{mesh,nifti}_refvalues.py
-├── docs/                         # ARCHITECTURE.md (this), DECISIONS.md, FORMATS.md, ROADMAP.md, BENCHMARKS.md, USER_GUIDE.md
+├── docs/                         # ARCHITECTURE.md (this), DECISIONS.md, FORMATS.md, ROADMAP.md,
+│                                 #   TESTING.md (how to run §11/§12 locally), BENCHMARKS.md, USER_GUIDE.md
 └── .github/workflows/ci.yml      # the matrix in §12
 ```
 

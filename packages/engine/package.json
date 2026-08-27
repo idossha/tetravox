@@ -17,7 +17,9 @@
     "src"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e": "playwright test",
+    "e2e:update-goldens": "TETRAVOX_UPDATE_GOLDENS=1 playwright test"
   },
   "dependencies": {
     "@tetravox/protocol": "workspace:*",
