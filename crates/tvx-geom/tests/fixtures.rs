@@ -10,13 +10,16 @@
 //! the 48 exterior faces plus the 8 tag-differing interior ones, so it is `ernie.msh`'s
 //! surface invariant at a size a human can check by hand.
 
+use tvx_core::Field;
 use tvx_core::{BitMask, NoProgress, Plane};
 use tvx_geom::{
-    build_tet_blocks, build_topology, extract_boundary, isolate, locate_point, marching_tets,
+    build_tet_blocks, build_topology, elm_to_node, extract_boundary, face_normals, isolate,
+    label_centroids, locate_point, marching_cubes, marching_tets, morton_reorder, node_to_elm,
     orient_surface, plane_cut, surface_contours, tag_surfaces, vertex_normals, IsolateCriteria,
     SurfaceVariant,
 };
-use tvx_mesh_io::{read_msh, Mesh};
+use tvx_mesh_io::{read_msh, ElmField, Mesh};
+use tvx_nifti::{DataType, SpaceUnit, TimeUnit, Units, Volume, VolumeData};
 
 mod common;
 use common as fx;
@@ -93,6 +96,7 @@ fn big_node_count_mesh(k: u32) -> Mesh {
         gmsh_elm_numbers: None,
         tet_perm: (0..n_tets as u32).collect(),
         skipped: Vec::new(),
+        label_table: None,
     }
 }
 
@@ -396,4 +400,339 @@ fn contours_and_marching_tets_run_on_the_fixture() {
     let iso = marching_tets(&m, &field, 0.0, None, &mut NoProgress).unwrap();
     assert_eq!(iso.normals.len(), iso.positions.len());
     assert!(!iso.owner_elm.is_empty());
+}
+
+// -------------------------------------------------------------------------------------------
+// `marching_cubes`, `face_normals`, `elm_to_node` / `node_to_elm`, `morton_reorder`,
+// `label_centroids` — AGENTS rule 2's synthetic half, which Phase 1 left off for all six.
+// -------------------------------------------------------------------------------------------
+
+/// A synthetic scalar volume: `dims` samples of `f`, on a `spacing`-mm grid centred on the origin.
+fn synthetic_volume(dims: [usize; 3], spacing: f64, f: impl Fn([f64; 3]) -> f32) -> Volume {
+    let mut affine = [[0.0f64; 4]; 4];
+    for a in 0..3 {
+        affine[a][a] = spacing;
+        affine[a][3] = -spacing * ((dims[a] - 1) as f64) / 2.0;
+    }
+    affine[3][3] = 1.0;
+    let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
+    for k in 0..dims[2] {
+        for j in 0..dims[1] {
+            for i in 0..dims[0] {
+                let w = [
+                    affine[0][0] * i as f64 + affine[0][3],
+                    affine[1][1] * j as f64 + affine[1][3],
+                    affine[2][2] * k as f64 + affine[2][3],
+                ];
+                data.push(f(w));
+            }
+        }
+    }
+    Volume {
+        dims,
+        nvols: 1,
+        affine,
+        spacing: [spacing, spacing, spacing],
+        datatype: DataType::F32,
+        data: VolumeData::F32(data),
+        scl_slope: 1.0,
+        scl_inter: 0.0,
+        cal_min: 0.0,
+        cal_max: 0.0,
+        intent_code: 0,
+        intent_name: String::new(),
+        descrip: String::new(),
+        xyz_units: Units {
+            space: SpaceUnit::Millimeter,
+            time: TimeUnit::Unknown,
+        },
+        is_label: false,
+        header_json: "{}".into(),
+    }
+}
+
+/// Surface area, enclosed (signed) volume and the mean agreement between the emitted normals and
+/// the outward radial direction — the three numbers that decide whether an isosurface is right.
+fn surface_stats(s: &tvx_geom::SurfaceBuffers) -> (f64, f64, f64, f64, f64) {
+    // `Indexed` welds vertices, so the triangle list is `indices`; `Deindexed` has none and the
+    // positions are the triangles.
+    let p = |t: usize, c: usize| -> [f64; 3] {
+        let v = match &s.indices {
+            Some(ix) => ix[t * 3 + c] as usize,
+            None => t * 3 + c,
+        };
+        [
+            s.positions[v * 3] as f64,
+            s.positions[v * 3 + 1] as f64,
+            s.positions[v * 3 + 2] as f64,
+        ]
+    };
+    let tris = match &s.indices {
+        Some(ix) => ix.len() / 3,
+        None => s.positions.len() / 9,
+    };
+    let (mut area, mut vol6) = (0.0, 0.0);
+    let (mut rmin, mut rmax) = (f64::INFINITY, 0.0f64);
+    let mut dot_sum = 0.0;
+    for t in 0..tris {
+        let (a, b, c) = (p(t, 0), p(t, 1), p(t, 2));
+        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        area += 0.5 * len;
+        // Divergence theorem: 6V = sum over triangles of a . (b x c).
+        vol6 += a[0] * (b[1] * c[2] - b[2] * c[1])
+            + a[1] * (b[2] * c[0] - b[0] * c[2])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+        for q in [a, b, c] {
+            let r = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2]).sqrt();
+            rmin = rmin.min(r);
+            rmax = rmax.max(r);
+        }
+        let m = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt().max(1e-12);
+        if len > 0.0 {
+            dot_sum += (n[0] * m[0] + n[1] * m[1] + n[2] * m[2]) / (len * ml);
+        }
+    }
+    (area, vol6 / 6.0, rmin, rmax, dot_sum / tris as f64)
+}
+
+/// §6.3's `marching_cubes` on an **analytic** sphere: area and enclosed volume converge on the
+/// closed forms, every vertex sits on the isosurface to within a voxel, and the winding is outward.
+///
+/// This is the whole of AGENTS rule 2's synthetic half for a function Phase 1 shipped with **no**
+/// test in any crate — its only coverage anywhere was a `positions.length > 0` smoke check from
+/// TypeScript.
+#[test]
+fn marching_cubes_reproduces_an_analytic_sphere() {
+    let radius = 10.0f64;
+    let mut previous: Option<(f64, f64, f64)> = None;
+    for (n, spacing) in [(33usize, 1.0f64), (65, 0.5)] {
+        let vol = synthetic_volume([n, n, n], spacing, |w| {
+            (radius - (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt()) as f32
+        });
+        let s = marching_cubes(&vol, 0, 0.0, true, &mut NoProgress).unwrap();
+        assert!(!s.positions.is_empty(), "the sphere is inside the grid");
+        assert_eq!(s.normals.len(), s.positions.len());
+        // `smooth` welds, so this is an `Indexed` surface: one owner per triangle, and the
+        // triangles are in `indices`.
+        assert_eq!(s.owner_elm.len(), s.indices.as_ref().unwrap().len() / 3);
+
+        let (area, volume, rmin, rmax, outward) = surface_stats(&s);
+        let area_ratio = area / (4.0 * std::f64::consts::PI * radius * radius);
+        let vol_ratio = volume / (4.0 / 3.0 * std::f64::consts::PI * radius.powi(3));
+
+        // Every vertex is an exact linear interpolation along a grid edge, so it lands on the true
+        // sphere to within the chord error of one cell — never outside it.
+        assert!(
+            rmax <= radius + 1e-4 && rmin >= radius - spacing,
+            "vertex radii {rmin}..{rmax} for r={radius}, h={spacing}"
+        );
+        // A closed, outward-wound surface: the divergence theorem gives a positive volume and the
+        // face normals agree with the radial direction almost everywhere.
+        // A piecewise-linear surface through a convex body is inscribed, so both ratios approach 1
+        // from below as h shrinks and neither may exceed it by more than rounding. The bars here are
+        // loose on purpose — the *convergence* assertion below is what says the kernel is right, and
+        // a bar tight enough to be interesting at h=0.5 would be wrong at h=1.
+        assert!(
+            vol_ratio > 0.97 && vol_ratio < 1.001,
+            "enclosed volume ratio {vol_ratio} at h={spacing}"
+        );
+        assert!(
+            area_ratio > 0.97 && area_ratio < 1.01,
+            "area ratio {area_ratio} at h={spacing}"
+        );
+        // Outward, and by a margin no random winding could reach: a coin toss averages 0. The bar
+        // is 0.9 rather than 0.999 because a Freudenthal decomposition emits genuinely tilted
+        // slivers at 10 voxels per radius; it tightens with h, which the convergence check below
+        // requires.
+        assert!(outward > 0.9, "mean dot(normal, radial) {outward}");
+        eprintln!(
+            "[marching_cubes] h={spacing}: area/4pi r^2 = {area_ratio:.5}, \
+             volume/(4/3 pi r^3) = {vol_ratio:.5}, radii {rmin:.3}..{rmax:.3}, outward {outward:.4}"
+        );
+
+        if let Some((a0, v0, o0)) = previous {
+            assert!(
+                outward > o0,
+                "outwardness {o0} -> {outward} did not improve"
+            );
+            // Halving the voxel must move both toward 1, not away: this is what says the kernel is
+            // consistent rather than accidentally close at one resolution.
+            assert!(
+                (1.0 - area_ratio).abs() < (1.0 - a0).abs(),
+                "area {a0} -> {area_ratio} did not improve"
+            );
+            assert!(
+                (1.0 - vol_ratio).abs() < (1.0 - v0).abs(),
+                "volume {v0} -> {vol_ratio} did not improve"
+            );
+        }
+        previous = Some((area_ratio, vol_ratio, outward));
+    }
+}
+
+#[test]
+fn marching_cubes_refuses_a_frame_that_is_not_there() {
+    let vol = synthetic_volume([4, 4, 4], 1.0, |w| w[0] as f32);
+    assert!(marching_cubes(&vol, 1, 0.0, false, &mut NoProgress).is_err());
+    // An isovalue outside the data is empty, not an error.
+    let s = marching_cubes(&vol, 0, 1e6, false, &mut NoProgress).unwrap();
+    assert!(s.positions.is_empty());
+}
+
+/// `label_centroids` on a volume whose answer is exact by construction (§6.3).
+#[test]
+fn label_centroids_are_exact_on_a_synthetic_volume() {
+    // Label 3 fills one octant, label 7 a single voxel. 5x5x5 at 2 mm, centred on the origin, so
+    // voxel (i,j,k) is world (2i-4, 2j-4, 2k-4).
+    let vol = synthetic_volume([5, 5, 5], 2.0, |w| {
+        if w[0] >= 0.0 && w[1] >= 0.0 && w[2] >= 0.0 {
+            3.0
+        } else if w == [-4.0, -4.0, -4.0] {
+            7.0
+        } else {
+            0.0
+        }
+    });
+    let cs = label_centroids(&vol, 0).unwrap();
+    let get = |id: u32| cs.iter().find(|c| c.id == id).expect("label present");
+    // The +++ octant is voxels 2..4 in each axis: 27 voxels centred on (2, 2, 2) mm.
+    assert_eq!(get(3).count, 27);
+    for a in 0..3 {
+        assert!((get(3).centroid[a] - 2.0).abs() < 1e-4);
+    }
+    assert_eq!(get(7).count, 1);
+    assert_eq!(get(7).centroid, [-4.0, -4.0, -4.0]);
+    // Zero is a label like any other here; what it means is the caller's business (§7.3).
+    assert_eq!(get(0).count, 125 - 27 - 1);
+}
+
+/// `face_normals` (§6.3), which had no test in either crate.
+#[test]
+fn face_normals_are_unit_and_follow_the_winding() {
+    let m = lattice();
+    let n = face_normals(&m.nodes, &m.tris);
+    assert_eq!(n.len(), m.tris.len() * 3);
+    for (t, tri) in m.tris.iter().enumerate() {
+        let p = |k: usize| m.nodes[tri[k] as usize].map(f64::from);
+        let (a, b, c) = (p(0), p(1), p(2));
+        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let x = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        let len = (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt();
+        assert!(len > 0.0, "triangle {t} is degenerate");
+        for a2 in 0..3 {
+            assert!(
+                (f64::from(n[t * 3 + a2]) - x[a2] / len).abs() < 1e-5,
+                "triangle {t} axis {a2}"
+            );
+        }
+    }
+}
+
+/// `elm_to_node` / `node_to_elm` (§6.3) on the fixture: the two exact cases a volume-weighted mean
+/// must reproduce, at a size a human can check.
+#[test]
+fn field_conversion_is_exact_on_the_lattice_for_the_cases_that_must_be() {
+    let mut m = lattice();
+    m.tet_perm = morton_reorder(&mut m);
+
+    // 1. A constant element field averages to the same constant at every node it touches.
+    let constant = ElmField {
+        name: "k".into(),
+        ncomp: 1,
+        tri: vec![],
+        tet: vec![7.5; m.tets.len()],
+        units: None,
+        partial: false,
+        stats: tvx_mesh_io::field_stats(&[7.5f32], 1),
+    };
+    let node = elm_to_node(&m, &constant).unwrap();
+    assert_eq!(node.data.len(), m.nodes.len());
+    for (i, v) in node.data.iter().enumerate() {
+        assert!((v - 7.5).abs() < 1e-4, "node {i} = {v}");
+    }
+
+    // 2. A **linear** node field lands on the tet's centroid value, exactly — the property that
+    //    makes the pair round-trip on smooth data at all.
+    let linear = Field {
+        name: "x+2y+3z".into(),
+        ncomp: 1,
+        data: m
+            .nodes
+            .iter()
+            .map(|p| p[0] + 2.0 * p[1] + 3.0 * p[2])
+            .collect(),
+        units: None,
+        partial: false,
+        stats: tvx_mesh_io::field_stats(&[0.0f32], 1),
+    };
+    let elm = node_to_elm(&m, &linear).unwrap();
+    assert_eq!(elm.tet.len(), m.tets.len());
+    assert_eq!(elm.tri.len(), m.tris.len());
+    for (j, tet) in m.tets.iter().enumerate() {
+        let mut want = 0.0f32;
+        for &v in tet {
+            let p = m.nodes[v as usize];
+            want += (p[0] + 2.0 * p[1] + 3.0 * p[2]) / 4.0;
+        }
+        assert!(
+            (elm.tet[j] - want).abs() < 1e-3,
+            "tet {j}: {} vs {want}",
+            elm.tet[j]
+        );
+    }
+}
+
+/// `morton_reorder` (§6.3) on the fixture: a permutation that carries the tags and the fields with
+/// it, and improves spatial locality rather than merely shuffling.
+#[test]
+fn morton_reorder_permutes_the_lattice_and_its_tags() {
+    let before = lattice();
+    let mut m = lattice();
+    let perm = morton_reorder(&mut m);
+
+    assert_eq!(perm.len(), before.tets.len());
+    let mut seen = vec![false; perm.len()];
+    for &p in &perm {
+        assert!(!seen[p as usize], "morton_reorder returned a duplicate");
+        seen[p as usize] = true;
+    }
+    assert!(seen.iter().all(|&s| s), "and it must cover every tet");
+
+    // Every tet, its tag and its element-field values move together.
+    for (j, &src) in perm.iter().enumerate() {
+        assert_eq!(m.tets[j], before.tets[src as usize]);
+        assert_eq!(m.tet_tags[j], before.tet_tags[src as usize]);
+        for (f, g) in m.elm_fields.iter().zip(&before.elm_fields) {
+            let n = f.ncomp;
+            assert_eq!(
+                &f.tet[j * n..(j + 1) * n],
+                &g.tet[src as usize * n..(src as usize + 1) * n],
+                "field {} at tet {j}",
+                f.name
+            );
+        }
+    }
+
+    // Locality is deliberately NOT asserted here. §6.3 wants the reorder so that a per-64-block
+    // AABB reject has something to reject, and on a 48-tet lattice whose file order already walks
+    // cube by cube there is nothing to improve — measured, Morton is *less* local at this size
+    // (6.02 mm mean step against 4.91). The locality claim is a property of a real mesh and is
+    // asserted on `ernie.msh` in `tests/real_data.rs`, where §6.3's own `[M2Max]` note lives.
 }

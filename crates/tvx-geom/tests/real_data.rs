@@ -13,9 +13,9 @@
 use std::path::PathBuf;
 use tvx_core::{BitMask, NoProgress, Plane};
 use tvx_geom::{
-    build_point_locator, build_tet_blocks, extract_boundary, label_centroids, locate_point,
-    marching_tets, morton_reorder, orient_surface, plane_cut, surface_contours, tag_surfaces,
-    SurfaceVariant,
+    build_point_locator, build_tet_blocks, build_topology, extract_boundary, isolate,
+    label_centroids, locate_point, marching_cubes, marching_tets, morton_reorder, orient_surface,
+    plane_cut, surface_contours, tag_surfaces, vertex_normals, IsolateCriteria, SurfaceVariant,
 };
 use tvx_mesh_io::{read_msh, Mesh};
 
@@ -462,4 +462,257 @@ fn label_centroids_on_final_tissues() {
             );
         }
     }
+}
+
+/// §11's Surface-invariant row names **two** meshes; Phase 1 asserted the first only, and the second
+/// is the one that matters most — `m2m_ernie-seeg/ernie-seeg.msh` has 2,323,873 nodes, well past
+/// 2²¹, which is exactly where a 3×21-bit packed face key silently merges distinct faces and deletes
+/// real boundary. The other seeg test drives high node indices through a 1.2 M-tet masked subset;
+/// this one runs the whole-mesh invariant, which is what the row asks for.
+#[test]
+fn stored_tris_are_the_exterior_and_interface_face_set_on_ernie_seeg() {
+    let mut m = require_mesh!("m2m_ernie-seeg/ernie-seeg.msh");
+    // AGENTS.md's mesh table.
+    assert_eq!(m.nodes.len(), 2_323_873);
+    assert_eq!(m.tris.len(), 2_629_579);
+    assert_eq!(m.tets.len(), 13_158_048);
+    assert!(m.nodes.len() > (1 << 21), "the point of this file");
+    load_time(&mut m);
+
+    // Derived from the 13.2 M tets alone, with no reference to the stored triangles.
+    let b = extract_boundary(&m, None, None, SurfaceVariant::Indexed, &mut NoProgress).unwrap();
+    assert_eq!(
+        b.owner_elm.len(),
+        2_629_579,
+        "§6.3 / §11: 202,318 exterior + 2,427,261 tag-differing interior"
+    );
+    // …and the split §11 actually writes down, which needs the topology: a face with one tet is
+    // exterior, a face with two tets of different tags is an interface.
+    let topo = build_topology(&m, &mut NoProgress).unwrap();
+    let exterior = topo.face_tets.iter().filter(|ft| ft[1] < 0).count();
+    let interface = topo
+        .face_tets
+        .iter()
+        .filter(|ft| ft[1] >= 0 && m.tet_tags[ft[0] as usize] != m.tet_tags[ft[1] as usize])
+        .count();
+    assert_eq!(exterior, 202_318, "§11: exterior faces of ernie-seeg.msh");
+    assert_eq!(interface, 2_427_261, "§11: tag-differing interior faces");
+    assert_eq!(
+        exterior + interface,
+        2_629_579,
+        "= the stored triangle count"
+    );
+
+    // The stored triangles group into the same total, over the §6.2 `1xxx` surface tags. (The
+    // derived boundary is keyed by *tet* tag instead, so the two censuses are not comparable
+    // key for key — only their totals are.)
+    let s = tag_surfaces(&m, SurfaceVariant::Indexed, &mut NoProgress).unwrap();
+    assert_eq!(s.owner_elm.len(), 2_629_579);
+    let census: std::collections::BTreeMap<i32, u32> =
+        s.per_tag.iter().map(|r| (r.tag, r.count / 3)).collect();
+    assert_eq!(census.values().sum::<u32>(), 2_629_579);
+    // AGENTS.md gives one electrode count for *this* file specifically — the 1013/1014/1015 counts
+    // in that paragraph belong to `ernie_seeg.msh`, the other, different file.
+    assert_eq!(census.get(&1016), Some(&39_526));
+    assert!(census.contains_key(&1013) && census.contains_key(&1015));
+    assert!(!census.contains_key(&1004), "tag 4 does not exist");
+}
+
+/// `build_topology` (§6.3) on ernie — synthetic-only in Phase 1. The unique-face count is the one
+/// §9.2's memory table is built from, so it is a number the contract already depends on.
+#[test]
+fn build_topology_counts_ernies_faces() {
+    let mut m = require_mesh!("m2m_ernie/ernie.msh");
+    load_time(&mut m);
+    let topo = build_topology(&m, &mut NoProgress).unwrap();
+    // §9.2: "For ernie.msh (847,165 nodes; 1,177,213 tris; 4,722,625 tets; 9,509,557 unique faces)".
+    assert_eq!(topo.faces.len(), 9_509_557);
+    assert_eq!(topo.face_tets.len(), topo.faces.len());
+    // §6.3: 128,614 of the mesh's 1,177,213 stored triangles are exterior — a face with one tet.
+    let boundary = topo.face_tets.iter().filter(|ft| ft[1] < 0).count();
+    assert_eq!(boundary, 128_614);
+    // Every face names a real tet, and an interior face names two different ones.
+    for ft in topo.face_tets.iter().take(1_000_000) {
+        assert!(ft[0] >= 0 && (ft[0] as usize) < m.tets.len());
+        assert!(ft[1] < 0 || (ft[1] as usize) < m.tets.len());
+        assert!(ft[1] < 0 || ft[0] != ft[1]);
+    }
+}
+
+/// `isolate` (§6.3) on ernie — synthetic-only in Phase 1. §9.1 row 17b names the answer: "isolating
+/// ernie's GM leaves exactly 1,340,029 tets".
+#[test]
+fn isolate_selects_ernies_grey_matter() {
+    let mut m = require_mesh!("m2m_ernie/ernie.msh");
+    load_time(&mut m);
+    let crit: IsolateCriteria = serde_json::from_str(
+        r#"{"tags":[2],"field":null,"sphere":null,"box":null,"labelVolume":null,"combine":"all"}"#,
+    )
+    .unwrap();
+    let mask = isolate(&m, &crit, None, &mut NoProgress).unwrap();
+    assert_eq!(mask.len(), m.tets.len());
+    assert_eq!(
+        mask.count_ones(),
+        1_340_029,
+        "§9.1 row 17b, AGENTS.md tag 2"
+    );
+    for (j, &t) in m.tet_tags.iter().enumerate() {
+        assert_eq!(mask.get(j), t == 2, "tet {j}");
+    }
+
+    // A sphere at the thalamus target, intersected with GM: `combine: "all"` must narrow, never
+    // widen, and every survivor must satisfy both arms.
+    let crit2: IsolateCriteria = serde_json::from_str(
+        r#"{"tags":[2],"field":null,"sphere":{"center":[0,-14,6],"radius":15},"box":null,
+            "labelVolume":null,"combine":"all"}"#,
+    )
+    .unwrap();
+    let both = isolate(&m, &crit2, None, &mut NoProgress).unwrap();
+    assert!(both.count_ones() > 0 && both.count_ones() < mask.count_ones());
+    for j in 0..m.tets.len() {
+        if both.get(j) {
+            assert!(mask.get(j), "the intersection must be inside the tag arm");
+        }
+    }
+}
+
+/// `vertex_normals` (§6.3) on ernie — synthetic-only in Phase 1.
+#[test]
+fn vertex_normals_are_unit_on_ernie() {
+    let mut m = require_mesh!("m2m_ernie/ernie.msh");
+    orient_surface(&m.nodes, &mut m.tris);
+    let n = vertex_normals(&m.nodes, &m.tris);
+    assert_eq!(n.len(), m.nodes.len() * 3);
+    let mut unit = 0usize;
+    let mut zero = 0usize;
+    for v in n.chunks_exact(3) {
+        let len =
+            (f64::from(v[0]).powi(2) + f64::from(v[1]).powi(2) + f64::from(v[2]).powi(2)).sqrt();
+        if len < 1e-6 {
+            zero += 1;
+        } else {
+            assert!((len - 1.0).abs() < 1e-3, "normal length {len}");
+            unit += 1;
+        }
+    }
+    // Every node the tissue surfaces touch gets a unit normal; the rest are interior nodes with no
+    // triangle at all, and a zero there is honest rather than a NaN.
+    assert_eq!(unit + zero, m.nodes.len());
+    assert!(unit > 500_000, "{unit} nodes carry a surface normal");
+}
+
+/// §6.3's reason for `morton_reorder`: "with file order a per-64-block AABB reject at the mid-axial
+/// plane visits 4,722,624 of 4,722,625 tets — zero speedup `[M2Max]`". That is a locality claim, and
+/// it is only true on a real mesh (SimNIBS writes elements grouped by physical tag), so it is
+/// asserted here rather than on the fixture.
+#[test]
+fn morton_reorder_makes_ernie_local_enough_for_the_block_index() {
+    let mut m = require_mesh!("m2m_ernie/ernie.msh");
+    let file_order = build_tet_blocks(&m, 64);
+    m.tet_perm = morton_reorder(&mut m);
+    let morton = build_tet_blocks(&m, 64);
+
+    // A block's mean half-extent is the whole of the speedup: a block that spans the head rejects
+    // nothing. Measured 2026-08-27 — file order ~65 mm, Morton order ~3 mm.
+    let mean_extent = |b: &tvx_geom::TetBlocks| -> f64 {
+        let n = b.aabb.len() / 6;
+        let mut sum = 0.0;
+        for i in 0..n {
+            for a in 3..6 {
+                sum += f64::from(b.aabb[i * 6 + a]);
+            }
+        }
+        sum / (n * 3) as f64
+    };
+    let (before, after) = (mean_extent(&file_order), mean_extent(&morton));
+    eprintln!("[morton] mean block half-extent {before:.2} mm (file order) -> {after:.2} mm");
+    assert!(
+        after * 5.0 < before,
+        "Morton order must shrink the blocks by more than 5x: {before} -> {after}"
+    );
+
+    // …and the consequence §6.3 states: at the mid-axial plane, file order rejects essentially
+    // nothing while Morton order rejects most of the mesh.
+    let bb = m.bounds;
+    let mid = (f64::from(bb.min[2]) + f64::from(bb.max[2])) / 2.0;
+    let visits = |b: &tvx_geom::TetBlocks| -> usize {
+        let n = b.aabb.len() / 6;
+        (0..n)
+            .filter(|&i| {
+                let cz = f64::from(b.aabb[i * 6 + 2]);
+                let ez = f64::from(b.aabb[i * 6 + 5]);
+                (cz - mid).abs() <= ez
+            })
+            .count()
+    };
+    let (vf, vm) = (visits(&file_order), visits(&morton));
+    let total = m.tets.len().div_ceil(64);
+    eprintln!("[morton] mid-axial plane touches {vf} of {total} blocks in file order, {vm} in Morton order");
+    assert!(vf * 4 > total * 3, "file order rejects almost nothing");
+    assert!(vm * 4 < total, "Morton order must reject most of the mesh");
+}
+
+/// `marching_cubes` (§6.3) on a real volume: the isosurface between background and head in
+/// `final_tissues.nii.gz` must enclose the same space the labelled voxels do.
+#[test]
+fn marching_cubes_encloses_the_head_in_final_tissues() {
+    let Some(root) = root() else {
+        eprintln!("skipping: TETRAVOX_TESTDATA is unset");
+        return;
+    };
+    let p = root.join("m2m_ernie/final_tissues.nii.gz");
+    let Ok(bytes) = std::fs::read(&p) else {
+        eprintln!("skipping: {}", p.display());
+        return;
+    };
+    let vol = tvx_nifti::read_nifti(bytes, &mut NoProgress).expect("final_tissues.nii.gz");
+    assert_eq!(vol.dims, [256, 256, 208], "AGENTS.md");
+
+    // The reference is derived from the same file, by counting rather than by contouring: at
+    // iso 0.5 the surface separates label 0 from everything else, so it must enclose one voxel of
+    // space per labelled voxel. Voxels are 1 mm here (the affine's columns are unit axes).
+    let mut labelled = 0u64;
+    let raw = match &vol.data {
+        tvx_nifti::VolumeData::U16(v) => v,
+        other => panic!("AGENTS.md says uint16, got {other:?}"),
+    };
+    for &v in raw.iter() {
+        if v > 0 {
+            labelled += 1;
+        }
+    }
+    let voxel_mm3 = vol.spacing[0] * vol.spacing[1] * vol.spacing[2];
+    let want = labelled as f64 * voxel_mm3;
+
+    let s = marching_cubes(&vol, 0, 0.5, true, &mut NoProgress).unwrap();
+    let ix = s.indices.as_ref().expect("smooth => Indexed");
+    let mut vol6 = 0.0f64;
+    for t in ix.chunks_exact(3) {
+        let q = |v: u32| {
+            let i = v as usize * 3;
+            [
+                f64::from(s.positions[i]),
+                f64::from(s.positions[i + 1]),
+                f64::from(s.positions[i + 2]),
+            ]
+        };
+        let (a, b, c) = (q(t[0]), q(t[1]), q(t[2]));
+        vol6 += a[0] * (b[1] * c[2] - b[2] * c[1])
+            + a[1] * (b[2] * c[0] - b[0] * c[2])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    }
+    let got = vol6 / 6.0;
+    let ratio = got / want;
+    eprintln!(
+        "[marching_cubes] final_tissues: {} triangles enclose {got:.0} mm^3 against {labelled} labelled voxels ({want:.0} mm^3), ratio {ratio:.4}",
+        ix.len() / 3
+    );
+    // The contour runs through the 0.5 crossing, which is *half a voxel outside* the outermost
+    // labelled voxel centre, so it encloses slightly more than the voxel count — 1.018 measured
+    // here. What it may never be is negative (inward winding), zero (nothing emitted) or wrong by
+    // tens of per cent (a dropped case).
+    assert!(
+        ratio > 0.95 && ratio < 1.05,
+        "enclosed volume ratio {ratio} ({got} vs {want})"
+    );
 }

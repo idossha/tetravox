@@ -1238,3 +1238,29 @@ Each entry below names the problem, the fix, and the evidence.
   in §6.2 rather than merely present: `tvx-geom` cannot build a `Field` without them and a second
   65536-bin accumulator would be two implementations of one normative rule. A side benefit:
   `load_mesh` no longer parses a `.label.gii` twice — the table rides on the mesh.
+- 2026-08-27 — **AGENTS rule 2's missing halves, filled in for six `tvx-geom` functions.**
+  `marching_cubes` had **no** test in any crate — a §6.3 export, a §6.4 wasm export and a §6.5.2 op,
+  covered only by a `positions.length > 0` smoke check from TypeScript. It has an analytic one now:
+  an implicit sphere at two resolutions, asserting area/4πr², enclosed volume by the divergence
+  theorem, vertex radii within one voxel of the true surface, and outward winding — with the *change*
+  between the two resolutions asserted too, which is what separates "correct" from "close at one
+  grid". Measured: area 0.99741 → 0.99936, volume 0.97625 → 0.99371, outward 0.954 → 0.989. Plus a
+  real-data test on `final_tissues.nii.gz`, where the isosurface at 0.5 must enclose the labelled
+  voxels' own volume (ratio 1.018 — the contour sits half a voxel outside the last labelled centre,
+  so slightly over 1 is the correct sign). `face_normals` likewise had none. `elm_to_node` /
+  `node_to_elm` / `morton_reorder` / `label_centroids` gained the synthetic half they lacked, and
+  `build_topology` / `isolate` / `vertex_normals` the real-data half.
+  Two of the new tests are worth naming: §6.3's locality claim ("with file order a per-64-block AABB
+  reject at the mid-axial plane visits 4,722,624 of 4,722,625 tets — zero speedup") had never been
+  asserted anywhere, and now is — mean block half-extent 83.77 mm in file order against 3.46 mm in
+  Morton order, and 73,791 of 73,792 blocks touched against 3,879. And the fixture's *own* locality
+  is deliberately **not** asserted: on a 48-tet lattice whose file order already walks cube by cube,
+  Morton is measurably *less* local (6.02 mm mean step against 4.91), so a synthetic version of that
+  assertion would have been a false one.
+- 2026-08-27 — **§11's Surface-invariant row is asserted on both meshes now, with its own split.**
+  `ernie-seeg.msh` (2,323,873 nodes — past 2²¹, where a packed 3×21-bit face key aliases) appeared
+  only in a doc comment. The new test derives the boundary from the 13.2 M tets and gets 2,629,579,
+  then uses `build_topology` to assert the split §11 actually writes down: 202,318 exterior +
+  2,427,261 tag-differing interior. Note the two censuses are **not** comparable key for key —
+  `extract_boundary` labels a derived face with its *tet* tag while `tag_surfaces` uses the stored
+  `1xxx` tri tag — so only the totals and the per-file electrode counts are cross-checked.
