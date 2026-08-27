@@ -2,8 +2,12 @@
  * The Phase-0 walking skeleton (ROADMAP Phase-0 gate 2 & 3).
  *
  * React is chrome only (§1). Everything visual here is one raw-WebGL2 triangle whose colour came out
- * of a real `tvx-wasm` call made in a module Worker under the `tetravox://app` origin. Phase 1
- * replaces the worker with `@tetravox/wasm`'s compute worker and the triangle with the engine.
+ * of a real `tvx-wasm` call made in a module Worker under the `tetravox://app` origin.
+ *
+ * **Phase 1 did not delete it.** Gate items 2, 3 and 8 are proved by this component and by nothing
+ * else, and the macOS CI leg runs the packaged E2E against it with `TETRAVOX_REQUIRE_PACKAGED=1`, so
+ * a skip there is a failure. It is now reached by `?ui=phase0` (see `App.tsx`), which
+ * `e2e/phase0.spec.ts` passes as `--tvx-search=ui=phase0`; the default UI is the §8 shell.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -85,7 +89,7 @@ async function ingestDrop(
   }
 }
 
-export function App(): React.JSX.Element {
+export function Phase0App(): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startedRef = useRef(false);
   const [report, setReport] = useState<Phase0Report | null>(null);

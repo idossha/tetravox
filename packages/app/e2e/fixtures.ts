@@ -101,6 +101,14 @@ function packagedBlockedReason(): string | null {
 export interface LaunchOptions {
   /** Extra CLI paths, to exercise the §8 argv capture. */
   args?: string[];
+  /**
+   * The renderer's launch query, handed to main as `--tvx-search=…` (see `src/main/index.ts`).
+   * `ui=phase0` selects the Phase-0 walking skeleton; everything else configures the stand-in engine
+   * the Phase-1 shell is developed against.
+   */
+  search?: string;
+  /** Extra environment for the launched app — `TETRAVOX_DOWNLOAD_DIR` for the screenshot leg. */
+  env?: Record<string, string>;
 }
 
 /**
@@ -118,10 +126,18 @@ export async function launchApp(
   target: LaunchTarget,
   options: LaunchOptions = {}
 ): Promise<ElectronApplication> {
-  const args = options.args ?? [];
+  const search = options.search === undefined ? [] : [`--tvx-search=${options.search}`];
+  const args = [...search, ...(options.args ?? [])];
   // The AppImage/deb sandbox needs a correctly-owned chrome-sandbox that a CI runner rarely has
   // (§12.2); on Linux the packaged binary is launched with --no-sandbox for that reason.
   const linuxSandbox = process.platform === 'linux' ? ['--no-sandbox'] : [];
+
+  // `env` REPLACES the child's environment when given, so it is always merged onto `process.env`:
+  // dropping PATH/HOME from an Electron launch fails in ways that look nothing like the cause.
+  const env =
+    options.env === undefined
+      ? undefined
+      : ({ ...process.env, ...options.env } as Record<string, string>);
 
   if (target === 'packaged') {
     const executablePath = packagedExecutable();
@@ -129,10 +145,12 @@ export async function launchApp(
     return electron.launch({
       executablePath,
       args: [...DETERMINISM_ARGS, ...linuxSandbox, ...args],
+      ...(env === undefined ? {} : { env }),
     });
   }
   return electron.launch({
     args: [APP_ROOT, ...DETERMINISM_ARGS, ...linuxSandbox, ...args],
     cwd: APP_ROOT,
+    ...(env === undefined ? {} : { env }),
   });
 }

@@ -23,6 +23,13 @@ import type { LaunchTarget } from './fixtures';
 import { FIXTURE_BYTES, tvxPing, tvxPingBytes } from './expected';
 import { decodePng, pixelAt } from './png';
 
+/**
+ * Phase 1 made the §8 shell the default UI, so the walking skeleton this whole file asserts is now
+ * reached explicitly. Nothing else about the gate changed: the same component, the same wasm round
+ * trip, the same drop branches, in both the `dev` and `packaged` projects.
+ */
+const PHASE0_SEARCH = 'ui=phase0';
+
 const PING_SEED = 0x54565830;
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
@@ -56,7 +63,7 @@ test.describe('Phase-0 walking skeleton', () => {
     const target = workerInfo.project.name as LaunchTarget;
     const blocked = target === 'packaged' ? packagedUnavailable() : null;
     test.skip(blocked !== null, blocked ?? '');
-    app = await launchApp(target);
+    app = await launchApp(target, { search: PHASE0_SEARCH });
     page = await app.firstWindow();
     report = await readReport(page);
   });
@@ -181,7 +188,7 @@ test.describe('drag and drop (§8)', () => {
     const target = workerInfo.project.name as LaunchTarget;
     const blocked = target === 'packaged' ? packagedUnavailable() : null;
     test.skip(blocked !== null, blocked ?? '');
-    app = await launchApp(target);
+    app = await launchApp(target, { search: PHASE0_SEARCH });
     page = await app.firstWindow();
     await readReport(page);
   });
@@ -281,7 +288,7 @@ test.describe('path capture', () => {
     const blocked = target === 'packaged' ? packagedUnavailable() : null;
     test.skip(blocked !== null, blocked ?? '');
     const fixture = join(APP_ROOT, 'resources', 'phase0-fixture.bin');
-    const app = await launchApp(target, { args: [fixture] });
+    const app = await launchApp(target, { args: [fixture], search: PHASE0_SEARCH });
     try {
       const page = await app.firstWindow();
       await readReport(page);
