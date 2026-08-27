@@ -36,14 +36,26 @@ dataset.
   *copies* ArrayBuffers (only `MessagePort` transfers across processes), so the drawn "(transfer)" path cost three
   full copies of a 492 MB file. Rust readers keep the `1f 8b` sniff + `flate2` inflate for native/CLI/browser.
 - 2026-08-27 — No utility worker in v1 — directive A1 permits one; the only cross-dataset op (`isolate` with a
-  `labelVolume` criterion) is cheaper evaluated in the mesh worker from a transferred copy of the label volume
-  (27 MB `[DATA]`) than by shipping 4.7 M tet centroids (56 MB) the other way. A second cross-dataset op gets the
-  utility worker, as an ARCHITECTURE.md edit.
+  `labelVolume` criterion) is cheaper evaluated in the mesh worker from a **structured-cloned** copy of the label
+  volume (27 MB `[DATA]`) than by shipping 4.7 M tet centroids (56 MB) the other way. **Cloned, never
+  transferred** — `VolumeDataset.data` is the array the UI thread probes from, and a transfer detaches it, so no
+  `Req.args` buffer is ever put in a transfer list. A second cross-dataset op gets the utility worker, as an
+  ARCHITECTURE.md edit.
 - 2026-08-27 — Results are owned `Vec<T>` or `copy_from` into caller-owned `js_sys` arrays; never `view()` —
   `memory.grow` detaches every outstanding view. `&mut [MaybeUninit<T>]` outputs — rejected (two copies).
 - 2026-08-27 — `progress`/`cancel` are protocol members, not an add-on; latest-wins drops *queued* requests only,
-  an in-flight wasm call runs to completion (wasm is not preemptible) and is stopped by an abort flag polled at
-  section boundaries.
+  and an in-flight wasm call runs to completion (wasm is not preemptible). **Cancelling an in-flight call is
+  `worker.terminate()`, never a polled abort flag** — the app is not cross-origin isolated, so
+  `SharedArrayBuffer` is `undefined` in the workers (verified in a module Worker on Chromium 151, headless and
+  headed: `self.crossOriginIsolated === false`) and a plain `Uint8Array` handed to wasm is a private copy that
+  nothing else can write; a synchronous wasm call also blocks the worker's own event loop, so it could not
+  receive the `Cancel` message either. Terminating is already the architecture's memory-reclaim primitive
+  (worker-per-dataset), needs no COOP/COEP, and makes the 500 ms cancel bar trivially true. Consequence:
+  `loadVolume`/`loadMesh` are cancellable and nothing else is — `buildTopology` (< 1.5 s) and marching
+  cubes/tets (< 1 s) run to completion rather than throwing away a parsed 492 MB mesh. `abort: &js_sys::Uint8Array`
+  is dropped from every §6.4 signature; `ProgressSink::aborted()` stays for the native/CLI build.
+  Serving `tetravox://` with COOP/COEP to obtain a SAB-backed abort array — rejected: it re-introduces
+  cross-origin isolation (and CORP on every subresource) purely to cancel two ops that do not need cancelling.
 
 ### Geometry
 - 2026-08-27 — Default 3D representation of a mesh with surface elements is its own tagged triangles;
@@ -62,7 +74,10 @@ dataset.
   freeze latest-wins cannot prevent.
 - 2026-08-27 — Morton element order at load + per-64-tet block AABBs for plane cuts — SimNIBS `.msh` element order
   is grouped by tissue tag, so a spatial index over file order rejects nothing (4,722,624 of 4,722,625 tets
-  visited `[M2Max]`). Reordering makes the cut 290.7 ms → 2.7 ms; `morton_reorder` 144 ms, `build_tet_blocks`
+  visited `[M2Max]`). Morton order + block AABBs take the cut **29.0 ms → 2.7 ms** axial and 28.7 → 3.1 ms
+  oblique, both WASM `[M2Max]` (the reorder alone, with no index, already gives 19.8 ms via cache locality); the
+  "290.7 ms" in the original review was a deoptimized JS proxy — a correct JS version of the same scan is
+  86.6 ms and the real WASM baseline is 29.0 ms, so the index is a ~10.7× win, not ~108×. `morton_reorder` 144 ms, `build_tet_blocks`
   39 ms / 1.77 MB `[M2Max]`. Reusing the `PointLocator` centroid grid — rejected (indirection per tet, different
   optimal cell size). The UI reports Gmsh element numbers, never internal indices.
 - 2026-08-27 — `plane_cut` stays **exact, always**; no coarse-while-held / exact-on-release split — at 2.7 ms the
@@ -83,8 +98,11 @@ dataset.
   Binding an integer texture to `sampler3D` is `INVALID_OPERATION`, so the slice shader has two variants keyed on
   `isLabel`, not a uniform switch.
 - 2026-08-27 — Scalar GPU format ladder ends at R16-normalized (via `EXT_texture_norm16`), not R16F — `T1.nii.gz`'s
-  max is exactly 65535.0 `[DATA]` and half-float's largest finite value is 65504, so R16F yields `+Inf`; half is
-  also inexact above 2048. Measured T1 upload R32F 55 MB / 9.2 ms vs R16 27 MB / 3.3 ms `[M2Max]`. Labels are a
+  **because half-float has an 11-bit mantissa**: even with the same `GpuPayload{scale, offset}` normalisation
+  into [0,1] that directive C1's R16F proposal carried, it yields ~2048 distinct levels in the top binade against
+  R16's 65536 uniform ones. (Unscaled R16F would additionally overflow — `T1.nii.gz`'s max is exactly 65535.0
+  `[DATA]` against half's 65504 ceiling — but nobody proposed unscaled R16F, so overflow alone does not settle
+  it.) Measured T1 upload R32F 55 MB / 9.2 ms vs R16 27 MB / 3.3 ms `[M2Max]`. Labels are a
   dense-index remap in R8UI/R16UI + an `N×1 RGBA8` palette; a 256×1 LUT cannot address FreeSurfer/`.annot` ids.
   R16UI for a non-label 16-bit layer — rejected (the silent black-slice case).
 - 2026-08-27 — `scl_slope`/`scl_inter` are never folded into samples; carried in `GpuPayload{scale, offset}` and
@@ -127,10 +145,16 @@ dataset.
   minification (3 of 28 labels never sampled at 1 mm/px; 6 of 27 at 10 mm/px) — is a **sampler** item in Phase 3,
   affecting `fill` and `outline` identically. Locked by a three-zoom golden asserting thickness ∈ [0.8, 2.9] px.
 - 2026-08-27 — Pick target is single-sample `R32UI` + `DEPTH_COMPONENT24` at the colour target's device-pixel
-  size, id = `(layerIndex+1)<<24 | elementIndex`, 0 = miss, depth in a second `R32UI` attachment as
-  `floatBitsToUint(gl_FragCoord.z)` — WebGL2 cannot `readPixels` a depth attachment, and there is no
-  `gl_PrimitiveID`, so element ids come from a per-vertex attribute. R32UI over RGBA32UI: 19 MB vs 75 MB at
-  2880×1620, 0.031 ms vs 0.043 ms 1×1 readback `[M2Max]`. An `RGBA32F` world-position MRT — rejected (a full-size
+  size, id = `(layerIndex+1)<<25 | kindBit<<24 | gmshElementNumber`, 0 = miss, depth in a **second** `R32UI`
+  attachment as `floatBitsToUint(gl_FragCoord.z)` — WebGL2 cannot `readPixels` a depth attachment, and there is
+  no `gl_PrimitiveID`, so element ids come from a per-vertex attribute. Two R32UI attachments over one RGBA32UI:
+  **37.3 MB vs 74.6 MB** at 2880×1620 (the design uses *two*, so the honest comparison is 2 × 18.66, not 19),
+  0.031 ms vs 0.043 ms 1×1 readback `[M2Max]`. `RED_INTEGER`/`UNSIGNED_INT` is the implementation-defined read
+  format on ANGLE/Metal **and** SwiftShader, with `RGBA_INTEGER` spec-guaranteed as the fallback (verified to
+  work on an R32UI target, returning `(value,0,0,1)`). `kindBit` sources `PickResult.elementKind`, which
+  otherwise had no producer. The 24-bit element field is budgeted against the **combined** tri+tet Gmsh sequence
+  — `ernie-seeg.msh` reaches 15,787,627 `[DATA]`, 94 % of the cap — so the per-tag fallback triggers on
+  `maxGmshElementNumber > 0x00FFFFFF`, never on a tet count. An `RGBA32F` world-position MRT — rejected (a full-size
   float attachment and an extension dependency for no accuracy gain: window-z reconstructs to ~0.008 mm).
   2D views pick on the CPU (ray ∩ plane), never on the GPU.
 - 2026-08-27 — Transparency v1 is a scene-wide two-phase split (2a back faces sorted by far extent, 2b front faces
@@ -166,8 +190,10 @@ dataset.
   once along the normal with a snap to the nearest voxel plane.
 - 2026-08-27 — "Ships Chromium ⇒ identical WebGL2" corrected to "identical *semantics*, not identical GPU
   availability" — Chromium M137 removed the automatic SwiftShader WebGL fallback, so a blocklisted driver returns
-  a null WebGL2 context. Electron floor pinned at ≥ 38.2 (Wayland native by default; `ELECTRON_OZONE_PLATFORM_HINT`
-  removed in 38). Main process appends `enable-unsafe-swiftshader` so a driverless Linux box degrades to
+  a null WebGL2 context. Electron floor pinned at **≥ 42**: Electron supports only the latest three majors
+  (42/43/44 as of 2026-08-25), so 38.2 would start the project on an unsupported branch with no security
+  backports. Wayland-native-by-default and the removal of `ELECTRON_OZONE_PLATFORM_HINT` landed in 38 and are
+  inherited — they are not what sets the floor. Main process appends `enable-unsafe-swiftshader` so a driverless Linux box degrades to
   slow-but-working, and `enable-webgl-developer-extensions` so `EXT_disjoint_timer_query_webgl2` is a live path;
   the JIT-in-GPU-process trade is accepted. `getContext('webgl2') === null` gets a real error screen.
 
@@ -219,8 +245,99 @@ dataset.
   known electron-builder regressions. `electron-builder` is pinned to an exact patch.
 - 2026-08-27 — Dependency freeze at the end of Phase 0 with both lockfiles committed; `pnpm-lock.yaml` and
   `Cargo.lock` are never merged (take `main`, regenerate). pnpm 10 ignores dependency build scripts, so the root
-  carries `"pnpm": {"onlyBuiltDependencies": ["esbuild","electron"]}`, and Electron's binary is fetched on first
-  launch, so CI warms it explicitly. Gate: a clean clone with an empty store reaches `pnpm e2e` green.
+  carries `"pnpm": {"onlyBuiltDependencies": ["esbuild","electron"]}`. Electron **38–41** fetch the ~100 MB
+  binary from a `postinstall` — which is exactly what that setting un-skips; from **42**, the pinned floor,
+  there is no `postinstall` and the binary is fetched on first launch instead (`npm view electron@<v> scripts`,
+  checked 2026-08-27). CI warms it explicitly either way. Gate: a clean clone with an empty store reaches `pnpm e2e` green.
 - 2026-08-27 — Gmsh 4.1 support has no local reference implementation (SimNIBS refuses v4) and no sample file;
   its fixtures are generated with `~/Applications/SimNIBS-4.6/bin/gmsh`. SimNIBS's own `mesh_io.py` element-block
   skip arithmetic is wrong (hard-codes 2 tags into a 3) and must not be copied.
+
+## 2026-08-27 — contract v2 consistency pass (two independent contract reviews)
+
+Two reviewers checked v2 for internal consistency and buildability. Every finding was verified against the docs
+and, where it named a number, against the reference dataset. The entries above were **corrected in place** where
+they carried a wrong number (the 290.7 ms cut baseline, the R32UI pick cost, the R16F rationale, the Electron
+floor and its `postinstall`, "transferred copy") because those were transcription errors, not reversed decisions.
+The decisions below are new.
+
+- 2026-08-27 — **Cancellation is `worker.terminate()`; no wasm export takes an abort argument.** Recorded in full
+  under "Process, memory, loading" above. This is the one finding that made a frozen signature unbuildable rather
+  than merely ambiguous.
+- 2026-08-27 — **New op `volumeFrame` (17 ops, not 16), export `volume_frame`.** `loadVolume` returned one
+  `gpuBytes` blob and one `stats` with no volume index, and `Volume::{stats, label_index, gpu_payload}` had no
+  export — so no 4D index but 0 could ever be displayed, while §1 puts 4D index picking in scope, §7.5 binds
+  `,`/`.` to it and ROADMAP Phase 2 ships a spinner. `VolumeMeta.stats`/`gpu` are now explicitly volume 0's;
+  everything per-index comes from `volumeFrame`.
+- 2026-08-27 — **The isolation criteria have one wire format, pinned by serde attributes in §6.3 and a worked
+  JSON example in §6.5.1.** Bulk arrays never go through `JSON.stringify` (a `Uint32Array` stringifies to
+  `{"0":…}`): `labels` is a plain `number[]`, and the label volume's samples travel as `mesh_isolate`'s separate
+  `label_volume: Option<Vec<u8>>` argument, described by `dtype`/`dims`/`worldToVoxel`/`volumeIndex` in the JSON.
+  `#[serde(rename_all = "camelCase")]` + `#[serde(rename = "box")]` + lowercase enum tags make the Rust struct
+  match §6.5.1's `IsolateCriteriaT` name for name.
+- 2026-08-27 — **`CutOut` is one multi-plane arena with a `plane_offsets` table, carries `edge_segments` and
+  `boundary_segments`, and has a `#[wasm_bindgen(constructor)]` with `pub` fields.** `OpResult['cut']` is a
+  discriminated union `{mode:'buffers', cuts} | {mode:'recycled', truncated, counts}` with an explicit overflow
+  protocol. The previous shape could not express what §6.4 said it returned (counts, against a `CutPayload[]`
+  type), had no way to share one buffer set between up to 6 planes, silently dropped the 2D overlay arrays, and
+  had no JS constructor for the worker to build one with.
+- 2026-08-27 — **Sidecars are named by role, not ordered.** `LoadSource.sidecars: { lut?, opt? }` on all three
+  variants; `load_volume` gains `lut_bytes`, `load_mesh` gains `lut_bytes` alongside `opt_bytes`. Without this
+  `VolumeMeta.labelTable`, `MeshMeta.tags[].name/color` and `MeshMeta.labelTables` had no producer, and the
+  worker could not tell a `_LUT.txt` from a `.msh.opt` in a positional `sidecarUrls: string[]`.
+- 2026-08-27 — **`LoadSource` gains a `{kind:'file'; file: File}` variant** and §8's drop fallback names it.
+  A `File` is structured-cloneable, so the renderer posts it for free; the previous text routed the fallback
+  through `kind:'bytes'`, which forces `await file.arrayBuffer()` — a 492 MB allocation on the very thread §5
+  rule 3 and AGENTS rule 7 forbid from seeing file bytes.
+- 2026-08-27 — **Colours are 0..1 floats everywhere in §4, `[u8;4]`/0..255 everywhere in Rust and on the wire,
+  with exactly one conversion point** (`packages/engine/src/scene/fromMeta.ts`). The range was stated once, on
+  `LabelEntry`, and nowhere else; §11's "the cap pixel is exactly the tag colour" is only an assertion if both
+  sides agree.
+- 2026-08-27 — **`Threshold.softBins` renamed `softEdge`**, defined once as "width of the alpha ramp as a
+  fraction of `hi - lo`; 0 = hard discard", quoted verbatim in §7.0.5 and §7.3. The old name and its three
+  incompatible glosses (fraction of `[lo,hi]`, a count of bins, a fraction of one histogram bin) would have
+  produced three different widths in a golden that measures exactly that edge.
+- 2026-08-27 — **`gmsh_elm_numbers` is `None` exactly when the file numbers elements `1..N` tris-first**, and the
+  Gmsh number is then reconstructed as `i+1` / `n_tris + tet_perm[j] + 1`. Verified on all five reference `.msh`
+  files plus `ernie_TDCS_1_scalar.msh` `[DATA]`: every one is contiguous with the tri block first. This both
+  defines what `owner_elm` holds for STL/PLY/OBJ/GIfTI (which have no element numbers at all) and saves 47.2 MB
+  on ernie / 126.3 MB on `ernie-seeg`. Numbers above `u32::MAX` are `Error::Unsupported`, never truncated.
+- 2026-08-27 — **`locate_point` returns a whole `ProbeHit`** (Gmsh number, internal tet index, tag, every node
+  and element field value), not an `Option<u32>`. The `locate` op promised the fields and no function produced
+  them; splitting the gather across two ops would double the ≤ 50 ms hover budget.
+- 2026-08-27 — **`MeshDataset.transform` is a user-editable *additional* transform, always identity on load**;
+  what the loader baked into the node coordinates is reported separately as `appliedTransform`, with
+  `dataSpace`/`transformedSpace` alongside. Node coordinates handed to the engine are always world mm.
+- 2026-08-27 — **`generation` is a per-handle counter incremented on every successful `isolate`**, stamped into
+  `MeshGeometry.cacheKey`; a `maskId` from an older generation is `Error::Parse`. It appeared in the `isolate`
+  result and the mask lifecycle rule with no definition, and the cache key did not include it.
+- 2026-08-27 — **`mesh_surface`, `mesh_boundary` and `mesh_isolate` take `on_progress`** (their §6.3 functions
+  always took a `ProgressSink`, §9.1 row 16 requires progress, and `isolate` now takes one too).
+- 2026-08-27 — **`[TARGET]` provenance tag added**, and §9's heading no longer claims "measured, not asserted"
+  for rows that were never timed. `scripts/refvalues/*.py` emit byte counts and field statistics, never a wall
+  clock, so `[DATA]` on a latency row was misleading. Phase 3's gate is now "every `[TARGET]` replaced".
+- 2026-08-27 — **§9.2 is budgeted per path, not by one multiple**: load path < 2 × file size (every reference
+  mesh lands at 1.5–1.9 ×), `buildTopology` path < 3.2 × (1.6–3.2 ×). The flat "< 2 × file size" rule was
+  violated by every row underneath it, and the SEEG "must stay < 1.5 GB" bar was breachable by clicking a clip
+  plane — recomputed, topology on `ernie-seeg.msh` peaks at ≈ 1.56 GB, which is fine against the 4032 MiB
+  ceiling but not against a flat 1.5 GB. Component sizes re-derived: retained `Mesh` for ernie is **149.1 MB**
+  (the old 130.3 MB omitted `tet_perm`, which is unconditional).
+- 2026-08-27 — **§9.1 row 17 split into the `isolate` predicate (< 100 ms) and the rebuild that follows it**
+  (`extract_boundary` + de-index, budgeted consistently with row 19). Isolating ernie's GM leaves exactly
+  1,340,029 tets `[DATA]` — precisely row 19's workload — so a 300 ms bar covering "re-extraction plus
+  de-indexing" was 5× tighter than row 19 for strictly more work.
+- 2026-08-27 — **`EngineOptions.forceCaps`** (a capability-removing test axis, like `forceDiscardClip`) and the
+  §7.1 SwiftShader capability table. The golden authority has **no `EXT_texture_norm16`** `[SwS]`, so every
+  golden pins the R32F branch of the §6.1 ladder while the shipping renderer uses R16 — the primary format path
+  is untestable by golden and is covered by paired analytic pixel tests instead.
+- 2026-08-27 — **`ernie_TDCS_1_scalar.msh` (420,249,153 B) added to AGENTS.md, `scripts/refvalues/`, §7.6 and
+  §9.** It is the largest non-SEEG mesh in the dataset, the only reference file with a vector field, and hence
+  the only test file for `GlyphSpec`, `component: 0|1|2` and the electrode/gel palette — and it was listed
+  nowhere.
+- 2026-08-27 — **Phase boundaries corrected in ROADMAP**: Phase 1 owns a minimum §7.3 slice shader and a minimum
+  §7.4 mesh shader (its own gates need them, and no other agent may write into `packages/engine/src`); Phase 1
+  owns the whole of `tvx-geom` including `elm_to_node`, `node_to_elm`, `marching_cubes` and `marching_tets`
+  (AGENTS rule 3 is one agent per crate); the two §11 tests that need Phase-2 rendering (mesh contours on the
+  oblique golden, `showIn3D` overlay compositing) are split into Phase-1 and Phase-2 variants; and Phase 0's
+  packaging gate is narrowed to the host platform's artefact, with the cross-platform matrix moved to Phase 3,
+  since `pnpm package` cannot build a Linux artefact on macOS.

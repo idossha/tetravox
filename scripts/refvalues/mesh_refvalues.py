@@ -49,14 +49,20 @@ def mesh_summary(path, with_tags=True, with_fields=True, with_bbox=True):
         fields = []
         for name, f in m.field.items():
             d = np.asarray(f.value)
-            fields.append({
+            ncomp = int(d.shape[1]) if d.ndim > 1 else 1
+            entry = {
                 "name": name,
                 "kind": "elmdata" if isinstance(f, mesh_io.ElementData) else "nodedata",
                 "n": int(d.shape[0]),
-                "ncomp": int(d.shape[1]) if d.ndim > 1 else 1,
+                "ncomp": ncomp,
                 "min": float(np.nanmin(d)),
                 "max": float(np.nanmax(d)),
-            })
+            }
+            if ncomp == 3:
+                mag = np.linalg.norm(d, axis=1)
+                entry["mag_min"] = float(np.nanmin(mag))
+                entry["mag_max"] = float(np.nanmax(mag))
+            fields.append(entry)
         out["fields"] = fields
     return out
 
@@ -122,6 +128,12 @@ def main():
     for p in (j("m2m_ernie", "ernie_seeg.msh"), j("m2m_ernie-seeg", "ernie-seeg.msh")):
         if os.path.exists(p):
             res["meshes"].append(mesh_summary(p, with_tags=True, with_fields=False, with_bbox=True))
+    # Largest non-SEEG mesh (420 MB) and the only reference file with a vector field: the GlyphSpec /
+    # component:0|1|2 / electrode-palette test case. The same file exists under every Simulations/*/;
+    # L_Insula is the one AGENTS.md pins.
+    p = j("Simulations", "L_Insula", "high_Frequency", "mesh", "ernie_TDCS_1_scalar.msh")
+    if os.path.exists(p):
+        res["meshes"].append(mesh_summary(p))
 
     for s in ("lh.central.gii", "lh.pial.gii"):
         res["surfaces"].append(gii_summary(j("m2m_ernie", "surfaces", s)))

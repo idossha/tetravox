@@ -9,8 +9,10 @@ in flight. `docs/DECISIONS.md` is append-only.
 - Rust only: `cargo test --workspace`, `cargo clippy --workspace -- -D warnings`, `cargo bench -p <crate>`
 - `pnpm wasm` is a prerequisite of `build` / `test` / `typecheck`. Never typecheck against a missing `pkg/`.
 - pnpm 10 skips dependency build scripts: the root `package.json` carries
-  `"pnpm": { "onlyBuiltDependencies": ["esbuild", "electron"] }`. Electron downloads its binary on **first
-  launch**, not on install — run `pnpm exec electron --version` once before `pnpm e2e` on a cold machine.
+  `"pnpm": { "onlyBuiltDependencies": ["esbuild", "electron"] }`. From **electron 42** (the pinned floor) the
+  ~100 MB binary is downloaded on **first launch**, not on install; electron 38–41 fetch it from a `postinstall`
+  that pnpm would otherwise skip. Either way, run `pnpm exec electron --version` once before `pnpm e2e` on a
+  cold machine.
 - `pnpm package` builds **this platform's** artefacts only. Linux artefacts come from CI (§12.1) or
   `docker run electronuserland/builder`.
 
@@ -39,6 +41,33 @@ memory or from an older revision of this file.
 | `Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh` | 63,926,663 | 368,762 | **0** | 1,340,029 |
 | `m2m_ernie/ernie_seeg.msh` | 492,090,201 | 2,301,899 | 2,612,423 | 13,033,527 |
 | `m2m_ernie-seeg/ernie-seeg.msh` | 496,603,805 | 2,323,873 | 2,629,579 | 13,158,048 |
+| `Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh` | 420,249,153 | 847,306 | 1,177,378 | 4,723,120 |
+
+`ernie_TDCS_1_scalar.msh` is the **largest non-SEEG mesh in the dataset** — bigger than the 396,601,700 B
+`flex_*_TI.msh` — and the **only reference file carrying a vector field**, so it is the test file for
+`GlyphSpec`, for `MeshLayer.field.component: 0 | 1 | 2`, and for the electrode/gel palette §7.6 mandates. The
+same file exists under every `Simulations/*/high_Frequency/mesh/`; sizes differ by a few kB per simulation
+(420,232,249 – 420,256,725 B), so pin the one named above. Its element numbering is `1..5,900,498`, tri block
+first, like every other reference `.msh`.
+
+**`ernie_TDCS_1_scalar.msh` tags** — the ten tissue tags of `ernie.msh` plus:
+
+| Tri tag | Count | | Tet tag | Count |
+|---|---|---|---|---|
+| 1101 | 28 | | 101 | 84 |
+| 1102 | 27 | | 102 | 81 |
+| 1501 | 28 | | 501 | 168 |
+| 1502 | 27 | | 502 | 162 |
+| 2101 | 28 | | | |
+| 2102 | 27 | | | |
+
+Its tri tags 1001–1099 and tet tags 1–10 are **identical counts** to `ernie.msh`'s. Node bbox is identical to
+`ernie.msh`'s. **Fields** (both `$ElementData`, n = 5,900,498 = all elements):
+
+| Field | ncomp | min | max |
+|---|---|---|---|
+| `E` | 3 | −44.684382404915226 | 54.317663395011905 (magnitude 8.563626769948982e-13 … 57.78990622669672) |
+| `magnE` | 1 | 8.563626769948982e-13 | 57.78990622669672 |
 
 `ernie_seeg.msh` and `ernie-seeg.msh` are **two different files**, which is why the design review quotes two node
 counts. Both exceed 2²¹ nodes (22 bits), so both break a 3×21-bit packed face key — use either as the

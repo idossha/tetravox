@@ -18,6 +18,7 @@ against the 68 findings and 14 adversarial verifications in `docs/review/2026-08
 | `[N25]` | Node 25.4.0 (same V8 as Electron's Chromium), rustc 1.93.0 |
 | `[DATA]` | Measured from the reference dataset by `scripts/refvalues/{mesh,nifti}_refvalues.py`, 2026-08-27 |
 | `[MODEL]` | Arithmetic from `[DATA]` counts and stated element sizes — not a wall-clock measurement |
+| `[TARGET]` | A budget with **no measurement behind it yet**. Phase 3 must replace it with a real number in `docs/BENCHMARKS.md`. Never cite a `[TARGET]` row as evidence that something is fast. |
 
 ---
 
@@ -25,10 +26,11 @@ against the 68 findings and 14 adversarial verifications in `docs/review/2026-08
 
 | Concern | Decision | Why (short) |
 |---|---|---|
-| Shell / packaging | **Electron ≥ 38.2** (electron-vite, electron-builder → `.dmg`, `.AppImage`, `.deb`) | One Chromium build ⇒ identical WebGL2/ESSL **semantics** on macOS and Linux. *Not* identical GPU availability: Chromium M137 removed the automatic SwiftShader WebGL fallback, so a blocklisted driver yields `getContext('webgl2') === null`. Electron 38 made Wayland native by default and removed `ELECTRON_OZONE_PLATFORM_HINT`, so no ozone flags are needed — but the floor is pinned. Tauri's WebKitGTK WebGL2 is inconsistent — rejected. |
+| Shell / packaging | **Electron ≥ 42** (electron-vite, electron-builder → `.dmg`, `.AppImage`, `.deb`) | One Chromium build ⇒ identical WebGL2/ESSL **semantics** on macOS and Linux. *Not* identical GPU availability: Chromium M137 removed the automatic SwiftShader WebGL fallback, so a blocklisted driver yields `getContext('webgl2') === null`. Electron 38 made Wayland native by default and removed `ELECTRON_OZONE_PLATFORM_HINT`, so no ozone flags are needed from 38 up — but the floor is **42**, not 38: Electron supports only the latest three majors (42/43/44 as of 2026-08-25, when 44.0.0 shipped), so 38 (2025-09-02) starts the project on a branch with no security backports. 42 is also where the `electron` package stops shipping a `postinstall` (§12.2). Tauri's WebKitGTK WebGL2 is inconsistent — rejected. |
 | Rendering | **Custom WebGL2 engine in TypeScript** (`packages/engine`), no three.js, no NiiVue | Small specialised primitive set (3D-texture slices with N composited layers, tet clip + exact caps, ID picking). One context / one depth buffer for volumes *and* meshes. WebGPU is a later backend behind the `GpuBackend` boundary, not a v1 goal. |
 | Heavy compute | **Rust → WASM** (`crates/`), **one worker + one wasm instance per dataset** | Parsing 184–497 MB `.msh`, face extraction over 4.7–13.2 M tets, plane cuts, marching cubes, isolation masks. Pure-Rust crates (no wasm-specific code in `tvx-nifti`/`tvx-mesh-io`/`tvx-geom`) so the same code builds native/CLI. |
-| WASM threading | **Single-threaded, permanently** | wasm threads need `SharedArrayBuffer` ⇒ `crossOriginIsolated` ⇒ COOP/COEP headers, plus `-Zbuild-std` on nightly for `+atomics,+bulk-memory`. Parallelism comes from worker-per-dataset instead. `rayon` is not a dependency and must not become one. |
+| WASM threading | **Single-threaded, permanently** | wasm threads need `SharedArrayBuffer` ⇒ `crossOriginIsolated` ⇒ COOP/COEP headers, plus `-Zbuild-std` on nightly for `+atomics,+bulk-memory`, and nightly is forbidden (§10) regardless of headers. Parallelism comes from worker-per-dataset instead. `rayon` is not a dependency and must not become one. |
+| Cross-origin isolation | **Not enabled.** `tetravox://` is served **without** COOP/COEP | Follows from single-threaded WASM: nothing needs `SharedArrayBuffer`. The consequence is load-bearing and stated once here: **`SharedArrayBuffer` is `undefined` in the workers** (verified in a module Worker in Chromium 151, headless and headed: `self.crossOriginIsolated === false`, `typeof SharedArrayBuffer === 'undefined'`). A synchronous wasm call therefore cannot be signalled from another thread — a plain `Uint8Array` written on the UI thread is a *different buffer* from the worker's — so cancelling an in-flight call is `worker.terminate()`, never a polled abort flag (§5 rule 6). |
 | UI | **React 18 + TypeScript + Tailwind**; small Zustand store | UI is chrome only — all rendering is imperative in the engine. |
 | Math | `gl-matrix` | Small, fast, standard. Column-major `mat4` as `Float32Array(16)`. |
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
@@ -100,7 +102,9 @@ Rules:
 * Gmsh/SimNIBS meshes are already in the subject's world mm (same space as the m2m `T1.nii.gz`); loaded as-is.
   GIfTI applies `CoordinateSystemTransformMatrix` when `TransformedSpace == NIFTI_XFORM_SCANNER_ANAT`.
   FreeSurfer binary surfaces are in *tkr-RAS*; with a companion volume apply `vox2ras · inv(vox2ras-tkr)`,
-  otherwise load as-is and expose the per-dataset `transform: mat4` the user can edit.
+  otherwise load as-is. **Node coordinates handed to the engine are always world mm with the file's transform
+  already applied**, and what was applied is reported in `MeshMeta.appliedTransform`; the per-dataset
+  `MeshDataset.transform` is a separate, user-editable *additional* transform that starts as identity (§4.3).
 * 2D views: the plane is **derived from the cursor and the view basis**, never stored (§4.5). Canonical presets:
   axial `normal = +Z`, coronal `normal = +Y`, sagittal `normal = +X`.
 * Handedness: `right = cross(up, normal)` in **neurological** (subject left on screen left, the default).
@@ -122,6 +126,10 @@ Rules:
 export type vec2 = [number, number];
 export type vec3 = [number, number, number];
 export type vec4 = [number, number, number, number];
+// COLOUR CONVENTION (normative, no exceptions): every `vec4` used as a colour anywhere in §4 — LabelEntry.color,
+// MeshTag.color, MshOptions.tagColor, MeshLayer.solidColor/edgeColor, tagStyle[].color, IsosurfaceLayer.color,
+// GlyphSpec.color, PointsLayer.color, Scene.background — is **RGBA in 0..1 floats**. Rust and the §6.5 wire keep
+// `[u8; 4]` / 0..255. See §4.1's conversion rule below.
 export type mat4 = Float32Array;                    // column-major, length 16 (gl-matrix layout)
 export type quat = [number, number, number, number];
 export type TypedArray =
@@ -147,6 +155,14 @@ export type ColormapName =
   | 'blue-cyan';                                    // default negative branch (§7.6)
 ```
 
+**Colour range — one rule, one conversion point.** Everything in §4 is 0..1 float RGBA. Everything Rust-side
+(§6.0 `LabelEntry.color: [u8;4]`, `MshOptions.tag_color`) and everything on the §6.5 wire (`LabelEntryT.color`,
+`MeshMeta.tags[].color`, `MeshMeta.opt.tagColor`) is 0..255. The **only** place that divides by 255 is
+`packages/engine/src/scene/fromMeta.ts`, which builds `Dataset`s from `VolumeMeta` / `MeshMeta`; nothing else in
+the engine, and nothing in the app, may convert. `expectPixel` (§11) asserts 0..255 bytes, so the expected value
+for a tag-coloured pixel is the **wire** `[u8;4]` — `round(engineColor·255)` and the wire value must agree
+exactly, which is what makes §11's "the cap pixel is exactly the tag colour" a real assertion.
+
 ### 4.2 Scalar display model
 
 ```ts
@@ -159,7 +175,7 @@ export interface Threshold {
   lo: number; hi: number;
   symmetric: boolean;                 // compare |v| instead of v
   mode: 'hide' | 'clamp';
-  softBins: number;                   // §7.0.5: alpha ramps over this fraction of [lo,hi]; 0 = hard discard
+  softEdge: number;                   // width of the alpha ramp as a fraction of `hi - lo`; 0 = hard discard
 }
 
 export type PercentileKey = '0.1' | '1' | '2' | '5' | '50' | '95' | '98' | '99' | '99.9';
@@ -171,7 +187,7 @@ export interface Stats {                            // always in PHYSICAL units 
   histogramLo: number; histogramHi: number;
 }
 
-export interface LabelEntry { id: number; name: string; color: vec4 }   // color components 0..255
+export interface LabelEntry { id: number; name: string; color: vec4 }   // 0..1 (converted from the wire's 0..255)
 export interface LabelTable { entries: LabelEntry[]; byId: Map<number, LabelEntry> }
 ```
 
@@ -213,12 +229,12 @@ export interface MeshFieldInfo {
   units?: string; partial: boolean;   // true when the file left gaps (filled with NaN, §6.2)
   stats: Stats;                       // of the magnitude when ncomp > 1
 }
-export interface MeshTag { id: number; name?: string; color: vec4; kind: 'tri' | 'tet'; count: number }
+export interface MeshTag { id: number; name?: string; color: vec4 /* 0..1 */; kind: 'tri' | 'tet'; count: number }
 export interface OrientReport {
   components: number; openComponents: number; nonManifoldEdges: number; flippedComponents: number;
 }
 export interface MshOptions {
-  tagColor: Record<number, vec4>;
+  tagColor: Record<number, vec4>;     // 0..1 (wire form is Rust `Vec<(i32,[u8;4])>` / `Record<number,[u8;4]>`)
   tagVisible: Record<number, boolean>;
   views: { name?: string; customMin?: number; customMax?: number; rangeType?: number;
            saturateValues?: boolean; colormapNumber?: number; showScale?: boolean; vectorType?: number }[];
@@ -226,7 +242,12 @@ export interface MshOptions {
 
 export interface MeshDataset {
   kind: 'mesh'; id: DatasetId; name: string; path?: string;
-  transform: mat4; bounds: Aabb;
+  transform: mat4;                    // USER-EDITABLE ADDITIONAL transform; ALWAYS identity on load. See below.
+  appliedTransform: mat4;             // what the loader already baked into the node coordinates (identity for
+                                      //   Gmsh/STL/PLY/OBJ; the GIfTI/FreeSurfer matrix when one was applied)
+  dataSpace?: string;                 // GIfTI CoordinateSystem strings, verbatim, when the file carried them
+  transformedSpace?: string;
+  bounds: Aabb;                       // of the delivered (world-mm) node coordinates, before `transform`
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
   fields: MeshFieldInfo[];
   tags: MeshTag[];
@@ -239,6 +260,13 @@ export interface MeshDataset {
 
 export type Dataset = VolumeDataset | MeshDataset;
 ```
+
+**Mesh coordinates are always delivered in world mm with any file transform already applied** (§3): the loader
+bakes GIfTI's `CoordinateSystemTransformMatrix` and FreeSurfer's `vox2ras · inv(vox2ras-tkr)` into
+`Mesh.nodes` and reports what it applied in `appliedTransform`. `MeshDataset.transform` is therefore **not** that
+matrix — it is an *additional* transform the user may edit (the "load as-is" FreeSurfer case in §3), initialised
+to identity, applied on top of the node coordinates by the engine's model matrix, and serialised in `ViewSpec`.
+An agent that finds itself asking "is `transform` already in the vertices?" has the answer: never.
 
 **Mesh bulk arrays never reach the UI thread.** Nodes/tets/tris/fields stay in the dataset's worker; the UI thread
 sees only draw-ready buffers (uploaded to GL, then dropped) and probe results.
@@ -253,7 +281,8 @@ export interface LayerBase {
 
 export interface VolumeLayer extends LayerBase {
   kind: 'volume';
-  volumeIndex: number;                                  // 0 unless nvols > 1
+  volumeIndex: number;                                  // 0 unless nvols > 1. Changing it is a `volumeFrame` op
+                                                        //   (§6.5.2): new texture bytes + new Stats.
   colormap: ColormapName | string;                      // string = user .json colormap id (§7.6)
   colormapNegative?: ColormapName | string;
   scale: Scale; threshold: Threshold;
@@ -283,22 +312,22 @@ export interface GlyphSpec {
   subsample: { everyNth: number } | { maxCount: number };
   scale: 'fixed' | 'byMagnitude';
   lengthMm: number;
-  colorBy: 'magnitude' | 'solid'; color: vec4;
+  colorBy: 'magnitude' | 'solid'; color: vec4 /* 0..1 */;
   clipToCutPlane: boolean;
 }
 
 export interface MeshLayer extends LayerBase {
   kind: 'mesh';
   colorMode: 'tag' | 'field' | 'solid' | 'label';
-  solidColor: vec4;
+  solidColor: vec4;                                     // 0..1, like every colour in §4 (§4.1)
   field?: { source: 'node' | 'elm'; name: string; component: 'mag' | 0 | 1 | 2 };
   label?: { name: string; table: LabelTable; mode: 'fill' | 'outline' | 'both';
             outlineWidthPx: number; visibleLabels?: Uint32Array };
   colormap: ColormapName | string; colormapNegative?: ColormapName | string;
   scale: Scale; threshold: Threshold;
-  tagStyle: Record<number, { visible: boolean; opacity: number; color?: vec4 }>;
+  tagStyle: Record<number, { visible: boolean; opacity: number; color?: vec4 /* 0..1 */ }>;
   edges: { surface: boolean; caps: boolean };
-  edgeColor: vec4; edgeWidthPx: number;
+  edgeColor: vec4 /* 0..1 */; edgeWidthPx: number;
   flatShading: boolean;
   faceMode: 'cull' | 'both';                            // 'both' forced when orient.openComponents > 0
   clip: { planes: ClipPlane[] /* max 6 */; caps: boolean; capColorMode: 'inherit' | 'tag' };
@@ -311,13 +340,13 @@ export interface IsosurfaceLayer extends LayerBase {
   kind: 'iso';
   source: { datasetId: DatasetId; volumeIndex?: number;
             field?: { source: 'node' | 'elm'; name: string; component: 'mag' | 0 | 1 | 2 } };
-  iso: number; color: vec4; smooth: boolean; faceMode: 'cull' | 'both';
+  iso: number; color: vec4 /* 0..1 */; smooth: boolean; faceMode: 'cull' | 'both';
 }
 
 export interface PointsLayer extends LayerBase {
   kind: 'points';
-  points: { name?: string; position: vec3; color?: vec4; radiusMm?: number }[];
-  shape: 'sphere' | 'dot'; radiusMm: number; color: vec4; showLabels: boolean;
+  points: { name?: string; position: vec3; color?: vec4 /* 0..1 */; radiusMm?: number }[];
+  shape: 'sphere' | 'dot'; radiusMm: number; color: vec4 /* 0..1 */; showLabels: boolean;
 }
 
 export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
@@ -380,7 +409,7 @@ export interface Scene {
   cursor: vec3;
   hover: vec3 | null;
   radiological: boolean;
-  background: vec4;
+  background: vec4;                                 // 0..1
   lighting: { ambient: number; headlight: boolean };
   annotations: Annotations;
   transparency: { mode: 'twoPhase' | 'sorted' | 'peel'; peelLayers?: number };
@@ -402,7 +431,8 @@ export interface GpuResources {
 }
 export interface MeshGeometry { vao: WebGLVertexArrayObject; buffers: WebGLBuffer[];
                                 perTag: { tag: number; first: number; count: number }[];
-                                cacheKey: string /* `${datasetId}|${maskId ?? ''}|${clipStateHash}` */ }
+                                cacheKey: string /* `${datasetId}|${maskId ?? ''}|${generation}|${clipStateHash}`,
+                                                    `generation` per §6.5.2's lifecycle rules */ }
 ```
 
 ### 4.6 ViewSpec — the persisted form (`*.tetravox.json`)
@@ -440,17 +470,19 @@ with no GL so the app agent can build the entire UI in Phase 1. It imports exact
 types from `./scene/types` and `Capabilities` from `./gl/caps` (§7.1) — and nothing else.
 
 ```ts
-export type DatasetSource =
-  | { kind: 'path'; path: string }
-  | { kind: 'file'; file: File }
-  | { kind: 'bytes'; name: string; bytes: ArrayBuffer };
+export type DatasetSource =                     // maps 1:1 onto protocol `LoadSource` (§6.5.1)
+  | { kind: 'path'; path: string; sidecars?: { lut?: string; opt?: string } }
+  | { kind: 'file'; file: File; sidecars?: { lut?: File; opt?: File } }
+  | { kind: 'bytes'; name: string; bytes: ArrayBuffer;
+      sidecars?: { lut?: ArrayBuffer; opt?: ArrayBuffer } };
 
 export type NewLayer = { datasetId: DatasetId; kind: Layer['kind'] } & Partial<Layer>;
 
 export interface PickResult {
   layerId: LayerId; datasetId: DatasetId;
-  elementId: number;                            // Gmsh element number, or plane index for slice quads
-  elementKind: 'tri' | 'tet' | 'slice';
+  elementId: number;                            // Gmsh element number (§6.2), or plane index for slice quads
+  elementKind: 'tri' | 'tet' | 'slice';         // 'slice' from the layer kind; 'tri' vs 'tet' from payload
+                                                //   bit 24, written by the shader (§7.2.3)
   world: vec3; depth: number;
 }
 export interface ProbeRow {
@@ -488,6 +520,8 @@ export interface EngineEvents {
 export interface EngineOptions {
   dpr?: number; deterministic?: boolean;        // deterministic: fixed clock, no timer query, sync render (§11)
   forceDiscardClip?: boolean;                   // §7.4 fallback-path test axis
+  forceCaps?: Partial<Pick<Capabilities, 'norm16' | 'floatLinear' | 'clipDistance' | 'timerQuery'>>;
+                                                // §7.1 test axis; may only REMOVE a capability, never add one
   aa?: 'auto' | 'off';
 }
 
@@ -574,10 +608,16 @@ Rules:
    `['constructor','grow','buffer']` `[N25]`), and Rust's wasm dlmalloc keeps freed pages, so a worker's
    high-water mark is permanent for its lifetime.
 2. **No utility worker in v1.** Directive A1 permits one for cross-dataset ops. The only cross-dataset op is
-   `isolate` with a `labelVolume` criterion, and it is evaluated in the *mesh* worker from a transferred copy of
-   the label volume the UI thread already holds for probes (27 MB for `final_tissues.nii.gz` `[DATA]`), which is
-   cheaper than shipping 4.7 M tet centroids (56 MB) the other way. A second cross-dataset op gets the utility
-   worker, and that is an ARCHITECTURE.md edit.
+   `isolate` with a `labelVolume` criterion, and it is evaluated in the *mesh* worker from a copy of the label
+   volume the UI thread already holds for probes (27 MB for `final_tissues.nii.gz` `[DATA]`), which is cheaper
+   than shipping 4.7 M tet centroids (56 MB) the other way. A second cross-dataset op gets the utility worker,
+   and that is an ARCHITECTURE.md edit.
+   **That copy is structured-cloned, never transferred.** `VolumeDataset.data` is retained on the UI thread for
+   zero-latency probes (§4.3, §8); putting it in a `postMessage` transfer list detaches it and every subsequent
+   probe on that volume throws or reads garbage. The engine passes the `ArrayBuffer` **without** a transfer list
+   (or `.slice()`s the one volume it needs out of a 4D array first). The ~27 MB clone is paid once per isolation
+   change, and that is accepted. **General rule: `Req.args` buffers are never added to a transfer list unless the
+   §6.5.2 op table marks the argument as donated.** No op currently does.
 3. **Bytes never cross IPC and never touch the UI thread.** Electron IPC serialises with structured clone over
    Mojo and *copies* ArrayBuffers — only `MessagePort` transfers across processes. IPC carries dialogs, menus,
    paths and CLI args. The worker fetches `tetravox://file/…` itself.
@@ -586,11 +626,23 @@ Rules:
    natively/CLI and in plain-browser mode (where the source is a `File`/`ArrayBuffer`).
 5. **Input bytes are copied into WASM once** and the input buffer is dropped before the parser returns; the
    inflate output is dropped too (§6.2).
-6. **Latest-wins** is keyed on the caller-supplied opaque `key` (`"${layerId}:cut"`). It drops *queued* requests.
-   An in-flight WASM call **runs to completion** — WASM is not preemptible. Ops that can exceed one frame
-   (`loadVolume`, `loadMesh`, `buildTopology`, `marchingCubes`, `marchingTets`) poll an abort flag at section
-   boundaries (every ~1 M records) so `cancel(requestId)` is honoured; sub-frame ops (`cut`, `isolate`, `locate`,
-   `contours`) simply finish.
+6. **Latest-wins and cancellation.** Latest-wins is keyed on the caller-supplied opaque `key`
+   (`"${layerId}:cut"`) and drops *queued* requests. An in-flight WASM call **runs to completion** — WASM is not
+   preemptible, and, because the app is not cross-origin isolated (§1), `SharedArrayBuffer` does not exist, so
+   there is no buffer a second thread can write that the running call could poll. A plain `Uint8Array` handed to
+   wasm is a private copy; nothing the worker polls would ever change, and while a synchronous wasm call runs the
+   worker's event loop cannot process a `Cancel` message anyway.
+   **Therefore: the only cancellation mechanism is `worker.terminate()`.** `Engine.cancelDataset(id)` terminates
+   that dataset's worker (the same primitive `removeDataset` uses to reclaim linear memory) and the compute
+   client synthesises `{ ok: false, error: { code: 'cancelled' } }` for the outstanding request. A load has
+   nothing worth keeping, so this is free; the 500 ms cancel bar (§9.1 row 6, ROADMAP Phase-1 gate 1) is a
+   terminate, not a poll.
+   The other long ops — `buildTopology` (< 1.5 s), `marchingCubes`, `marchingTets` (< 1 s) — are **not**
+   cancellable: terminating would throw away a parsed 492 MB mesh to save under two seconds. They run to
+   completion and latest-wins prevents a queue from building behind them. `Cancel` therefore only ever drops a
+   queued request, or triggers a terminate for an in-flight `loadVolume`/`loadMesh`.
+   `ProgressSink::aborted()` survives in `tvx-core` for the native/CLI build; the wasm implementation always
+   returns `false`, and no §6.4 export takes an abort argument.
 7. **Results are owned buffers, never views.** See §6.4.
 8. A wasm `panic!` or `Error::OutOfMemory` poisons the module: the client tears down the worker, marks the
    dataset failed, and emits `error`. It never retries into the same instance.
@@ -661,8 +713,10 @@ pub enum Error {
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Progress + cancellation. Implemented by tvx-wasm over a js_sys::Function and an AtomicBool;
-/// `NoProgress` is the native/CLI no-op implementation.
+/// Progress + cancellation. `tvx-wasm` implements it over a `js_sys::Function`, with `aborted()` returning
+/// `false` unconditionally — there is no SharedArrayBuffer to poll (§1, §5 rule 6), so wasm cancellation is
+/// `worker.terminate()`. `aborted()` exists for the native/CLI build, which can flip a real `AtomicBool`.
+/// `NoProgress` is the no-op implementation.
 pub trait ProgressSink {
     fn report(&mut self, phase: Phase, done: u64, total: u64);
     fn aborted(&self) -> bool;
@@ -751,8 +805,12 @@ Rules:
   | 10 | RGB24 / RGBA32 | `RGBA8` | LINEAR | |
 
   `R16F` stays in the enum only as a fallback for float data whose range **and** precision have both been
-  checked. It is **not** the default: `T1.nii.gz`'s max is exactly 65535.0 `[DATA]` and half-float's largest
-  finite value is 65504, so it becomes `+Inf`; half-float is also inexact above 2048.
+  checked. It is **not** the default — and the reason is precision, not overflow, because directive C1's R16F
+  proposal carried the same `GpuPayload{scale, offset}` normalisation row 8 uses, under which the stored value is
+  in [0,1] and cannot overflow. **Half-float has an 11-bit mantissa: even normalised into [0,1] it delivers ~2048
+  distinct levels in the top binade against R16's 65536 uniform ones.** (Unnormalised it would also overflow —
+  `T1.nii.gz`'s max is exactly 65535.0 `[DATA]` against half's 65504 ceiling, giving `+Inf` — but that refutes an
+  option nobody proposed.)
   `want_linear` is false when the layer is a label or `interpolation === 'nearest'`.
 * Volumes whose `max(dims) > caps.max_3d` (2048 `[M2Max]`, spec floor 256) fail loudly at load with a downsample
   offer — never a silently incomplete texture at draw time.
@@ -774,7 +832,8 @@ pub struct Mesh {
     pub elm_fields: Vec<ElmField>,
     pub physical_names: Vec<(i32, String)>,
     pub gmsh_node_numbers: Option<Vec<u64>>,
-    pub gmsh_elm_numbers: Option<Vec<u64>>,    // per element, in (tris then tets) order
+    pub gmsh_elm_numbers: Option<Vec<u64>>,    // per element, in (tris then tets) order.
+                                               //   `None` == the identity numbering; see the rule below.
     pub tet_perm: Vec<u32>,                    // Morton order -> original file row (§6.3)
     pub skipped: Vec<(u32, u64)>,              // (gmsh element type, count) for types we drop
     pub bounds: Aabb,
@@ -817,6 +876,22 @@ pub enum Format { Msh, Gifti, FsSurface, Stl, Ply, Obj }
 * Ids are 1-based and may be non-contiguous. **Scatter by id** through an `elm_number → index` map (fast path
   when ids are exactly `1..N`, which is the SimNIBS case `[DATA]`); positional order is not guaranteed by the
   format and is wrong for cropped meshes. Gaps ⇒ `f32::NAN` and `partial = true`.
+* **Gmsh element numbers — normative, because `owner_elm` / `owner_tet` / `PickResult.elementId` all key on
+  them.** `gmsh_elm_numbers` is `Some` only when the file's element numbering is *not* the identity. It is
+  `None` — the fast path — when the file numbers elements exactly `1..N` in (tris then tets) order, and then
+  ```
+  gmsh number of tri i        = i + 1
+  gmsh number of tet j        = n_tris + tet_perm[j] + 1        // j is the Morton index (§6.3)
+  ```
+  which is why the Morton permutation must be kept and why `None` costs nothing instead of 47.2 MB on ernie
+  `[MODEL]`. This is the case for **every** reference `.msh` `[DATA]`: `ernie.msh` blocks are
+  `[tri3 ×1,177,213 ids 1…1,177,213][tet4 ×4,722,625 ids 1,177,214…5,899,838]`, and `grey_Thalamus_TI.msh`,
+  `ernie_seeg.msh`, `ernie-seeg.msh` and `ernie_TDCS_1_scalar.msh` are all likewise contiguous and tris-first.
+  For formats with no element numbering at all (STL/PLY/OBJ/GIfTI/FreeSurfer) the same synthesised `1..N` applies,
+  again with `None`.
+  `owner_elm` is `u32`; a file whose largest element number exceeds `u32::MAX` is
+  `Error::Unsupported("element numbers exceed u32")`, checked at parse time, never truncated. (`ernie-seeg.msh`,
+  the largest reference file, reaches 15,787,627 `[DATA]`.)
 * Only element types 2 (tri3) and 4 (tet4) are kept in v1; everything else is counted into `skipped`, not an error.
 * `read_msh` **takes ownership of the byte vector and frees it (and any inflate output) before returning.**
 * Tag names and colours, in order: `$PhysicalNames` → sibling `<mesh>_LUT.txt` (SimNIBS
@@ -857,9 +932,12 @@ pub struct SurfaceBuffers {
     pub positions: Vec<f32>,            // 3 per vertex
     pub normals: Vec<f32>,              // 3 per vertex (smooth for Indexed, face for Deindexed)
     pub indices: Option<Vec<u32>>,      // Some iff Indexed
-    pub node_index: Option<Vec<u32>>,   // Some iff Indexed: vertex -> mesh node id (node-field lookup)
+    pub node_index: Option<Vec<u32>>,   // Some iff Indexed: vertex -> INTERNAL 0-based node index (the row in
+                                        //   `Mesh.nodes`), which is what the §7.4 node-field texture is indexed
+                                        //   by. NOT a Gmsh node number — that is `gmsh_node_numbers`.
     pub corner: Option<Vec<u8>>,        // Some iff Deindexed: 0|1|2 corner ordinal
-    pub owner_elm: Vec<u32>,            // 1 per triangle: Gmsh element number
+    pub owner_elm: Vec<u32>,            // 1 per triangle: Gmsh element number (§6.2's identity rule when
+                                        //   `gmsh_elm_numbers` is None)
     pub face_tag: Vec<i32>,             // 1 per triangle
     pub edge_mask: Option<Vec<u8>>,     // 1 per triangle, low 3 bits; None = fully unmasked
     pub per_tag: Vec<TagRange>,         // ranges into `indices` (Indexed) or vertices (Deindexed)
@@ -886,21 +964,54 @@ pub struct Cut {
     pub boundary_segments: Vec<f32>,    // 6 per segment — tag-boundary contours for the 2D overlay
 }
 
+// --- Isolation criteria. This struct crosses the wasm boundary as JSON (§6.4 `mesh_isolate`), so every serde
+// attribute below is part of the frozen contract and pins it to §6.5.1 `IsolateCriteriaT` name for name.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct IsolateCriteria {
     pub tags: Option<Vec<i32>>,
     pub field: Option<FieldRange>,
-    pub sphere: Option<([f32; 3], f32)>,
+    pub sphere: Option<Sphere>,
+    #[serde(rename = "box")]
     pub bbox: Option<Aabb>,
     pub label_volume: Option<LabelVolumeCriteria>,
     pub combine: Combine,
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FieldRange { pub source: FieldSource, pub name: String, pub component: Component,
                         pub lo: f32, pub hi: f32 }
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Sphere { pub center: [f32; 3], pub radius: f32 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]                      // "node" | "elm"
 pub enum FieldSource { Node, Elm }
-pub enum Component { Mag, C(u8) }
+#[derive(serde::Deserialize)]
+#[serde(untagged)]                                      // "mag"  |  0 | 1 | 2
+pub enum Component { Mag(MagTag), C(u8) }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MagTag { Mag }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "lowercase")]                      // "all" | "any"
 pub enum Combine { All, Any }
+
+/// The sample array is NOT part of this struct: it arrives as `mesh_isolate`'s separate `label_volume:
+/// Option<Vec<u8>>` argument, because neither an ArrayBuffer nor a Uint32Array survives `JSON.stringify`.
+/// `dtype` names how to reinterpret those bytes; `labels` is a plain JSON array of numbers.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LabelVolumeCriteria { pub dims: [usize; 3], pub world_to_voxel: [[f64; 4]; 4],
-                                 pub data: VolumeData, pub vol_index: usize, pub labels: Vec<u32> }
+                                 pub dtype: String, pub volume_index: usize, pub labels: Vec<u32> }
+
+pub struct ProbeHit {
+    pub gmsh_elm: u32,                  // what the UI shows; ALWAYS the Gmsh element number (§6.2)
+    pub tet_index: u32,                 // internal Morton-ordered tet index; never leaves the worker
+    pub tag: i32,
+    pub node_values: Vec<(String, Vec<f32>)>,   // every node field, barycentrically interpolated at `p`
+    pub elm_values: Vec<(String, Vec<f32>)>,    // every element field, at the containing tet
+}
 
 pub struct LabelCentroid { pub id: u32, pub centroid: [f32; 3], pub count: u64 }
 
@@ -920,7 +1031,8 @@ pub fn extract_boundary(mesh: &Mesh, topo: Option<&TetTopology>, mask: Option<&B
 pub fn build_topology(mesh: &Mesh, p: &mut dyn ProgressSink) -> Result<TetTopology>;
 pub fn plane_cut(mesh: &Mesh, blocks: &TetBlocks, planes: &[Plane] /* max 6 */,
                  mask: Option<&BitMask>) -> Result<Vec<Cut>>;
-pub fn isolate(mesh: &Mesh, crit: &IsolateCriteria) -> Result<BitMask>;
+pub fn isolate(mesh: &Mesh, crit: &IsolateCriteria, label_volume: Option<&VolumeData>,
+               p: &mut dyn ProgressSink) -> Result<BitMask>;
 pub fn elm_to_node(mesh: &Mesh, field: &ElmField) -> Result<Field>;    // volume-weighted mean of adjacent tets
 pub fn node_to_elm(mesh: &Mesh, field: &Field) -> Result<ElmField>;
 pub fn marching_cubes(vol: &Volume, vol_index: usize, iso: f32, smooth: bool,
@@ -928,7 +1040,7 @@ pub fn marching_cubes(vol: &Volume, vol_index: usize, iso: f32, smooth: bool,
 pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&BitMask>,
                      p: &mut dyn ProgressSink) -> Result<SurfaceBuffers>;
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
-pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<u32>;
+pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
 pub fn label_centroids(vol: &Volume, vol_index: usize) -> Result<Vec<LabelCentroid>>;
 ```
 
@@ -973,8 +1085,13 @@ Rules:
 * `tag_surfaces` / `extract_boundary` output on a tet mesh is always fully unmasked (`edge_mask = None`).
 * **De-indexing, normal generation and any vertex-buffer expansion are geometry**: they happen here, in the
   worker, and arrive as transferables. The engine never builds a vertex buffer element-by-element.
-* `isolate` evaluates `label_volume` by sampling the transferred label volume at tet centroids through
-  `world_to_voxel` (nearest).
+* `isolate` evaluates `label_volume` by sampling the cloned label volume (§5 rule 2) at tet centroids through
+  `world_to_voxel` (nearest). The bytes arrive as `mesh_isolate`'s separate `label_volume` argument and are
+  reinterpreted per `LabelVolumeCriteria.dtype`; a `dtype`/`dims`/byte-length mismatch is `Error::Parse`.
+* **`locate_point` returns the whole probe, not an index.** The one round trip §8 budgets at ≤ 50 ms gathers the
+  tag and every node/element field value at the point; splitting the gather across a second op would double the
+  latency and leave the field data on the wrong side of the boundary. `ProbeHit.gmsh_elm` is what the wire
+  carries as `elementId`; `tet_index` is internal and never crosses.
 * **Determinism.** Geometry outputs are byte-identical across native and wasm builds; they use only
   `+ − × ÷ sqrt` and integer ops, which are correctly rounded and identical on both. Any function using a
   transcendental (`sin/cos/exp/pow`) is marked `#[doc(hidden)] // non-portable` and excluded from cross-build
@@ -982,32 +1099,43 @@ Rules:
 
 ### 6.4 `tvx-wasm` — worker-side exports
 
+**No export takes an abort argument.** Cancellation is `worker.terminate()` (§1, §5 rule 6); `on_progress` is
+present wherever an op can exceed one frame, and `js_sys::Function` is called at section boundaries
+(every ~1 M records).
+
 ```rust
-#[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, on_progress: &js_sys::Function,
-                                   abort: &js_sys::Uint8Array) -> Result<JsValue, JsValue>;
+// `load_volume` and `volume_frame` take `GpuCaps` flattened into scalars rather than a struct: the caps come
+// from `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2), and flattening keeps the
+// wasm-bindgen surface free of a shared type. `load_volume` produces volume 0's payload; `volume_frame`
+// produces any other index's. Both run §6.1's `stats` / `label_index` / `gpu_payload` for that index.
+#[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, lut_bytes: Option<Vec<u8>>,
+                                   float_linear: bool, norm16: bool, max_3d: u32, want_linear: bool,
+                                   on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn load_mesh(bytes: Vec<u8>, format: &str, opt_bytes: Option<Vec<u8>>,
-                                 on_progress: &js_sys::Function,
-                                 abort: &js_sys::Uint8Array) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_surface(handle: u32, mask_id: Option<u32>, variant: &str) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_boundary(handle: u32, mask_id: Option<u32>, variant: &str) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_build_topology(handle: u32, on_progress: &js_sys::Function,
-                                           abort: &js_sys::Uint8Array) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_cut(handle: u32, planes: &[f32] /* 4 per plane */, mask_id: Option<u32>,
-                                out: Option<CutOut>) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_isolate(handle: u32, criteria_json: &str,
-                                    label_volume: Option<Vec<u8>>) -> Result<JsValue, JsValue>;
+                                 lut_bytes: Option<Vec<u8>>,
+                                 on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn volume_frame(handle: u32, vol_index: u32, float_linear: bool, norm16: bool,
+                                    max_3d: u32, want_linear: bool) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_surface(handle: u32, mask_id: Option<u32>, variant: &str,
+                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_boundary(handle: u32, mask_id: Option<u32>, variant: &str,
+                                     on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_build_topology(handle: u32,
+                                           on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_cut(handle: u32, planes: &[f32] /* 4 per plane, ≤ 6 planes */,
+                                mask_id: Option<u32>, out: Option<CutOut>) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_isolate(handle: u32, criteria_json: &str, label_volume: Option<Vec<u8>>,
+                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_field(handle: u32, source: &str, name: &str,
                                   component: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_convert_field(handle: u32, direction: &str, source_name: &str)
                                          -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_locate(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_marching_cubes(handle: u32, vol_index: u32, iso: f32, smooth: bool,
-                                             on_progress: &js_sys::Function,
-                                             abort: &js_sys::Uint8Array) -> Result<JsValue, JsValue>;
+                                             on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_marching_tets(handle: u32, source: &str, name: &str, component: &str,
                                           iso: f32, mask_id: Option<u32>,
-                                          on_progress: &js_sys::Function,
-                                          abort: &js_sys::Uint8Array) -> Result<JsValue, JsValue>;
+                                          on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>)
                                     -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
@@ -1015,9 +1143,31 @@ Rules:
 #[wasm_bindgen] pub fn free_mask(handle: u32, mask_id: u32);
 #[wasm_bindgen] pub fn wasm_heap_bytes() -> u32;      // stamped onto every Res (§6.5), backs the §9 memory bar
 
-#[wasm_bindgen] pub struct CutOut { positions: js_sys::Float32Array, interp_n: js_sys::Uint32Array,
-                                    interp_t: js_sys::Float32Array, owner_tet: js_sys::Uint32Array,
-                                    tag: js_sys::Int32Array, edge_mask: js_sys::Uint8Array }
+/// Recycled cut arena. ONE instance covers ALL planes of a `mesh_cut` call: each array is packed
+/// plane-major, and `plane_offsets` (4 u32 per plane, plus one terminating quad) gives, per plane, the
+/// start offsets into (vertices, triangles, edge segments, boundary segments). A JS constructor is
+/// mandatory — the worker allocates and owns these arrays; wasm only `copy_from`s into them.
+#[wasm_bindgen]
+pub struct CutOut {
+    #[wasm_bindgen(getter_with_clone)] pub positions: js_sys::Float32Array,        // 3/vertex
+    #[wasm_bindgen(getter_with_clone)] pub interp_n: js_sys::Uint32Array,          // 2/vertex
+    #[wasm_bindgen(getter_with_clone)] pub interp_t: js_sys::Float32Array,         // 1/vertex
+    #[wasm_bindgen(getter_with_clone)] pub owner_tet: js_sys::Uint32Array,         // 1/triangle
+    #[wasm_bindgen(getter_with_clone)] pub tag: js_sys::Int32Array,                // 1/triangle
+    #[wasm_bindgen(getter_with_clone)] pub edge_mask: js_sys::Uint8Array,          // 1/triangle
+    #[wasm_bindgen(getter_with_clone)] pub edge_segments: js_sys::Float32Array,    // 6/segment
+    #[wasm_bindgen(getter_with_clone)] pub boundary_segments: js_sys::Float32Array,// 6/segment
+    #[wasm_bindgen(getter_with_clone)] pub plane_offsets: js_sys::Uint32Array,     // 4*(nplanes+1)
+}
+#[wasm_bindgen]
+impl CutOut {
+    #[wasm_bindgen(constructor)]
+    pub fn new(positions: js_sys::Float32Array, interp_n: js_sys::Uint32Array,
+               interp_t: js_sys::Float32Array, owner_tet: js_sys::Uint32Array,
+               tag: js_sys::Int32Array, edge_mask: js_sys::Uint8Array,
+               edge_segments: js_sys::Float32Array, boundary_segments: js_sys::Float32Array,
+               plane_offsets: js_sys::Uint32Array) -> CutOut;
+}
 ```
 
 **Rust functions with no wasm export, and why:**
@@ -1027,8 +1177,10 @@ Rules:
 | `morton_reorder`, `build_tet_blocks`, `build_point_locator`, `orient_surface`, `vertex_normals`, `face_normals` | Run inside `load_mesh` / `mesh_surface`; their results are load-time invariants, not client-callable state. `OrientReport` is returned in `load_mesh`'s meta and in `SurfaceBuffers`. |
 | `read_msh_opt` | Run inside `load_mesh` from the optional sibling bytes the worker fetches; result appears as `MeshMeta.opt`. |
 | `read_msh` / `read_gifti` / `read_fs_*` / `read_stl` / `read_ply` / `read_obj` / `sniff` | Dispatched by `load_mesh(format)`; exporting each separately would duplicate the handle-table logic. |
-| `read_nifti`, `Volume::stats`, `Volume::label_index`, `Volume::gpu_payload`, `Volume::sample_nearest` | Run inside `load_volume`; probes are served from the UI thread's retained `data` array (§4.3), so `sample_nearest` exists for the native/CLI build only. |
-| `LabelTable::parse_*` | Sidecar LUT text is parsed in the worker as part of `load_volume`/`load_mesh` and returned in the meta. |
+| `read_nifti` | Run inside `load_volume`. |
+| `Volume::sample_nearest` | Probes are served from the UI thread's retained `data` array (§4.3), so this exists for the native/CLI build only. |
+| `Volume::stats`, `Volume::label_index`, `Volume::gpu_payload` | Reachable for **any** 4D index: `load_volume` runs them for index 0, `volume_frame` runs them for any other. Not exported individually. |
+| `LabelTable::parse_*` | Sidecar LUT text is parsed in the worker as part of `load_volume` / `load_mesh`, from their `lut_bytes` argument, and returned as `VolumeMeta.labelTable` / `MeshMeta.tags[].name`+`color` / `MeshMeta.labelTables`. The **worker** fetches the sidecar (from `LoadSource.sidecars.lut`) and passes the bytes; the crates never touch the filesystem. |
 | `elm_to_node` / `node_to_elm` | Both reachable through `mesh_convert_field(direction)`. |
 | `BitMask::*`, `Field`, `Plane`, `Aabb`, `Error`, `ProgressSink` | Types and helpers, not operations. |
 
@@ -1040,8 +1192,21 @@ Rules:
 > output allocation). **Never** hand a `js_sys::*Array::view()` onto `wasm.memory.buffer` across a call boundary:
 > `memory.grow` detaches every outstanding view. Never use `&mut [MaybeUninit<T>]` for outputs — two copies.
 
-`mesh_cut` at ≥ 30 fps uses the `CutOut` pool: the worker keeps recycled ArrayBuffers, the UI thread transfers
-them **back** after upload, and `mesh_cut` returns only element counts.
+**The two `mesh_cut` paths, normatively.**
+
+* `out: None` — **buffers path.** Returns `{ mode: 'buffers', cuts: CutPayload[] }`, one entry per plane, every
+  array a freshly allocated transferable. This is the correctness reference and the only path a golden test uses.
+* `out: Some(pool)` — **recycled path**, for a cut-plane drag at ≥ 30 fps. wasm `copy_from`s every plane's data
+  into the caller-owned arrays back to back, fills `plane_offsets`, and returns
+  `{ mode: 'recycled', truncated: false, counts: […] }` — one `counts` entry per plane with `vertices`,
+  `triangles`, `edgeSegments`, `boundarySegments`. The worker keeps the pool; the UI thread transfers the
+  buffers **back** after upload.
+  If any array is too small for the result, **nothing is written**: the call returns
+  `{ mode: 'recycled', truncated: true, counts: […] }` where `counts` are the *required* capacities. The worker
+  grows the pool (doubling) and re-calls. This is the only overflow protocol; a partially-filled pool is never
+  returned.
+* Both paths produce the same `edge_segments` / `boundary_segments`, so the 2D overlay (`contoursIn2D`) works on
+  either. There is no 3D-caps-only path.
 
 ---
 
@@ -1056,9 +1221,9 @@ export type ErrorCode = 'parse' | 'unsupported' | 'io' | 'oom' | 'cancelled' | '
 export interface WorkerError { code: ErrorCode; message: string }
 
 export type OpName =
-  | 'loadVolume' | 'loadMesh' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
+  | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
   | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingTets' | 'contours'
-  | 'labelCentroids' | 'free' | 'freeMask';
+  | 'labelCentroids' | 'free' | 'freeMask';       // 17 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -1090,7 +1255,14 @@ export interface StatsT {
   percentiles: [number, number, number, number, number, number, number, number, number];  // 0.1,1,2,5,50,95,98,99,99.9
   histogram: Uint32Array; histogramLo: number; histogramHi: number;
 }
-export interface LabelEntryT { id: number; name: string; color: [number, number, number, number] }
+export interface LabelEntryT { id: number; name: string;
+                               color: [number, number, number, number] }   // RGBA 0..255 (§4.1)
+export interface ProbeHitT {                         // `locate` result; mirrors §6.3 `ProbeHit`
+  elementId: number;                                 // ALWAYS the Gmsh element number (§6.2)
+  tag: number;
+  nodeValues: Record<string, number[]>;              // every node field, interpolated at the point
+  elmValues: Record<string, number[]>;               // every element field, at the containing tet
+}
 
 export interface VolumeMeta {
   handle: number; name: string;
@@ -1099,10 +1271,18 @@ export interface VolumeMeta {
   dtype: 'u8'|'i8'|'u16'|'i16'|'u32'|'i32'|'f32'|'f64'|'rgb24'|'rgba32';
   sclSlope: number; sclInter: number;
   isLabel: boolean; intentCode: number; units?: string;
-  stats: StatsT; headerJson: string;
+  stats: StatsT;                      // OF VOLUME 0 ONLY. Other 4D indices come from `volumeFrame` (§6.5.2).
+  headerJson: string;
   gpu: { format: 'R8'|'R8UI'|'R16'|'R16UI'|'R16F'|'R32F'|'RGBA8';
-         scale: number; offset: number; filterable: boolean; chunked: boolean };
-  labelTable?: LabelEntryT[];
+         scale: number; offset: number; filterable: boolean; chunked: boolean };  // also volume 0 only
+  labelTable?: LabelEntryT[];         // parsed from `LoadSource.sidecars.lut`; colours 0..255 (§4.1)
+}
+export interface VolumeFrameT {       // `volumeFrame` result — everything that is per-4D-index
+  volumeIndex: number;
+  gpuBytes: ArrayBuffer;
+  gpu: VolumeMeta['gpu'];
+  stats: StatsT;
+  labelIds?: Uint32Array; denseIndexOf?: Uint32Array;   // present iff isLabel
 }
 export interface MeshFieldMeta {
   name: string; source: FieldSource; ncomp: 1 | 3 | 9; n: number;
@@ -1111,8 +1291,11 @@ export interface MeshFieldMeta {
 export interface MeshMeta {
   handle: number; name: string;
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
+  appliedTransform: Mat4x4;           // baked into the node coordinates by the loader; identity when none (§4.3)
+  dataSpace?: string;                 // GIfTI CoordinateSystem strings, verbatim (§6.2)
+  transformedSpace?: string;
   bounds: { min: [number,number,number]; max: [number,number,number] };
-  tags: { id: number; name?: string; color: [number,number,number,number];
+  tags: { id: number; name?: string; color: [number,number,number,number];   // 0..255 (§4.1)
           kind: 'tri' | 'tet'; count: number }[];
   fields: MeshFieldMeta[];
   skipped: { elemType: number; count: number }[];
@@ -1130,15 +1313,23 @@ export interface SurfacePayload {
   positions: Float32Array;          // 3/vertex
   normals: Float32Array;            // 3/vertex
   indices?: Uint32Array;            // indexed only
-  nodeIndex?: Uint32Array;          // indexed only: vertex -> mesh node id
+  nodeIndex?: Uint32Array;          // indexed only: vertex -> INTERNAL 0-based node index (row in Mesh.nodes),
+                                    //   which is what the §7.4 node-field texture is indexed by
   corner?: Uint8Array;              // deindexed only: 0|1|2
-  ownerElm: Uint32Array;            // 1/triangle, Gmsh element number
+  ownerElm: Uint32Array;            // 1/triangle, Gmsh element number (§6.2)
   faceTag: Int32Array;              // 1/triangle
   edgeMask?: Uint8Array;            // 1/triangle, low 3 bits; absent = fully unmasked
   perTag: { tag: number; first: number; count: number }[];
   orient: MeshMeta['orient'];
   bounds: MeshMeta['bounds'];
 }
+export interface CutCounts {
+  plane: number; vertices: number; triangles: number; edgeSegments: number; boundarySegments: number;
+}
+export type CutResult =
+  | { mode: 'buffers';  cuts: CutPayload[] }
+  | { mode: 'recycled'; truncated: boolean; counts: CutCounts[] };   // truncated ⇒ counts are REQUIRED sizes
+                                                                    //   and nothing was written (§6.4)
 export interface CutPayload {
   plane: number;
   positions: Float32Array;          // 3/vertex
@@ -1150,6 +1341,10 @@ export interface CutPayload {
   edgeSegments: Float32Array;       // 6/segment — 2D overlay only
   boundarySegments: Float32Array;   // 6/segment — 2D overlay only
 }
+// Sent as `JSON.stringify(criteria)` into `mesh_isolate(criteria_json, …)`, so it contains NO typed arrays and
+// NO ArrayBuffers: a Uint32Array stringifies to `{"0":…}` and an ArrayBuffer to `{}`. The label volume's samples
+// travel as the separate `labelVolume` argument of the `isolate` op (§6.5.2). Field names and enum encodings are
+// pinned to §6.3's serde attributes: camelCase members, `box` kept as `box`, lowercase enum strings.
 export interface IsolateCriteriaT {
   tags?: number[];
   field?: { source: FieldSource; name: string; component: ComponentSel; lo: number; hi: number };
@@ -1157,13 +1352,46 @@ export interface IsolateCriteriaT {
   box?: { min: [number,number,number]; max: [number,number,number] };
   labelVolume?: { dims: [number,number,number]; worldToVoxel: Mat4x4;
                   dtype: VolumeMeta['dtype']; volumeIndex: number;
-                  data: ArrayBuffer; labels: Uint32Array };
+                  labels: number[] };                 // plain JSON numbers, NOT a Uint32Array
   combine: 'all' | 'any';
 }
+// Sidecars are keyed BY ROLE, never positional: the worker must be able to tell a `_LUT.txt` from a `.msh.opt`
+// without sniffing. `lut` -> `load_volume`/`load_mesh`'s `lut_bytes`; `opt` -> `load_mesh`'s `opt_bytes`.
 export type LoadSource =
-  | { kind: 'url'; url: string; sidecarUrls?: string[] }   // tetravox://file/… ; sidecars: _LUT.txt, .msh.opt
-  | { kind: 'bytes'; name: string; bytes: ArrayBuffer; sidecars?: Record<string, ArrayBuffer> };
+  | { kind: 'url';   url: string;   sidecars?: { lut?: string; opt?: string } }      // tetravox://file/…
+  | { kind: 'file';  file: File;    sidecars?: { lut?: File; opt?: File } }
+  | { kind: 'bytes'; name: string; bytes: ArrayBuffer;
+      sidecars?: { lut?: ArrayBuffer; opt?: ArrayBuffer } };
 ```
+
+**Worked isolation example — the exact bytes on the wire.** Isolate ernie's grey matter (tet tag 2) to the tets
+whose `TI_max` is in [0.2, 0.6] *and* which fall inside `final_tissues.nii.gz` labels {2, 3}. The engine sends
+
+```jsonc
+// Req.args of op "isolate":
+{
+  "handle": 7,
+  "criteria": {
+    "tags": [2],
+    "field": { "source": "elm", "name": "TI_max", "component": "mag", "lo": 0.2, "hi": 0.6 },
+    "labelVolume": {
+      "dims": [256, 256, 208],
+      "worldToVoxel": [0,-1,0,0, 0,0,1,0, 1,0,0,0, 99.737457,-154.1875,143.642273,1],
+      "dtype": "u16",
+      "volumeIndex": 0,
+      "labels": [2, 3]
+    },
+    "combine": "all"
+  },
+  "labelVolume": /* ArrayBuffer, 256*256*208*2 = 27,262,976 bytes, structured-CLONED (§5 rule 2) */
+}
+```
+
+The worker calls `mesh_isolate(7, JSON.stringify(args.criteria), new Uint8Array(args.labelVolume), onProgress)`.
+Rust deserialises that string straight into §6.3's `IsolateCriteria` — `rename_all = "camelCase"` matches
+`labelVolume` / `worldToVoxel` / `volumeIndex`, `#[serde(rename = "box")]` matches `box`, `"elm"` matches
+`FieldSource::Elm`, `"mag"` matches `Component::Mag`, `"all"` matches `Combine::All` — and reinterprets the byte
+argument as `u16` per `dtype`. `worldToVoxel` is column-major, like every `Mat4x4` here.
 
 ### 6.5.2 Op table
 
@@ -1173,14 +1401,15 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 |---|---|---|---|
 | `loadVolume` | `{ source: LoadSource; caps: { floatLinear: boolean; norm16: boolean; max3d: number }; wantLinear: boolean }` | `{ meta: VolumeMeta; data: ArrayBuffer; gpuBytes: ArrayBuffer; labelIds?: Uint32Array; denseIndexOf?: Uint32Array }` | `data` = raw samples for probes; `gpuBytes` = the `gpu_payload` texture bytes |
 | `loadMesh` | `{ source: LoadSource; format: 'auto'\|'msh'\|'gii'\|'fs'\|'stl'\|'ply'\|'obj' }` | `{ meta: MeshMeta }` | no bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` are built here |
+| `volumeFrame` | `{ handle: number; volumeIndex: number; caps: { floatLinear: boolean; norm16: boolean; max3d: number }; wantLinear: boolean }` | `VolumeFrameT` | the **only** way to display a 4D index ≠ 0 (§7.5 `,`/`.`, the Phase-2 spinner). `VolumeMeta.stats`/`gpu` are volume 0's; this returns the rest |
 | `surface` | `{ handle: number; variant: SurfaceVariant; maskId?: number }` | `SurfacePayload` | `tag_surfaces` when `hasTris`, else `extract_boundary` |
 | `boundary` | `{ handle: number; maskId?: number; variant: SurfaceVariant }` | `SurfacePayload` | always `extract_boundary`; used after isolation/clip |
 | `buildTopology` | `{ handle: number }` | `{ faces: number; boundaryFaces: number }` | explicit, awaitable, progress-reporting |
-| `cut` | `{ handle: number; planes: PlaneT[] /* ≤6 */; maskId?: number; recycle?: ArrayBuffer[] }` | `{ cuts: CutPayload[] }` | one `Cut` per plane, each clipped by the others |
-| `isolate` | `{ handle: number; criteria: IsolateCriteriaT }` | `{ maskId: number; visibleTets: number; generation: number }` | client owns `maskId` and must `freeMask` |
+| `cut` | `{ handle: number; planes: PlaneT[] /* ≤6 */; maskId?: number; recycle?: boolean }` | `CutResult` | one `Cut` per plane, each clipped by the others. `recycle: true` ⇒ the worker passes its `CutOut` pool and the result is the `'recycled'` variant; otherwise `'buffers'` (§6.4) |
+| `isolate` | `{ handle: number; criteria: IsolateCriteriaT; labelVolume?: ArrayBuffer }` | `{ maskId: number; visibleTets: number; generation: number }` | client owns `maskId` and must `freeMask`. `labelVolume` is required iff `criteria.labelVolume` is set, is **cloned not transferred** (§5 rule 2), and is the only bulk argument any op takes |
 | `field` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel }` | `{ values: Float32Array; stats: StatsT; n: number; partial: boolean }` | |
 | `elmToNode` | `{ handle: number; direction: 'elmToNode' \| 'nodeToElm'; name: string }` | `{ name: string; values: Float32Array; stats: StatsT }` | both directions of §6.3's pair |
-| `locate` | `{ handle: number; world: [number,number,number] }` | `{ elementId: number \| null; tag?: number; nodeValues?: Record<string, number[]>; elmValues?: Record<string, number[]> }` | latest-wins on its own key |
+| `locate` | `{ handle: number; world: [number,number,number] }` | `{ hit: ProbeHitT \| null }` | one round trip: §6.3 `locate_point` returns the whole `ProbeHit`. `elementId` is always a Gmsh element number. Latest-wins on its own key |
 | `marchingCubes` | `{ handle: number; volumeIndex: number; iso: number; smooth: boolean }` | `SurfacePayload` | |
 | `marchingTets` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel; iso: number; maskId?: number }` | `SurfacePayload` | |
 | `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment |
@@ -1192,12 +1421,13 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 `Req<'cut'>` and `Res<'cut'>` are fully typed:
 
 ```ts
-export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; surface: {…}; /* …all 16… */ }
-export interface OpResult { loadVolume: {…}; loadMesh: {…}; surface: SurfacePayload; /* …all 16… */ }
+export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; volumeFrame: {…}; /* …all 17… */ }
+export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: VolumeFrameT; /* …all 17… */ }
 ```
 
 **Op → wasm export (§6.4), one-to-one and exhaustive:**
-`loadVolume`→`load_volume` · `loadMesh`→`load_mesh` · `surface`→`mesh_surface` · `boundary`→`mesh_boundary` ·
+`loadVolume`→`load_volume` · `loadMesh`→`load_mesh` · `volumeFrame`→`volume_frame` ·
+`surface`→`mesh_surface` · `boundary`→`mesh_boundary` ·
 `buildTopology`→`mesh_build_topology` · `cut`→`mesh_cut` · `isolate`→`mesh_isolate` · `field`→`mesh_field` ·
 `elmToNode`→`mesh_convert_field` · `locate`→`mesh_locate` · `marchingCubes`→`volume_marching_cubes` ·
 `marchingTets`→`mesh_marching_tets` · `contours`→`mesh_contours` ·
@@ -1205,8 +1435,16 @@ export interface OpResult { loadVolume: {…}; loadMesh: {…}; surface: Surface
 `wasm_heap_bytes()` is the only export without an op; it is read after every call and stamped onto `Res`.
 
 Lifecycle rules:
-* Progress messages carry the same `id` as their `Req`; a `Cancel` with that `id` sets the abort byte in the
-  shared `Uint8Array` the wasm call polls.
+* Progress messages carry the same `id` as their `Req`. A `Cancel` with that `id` drops the request if it is
+  still **queued**. If it is in flight there is no abort flag to set (§5 rule 6): for `loadVolume`/`loadMesh`
+  the client terminates the worker and synthesises `{ ok: false, error: { code: 'cancelled' } }`; every other op
+  runs to completion and its result is discarded.
+* **`generation`** is a `u32` counter per mesh handle, starting at 0 and incremented by the worker on every
+  successful `isolate`. `isolate` returns the new value; the engine stamps it into
+  `MeshGeometry.cacheKey` (which is therefore `` `${datasetId}|${maskId ?? ''}|${generation}|${clipStateHash}` ``,
+  §4.5) so a re-isolation to a numerically identical mask still invalidates cached geometry. A `surface` /
+  `boundary` / `cut` / `marchingTets` naming a `maskId` from an older generation is `Error::Parse`, never a
+  silent stale draw.
 * Masks: `isolate` returns `{maskId, generation}`; the client frees eagerly on every isolation change. The worker
   drops all masks when its handle is freed. A stale `maskId` is `Error::Parse`, never silent.
 * Every successful `Res` carries `heapBytes` from `wasm_heap_bytes()`; the status bar and `scripts/bench.ts` read
@@ -1246,8 +1484,9 @@ Lifecycle rules:
    * §7.3 label outlines: derive a distance-to-boundary from the neighbour-label test and `fwidth`-scale the
      smoothstep, not a binary "different label ⇒ outline colour".
    * §7.3 threshold edges: `discard` kills all samples, so thresholded stat-map boundaries stay hard at any sample
-     count. Ramp alpha over `Threshold.softBins` of the last bin; `SAMPLE_ALPHA_TO_COVERAGE` is available but not
-     used in v1.
+     count. Ramp alpha over `Threshold.softEdge`, whose definition is quoted verbatim from §4.2 and is the only
+     one: *width of the alpha ramp as a fraction of `hi - lo`; 0 = hard discard*. `SAMPLE_ALPHA_TO_COVERAGE` is
+     available but not used in v1.
    * `outlineWidthPx`, `contourWidthPx`, `edgeWidthPx` are in **render-target** pixels and must be scaled by the
      DPR/SSAA factor.
 6. **`gl.lineWidth()` is a no-op** — `ALIASED_LINE_WIDTH_RANGE` is `[1,1]` `[M2Max]`. Every `*WidthPx` knob on
@@ -1311,6 +1550,24 @@ Rules:
   `EXT_disjoint_timer_query_webgl2` absent ⇒ wall-clock frame time only.
 * **Never use `gl_CullDistance`; a lint forbids the identifier.** `MAX_CULL_DISTANCES_WEBGL` is 0 on ANGLE/Metal
   `[M2Max]` but **8 under headless SwiftShader** `[SwS]` — CI goldens would pass while every real Mac fails.
+* **The two renderer classes differ, and the golden authority is the weaker one.** Recorded here because §11's
+  goldens are captured on SwiftShader while releases run on ANGLE/Metal:
+
+  | Capability | ANGLE/Metal `[M2Max]` | SwiftShader `[SwS]` |
+  |---|---|---|
+  | `renderer` | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)` | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)), SwiftShader driver)` |
+  | `EXT_texture_norm16` | **true** | **false** |
+  | `MAX_CULL_DISTANCES_WEBGL` | 0 | 8 |
+  | `MAX_VARYING_VECTORS` | 30 | 31 |
+
+  The `norm16` row is the consequential one: under SwiftShader every `caps.norm16` row of the §6.1 ladder
+  (4, 7, 8) falls through, so `T1.nii.gz` is **R32F in every golden and R16 in the shipping renderer**. §11 states
+  what follows for the test strategy.
+* **`EngineOptions.forceCaps`** exists so the branch the golden authority never takes is still tested:
+  `create(canvas, { forceCaps: { norm16: false } })` (and `{ floatLinear: false }`) overrides the probe result
+  after it runs. It is the same kind of axis as `forceDiscardClip` — the macOS/ANGLE leg runs an analytic
+  `expectPixel` test with `forceCaps` unset (R16 path) and one with `norm16: false` (R32F path), so both format
+  branches are covered on every platform. `forceCaps` may only ever *remove* a capability, never add one.
 * `Capabilities` is surfaced verbatim in the §8 status bar, in scene JSON dumps and in bench output, so every
   reported number carries its renderer string.
 * `getContext('webgl2') === null` ⇒ a real error screen naming `chrome://gpu`, never a white window.
@@ -1378,18 +1635,30 @@ Rules:
 
 ### 7.2.3 Pick pass
 
-* Target: one `R32UI` colour texture + `DEPTH_COMPONENT24` renderbuffer, **single-sample**, sized to the *same*
-  device-pixel dimensions as the colour target so ids are 1:1 with displayed pixels. Verified FBO-complete;
-  `clearBufferuiv([0,0,0,0])`; `readPixels(RED_INTEGER, UNSIGNED_INT)` returns the exact value; 1×1 sync readback
-  0.031 ms — no PBO needed `[M2Max]`. (`RGBA32UI` also works, 0.043 ms `[M2Max]`, but costs 75 MB at 2880×1620
-  against R32UI's 19 MB.)
-* Payload: `id = (layerIndex + 1) << 24 | (elementIndex & 0x00FFFFFF)`. **0 means miss** — hence the zero clear.
-  24 bits is 16.7 M primitives; ernie's largest count is 4.72 M tets and ernie-seeg's is 13.16 M `[DATA]`, so a
-  mesh over 16.7 M elements falls back to per-tag pick ids and reports the tag only.
+* Target: **two single-sample `R32UI` colour attachments** (`COLOR_ATTACHMENT0` = id, `COLOR_ATTACHMENT1` =
+  depth-as-uint, next bullet) + a `DEPTH_COMPONENT24` renderbuffer, sized to the *same* device-pixel dimensions
+  as the colour target so ids are 1:1 with displayed pixels. Verified FBO-complete; `clearBufferuiv([0,0,0,0])`;
+  `readPixels(RED_INTEGER, UNSIGNED_INT)` returns the exact value; 1×1 sync readback 0.031 ms — no PBO needed
+  `[M2Max]`. `RED_INTEGER`/`UNSIGNED_INT` is the *implementation-defined* read format
+  (`IMPLEMENTATION_COLOR_READ_FORMAT`), confirmed on ANGLE/Metal **and** SwiftShader; the spec-guaranteed
+  fallback `RGBA_INTEGER`/`UNSIGNED_INT` also works on an R32UI target, returning `(value, 0, 0, 1)` — read the
+  enum, do not hardcode. Cost at 2880×1620: **2 × 18.66 = 37.3 MB** for the two R32UI attachments plus ~14 MB
+  for the depth renderbuffer. The rejected `RGBA32UI` single-attachment design is **74.6 MB** for the same two
+  values, at 0.043 ms readback `[M2Max]`, so R32UI×2 is a 2× saving, not the 4× a one-attachment comparison
+  would suggest.
+* Payload: `id = (layerIndex + 1) << 25 | kindBit << 24 | (gmshElementNumber & 0x00FFFFFF)`.
+  **0 means miss** — hence the zero clear. `kindBit` is 0 for a triangle and 1 for a tet (cut caps), which is
+  what sources `PickResult.elementKind`; `'slice'` comes from the layer's kind, since the same field carries a
+  plane index there. Layer index gets 7 bits (127 layers).
+  The element field is a **Gmsh element number**, not an internal index — the one thing §6.3 warns against
+  confusing — and Gmsh numbers a mesh's tris **and** tets in one sequence, so the budget is the combined count:
+  `ernie-seeg.msh` reaches 2,629,579 + 13,158,048 = **15,787,627**, i.e. **94 % of the 16,777,215 cap** `[DATA]`.
+  A mesh whose `maxGmshElementNumber > 0x00FFFFFF` falls back to per-tag pick ids and reports the tag only; that
+  is the trigger, never a tet count.
 * **Depth is read from a second colour attachment, never from the depth attachment.** WebGL2 restricts
   `readPixels` to RGBA / RGBA_INTEGER and the implementation-defined format; `DEPTH_COMPONENT` is not a legal
-  read format. `COLOR_ATTACHMENT1` is a second `R32UI` target written as `floatBitsToUint(gl_FragCoord.z)`
-  (`MAX_DRAW_BUFFERS` floor is 4 by spec, 8 measured `[M2Max]`). The engine keeps the `viewProj` used by the
+  read format. `COLOR_ATTACHMENT1` is the second `R32UI` target of the previous bullet, written as
+  `floatBitsToUint(gl_FragCoord.z)` (`MAX_DRAW_BUFFERS` floor is 4 by spec, 8 measured `[M2Max]`). The engine keeps the `viewProj` used by the
   pick draw and unprojects with it.
 * **Element ids come from a per-vertex `uint` attribute.** WebGL2 has no `gl_PrimitiveID` (verified compile error
   `[M2Max]`). Cut caps and flat-shaded field geometry are already de-indexed and carry `ownerElm`; indexed
@@ -1398,8 +1667,8 @@ Rules:
   threshold/label discards, the isolation `BitMask`, and face culling. Otherwise double-click lands on geometry
   the user cannot see.
 * Pick only layers with `visible && pickable && opacity >= pickOpacityMin` (default 0.25), depth-tested, nearest
-  wins. Volume slice quads participate (`elementKind: 'slice'`, `elementId` = plane index) — double-clicking a
-  slice plane in the 3D view is the primary Freeview gesture.
+  wins. Volume slice quads participate (`elementKind: 'slice'`, `elementId` = plane index, `kindBit` 0) —
+  double-clicking a slice plane in the 3D view is the primary Freeview gesture.
 * **2D views use no GPU pick**: cursor = pointer ray ∩ that view's derived slice plane, on the CPU.
 * Cost: `gl.scissor` a 9×9 rect around the pointer with the *unmodified* projection, `gl.readBuffer(...)`, then a
   9×9 `readPixels`; resolve by taking the nearest non-zero id within a 3–5 px radius. The sync stall is on demand
@@ -1433,7 +1702,10 @@ declare `invariant gl_Position;`.
 * Fragment: `voxel = inverseAffine · world`, `texcoord = (voxel + 0.5)/dims`; `sampler3D` (trilinear) for scalars,
   `usampler3D` (nearest) for labels; `v = raw·scale + offset`; window/threshold/colormap through a 256×1 RGBA8 LUT
   (512×1 signed when `scale.negative === 'separate'`); `discard` outside `[0,1]³`, outside `visibleLabels`, and
-  below threshold (alpha-ramped over `Threshold.softBins`); symmetric thresholds compare `|v|`.
+  below threshold; symmetric thresholds compare `|v|`. The threshold ramp uses `Threshold.softEdge`, §4.2's
+  definition verbatim — *width of the alpha ramp as a fraction of `hi - lo`; 0 = hard discard* — so
+  `alpha = smoothstep(lo, lo + softEdge*(hi-lo), v)` on the low edge and its mirror on the high edge. It is a
+  fraction of the scalar range, not a count of histogram bins and not a fraction of one bin.
 * **Label outlines — normative formula.** Let
   `duv = (inverseAffine · dFdx(worldPos)) / dims` and `dvv = (inverseAffine · dFdy(worldPos)) / dims`
   (the texture-space extent of one screen pixel). Sample the label at
@@ -1567,7 +1839,8 @@ Input (Freeview-like):
 * **3D** — left orbit, right pan, wheel dolly, double-click = `setCursorFromPick`.
 * Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic,
   `[`/`]` cycle the active layer, `v` toggle the active layer's visibility, `Shift+drag` its opacity,
-  `Ctrl+↑/↓` reorder it, `,`/`.` step the 4D volume index.
+  `Ctrl+↑/↓` reorder it, `,`/`.` step the active volume layer's 4D index (each step is a `volumeFrame` op —
+  §6.5.2 — so the readout, the colour bar and the histogram all follow the new volume's `Stats`).
 * Cut plane: sliders (normal preset + free normal + offset) and a draggable gizmo.
 
 Phase 1 exposes the three canonical presets in the UI; `mode:'oblique'` is fully supported by the model and the
@@ -1589,10 +1862,12 @@ shader path from Phase 1 and gets its **affordances** (gizmo, rotate handles, pl
 * LUT parsers: FreeSurfer `FreeSurferColorLUT.txt`, SimNIBS `*_LUT.txt` (`#No. Label Name: R G B A`), ITK-SNAP
   label description, and a generic `id r g b [a] [name]` fallback. Auto-associate `<volume>_LUT.txt` or
   `<volume>.txt` next to the volume; otherwise a deterministic glasbey-like palette.
-* **Default mesh tag palette must cover the electrode/gel ranges**: simulation meshes add tri tags
-  1013/1014/1015/1016 and 1101/1102/1501/1502/2101/2102 and tet tags 13/14/15/16 and 101/102/501/502. A viewer
-  colouring only 1–10 / 1001–1010 renders electrodes as untagged grey on the most common file a SimNIBS user
-  opens. Tags are **not** contiguous — tag 4 is absent from ernie `[DATA]`.
+* **Default mesh tag palette must cover the electrode/gel ranges.** Measured `[DATA]`:
+  `Simulations/*/high_Frequency/mesh/ernie_TDCS_1_scalar.msh` — the file a SimNIBS user opens most — carries tri
+  tags 1101 (28), 1102 (27), 1501 (28), 1502 (27), 2101 (28), 2102 (27) and tet tags 101 (84), 102 (81),
+  501 (168), 502 (162) on top of the ten tissue tags; the SEEG meshes add tri 1013/1014/1015/1016 and tet
+  13/14/15/16. A viewer colouring only 1–10 / 1001–1010 renders every electrode and gel layer as untagged grey.
+  Tags are **not** contiguous — tag 4 is absent from ernie `[DATA]`.
 * `<mesh>.msh.opt` seeds tag colours/visibility, field range, colormap and colorbar on open, with a
   "defaults from X.msh.opt" chip and a one-click Reset.
 
@@ -1641,9 +1916,13 @@ not a list of checkboxes — backed by `tagStyle`.
 
 **Open**: menu / ⌘O / drag-and-drop / CLI args (`tetravox file1.nii.gz mesh.msh`). Drag-and-drop uses
 `webUtils.getPathForFile` exposed through the preload as `getDroppedFilePath(file)`; when it returns empty the
-renderer falls back to handing the worker the `File` object (`LoadSource.kind: 'bytes'`), where the Rust
-`1f 8b` sniff does the inflate. Both paths are exercised by a Phase-0 E2E test. File associations are registered
-by the installer.
+renderer posts the `File` object itself to the worker as **`LoadSource.kind: 'file'`** — a `File` is
+structured-cloneable, so `postMessage` costs nothing and the renderer never allocates the bytes. **The renderer
+must never call `file.arrayBuffer()`**: that is a 492 MB allocation on the thread §5 rule 3 and AGENTS rule 7
+forbid from seeing raw file bytes. The *worker* calls `file.stream()` / `file.arrayBuffer()`, and the Rust
+`1f 8b` sniff does the inflate. (`kind: 'bytes'` exists for tests and for a caller that already holds bytes;
+it is not the drop path.) Both the path and the `File` paths are exercised by a Phase-0 E2E test. File
+associations are registered by the installer.
 
 **Screenshot**: `screenshot(opts: ScreenshotOptions)` (§4.7) → PNG with the DPI written into the pHYs chunk.
 Phase 3 exposes the same path headlessly: `tetravox --scene s.tetravox.json --screenshot out.png --width 2400
@@ -1662,7 +1941,12 @@ memory-query extension, so it can only ever be an estimate); last load time and 
 
 ---
 
-## 9. Performance & memory budgets (measured, not asserted)
+## 9. Performance & memory budgets
+
+**Read the Evidence column literally.** `[DATA]` and `[M2Max]` mean a number was measured; `[MODEL]` means it
+was computed from measured counts; `[TARGET]` means **nothing has been measured yet** and Phase 3 owes
+`docs/BENCHMARKS.md` a real figure. Where a row's *Metric* quotes a file fact, that fact is `[DATA]` even when
+the *target* is `[TARGET]`.
 
 **Reference machines.** Every row states which. `A` = Apple M1 Pro (16-core GPU), 1440p logical, DPR 2, macOS,
 ANGLE/Metal. `B` = Intel UHD 620 / Mesa, 1080p, DPR 1 (the low bar). Numbers tagged `[M2Max]` were measured on an
@@ -1673,26 +1957,28 @@ as machine `A` targets.
 
 | # | Metric (files by real name and size) | Target | Evidence |
 |---|---|---|---|
-| 1 | Load `m2m_ernie/T1.nii.gz` (**float32**, 256×256×208, 13.1 MB gz / 54.5 MB raw, range −41.807507 … 65535.0) to first frame | < 400 ms (A) | `[DATA]` |
+| 1 | Load `m2m_ernie/T1.nii.gz` (**float32**, 256×256×208, 13.1 MB gz / 54.5 MB raw, range −41.807507 … 65535.0 `[DATA]`) to first frame | < 400 ms (A) | `[TARGET]` |
 | 2 | Load `m2m_ernie/label_prep/tissue_labeling_upsampled.nii.gz` (uint16, 512×512×416) and slice it | < 1.2 s to first frame (A) | 218 MB as R16UI, 34.9 ms one-shot upload `[M2Max]` |
 | 3 | Parse `m2m_ernie/ernie.msh` (184,207,351 B; 847,165 nodes; 1,177,213 tris; 4,722,625 tets) | < 1.5 s native, < 3 s WASM | numpy structural parse 0.31 s `[M2Max]` |
-| 4 | `ernie.msh` → first frame with tag surfaces (indexed, per-tag uniform draws) | < 1 s after parse | `[MODEL]` |
-| 5 | Load `Simulations/Thalamus/TI/mesh/Thalamus_TI.msh` (255,005,467 B, one elm field `TI_max`) to first frame with the field coloured | < 5 s (A) | `[DATA]` |
-| 6 | Load `m2m_ernie/ernie_seeg.msh` (492,090,201 B; 2,301,899 nodes; 13,033,527 tets) — declared worst case | < 9 s (A), progress visible within 200 ms, cancel honoured within 500 ms | `[DATA]` |
-| 7 | `Simulations/flex_*/TI/mesh/*_TI.msh` (396,601,700 B) | same class as #6 | `[DATA]` |
+| 4 | `ernie.msh` → first frame with tag surfaces (indexed, per-tag uniform draws) | < 1 s after parse | `[TARGET]` (`[MODEL]` byte counts only) |
+| 5 | Load `Simulations/Thalamus/TI/mesh/Thalamus_TI.msh` (255,005,467 B, one elm field `TI_max` `[DATA]`) to first frame with the field coloured | < 5 s (A) | `[TARGET]` |
+| 6 | Load `m2m_ernie/ernie_seeg.msh` (492,090,201 B; 2,301,899 nodes; 13,033,527 tets `[DATA]`) — declared worst case | < 9 s (A), progress visible within 200 ms, cancel (= `worker.terminate()`, §5 rule 6) honoured within 500 ms | `[TARGET]` |
+| 7 | `Simulations/flex_*/TI/mesh/*_TI.msh` (396,601,700 B `[DATA]`) | same class as #6 | `[TARGET]` |
+| 7b | `Simulations/*/high_Frequency/mesh/ernie_TDCS_1_scalar.msh` (**420,249,153 B** — larger than #7; 847,306 nodes, 1,177,378 tris, 4,723,120 tets; `E` vec3 + `magnE` scalar over all 5,900,498 elements `[DATA]`) to first frame with `magnE` coloured, plus one `GlyphSpec` draw of `E` | same class as #6; the only reference file that exercises vector glyphs and `component: 0\|1\|2` | `[TARGET]` |
 | 8 | `morton_reorder` on ernie, WASM | < 250 ms | 144 ms `[M2Max]` |
 | 9 | `build_tet_blocks` on ernie, WASM | < 500 ms | 39 ms, 1.77 MB `[M2Max]` |
-| 10 | `plane_cut` on ernie, indexed, mid-axial and oblique, WASM | < 15 ms canonical, < 30 ms oblique | 2.7 / 3.1 ms `[M2Max]`; unindexed full scan was 290.7 ms `[M2Max]` |
+| 10 | `plane_cut` on ernie, indexed, mid-axial and oblique, WASM | < 15 ms canonical, < 30 ms oblique | 2.7 ms axial / 3.1 ms oblique indexed vs **29.0 / 28.7 ms unindexed**, both WASM `[M2Max]` (26.4–27.3 ms with `simd128`; Morton reorder alone, no block index, 19.8 ms). A JS re-implementation of the same scan is 86.6 ms `[M2Max]` — that is the *language* comparison, not the WASM baseline |
 | 11 | Cut-plane drag, worker → transfer → VBO → present, 2×DPR | ≥ 30 fps sustained **at interacting quality**, full-quality frame within 250 ms of release, < 40 ms input-to-photon | A **and** B |
 | 12 | Orbit ernie tag surfaces, 2×DPR 1440p | 60 fps (≤ 8 ms) at full quality (A); adaptive ladder on B | plain 1.18 M-tri pass 2.32 ms, with wireframe 2.24 ms `[M2Max]` |
 | 13 | 6 active clip planes, ernie tag surfaces, 2×DPR 1440p | ≤ 12 ms (A); `scripts/bench.ts` reports **both** clip paths | discard 2.89 ms vs `gl_ClipDistance` 2.07 ms `[M2Max]` |
 | 14 | Slice scrub, T1 + 2 overlays + label outlines | 60 fps **at full quality** | 3-layer composite 1.04 ms, 4-tap outline 1.10 ms `[M2Max]` |
-| 15 | Slice scrub with T1 + `Thalamus_TI.msh` `fillIn2D` + contours (5.9 M elements) | 30 fps, cut latency < 25 ms | derived from #10 |
+| 15 | Slice scrub with T1 + `Thalamus_TI.msh` `fillIn2D` + contours (5.9 M elements) | 30 fps, cut latency < 25 ms | `[TARGET]`, scaled from #10 |
 | 16 | First `edges.surface` / element-field build on ernie (worker de-index + transfer + upload) | < 250 ms, progress shown | de-index ≈105 ms for 2.23 M faces `[M2Max]` |
-| 17 | Isolation recompute (4.7 M tets) | < 300 ms — **and, when a de-indexed variant is live, this must cover re-extraction *plus* de-indexing** | `[MODEL]` |
-| 18 | `marching_cubes` 256×256×208 | < 1 s | `[MODEL]` |
-| 19 | Boundary extraction from `grey_Thalamus_TI.msh` (1,340,029 tets, 0 tris) | < 1.5 s WASM | `[DATA]` |
-| 20 | Pointer-to-photon latency, orbit and slice scrub | ≤ 2 frames at the pinned cadence | measured in `scripts/bench.ts` by timestamping the input event and the following timer-query completion |
+| 17 | `isolate` mask evaluation alone on ernie (4.7 M tets → `BitMask`) | < 100 ms | `[TARGET]`; one O(N) predicate pass, no allocation beyond the 590 KB mask `[MODEL]` |
+| 17b | **Everything the UI waits for after an isolation change**: `isolate` + `extract_boundary` over the surviving tets + de-index when a de-indexed variant is live | scaled from #19 by surviving tet count, + #16's de-index: isolating ernie's GM leaves exactly 1,340,029 tets `[DATA]` — the row-19 workload — so **< 1.5 s + 250 ms**, not 300 ms | `[TARGET]`. Rows 17 and 19 must never disagree: 17 is the predicate, 17b is the rebuild |
+| 18 | `marching_cubes` 256×256×208 | < 1 s | `[TARGET]` |
+| 19 | Boundary extraction from `grey_Thalamus_TI.msh` (1,340,029 tets, 0 tris `[DATA]`) | < 1.5 s WASM | `[TARGET]` |
+| 20 | Pointer-to-photon latency, orbit and slice scrub | ≤ 2 frames at the pinned cadence | `[TARGET]`; `scripts/bench.ts` fills it in by timestamping the input event and the following timer-query completion |
 
 `scripts/bench.ts` pins `QualityLevel` to **full** so adaptive fallback cannot silently satisfy a bar it was meant
 to be measured against, runs the cut at 20 offsets along the normal (not just the midplane), and reports the
@@ -1707,24 +1993,62 @@ pages, so `free(handle)` does not return RSS. This is why §5 mandates worker-pe
 wasm64 is out of scope: `wasm64-unknown-unknown` is Tier 3 and is not offered by `rustup target list` on rustc
 1.93.0 (needs nightly + `-Zbuild-std`), and Memory64 also gives up guard-page bounds-check elision.
 
-| Arena | Budget |
-|---|---|
-| Compute-worker wasm heap, per dataset, on load | **< 2 × file size** |
-| — `ernie.msh` (184 MB) | measured peak ≈ **1.0 GB** with eager topology; ≤ 400 MB without it |
-| — `Thalamus_TI.msh` (255 MB) | ≤ 620 MB |
-| — `flex_*_TI.msh` (397 MB) | ≤ 900 MB |
-| — `ernie_seeg.msh` (492 MB) / `ernie-seeg.msh` (497 MB) | ≈ **2.8 GB** with eager topology — **must stay < 1.5 GB**, which is what forces lazy topology, counting-sort face extraction, and dropping the input buffer |
-| Renderer JS heap (ernie scene) | ≤ 400 MB; **no single ArrayBuffer > 1 GB** |
-| GPU (ernie scene) | ≤ 500 MB |
+**Two rules, because a mesh has two peaks.** The load path (input bytes + retained `Mesh`, input dropped before
+`read_msh` returns) and the `buildTopology` path (retained `Mesh` + counting-sort transient + `TetTopology`) are
+budgeted separately. They are not the same multiple of the file size, and a single "< 2 ×" rule was false for
+every row it headed.
 
-Component sizes for `ernie.msh` `[MODEL]`: input bytes 184.2 MB · retained `Mesh` 130.3 MB (nodes 10.2, tets
-75.6, tet_tags 18.9, tris 14.1, tri_tags 4.7, gmsh numbers 6.8) · `TetTopology` without `tet_faces` 190.2 MB
-(9,509,557 unique faces × 12 + face_tets × 8) · counting-sort transient ≈ 227 MB. One 512×512×416 volume costs
-208 MB as R16 (416 MB as R32F) in VRAM **and the same again** on the CPU for probes.
-`ernie-seeg.msh` has 26,417,255 unique faces.
+| Arena | Budget | `[MODEL]` peak for the reference files |
+|---|---|---|
+| **Load path**, per dataset worker | **< 2 × file size** | every reference mesh lands at 1.5–1.9 × |
+| — `ernie.msh` (184.2 MB) | ≤ 380 MB | 333 MB = 184.2 in + 149.1 `Mesh` → 1.81 × |
+| — `Thalamus_TI.msh` (255.0 MB) | ≤ 480 MB | 428 MB (`Mesh` 149.1 + `TI_max` 23.6) → 1.68 × |
+| — `ernie_TDCS_1_scalar.msh` (420.2 MB) | ≤ 800 MB | 664 MB (`Mesh` 149.1 + `E` 70.8 + `magnE` 23.6) → 1.58 × |
+| — `flex_*_TI.msh` (396.6 MB) | ≤ 760 MB | same class as the row above |
+| — `ernie_seeg.msh` (492.1 MB) / `ernie-seeg.msh` (496.6 MB) | ≤ 1.0 GB | 893 MB / 901 MB → 1.81 × |
+| **`buildTopology` path**, per dataset worker | **< 3.2 × file size** | every reference mesh lands at 1.6–3.2 × |
+| — `ernie.msh` | ≤ 600 MB | 566 MB = `Mesh` 149.1 + transient 226.7 + `TetTopology` 190.2 → 3.07 × |
+| — `ernie_TDCS_1_scalar.msh` | ≤ 720 MB | 661 MB → 1.57 × (the fields dominate, not the topology) |
+| — `ernie_seeg.msh` / `ernie-seeg.msh` | ≤ **1.6 GB** | 1,548 MB / 1,564 MB → 3.15 × |
+| Renderer JS heap (ernie scene) | ≤ 400 MB; **no single ArrayBuffer > 1 GB** | |
+| GPU (ernie scene) | ≤ 500 MB | |
+
+The SEEG worst case is therefore **≈ 900 MB on the load path and ≈ 1.56 GB once the user clips or isolates** —
+comfortably inside the 4032 MiB ceiling, but *not* inside a flat 1.5 GB bar, which is why the bar is scoped by
+path. `buildTopology` is not refused on any reference file. What keeps 1.56 GB from being the 2.8 GB the v1
+review measured is exactly the three v2 mitigations: lazy topology, counting-sort face extraction (transient
+1,251 → 632 MB), and `TetTopology` without `tet_faces` (730 → 528 MB).
+
+**Component sizes `[MODEL]`, from the `[DATA]` counts.** For `ernie.msh` (847,165 nodes; 1,177,213 tris;
+4,722,625 tets; 9,509,557 unique faces):
+
+| Component | Bytes | MB |
+|---|---|---|
+| input file, copied into wasm and dropped before `read_msh` returns | 184,207,351 | 184.2 |
+| `nodes` 847,165 × 12 | 10,165,980 | 10.2 |
+| `tets` 4,722,625 × 16 | 75,562,000 | 75.6 |
+| `tet_tags` 4,722,625 × 4 | 18,890,500 | 18.9 |
+| `tris` 1,177,213 × 12 | 14,126,556 | 14.1 |
+| `tri_tags` 1,177,213 × 4 | 4,708,852 | 4.7 |
+| `gmsh_node_numbers` 847,165 × 8 | 6,777,320 | 6.8 |
+| `tet_perm` 4,722,625 × 4 (**not** optional) | 18,890,500 | 18.9 |
+| `gmsh_elm_numbers` | **0** | **0** |
+| **retained `Mesh`** | **149,121,708** | **149.1** |
+| `TetTopology` (faces × 12 + face_tets × 8, no `tet_faces`) | 190,191,140 | 190.2 |
+| counting-sort transient, 4 × 4,722,625 instances × 12 | 226,686,000 | 226.7 |
+
+`gmsh_elm_numbers` is **0** because §6.2's identity rule applies to every reference `.msh` — all five are
+contiguous `1..N`, tris-block first `[DATA]` — so the array is `None` and the numbers are reconstructed from
+`tet_perm`. A file that *does* need explicit numbers adds 5,899,838 × 8 = **47.2 MB** to ernie's retained `Mesh`
+(196.3 MB) and 15,787,627 × 8 = **126.3 MB** to `ernie-seeg`'s; both still fit their rows' budgets, and both are
+worth the 47–126 MB the identity rule saves on the common path. `ernie-seeg.msh` has 26,417,255 unique faces;
+`ernie_seeg.msh` has ~26.1 M.
+
+One 512×512×416 volume costs 208 MB as R16 (416 MB as R32F) in VRAM **and the same again** on the CPU for probes.
 
 `wasm_heap_bytes()` is stamped on every `Res`, so this table is measurable rather than asserted; `scripts/bench.ts`
-asserts peak `memory.buffer.byteLength` < 1.5 GB for `ernie_seeg.msh`. Files over 2 GiB get a warning at open.
+asserts each row above — the load-path bar after `loadMesh` and the topology bar after `buildTopology`, from peak
+`memory.buffer.byteLength`. Files over 2 GiB get a warning at open.
 
 ---
 
@@ -1752,7 +2076,9 @@ expectPixel(view: ViewId, x: number, y: number, rgba: [number, number, number, n
 Examples that must exist:
 * a synthetic 4×4×4 volume with `v = i` under colormap `gray`, `scale {kind:'linear', lo:0, hi:3}` ⇒ the pixel at
   the cursor is exactly `rgb(85,85,85)` ± 1;
-* a 4-tet mesh with tag colours from a fixture LUT ⇒ the cap pixel is exactly the tag colour;
+* a 4-tet mesh with tag colours from a fixture LUT ⇒ the cap pixel is exactly the tag colour — the **0..255 wire
+  value** from `MeshMeta.tags[].color`, which §4.1 requires to round-trip exactly through the engine's 0..1
+  representation;
 * **three mandatory orientation tests** on an *asymmetric* synthetic volume (a bright cube in the
   left-anterior-superior octant only): the bright pixel is on screen-**left** in neurological and screen-**right**
   after `setRadiological(true)`, in each of the three 2D views.
@@ -1766,6 +2092,13 @@ Examples that must exist:
 * Compared with `maxDiffPixelRatio: 0.002` and `threshold: 0.15` — never byte equality; SwiftShader's LLVM JIT is
   not bit-identical across arm64 macOS and x86_64 Linux.
 * **`ubuntu-24.04` is the golden authority** (§12). The macOS job runs the same tests with a looser ratio.
+* **The golden authority does not have `EXT_texture_norm16`** (§7.1 `[SwS]`), so every golden pins the
+  R32F/R8 branch of the §6.1 ladder — `T1.nii.gz` is R32F in every captured PNG and R16 in the shipping
+  renderer, a different quantisation (exact f32 vs a uniform 1/65535 of range) in the very test named "Float
+  volume not black". Goldens therefore cannot cover the primary format path, and the coverage comes from
+  analytic `expectPixel` tests run **twice** on the macOS/ANGLE leg: once with `forceCaps` unset (R16) and once
+  with `forceCaps: { norm16: false }` (R32F), asserting the same physical value within each format's own
+  tolerance. Same pattern as `forceDiscardClip`.
 * Regenerating a golden requires a commit body stating what changed visually.
 * Every golden includes the §8 2D chrome (orientation letters, corner info, RAD/NEU badge) and, from Phase 2, the
   colour bars.
@@ -1781,12 +2114,14 @@ from `scripts/refvalues/{mesh,nifti}_refvalues.py` and are transcribed into `AGE
 
 | Test | Asserts |
 |---|---|
-| Overlay compositing | `Thalamus_TI_subject_TI_max.nii.gz` over `T1.nii.gz` (genuinely different extents) on an **oblique** plane in the 3D view: the overlay's visible pixel count within its own footprint is **exactly 100 %**. A percentage tolerance would let the coplanar-depth bug ship. |
+| Overlay compositing (Phase 1) | `Thalamus_TI_subject_TI_max.nii.gz` over `T1.nii.gz` (genuinely different extents) on an **oblique 2D view**: the overlay's visible pixel count within its own footprint is **exactly 100 %**. A percentage tolerance would let the coplanar-depth bug ship. Two volume layers only — no mesh, no 3D. |
+| Overlay compositing in 3D (Phase 2) | The same pair on an oblique plane **in the 3D view**, i.e. with `VolumeLayer.showIn3D`, asserting the same exact-100 % count under `depthFunc(LEQUAL)`. This is the variant that pins §7.3's shared-plane-geometry rule; it needs the `showIn3D` plane path, which Phase 2 owns. |
 | Label outline zoom | `labeling.nii.gz` in `outline` mode at 0.05, 1.0 and 5.0 mm/px: measured thickness in **[0.8, 2.9] px** and ≥ 99 % coverage of the fill boundary at each. A voxel-space regression blows the upper bound immediately (12.87 px at 0.05 mm/px). |
 | Clip-path equivalence | Every clip golden runs twice — `gl_ClipDistance` and `TETRAVOX_FORCE_DISCARD_CLIP=1` — asserting identical pixels. |
 | Cap diagonal | Axial cut of ernie through the centroid: a pixel assertion in a region containing a known 2-2-split tet shows **no diagonal**, plus a whole-image edge-pixel count against a golden. The 17,983 quad caps in that cut make a dropped `edge_mask` trivially visible. |
 | Pick | Double-click a fixed pixel on the scalp of ernie tag surfaces: returned `world` within 1 mm of the reference point, cross-checked by `locate` returning a tet with tag 5; all three 2D slice indices changed as expected; a background click returns `null`. |
-| Oblique slice | `mode:'oblique'`, `normal = normalize([1,1,1])`, ernie T1 + a mesh contour layer, asserted at named pixels. This is what keeps §3's oblique claim honest through Phases 1–2. |
+| Oblique slice (Phase 1) | `mode:'oblique'`, `normal = normalize([1,1,1])`, ernie `T1.nii.gz` alone, asserted at named pixels. This is what keeps §3's oblique claim honest from Phase 1 — the derived-plane maths and the slice shader, with nothing else in the frame. |
+| Oblique slice + mesh contours (Phase 2) | The same view with a `MeshLayer` at `contoursIn2D: true` over it. Needs the overlay-pass instanced contour renderer, which Phase 2 owns together with `fillIn2D`. |
 | Float volume not black | Load the real float32 `T1.nii.gz` and assert a non-black pixel at a known intracranial voxel. Catches the whole `floatLinear`/format-ladder class. |
 | Transparency (i) | Scalp tag 1005 at opacity 0.35 over opaque GM tag 1002 coloured by `TI_max`: **no dark rim** from double-blended back faces. |
 | Transparency (ii) | GM tag 1002 at opacity 0.5 with an opaque 10 mm sphere at the thalamus target, diffed against a CPU per-fragment-sorted reference render, reporting max per-pixel delta. This is what decides whether `twoPhase` is enough for v1 or depth peeling must move out of Phase 3. |
@@ -1821,9 +2156,14 @@ fixture and assert it exits 0 after rendering one frame.
   binary and Vite fails with an error that never mentions pnpm (reproduced with pnpm 10.30.3: `Warning ─ Ignored
   build scripts: esbuild@0.25.0`). Root `package.json` therefore carries
   `"pnpm": { "onlyBuiltDependencies": ["esbuild", "electron"] }`.
-* `electron` has **no postinstall**; it downloads its ~100 MB binary on **first launch**. CI caches
+* **`electron`'s binary arrives differently on either side of major 42, and the floor is 42 for that reason too.**
+  `npm view electron@<v> scripts` returns `{ postinstall: 'node install.js' }` for 38.2.0, 39.0.0, 40.0.0 and
+  41.0.0, and **nothing** from 42.0.0 onward (checked 2026-08-27, latest 44.0.0). So on 38–41 the ~100 MB binary
+  is fetched by a `postinstall` that pnpm 10 skips by default — leaving `node_modules/electron/dist` absent and
+  `pnpm exec electron --version` **failing** rather than downloading — while from 42 it is fetched on first
+  launch instead. `onlyBuiltDependencies` covers the first case and is a harmless no-op in the second. CI caches
   `~/.cache/electron` and `~/.cache/ms-playwright` and runs an explicit `pnpm exec electron --version` warm-up
-  step **before** the e2e job, so a download failure is its own red step.
+  step **before** the e2e job either way, so a download failure is its own red step.
 * Gate: **a clean clone with an empty pnpm store reaches `pnpm e2e` green.**
 * macOS signing: **unsigned for v1** (recorded in DECISIONS with the Gatekeeper consequence and the
   `xattr -dr com.apple.quarantine` walkthrough in USER_GUIDE.md). Developer ID + notarisation is a documented
@@ -1861,7 +2201,7 @@ green. Adding one afterwards is a coordinated change through the integrator, not
 |---|---|
 | `react`, `react-dom`, `zustand`, `gl-matrix`, `tailwindcss`, `postcss`, `autoprefixer` | UI + math |
 | `typescript`, `vite`, `electron-vite`, `esbuild` | build |
-| `electron` (≥ 38.2, pinned major), `electron-builder` (exact patch) | shell + packaging |
+| `electron` (**≥ 42**, pinned major — §1: inside the supported-majors window, and the major where `postinstall` disappears), `electron-builder` (exact patch) | shell + packaging |
 | `vitest`, `@playwright/test` (exact version — pins SwiftShader) | tests |
 | `eslint`, `prettier`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin` | lint |
 
