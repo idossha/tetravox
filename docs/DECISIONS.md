@@ -1498,3 +1498,37 @@ Each entry below names the problem, the fix, and the evidence.
   for this; Phase-2's parallel branches need to use it (`TETRAVOX_TEST_PORT=59xx pnpm --filter
   @tetravox/engine exec playwright test`). Recorded rather than fixed: the port default is
   `docs/TESTING.md`'s and the integrator's, not E-SCENE's.
+
+- 2026-08-27 — **`background: 'transparent'` is a two-render matte, not an alpha clear** (E-SCENE,
+  P2-06). The engine's context is created with `alpha: false` (`gl/context.ts`) — the right default for
+  a viewer, since an alpha canvas composites against the page every frame — so the default framebuffer
+  has **no alpha channel to read back**: clearing to `[0,0,0,0]` yields an opaque black PNG, which is
+  what the Phase-1 audit's fix F4 actually shipped. `screenshot()` now draws the frame twice, over
+  opaque black and over opaque white, and solves `α = 1 − (R_white − R_black)`, `C = R_black / α` per
+  pixel — exact for the `src·α + dst·(1−α)` blend every pass uses, and it costs a second render only on
+  the one `background` mode that needs it. `'white'` stopped being a post-composite at the same time
+  (compositing an already-opaque background over white is a no-op, so it returned the dark scene
+  colour) and is now simply a clear to white. Flipping the context to `alpha: true` was rejected: it is
+  `gl/context.ts`, the integrator's, and it would change how **every** frame composites to fix a
+  screenshot mode.
+
+- 2026-08-27 — **A screenshot at a size is a render at that size, and `include` is an `Annotations`
+  override** (E-SCENE, P2-06). §7.0.4 measured that `blitFramebuffer` cannot resolve **and** rescale in
+  one call, so `width`/`height`/`scale` cannot be a blit; the drawing buffer is resized to what
+  `screenshotPlan` computes, the frame is drawn, and the canvas is restored — all inside one task, so
+  the compositor never sees the intermediate size. For `target: 'view'` the plan sizes the **whole
+  canvas** so that the pane lands at the requested pixels (a 1200 px pane of a 2×2 layout needs a
+  2400 px canvas), which is what makes it a render rather than an upscale of 384 px. The `include`
+  flags map onto §4.5's `Annotations` for the duration of that render, because the chrome is drawn
+  *into* the framebuffer (§8, §11) and a post-process cannot tell a letter from the anatomy under it.
+  `conventionBadge` stays `true` throughout: §8 says it is not optional and `include` has no flag for
+  it, so a screenshot can never leave the application without its RAD/NEU badge.
+
+- 2026-08-27 — **The R2 zoom gate had to lift itself off the `mmPerPx` clamp** (E-SCENE, found by
+  running the suite the way CI runs it). `pointer.spec.ts`'s R2 test falls back to `vol_asym.nii` when
+  `TETRAVOX_TESTDATA` is unset — which is exactly what CI does, by design — and that fixture's 8 mm
+  extent fits to `max(0.05, …)`, i.e. the **0.05 floor** of R2's [0.05, 20] clamp. One notch in from
+  there is a no-op, so "one notch divides `mmPerPx` by 1.2" was asserting the clamp. The test now zooms
+  three notches out (about the pane centre, so `camera.center` stays `[0,0]`) before measuring, and the
+  "`r` restores the fit" leg zooms **out** rather than in for the same reason. It passed locally
+  because the local run has the real data; it would have failed on the first CI run.

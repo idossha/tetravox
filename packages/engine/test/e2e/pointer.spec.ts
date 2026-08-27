@@ -445,9 +445,23 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
   });
 
   const fit = await cameraOf(page, 'axial');
+  // `input/camera.ts`'s ZOOM_STEP, and `WHEEL_NOTCH = 100` — one notch is exactly one step.
+  const ZOOM_STEP = 1.2;
+  // **Leave room under the [0.05, 20] clamp before measuring a zoom-in step.** The fit of the 8 mm
+  // synthetic fixture is `max(0.05, …)` — the 0.05 floor exactly — where one notch in is a no-op and
+  // the assertion below would be measuring the clamp instead of the zoom. (`TETRAVOX_TESTDATA` is
+  // unset in CI by design, so that is the path CI takes.) Three notches out, about the pane centre,
+  // so `camera.center` is still [0,0] and "about the pointer moved it" keeps its meaning.
+  await page.evaluate(async (factor) => {
+    const engine = window.__tvxEngine!;
+    (engine as unknown as { zoomView(id: string, f: number): void }).zoomView('axial', factor);
+    await engine.whenSettled();
+  }, ZOOM_STEP ** 3);
+  const base = await cameraOf(page, 'axial');
+  expect(base.center).toEqual([0, 0]);
   // Off-centre on both axes, or a zoom about the centre would pass by accident.
   const P = { x: 190, y: 470 };
-  const worldUnderP = worldOfPixel('axial', fit, P.x, P.y, CANVAS, CANVAS);
+  const worldUnderP = worldOfPixel('axial', base, P.x, P.y, CANVAS, CANVAS);
 
   await page.mouse.move(P.x, P.y);
   await page.keyboard.down('Control');
@@ -456,10 +470,8 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
   await settle(page);
 
   const zoomed = await cameraOf(page, 'axial');
-  // `input/camera.ts`'s ZOOM_STEP, and `WHEEL_NOTCH = 100` — one notch is exactly one step.
-  const ZOOM_STEP = 1.2;
-  expect(zoomed.mmPerPx, 'one notch in is one step').toBeCloseTo(fit.mmPerPx / ZOOM_STEP, 9);
-  expect(zoomed.mmPerPx).toBeLessThan(fit.mmPerPx);
+  expect(zoomed.mmPerPx, 'one notch in is one step').toBeCloseTo(base.mmPerPx / ZOOM_STEP, 9);
+  expect(zoomed.mmPerPx).toBeLessThan(base.mmPerPx);
 
   const stillUnderP = worldOfPixel('axial', zoomed, P.x, P.y, CANVAS, CANVAS);
   for (const k of [0, 1, 2] as const) {
@@ -470,7 +482,7 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
   }
   // Zooming about the pointer *must* have moved the pane centre — that is what "about the pointer"
   // means, and a zoom about the centre would leave it at [0,0].
-  expect(zoomed.center).not.toEqual(fit.center);
+  expect(zoomed.center).not.toEqual(base.center);
 
   // Out again returns the scale exactly.
   await page.mouse.move(P.x, P.y);
@@ -478,15 +490,17 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
   await page.mouse.wheel(0, 100);
   await page.keyboard.up('Control');
   await settle(page);
-  expect((await cameraOf(page, 'axial')).mmPerPx).toBeCloseTo(fit.mmPerPx, 9);
+  expect((await cameraOf(page, 'axial')).mmPerPx).toBeCloseTo(base.mmPerPx, 9);
 
   // `r` restores the fit — the pointer is over the pane, which is what scopes the key to it (R2).
+  // Zooming **out** here rather than in, so the state `r` has to undo is off the clamp on either
+  // fixture: the synthetic one's fit is already at the floor.
   await page.mouse.move(P.x, P.y);
   await page.keyboard.down('Control');
-  await page.mouse.wheel(0, -300);
+  await page.mouse.wheel(0, 300);
   await page.keyboard.up('Control');
   await settle(page);
-  expect((await cameraOf(page, 'axial')).mmPerPx).toBeLessThan(fit.mmPerPx);
+  expect((await cameraOf(page, 'axial')).mmPerPx).toBeGreaterThan(fit.mmPerPx);
   await page.keyboard.press('r');
   await settle(page);
   const refit = await cameraOf(page, 'axial');

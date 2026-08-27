@@ -35,7 +35,17 @@ import { createContext } from './gl/context';
 import { Timer } from './gl/timer';
 import { GpuStore, surfaceKey } from './render/gpu';
 import { Renderer } from './render/renderer';
-import { TRANSPARENT, encodeFrame } from './render/screenshot';
+import {
+  OPAQUE_BLACK,
+  OPAQUE_WHITE,
+  composeScreenshot,
+  encodeImage,
+  frameImage,
+  matteOverBlackAndWhite,
+  screenshotAnnotations,
+  screenshotPlan,
+} from './render/screenshot';
+import type { Image } from './render/screenshot';
 import type { DrawInput } from './render/renderer';
 import { createLayerRuntime } from './layers/registry';
 import { buildLabelPalette } from './layers/volume';
@@ -90,6 +100,7 @@ import type {
   Scene,
   SliceView,
   vec3,
+  vec4,
   View,
   View3D,
   ViewId,
@@ -909,21 +920,68 @@ export class TetravoxEngine implements Engine, PointerHost {
     return out;
   }
 
+  /**
+   * §4.7's `screenshot`, all of `ScreenshotOptions` (P2-06).
+   *
+   * Three temporary overrides, each restored in a `finally`, and none of them a second code path:
+   *
+   * * **`background`** — `'white'` clears to opaque white; `'transparent'` draws the frame **twice**,
+   *   over black and over white, and solves for the coverage
+   *   (`render/screenshot.ts`'s `matteOverBlackAndWhite`). The context is created with `alpha: false`
+   *   (`gl/context.ts`), so the drawing buffer has no alpha to read back and clearing to `[0,0,0,0]`
+   *   yields an opaque black PNG — which is what Phase 1 shipped. Punching the background colour out
+   *   of the pixels instead was rejected for the reason it always is: it cannot tell a background
+   *   pixel from a fragment that happens to match it.
+   * * **`include`** — the chrome items are drawn *into* the framebuffer (§8, §11), so suppressing one
+   *   is an `Annotations` override for the duration of the render, not a post-process.
+   * * **`width` / `height` / `scale`** — §7.0.4 forbids a resolve-and-rescale blit, so the frame is
+   *   **rendered at the requested size**: the drawing buffer is resized, the frame is drawn, and the
+   *   canvas goes back to the size its embedder gave it. All of that happens inside this one task,
+   *   so the compositor never sees the intermediate size.
+   * * **`target: 'view'`** — the crop rectangle is read from the viewports *at the render size*, so a
+   *   pane comes out at exactly the requested pixels rather than upscaled from 384.
+   */
   async screenshot(opts: ScreenshotOptions): Promise<Blob> {
     await this.whenSettled();
-    // §4.7's `background: 'transparent'`. The frame is cleared to `scene.background`, whose alpha is
-    // 1, so reading it back and calling the result transparent produced an opaque PNG. Clear to zero
-    // for this one render and put the scene's colour back afterwards — the alternative, punching the
-    // background colour out of the pixels, cannot tell a background pixel from a fragment that
-    // happens to match it.
+    const paneRect = opts.viewId !== undefined ? this.paneRect(opts.viewId) : null;
+    const plan = screenshotPlan(opts, this.#canvas, paneRect);
+
     const sceneBackground = this.#store.scene.background;
-    if (opts.background === 'transparent') this.#store.setBackground(TRANSPARENT);
+    const sceneAnnotations = this.#store.scene.annotations;
+    const size = { width: this.#canvas.width, height: this.#canvas.height };
     try {
-      this.renderNow();
+      this.#store.replaceAnnotations(screenshotAnnotations(opts.include));
+      if (plan.renderWidth !== size.width || plan.renderHeight !== size.height) {
+        this.#canvas.width = plan.renderWidth;
+        this.#canvas.height = plan.renderHeight;
+      }
+      const shoot = (background: vec4 | null): Image => {
+        if (background !== null) this.#store.setBackground(background);
+        this.renderNow();
+        return frameImage(this.#gl, this.#canvas.width, this.#canvas.height);
+      };
+      let frame: Image;
+      if (opts.background === 'transparent') {
+        const overBlack = shoot(OPAQUE_BLACK);
+        frame = matteOverBlackAndWhite(overBlack, shoot(OPAQUE_WHITE));
+      } else {
+        frame = shoot(opts.background === 'white' ? OPAQUE_WHITE : null);
+      }
+      const crop =
+        opts.target === 'view' && opts.viewId !== undefined
+          ? (this.paneRect(opts.viewId) ?? undefined)
+          : undefined;
+      return await encodeImage(composeScreenshot(frame, opts, plan, crop), opts);
     } finally {
       this.#store.setBackground(sceneBackground);
+      this.#store.replaceAnnotations(sceneAnnotations);
+      if (this.#canvas.width !== size.width || this.#canvas.height !== size.height) {
+        this.#canvas.width = size.width;
+        this.#canvas.height = size.height;
+      }
+      // The drawing buffer was reallocated twice; nothing that was on screen survived it.
+      this.renderNow();
     }
-    return await encodeFrame(this.#gl, this.#canvas.width, this.#canvas.height, opts);
   }
 
   // -----------------------------------------------------------------------------------------
