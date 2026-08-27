@@ -41,9 +41,10 @@ export interface HistogramProps {
    *
    * Supplied by the caller rather than sampled here, because the colormap tables are the engine's
    * (`packages/engine/src/color/colormaps.ts`, §7.6) and a copy in the app would be a second source
-   * of truth for every pixel the user compares this strip against. When the engine's barrel exports
-   * its sampler this becomes one line in the caller; until then the strip renders as a neutral rail
-   * carrying the colormap's **name**, which is honest rather than wrong.
+   * of truth for every pixel the user compares this strip against. The caller builds them with
+   * `panels/layers/volume/patches.ts`'s `colormapStops`, over the engine's own re-exported
+   * `sampleColormap`. Absent or empty — a user `.json` colormap the app has no table for — the strip
+   * renders as a neutral rail carrying the colormap's **name**, which is honest rather than wrong.
    */
   colormapStops?: readonly string[];
   colormapName?: string;

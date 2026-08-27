@@ -20,6 +20,7 @@ import type {
 import {
   COLORMAPS,
   clampOutlineWidth,
+  colormapStops,
   effectiveInterpolation,
   forcedNearest,
   patchHeat,
@@ -283,5 +284,34 @@ describe('the outline width (§7.0.5, render-target px)', () => {
     expect(clampOutlineWidth(0)).toBe(0.5);
     expect(clampOutlineWidth(99)).toBe(8);
     expect(clampOutlineWidth(Number.NaN)).toBe(1);
+  });
+});
+
+describe('§8’s colormap strip', () => {
+  it('samples the engine’s own table, so the strip cannot disagree with the pane', () => {
+    const stops = colormapStops('gray', 5);
+    expect(stops).toHaveLength(5);
+    // `gray` is the one colormap whose stops are arithmetic: `t → (t, t, t)`, and `k / 255`
+    // round-trips exactly, so these are equalities and not tolerances.
+    expect(stops[0]).toBe('#000000');
+    expect(stops[4]).toBe('#ffffff');
+    expect(stops[2]).toBe('#808080');
+  });
+
+  it('is monotonic and never repeats an endpoint, at the default resolution', () => {
+    const stops = colormapStops('viridis');
+    expect(stops).toHaveLength(17);
+    expect(stops[0]).not.toBe(stops[stops.length - 1]);
+    expect(new Set(stops).size).toBeGreaterThan(10);
+  });
+
+  it('asks for at least two stops however few it is told to take', () => {
+    expect(colormapStops('gray', 1)).toHaveLength(2);
+    expect(colormapStops('gray', 0)).toHaveLength(2);
+  });
+
+  it('returns nothing for a user .json colormap id, rather than painting the wrong one', () => {
+    // §4.4 allows `colormap: string`; only the engine can resolve one, so the strip stays neutral.
+    expect(colormapStops('my-custom-map')).toEqual([]);
   });
 });

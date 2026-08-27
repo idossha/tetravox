@@ -12,11 +12,13 @@
  * pure function from that module plus one `controller.patchLayer` / `setCursorWorld` call — §8:
  * "everything the UI can do must be reachable from the `Engine` API alone. No logic in React."
  *
- * The two rows this panel cannot fill in yet are marked in the DOM rather than faked:
- * `data-recolorable="false"` on a label volume (the palette is built from `VolumeDataset.labelTable`,
- * which is dataset state, so no `Partial<Layer>` can carry an edited colour) and `count`/centroid
- * until the `labelCentroids` op has a producer on the frozen facade. Both are filed with the
- * integrator; see `./regions.ts`.
+ * All three sources are fully editable: `VolumeLayer.labelColors`, `MeshLayer.tagStyle[t].color` and
+ * the `LabelTable` on `MeshLayer.label` (§4.4), so a recolour is a layer patch in every case and
+ * survives save/load. `data-recolorable` stays in the DOM because an *annot with no table* still has
+ * nowhere to put one.
+ *
+ * Counts and centroids come from §4.7's `labelCentroids`, asked for once per layer on mount; a row
+ * renders `—` and refuses the centroid jump only while that answer is outstanding or empty.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -81,6 +83,15 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
     lastProbedId.current = probedId;
     controller.selectRegions(layerId, { ids: [probedId], anchor: probedId });
   }, [controller, layerId, probedId]);
+
+  // R5's row count and double-click target. One `labelCentroids` per layer; the engine caches the
+  // op per `(dataset, volumeIndex)` and the controller skips a layer it already has an answer for,
+  // so a remount costs nothing.
+  const wantsStats = source !== null && source.kind !== 'meshTag' && stats === undefined;
+  useEffect(() => {
+    if (!wantsStats) return;
+    void controller.loadRegionStats(layerId);
+  }, [controller, layerId, wantsStats]);
 
   const shown = useMemo(
     () => (source === null ? [] : filterRows(source.rows, query)),
@@ -174,7 +185,7 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
             onDoubleClick={() => onRowDoubleClick(row)}
             title={
               row.centroid === null
-                ? 'Double-click jumps to the centroid once labelCentroids has run'
+                ? 'No centroid for this region — double-click has nowhere to jump'
                 : 'Double-click to jump the cursor to this region’s centroid'
             }
           >
@@ -216,7 +227,7 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
                 title={
                   row.color === null
                     ? 'No LUT entry — the engine paints §7.6’s deterministic palette'
-                    : 'A label volume’s palette comes from VolumeDataset.labelTable, which no layer patch can carry'
+                    : 'This source has no table an edited colour could be written to'
                 }
                 className="h-4 w-4 shrink-0 rounded-sm border border-tvx-line"
                 style={

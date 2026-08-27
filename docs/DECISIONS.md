@@ -1985,3 +1985,51 @@ Each entry below names the problem, the fix, and the evidence.
   browser has been closed" with `exitCode 0` — a failure that looks like a crash in the code under
   test and is not one. Reproduced against a second worktree's e2e run; the same shape appears in CI
   the moment two jobs share a runner.
+- 2026-08-27 — **R5's per-region edits are `VolumeLayer` fields, not `VolumeDataset` mutations**
+  (Phase-2 integrator, applying the identical need filed by E-SLICE, A-PROPS and E-SCENE). Three
+  branches arrived saying the same thing in three shapes: `VolumeLayer.labelLut?: LabelTable`
+  (E-SLICE), `VolumeLayer.labelColors?: Record<number, vec4>` (A-PROPS, E-SCENE), and "the colour
+  edit does not round-trip" (all three). What all three are about is one clause of R5 — "edits
+  persist in the scene" — colliding with one clause of §4.6: **a `LabelTable` is not serialised**,
+  it is re-derived from the dataset and its LUT on load. E-SLICE's implementation wrote the new
+  colour into `VolumeDataset.labelTable`, which is correct about where a *file's* colours live and
+  therefore loses the user's edit on the next open. So the frozen `VolumeLayer` gains
+  **`labelColors?: Record<number, vec4>`**, an override the palette builder prefers over the table,
+  and **`selectedLabels?: number[]`**; `ClipPlane` gains **`followCursor?: boolean`** for A-PROPS's
+  identical filing about a clip plane's follow flag. Consequences worth stating: the dataset's table
+  is never mutated, so the file's own colours stay readable underneath and a **per-row Reset is
+  deleting a key** rather than re-parsing a LUT (`setLabelColor(…, null)`); "Save LUT…" merges the
+  override over the table; and `Engine.setLabelColor` / `setSelectedLabels` / the app's
+  `setClipFollowsCursor` are now `updateLayer` underneath, which is what makes §8's "everything the
+  UI can do must be reachable from the `Engine` API alone" true of R5 without promoting three
+  convenience members to the frozen facade. Rejected: `labelLut?: LabelTable` — a `LabelTable` holds
+  a `Map`, so it would need its own entry in `SerializableLayer` alongside `visibleLabels`, and it
+  duplicates the whole table to record one changed colour. Rejected: keeping the flag in the host's
+  UI store (A-PROPS's workaround) — a saved scene that reopens with the plane where it was but no
+  longer following did not round-trip. `selectedLabels` is a plain `number[]` rather than a
+  `Uint32Array` deliberately: a selection is a handful of ids edited click by click, not a filter
+  over up to 65535, and JSON here keeps `SerializableLayer` a straight `Omit` of one field.
+- 2026-08-27 — **`Engine.labelCentroids(layerId)` — §6.5.2's op finally has a producer** (Phase-2
+  integrator, from A-PROPS's filing; §4.7, second and last Phase-2 addition to the frozen facade
+  after E-SCENE's `nudgeCursor`). The op has existed since Phase 1 and returns exactly what R5's row
+  asks for — `{ id, centroid, count }[]` — and nothing on the facade called it, so the region panel
+  rendered `—` for every count and its double-click had nowhere to jump. The app cannot compute
+  either itself: §4.3 keeps `VolumeDataset.data` on the UI thread "for probes only" and a scan of
+  256×256×208 voxels is not a probe, while §8 forbids the logic living in React regardless. The
+  engine converts the op's **voxel** centroid to world RAS on the way out (§4.1's one-conversion
+  rule) and caches the answer per `(datasetId, volumeIndex)` — one pass over the volume per atlas per
+  session, shared by every layer drawing it, dropped with the dataset. A layer that is not a label
+  volume, or whose worker is gone, resolves to `[]` rather than rejecting, so the panel stops asking
+  and keeps rendering `—`.
+- 2026-08-27 — **`@tetravox/engine` re-exports `sampleColormap`, `isColormapName`, `scalePosition`
+  and `fallbackLabelColor`** (Phase-2 integrator, from A-PROPS's filing). §8 puts "the current
+  colormap painted along the x axis" under the histogram, and that widget is DOM in `packages/app`,
+  which had no way to ask the engine what a colormap looks like. A copy of the tables in the app
+  would be a second source of truth against the pane the user is comparing the strip to. These are
+  pure functions over §4.1 values and touch no GL, so exporting them costs nothing and closes the
+  gap; `packages/engine/src/index.ts` is the integrator's file, not a frozen one, so this needed no
+  carve-out. Found on the way in, and worth writing down because the types do not say it:
+  **`sampleColormap` returns RGB 0..255, not §4.1's 0..1** — the colour tables are stored the way
+  §7.6's `.json` colormaps and every LUT file write them, and only `MeshTag.color` / `LabelEntry.color`
+  are normalised at the wire. A second `× 255` in the app saturated every channel and painted the
+  strip white, which is how it was caught.

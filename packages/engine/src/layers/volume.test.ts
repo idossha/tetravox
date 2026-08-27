@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildLabelAttrs, buildLabelPalette, fallbackLabelColor, recolourLabel } from './volume';
+import { buildLabelAttrs, buildLabelPalette, fallbackLabelColor } from './volume';
 import type { LabelEntry, Stats, vec4, VolumeDataset } from '../scene/types';
 
 /** Sparse ids, exactly as SimNIBS and FreeSurfer write them: 530 in a 4-label atlas. */
@@ -157,22 +157,28 @@ describe('R5 — hide, mute, recolour', () => {
     expect(texel(p, 1)[3]).toBe(255);
   });
 
-  it('recolouring patches the dataset table, so exactly that label repaints', () => {
+  it('`labelColors` repaints exactly that label and leaves the atlas table alone', () => {
     const ds = labelDataset();
     const before = buildLabelPalette(ds, IDS)!;
-    expect(recolourLabel(ds, 5, [1, 0, 0, 1])).toBe(true);
-    const after = buildLabelPalette(ds, IDS)!;
+    const after = buildLabelPalette(ds, IDS, { labelColors: { 5: [1, 0, 0, 1] } })!;
     expect(texel(after, 2)).toEqual([255, 0, 0, 255]);
     for (const k of [0, 1, 3]) expect(texel(after, k)).toEqual(texel(before, k));
-    // Both views of the table move together — `entries` is what a panel iterates and what a LUT
-    // export writes, `byId` is what the palette builder reads.
-    expect(ds.labelTable?.byId.get(5)?.color).toEqual([1, 0, 0, 1]);
-    expect(ds.labelTable?.entries.find((e) => e.id === 5)?.color).toEqual([1, 0, 0, 1]);
+    // The file's own colour is still there underneath, which is what makes a per-row Reset possible
+    // and what §4.6 relies on (a `LabelTable` is re-derived on load; the layer is what round-trips).
+    expect(ds.labelTable?.byId.get(5)?.color).not.toEqual([1, 0, 0, 1]);
+    expect(buildLabelPalette(ds, IDS)!).toEqual(before);
   });
 
-  it('recolouring an id the atlas does not have is a no-op the caller can see', () => {
+  it('an override for an id this frame has no dense index for changes nothing', () => {
     const ds = labelDataset();
-    expect(recolourLabel(ds, 999, [1, 0, 0, 1])).toBe(false);
+    const before = buildLabelPalette(ds, IDS)!;
+    expect(buildLabelPalette(ds, IDS, { labelColors: { 999: [1, 0, 0, 1] } })!).toEqual(before);
+  });
+
+  it('an override beats the fallback colour of a label the LUT does not name', () => {
+    const ds = labelDataset();
+    const named = buildLabelPalette(ds, IDS, { labelColors: { 530: [0, 0, 1, 1] } })!;
+    expect(texel(named, 3)).toEqual([0, 0, 255, 255]);
   });
 
   it('the selection table marks the selected dense indices and only those', () => {

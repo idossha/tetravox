@@ -404,11 +404,40 @@ describe('colour patches', () => {
     expect(patch.label?.table.entries.find((e) => e.id === 2)?.color).toEqual([0.4, 0.5, 0.6, 1]);
   });
 
-  it('cannot recolour a label volume: the palette is dataset state, not layer state', () => {
+  it('recolours a label volume into `VolumeLayer.labelColors`, leaving the atlas table alone', () => {
     const layer = volumeLayer();
+    const ds = labelVolume();
+    const source = sourceOf(layer, ds);
+    expect(source.recolorable).toBe(true);
+    const patch = colorPatch(source, layer, 1, [1, 0, 0, 1]) as Partial<VolumeLayer>;
+    expect(patch.labelColors).toEqual({ 1: [1, 0, 0, 1] });
+    // §4.6 does not serialise a `LabelTable`; the override is on the layer, so the edit round-trips
+    // — and the file's own colour is still readable underneath it.
+    expect(ds.labelTable?.byId.get(1)?.color).not.toEqual([1, 0, 0, 1]);
+  });
+
+  it('adds to the overrides already there, and `null` is the per-row Reset', () => {
+    const layer = { ...volumeLayer(), labelColors: { 1: [1, 0, 0, 1] as vec4 } };
     const source = sourceOf(layer, labelVolume());
-    expect(source.recolorable).toBe(false);
-    expect(colorPatch(source, layer, 1, [1, 0, 0, 1])).toBeNull();
+    const added = colorPatch(source, layer, 2, [0, 1, 0, 1]) as Partial<VolumeLayer>;
+    expect(added.labelColors).toEqual({ 1: [1, 0, 0, 1], 2: [0, 1, 0, 1] });
+    const cleared = colorPatch(source, layer, 1, null) as Partial<VolumeLayer>;
+    // The last override gone is `undefined`, not `{}` — a layer with no edits serialises as Phase
+    // 1's did.
+    expect(cleared.labelColors).toBeUndefined();
+  });
+
+  it('shows the override in the row, so the swatch and the pane agree', () => {
+    const layer = { ...volumeLayer(), labelColors: { 1: [1, 0, 0, 1] as vec4 } };
+    const source = sourceOf(layer, labelVolume());
+    expect(source.rows.find((r) => r.id === 1)?.color).toEqual([1, 0, 0, 1]);
+  });
+
+  it('`null` is meaningless for the two kinds that edit their table in place', () => {
+    const mesh = meshLayer();
+    expect(colorPatch(sourceOf(mesh, meshDataset()), mesh, 2, null)).toBeNull();
+    const annot = annotLayer();
+    expect(colorPatch(sourceOf(annot, meshDataset()), annot, 1, null)).toBeNull();
   });
 });
 

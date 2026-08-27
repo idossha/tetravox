@@ -29,6 +29,7 @@ import {
   offsetThrough,
   patchThreshold,
   planesThroughCursor,
+  setClipFollowsCursor,
   resetTagColor,
   selectField,
   setClipNormal,
@@ -397,12 +398,26 @@ describe('clip planes', () => {
       },
     });
     const cursor: vec3 = [10, 20, 30];
-    const patch = planesThroughCursor(layer, [1], cursor);
+    // Nothing follows yet, so nothing moves — `followCursor` is the flag, not an argument.
+    expect(planesThroughCursor(layer, cursor)).toEqual({});
+    const following = {
+      ...layer,
+      ...setClipFollowsCursor(layer, 1, true),
+    } as MeshLayer;
+    expect(following.clip.planes[1]?.followCursor).toBe(true);
+    expect(following.clip.planes[0]?.followCursor).toBeUndefined();
+
+    const patch = planesThroughCursor(following, cursor);
     expect(patch.clip?.planes[0]?.plane.offset).toBe(0);
     expect(patch.clip?.planes[1]?.plane.offset).toBe(-10);
-    expect(planesThroughCursor(layer, [], cursor)).toEqual({});
-    const settled = { ...layer, ...patch } as MeshLayer;
-    expect(planesThroughCursor(settled, [1], cursor)).toEqual({});
+    const settled = { ...following, ...patch } as MeshLayer;
+    expect(planesThroughCursor(settled, cursor)).toEqual({});
+
+    // Off deletes the key rather than writing `false`, so a plane that never followed serialises
+    // exactly as Phase 1's did.
+    const off = { ...settled, ...setClipFollowsCursor(settled, 1, false) } as MeshLayer;
+    expect('followCursor' in (off.clip.planes[1] as object)).toBe(false);
+    expect(planesThroughCursor(off, [99, 99, 99])).toEqual({});
   });
 });
 

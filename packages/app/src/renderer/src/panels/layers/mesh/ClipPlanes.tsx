@@ -9,10 +9,10 @@
  * about the origin, which looks right at `offset == 0` and is wrong everywhere else; `state.ts` has
  * the derivation and `state.test.ts` pins it.
  *
- * **Follow cursor is app state, not layer state.** `ClipPlane` (frozen §4.4) has no `followCursor`
- * field, so the flag lives in the UI store and the controller re-issues the offset on every `cursor`
- * event. The consequence is honest and worth writing down: it does **not** survive
- * `serialize()`/`load()` — see the note filed for the integrator in `docs/DECISIONS.md`.
+ * **Follow cursor is layer state.** `ClipPlane.followCursor` (§4.4, added by the Phase-2 integrator
+ * from this panel's filing) holds the flag, so it is one `updateLayer` like every other control here
+ * and it survives `serialize()` / `load()`. The controller re-issues the offset on every `cursor`
+ * event; the arithmetic is `planesThroughCursor` in `state.ts`, never in this file.
  */
 
 import type { MeshDataset, MeshLayer, vec3 } from '@tetravox/engine';
@@ -31,9 +31,6 @@ import {
   setClipNormal,
   setClipOffset,
 } from './state';
-
-/** A stable empty array for the `clipFollowsCursor` selector — see the note in `FieldSection.tsx`. */
-const NONE: readonly number[] = [];
 
 /**
  * How far the offset slider must reach. `offset = −dot(n, p)` for a unit `n`, so over the bounding
@@ -62,7 +59,6 @@ export function ClipPlanes({
 }): React.JSX.Element {
   const controller = useController();
   const cursor = useUi((s) => s.cursor);
-  const following = useUi((s) => s.clipFollowsCursor[layer.id] ?? NONE);
   const patch = (p: Partial<MeshLayer>): void => controller.patchLayer(layer.id, p);
   const planes = layer.clip.planes;
   const limit = offsetRange(dataset);
@@ -95,7 +91,7 @@ export function ClipPlanes({
 
       {planes.map((clip, index) => {
         const n = clip.plane.normal;
-        const follows = following.includes(index);
+        const follows = clip.followCursor === true;
         const setNormal = (next: vec3): void => {
           const p = setClipNormal(layer, index, next);
           controller.patchLayer(layer.id, p);

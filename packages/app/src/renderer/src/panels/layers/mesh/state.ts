@@ -414,6 +414,27 @@ export function setClipEnabled(
   return patchPlane(layer, index, (p) => ({ ...p, enabled }));
 }
 
+/**
+ * §4.4's `ClipPlane.followCursor` — the flag itself, as a patch like every other control.
+ *
+ * It is a layer field (added by the Phase-2 integrator, `docs/DECISIONS.md`) rather than UI state
+ * precisely so it round-trips: a saved scene reopening with the plane where it was but no longer
+ * following is a scene that did not persist. `false` is written as `undefined` so a plane that never
+ * followed serialises exactly as Phase 1's did.
+ */
+export function setClipFollowsCursor(
+  layer: MeshLayer,
+  index: number,
+  on: boolean
+): Partial<MeshLayer> {
+  return patchPlane(layer, index, (p) => {
+    const next = { ...p };
+    if (on) next.followCursor = true;
+    else delete next.followCursor;
+    return next;
+  });
+}
+
 export function setClipNormal(layer: MeshLayer, index: number, normal: vec3): Partial<MeshLayer> {
   const unit = normalize3(normal);
   if (unit === null) return {};
@@ -452,26 +473,26 @@ export function setCapColorMode(
 }
 
 /**
- * The patch that makes every plane in `indices` pass through `cursor`, keeping its normal — the
- * 'follow cursor' affordance. Returns `{}` when nothing follows, so the controller can skip the call
- * rather than emit an `updateLayer` per cursor event.
+ * The patch that makes every `followCursor` plane pass through `cursor`, keeping its normal.
+ *
+ * Returns `{}` when nothing follows or nothing moved, so the controller can skip the call rather
+ * than emit an `updateLayer` per cursor event.
  */
-export function planesThroughCursor(
-  layer: MeshLayer,
-  indices: readonly number[],
-  cursor: vec3
-): Partial<MeshLayer> {
-  if (indices.length === 0) return {};
-  const following = new Set(indices);
+export function planesThroughCursor(layer: MeshLayer, cursor: vec3): Partial<MeshLayer> {
   let changed = false;
-  const planes = layer.clip.planes.map((p, i) => {
-    if (!following.has(i)) return p;
+  const planes = layer.clip.planes.map((p) => {
+    if (p.followCursor !== true) return p;
     const offset = offsetThrough(p.plane.normal, cursor);
     if (offset === p.plane.offset) return p;
     changed = true;
     return { ...p, plane: { ...p.plane, offset } };
   });
   return changed ? withPlanes(layer, planes) : {};
+}
+
+/** Whether any plane of this layer follows the cursor — the controller's cheap early-out. */
+export function anyPlaneFollowsCursor(layer: MeshLayer): boolean {
+  return layer.clip.planes.some((p) => p.followCursor === true);
 }
 
 // ------------------------------------------------------------------------------------------------

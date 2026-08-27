@@ -22,6 +22,7 @@ import type {
   Engine,
   EngineEvents,
   EngineOptions,
+  LabelCentroid,
   LoadProgress,
   NewLayer,
   PickResult,
@@ -53,9 +54,10 @@ import { MeshLayerRuntime } from './layers/mesh';
 import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
 import { DerivedStore } from './derived/store';
-import { VolumeLayerRuntime, buildLabelPalette, recolourLabel } from './layers/volume';
+import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
 
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
+import { transformPoint } from './view/m4';
 import { viewports } from './view/layout';
 import type { ViewportRect } from './view/layout';
 import {
@@ -239,6 +241,8 @@ export class TetravoxEngine implements Engine, PointerHost {
    * `scene/serialize.ts`'s `fingerprintFromMeta`, and W-WASM's gap 1.
    */
   readonly #fingerprints = new Map<DatasetId, string>();
+  /** §4.7's `labelCentroids`, cached per `(datasetId, volumeIndex)` — one pass over the volume. */
+  readonly #labelCentroids = new Map<string, Promise<LabelCentroid[]>>();
   /** §4.6's "relative to the scene file" — see {@link TetravoxEngine.setSceneDir}. */
   #sceneDir: string | null = null;
   /**
@@ -555,6 +559,9 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#gpu.dropMeshTables(id);
     this.#derived.dropDataset(id);
     this.#cuts.releaseDataset(id);
+    for (const key of [...this.#labelCentroids.keys()]) {
+      if (key.startsWith(`${id}|`)) this.#labelCentroids.delete(key);
+    }
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#emit('layers', [...this.#scene.layers]);
@@ -915,37 +922,39 @@ export class TetravoxEngine implements Engine, PointerHost {
   // -----------------------------------------------------------------------------------------
   // R5 — region select / mute / recolour (E-SLICE, Phase 2)
   //
-  // `visibleLabels` and `labelOpacity` are frozen `VolumeLayer` fields and travel through
-  // `updateLayer` like any other patch; the two things §4.4 has no field for are a label's **colour**
-  // and the **selection**, and they land here. Colour is written into the dataset's `LabelTable` —
-  // it is what a `*_LUT.txt` holds, what §8's "Save LUT…" exports and what every layer on that atlas
-  // reads — while the selection is per layer, because §8's region panel belongs to a layer's row.
+  // All four of R5's per-region edits are now frozen `VolumeLayer` fields and travel through
+  // `updateLayer` like any other patch: `visibleLabels`, `labelOpacity`, and — added by the Phase-2
+  // integrator from E-SLICE's, A-PROPS's and E-SCENE's identical filings — `labelColors` and
+  // `selectedLabels` (§4.4, `docs/DECISIONS.md` 2026-08-27). That is what makes R5's "edits persist
+  // in the scene" true (§4.6 serialises layers and does **not** serialise a `LabelTable`) and what
+  // lets §8's panel drive all of it "from the `Engine` API alone".
   //
-  // Neither is on the frozen §4.7 `Engine` yet; both are filed with the integrator (see the
-  // Phase-2 result note), because `VolumeLayer` has no `labelLut` and no `selectedLabels` and
-  // `docs/PHASE2-OWNERSHIP.md` assumed it had.
+  // The two convenience members below stay because they are what a spec can call in one line; both
+  // are `updateLayer` underneath, and neither is on the frozen `Engine` — an app reaches for
+  // `updateLayer`.
   // -----------------------------------------------------------------------------------------
 
   /**
-   * R5's colour swatch: recolour one label of the atlas a layer draws.
+   * R5's colour swatch: override one label's colour on this layer.
    *
-   * Returns `false` when the layer is not a label volume or the atlas has no such id, so a panel can
-   * tell "no such region" from "done".
+   * `color: null` **clears** the override, which is the per-row Reset — the dataset's `LabelTable`
+   * still holds the file's own colour underneath, untouched, so there is something to reset to.
+   *
+   * Returns `false` when the layer is not a label volume, so a panel can tell "not applicable" from
+   * "done". An id the atlas does not name is still accepted: `labelIds` is per 4D frame, and
+   * refusing here would make the answer depend on which frame is on screen.
    */
-  setLabelColor(layerId: LayerId, labelId: number, color: vec4): boolean {
+  setLabelColor(layerId: LayerId, labelId: number, color: vec4 | null): boolean {
     const rt = this.#layers.get(layerId);
-    if (rt === undefined || rt.kind !== 'volume') return false;
+    if (!(rt instanceof VolumeLayerRuntime)) return false;
     const ds = this.#store.dataset(rt.datasetId);
-    if (ds === undefined || ds.kind !== 'volume') return false;
-    if (!recolourLabel(ds, labelId, color)) return false;
-    // Every layer that draws this atlas takes the new colour: the table is the atlas's, not a view's.
-    for (const other of this.#layers.values()) {
-      if (other.datasetId === ds.id && other instanceof VolumeLayerRuntime) {
-        other.invalidateLabelStyle();
-      }
-    }
-    this.#emit('datasets', [...this.#scene.datasets.values()]);
-    this.requestRender();
+    if (ds === undefined || ds.kind !== 'volume' || !ds.isLabel) return false;
+    const next = { ...(rt.layer.labelColors ?? {}) };
+    if (color === null) delete next[labelId];
+    else next[labelId] = color;
+    this.updateLayer<VolumeLayer>(layerId, {
+      labelColors: Object.keys(next).length === 0 ? undefined : next,
+    });
     return true;
   }
 
@@ -953,14 +962,54 @@ export class TetravoxEngine implements Engine, PointerHost {
   setSelectedLabels(layerId: LayerId, labelIds: readonly number[]): void {
     const rt = this.#layers.get(layerId);
     if (!(rt instanceof VolumeLayerRuntime)) return;
-    rt.setSelectedLabels(labelIds);
-    this.requestRender();
+    this.updateLayer<VolumeLayer>(layerId, { selectedLabels: [...labelIds] });
   }
 
   /** What {@link setSelectedLabels} last set, so a panel can round-trip its own state. */
   selectedLabels(layerId: LayerId): Uint32Array {
     const rt = this.#layers.get(layerId);
     return rt instanceof VolumeLayerRuntime ? rt.selectedLabels : new Uint32Array(0);
+  }
+
+  /**
+   * §4.7's `labelCentroids`: every label of a label-volume layer, with its voxel count and world
+   * centroid (§6.5.2's op).
+   *
+   * Cached per `(datasetId, volumeIndex)` — the op is one pass over the volume and a label map does
+   * not change under a layer — and shared by every layer drawing that atlas, which is the point of
+   * keying it on the dataset rather than on the layer that asked.
+   */
+  async labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {
+    const rt = this.#layers.get(layerId);
+    if (!(rt instanceof VolumeLayerRuntime)) return [];
+    const ds = this.#store.dataset(rt.datasetId);
+    if (ds === undefined || ds.kind !== 'volume' || !ds.isLabel) return [];
+    const volumeIndex = rt.layer.volumeIndex;
+    const cacheKey = `${ds.id}|${volumeIndex}`;
+    const cached = this.#labelCentroids.get(cacheKey);
+    if (cached !== undefined) return cached;
+    const client = this.#workers.get(ds.id)?.client;
+    if (client === undefined) return [];
+    const pending = this.#track(
+      client
+        .labelCentroids(`labelCentroids:${cacheKey}`, { handle: ds.handle, volumeIndex })
+        .then((res) =>
+          // The op answers in **voxel** coordinates; §4.1 converts once, and this is that once.
+          res.centroids.map((c) => ({
+            id: c.id,
+            count: c.count,
+            centroid: transformPoint(ds.affine, c.centroid) as vec3,
+          }))
+        )
+    );
+    this.#labelCentroids.set(cacheKey, pending);
+    try {
+      return await pending;
+    } catch {
+      // A terminated worker (§5 rule 1) is not an error here; the panel keeps showing `—`.
+      this.#labelCentroids.delete(cacheKey);
+      return [];
+    }
   }
 
   /**

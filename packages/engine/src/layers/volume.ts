@@ -64,8 +64,6 @@ export class VolumeLayerRuntime implements LayerRuntime {
   /** Frames a `volumeFrame` op is already in flight for, so a key-repeat on `.` issues one each. */
   readonly #framesRequested = new Set<number>();
 
-  /** R5: the labels the region panel has selected, for the outline emphasis. Per layer, per §8. */
-  #selected = new Uint32Array(0);
   /** What the currently uploaded label style was built from; `null` when nothing is uploaded. */
   #styleSignature: string | null = null;
 
@@ -105,14 +103,15 @@ export class VolumeLayerRuntime implements LayerRuntime {
   // R5 — region select / mute / recolour
   // -----------------------------------------------------------------------------------------
 
-  /** R5: the selected labels get the emphasis rim. Ids, not dense indices — the panel speaks ids. */
-  setSelectedLabels(ids: readonly number[]): void {
-    this.#selected = Uint32Array.from(ids);
-    this.#refreshLabelStyle();
-  }
-
+  /**
+   * R5: the selected labels get the emphasis rim. Ids, not dense indices — the panel speaks ids.
+   *
+   * Read straight off `VolumeLayer.selectedLabels` (§4.4, added by the Phase-2 integrator) rather
+   * than held here, so a selection arrives through `updateLayer` like every other layer edit and
+   * survives `serialize()` / `load()`, which is R5's last gate clause.
+   */
   get selectedLabels(): Uint32Array {
-    return this.#selected;
+    return Uint32Array.from(this.#layer.selectedLabels ?? []);
   }
 
   /**
@@ -297,17 +296,18 @@ export class VolumeLayerRuntime implements LayerRuntime {
     if (!ds.isLabel) return;
     const labelIds = this.#frameLabelIds.get(layer.volumeIndex);
     if (labelIds === undefined) return;
-    const signature = labelStyleSignature(ds.labelTable, layer, this.#selected);
+    const signature = labelStyleSignature(ds.labelTable, layer, this.selectedLabels);
     if (signature === this.#styleSignature) return;
     const palette = buildLabelPalette(ds, labelIds, {
       visibleLabels: layer.visibleLabels,
       labelOpacity: layer.labelOpacity,
+      labelColors: layer.labelColors,
     });
     if (palette === null) return;
     this.#ctx.gpu.uploadLabelStyle(
       labelStyleKey(this.id, layer.volumeIndex),
       palette,
-      buildLabelAttrs(labelIds, this.#selected)
+      buildLabelAttrs(labelIds, this.selectedLabels)
     );
     this.#styleSignature = signature;
     this.#ctx.requestRender();
@@ -326,6 +326,13 @@ function labelStyleSignature(
   selected: Uint32Array
 ): string {
   const colors = table?.entries.map((e) => `${e.id}:${e.color.join(',')}`).join('|') ?? '';
+  const overrides =
+    layer.labelColors === undefined
+      ? ''
+      : Object.entries(layer.labelColors)
+          .map(([k, v]) => `${k}=${v.join(',')}`)
+          .sort()
+          .join('|');
   const visible = layer.visibleLabels === undefined ? '*' : [...layer.visibleLabels].join(',');
   const opacity =
     layer.labelOpacity === undefined
@@ -334,7 +341,7 @@ function labelStyleSignature(
           .map(([k, v]) => `${k}=${v}`)
           .sort()
           .join(',');
-  return `${layer.volumeIndex}#${colors}#${visible}#${opacity}#${[...selected].join(',')}`;
+  return `${layer.volumeIndex}#${colors}#${overrides}#${visible}#${opacity}#${[...selected].join(',')}`;
 }
 
 /** Options a layer folds into its palette rather than branching on in the shader. */
@@ -343,6 +350,14 @@ export interface LabelPaletteStyle {
   visibleLabels?: Uint32Array;
   /** §4.4: per-label multiplier on the palette's alpha, keyed by **label id**, not dense index. */
   labelOpacity?: Record<number, number>;
+  /**
+   * §4.4's `VolumeLayer.labelColors`: R5's colour picker, keyed by **label id**.
+   *
+   * It beats the dataset's `LabelTable`, and it is the *only* place an edit is written: the table
+   * keeps the file's own colours, so a per-row Reset is deleting a key rather than re-reading a LUT,
+   * and §4.6 round-trips the edit because the layer is serialised and the table is not.
+   */
+  labelColors?: Record<number, vec4>;
 }
 
 /**
@@ -373,7 +388,10 @@ export function buildLabelPalette(
   for (let k = 0; k < labelIds.length; k += 1) {
     const labelId = labelIds[k] ?? 0;
     const entry = ds.labelTable?.byId.get(labelId);
-    const c = entry?.color ?? (labelId === 0 ? ([0, 0, 0, 0] as const) : fallbackLabelColor(k));
+    const c =
+      style.labelColors?.[labelId] ??
+      entry?.color ??
+      (labelId === 0 ? ([0, 0, 0, 0] as const) : fallbackLabelColor(k));
     const hidden = visible !== null && !visible.has(labelId);
     const opacity = hidden ? 0 : (style.labelOpacity?.[labelId] ?? 1);
     palette[k * 4] = Math.round(c[0] * 255);
@@ -398,22 +416,6 @@ export function buildLabelAttrs(labelIds: Uint32Array, selected: Uint32Array): U
     attrs[k * 4] = set.has(labelIds[k] ?? 0) ? 255 : 0;
   }
   return attrs;
-}
-
-/**
- * Recolour one label **in the dataset's `LabelTable`** (R5's colour swatch).
- *
- * The table is where a label's colour belongs: it is what a `*_LUT.txt` holds, what §8's "Save LUT…"
- * writes back out, and what {@link buildLabelPalette} reads. `byId` and `entries` are two views of
- * one table and both are patched, or a panel that iterates `entries` keeps showing the old swatch.
- *
- * Returns `false` when the atlas has no such label, so the caller can leave the frame alone.
- */
-export function recolourLabel(ds: VolumeDataset, labelId: number, color: vec4): boolean {
-  const entry = ds.labelTable?.byId.get(labelId);
-  if (entry === undefined) return false;
-  entry.color = color;
-  return true;
 }
 
 /** Deterministic fallback colour for a label the LUT does not name (§7.6's glasbey-like palette). */

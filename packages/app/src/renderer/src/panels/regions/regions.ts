@@ -5,7 +5,7 @@
  *
  * | Source | ids | colour | visible | opacity |
  * |---|---|---|---|---|
- * | label **volume** (atlas / tissue map) | `VolumeDataset.labelIds` | `labelTable` (read-only today) | `VolumeLayer.visibleLabels` | `VolumeLayer.labelOpacity` |
+ * | label **volume** (atlas / tissue map) | `VolumeDataset.labelIds` | `VolumeLayer.labelColors` over `labelTable` | `VolumeLayer.visibleLabels` | `VolumeLayer.labelOpacity` |
  * | mesh **tissue tags** | `MeshDataset.tags` | `MeshLayer.tagStyle[t].color` | `tagStyle[t].visible` | `tagStyle[t].opacity` |
  * | surface **annotation** (`.annot` / `.label.gii`) | `MeshLayer.label.table` | that table | `label.visibleLabels` | — |
  *
@@ -18,8 +18,9 @@
  * * It never scans `VolumeDataset.data`. §4.3 keeps those samples on the UI thread "for probes only",
  *   and a voxel count over 256×256×208 is not a probe. Counts and centroids come from the
  *   `labelCentroids` op (§6.5.2), whose result is exactly `{ id, centroid, count }[]` — see
- *   {@link RegionStat}. Until the `Engine` facade exposes a producer for it, a row's count and
- *   centroid are `null` and the panel says so rather than inventing them.
+ *   {@link RegionStat}. The facade's producer is `Engine.labelCentroids` (§4.7); until it has
+ *   answered, a row's count and centroid are `null` and the panel says so rather than inventing
+ *   them.
  * * It never invents a colour. A label with no `LabelEntry` gets `color: null`; the engine paints it
  *   from §7.6's deterministic glasbey-like palette, and a swatch guessed here would disagree with the
  *   pane, which is worse than an honest blank.
@@ -107,7 +108,8 @@ function volumeRows(
     return {
       id,
       name: entry?.name ?? `Label ${id}`,
-      color: entry?.color ?? null,
+      // The layer's override wins, exactly as it does in the pane's palette (`layers/volume.ts`).
+      color: layer.labelColors?.[id] ?? entry?.color ?? null,
       visible: isVisibleLabel(layer.visibleLabels, id),
       opacity: layer.labelOpacity?.[id] ?? 1,
       count: stat?.count ?? null,
@@ -168,9 +170,8 @@ export function regionSourceFor(
       layerId: layer.id,
       title: 'Labels',
       rows: volumeRows(layer, dataset, stats),
-      // No `Partial<VolumeLayer>` carries a per-label colour: the palette is built from
-      // `VolumeDataset.labelTable`, which is a dataset, not a layer. Filed with the integrator.
-      recolorable: false,
+      // `VolumeLayer.labelColors` (§4.4) carries the override; see `colorPatch`.
+      recolorable: true,
       adjustableOpacity: true,
       hasCounts: stats !== undefined && stats.length > 0,
     };
@@ -368,18 +369,30 @@ export function opacityPatch(
 /**
  * R5's colour picker.
  *
- * Two of the three kinds have somewhere to put the answer: a mesh tag's colour is
- * `MeshLayer.tagStyle[t].color` and an annot's is the `LabelTable` that hangs off `MeshLayer.label`
- * — both **layer** state, both patchable. A label volume's palette is built from
- * `VolumeDataset.labelTable`, which is dataset state the app may not mutate, so this returns `null`
- * there and the panel disables the swatch with a reason.
+ * All three kinds have somewhere to put the answer, and all three are **layer** state so the edit
+ * round-trips through `serialize()` / `load()` (§4.6 serialises layers and re-derives a
+ * `LabelTable` from the file): a mesh tag's colour is `MeshLayer.tagStyle[t].color`, an annot's is
+ * the `LabelTable` on `MeshLayer.label`, and a label volume's is `VolumeLayer.labelColors` — the
+ * field the Phase-2 integrator added from this panel's own filing. `labelColors` **overrides** the
+ * dataset's table rather than replacing it, so the file's colours stay readable underneath and a
+ * per-row Reset is deleting a key.
+ *
+ * `color: null` is that Reset. It is only meaningful where an override exists as a separate thing
+ * from the base colour — the label-volume case; the other two edit their table in place.
  */
 export function colorPatch(
   source: RegionSource,
   layer: Layer,
   id: number,
-  color: vec4
+  color: vec4 | null
 ): Partial<Layer> | null {
+  if (source.kind === 'labelVolume' && layer.kind === 'volume') {
+    const next = { ...(layer.labelColors ?? {}) };
+    if (color === null) delete next[id];
+    else next[id] = color;
+    return { labelColors: Object.keys(next).length === 0 ? undefined : next };
+  }
+  if (color === null) return null;
   if (source.kind === 'meshTag' && layer.kind === 'mesh') {
     const prev = layer.tagStyle[id] ?? { visible: true, opacity: 1 };
     return {

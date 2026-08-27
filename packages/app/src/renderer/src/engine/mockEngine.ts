@@ -36,6 +36,7 @@ import type {
   DatasetSource,
   Engine,
   EngineEvents,
+  LabelCentroid,
   Layer,
   LayerId,
   Layout,
@@ -564,6 +565,35 @@ export class NoGlEngine implements Engine {
       }
     }
     return { world, rows };
+  }
+
+  /**
+   * §8's region panel, on the stand-in: the same `{ id, centroid, count }` shape the real engine's
+   * `labelCentroids` op returns, derived from the fake volume so a count is a number the test can
+   * predict rather than a recording.
+   *
+   * Label `k` gets `count = k + 1` voxels and a centroid on the diagonal of the dataset's bounds, so
+   * a row's count is distinguishable from its id and a double-click has somewhere to jump to.
+   */
+  labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {
+    const layer = this.state.layers.find((l) => l.id === layerId);
+    if (layer === undefined || layer.kind !== 'volume') return Promise.resolve([]);
+    const dataset = this.state.datasets.get(layer.datasetId);
+    if (dataset === undefined || dataset.kind !== 'volume' || !dataset.isLabel) {
+      return Promise.resolve([]);
+    }
+    const ids = dataset.labelTable?.entries.map((e) => e.id) ?? [];
+    return Promise.resolve(
+      ids.map((id, k) => ({
+        id,
+        count: k + 1,
+        centroid: applyMat4(dataset.affine, [
+          ((k + 1) / (ids.length + 1)) * ((dataset.dims[0] as number) - 1),
+          ((k + 1) / (ids.length + 1)) * ((dataset.dims[1] as number) - 1),
+          ((k + 1) / (ids.length + 1)) * ((dataset.dims[2] as number) - 1),
+        ]),
+      }))
+    );
   }
 
   // ------------------------------------------------------------------------------------------

@@ -111,13 +111,16 @@ describe('patchLayerAsync — §7.4’s three async switches', () => {
 
 describe('clip planes that follow the cursor', () => {
   it('re-derives the offset from every `cursor` event, and only for the planes that follow', async () => {
-    const { engine, controller, store, layer } = await meshHarness();
+    const { engine, controller, layer } = await meshHarness();
     const id = layer().id;
     controller.patchLayer(id, addClipPlane(layer(), [0, 0, 1], 0));
     controller.patchLayer(id, addClipPlane(layer(), [1, 0, 0], 0));
 
     controller.setClipFollowsCursor(id, 1, true);
-    expect(store.getState().clipFollowsCursor[id]).toEqual([1]);
+    // The flag is on the layer (§4.4's `ClipPlane.followCursor`), so it round-trips through
+    // `serialize()`; nothing about it lives in the UI store.
+    expect(layer().clip.planes[1]?.followCursor).toBe(true);
+    expect(layer().clip.planes[0]?.followCursor).toBeUndefined();
 
     engine.setCursor([12, 34, 56]);
     expect(layer().clip.planes[0]?.plane.offset).toBe(0);
@@ -125,7 +128,7 @@ describe('clip planes that follow the cursor', () => {
     expect(layer().clip.planes[1]?.plane.offset).toBe(-12);
 
     controller.setClipFollowsCursor(id, 1, false);
-    expect(store.getState().clipFollowsCursor[id]).toBeUndefined();
+    expect(layer().clip.planes[1]?.followCursor).toBeUndefined();
     engine.setCursor([90, 0, 0]);
     expect(layer().clip.planes[1]?.plane.offset).toBe(-12);
   });

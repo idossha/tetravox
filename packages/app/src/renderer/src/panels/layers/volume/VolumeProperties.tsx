@@ -26,6 +26,7 @@ import {
   LABEL_MODES,
   NEGATIVE_MODES,
   clampOutlineWidth,
+  colormapStops,
   effectiveInterpolation,
   forcedNearest,
   patchHeat,
@@ -246,6 +247,7 @@ export function VolumeProperties({
         window={window}
         threshold={thresholdWindow(vl.threshold)}
         colormapName={String(vl.colormap)}
+        colormapStops={colormapStops(vl.colormap)}
         onWindow={(lo, hi) => setScale(withWindow(vl.scale, normalizeWindow({ lo, hi })))}
         onThreshold={(lo, hi) => patch({ threshold: patchThreshold(vl.threshold, { lo, hi }) })}
       />

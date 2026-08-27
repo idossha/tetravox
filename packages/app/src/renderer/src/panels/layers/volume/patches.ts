@@ -19,6 +19,7 @@ import type {
   VolumeDataset,
   VolumeLayer,
 } from '@tetravox/engine';
+import { isColormapName, sampleColormap } from '@tetravox/engine';
 import type { ValueWindow } from '../../histogram/presets';
 import { normalizeWindow } from '../../histogram/presets';
 
@@ -215,4 +216,43 @@ export function volumeIndexPatch(
 export function clampOutlineWidth(px: number): number {
   if (!Number.isFinite(px)) return 1;
   return Math.min(8, Math.max(0.5, px));
+}
+
+// ------------------------------------------------------------------------------------------------
+// §8's "current colormap painted along the x axis"
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * `#rrggbb` from `sampleColormap`'s triple.
+ *
+ * **That triple is 0..255, not §4.1's 0..1** — the colour tables are stored the way §7.6's `.json`
+ * colormaps and every LUT file write them, and only `MeshTag.color` / `LabelEntry.color` are
+ * normalised on the way in. A second `× 255` here saturates every channel and paints the strip
+ * white, which is how this was caught.
+ */
+function hex(rgb: readonly [number, number, number]): string {
+  const c = (v: number): string =>
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${c(rgb[0])}${c(rgb[1])}${c(rgb[2])}`;
+}
+
+/**
+ * Evenly-spaced CSS stops of a colormap, low → high, for the histogram's strip.
+ *
+ * Sampled through the **engine's** `sampleColormap` (§7.6), re-exported from `@tetravox/engine`
+ * exactly so this is possible: a copy of the tables in the app would be a second source of truth
+ * against the pane, which is the failure mode a viewer must never have.
+ *
+ * Returns `[]` for a user `.json` colormap id — §4.4 allows a `string` there, the engine resolves it
+ * and the app has no table for it — and the strip then falls back to its neutral rail rather than
+ * painting a colormap that is not the one on screen.
+ */
+export function colormapStops(name: ColormapName | string, count = 17): readonly string[] {
+  if (!isColormapName(String(name))) return [];
+  const n = Math.max(2, Math.round(count));
+  return Array.from({ length: n }, (_, i) =>
+    hex(sampleColormap(name as ColormapName, i / (n - 1)))
+  );
 }

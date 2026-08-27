@@ -56,7 +56,11 @@ import type { LutEntry, LutFormat } from '../lib/lut';
 import { bridge } from '../bridge';
 // A-PROPS, appended: the clip-plane 'follow cursor' arithmetic, kept pure and unit-tested beside the
 // editor that offers it (§8 forbids logic in React, not a pure function the controller calls).
-import { planesThroughCursor } from '../panels/layers/mesh/state';
+import {
+  anyPlaneFollowsCursor,
+  planesThroughCursor,
+  setClipFollowsCursor,
+} from '../panels/layers/mesh/state';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
 import type { SceneCommand } from '../bridge';
 
@@ -684,13 +688,7 @@ export class ShellController {
     }));
   }
 
-  /**
-   * Record a `labelCentroids` (§6.5.2) result for a layer.
-   *
-   * There is no producer on the frozen §4.7 facade yet, so today this is written by a test and by
-   * nothing else; the panel renders `—` for count and disables the centroid jump until it is fed.
-   * Filed with the integrator — see the branch's result note.
-   */
+  /** Record a `labelCentroids` (§6.5.2) result for a layer. */
   setRegionStats(layerId: LayerId, stats: readonly RegionStat[]): void {
     this.store.setState((s) => ({
       regionStats: { ...s.regionStats, [layerId]: [...stats] },
@@ -698,26 +696,36 @@ export class ShellController {
   }
 
   /**
+   * Fill in R5's per-row voxel **count** and centroid, from §4.7's `labelCentroids`.
+   *
+   * The op runs in the dataset's worker (§4.3 keeps `VolumeDataset.data` on this thread "for probes
+   * only", and a scan of 256×256×208 voxels is not a probe) and the engine caches it per
+   * `(dataset, volumeIndex)`, so calling this once per mount is one pass over the volume for the
+   * whole session. An empty answer — a layer that is not a label volume, or a worker that has gone
+   * away — is recorded as such, so the panel stops asking and keeps rendering `—`.
+   */
+  async loadRegionStats(layerId: LayerId): Promise<void> {
+    if (this.store.getState().regionStats[layerId] !== undefined) return;
+    const rows = await this.engine.labelCentroids(layerId);
+    this.setRegionStats(
+      layerId,
+      rows.map((r) => ({ id: r.id, count: r.count, centroid: r.centroid }))
+    );
+  }
+
+  /**
    * 'Follow cursor' for a clip plane: while it is on, the plane's `offset` is re-derived from the
    * cursor on every `cursor` event, so the cut sweeps with the crosshair.
    *
-   * The flag is app state — the frozen `ClipPlane` has no `followCursor` field (see `store.ts` and
-   * `docs/DECISIONS.md`) — but the arithmetic is not in React: `planesThroughCursor` is a pure
-   * function in `panels/layers/mesh/state.ts` and this class is its only caller.
+   * The flag is `ClipPlane.followCursor` (§4.4, added by the Phase-2 integrator), so it is one
+   * `updateLayer` like every other control and it survives `serialize()` / `load()`. The arithmetic
+   * stays out of React either way: `planesThroughCursor` is a pure function in
+   * `panels/layers/mesh/state.ts` and this class is its only caller.
    */
   setClipFollowsCursor(layerId: LayerId, index: number, on: boolean): void {
-    this.store.setState((s) => {
-      const current = s.clipFollowsCursor[layerId] ?? [];
-      const next = on
-        ? current.includes(index)
-          ? current
-          : [...current, index].sort((a, b) => a - b)
-        : current.filter((i) => i !== index);
-      const map = { ...s.clipFollowsCursor };
-      if (next.length === 0) delete map[layerId];
-      else map[layerId] = next;
-      return { clipFollowsCursor: map };
-    });
+    const layer = this.store.getState().layers.find((l) => l.id === layerId);
+    if (layer === undefined || layer.kind !== 'mesh') return;
+    this.patchLayer<MeshLayer>(layerId, setClipFollowsCursor(layer, index, on));
     if (!on) return;
     this.ensureClipCursorSubscription();
     this.applyClipFollowsCursor(layerId);
@@ -727,12 +735,11 @@ export class ShellController {
   applyClipFollowsCursor(layerId?: LayerId): void {
     const state = this.store.getState();
     const cursor = state.cursor;
-    for (const [id, indices] of Object.entries(state.clipFollowsCursor)) {
-      if (layerId !== undefined && id !== layerId) continue;
-      const layer = state.layers.find((l) => l.id === id);
-      if (layer === undefined || layer.kind !== 'mesh') continue;
-      const patch = planesThroughCursor(layer, indices, cursor);
-      if (Object.keys(patch).length > 0) this.engine.updateLayer<MeshLayer>(id, patch);
+    for (const layer of state.layers) {
+      if (layerId !== undefined && layer.id !== layerId) continue;
+      if (layer.kind !== 'mesh') continue;
+      const patch = planesThroughCursor(layer, cursor);
+      if (Object.keys(patch).length > 0) this.engine.updateLayer<MeshLayer>(layer.id, patch);
     }
     this.engine.requestRender();
   }
@@ -743,13 +750,17 @@ export class ShellController {
    * One `cursor` subscription for every following plane, attached on first use and torn down by
    * `detach()` with the rest. One per plane would re-issue the same `updateLayer` once per plane per
    * cursor event.
+   *
+   * A scene **loaded** from disk can arrive with following planes without anything calling
+   * `setClipFollowsCursor`, so `resyncFromEngine` arms this too.
    */
   private ensureClipCursorSubscription(): void {
     if (this.clipCursorSubscribed) return;
     this.clipCursorSubscribed = true;
     this.unsubscribers.push(
       this.engine.on('cursor', () => {
-        if (Object.keys(this.store.getState().clipFollowsCursor).length === 0) return;
+        const layers = this.store.getState().layers;
+        if (!layers.some((l) => l.kind === 'mesh' && anyPlaneFollowsCursor(l))) return;
         this.applyClipFollowsCursor();
       })
     );
@@ -1039,6 +1050,11 @@ export class ShellController {
    * describe the previous scene. Everything read here comes from `engine.scene`; nothing is computed.
    */
   private resyncFromEngine(): void {
+    // A loaded scene can bring `followCursor` planes with it (§4.4), and nothing called
+    // `setClipFollowsCursor` to arm the subscription for them.
+    if (this.engine.scene.layers.some((l) => l.kind === 'mesh' && anyPlaneFollowsCursor(l))) {
+      this.ensureClipCursorSubscription();
+    }
     const { engine, store } = this;
     store.setState({
       radiological: engine.scene.radiological,

@@ -120,13 +120,6 @@ export interface UiState {
    * progress state**, not instant checkboxes."
    */
   meshPending: Record<LayerId, string[]>;
-  /**
-   * Per layer, the indices into `MeshLayer.clip.planes` of the planes whose offset follows the
-   * cursor. This is **app** state, not layer state, because the frozen `ClipPlane` (§4.4) has no
-   * `followCursor` field — so it does not survive `serialize()` / `load()`. Recorded, with the
-   * frozen-interface request it implies, in `docs/DECISIONS.md`.
-   */
-  clipFollowsCursor: Record<LayerId, number[]>;
 
   // -- Phase 2, A-SHELL (appended; §8's scene save/load, dialogs and header panel) ----------------
   /** The scene file this session is attached to, so `Save` can write without asking again (§4.6). */
@@ -212,7 +205,6 @@ export const INITIAL_UI: UiState = {
   regionSelection: {},
   regionStats: {},
   meshPending: {},
-  clipFollowsCursor: {},
   sceneFile: null,
   sceneError: null,
   dialog: 'none',

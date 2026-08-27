@@ -310,11 +310,28 @@ export interface VolumeLayer extends LayerBase {
   outlineWidthPx: number;                               // render-target px (§7.0.5)
   visibleLabels?: Uint32Array;                          // undefined = all
   labelOpacity?: Record<number, number>;
+  labelColors?: Record<number, vec4>;                   // R5's colour picker: per-label override,
+                                                        //   beating the dataset's LabelTable (see below)
+  selectedLabels?: number[];                            // R5's selection: the outline-emphasis set
   showIn3D: boolean;
   precision: 'auto' | 'f32';                            // 'f32' forces R32F, guarded by caps.floatLinear
 }
 
-export interface ClipPlane { plane: Plane; enabled: boolean }
+export interface ClipPlane { plane: Plane; enabled: boolean; followCursor?: boolean }
+// followCursor: the plane's `offset` tracks the cursor. On the layer, not in the host's UI state, so
+// a saved scene reopens still following (§4.6 serialises layers).
+
+// **R5's four per-region edits are all layer state, and that is what makes them persist.** §4.6 does
+// not serialise a `LabelTable` — it is re-derived from the dataset and its LUT on load — so an edited
+// label colour written into the table would be lost on the next open, which R5 forbids ("edits
+// persist in the scene"). `labelColors` is therefore an *override* on the layer: the file's own
+// colours stay readable underneath it, a per-row Reset is deleting a key, and "Save LUT…" (§7.6)
+// writes the override merged over the table. The mesh side already worked this way
+// (`tagStyle[t].color`, `MeshLayer.label.table`); this is the volume side catching up.
+//
+// `selectedLabels` is a plain `number[]`, unlike `visibleLabels`' `Uint32Array`: a selection is a
+// handful of ids a panel edits click by click, not a filter over up to 65535 of them, and keeping it
+// JSON keeps `SerializableLayer` a straight `Omit` of one field rather than three.
 
 export interface IsolateSpec {
   tags?: number[];
@@ -385,7 +402,8 @@ export interface SliceView {
   up: vec3;                                      // unit, in-plane, screen up.
                                                  // Re-orthogonalised on load: up ← normalize(up − (up·n)n);
                                                  // rejected if |up × n| < 1e-4.
-  camera: { center: vec2; mmPerPx: number };     // in-plane pan/zoom, relative to the cursor's projection
+  camera: { center: vec2; mmPerPx: number };     // in-plane pan/zoom, relative to the SCENE BOUNDS
+                                                 //   centre — not the cursor's projection (R3; see below)
   layerVisibility?: Record<LayerId, boolean>;
 }
 // The plane is DERIVED, never stored: plane = { normal, offset: -dot(normal, scene.cursor) }.
@@ -456,9 +474,9 @@ export interface MeshGeometry { vao: WebGLVertexArrayObject; buffers: WebGLBuffe
 
 **`SliceView.camera.center` is measured from the scene bounding-box centre, not from the cursor**
 (maintainer requirement R3, 2026-08-27 — where a requirement and this contract disagree, the
-requirement wins). The block above still carries Phase 0's inline comment "relative to the cursor's
-projection", because `scene/types.ts` is frozen and a comment there is W-WASM's to reword; this
-paragraph is the normative statement, and the two must be read together until that edit lands.
+requirement wins). The block above and `scene/types.ts` both say so; the stale Phase-0 comment
+("relative to the cursor's projection") was corrected in the frozen file by the Phase-2 integrator,
+so there is now one statement rather than two that must be read together.
 
 The reason is R3 itself — *move the crosshair, not the scan*. With the cursor as the in-plane origin,
 setting the cursor moves the **image** under a crosshair pinned to the pane centre, which is the
@@ -537,9 +555,13 @@ make the file look like a different one.
 
 ### 4.7 Engine facade
 
-`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. **One member was added in Phase 2:
-`nudgeCursor`** (2026-08-27, E-SCENE, under the single carve-out named in
-`docs/PHASE2-OWNERSHIP.md`; see `docs/DECISIONS.md`). §7.5 lists "arrows nudge the cursor" and
+`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. **Two members were added in
+Phase 2**, each with this section and a `docs/DECISIONS.md` line in its own commit: `nudgeCursor`
+(2026-08-27, E-SCENE, under the single carve-out named in `docs/PHASE2-OWNERSHIP.md`) and
+`labelCentroids` (2026-08-27, the integrator, from A-PROPS's filing — §6.5.2's op had existed since
+Phase 1 with no producer on the facade, so §8's region panel could show neither a region's voxel
+count nor jump to its centroid, and §4.3 forbids the app scanning `VolumeDataset.data` to get them
+itself). §7.5 lists "arrows nudge the cursor" and
 "PgUp/PgDn slice" as two bindings, and the facade had only `stepCursor` — "±1 voxel along the view
 normal" — so all six keys stepped the slice and the in-plane nudge existed nowhere. The app cannot
 supply it: the step is along `sliceBasis(view, radiological).right` / `.up`, which is engine geometry,
@@ -583,6 +605,8 @@ export interface ProbeRow {
   fields?: { name: string; value: number | number[] }[];
 }
 export interface ProbeResult { world: vec3; mni?: vec3; rows: ProbeRow[] }
+
+export interface LabelCentroid { id: number; centroid: vec3; count: number }   // §6.5.2's op, in world RAS
 
 export interface ScreenshotOptions {
   target: 'view' | 'grid'; viewId?: ViewId;
@@ -640,7 +664,8 @@ export interface Engine {
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
-
+  labelCentroids(layerId: LayerId): Promise<LabelCentroid[]>;      // §6.5.2's op — R5's row count
+                                                                   //   and double-click target
   resetView(viewId: ViewId): void;              // §7.5 `r`: refit to the scene bounds
   cameraPreset(viewId: ViewId, preset: CameraPreset): void;        // §7.5 `1..6`
   setAnnotations(patch: Partial<Annotations>): void;               // §7.5 `c` + the §4.5 block

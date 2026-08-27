@@ -302,6 +302,25 @@ export interface VolumeLayer extends LayerBase {
   /** `undefined` = all. */
   visibleLabels?: Uint32Array;
   labelOpacity?: Record<number, number>;
+  /**
+   * R5's colour picker: per-label colour overrides, id → 0..1 RGBA, beating the dataset's
+   * `LabelTable` (added 2026-08-27 by the Phase-2 integrator — see `docs/DECISIONS.md`).
+   *
+   * It is on the **layer** and not on the table because §4.6 does not serialise a `LabelTable` (it
+   * is re-derived from the LUT on load), and R5 requires that "edits persist in the scene". A plain
+   * `Record<number, vec4>` rather than a patched table for the same reason: this is the whole of the
+   * edit, it is JSON as it stands, and the file's own colours stay readable underneath it, which is
+   * what makes a per-row Reset possible at all.
+   */
+  labelColors?: Record<number, vec4>;
+  /**
+   * R5's selection: the labels drawn with the outline emphasis (added 2026-08-27, as above).
+   *
+   * A plain array, unlike `visibleLabels`' `Uint32Array`: a selection is a handful of ids that a
+   * panel edits click by click, not a filter over up to 65535 of them, and keeping it JSON keeps
+   * `SerializableLayer` a straight `Omit` of one field rather than two.
+   */
+  selectedLabels?: number[];
   showIn3D: boolean;
   /** `'f32'` forces R32F, guarded by `caps.floatLinear`. */
   precision: 'auto' | 'f32';
@@ -310,6 +329,16 @@ export interface VolumeLayer extends LayerBase {
 export interface ClipPlane {
   plane: Plane;
   enabled: boolean;
+  /**
+   * The plane's `offset` tracks the cursor (added 2026-08-27 by the Phase-2 integrator — see
+   * `docs/DECISIONS.md`).
+   *
+   * On the layer rather than in the app's UI store because a saved scene that reopens with the
+   * plane where it was but no longer following is a scene that did not round-trip. The arithmetic
+   * stays outside React either way (`panels/layers/mesh/state.ts`'s `planesThroughCursor`); this
+   * field is what makes the answer survive `serialize()` / `load()`.
+   */
+  followCursor?: boolean;
 }
 
 export interface IsolateSpec {
@@ -417,7 +446,13 @@ export interface SliceView {
    * `|up × n| < 1e-4`.
    */
   up: vec3;
-  /** In-plane pan/zoom, relative to the cursor's projection. */
+  /**
+   * In-plane pan/zoom, relative to the **scene bounds centre** — not to the cursor's projection.
+   *
+   * R3 (*move the crosshair, not the scan*) is why: a pane whose world-to-screen map is a function
+   * of `scene.cursor` slides the image whenever the cursor moves, which makes click-to-set-cursor
+   * unwritable. See §4.5 and `docs/DECISIONS.md`, 2026-08-27.
+   */
   camera: { center: vec2; mmPerPx: number };
   layerVisibility?: Record<LayerId, boolean>;
 }
@@ -509,10 +544,15 @@ export interface DatasetRef {
   path: string;
   /** Fallback when the relative path misses. */
   absPath?: string;
-  /** `"<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>"`, 16 hex each. */
+  /** `tvxfp1-<len:16hex>-<hash:16hex>` — see §4.6; produced by `tvx_core::fingerprint`. */
   fingerprint: string;
 }
 
+/**
+ * `visibleLabels` is the one field that is not JSON as it stands (`Uint32Array`), so it is the one
+ * field this type replaces. `labelColors` and `selectedLabels` were deliberately given JSON shapes
+ * on `VolumeLayer` itself so they need no entry here — see their doc comments.
+ */
 export type SerializableLayer = Omit<Layer, 'visibleLabels'> & {
   visibleLabels?: number[];
   label?: {
