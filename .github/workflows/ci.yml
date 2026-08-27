@@ -1,0 +1,227 @@
+# Tetravox CI — docs/ARCHITECTURE.md §12.
+#
+# `test` runs on ubuntu-24.04 (the §11/§12.1 **golden authority**) and macos-latest. The `package` legs of
+# the §12.1 matrix are carried here from day one, as docs/ROADMAP.md Phase 0 requires, but they are
+# Phase 3's to make green and only run on demand — Phase 0 proves `pnpm package` on the host platform
+# only, via the macOS `.dmg` step inside `test`.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # §12.3: wasm-pack's version is pinned in scripts/build-wasm.sh and wasm-bindgen is pinned =0.2.127 in
+  # Cargo.toml. A mismatch between the two produces glue that does not match the module.
+  WASM_PACK_VERSION: '0.15.0'
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      # §12.2 names `~/.cache/electron` and `~/.cache/ms-playwright` as the caches to keep. macOS would
+      # otherwise put both under `~/Library/Caches`, so pin the locations and cache one set of paths on
+      # both runners. Set here rather than in `env:` because workflow `env:` is not shell-expanded.
+      - name: Pin the download caches to the §12.2 paths
+        shell: bash
+        run: |
+          echo "ELECTRON_CACHE=$HOME/.cache/electron" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------ toolchains
+      # rust-toolchain.toml pins stable 1.93.0 with rustfmt, clippy and wasm32-unknown-unknown, and
+      # rustup honours it. `rustup show` is what makes it install, before anything needs it.
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup show
+          rustc --version
+          cargo --version
+          rustup target list --installed
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # ------------------------------------------------------------------ caches (§12.2)
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin
+            target
+          key: cargo-${{ matrix.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ matrix.os }}-
+
+      - name: Resolve the pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ matrix.os }}-
+
+      # §12.2: from electron 42 the ~100 MB binary is downloaded on FIRST LAUNCH, not on install, so
+      # this cache is what keeps the warm-up step below from re-downloading it every run.
+      - name: Electron binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: electron-${{ matrix.os }}-
+
+      # @playwright/test is pinned to an exact version because it pins the Chromium build, and therefore
+      # the SwiftShader that produces every golden (§11). Key the cache on that exact version.
+      - name: Playwright browser cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ matrix.os }}-
+
+      # ------------------------------------------------------------------ install
+      - name: Install wasm-pack ${{ env.WASM_PACK_VERSION }} (pinned by scripts/build-wasm.sh)
+        shell: bash
+        run: |
+          if [ "$(wasm-pack --version 2>/dev/null | awk '{print $2}')" != "$WASM_PACK_VERSION" ]; then
+            cargo install wasm-pack --version "$WASM_PACK_VERSION" --locked --force
+          fi
+          wasm-pack --version
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      # Electron needs an X server on Linux, and so will the Phase-1 app E2E. One Xvfb for every step
+      # after this one; on macOS nothing is needed.
+      - name: Start Xvfb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+      # §12.2, explicitly: a failed electron download must be its own red step, not a mysterious e2e
+      # failure. On a cold cache this is where the ~100 MB binary is fetched.
+      - name: Warm up the electron binary
+        run: pnpm exec electron --version
+
+      - name: Install the pinned Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # §11 / AGENTS: real-data tests are gated on TETRAVOX_TESTDATA and must SKIP, never fail, in CI.
+      # Assert it is unset so a future `env:` entry is a loud failure rather than a silent slowdown.
+      - name: TETRAVOX_TESTDATA must be unset in CI
+        shell: bash
+        run: |
+          if [ -n "${TETRAVOX_TESTDATA:-}" ]; then
+            echo "TETRAVOX_TESTDATA is set ('$TETRAVOX_TESTDATA'); CI runs synthetic fixtures only." >&2
+            exit 1
+          fi
+          echo "TETRAVOX_TESTDATA is unset — real-data tests will skip, as intended."
+
+      # ------------------------------------------------------------------ rust
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      # ------------------------------------------------------------------ node
+      # §2: `pnpm wasm` is a prerequisite of build / test / typecheck. Never typecheck against a
+      # missing pkg/.
+      - name: pnpm wasm
+        run: pnpm wasm
+
+      - name: pnpm typecheck
+        run: pnpm typecheck
+
+      - name: pnpm lint
+        run: pnpm lint
+
+      - name: pnpm test
+        run: pnpm test
+
+      # Engine Playwright (§11 goldens + analytic pixels) and, once packages/app has an `e2e` script,
+      # the Playwright-Electron app E2E — `pnpm e2e` is `pnpm -r --if-present run e2e`, so the app leg
+      # joins this step by existing. Dev build only; packaging is separate.
+      - name: pnpm e2e
+        run: pnpm e2e
+
+      - name: Upload the Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.os }}
+          path: |
+            packages/engine/playwright-report
+            packages/engine/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # ------------------------------------------------------------------ packaging (Phase 0: macOS only)
+      # ROADMAP Phase-0 gate 2 is "the HOST platform's packaged artefact", and `pnpm package` builds this
+      # platform's artefacts only (§12.1) — so a .dmg here and nothing on Linux. No continue-on-error:
+      # once packages/app has a `package` script, a broken .dmg is a red build.
+      - name: Package .dmg (macOS only)
+        if: runner.os == 'macOS'
+        continue-on-error: false
+        shell: bash
+        run: |
+          if node -e "process.exit(require('./packages/app/package.json').scripts?.package ? 0 : 1)"; then
+            pnpm package
+          else
+            echo "packages/app has no 'package' script yet (Phase-0 stage 2 owns it) — nothing to build."
+          fi
+
+  # The §12.1 `package` matrix, carried from day one (ROADMAP Phase 0) but **Phase 3's to make green**.
+  # Manual only until then: `.dmg` x64 needs macos-26-intel, Linux artefacts are never built on macOS,
+  # and every leg ends with an artefact smoke test that has nothing to smoke yet.
+  package:
+    name: package (${{ matrix.os }} → ${{ matrix.artefact }})
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artefact: .dmg arm64
+          - os: macos-26-intel
+            artefact: .dmg x64
+          - os: ubuntu-24.04
+            artefact: .AppImage + .deb x64
+          - os: ubuntu-24.04-arm
+            artefact: .AppImage arm64
+    steps:
+      - uses: actions/checkout@v5
+      - name: Not yet implemented (Phase 3, §12.1)
+        run: |
+          echo "package leg for ${{ matrix.artefact }} on ${{ matrix.os }}."
+          echo "Phase 3 fills this in: pnpm package, then the artefact smoke test —"
+          echo "launch the packaged binary with a CLI arg pointing at a fixture and assert exit 0."
+          exit 1

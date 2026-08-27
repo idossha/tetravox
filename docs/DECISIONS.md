@@ -487,3 +487,72 @@ The decisions below are new.
   parameter of a test/hook body to decide which fixtures to build and rejects anything that is not an object
   pattern ("First argument must use the object destructuring pattern"), so `async ({}, testInfo)` is mandatory,
   not stylistic.
+## 2026-08-27 — Phase 0 stage 2 (the harness): §11 verification and §12 CI
+
+- 2026-08-27 — **`docs/TESTING.md` added, and §2's `docs/` line edited in the same commit** — §11 and §12
+  say what must be true; nothing said how to run it, how to regenerate a golden, or what the measured
+  SwiftShader capabilities are. Keeping that in the contract would have doubled §11's length with operator
+  detail, so it is its own file and §2 now lists it.
+- 2026-08-27 — **The engine test-page server is `packages/app`'s Vite binary, launched as
+  `pnpm --filter @tetravox/app exec vite --config packages/engine/test/vite.config.ts`** — the §11 pages
+  need a dev server that transpiles TypeScript, and Vite is the obvious one, but it is a devDependency of
+  `packages/app` only. Adding an importer edge in `packages/engine` would rewrite `pnpm-lock.yaml`, which
+  is frozen (§12.3) and, by AGENTS rule 5, is *taken from `main` on conflict* — so a lockfile edge added
+  on a worktree branch is exactly the thing that silently disappears on merge and turns the whole harness
+  red. Rejected alternatives: adding `vite` to `packages/engine` (the lockfile problem above), and a
+  bespoke `node:http` + `typescript.transpileModule` server (~90 lines reimplementing a bundler badly).
+  `test/vite.config.ts` therefore imports **nothing from `vite`** — Vite bundles a config and resolves its
+  bare imports from the config's own directory, where `vite` is not resolvable — and exports a plain
+  object. When `packages/engine` gains its own `vite` devDependency this becomes
+  `pnpm --filter @tetravox/engine exec vite` and the config can use `defineConfig`.
+- 2026-08-27 — **The §7.1 probe is implemented in a new `packages/engine/src/gl/context.ts`
+  (`createContext(canvas, attrs?) -> { gl, caps }`), while `probeCapabilities` in `gl/caps.ts` stays the
+  frozen `unimplemented` stub** — `caps.ts` is frozen with `api.ts` (§12.3 item 3) and stage 2 does not own
+  it. `createContext` is where §7.1's "runs **once**, at context creation, before any texture exists" is
+  actually enforceable, so the probe lives there and `caps.ts` keeps the frozen signature. Phase 1 should
+  make `probeCapabilities` delegate to `probeContextCapabilities`, not duplicate it.
+- 2026-08-27 — **`GlLimits` / `probeGlLimits()` are separate from `Capabilities`** — the harness reports
+  `MAX_TEXTURE_SIZE`, `MAX_ARRAY_TEXTURE_LAYERS` and `MAX_RENDERBUFFER_SIZE`, which §7.1's `Capabilities`
+  does not carry. Adding fields to `Capabilities` would have been a frozen-interface change for test
+  reporting; a sibling type costs nothing and keeps §12.3 item 3 untouched.
+- 2026-08-27 — **`--enable-unsafe-swiftshader` is the flag, and the §1 claim reproduces exactly** —
+  measured on Playwright 1.62.1 / Chromium 151, macOS 15.7 arm64, using `--disable-gpu` to simulate a
+  GPU-less runner: with neither flag `getContext('webgl2')` is **`null`**; with
+  `--enable-unsafe-swiftshader` it is SwiftShader. `--use-gl=angle --use-angle=swiftshader` also yields
+  SwiftShader, with or without the unsafe flag — explicitly selecting a backend is its own consent — but
+  it forces software **everywhere**, which would erase the ANGLE/Metal half of §11's two-renderer-class
+  strategy, so it is rejected on those grounds rather than on failure. Playwright 1.62 already appends
+  `--enable-unsafe-swiftshader` itself and its default `chromium` is the headless shell (no GPU at all);
+  passing it explicitly is a harmless duplicate that keeps the requirement visible. Full table in
+  `docs/TESTING.md` §2.
+- 2026-08-27 — **The macOS golden ratio is 0.01 against the authority's 0.002** — §11 says the macOS job
+  compares "with a looser ratio" without naming one. `goldenMaxDiffPixelRatio()` picks it from
+  `process.platform`, so the number lives in one place. `ubuntu-24.04` remains the authority: a golden that
+  passes on macOS and fails there must be regenerated there.
+- 2026-08-27 — **`packages/engine/test/golden/swiftshader/triangle.png` was captured on macOS arm64, not on
+  the ubuntu authority** — CI has not run yet, so there was nowhere else to capture it. It is a flat
+  two-colour image, so a cross-architecture SwiftShader difference should be a handful of edge pixels
+  against a 131-pixel budget; if the first ubuntu run disagrees, regenerate it there and say so in the
+  commit body per §11.
+- 2026-08-27 — **Golden regeneration is double-locked** — `playwright.config.ts` sets
+  `updateSnapshots: 'none'` unless `TETRAVOX_UPDATE_GOLDENS` is set (so a *missing* golden fails instead of
+  being captured silently), and `expectGolden()` additionally refuses any update mode without that env
+  var, so a stray `playwright test -u` cannot re-bless a rendering change. §11's "commit body states what
+  changed visually" stays a human obligation; nothing can enforce it.
+- 2026-08-27 — **Vitest is one project per package** (`packages/{protocol,wasm,engine}/vitest.config.ts`,
+  aggregated by the root config's `test.projects`) — the previous root-glob config worked, but §11's
+  engine suite needs `test/e2e/**` excluded from vitest and included in Playwright, and that rule belongs
+  next to the package. `pnpm exec vitest run --project engine` now works. `packages/app` has no project
+  yet; stage 2's electron-vite layout adds one.
+- 2026-08-27 — **Files touched outside stage 2's ownership, and why**: `vitest.config.ts` (root) for the
+  projects change above; `packages/engine/tsconfig.json` to include `test/`, `playwright.config.ts` and
+  `vitest.config.ts` in the typecheck — otherwise the harness is the only unchecked TypeScript in the repo;
+  `packages/engine/package.json` for the `e2e` / `e2e:update-goldens` scripts that `pnpm e2e` recurses
+  into; and `packages/wasm/src/index.test.ts`, which is the "one real unit test" for that package. None of
+  the five frozen §12.3 interfaces changed.
+- 2026-08-27 — **The §12.1 `package` matrix is present but `workflow_dispatch`-only and exits 1** — ROADMAP
+  Phase 0 says the workflow "carries the `package` legs from day one, but they are **Phase 3's** to make
+  green". Carrying them as always-on jobs would make every Phase-0 run red, so they are manual and fail
+  loudly with a pointer to what Phase 3 must add (`pnpm package` plus the artefact smoke test). Phase 0's
+  packaging proof is the macOS-only `.dmg` step inside the `test` job — no `continue-on-error`, and a
+  documented no-op only while `packages/app` has no `package` script.
