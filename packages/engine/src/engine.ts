@@ -391,7 +391,6 @@ export class TetravoxEngine implements Engine {
       (b.min[2] + b.max[2]) / 2,
     ];
     if (this.#scene.datasets.size === 1) {
-      this.#scene.cursor = center;
       this.#scene.view3d = {
         ...this.#scene.view3d,
         camera: fitCamera(this.#scene.view3d.camera, b),
@@ -405,6 +404,12 @@ export class TetravoxEngine implements Engine {
         ...s,
         camera: { center: [0, 0], mmPerPx },
       }));
+      // **Through `setCursor`, not by assignment.** Every pane's crosshair and corner annotation
+      // read `scene.cursor` directly, but §8's info panel and coordinate bar are driven by the
+      // `cursor` event alone — so a silent move leaves the app describing world (0,0,0) while the
+      // crosshairs describe the bbox centre, and the user reads an intensity ~33 mm from the
+      // crosshair they are looking at. It also refreshes the mesh probes for the new point.
+      this.setCursor(center);
     }
     this.requestRender();
   }

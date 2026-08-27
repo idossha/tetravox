@@ -1157,3 +1157,12 @@ Each entry below names the problem, the fix, and the evidence.
   lesson as the slice index: a tolerance wide enough to absorb a rasteriser is wide enough to absorb
   a whole annotation block, so anything that must be *right* rather than merely *stable* needs an
   assertion of its own.
+- 2026-08-27 — **The auto-centre goes through `setCursor`, so it emits.** `#onFirstDataset` assigned
+  `this.#scene.cursor = center` directly. Every pane's crosshair and corner annotation read
+  `scene.cursor`, but §8's `Cursor` block and coordinate bar are driven by `EngineEvents.cursor`
+  alone — `store/controller.ts` seeds the cursor once at `attach()`, before any dataset exists, and
+  updates it only from that event. So after the first load the app described world (0,0,0) while
+  every crosshair described the bounding-box centre: on `T1.nii.gz` the panes annotated
+  `RAS 3.8 26.7 −16.1` and the readout said `0.0 0.0 0.0 / voxel 154 144 100 / value 23597`, which
+  is a real intensity from ~33 mm away. Routing through `setCursor` also refreshes the mesh probes
+  for the new point, which the assignment skipped as well.
