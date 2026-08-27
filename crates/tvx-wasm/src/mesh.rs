@@ -121,7 +121,12 @@ fn resolve_tags(
             .or_else(|| pick(&lut_entries, t).map(|(n, _)| n.clone()))
             .or_else(|| pick(opt_names, t).cloned())
         {
-            names.push((t, n));
+            // Trimmed **here**, at the display layer, not in the parsers. SimNIBS writes
+            // `Physical Volume (" Scalp",5)` with a leading space and `testdata/manifest.json`
+            // records that verbatim as the parser's ground truth — but `MeshMeta.tags[].name` is
+            // what §8's tissue table and the info panel show, and `ernie.msh` has no
+            // `$PhysicalNames`, so without this every tissue in the app reads " Scalp", " GM", ….
+            names.push((t, n.trim().to_string()));
         }
         let c = pick(&lut_entries, t)
             .map(|(_, c)| *c)
