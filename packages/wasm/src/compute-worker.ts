@@ -241,6 +241,13 @@ async function runOp<K extends OpName>(
       const a = args as OpArgs['labelCentroids'];
       return call(a.handle, a.volumeIndex) as OpResult[K];
     }
+    case 'meshCentroids': {
+      const a = args as OpArgs['meshCentroids'];
+      // `tags` crosses as an `Int32Array`, like `cut`'s planes cross as a `Float32Array`:
+      // wasm-bindgen's `Option<Vec<i32>>` reads a typed array, not a plain JS array.
+      const tags = a.tags === undefined ? undefined : Int32Array.from(a.tags);
+      return call(a.handle, a.maskId, a.stride, tags) as OpResult[K];
+    }
     case 'free': {
       const a = args as OpArgs['free'];
       call(a.handle);

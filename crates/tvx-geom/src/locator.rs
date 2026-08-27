@@ -8,6 +8,16 @@
 //! the largest tet's extent on each axis.** Then for any point `p` inside tet `T`, the centroid of
 //! `T` is within one cell of `p` on every axis, so scanning the 3x3x3 neighbourhood is exhaustive —
 //! no "expand the radius until something is found" loop, and no missed hit.
+//!
+//! That invariant makes the cells **large**: `ernie.msh`'s biggest tet spans tens of millimetres, so
+//! a 3x3x3 neighbourhood sweeps a ~100 mm box and a candidate can be a long way from `p`. Candidates
+//! are therefore rejected by their **AABB first**, before any barycentric arithmetic — see
+//! [`locate_point`]. That is not an optimisation: an f32 barycentric test on a *sliver* tet
+//! (`ernie.msh` has tets with 6·V ≈ 1e-8 mm³) is dominated by cancellation, and for a point 60 mm
+//! away it can return four positive weights and claim a hit. Measured on `ernie.msh` 2026-08-27: 2 of
+//! 48 sampled tet centroids located into a scalp sliver at (49.3, 16.2, −71.9) instead of into the
+//! tet they are the centroid of. The AABB test is exact — a point inside a tet is inside its AABB —
+//! so it can only remove wrong answers, never a right one.
 
 use crate::util::{barycentric, tet_gmsh_number};
 use crate::{PointLocator, ProbeHit};
@@ -175,6 +185,9 @@ pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<Pro
                 let (a, b) = (grid.starts[ci] as usize, grid.starts[ci + 1] as usize);
                 for &j in &grid.items[a..b] {
                     let tet = mesh.tets[j as usize];
+                    if !aabb_contains(mesh, &tet, p) {
+                        continue;
+                    }
                     let Some(w) = barycentric(
                         mesh.nodes[tet[0] as usize],
                         mesh.nodes[tet[1] as usize],
@@ -193,6 +206,34 @@ pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<Pro
         }
     }
     None
+}
+
+/// Is `p` inside this tet's axis-aligned bounding box?
+///
+/// The gate in front of [`barycentric`], and the reason is correctness rather than speed (see the
+/// module header). The box is grown by a relative slack on each axis so that it keeps the same
+/// "a point exactly on a shared face lands in one of the two tets" behaviour the barycentric `EPS`
+/// provides; the slack is proportional to the tet's own extent, so it is meaningless for a sliver
+/// and generous for a large tet — which is exactly the right way round.
+fn aabb_contains(mesh: &Mesh, tet: &[u32; 4], p: [f32; 3]) -> bool {
+    const SLACK: f32 = 1e-5;
+    let mut mn = [f32::INFINITY; 3];
+    let mut mx = [f32::NEG_INFINITY; 3];
+    for &v in tet {
+        let q = mesh.nodes[v as usize];
+        for c in 0..3 {
+            if q[c] < mn[c] {
+                mn[c] = q[c];
+            }
+            if q[c] > mx[c] {
+                mx[c] = q[c];
+            }
+        }
+    }
+    (0..3).all(|c| {
+        let s = (mx[c] - mn[c]) * SLACK;
+        p[c] >= mn[c] - s && p[c] <= mx[c] + s
+    })
 }
 
 fn probe(mesh: &Mesh, j: usize, tet: &[u32; 4], w: &[f32; 4]) -> ProbeHit {
@@ -229,5 +270,105 @@ fn probe(mesh: &Mesh, j: usize, tet: &[u32; 4], w: &[f32; 4]) -> ProbeHit {
         tag: mesh.tet_tags[j],
         node_values,
         elm_values,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tvx_core::Aabb;
+
+    /// A two-tet mesh: a real `ernie.msh` **sliver** first, then a large tet around the origin.
+    ///
+    /// The sliver's four node coordinates are copied out of `m2m_ernie/ernie.msh` (internal tet
+    /// 608,797, tag 5, 6·V = 2.5e-7 mm³), because the failure this pins is a property of *those*
+    /// f32 coordinates: `barycentric` evaluated at a point 60 mm away returns
+    /// `[1019.5, 601.5, 5476.4, 2885.1]` — four positive weights, i.e. "inside" — purely from
+    /// cancellation. It is first in the list, so a scan with no AABB gate answers with it.
+    fn sliver_then_body() -> Mesh {
+        Mesh {
+            nodes: vec![
+                [49.262543, 16.184732, -71.94772],
+                [49.262543, 16.184904, -71.940796],
+                [49.255653, 16.181803, -71.94242],
+                [49.262543, 16.179636, -71.94378],
+                [-40.0, -40.0, -40.0],
+                [60.0, -40.0, -40.0],
+                [-40.0, 60.0, -40.0],
+                [-40.0, -40.0, 60.0],
+            ],
+            tris: Vec::new(),
+            tri_tags: Vec::new(),
+            tets: vec![[0, 1, 2, 3], [4, 5, 6, 7]],
+            tet_tags: vec![5, 2],
+            tri_edge_mask: None,
+            node_fields: Vec::new(),
+            elm_fields: Vec::new(),
+            physical_names: Vec::new(),
+            gmsh_node_numbers: None,
+            gmsh_elm_numbers: None,
+            tet_perm: Vec::new(),
+            skipped: Vec::new(),
+            bounds: Aabb {
+                min: [-40.0, -40.0, -40.0],
+                max: [60.0, 60.0, 60.0],
+            },
+            label_table: None,
+        }
+    }
+
+    /// The regression: the probe point is the centroid of the *second* tet and 60 mm from the
+    /// first, and it must locate into the second.
+    #[test]
+    fn a_far_sliver_never_wins_the_probe() {
+        let m = sliver_then_body();
+        let grid = build_point_locator(&m);
+        let p = [11.533_48, -14.459_766, -27.362_804];
+
+        // The sliver really does claim this point under a bare barycentric test — otherwise this
+        // test would pass for the wrong reason.
+        let t = m.tets[0];
+        let w = barycentric(
+            m.nodes[t[0] as usize],
+            m.nodes[t[1] as usize],
+            m.nodes[t[2] as usize],
+            m.nodes[t[3] as usize],
+            p,
+        )
+        .expect("non-degenerate enough to divide");
+        assert!(
+            w.iter().all(|&x| x > 0.0),
+            "the f32 cancellation this guards against is gone: {w:?}"
+        );
+        assert!(!aabb_contains(&m, &t, p), "the AABB gate must reject it");
+
+        let hit = locate_point(&m, &grid, p).expect("the body tet contains the point");
+        assert_eq!(hit.tet_index, 1);
+        assert_eq!(hit.tag, 2);
+        assert_eq!(hit.gmsh_elm, 2);
+    }
+
+    /// The gate may only remove wrong answers: a point inside a tet is inside its AABB, and one on
+    /// a face or a vertex still locates.
+    #[test]
+    fn the_aabb_gate_keeps_every_real_hit() {
+        let m = sliver_then_body();
+        let grid = build_point_locator(&m);
+        // The body tet's slanted face is `x + y + z = -20`, so its interior is `x + y + z < -20`.
+        for p in [
+            [-10.0, -10.0, -10.0],
+            [-39.0, -39.0, -39.0],
+            [-40.0, -40.0, -40.0],         // a vertex
+            [-10.0, -10.0, -40.0],         // on the z = -40 face
+            [49.260_0, 16.183_0, -71.943], // inside the sliver itself
+        ] {
+            assert!(
+                locate_point(&m, &grid, p).is_some(),
+                "lost the hit at {p:?}"
+            );
+        }
+        // …and a point outside every tet is still `None`, not a nearest-tet guess.
+        assert!(locate_point(&m, &grid, [1000.0, 1000.0, 1000.0]).is_none());
+        assert!(locate_point(&m, &grid, [59.0, 59.0, 59.0]).is_none());
     }
 }

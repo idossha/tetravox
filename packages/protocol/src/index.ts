@@ -38,8 +38,9 @@ export type OpName =
   | 'marchingTets'
   | 'contours'
   | 'labelCentroids'
+  | 'meshCentroids'
   | 'free'
-  | 'freeMask'; // 17 ops
+  | 'freeMask'; // 18 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -362,6 +363,12 @@ export interface OpArgs {
   };
   contours: { handle: number; plane: PlaneT; maskId?: number };
   labelCentroids: { handle: number; volumeIndex: number };
+  /**
+   * Volumetric `GlyphSpec` origins (§7.4). `stride` keeps every `stride`-th tet that survives
+   * `maskId` and `tags` — filtering happens **first**, so a small tag still gets glyphs — and
+   * `stride: 0` is a parse error. `tags` absent means every tag.
+   */
+  meshCentroids: { handle: number; maskId?: number; stride: number; tags?: number[] };
   free: { handle: number };
   freeMask: { handle: number; maskId: number };
 }
@@ -394,6 +401,11 @@ export interface OpResult {
   labelCentroids: {
     centroids: { id: number; centroid: [number, number, number]; count: number }[];
   };
+  /**
+   * 3 floats per origin and one Gmsh element number per origin (§6.2), in Morton order. No
+   * triangles and no normals: §7.4's "no new geometry from WASM" is what this op keeps true.
+   */
+  meshCentroids: { positions: Float32Array; ownerTet: Uint32Array };
   /** The client then calls `worker.terminate()`. */
   free: Record<string, never>;
   /** Masks are also dropped when the mesh handle is freed. */
@@ -420,6 +432,7 @@ export const OP_NAMES = [
   'marchingTets',
   'contours',
   'labelCentroids',
+  'meshCentroids',
   'free',
   'freeMask',
 ] as const satisfies readonly OpName[];
@@ -444,6 +457,7 @@ export const OP_TO_EXPORT = {
   marchingTets: 'mesh_marching_tets',
   contours: 'mesh_contours',
   labelCentroids: 'volume_label_centroids',
+  meshCentroids: 'mesh_centroids',
   free: 'free',
   freeMask: 'free_mask',
 } as const satisfies Record<OpName, string>;

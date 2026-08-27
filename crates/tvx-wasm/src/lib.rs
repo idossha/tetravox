@@ -40,8 +40,8 @@
 //! `cut`→[`mesh_cut`] · `isolate`→[`mesh_isolate`] · `field`→[`mesh_field`] ·
 //! `elmToNode`→[`mesh_convert_field`] · `locate`→[`mesh_locate`] ·
 //! `marchingCubes`→[`volume_marching_cubes`] · `marchingTets`→[`mesh_marching_tets`] ·
-//! `contours`→[`mesh_contours`] · `labelCentroids`→[`volume_label_centroids`] · `free`→[`free`] ·
-//! `freeMask`→[`free_mask`]. [`wasm_heap_bytes`] is read after every call and stamped onto `Res`;
+//! `contours`→[`mesh_contours`] · `labelCentroids`→[`volume_label_centroids`] ·
+//! `meshCentroids`→[`mesh_centroids`] · `free`→[`free`] · `freeMask`→[`free_mask`]. [`wasm_heap_bytes`] is read after every call and stamped onto `Res`;
 //! [`tvx_version`], [`tvx_ping`] and [`tvx_ping_bytes`] are the Phase-0 liveness set. Those four are
 //! the only exports without an op.
 
@@ -261,6 +261,21 @@ pub fn mesh_marching_tets(
 ) -> Result<JsValue, JsValue> {
     let mut p = JsProgress::new(on_progress);
     mesh::marching_tets(handle, source, name, component, iso, mask_id, &mut p).map_err(err::map)
+}
+
+/// Glyph origins for a **volumetric** `GlyphSpec` (§7.4): one centroid per surviving tet, in Morton
+/// order, with the Gmsh element number that keys the field texture. `stride` keeps every `stride`-th
+/// tet that survives `mask_id` and `tags` — filtering first, so a small tag still gets glyphs — and
+/// `stride = 0` is `Error::Parse`. `tags` is `None` for "every tag". Returns
+/// `{ positions, ownerTet }`; no triangles, no normals.
+#[wasm_bindgen]
+pub fn mesh_centroids(
+    handle: u32,
+    mask_id: Option<u32>,
+    stride: u32,
+    tags: Option<Vec<i32>>,
+) -> Result<JsValue, JsValue> {
+    mesh::centroids(handle, mask_id, stride, tags).map_err(err::map)
 }
 
 /// `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment.

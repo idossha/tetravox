@@ -94,6 +94,15 @@ export function mesh_boundary(handle: number, mask_id: number | null | undefined
 export function mesh_build_topology(handle: number, on_progress: Function): any;
 
 /**
+ * Glyph origins for a **volumetric** `GlyphSpec` (§7.4): one centroid per surviving tet, in Morton
+ * order, with the Gmsh element number that keys the field texture. `stride` keeps every `stride`-th
+ * tet that survives `mask_id` and `tags` — filtering first, so a small tag still gets glyphs — and
+ * `stride = 0` is `Error::Parse`. `tags` is `None` for "every tag". Returns
+ * `{ positions, ownerTet }`; no triangles, no normals.
+ */
+export function mesh_centroids(handle: number, mask_id: number | null | undefined, stride: number, tags?: Int32Array | null): any;
+
+/**
  * `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment.
  */
 export function mesh_contours(handle: number, plane: Float32Array, mask_id?: number | null): any;
@@ -214,6 +223,7 @@ export interface InitOutput {
     readonly load_volume: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => [number, number, number];
     readonly mesh_boundary: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly mesh_build_topology: (a: number, b: any) => [number, number, number];
+    readonly mesh_centroids: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly mesh_contours: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly mesh_convert_field: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly mesh_cut: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];

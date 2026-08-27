@@ -740,6 +740,27 @@ pub fn locate(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue> {
     })
 }
 
+/// `mesh_centroids` (§6.4) → `{ positions, ownerTet }`, the volumetric `GlyphSpec` origins.
+///
+/// `stride` and the optional tag list are validated here; everything else is
+/// [`tvx_geom::tet_centroids`]. The result carries **no** triangles — §7.4's "no new geometry from
+/// WASM" is what this op exists to keep true.
+pub fn centroids(
+    handle: u32,
+    mask_id: Option<u32>,
+    stride: u32,
+    tags: Option<Vec<i32>>,
+) -> Result<JsValue> {
+    handles::with_mesh(handle, |st| {
+        let mask = st.mask(mask_id)?;
+        let c = geom::tet_centroids(&st.mesh, mask, stride as usize, tags.as_deref())?;
+        let o = jsv::obj();
+        jsv::set(&o, "positions", &jsv::f32s(&c.positions).into());
+        jsv::set(&o, "ownerTet", &jsv::u32s(&c.owner_tet).into());
+        Ok(o.into())
+    })
+}
+
 pub fn contours(handle: u32, plane: &[f32], mask_id: Option<u32>) -> Result<JsValue> {
     if plane.len() != 4 {
         return Err(Error::Parse(format!(

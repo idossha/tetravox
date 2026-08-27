@@ -1119,6 +1119,10 @@ pub struct ProbeHit {
 
 pub struct LabelCentroid { pub id: u32, pub centroid: [f32; 3], pub count: u64 }
 
+/// Glyph origins for a VOLUMETRIC `GlyphSpec` (§7.4). Points, not geometry: no triangles, no normals.
+pub struct Centroids { pub positions: Vec<f32>,   // 3 per origin
+                       pub owner_tet: Vec<u32> }  // 1 per origin: Gmsh element number
+
 // --- load-time (called inside loadMesh, not exported individually — see §6.4)
 pub fn morton_reorder(mesh: &mut Mesh) -> Vec<u32>;                   // returns tet_perm; < 250 ms WASM on ernie
 pub fn build_tet_blocks(mesh: &Mesh, blk: usize /* default 64 */) -> TetBlocks;   // < 500 ms WASM on ernie
@@ -1146,6 +1150,8 @@ pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&Bi
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
 pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
 pub fn label_centroids(vol: &Volume, vol_index: usize) -> Result<Vec<LabelCentroid>>;
+pub fn tet_centroids(mesh: &Mesh, mask: Option<&BitMask>, stride: usize,
+                     tags: Option<&[i32]>) -> Result<Centroids>;
 ```
 
 Rules:
@@ -1192,6 +1198,23 @@ Rules:
 * `isolate` evaluates `label_volume` by sampling the cloned label volume (§5 rule 2) at tet centroids through
   `world_to_voxel` (nearest). The bytes arrive as `mesh_isolate`'s separate `label_volume` argument and are
   reinterpreted per `LabelVolumeCriteria.dtype`; a `dtype`/`dims`/byte-length mismatch is `Error::Parse`.
+* **`tet_centroids` is the origin source for a volumetric `GlyphSpec`** (§7.4). Surface glyphs read
+  `SurfaceBuffers.positions` + `owner_elm` and cut-plane glyphs read `Cut.positions` + `owner_tet`; interior
+  glyphs with no cut plane had neither, and §7.4 forbids new geometry from WASM, so this returns one **point**
+  per tet and nothing else. The centroid is the arithmetic mean of the four node positions (`+` and `÷` only, so
+  it is portable like every other §6.3 output); output is in **Morton order**, which is what makes a strided
+  subsample spatially spread rather than clustered by physical tag — the mean of a 1-in-64 sample of ernie's GM
+  is **0.0156 mm** from the mean of all 1,340,029 of them `[M2Max]`, so the region panel's jump-to-centroid can
+  use it for a mesh tissue tag. `mask` and `tags` filter **first** and `stride` then keeps every `stride`-th
+  survivor, so the count is `ceil(surviving / stride)` and a rare tag still gets glyphs; `stride = 0` is
+  `Error::Parse` and an unused tag is an empty result, not an error.
+* **`locate_point` rejects a candidate by its AABB before evaluating barycentric coordinates.** The locator's
+  cells must be at least as large as the largest tet (that is what makes the 3×3×3 scan exhaustive), so on
+  `ernie.msh` a candidate can be ~60 mm from the probe point — and an f32 barycentric test on a **sliver** tet
+  (6·V ≈ 1e-8 mm³, of which ernie has many) is pure cancellation at that distance: measured 2026-08-27, it
+  returns four positive weights and claims the hit for 2 of 48 sampled tet centroids, answering with a scalp
+  sliver at (49.3, 16.2, −71.9) `[DATA]`. The AABB test is exact — a point inside a tet is inside its AABB — so
+  it can only remove wrong answers.
 * **`locate_point` returns the whole probe, not an index.** The one round trip §8 budgets at ≤ 50 ms gathers the
   tag and every node/element field value at the point; splitting the gather across a second op would double the
   latency and leave the field data on the wrong side of the boundary. `ProbeHit.gmsh_elm` is what the wire
@@ -1246,6 +1269,8 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 #[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>)
                                     -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_centroids(handle: u32, mask_id: Option<u32>, stride: u32,
+                                      tags: Option<Vec<i32>>) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn free(handle: u32);
 #[wasm_bindgen] pub fn free_mask(handle: u32, mask_id: u32);
 #[wasm_bindgen] pub fn wasm_heap_bytes() -> u32;      // stamped onto every Res (§6.5), backs the §9 memory bar
@@ -1344,7 +1369,7 @@ export interface WorkerError { code: ErrorCode; message: string }
 export type OpName =
   | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
   | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingTets' | 'contours'
-  | 'labelCentroids' | 'free' | 'freeMask';       // 17 ops
+  | 'labelCentroids' | 'meshCentroids' | 'free' | 'freeMask';       // 18 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -1540,6 +1565,7 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `marchingTets` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel; iso: number; maskId?: number }` | `SurfacePayload` | |
 | `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment |
 | `labelCentroids` | `{ handle: number; volumeIndex: number }` | `{ centroids: { id: number; centroid: [number,number,number]; count: number }[] }` | |
+| `meshCentroids` | `{ handle: number; maskId?: number; stride: number; tags?: number[] }` | `{ positions: Float32Array; ownerTet: Uint32Array }` | glyph origins for a **volumetric** `GlyphSpec` (§7.4): 3 floats and one Gmsh element number per origin, Morton order, no geometry. `maskId`/`tags` filter first, then every `stride`-th survivor; `stride: 0` is `Error::Parse`. Also serves the region panel's jump-to-centroid for a **mesh tissue tag** — the mean of a strided sample is 0.0156 mm off the true one on ernie's GM `[M2Max]` |
 | `free` | `{ handle: number }` | `{}` | the client then calls `worker.terminate()` |
 | `freeMask` | `{ handle: number; maskId: number }` | `{}` | masks are also dropped when the mesh handle is freed |
 
@@ -1547,8 +1573,8 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 `Req<'cut'>` and `Res<'cut'>` are fully typed:
 
 ```ts
-export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; volumeFrame: {…}; /* …all 17… */ }
-export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: VolumeFrameT; /* …all 17… */ }
+export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; volumeFrame: {…}; /* …all 18… */ }
+export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: VolumeFrameT; /* …all 18… */ }
 ```
 
 **Op → wasm export (§6.4), one-to-one and exhaustive:**
@@ -1557,7 +1583,8 @@ export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: Vol
 `buildTopology`→`mesh_build_topology` · `cut`→`mesh_cut` · `isolate`→`mesh_isolate` · `field`→`mesh_field` ·
 `elmToNode`→`mesh_convert_field` · `locate`→`mesh_locate` · `marchingCubes`→`volume_marching_cubes` ·
 `marchingTets`→`mesh_marching_tets` · `contours`→`mesh_contours` ·
-`labelCentroids`→`volume_label_centroids` · `free`→`free` · `freeMask`→`free_mask`.
+`labelCentroids`→`volume_label_centroids` · `meshCentroids`→`mesh_centroids` · `free`→`free` ·
+`freeMask`→`free_mask`.
 `wasm_heap_bytes()` is the only export without an op; it is read after every call and stamped onto `Res`.
 This table and the `OpName` order above are the two things `packages/protocol/src/index.ts` also carries as
 runtime data — `OP_TO_EXPORT` and `OP_NAMES` (§6.5 preamble). They are declarations, not logic, and they are

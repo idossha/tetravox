@@ -1437,3 +1437,35 @@ Each entry below names the problem, the fix, and the evidence.
   the accepted price of not reading 180 MB twice for a dialog that asks "is this the file you moved?".
   Hashing every byte of every file, and hashing on the UI thread — both rejected, the first on the load
   budget (§9.1) and the second by §5 rule 3.
+
+- 2026-08-27 — **Volumetric glyph origins are a new op, `meshCentroids` → `mesh_centroids` →
+  `tvx_geom::tet_centroids`** (W-WASM Phase-2 gap 2; §6.5.2 now has **18** ops). §7.4 draws glyphs as
+  "one instanced draw … with per-instance origin/direction/magnitude. **No new geometry from WASM**",
+  and two of the three cases already had origins — a *surface* glyph reads `SurfacePayload.positions`
+  + `ownerElm`, a *cut-plane-restricted* one reads `CutPayload.positions` + `ownerTet`. The
+  unrestricted case (interior tets, no cut plane — what `ernie_TDCS_1_scalar.msh`'s `E` over
+  5,900,498 elements invites) had none, and the map left the scope call open. **Taken, not closed as
+  "surface only"**: the op returns *points*, one per tet, so §7.4's rule stays true — no triangles, no
+  normals, no vertex-buffer expansion — and E-DERIVED can bind `positions` as an instance attribute
+  and `ownerTet` as the key into the field texture it already builds. `stride` is the density knob a
+  4.7 M-element layer needs; `maskId` and `tags` filter **first** so a rare tissue still gets glyphs
+  (Muscle is 4,400 tets, 0.09 % of ernie, and gets 69 origins at stride 64), and the count is exactly
+  `ceil(surviving / stride)`. Output is in **Morton order**, which is what makes striding a density
+  control rather than a spatial bias — measured on ernie's GM, the mean of a 1-in-64 sample is
+  **0.0156 mm** from the mean of all 1,340,029 `[M2Max]` — and that number also settles a second
+  question: R5's "double-click → region centroid" works for a **mesh tissue tag** through this op, so
+  no `meshTagCentroids` is needed. Returning bulk node positions instead — rejected: 847,165 nodes is
+  the wrong cardinality for a per-element field and 10 MB to move. A `field`-result extension —
+  rejected: it would put geometry in an op whose contract is values.
+- 2026-08-27 — **`locate_point` gates candidates on their AABB before the barycentric test.** Found
+  while writing `meshCentroids`' cross-check ("a tet's centroid must locate into that tet"): 2 of 48
+  sampled ernie centroids located into a **scalp sliver** at (49.3, 16.2, −71.9), ~60 mm away, with
+  6·V ≈ 2.5e-7 mm³. The locator's cells must be at least as large as the largest tet — that is what
+  makes its 3×3×3 scan exhaustive — so distant candidates are normal, and an f32 barycentric test on a
+  sliver at that distance is pure cancellation: it returned `[1019.5, 601.5, 5476.4, 2885.1]`, four
+  positive weights, i.e. "inside". The AABB test is exact (a point inside a tet is inside its AABB),
+  so it can only remove wrong answers; it is also cheaper than four signed volumes. This matters
+  beyond glyphs: `locate` is what R4's gate cross-checks a cut pixel's `TI_max` through, and what
+  P2-04's probe rows read. A regression test pins it with the sliver's real coordinates, because the
+  failure is a property of those f32 values. Tightening the barycentric `EPS` instead — rejected: the
+  weights are not near zero, they are meaningless.
