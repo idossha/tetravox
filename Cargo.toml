@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tvx-core",
+    "crates/tvx-nifti",
+    "crates/tvx-mesh-io",
+    "crates/tvx-geom",
+    "crates/tvx-wasm",
+]
+
+# The frozen dependency set (ARCHITECTURE.md §12.3). Phase-1 agents may not add a dependency
+# without coordinating through the integrator, and any new one needs a line in docs/DECISIONS.md.
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+tvx-core = { path = "crates/tvx-core" }
+tvx-nifti = { path = "crates/tvx-nifti" }
+tvx-mesh-io = { path = "crates/tvx-mesh-io" }
+tvx-geom = { path = "crates/tvx-geom" }
+
+thiserror = "2.0"
+# gzip AND zlib inflate — GIfTI GZipBase64Binary is zlib (§6.2). Pure-Rust backend: no cc, wasm-clean.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+quick-xml = "0.42"
+base64 = "0.23"
+byteorder = "1.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+wasm-bindgen = "=0.2.127"
+js-sys = "0.3.104"
+criterion = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1

@@ -1,0 +1,30 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Node
+node_modules/
+.pnpm-store/
+
+# wasm-pack output. NEVER a pnpm workspace member (§2); the hand-written @tetravox/wasm wraps it.
+# `packages/wasm/pkg/tvx_wasm.d.ts` is the one committed file in here (§12.3 item 4).
+packages/wasm/pkg/*
+!packages/wasm/pkg/tvx_wasm.d.ts
+
+# Build output
+dist/
+out/
+release/
+*.tsbuildinfo
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+packages/engine/test/golden/**/*-actual.png
+packages/engine/test/golden/**/*-diff.png
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/

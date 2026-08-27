@@ -1,0 +1,22 @@
+[package]
+name = "tvx-wasm"
+description = "wasm-bindgen bindings (handle-based) for the Tetravox compute worker (ARCHITECTURE.md §6.4)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tvx-core.workspace = true
+tvx-nifti.workspace = true
+tvx-mesh-io.workspace = true
+tvx-geom.workspace = true
+# Pinned EXACTLY (§2): wasm-pack's version is pinned in scripts/build-wasm.sh to match.
+wasm-bindgen.workspace = true
+js-sys.workspace = true
+serde.workspace = true
+serde_json.workspace = true

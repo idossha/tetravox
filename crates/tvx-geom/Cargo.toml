@@ -1,0 +1,18 @@
+[package]
+name = "tvx-geom"
+description = "Surfaces, boundary extraction, Morton order, tet blocks, plane cut, isolation, marching cubes/tets, elm<->node, contours, point location, orientation (ARCHITECTURE.md §6.3)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tvx-core.workspace = true
+tvx-nifti.workspace = true
+tvx-mesh-io.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,7 @@
+# Pinned stable (ARCHITECTURE.md §2, §10). Nightly is forbidden: wasm threads would need
+# `-Zbuild-std` for `+atomics,+bulk-memory`, and §1 settles WASM as single-threaded permanently.
+[toolchain]
+channel = "1.93.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
