@@ -202,6 +202,13 @@ picked point implies, and that the triple moved).
 
 ## Phase 2 — Feature layers
 
+**Maintainer requirements R1–R5 (2026-08-27)** — `docs/requirements/2026-08-27-maintainer.md` — are gate items
+of this phase, each proven by its named E2E on real data (owners in `docs/PHASE2-OWNERSHIP.md`): **R1** mouse
+manipulation (crosshair by mouse, 3D orbit/pan/dolly/pick), **R2** per-pane zoom, **R3** the crosshair moves — never
+the scan — on left-drag, **R4** mesh cross-sections in axial/sagittal/coronal panes that sweep with the slice like
+NIfTI (with or without a volume), **R5** Freeview-style region select / mute / recolour for atlas labels, mesh tissue
+tags and annots.
+
 **Ownership:** `docs/PHASE2-OWNERSHIP.md` assigns every bullet below, and every larger gap from
 `docs/review/2026-08-27-phase1-audit.md`, to exactly one of seven owners — with the directories each may touch,
 the additive-only rules for the eleven shared files, the integration order, and each owner's §11 test and
