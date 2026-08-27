@@ -18,6 +18,7 @@ import type {
   Dataset,
   DatasetId,
   Engine,
+  Layer,
   LayerId,
   LayoutKind,
   LoadProgress,
@@ -36,6 +37,7 @@ import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
 import { formatTriple, parseTriple, roundVoxel, voxelToWorld, worldToVoxel } from '../lib/coords';
 import { bridge } from '../bridge';
+import type { RegionStat, SelectionState } from '../panels/regions/regions';
 
 function errorCode(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
@@ -582,5 +584,46 @@ export class ShellController {
   /** The four layouts the §8 toolbar offers. */
   get layouts(): readonly LayoutKind[] {
     return LAYOUT_CYCLE;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // §8 property editors, histogram and region panel (A-PROPS)
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * The one call every §8 property control ends in.
+   *
+   * The editors build a `Partial<Layer>` in a pure function (`panels/layers/volume/patches.ts`,
+   * `panels/regions/regions.ts`) and hand it here; §8's "no logic in React" then holds by
+   * construction, because React never sees anything but an input event and this method.
+   */
+  patchLayer<T extends Layer>(id: LayerId, patch: Partial<T>): void {
+    this.engine.updateLayer<T>(id, patch);
+    this.engine.requestRender();
+  }
+
+  /** R5's double-click-to-centroid, and anything else that jumps the cursor to a world point. */
+  setCursorWorld(world: vec3): void {
+    this.engine.setCursor(world);
+  }
+
+  /** Region-panel highlight. Chrome only — visibility goes through {@link patchLayer}. */
+  selectRegions(layerId: LayerId, selection: SelectionState): void {
+    this.store.setState((s) => ({
+      regionSelection: { ...s.regionSelection, [layerId]: selection },
+    }));
+  }
+
+  /**
+   * Record a `labelCentroids` (§6.5.2) result for a layer.
+   *
+   * There is no producer on the frozen §4.7 facade yet, so today this is written by a test and by
+   * nothing else; the panel renders `—` for count and disables the centroid jump until it is fed.
+   * Filed with the integrator — see the branch's result note.
+   */
+  setRegionStats(layerId: LayerId, stats: readonly RegionStat[]): void {
+    this.store.setState((s) => ({
+      regionStats: { ...s.regionStats, [layerId]: [...stats] },
+    }));
   }
 }

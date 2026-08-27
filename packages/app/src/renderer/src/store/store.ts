@@ -31,6 +31,7 @@ import type {
 import type { LoadCard } from '../lib/loads';
 import type { Toast } from '../lib/toasts';
 import type { MetricsState } from '../lib/metrics';
+import type { RegionStat, SelectionState } from '../panels/regions/regions';
 import { EMPTY_METRICS } from '../lib/metrics';
 import type { EngineImpl } from '../engine/factory';
 
@@ -80,6 +81,19 @@ export interface UiState {
   heapBytes: Record<DatasetId, number>;
   lastLoadMs: Record<DatasetId, number>;
   lastScreenshot: ScreenshotRecord | null;
+  /**
+   * Region-panel selection per layer (R5: click / ⇧ / ⌘ / Alt-solo).
+   *
+   * Chrome, not scene: what is *highlighted* is a panel affordance, while what is **visible**
+   * lives in `VolumeLayer.visibleLabels` / `MeshLayer.tagStyle` and only the engine holds it.
+   */
+  regionSelection: Record<LayerId, SelectionState>;
+  /**
+   * `labelCentroids` (§6.5.2) results per layer — the only legitimate source of a region's voxel
+   * count and centroid. §4.3 keeps `VolumeDataset.data` on this thread "for probes only", and a
+   * count over 256×256×208 is not a probe.
+   */
+  regionStats: Record<LayerId, RegionStat[]>;
 }
 
 export const INITIAL_UI: UiState = {
@@ -109,6 +123,8 @@ export const INITIAL_UI: UiState = {
   heapBytes: {},
   lastLoadMs: {},
   lastScreenshot: null,
+  regionSelection: {},
+  regionStats: {},
 };
 
 export type UiStore = StoreApi<UiState>;

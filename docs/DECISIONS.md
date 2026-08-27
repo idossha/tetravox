@@ -1882,3 +1882,39 @@ Each entry below names the problem, the fix, and the evidence.
   last plane still burns a ticket so an in-flight cut cannot resurrect the caps. Queueing inside the
   manager instead — rejected: `ComputeClient` already coalesces per key, and a second queue would
   only add a second place for the newest request to be lost.
+- 2026-08-27 — **A-PROPS half 1 (volume editor, histogram, Region panel): four choices, and three
+  things the frozen model cannot express yet.** (1) **`symmetric ±p99` is read literally** as
+  `[-|p99|, +|p99|]`, not as `±max(|p1|, |p99|)`. §8 names one percentile; the preset exists so a
+  diverging colormap is centred on zero (§7.6 centres `bwr`/`coolwarm` at 0 when
+  `threshold.symmetric`), and folding in `p1` would let a one-sided tail silently widen the window
+  the user asked for. (2) **Switching a `Scale` between `linear` and `heat` carries the window
+  across** — `[lo, hi]` becomes `[min, max]` with `mid` at the midpoint — rather than re-seeding from
+  `Stats`. Re-seeding makes the picture jump every time a user looks at the other kind and discards
+  numbers they had just dialled in. (3) **The histogram's x axis is the `Stats` range, never the
+  window**, so dragging a window handle cannot move the axis under its own pointer; and handle ties
+  go to the **threshold** pair, which sits inside the window by construction. (4) **Probe-driven row
+  selection fires on a change of the probed label, not on every probe**: `updateLayer` re-probes the
+  cursor, so an unguarded effect undid the selection the user had just made with the very patch that
+  made it.
+  Three gaps are marked in the DOM rather than faked, and are filed with the integrator: a **label
+  volume's colour swatch is read-only** (`data-recolorable="false"`) because its palette is built
+  from `VolumeDataset.labelTable`, which is dataset state — no `Partial<VolumeLayer>` can carry an
+  edited colour, while a mesh tag's (`tagStyle[t].color`) and an annot's (`MeshLayer.label.table`)
+  both can; **every region's count and centroid is `—`** because the `labelCentroids` op (§6.5.2) has
+  no producer on the §4.7 facade, and §4.3 keeps `VolumeDataset.data` on the UI thread "for probes
+  only", which a count over 256×256×208 is not; and the **histogram's colormap strip is prop-driven**
+  and renders a named neutral rail, because `color/colormaps.ts` is not exported from the engine's
+  barrel and a copy of the tables in the app would be a second source of truth for every pixel the
+  strip is compared against.
+
+- 2026-08-27 — **The app E2E launches with its own `--user-data-dir`.** `src/main/index.ts` takes
+  `app.requestSingleInstanceLock()`, and that lock is scoped to the Chromium user data directory,
+  which every Tetravox worktree on a machine shares. A second agent running the app E2E in a sibling
+  worktree therefore makes this run's Electron **quit with exit code 0** and forward its argv to the
+  other agent's window; Playwright reports it as "Target page, context or browser has been closed" at
+  the launch site, with no hint of the cause, and every spec in the run fails. Observed between
+  `p2/props-volume` and `p2/props-mesh` on 2026-08-27. The two A-PROPS specs pass
+  `--user-data-dir=<mkdtemp>` in `LaunchOptions.args` (`collectCliPaths` drops it because it starts
+  with `-`, so the §8 argv path is unchanged) and remove it afterwards. Doing it in
+  `packages/app/e2e/fixtures.ts` for every spec would be better and is filed with the integrator —
+  that file is not A-PROPS's.
