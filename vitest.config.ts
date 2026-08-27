@@ -4,14 +4,14 @@ import { defineConfig } from 'vitest/config';
 // `pnpm e2e`, never here: goldens are captured only under headless Chromium/SwiftShader.
 //
 // One vitest project per package, each carrying its own config, so a package's include/exclude rules
-// live next to the package and `vitest --project engine` works. `packages/app` has no config yet —
-// Phase-0 stage 2 adds one with the electron-vite layout.
+// live next to the package and `vitest --project engine` works.
 export default defineConfig({
   test: {
     projects: [
       'packages/protocol/vitest.config.ts',
       'packages/wasm/vitest.config.ts',
       'packages/engine/vitest.config.ts',
+      'packages/app/vitest.config.ts',
     ],
     passWithNoTests: true,
   },
