@@ -375,3 +375,58 @@ The decisions below are new.
 - 2026-08-27 — **`docs/`, `AGENTS.md` and `scripts/refvalues/` are in `.prettierignore`** — the contract and
   its measured reference values are hand-formatted, and a reflow would rewrite 1,446 lines of
   `ARCHITECTURE.md` and re-key the refvalue JSON for no gain.
+
+## 2026-08-27 — Phase 0 stage 2: the Electron shell and the gate demo (`packages/app`)
+
+- 2026-08-27 — **§6.4 gains three Phase-0 liveness exports: `tvx_version()`, `tvx_ping(x)`,
+  `tvx_ping_bytes(bytes)`** (frozen surface changed, §6.4 edited in the same commit) — ROADMAP Phase-0 gate 2
+  wants a packaged artefact whose triangle colour came out of a real WASM call, and every §6.4 export is an
+  `unimplemented!()` stub until Phase 1, so there was nothing callable. `tvx_ping` is the murmur3 32-bit
+  finalizer over `x ^ 0x9E3779B9`: pure, and cheap to transcribe into JS with `Math.imul`, so the e2e computes
+  the expected pixel **from the algorithm** instead of from a previous run (§11 rule 0). `tvx_ping_bytes` folds
+  it over a `Vec<u8>` so gate 3's "the worker hands the bytes to WASM" is a real call over the real bytes.
+  Reference values, pinned by `cargo test -p tvx-wasm`: `tvx_ping(0x54565830) = 0x58E5D634` (⇒ `#e5d634`),
+  `tvx_ping_bytes(0x00..=0xFF) = 0xFEC415B3`. Alternative rejected: giving one real export a Phase-0 body —
+  that hands a Phase-1 crate owner a half-implemented function to unpick.
+- 2026-08-27 — **§5 gains rule 9: `tetravox://file/` reads only user-named paths** (§5 edited in the same
+  commit) — `supportFetchAPI` on a privileged scheme makes `tetravox://file/<path>` reachable from every module
+  Worker under the origin, i.e. an arbitrary-file-read primitive for anything that gets script into the
+  renderer. Main keeps a resolved, symlink-flattened allow-list fed only by the Open dialog, a drop,
+  `open-file` and CLI argv, and answers 403 otherwise (asserted by an e2e that fetches `/etc/hosts`). The
+  contract asked for "a streaming Response over the disk" without saying who may ask.
+- 2026-08-27 — **The renderer is loaded from `tetravox://app/index.html` in the packaged app and in
+  `electron .`; only `electron-vite dev` uses the dev-server URL** — HMR needs the http origin, and
+  `TETRAVOX_FORCE_PROTOCOL=1` forces the scheme there too. Both e2e projects (`dev` = the electron-vite build
+  run by the `electron` binary, `packaged` = the `.app`) therefore assert `location.protocol === 'tetravox:'`.
+- 2026-08-27 — **`BrowserWindow` uses `sandbox: false`** with `contextIsolation: true` and
+  `nodeIntegration: false` — the package is `"type": "module"`, so electron-vite emits an ESM preload
+  (`out/preload/index.mjs`), and Electron refuses an ESM preload in a sandboxed renderer. Rejected: forcing the
+  preload to CJS, which fights the module type for a bridge that exposes no filesystem and no bytes anyway
+  (§5 rule 3).
+- 2026-08-27 — **The wasm streaming path is *observed*, not assumed** — wasm-pack's `--target web` glue calls
+  `WebAssembly.instantiateStreaming` and falls back to `arrayBuffer()` on a wrong MIME type **without
+  failing**, so a broken `protocol.handle` would look identical. The Phase-0 worker wraps
+  `instantiateStreaming` to record the `content-type` it saw and whether it ran, and the e2e asserts both
+  (`application/wasm`, `streamed === true`).
+- 2026-08-27 — **The e2e launches Electron with `--force-color-profile=srgb --force-device-scale-factor=1`** —
+  in the spirit of §11's golden launch args. Measured on this M2 Max: without the colour-profile switch the
+  compositor colour-manages into the display profile and a `#e5d634` triangle screenshots as `#e3d756`, a
+  34-count error in blue that would need a tolerance wide enough to stop meaning anything. `readPixels` is
+  unaffected either way; the switch is what lets the *screenshot* leg assert the same bytes exactly.
+- 2026-08-27 — **The e2e decodes PNGs with ~40 lines of `node:zlib`, not an image dependency** — 8-bit
+  non-interlaced RGB/RGBA is all `page.screenshot()` emits, and the lockfile is frozen (§12.3): adding
+  `pngjs`/`pixelmatch` is a coordinated change, and Phase 1 does not need one.
+- 2026-08-27 — **electron-builder: `files` excludes `node_modules/**`** — electron-vite bundles main, preload
+  and renderer, so nothing is `require`d at runtime, and excluding them keeps electron-builder from walking
+  pnpm's symlink farm into the asar. `identity: null` (unsigned v1, §12.2), `npmRebuild: false`, and the mac
+  target is `dmg`/`arm64` only; the `linux` block declares `AppImage` + `deb` but is only ever built on Linux
+  (§12.1). `gatekeeperAssert` is **not** a valid key in electron-builder 26.15.3 — it fails schema validation.
+- 2026-08-27 — **`packages/app` typechecks in three projects, not one** — `tsconfig.node.json` (main, preload,
+  build config: no `DOM`, so that half cannot even name a `Window`), `tsconfig.web.json` (renderer + its module
+  workers: no `node`), `tsconfig.e2e.json` (Playwright: Node **and** `DOM`, because `page.evaluate` callbacks
+  are typed against the page's globals). This supersedes the stage-1 note that `packages/app` is a
+  scripts-free placeholder.
+- 2026-08-27 — **`no-empty-pattern` is disabled in `e2e/phase0.spec.ts`** — Playwright parses the first
+  parameter of a test/hook body to decide which fixtures to build and rejects anything that is not an object
+  pattern ("First argument must use the object destructuring pattern"), so `async ({}, testInfo)` is mandatory,
+  not stylistic.

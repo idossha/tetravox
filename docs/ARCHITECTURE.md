@@ -646,6 +646,16 @@ Rules:
 7. **Results are owned buffers, never views.** See §6.4.
 8. A wasm `panic!` or `Error::OutOfMemory` poisons the module: the client tears down the worker, marks the
    dataset failed, and emits `error`. It never retries into the same instance.
+9. **`tetravox://file/` reads only user-named paths.** A privileged scheme with `supportFetchAPI` is
+   reachable from every module Worker under the origin, so an unrestricted `tetravox://file/<path>` is an
+   arbitrary-file-read primitive. Main keeps an allow-list of resolved, symlink-flattened absolute paths and
+   admits one only from a user gesture — the Open dialog, a drop, macOS `open-file`, CLI argv — then answers
+   anything else with 403. Preload exposes `allowPath(path)`, never a read. Requests are checked against the
+   *resolved* form of what they asked for, so neither `..` nor a symlink walks out of the set.
+   **Phase 1 consequence:** the worker also fetches sidecars (`LoadSource.sidecars.lut` / `.opt`), which are
+   derived sibling paths and not user-named — so `allowPath` on a dataset must admit that dataset's sidecars
+   at the same time. The document's CSP carries `connect-src 'self' tetravox:` because `tetravox://file` is a
+   *different host* from `tetravox://app` and `'self'` does not cover it.
 
 ---
 
@@ -1142,6 +1152,14 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 #[wasm_bindgen] pub fn free(handle: u32);
 #[wasm_bindgen] pub fn free_mask(handle: u32, mask_id: u32);
 #[wasm_bindgen] pub fn wasm_heap_bytes() -> u32;      // stamped onto every Res (§6.5), backs the §9 memory bar
+
+// Phase-0 liveness. No op maps to these; they exist because ROADMAP Phase-0 gate 2 demands a packaged
+// artefact whose triangle colour came from a real WASM call, and every export above it is an
+// `unimplemented!()` stub until Phase 1. They stay: `tvx_version` is the cheapest possible check that
+// the module the worker instantiated is the crate the build produced.
+#[wasm_bindgen] pub fn tvx_version() -> String;                // env!("CARGO_PKG_VERSION")
+#[wasm_bindgen] pub fn tvx_ping(x: u32) -> u32;                // 32-bit avalanche; predictable in JS
+#[wasm_bindgen] pub fn tvx_ping_bytes(bytes: Vec<u8>) -> u32;  // fold tvx_ping over fetched file bytes
 
 /// Recycled cut arena. ONE instance covers ALL planes of a `mesh_cut` call: each array is packed
 /// plane-major, and `plane_offsets` (4 u32 per plane, plus one terminating quad) gives, per plane, the

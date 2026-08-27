@@ -1,0 +1,80 @@
+# electron-builder (§12.1, §12.2). Pinned to an exact patch in package.json.
+#
+# `pnpm package` builds **this platform's** artefacts only: the mac block on macOS, the linux block on
+# Linux. Linux artefacts are never built on macOS — that is a CI job (§12.1), and the cross-platform
+# matrix is a Phase-3 gate item.
+appId: dev.tetravox.viewer
+productName: Tetravox
+copyright: Tetravox contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# Everything is bundled by electron-vite, so the app needs no node_modules at runtime. Excluding them
+# keeps the asar to the bundle itself and sidesteps electron-builder walking pnpm's symlink farm.
+files:
+  - out/**
+  - package.json
+  - '!node_modules/**'
+
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - '**/*'
+
+asar: true
+npmRebuild: false
+
+# §8: registered by the installer. BIDS/SimNIBS neuroimaging inputs; `.nii.gz` is a compound
+# extension, which macOS treats as a distinct UTI and Linux as its own MIME type.
+fileAssociations:
+  - ext: nii
+    name: NIfTI volume
+    description: NIfTI-1/2 volume
+    mimeType: application/x-nifti
+    role: Viewer
+    rank: Owner
+  - ext: nii.gz
+    name: Gzipped NIfTI volume
+    description: Gzipped NIfTI-1/2 volume
+    mimeType: application/x-nifti
+    role: Viewer
+    rank: Owner
+  - ext: msh
+    name: Gmsh mesh
+    description: Gmsh 2.2 / 4.1 mesh
+    mimeType: model/mesh
+    role: Viewer
+    rank: Owner
+  - ext: gii
+    name: GIfTI surface
+    description: GIfTI geometry or data array
+    mimeType: application/x-gifti
+    role: Viewer
+    rank: Owner
+
+mac:
+  category: public.app-category.medical
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  # Unsigned for v1 (§12.2). Gatekeeper consequence and the `xattr -dr com.apple.quarantine`
+  # walkthrough belong in USER_GUIDE.md; Developer ID + notarisation is a documented switch.
+  identity: null
+  hardenedRuntime: false
+
+dmg:
+  writeUpdateInfo: false
+
+linux:
+  category: Science
+  target:
+    - AppImage
+    - deb
+  synopsis: High-performance NIfTI and mesh viewer
+  desktop:
+    entry:
+      StartupWMClass: Tetravox

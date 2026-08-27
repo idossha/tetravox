@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+/* §8: dark theme. The window background matches `BrowserWindow.backgroundColor` so there is never a
+   white flash between `ready-to-show` and the first frame. */
+@theme {
+  --color-tvx-bg: #0b0b0f;
+  --color-tvx-panel: #14141b;
+  --color-tvx-line: #262633;
+  --color-tvx-text: #d8d8e4;
+  --color-tvx-dim: #82829a;
+  --color-tvx-accent: #6ee7ff;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-tvx-bg);
+  color: var(--color-tvx-text);
+  font-family:
+    ui-sans-serif,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}

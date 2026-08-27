@@ -1,0 +1,9 @@
+{
+  // Playwright-Electron: Node, but `page.evaluate` callbacks are typed against the page's globals.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}
