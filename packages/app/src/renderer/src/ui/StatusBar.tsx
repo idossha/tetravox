@@ -30,7 +30,7 @@ function Cell({
   title?: string;
 }): React.JSX.Element {
   return (
-    <span className="flex items-baseline gap-1" title={title}>
+    <span className="flex shrink-0 items-baseline gap-1" title={title}>
       <span className="text-tvx-dim">{label}</span>
       <span data-testid={testId} className="text-tvx-text">
         {value}
@@ -60,7 +60,7 @@ export function StatusBar(): React.JSX.Element {
   return (
     <footer
       data-testid="status-bar"
-      className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 border-t border-tvx-line bg-tvx-panel px-3 py-1 font-mono text-[10px]"
+      className="tvx-strip flex items-center gap-x-4 border-t border-tvx-line bg-tvx-panel px-3 font-mono text-[10px]"
     >
       <Cell
         label="renderer"
@@ -69,7 +69,7 @@ export function StatusBar(): React.JSX.Element {
         title={caps === null ? undefined : `${caps.vendor} · impl ${impl}`}
       />
       {caps?.isSoftware === true && (
-        <span data-testid="status-software" className="text-tvx-warn">
+        <span data-testid="status-software" className="shrink-0 text-tvx-warn">
           software rasteriser
         </span>
       )}
@@ -100,7 +100,7 @@ export function StatusBar(): React.JSX.Element {
       {quality === 'interacting' && (
         <span
           data-testid="status-interacting"
-          className="flex items-baseline gap-1 text-tvx-accent"
+          className="flex shrink-0 items-baseline gap-1 text-tvx-accent"
           title="A gesture is in flight: reduced sampling and no edges until it settles (§7.2)"
         >
           <span aria-hidden="true">●</span>
@@ -121,7 +121,7 @@ export function StatusBar(): React.JSX.Element {
       )}
 
       {datasets.map((dataset) => (
-        <span key={dataset.id} className="flex items-baseline gap-1">
+        <span key={dataset.id} className="flex shrink-0 items-baseline gap-1">
           <span className="text-tvx-dim">{dataset.name}</span>
           <span data-testid={`status-heap-${dataset.id}`} className="text-tvx-text">
             {heapBytes[dataset.id] === undefined
@@ -137,7 +137,7 @@ export function StatusBar(): React.JSX.Element {
       ))}
 
       {lastScreenshot !== null && (
-        <span data-testid="status-screenshot" className="ml-auto text-tvx-dim">
+        <span data-testid="status-screenshot" className="ml-auto shrink-0 text-tvx-dim">
           screenshot {lastScreenshot.isPng ? 'PNG' : lastScreenshot.type} ·{' '}
           {lastScreenshot.width === undefined
             ? ''

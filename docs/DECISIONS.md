@@ -2242,3 +2242,29 @@ Each entry below names the problem, the fix, and the evidence.
   `stride²`. `{ maxCount: n }` is an upper bound rather than a target on the volume path — the op
   strides over *surviving* tets, so a tag filter yields fewer than `n` — which is the same trade
   §6.3 already recorded for filtering before striding.
+
+
+- 2026-08-27 — **The §8 status bar may never change height, because it resizes the drawing buffer.**
+  Found by the first test that drives the app's canvas with a real mouse
+  (`packages/app/e2e/pointer-realdata.spec.ts`), which is the seam between E-SCENE's P2-01 pointer
+  layer and A-SHELL's `ViewGrid` and belonged to neither owner. `interacting` (§7.2, P2-02) is
+  entered on `pointerdown`; A-SHELL's status bar reports it, because §7.2's "never degrade silently"
+  is only true if the bar says so; the bar is `flex-wrap` and sits directly under the view grid,
+  whose `ResizeObserver` owns `canvas.width/height`. So the two extra readouts wrapped the bar to a
+  second line, it grew **24 px → 41 px**, the canvas shrank **837 → 820** device pixels, every pane
+  re-fitted, and the world point under a *stationary* pointer moved **4.5 px ≈ 2.93 mm** `[M2Max]` —
+  measured, not estimated: R1's gate asserts ±½ voxel and the drag landed 2.93 mm out, and R3's "the
+  pixel colour at a fixed screen point is byte-identical before/after the left-drag (the scan did not
+  move)" was false of every pixel, because the whole viewport had resized. On every gesture, in the
+  shipping app, and in no test: `packages/engine/test/e2e/pointer.spec.ts` proves R1–R3 on
+  `test/pages/scene.html`, where there is no status bar, and A-SHELL's own status-bar tests assert
+  the readouts' *text*.
+  The fix is a layout invariant, not a workaround in the pointer layer: `.tvx-strip` (a new
+  `index.css` component) pins the bar to one non-wrapping 24 px row and scrolls horizontally instead
+  of reflowing. Rejected: making `ViewGrid` ignore resizes while a gesture is live — that defers the
+  jump to `pointerup` rather than removing it, and leaves the drawing buffer disagreeing with the
+  pane rects in between, which `readPixel` reads as `0,0,0,0`. Also rejected: hiding the `interacting`
+  readout — §7.2 requires it to be visible. The regression is asserted as what it is, a *layout*
+  invariant: canvas size and `paneRect` are read with the button down and compared to their idle
+  values, which is the only assertion in either suite that would catch the next chrome element that
+  grows during a gesture.

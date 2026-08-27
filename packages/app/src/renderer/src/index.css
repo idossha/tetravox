@@ -45,6 +45,24 @@ body {
   .tvx-btn-on {
     @apply border-tvx-accent text-tvx-accent;
   }
+  /**
+   * A one-line strip whose height never depends on its content.
+   *
+   * The §8 status bar shows and hides readouts *while a gesture is live* — §7.2's "never degrade
+   * silently" puts `interacting` there — and it sits directly under the view grid, whose
+   * `ResizeObserver` owns the canvas's drawing buffer. A wrapping bar therefore grew by a line on
+   * `pointerdown`, shrank the canvas, re-fitted every pane, and moved the world point under the
+   * pointer by ~3 mm mid-drag: R1 landed the cursor where the pointer had been *before* the press
+   * and R3's "the scan did not move" was false. So the bar never wraps and never changes height;
+   * content past the edge scrolls instead of reflowing. See `docs/DECISIONS.md`, 2026-08-27.
+   */
+  .tvx-strip {
+    @apply h-6 shrink-0 flex-nowrap overflow-x-auto overflow-y-hidden whitespace-nowrap;
+    scrollbar-width: none;
+  }
+  .tvx-strip::-webkit-scrollbar {
+    display: none;
+  }
   .tvx-input {
     @apply rounded border border-tvx-line bg-tvx-bg/60 px-2 py-1 text-tvx-text outline-none
       focus:border-tvx-accent;
