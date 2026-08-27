@@ -61,20 +61,26 @@ async function drain(
   const chunks: Uint8Array[] = [];
   let done = 0;
   let reported = 0;
+  // `Content-Length` is the length **on the wire**. A transport that sets `content-encoding: gzip`
+  // (vite's static middleware does exactly that for a `.nii.gz`) hands `fetch` more decoded bytes
+  // than it announced, and a progress bar that runs past 100 % is worse than one with no total at
+  // all — so the moment `done` passes it, the denominator becomes "unknown".
+  let bound = total;
   for (;;) {
     const step = await reader.read();
     if (step.done) break;
     const chunk = step.value;
     chunks.push(chunk);
     done += chunk.byteLength;
+    if (done > bound) bound = 0;
     // Throttled so a 492 MB read does not post ten thousand messages; the first chunk always
     // reports, which is what makes progress visible inside §9.1 row 6's 200 ms.
     if (onProgress && (reported === 0 || done - reported >= 4 << 20)) {
       reported = done;
-      onProgress(phase, done, total);
+      onProgress(phase, done, bound);
     }
   }
-  if (onProgress) onProgress(phase, done, total);
+  if (onProgress) onProgress(phase, done, bound);
   return concat(chunks, done);
 }
 

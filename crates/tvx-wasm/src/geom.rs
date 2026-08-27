@@ -110,14 +110,21 @@ pub fn build_topology(mesh: &Mesh, p: &mut dyn ProgressSink) -> Result<TetTopolo
     }
 }
 
+/// The block index is a load-time invariant of [`load_time`], so it is `None` exactly when §6.3 is
+/// not built in — and then the honest answer is `plane_cut`'s own, not "this mesh has no index".
 pub fn plane_cut(
     mesh: &Mesh,
-    blocks: &TetBlocks,
+    blocks: Option<&TetBlocks>,
     planes: &[Plane],
     mask: Option<&BitMask>,
 ) -> Result<Vec<Cut>> {
     #[cfg(feature = "geom")]
     {
+        let Some(blocks) = blocks else {
+            return Err(Error::Parse(
+                "this mesh has no tet block index (no tets)".into(),
+            ));
+        };
         tvx_geom::plane_cut(mesh, blocks, planes, mask)
     }
     #[cfg(not(feature = "geom"))]

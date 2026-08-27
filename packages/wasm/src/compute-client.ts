@@ -90,6 +90,7 @@ export class ComputeClient {
   #inFlight: Entry | null = null;
   #nextId = 1;
   #heapBytes = 0;
+  #lastTransfers = 0;
   #dead = false;
 
   constructor(opts: ComputeClientOptions) {
@@ -180,6 +181,15 @@ export class ComputeClient {
   /** The last `heapBytes` stamped onto a successful `Res`; backs the §9 memory bar. */
   get heapBytes(): number {
     return this.#heapBytes;
+  }
+
+  /**
+   * How many `ArrayBuffer`s the last successful `Res` moved rather than copied. Zero is correct for
+   * a result with no bulk arrays and for the recycled `cut` path, whose pool stays in the worker
+   * (§6.4); anything carrying geometry or samples should be non-zero.
+   */
+  get lastTransfers(): number {
+    return this.#lastTransfers;
   }
 
   /** False once the worker has been terminated — by `cancel`, by poisoning, or by `terminate`. */
@@ -302,6 +312,7 @@ export class ComputeClient {
     }
 
     this.#heapBytes = res.heapBytes;
+    this.#lastTransfers = res.transfer.length;
     this.#opts.onHeapBytes?.(res.heapBytes);
     if (flight.discard) {
       flight.fail(new ComputeError(flight.op, { code: 'cancelled', message: 'cancelled' }));

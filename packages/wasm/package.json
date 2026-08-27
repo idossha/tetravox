@@ -26,7 +26,8 @@
     "pkg"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@tetravox/protocol": "workspace:*"

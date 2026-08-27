@@ -109,11 +109,13 @@ fn gz_fixtures_carry_the_gzip_magic_the_worker_sniffs() {
 }
 
 #[test]
-#[ignore = "phase-1: exports are JsValue-typed; covered by packages/wasm's vitest suite"]
+#[ignore = "covered from TypeScript: packages/wasm/e2e/{volumes,meshes}.spec.ts"]
 fn load_mesh_and_load_volume_round_trip_a_fixture() {
-    // PHASE 1: this belongs in `packages/wasm/src/*.test.ts`, driving the built `pkg/`
-    // through the compute worker with a real `js_sys::Function` progress callback and a
-    // transferable result. Nothing native can construct those arguments. Left here as the
-    // pointer, so an agent looking for tvx-wasm's coverage finds where it lives.
-    unimplemented!("see packages/wasm — the wasm boundary is tested from TypeScript");
+    // Nothing native can construct a `js_sys::Function` progress callback or read a transferable
+    // result, so this round trip lives where those exist: `packages/wasm/e2e/volumes.spec.ts`
+    // loads every fixture volume through the real module Worker and asserts the `VolumeMeta` it
+    // gets back against `testdata/manifest.json`, and `meshes.spec.ts` does the same for every
+    // fixture mesh, surface and sidecar. `protocol.spec.ts` covers the envelope itself. This test
+    // stays as the pointer, so an agent looking for tvx-wasm's coverage finds where it lives.
+    unimplemented!("see packages/wasm/e2e — the wasm boundary is tested from TypeScript");
 }

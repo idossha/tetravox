@@ -448,14 +448,10 @@ pub fn cut(
         .collect();
     handles::with_mesh(handle, |st| {
         let mask = st.mask(mask_id)?;
-        let cuts = match &st.blocks {
-            Some(b) => geom::plane_cut(&st.mesh, b, &ps, mask)?,
-            None if st.mesh.tets.is_empty() => Vec::new(),
-            None => {
-                return Err(Error::Parse(
-                    "this mesh has no tet block index; `cut` needs load-time geometry".into(),
-                ))
-            }
+        let cuts = if st.mesh.tets.is_empty() {
+            Vec::new()
+        } else {
+            geom::plane_cut(&st.mesh, st.blocks.as_ref(), &ps, mask)?
         };
         Ok(match &out {
             Some(pool) => surface::cuts_to_pool(&cuts, pool),
