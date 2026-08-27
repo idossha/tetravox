@@ -1,0 +1,7 @@
+# ARCHITECTURE.md §2. `packages/wasm/pkg` is NEVER a workspace member: wasm-pack writes a
+# `pkg/package.json` named after the crate, and the hand-written `@tetravox/wasm` wraps it.
+packages:
+  - packages/protocol
+  - packages/wasm
+  - packages/engine
+  - packages/app

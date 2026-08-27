@@ -31,7 +31,7 @@ against the 68 findings and 14 adversarial verifications in `docs/review/2026-08
 | Heavy compute | **Rust → WASM** (`crates/`), **one worker + one wasm instance per dataset** | Parsing 184–497 MB `.msh`, face extraction over 4.7–13.2 M tets, plane cuts, marching cubes, isolation masks. Pure-Rust crates (no wasm-specific code in `tvx-nifti`/`tvx-mesh-io`/`tvx-geom`) so the same code builds native/CLI. |
 | WASM threading | **Single-threaded, permanently** | wasm threads need `SharedArrayBuffer` ⇒ `crossOriginIsolated` ⇒ COOP/COEP headers, plus `-Zbuild-std` on nightly for `+atomics,+bulk-memory`, and nightly is forbidden (§10) regardless of headers. Parallelism comes from worker-per-dataset instead. `rayon` is not a dependency and must not become one. |
 | Cross-origin isolation | **Not enabled.** `tetravox://` is served **without** COOP/COEP | Follows from single-threaded WASM: nothing needs `SharedArrayBuffer`. The consequence is load-bearing and stated once here: **`SharedArrayBuffer` is `undefined` in the workers** (verified in a module Worker in Chromium 151, headless and headed: `self.crossOriginIsolated === false`, `typeof SharedArrayBuffer === 'undefined'`). A synchronous wasm call therefore cannot be signalled from another thread — a plain `Uint8Array` written on the UI thread is a *different buffer* from the worker's — so cancelling an in-flight call is `worker.terminate()`, never a polled abort flag (§5 rule 6). |
-| UI | **React 18 + TypeScript + Tailwind**; small Zustand store | UI is chrome only — all rendering is imperative in the engine. |
+| UI | **React 19 + TypeScript + Tailwind**; small Zustand store | UI is chrome only — all rendering is imperative in the engine. |
 | Math | `gl-matrix` | Small, fast, standard. Column-major `mat4` as `Float32Array(16)`. |
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
 
@@ -2199,8 +2199,8 @@ green. Adding one afterwards is a coordinated change through the integrator, not
 
 | Node | Purpose |
 |---|---|
-| `react`, `react-dom`, `zustand`, `gl-matrix`, `tailwindcss`, `postcss`, `autoprefixer` | UI + math |
-| `typescript`, `vite`, `electron-vite`, `esbuild` | build |
+| `react` (**19**), `react-dom`, `zustand`, `gl-matrix`, `tailwindcss` (**4**, plus `@tailwindcss/vite`), `postcss`, `autoprefixer` | UI + math |
+| `typescript` (**~5.9**, not 7), `vite` (**^7**), `electron-vite`, `esbuild` | build. TS 7 is the Go-based compiler and `typescript-eslint` 8.68 peers `typescript >=4.8.4 <6.1.0`; `electron-vite` 5.0.0 peers `vite ^5 \|\| ^6 \|\| ^7`, so vite 8 is out until it widens |
 | `electron` (**≥ 42**, pinned major — §1: inside the supported-majors window, and the major where `postinstall` disappears), `electron-builder` (exact patch) | shell + packaging |
 | `vitest`, `@playwright/test` (exact version — pins SwiftShader) | tests |
 | `eslint`, `prettier`, `@typescript-eslint/parser`, `@typescript-eslint/eslint-plugin` | lint |

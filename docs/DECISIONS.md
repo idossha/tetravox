@@ -341,3 +341,37 @@ The decisions below are new.
   oblique golden, `showIn3D` overlay compositing) are split into Phase-1 and Phase-2 variants; and Phase 0's
   packaging gate is narrowed to the host platform's artefact, with the cross-platform matrix moved to Phase 3,
   since `pnpm package` cannot build a Linux artefact on macOS.
+
+## 2026-08-27 — Phase 0 stage 1 (the spine): scaffold deviations
+
+- 2026-08-27 — **React 19, not React 18** (§1's UI row edited in the same commit) — 18 is off the current
+  support line and every other pin here is current; the UI is chrome only (§1), so the version carries no
+  rendering risk — staying on 18 rejected as starting the project on an old branch.
+- 2026-08-27 — **TypeScript pinned `~5.9`, not 7** — TypeScript 7 is the new Go-based compiler and
+  `typescript-eslint` 8.68.0 peers `typescript >=4.8.4 <6.1.0`, so `pnpm lint` cannot run against it today.
+  Revisit when typescript-eslint widens; §12.3's `typescript` row records the constraint.
+- 2026-08-27 — **vite `^7.3.6`, not 8** — `electron-vite` 5.0.0 peers `vite ^5 || ^6 || ^7`. `vitest` 4.1.11
+  peers `^6 || ^7 || ^8` and `@vitejs/plugin-react` 5.2.0 peers `^4.2 || ^5 || ^6 || ^7 || ^8`, so vite 7 is
+  the only version all three accept. Vite 8 waits on electron-vite.
+- 2026-08-27 — **`@tailwindcss/vite` added to §12.3's `tailwindcss` row** — Tailwind 4 ships its own Vite
+  plugin and no longer needs a PostCSS pipeline; `postcss`/`autoprefixer` stay declared as §12.3 lists them,
+  so a Phase-1 agent that wants them does not have to touch the frozen lockfile.
+- 2026-08-27 — **`electron` is declared at the repo root as well as in `packages/app`** — AGENTS and §12.2
+  both spell the cold-machine warm-up as `pnpm exec electron --version`, and `pnpm exec` at the root only
+  sees root `node_modules/.bin`. Same `^44.0.0` range on both sides, so pnpm resolves one copy.
+  Verified on this machine: `pnpm install` does **not** fetch the binary (electron ≥ 42 has no
+  `postinstall`, §12.2) and the first `pnpm exec electron --version` downloads it and prints `v44.0.0`.
+- 2026-08-27 — **`tvx_core::Aabb` derives `serde::Deserialize`** (adding `serde` to `tvx-core`'s deps) —
+  §6.3's `IsolateCriteria.box` is an `Option<Aabb>` deserialised straight from the §6.5.1 wire, which is
+  impossible without it. Signature unchanged; §6.0 enumerates no derives.
+- 2026-08-27 — **`packages/app` ships as a placeholder `package.json` with no `src/` and no `typecheck`
+  script** — its dependency set is fixed now so the lockfile is frozen (§12.3), but stage 2 owns the
+  electron-vite layout and adds the scripts with it. `pnpm -r --if-present` therefore skips it.
+- 2026-08-27 — **The §7.1 `gl_CullDistance` prohibition is enforced as an ESLint `no-restricted-syntax`
+  rule** over identifiers, string literals and template chunks in `packages/**` — the identifier appears in
+  shader source strings, not just in TS code, and `MAX_CULL_DISTANCES_WEBGL` is 8 under the SwiftShader
+  golden authority against 0 on ANGLE/Metal, so without the string cases CI would pass while every real Mac
+  failed.
+- 2026-08-27 — **`docs/`, `AGENTS.md` and `scripts/refvalues/` are in `.prettierignore`** — the contract and
+  its measured reference values are hand-formatted, and a reflow would rewrite 1,446 lines of
+  `ARCHITECTURE.md` and re-key the refvalue JSON for no gain.

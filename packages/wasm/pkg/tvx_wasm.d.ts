@@ -1,0 +1,228 @@
+/* tslint:disable */
+/* eslint-disable */
+
+/**
+ * Recycled cut arena (§6.4). ONE instance covers ALL planes of a [`mesh_cut`] call: each array is packed
+ * plane-major, and `plane_offsets` (4 u32 per plane, plus one terminating quad) gives, per plane, the
+ * start offsets into (vertices, triangles, edge segments, boundary segments).
+ *
+ * A JS constructor is mandatory — the worker allocates and owns these arrays; wasm only `copy_from`s
+ * into them.
+ */
+export class CutOut {
+    free(): void;
+    [Symbol.dispose](): void;
+    constructor(positions: Float32Array, interp_n: Uint32Array, interp_t: Float32Array, owner_tet: Uint32Array, tag: Int32Array, edge_mask: Uint8Array, edge_segments: Float32Array, boundary_segments: Float32Array, plane_offsets: Uint32Array);
+    /**
+     * 6 per segment.
+     */
+    boundary_segments: Float32Array;
+    /**
+     * 1 per triangle.
+     */
+    edge_mask: Uint8Array;
+    /**
+     * 6 per segment.
+     */
+    edge_segments: Float32Array;
+    /**
+     * 2 per vertex.
+     */
+    interp_n: Uint32Array;
+    /**
+     * 1 per vertex.
+     */
+    interp_t: Float32Array;
+    /**
+     * 1 per triangle.
+     */
+    owner_tet: Uint32Array;
+    /**
+     * `4 * (nplanes + 1)`.
+     */
+    plane_offsets: Uint32Array;
+    /**
+     * 3 per vertex.
+     */
+    positions: Float32Array;
+    /**
+     * 1 per triangle.
+     */
+    tag: Int32Array;
+}
+
+/**
+ * Drop the dataset behind `handle` and every mask attached to it. The client then calls
+ * `worker.terminate()` — that is the only way to give wasm linear memory back (§5 rule 1).
+ */
+export function free(handle: number): void;
+
+export function free_mask(handle: number, mask_id: number): void;
+
+/**
+ * `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'`; `auto` dispatches through
+ * [`tvx_mesh_io::sniff`]. Morton reorder, [`tvx_geom::build_tet_blocks`] and
+ * [`tvx_geom::build_point_locator`] are built here. Result is `{ meta: MeshMeta }` — no bulk arrays.
+ */
+export function load_mesh(bytes: Uint8Array, format: string, opt_bytes: Uint8Array | null | undefined, lut_bytes: Uint8Array | null | undefined, on_progress: Function): any;
+
+/**
+ * `load_volume` and `volume_frame` take [`tvx_nifti::GpuCaps`] flattened into scalars rather than a
+ * struct: the caps come from `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2),
+ * and flattening keeps the wasm-bindgen surface free of a shared type.
+ *
+ * `load_volume` produces volume 0's payload; [`volume_frame`] produces any other index's. Both run
+ * §6.1's `stats` / `label_index` / `gpu_payload` for that index.
+ *
+ * Resolves to the `loadVolume` op result: `{ meta, data, gpuBytes, labelIds?, denseIndexOf? }` (§6.5.2).
+ */
+export function load_volume(bytes: Uint8Array, lut_bytes: Uint8Array | null | undefined, float_linear: boolean, norm16: boolean, max_3d: number, want_linear: boolean, on_progress: Function): any;
+
+/**
+ * Always [`tvx_geom::extract_boundary`]; used after isolation/clip.
+ */
+export function mesh_boundary(handle: number, mask_id: number | null | undefined, variant: string, on_progress: Function): any;
+
+/**
+ * Explicit, awaitable, progress-reporting. Returns `{ faces, boundaryFaces }`.
+ */
+export function mesh_build_topology(handle: number, on_progress: Function): any;
+
+/**
+ * `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment.
+ */
+export function mesh_contours(handle: number, plane: Float32Array, mask_id?: number | null): any;
+
+/**
+ * Both directions of §6.3's pair: `direction` is `'elmToNode' | 'nodeToElm'`.
+ */
+export function mesh_convert_field(handle: number, direction: string, source_name: string): any;
+
+/**
+ * `planes` is 4 f32 per plane (`normal.xyz`, `offset`), ≤ 6 planes.
+ *
+ * Two paths, normatively (§6.4):
+ * * `out: None` — **buffers path**. Returns `{ mode: 'buffers', cuts: CutPayload[] }`, one entry per
+ *   plane, every array a freshly allocated transferable. The correctness reference, and the only path a
+ *   golden test uses.
+ * * `out: Some(pool)` — **recycled path**. `copy_from`s every plane's data into the caller-owned arrays
+ *   back to back, fills `plane_offsets`, and returns `{ mode: 'recycled', truncated: false, counts }`.
+ *   If any array is too small, **nothing is written** and `truncated: true` comes back with the
+ *   *required* capacities; the worker grows the pool (doubling) and re-calls. A partially-filled pool is
+ *   never returned.
+ */
+export function mesh_cut(handle: number, planes: Float32Array, mask_id?: number | null, out?: CutOut | null): any;
+
+/**
+ * `source` is `'node' | 'elm'`, `component` is `'mag' | '0' | '1' | '2'`.
+ * Returns `{ values, stats, n, partial }`.
+ */
+export function mesh_field(handle: number, source: string, name: string, component: string): any;
+
+/**
+ * `criteria_json` is `JSON.stringify(IsolateCriteriaT)`, deserialised into
+ * [`tvx_geom::IsolateCriteria`]. `label_volume` is required iff `criteria.labelVolume` is set and is
+ * **cloned, not transferred** (§5 rule 2) — it is the only bulk argument any op takes.
+ * Returns `{ maskId, visibleTets, generation }`.
+ */
+export function mesh_isolate(handle: number, criteria_json: string, label_volume: Uint8Array | null | undefined, on_progress: Function): any;
+
+/**
+ * One round trip: [`tvx_geom::locate_point`] returns the whole `ProbeHit`. `elementId` in the result is
+ * always a Gmsh element number (§6.2).
+ */
+export function mesh_locate(handle: number, x: number, y: number, z: number): any;
+
+export function mesh_marching_tets(handle: number, source: string, name: string, component: string, iso: number, mask_id: number | null | undefined, on_progress: Function): any;
+
+/**
+ * [`tvx_geom::tag_surfaces`] when the mesh has tris, else [`tvx_geom::extract_boundary`].
+ * `variant` is `'indexed' | 'deindexed'`.
+ */
+export function mesh_surface(handle: number, mask_id: number | null | undefined, variant: string, on_progress: Function): any;
+
+/**
+ * The **only** way to display a 4D index ≠ 0 (§6.5.2). Returns `VolumeFrameT`.
+ */
+export function volume_frame(handle: number, vol_index: number, float_linear: boolean, norm16: boolean, max_3d: number, want_linear: boolean): any;
+
+export function volume_label_centroids(handle: number, vol_index: number): any;
+
+export function volume_marching_cubes(handle: number, vol_index: number, iso: number, smooth: boolean, on_progress: Function): any;
+
+/**
+ * Stamped onto every `Res` (§6.5) and read by the §9 memory bar and `scripts/bench.ts`.
+ * The only export without an op.
+ */
+export function wasm_heap_bytes(): number;
+
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export interface InitOutput {
+    readonly memory: WebAssembly.Memory;
+    readonly __wbg_cutout_free: (a: number, b: number) => void;
+    readonly __wbg_get_cutout_boundary_segments: (a: number) => any;
+    readonly __wbg_get_cutout_edge_mask: (a: number) => any;
+    readonly __wbg_get_cutout_edge_segments: (a: number) => any;
+    readonly __wbg_get_cutout_interp_n: (a: number) => any;
+    readonly __wbg_get_cutout_interp_t: (a: number) => any;
+    readonly __wbg_get_cutout_owner_tet: (a: number) => any;
+    readonly __wbg_get_cutout_plane_offsets: (a: number) => any;
+    readonly __wbg_get_cutout_positions: (a: number) => any;
+    readonly __wbg_get_cutout_tag: (a: number) => any;
+    readonly __wbg_set_cutout_boundary_segments: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_edge_mask: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_edge_segments: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_interp_n: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_interp_t: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_owner_tet: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_plane_offsets: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_positions: (a: number, b: any) => void;
+    readonly __wbg_set_cutout_tag: (a: number, b: any) => void;
+    readonly cutout_new: (a: any, b: any, c: any, d: any, e: any, f: any, g: any, h: any, i: any) => number;
+    readonly load_mesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => [number, number, number];
+    readonly load_volume: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => [number, number, number];
+    readonly mesh_boundary: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly mesh_build_topology: (a: number, b: any) => [number, number, number];
+    readonly mesh_contours: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly mesh_convert_field: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly mesh_cut: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly mesh_field: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly mesh_isolate: (a: number, b: number, c: number, d: number, e: number, f: any) => [number, number, number];
+    readonly mesh_locate: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly mesh_marching_tets: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: any) => [number, number, number];
+    readonly mesh_surface: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly volume_frame: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly volume_label_centroids: (a: number, b: number) => [number, number, number];
+    readonly volume_marching_cubes: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly free_mask: (a: number, b: number) => void;
+    readonly free: (a: number) => void;
+    readonly wasm_heap_bytes: () => number;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
+    readonly __wbindgen_malloc: (a: number, b: number) => number;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __externref_table_dealloc: (a: number) => void;
+    readonly __wbindgen_start: () => void;
+}
+
+export type SyncInitInput = BufferSource | WebAssembly.Module;
+
+/**
+ * Instantiates the given `module`, which can either be bytes or
+ * a precompiled `WebAssembly.Module`.
+ *
+ * @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+ *
+ * @returns {InitOutput}
+ */
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+
+/**
+ * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+ * for everything else, calls `WebAssembly.instantiate` directly.
+ *
+ * @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+ *
+ * @returns {Promise<InitOutput>}
+ */
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

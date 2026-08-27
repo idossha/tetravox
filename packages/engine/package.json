@@ -1,0 +1,27 @@
+{
+  "name": "@tetravox/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WebGL2 renderer, scene model, views, interaction, colormaps. Framework-free (ARCHITECTURE.md §4, §7).",
+  "license": "MIT",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tetravox/protocol": "workspace:*",
+    "@tetravox/wasm": "workspace:*",
+    "gl-matrix": "^3.4.4"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@tetravox/wasm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hand-written wrapper around the wasm-pack output in ./pkg, plus the dataset compute worker and client (ARCHITECTURE.md §6.4, §6.5).",
+  "license": "MIT",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./worker": {
+      "types": "./src/compute-worker.ts",
+      "default": "./src/compute-worker.ts"
+    },
+    "./pkg": {
+      "types": "./pkg/tvx_wasm.d.ts",
+      "default": "./pkg/tvx_wasm.js"
+    }
+  },
+  "files": [
+    "src",
+    "pkg"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tetravox/protocol": "workspace:*"
+  }
+}
