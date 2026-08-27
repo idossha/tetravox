@@ -27,9 +27,9 @@ transfer, texture/geometry upload and the first draw, all included.
 
 | File | Bytes | Renderer | Load → first frame |
 |---|---|---|---|
-| `m2m_ernie/T1.nii.gz` | 13,143,463 | `[Metal]`, app | **418 ms** |
+| `m2m_ernie/T1.nii.gz` | 13,143,463 | `[Metal]`, app | **404 – 524 ms** (typ. 415) |
 | `m2m_ernie/T1.nii.gz` | 13,143,463 | `[SwS]`, engine harness | 318 ms |
-| `m2m_ernie/ernie.msh` | 184,207,351 | `[Metal]`, app | **1,236 ms** |
+| `m2m_ernie/ernie.msh` | 184,207,351 | `[Metal]`, app | **1,221 – 1,353 ms** (typ. 1,240) |
 | `m2m_ernie/ernie.msh` | 184,207,351 | `[SwS]`, engine harness | 1,240 ms |
 
 Commands:
@@ -44,7 +44,7 @@ The app row is the larger of the two for `T1.nii.gz` because it includes the she
 store update, the React re-render and the layer row. That is the number a user experiences, so it is
 the one in bold.
 
-**§9.1 row 1 budgets < 400 ms to first frame on machine A (M1 Pro).** 418 ms on an M2 Max is *over*
+**§9.1 row 1 budgets < 400 ms to first frame on machine A (M1 Pro).** ~415 ms on an M2 Max is *over*
 that budget, and the row stays `[TARGET]`. The breakdown says where it goes — the parse is not the
 problem:
 
@@ -68,10 +68,13 @@ pooling, index de-dup) is where this is addressed; nothing here is a rendering p
 
 | Buffer | Pixels | CPU median | CPU p95 | **GPU median** |
 |---|---|---|---|---|
-| 1200 × 800 (1×) | 0.96 MP | 0.20 ms | 0.60 ms | **1.65 ms** |
-| 2400 × 1600 (2×) | 3.84 MP | 0.10 ms | 0.50 ms | **2.48 ms** |
+| 1200 × 800 (1×) | 0.96 MP | 0.10–0.20 ms | 0.20–0.60 ms | **1.65 – 2.16 ms** |
+| 2400 × 1600 (2×) | 3.84 MP | 0.10 ms | 0.20–0.50 ms | **2.48 – 3.92 ms** |
 
-`[Metal]`, Electron, `aa` on.
+`[Metal]`, Electron, `aa` on. Ranges, not single figures: these are the spread over four runs of the
+same command on an otherwise-idle machine. A GPU median quoted to three digits from one run would
+imply a precision this measurement does not have — the timer query is real, but the machine is
+shared with a compositor.
 
 Two things worth recording:
 
@@ -93,8 +96,11 @@ engine Timer for that reason.
 | | Measured | Budget |
 |---|---|---|
 | Open → load card on screen | 0.8 ms | — |
-| Open → **moving progress bar** | **13–28 ms** | < 200 ms |
-| Cancel click → card reads `cancelled` | **4–6 ms** | < 500 ms |
+| Open → **moving progress bar** | **13 – 28 ms** | < 200 ms |
+| Cancel click → card reads `cancelled` | **4 – 6 ms** | < 500 ms |
+
+(Five runs. The margin is an order of magnitude on the first and two on the second, so the spread
+does not come near either budget.)
 
 Cancel is `worker.terminate()` (§5 rule 6), which is why it is a handful of milliseconds and not a
 function of how much of the 492 MB had been read. Nothing reaches the scene: `datasets` and `layers`
