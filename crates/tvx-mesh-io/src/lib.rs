@@ -38,6 +38,17 @@
 
 #![forbid(unsafe_code)]
 
+mod freesurfer;
+mod gifti;
+mod msh;
+mod mshopt;
+mod stats;
+mod surf;
+mod util;
+
+pub use gifti::read_labels as read_gifti_labels;
+pub use mshopt::read_names as read_msh_opt_names;
+
 use tvx_core::{Aabb, Field, FieldStats, LabelTable, ProgressSink, Result};
 
 /// An element-indexed field, split by element kind (§6.2). Node-indexed fields are [`tvx_core::Field`].
@@ -125,54 +136,101 @@ pub enum Format {
 /// Gmsh `.msh` v2 (ascii + binary) and v4.1 (ascii + binary). Takes ownership of `bytes` and frees it
 /// (and any inflate output) before returning (§5 rule 5, §6.2).
 pub fn read_msh(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh> {
-    unimplemented!("phase 1: {} {}", bytes.len(), p.aborted())
+    let mesh = msh::read(&bytes, p);
+    // §5 rule 5 / §6.2: the byte vector (and any inflate output) is freed before returning.
+    drop(bytes);
+    mesh
 }
 
 /// The `.msh.opt` sidecar: `Physical Volume(" GM",2)` + `Mesh.Color.<Ordinal>` + `View[n]` blocks.
 pub fn read_msh_opt(bytes: &[u8]) -> Result<MshOptions> {
-    unimplemented!("phase 1: {}", bytes.len())
+    mshopt::read(bytes)
 }
 
 /// GIfTI (XML via `quick-xml`). Applies `CoordinateSystemTransformMatrix` when
 /// `TransformedSpace == NIFTI_XFORM_SCANNER_ANAT`.
 pub fn read_gifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh> {
-    unimplemented!("phase 1: {} {}", bytes.len(), p.aborted())
+    let mesh = gifti::read(&bytes, p);
+    drop(bytes);
+    mesh
 }
 
 /// FreeSurfer binary triangle surface (magic `0xFFFFFE`, big-endian); the quad file is also read.
 pub fn read_fs_surface(bytes: Vec<u8>) -> Result<Mesh> {
-    unimplemented!("phase 1: {}", bytes.len())
+    let mesh = freesurfer::read_surface(&bytes);
+    drop(bytes);
+    mesh
 }
 
 /// FreeSurfer `curv`, new format (magic `0xFFFFFF`).
 pub fn read_fs_curv(bytes: &[u8]) -> Result<Field> {
-    unimplemented!("phase 1: {}", bytes.len())
+    freesurfer::read_curv(bytes)
 }
 
 /// FreeSurfer `.annot`. The returned [`Field`] holds **DENSE 0..N−1 indices**, not raw annotation
 /// values; the [`LabelTable`] carries the original ids in `LabelEntry::id` (§6.2).
 pub fn read_fs_annot(bytes: &[u8]) -> Result<(Field, LabelTable)> {
-    unimplemented!("phase 1: {}", bytes.len())
+    freesurfer::read_annot(bytes)
 }
 
 /// STL, ascii and binary. Emits `tri_edge_mask = None`.
 pub fn read_stl(bytes: Vec<u8>) -> Result<Mesh> {
-    unimplemented!("phase 1: {}", bytes.len())
+    let mesh = surf::read_stl(&bytes);
+    drop(bytes);
+    mesh
 }
 
 /// PLY, ascii and binary. Triangulates n-gons and emits a matching `tri_edge_mask`.
 pub fn read_ply(bytes: Vec<u8>) -> Result<Mesh> {
-    unimplemented!("phase 1: {}", bytes.len())
+    let mesh = surf::read_ply(&bytes);
+    drop(bytes);
+    mesh
 }
 
 /// Wavefront OBJ. Triangulates n-gons and emits a matching `tri_edge_mask`.
 pub fn read_obj(bytes: Vec<u8>) -> Result<Mesh> {
-    unimplemented!("phase 1: {}", bytes.len())
+    let mesh = surf::read_obj(&bytes);
+    drop(bytes);
+    mesh
 }
 
 /// Identify a format from a byte prefix, with the file extension as a hint.
 pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format> {
-    unimplemented!("phase 1: {} {hint_ext:?}", bytes.len())
+    if bytes.starts_with(b"$MeshFormat") {
+        return Ok(Format::Msh);
+    }
+    if gifti::looks_like(bytes) {
+        return Ok(Format::Gifti);
+    }
+    if surf::looks_like_ply(bytes) {
+        return Ok(Format::Ply);
+    }
+    if surf::looks_like_stl(bytes) {
+        return Ok(Format::Stl);
+    }
+    if freesurfer::looks_like_surface(bytes) {
+        return Ok(Format::FsSurface);
+    }
+    if surf::looks_like_obj(bytes) {
+        return Ok(Format::Obj);
+    }
+    // The content said nothing; fall back to the caller's extension hint (§6.2).
+    match hint_ext
+        .map(|e| e.trim_start_matches('.').to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("msh") => Ok(Format::Msh),
+        Some("gii") => Ok(Format::Gifti),
+        Some("stl") => Ok(Format::Stl),
+        Some("ply") => Ok(Format::Ply),
+        Some("obj") => Ok(Format::Obj),
+        Some("pial") | Some("white") | Some("inflated") | Some("sphere") | Some("central")
+        | Some("surf") => Ok(Format::FsSurface),
+        _ => Err(tvx_core::Error::Unsupported(format!(
+            "unrecognised mesh format (first bytes {:?}, extension hint {hint_ext:?})",
+            String::from_utf8_lossy(&bytes[..bytes.len().min(16)])
+        ))),
+    }
 }
 
 #[cfg(test)]

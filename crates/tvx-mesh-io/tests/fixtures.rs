@@ -144,7 +144,6 @@ fn the_fixture_mesh_satisfies_the_surface_invariant() {
 // -------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn every_msh_fixture_parses_with_the_manifest_counts() {
     for name in MSH_ALL {
         let rec = &fx::section("msh")[name];
@@ -200,7 +199,6 @@ fn every_msh_fixture_parses_with_the_manifest_counts() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn ascii_and_binary_and_v41_agree_element_for_element() {
     // Four encodings of the same mesh: SimNIBS-dialect ascii and binary, Gmsh's own v2.2
     // binary, and Gmsh v4.1 ascii + binary. Node coordinates and tag censuses must match.
@@ -229,7 +227,6 @@ fn ascii_and_binary_and_v41_agree_element_for_element() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn tag_censuses_match_the_independent_readers() {
     for name in MSH_V2 {
         let rec = &fx::section("msh")[name];
@@ -248,7 +245,6 @@ fn tag_censuses_match_the_independent_readers() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn a_contiguous_file_leaves_gmsh_elm_numbers_none() {
     // §6.2's fast path, and the reason the Morton permutation is kept: `None` costs
     // nothing where `Some` would cost 47.2 MB on ernie.
@@ -265,7 +261,6 @@ fn a_contiguous_file_leaves_gmsh_elm_numbers_none() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn non_contiguous_numbering_is_preserved_and_field_gaps_become_nan() {
     // mesh_noncontig.msh numbers elements 10, 13, 16, ... and nodes 102, 104, ... — and
     // its `elm_gap` field carries a value for only every other element. §6.2: scatter by
@@ -311,7 +306,6 @@ fn non_contiguous_numbering_is_preserved_and_field_gaps_become_nan() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn element_numbers_beyond_u32_are_refused_not_truncated() {
     use tvx_core::Error;
     // §6.2: `owner_elm` is u32; a file whose largest element number exceeds u32::MAX is
@@ -325,7 +319,6 @@ fn element_numbers_beyond_u32_are_refused_not_truncated() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn a_tri_less_tet_mesh_parses() {
     // The `grey_Thalamus_TI.msh` case (§6.3): 0 triangles, so anything that assumes a mesh
     // ships its own surface renders empty. tvx-geom's extract_boundary is what saves it.
@@ -337,7 +330,6 @@ fn a_tri_less_tet_mesh_parses() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn node_and_element_fields_carry_the_manifest_statistics() {
     for name in MSH_V2 {
         let rec = &fx::section("msh")[name];
@@ -386,7 +378,6 @@ fn node_and_element_fields_carry_the_manifest_statistics() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn physical_names_are_read() {
     let rec = &fx::section("msh")["mesh_v2_ascii.msh"];
     let want = rec["gmsh"]["physicalNames"].as_array().unwrap();
@@ -402,7 +393,6 @@ fn physical_names_are_read() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn msh_opt_maps_colours_names_and_visibility_onto_tags() {
     // §6.2's ordering: $PhysicalNames -> sibling _LUT.txt -> sibling .msh.opt -> palette,
     // with surface tag `1xxx` inheriting volume tag `xxx`'s colour. The expectation is in
@@ -460,7 +450,6 @@ fn msh_opt_maps_colours_names_and_visibility_onto_tags() {
 // -------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn all_three_gifti_encodings_produce_the_same_surface() {
     // §6.2: ASCII, Base64Binary and GZipBase64Binary. GZipBase64Binary is a **zlib**
     // stream — ZlibDecoder, not GzDecoder.
@@ -523,7 +512,6 @@ fn all_three_gifti_encodings_produce_the_same_surface() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn func_and_label_gifti_become_node_fields() {
     let m = read_gifti(fx::bytes("surf.func.gii"), &mut NoProgress).unwrap();
     let rec = &fx::section("gifti")["surf.func.gii"]["arrays"][0];
@@ -547,7 +535,6 @@ fn func_and_label_gifti_become_node_fields() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn external_file_binary_is_refused_by_name() {
     use tvx_core::Error;
     // §6.2: the byte-slice signature has no sibling-file access, so ExternalFileBinary is
@@ -569,7 +556,6 @@ fn external_file_binary_is_refused_by_name() {
 // -------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn freesurfer_surface_curv_and_annot() {
     let rec = &fx::section("freesurfer")["lh.fixture.surf"];
     let m = read_fs_surface(fx::bytes("lh.fixture.surf")).unwrap();
@@ -625,7 +611,6 @@ fn freesurfer_surface_curv_and_annot() {
 // -------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn stl_ascii_and_binary_agree_on_triangles_and_bounds() {
     // STL has no vertex table, so `nodes` is reader policy: Gmsh welds coincident vertices
     // (weldedNodes), a non-welding reader keeps 3 per facet (unweldedVertices). The
@@ -658,7 +643,6 @@ fn stl_ascii_and_binary_agree_on_triangles_and_bounds() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn ply_ascii_and_binary_agree() {
     for name in ["patch_tri_ascii.ply", "patch_tri_binary.ply"] {
         let rec = &fx::section("surfaces")[name];
@@ -673,7 +657,6 @@ fn ply_ascii_and_binary_agree() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn n_gon_loaders_emit_a_matching_tri_edge_mask() {
     // §6.2: read_ply and read_obj triangulate n-gons and MUST emit a tri_edge_mask, so the
     // barycentric wireframe does not draw the invented diagonal. patch_quad.obj and
@@ -720,7 +703,6 @@ fn n_gon_loaders_emit_a_matching_tri_edge_mask() {
 }
 
 #[test]
-#[ignore = "phase-1: reader not implemented"]
 fn sniff_identifies_every_fixture_from_its_bytes() {
     let cases: &[(&str, Format)] = &[
         ("mesh_v2_ascii.msh", Format::Msh),
