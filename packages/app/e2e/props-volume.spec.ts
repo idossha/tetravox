@@ -474,13 +474,25 @@ test.describe('the R5 Region panel', () => {
     expect((await layerState(page, id))['labelOpacity']).toMatchObject({ 2: 0.25 });
   });
 
-  test('a label volume’s swatch is read-only, and the panel says why rather than doing nothing', async () => {
+  test('the colour picker writes `labelColors`, and clearing it drops the key (R5)', async () => {
     await expect(page.getByTestId(`region-row-${id}-1`)).toHaveAttribute(
       'data-recolorable',
-      'false'
+      'true'
     );
-    await expect(page.getByTestId(`region-color-${id}-1`)).toHaveCount(0);
-    await expect(page.getByTestId(`region-swatch-${id}-1`)).toBeVisible();
+    await page.getByTestId(`region-color-${id}-1`).fill('#ff00ff');
+    // §4.4's `VolumeLayer.labelColors` — a layer field, so §4.6 round-trips the edit; the dataset's
+    // `labelTable` still holds the file's own colour underneath it.
+    expect((await layerState(page, id))['labelColors']).toMatchObject({ 1: [1, 0, 1, 1] });
+    expect(
+      await page.evaluate((layerId) => {
+        const state = window.__tetravox?.store.getState();
+        const layer = state?.layers.find((l) => l.id === layerId);
+        const ds = state?.datasets.find((d) => d.id === layer?.datasetId);
+        return ds?.kind === 'volume' ? (ds.labelTable?.byId.get(1)?.color ?? null) : null;
+      }, id)
+    ).not.toEqual([1, 0, 1, 1]);
+    // The swatch shows the override, so the panel and the pane cannot disagree.
+    expect(await page.getByTestId(`region-color-${id}-1`).inputValue()).toBe('#ff00ff');
   });
 
   test('an unnamed id gets a blank swatch, not a colour the pane will not paint', async () => {
@@ -490,27 +502,27 @@ test.describe('the R5 Region panel', () => {
     expect(await page.getByTestId(`region-swatch-${id}-4`).getAttribute('style')).toBeNull();
   });
 
-  test('double-click jumps the cursor to the centroid once labelCentroids has produced one', async () => {
-    const before = await page.evaluate(() => window.__tetravox?.store.getState().cursor);
-
-    // No centroid yet ⇒ nothing to jump to, and the panel must not invent one.
-    await page.getByTestId(`region-name-${id}-2`).dblclick();
-    expect(await page.evaluate(() => window.__tetravox?.store.getState().cursor)).toEqual(before);
-    await expect(page.getByTestId(`region-tally-${id}-2`)).toHaveText('—');
-
-    // Feed one the shape `OpResult['labelCentroids']` has (§6.5.2). When the facade grows a producer
-    // this is the same path, driven by the engine instead of by the test.
-    await page.evaluate((layerId) => {
-      window.__tetravox?.controller?.setRegionStats(layerId, [
-        { id: 2, centroid: [12.5, -7.25, 33], count: 1_340_029 },
-      ]);
+  test('the row count and the double-click centroid come from `Engine.labelCentroids`', async () => {
+    // §4.7's producer runs on mount, so the tally is a number and not `—`. The stand-in answers
+    // `count = k + 1` for the k-th LUT entry, which is what makes this arithmetic rather than a
+    // recording: label 2 is the third entry of the stand-in's table.
+    const expected = await page.evaluate(async (layerId) => {
+      const rows = (await window.__tetravox?.engine?.labelCentroids(layerId)) ?? [];
+      const row = rows.find((r) => r.id === 2);
+      return row === undefined ? null : { count: row.count, centroid: row.centroid };
     }, id);
-    await expect(page.getByTestId(`region-tally-${id}-2`)).toHaveText('1,340,029');
+    expect(expected).not.toBeNull();
+    await expect(page.getByTestId(`region-tally-${id}-2`)).toHaveText(
+      expected!.count.toLocaleString()
+    );
 
     await page.getByTestId(`region-name-${id}-2`).dblclick();
-    expect(await page.evaluate(() => window.__tetravox?.store.getState().cursor)).toEqual([
-      12.5, -7.25, 33,
-    ]);
+    const cursor = (await page.evaluate(
+      () => window.__tetravox?.store.getState().cursor
+    )) as number[];
+    for (let c = 0; c < 3; c += 1) {
+      expect(Math.abs((cursor[c] ?? 0) - (expected!.centroid[c] ?? 0))).toBeLessThan(1e-3);
+    }
   });
 
   test('a click in a pane selects the row under the cursor (R5’s Freeview behaviour)', async () => {

@@ -50,7 +50,7 @@ describe('seedMeshLayerFromOpt (§7.6)', () => {
     expect(out.seed).toBeNull();
   });
 
-  it('seeds tag colours and visibility into `tagStyle`', () => {
+  it('seeds tag visibility, and a colour the dataset’s own tag does not already carry', () => {
     const ds = meshDataset({
       tagColor: { 1: [0.1, 0.2, 0.3, 1], 2: [0.4, 0.5, 0.6, 1] },
       tagVisible: { 1: false, 2: true },
@@ -63,6 +63,37 @@ describe('seedMeshLayerFromOpt (§7.6)', () => {
     expect(seed?.seeded).toContain('tagStyle.visible');
     // §7.6's chip: "defaults from X.msh.opt".
     expect(seed?.file).toBe('ernie.msh.opt');
+  });
+
+  it('does NOT copy a colour §6.2’s ladder already put on the dataset’s tag', () => {
+    // Every real open: the sidecar reached the loader, so `MeshTag.color` is the `.msh.opt` colour.
+    // Writing it into `tagStyle` too would occupy the slot R5 keeps for the *user's* edit, and
+    // A-PROPS's per-row Reset and its "recoloured" marker could no longer tell one from the other.
+    const ds = meshDataset({
+      tagColor: { 1: [0.9, 0.9, 0.82, 1], 2: [0.4, 0.5, 0.6, 1] },
+      tagVisible: { 1: false, 2: true },
+      views: [],
+    });
+    const { layer, seed } = seedMeshLayerFromOpt(defaultMeshLayer('layer1', ds), ds);
+    // Tag 1's sidecar colour is exactly `MeshTag.color`, so nothing is seeded for it…
+    expect(layer.tagStyle[1]).toEqual({ visible: false, opacity: 1 });
+    // …while tag 2's differs and still is.
+    expect(layer.tagStyle[2]).toEqual({ visible: true, opacity: 1, color: [0.4, 0.5, 0.6, 1] });
+    expect(seed?.seeded).toContain('tagStyle.color');
+    expect(seed?.seeded).toContain('tagStyle.visible');
+  });
+
+  it('seeds no colour at all when every tag already carries its own', () => {
+    const ds = meshDataset({
+      tagColor: { 1: [0.9, 0.9, 0.82, 1], 2: [0.5, 0.5, 0.5, 1] },
+      tagVisible: { 1: false },
+      views: [],
+    });
+    const { layer, seed } = seedMeshLayerFromOpt(defaultMeshLayer('layer1', ds), ds);
+    expect(layer.tagStyle[1]?.color).toBeUndefined();
+    expect(layer.tagStyle[2]?.color).toBeUndefined();
+    expect(seed?.seeded).not.toContain('tagStyle.color');
+    expect(seed?.seeded).toContain('tagStyle.visible');
   });
 
   it('leaves a tag the sidecar does not name at the layer default', () => {

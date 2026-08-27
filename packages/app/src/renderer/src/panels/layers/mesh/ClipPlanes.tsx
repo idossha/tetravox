@@ -147,7 +147,8 @@ export function ClipPlanes({
                 aria-label={`Remove clip plane ${index + 1}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  controller.setClipFollowsCursor(layer.id, index, false);
+                  // The follow flag lives on the plane (§4.4's `ClipPlane.followCursor`), so it
+                  // goes with it: one control, one `updateLayer` (§8).
                   patch(removeClipPlane(layer, index));
                 }}
               >

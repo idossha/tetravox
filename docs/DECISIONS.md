@@ -2105,3 +2105,20 @@ Each entry below names the problem, the fix, and the evidence.
   the same four guarantees against the **real** manager through that interface, so the seam is
   pinned rather than claimed. What the stand-in's tests covered is covered there or in
   `compute/cut-manager.test.ts`, which is a superset.
+- 2026-08-27 — **A `.msh.opt` tag colour is seeded into `tagStyle` only where the dataset's own tag
+  does not already carry it** (Phase-2 integrator, found by A-PROPS's real-data tissue-table spec at
+  the merge). E-SCENE's §7.6 seeding wrote `opt.tagColor[t]` into `MeshLayer.tagStyle[t].color` for
+  every tag, reasoning that "an edit needs somewhere to live and a Reset something to put back".
+  §6.2's ladder has already resolved that same colour onto `MeshTag.color` whenever the sidecar
+  reached the loader — which is every real open — so the layer slot R5 reserves for the **user's**
+  edit arrived pre-filled with the file's own colour. The consequence is not cosmetic: A-PROPS's
+  per-row Reset and its `data-recoloured` marker exist to say whether a tag has been changed, and
+  they could no longer tell a seed from an edit; nor could a `*.tetravox.json`, which would record
+  an "override" nobody made. The Reset does not need the pre-fill either — it deletes the override
+  and `tagColor()` falls through to `MeshTag.color`, the same value. So the seed now skips a colour
+  that is byte-identical to the dataset's (§4.1's 0..1 quadruple round-trips exactly, so this is
+  `===`, not a tolerance), and still seeds one where the tags were built without the sidecar, which
+  is what E-SCENE's own unit fixture exercises. `tagStyle.visible` is seeded unconditionally: there
+  is no `MeshTag.visible` for it to duplicate. This is the mesh half of the same rule the volume
+  half now follows with `VolumeLayer.labelColors`: **the file's colours live on the dataset, the
+  user's live on the layer, and a Reset is deleting a key.**

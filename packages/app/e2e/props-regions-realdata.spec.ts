@@ -232,10 +232,9 @@ test.describe('the Region panel on labeling.nii.gz', () => {
     // assertion about *this row* rather than about some colour that happens to be on screen.
     // Chromium normalises an inline `#rrggbb` to `rgb(r, g, b)`, which is the same bytes the pane
     // was counted for — §4.1's "the wire `[u8;4]` is what an expected pixel is written in".
-    const swatch = await page
-      .getByTestId(`region-swatch-${layerId}-${target.id}`)
-      .getAttribute('style');
-    expect(swatch).toContain(`rgb(${target.rgb[0]}, ${target.rgb[1]}, ${target.rgb[2]})`);
+    const swatch = await page.getByTestId(`region-color-${layerId}-${target.id}`).inputValue();
+    const hex = (c: number): string => c.toString(16).padStart(2, '0');
+    expect(swatch).toBe(`#${hex(target.rgb[0])}${hex(target.rgb[1])}${hex(target.rgb[2])}`);
 
     await page.getByTestId(`region-eye-${layerId}-${target.id}`).click();
     const hidden = await page.evaluate((id) => {
@@ -249,31 +248,82 @@ test.describe('the Region panel on labeling.nii.gz', () => {
 
     const after = await axialPane();
 
-    // E-SLICE owns the shader half of R5 and merges two stages ahead of A-PROPS
-    // (docs/PHASE2-OWNERSHIP.md, "Integration order"). Until `visibleLabels` reaches the slice
-    // program the pane is byte-identical, and the assertions below have nothing to measure — the
-    // panel-side patch is asserted above and by `regions.test.ts`.
-    const unchanged = Buffer.from(before.pixels).equals(Buffer.from(after.pixels));
-    test.skip(
-      unchanged,
-      'the slice shader does not honour VolumeLayer.visibleLabels yet (E-SLICE, stage 3); ' +
-        'the panel emits the patch, asserted above'
-    );
-
+    // R5's gate, both halves at once: the hidden label's colour is gone from the pane, and every
+    // other label's pixel count is exactly what it was.
     expect(countColor(after, target.rgb), 'the hidden label’s colour is gone').toBe(0);
     expect(countColor(after, other.rgb), 'every other label is untouched').toBe(other.n);
+
+    // Put it back, so the recolour test below starts from the same pane.
+    await page.getByTestId(`region-eye-${layerId}-${target.id}`).click();
+    const restored = await axialPane();
+    expect(
+      Buffer.from(restored.pixels).equals(Buffer.from(before.pixels)),
+      'showing it again restores the pane byte for byte'
+    ).toBe(true);
   });
 
-  test('a label volume’s colour cannot be edited yet, and the panel says so', async () => {
-    // R5 asks for a colour picker whose edits persist in the scene. `VolumeDataset.labelTable` is
-    // dataset state and no `Partial<VolumeLayer>` carries a per-label colour, so the swatch is
-    // read-only and marked — filed with the integrator rather than faked.
+  test('recolouring a label repaints exactly its pixels, and only those (R5’s gate)', async () => {
     const facts = await labelFacts();
-    const id = facts.labelIds.find((x) => facts.colors[x] !== undefined) as number;
-    await expect(page.getByTestId(`region-row-${layerId}-${id}`)).toHaveAttribute(
-      'data-recolorable',
-      'false'
+    const before = await axialPane();
+    const present = facts.labelIds
+      .map((id) => ({ id, rgb: facts.colors[id] }))
+      .filter(
+        (r): r is { id: number; rgb: [number, number, number, number] } => r.rgb !== undefined
+      )
+      .map((r) => ({ ...r, n: countColor(before, [r.rgb[0], r.rgb[1], r.rgb[2]]) }))
+      .filter((r) => r.n > 20)
+      .sort((a, b) => b.n - a.n);
+    expect(present.length).toBeGreaterThanOrEqual(2);
+    const target = present[0] as (typeof present)[number];
+    const other = present[1] as (typeof present)[number];
+
+    // A colour no LUT entry uses, so the count after is unambiguous. `k / 255` round-trips exactly
+    // (§4.1), which is what lets this be an equality rather than a tolerance.
+    const NEW: [number, number, number] = [1, 254, 3];
+    expect(
+      facts.labelIds.some((id) => {
+        const c = facts.colors[id];
+        return c !== undefined && c[0] === NEW[0] && c[1] === NEW[1] && c[2] === NEW[2];
+      }),
+      'the new colour must not already be some other label’s'
+    ).toBe(false);
+    expect(countColor(before, NEW), 'nothing is that colour before the edit').toBe(0);
+
+    await page.evaluate(
+      ([id, tag]: [string, number]) => {
+        const el = document.querySelector(`[data-testid="region-color-${id}-${tag}"]`);
+        if (el === null) throw new Error('no colour input');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(el, '#01fe03');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      },
+      [layerId, target.id] as [string, number]
     );
-    await expect(page.getByTestId(`region-color-${layerId}-${id}`)).toHaveCount(0);
+
+    // The edit lands on the **layer** (§4.4's `VolumeLayer.labelColors`), which is what §4.6
+    // serialises — the dataset's `labelTable` still holds the file's own colour.
+    const stored = await page.evaluate(
+      ([id, tag]: [string, number]) => {
+        const state = window.__tetravox?.store.getState();
+        const layer = state?.layers.find((l) => l.id === id);
+        const ds = state?.datasets.find((d) => d.id === layer?.datasetId);
+        if (layer?.kind !== 'volume' || ds?.kind !== 'volume') throw new Error('no volume');
+        return {
+          override: layer.labelColors?.[tag] ?? null,
+          file: ds.labelTable?.byId.get(tag)?.color ?? null,
+        };
+      },
+      [layerId, target.id] as [string, number]
+    );
+    expect(stored.override?.map((c) => Math.round(c * 255))).toEqual([...NEW, 255]);
+    expect(stored.file?.map((c) => Math.round(c * 255))).toEqual([...target.rgb]);
+
+    const after = await axialPane();
+    expect(countColor(after, NEW), 'exactly the recoloured label’s pixels are the new colour').toBe(
+      target.n
+    );
+    expect(countColor(after, [target.rgb[0], target.rgb[1], target.rgb[2]])).toBe(0);
+    expect(countColor(after, [other.rgb[0], other.rgb[1], other.rgb[2]])).toBe(other.n);
   });
 });

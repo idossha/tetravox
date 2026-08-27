@@ -329,6 +329,11 @@ export interface MshOptSeed {
  * A dataset with no `.msh.opt` — every mesh the caller opened without one, which is every mesh in
  * every Phase-1 golden — comes back untouched with `seed: null`.
  */
+/** Exact equality on §4.1's 0..1 quadruple — the wire bytes round-trip exactly, so `===` is right. */
+function sameColor(a: vec4, b: vec4 | undefined): boolean {
+  return b !== undefined && a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+
 export function seedMeshLayerFromOpt(
   layer: MeshLayer,
   ds: MeshDataset
@@ -338,16 +343,24 @@ export function seedMeshLayerFromOpt(
   const seeded: string[] = [];
   const next: MeshLayer = { ...layer };
 
-  // Tag colours and visibility. The colours are *also* on `MeshTag.color` (§6.2's ladder resolved
-  // them); seeding `tagStyle` as well is what gives an edit somewhere to live and a Reset something
-  // to put back.
+  // Tag visibility, and a tag colour **only where the dataset does not already carry it**.
+  //
+  // §6.2's ladder resolves a `.msh.opt` colour onto `MeshTag.color` when the sidecar reached the
+  // loader, which is every real open — so writing it into `tagStyle` as well duplicated the same
+  // fact into the place R5 reserves for the *user's* edit. The consequence, found at the Phase-2
+  // merge: every tag looked recoloured from the moment the file opened, so A-PROPS's per-row Reset
+  // and its "recoloured" marker could not tell a seed from an edit, and neither could a scene file.
+  // Seeding what the dataset already says is not needed for a Reset either — the reset drops the
+  // override and `tagColor()` falls through to `MeshTag.color`, which is the same value.
+  // A dataset whose tags were built without the sidecar still gets the colour seeded here.
   const tagStyle: MeshLayer['tagStyle'] = {};
   let tagColours = 0;
   for (const tag of ds.tags) {
     const base = layer.tagStyle[tag.id] ?? { visible: true, opacity: 1 };
     const color = opt.tagColor[tag.id];
-    if (color !== undefined) tagColours += 1;
-    tagStyle[tag.id] = color !== undefined ? { ...base, color } : base;
+    const already = color !== undefined && sameColor(color, tag.color);
+    if (color !== undefined && !already) tagColours += 1;
+    tagStyle[tag.id] = color !== undefined && !already ? { ...base, color } : base;
   }
   next.tagStyle = tagStyle;
   if (tagColours > 0) seeded.push('tagStyle.color');

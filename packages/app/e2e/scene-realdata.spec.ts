@@ -201,8 +201,12 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       // The temp dir and the dataset share `/`, so the relative form really is relative.
       expect(spec.datasets[0]?.path.startsWith('/')).toBe(false);
       expect(spec.layers.map((l) => l.kind)).toEqual(['volume', 'mesh']);
-      // §4.6's fingerprint has no producer yet (W-WASM Gap 1) — recorded as empty, not invented.
-      expect(spec.datasets[0]?.fingerprint).toBe('');
+      // §4.6's fingerprint: `tvxfp1-<len:16hex>-<hash:16hex>`, produced by the loader
+      // (`tvx_core::fingerprint`) over the bytes it was handed, before the parser frees them.
+      expect(spec.datasets[0]?.fingerprint).toMatch(/^tvxfp1-[0-9a-f]{16}-[0-9a-f]{16}$/);
+      // Two different files, two different digests — which is what the relocate dialog keys on.
+      expect(spec.datasets[1]?.fingerprint).toMatch(/^tvxfp1-[0-9a-f]{16}-[0-9a-f]{16}$/);
+      expect(spec.datasets[0]?.fingerprint).not.toBe(spec.datasets[1]?.fingerprint);
       // A ViewSpec is small JSON: the whole point of letting it cross IPC (`main/scene-io.ts`).
       expect(readFileSync(scenePath).length).toBeLessThan(64 * 1024);
     } finally {
