@@ -27,7 +27,7 @@ transfer, texture/geometry upload and the first draw, all included.
 
 | File | Bytes | Renderer | Load → first frame |
 |---|---|---|---|
-| `m2m_ernie/T1.nii.gz` | 13,143,463 | `[Metal]`, app | **404 – 524 ms** (typ. 415) |
+| `m2m_ernie/T1.nii.gz` | 13,143,463 | `[Metal]`, app | **404 – 524 ms** (typ. 415; 461 ms re-measured 2026-08-27) |
 | `m2m_ernie/T1.nii.gz` | 13,143,463 | `[SwS]`, engine harness | 318 ms |
 | `m2m_ernie/ernie.msh` | 184,207,351 | `[Metal]`, app | **1,221 – 1,353 ms** (typ. 1,240) |
 | `m2m_ernie/ernie.msh` | 184,207,351 | `[SwS]`, engine harness | 1,240 ms |
@@ -198,6 +198,9 @@ comparable to `[Metal]` and Phase 2, which owns the pick UX, should re-measure i
 * **Machine B.** §9 names two reference machines; only this one exists for Phase 1.
 * **ubuntu-24.04.** The golden authority has still never run (a Phase-0 carry-over — see
   `docs/ROADMAP.md`). Every `[SwS]` number above is SwiftShader **on macOS arm64**.
+* **Anything, in CI.** `.github/workflows/ci.yml` asserts `TETRAVOX_TESTDATA` is *unset*, so every
+  number on this page is reproducible only on a machine holding the reference dataset. See the
+  paragraph under the Phase-1 gate table in `docs/ROADMAP.md`.
 * **The packaged artefact.** These are `dev` numbers; `pnpm package` timings are Phase 3's gate.
 * **Anything §9.1 lists as a `[TARGET]` row.** Phase 3 replaces those, on both machines, with
   sign-off. Nothing here should be quoted as a §9 result.

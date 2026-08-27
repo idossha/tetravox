@@ -103,22 +103,32 @@ committed under `docs/screenshots/phase1/`, and the measurements are in `docs/be
 |---|---|---|---|
 | 1 | `ernie_seeg.msh` (492 MB): moving progress bar < 200 ms, cancel < 500 ms | `pnpm --filter @tetravox/app exec playwright test phase1-gate --project=dev` → `e2e/phase1-gate.spec.ts` | ✔ card on screen **0.8 ms**, first progress **13–28 ms** (phase `read`), cancel → `cancelled` **4–6 ms**. Timed **inside the page** around the exact call the Open dialog makes, so no Playwright IPC is charged to the budget. Cancel is `worker.terminate()`; afterwards `datasets` and `layers` are both 0. Real engine, real worker, ANGLE/Metal. |
 | 2 | `ernie.msh` tag surfaces orbiting, **no `build_topology`** on that path | `pnpm --filter @tetravox/engine run e2e -- phase1-gate` → `gate 2` | ✔ 847,165 nodes / 1,177,213 tris / 4,722,625 tets; the ten tissue tags, tag 4 absent; `orient_surface` flips 41 components. **The worker op log is exactly `['loadMesh', 'surface']`** — no `buildTopology`, no `boundary` — captured by wrapping `Worker.prototype.postMessage`. 24-step orbit, > 25 % of the pane covered. Golden `gate2-ernie-tag-surfaces`. |
-| 3 | `T1.nii.gz` in the three canonical views + 3D, with letters, corner info and the badge | same run → `gate 3` (two tests) | ✔ 256×256×208 `f32`, max exactly 65535, `R32F` on the golden authority. Goldens `gate3-t1-2x2-chrome` (2×2: axial, coronal, sagittal, 3D — every pane carries edge letters, corner info and the `NEU` badge) and `gate3-t1-axial-radiological` (the same slice with `RAD`, `R` and `L` swapped — §3's "radiological negates `right` only"). Letters are derived from the view basis, never hardcoded per pane (§8). |
+| 3 | `T1.nii.gz` in the three canonical views + 3D, with letters, corner info and the badge | same run → `gate 3` (two tests) | ✔ 256×256×208 `f32`, max exactly 65535, `R32F` on the golden authority. Goldens `gate3-t1-2x2-chrome` and `gate3-t1-axial-radiological`. **The chrome is decoded back out of the framebuffer**, not merely present in a picture: all three corner lines, the four edge letters and the badge, per pane, template-matched against the repo's own 5×7 font (`test/helpers/chrome.ts`). `AXIAL … SLICE 128` / `CORONAL … SLICE 128` / `SAGITTAL … SLICE 104`, `L`\|`R` on both panes that have a left-right axis, `A`\|`P` on the sagittal one, `NEU` on all four. Reverting either the affine-derived slice index or the §3 preset normals fails it. |
 | 4 | The Phase-1 oblique golden | same run → `gate 4` | ✔ `mode: 'oblique'`, `normal = normalize([1,1,1])`, `T1.nii.gz` alone. Golden `gate4-t1-oblique`; the hexagonal footprint is the plane ∩ the volume's box, which is the §7.3 texcoord discard doing its job. |
-| 5 | The pick golden **and** the Phase-1 overlay-compositing golden | same run → `gate 5` (two tests) | ✔ **Compositing**: `T1.nii.gz` + `segmentation/labeling.nii.gz` (a **float32** label volume, 57 ids → `R8UI`) on an oblique 2D view. Captured twice — base alone, then composited — and asserted pixel by pixel: every changed pixel is *exactly* one of the atlas's LUT colours (no blend ⇒ a true 100 % footprint) and every unchanged pixel is byte-identical to the base. Golden `gate5-overlay-composite-oblique`. **Pick**: a 3D pick on `ernie.msh` returns `elementKind: 'tri'` with a Gmsh element number inside the tri block, a pane corner returns `null` (0 = miss), and still no `buildTopology`. Golden `gate5-ernie-pick`. |
-| 6 | Both §6.1 ladder branches, via `forceCaps`, as analytic pixel tests | same run → `gate 6` (two tests) | ✔ `?norm16=0` ⇒ **R32F**; the unforced run ⇒ **R16** where the renderer has `EXT_texture_norm16`, and **skips with a reason** on the golden authority, which does not (§7.1 `[SwS]`) — rather than silently asserting the other branch twice. Each branch compares the rendered grey against the value `Engine.probe` reads from the **CPU** array at the same world point, through the §7.6 bake: two paths that share only the parsed samples. |
+| 5 | The pick golden **and** the Phase-1 overlay-compositing golden | same run → `gate 5` (two tests) | ✔ **Compositing**: §11's named pair — `Simulations/Thalamus/TI/niftis/Thalamus_TI_subject_TI_max.nii.gz` (a continuous scalar, `R32F`, max 3.152071) over `T1.nii.gz` on an oblique 2D view. Exactly-100 % is asserted as *independence*, over **every** pixel of the pane: at opacity 1 the composite does not move by one byte when the base is hidden or re-windowed, while each of those changes the base visibly on its own. Golden `gate5-overlay-composite-oblique`. **Pick**: §11's four clauses — `elementKind: 'tri'` with a Gmsh number inside the tri block; `locate` 1 mm inward returns tag 5 `Scalp` and 1 mm outward returns nothing, which brackets `world` to ±1 mm along the view ray through the worker's own `locate_point`; `setCursorFromPick` moves the cursor there and the three panes' decoded `SLICE` lines become exactly what `T1.nii.gz`'s affine implies for that point; a pane corner returns `null`. Still no `buildTopology`. Golden `gate5-ernie-pick`. |
+| 6 | Both §6.1 ladder branches, via `forceCaps`, as analytic pixel tests | same run, **both projects** → `gate 6` (two tests) | ✔ `?norm16=0` ⇒ **R32F** on either renderer; the unforced run ⇒ **R16**, which needs `EXT_texture_norm16` and therefore a GPU. §11's "run twice on the macOS/ANGLE leg" is a second Playwright project, `chromium-angle` — full Chromium, headed, `--enable-unsafe-swiftshader` deliberately absent, `grep: /@angle/` — and the R16 branch passes there in 0.6 s on `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`. On the SwiftShader project it skips with its reason. Each branch compares the rendered grey against the value `Engine.probe` reads from the **CPU** array at the same world point, through the §7.6 bake: two paths that share only the parsed samples. |
 | 7 | `wasm_heap_bytes()` ≤ 1.0 GB for `ernie_seeg.msh` | `pnpm --filter @tetravox/wasm run e2e -- realdata` | ✔ **956,694,528 B = 912.4 MB** (1.94 × file), **with `tvx-geom` built in**. Unchanged from the pre-`geom` measurement: the Morton reorder, block index and point locator all run after the parse has freed its transients, so the high-water mark is still the parse's. `ernie.msh` 341.8 MB against its ≤ 380 MB bar. |
 
 **Whole chain, same tree:** `pnpm wasm && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e`
 green, plus `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and
-`cargo test --workspace` (177 passed / 0 failed / 1 ignored) with `TETRAVOX_TESTDATA` set **and** unset.
+`cargo test --workspace` (**189** passed / 0 failed / 1 ignored) with `TETRAVOX_TESTDATA` set **and** unset.
+
+**What CI can and cannot say about any of this.** `.github/workflows/ci.yml` carries a step that
+*asserts `TETRAVOX_TESTDATA` is unset*, deliberately (§11, AGENTS rule 2: real-data tests skip, never
+fail). The consequence belongs here rather than only in the benchmarks doc: **every gate item above,
+all 26 `tvx-geom` + `tvx-nifti` real-data tests and every number in this table are reproducible only
+on a machine with the reference dataset.** `cargo test --workspace` returns the same 189-passed count
+with the variable set and unset, so the count itself cannot distinguish a run that exercised ernie
+from one that did not — read the `[bench]`/`[§9.x]` lines, or `-- --nocapture`, for that. What CI
+does police is the synthetic half: `testdata/` and its manifest, the analytic pixel tests, lint,
+clippy, typecheck and the goldens.
 
 **Outstanding at the gate** (tracked, not blocking Phase 2's start):
 
 * **`p1/geom` and `p1/engine` were never created.** `crates/tvx-geom` and `packages/engine` reached
   the integrator as Phase-0 `unimplemented!()` / `throw new Error('phase 1')` stubs, and both were
   implemented during integration rather than by their own agent. They therefore had one pass of
-  review, not two, and `docs/DECISIONS.md` carries the judgement calls.
+  review, not two — and that is exactly where the verification pass below found what it found.
 * **ubuntu-24.04 has still never run** — the Phase-0 carry-over. Every golden here was captured on
   SwiftShader **on macOS arm64**, and `ubuntu-24.04` is the golden authority (§11). If the first CI
   run disagrees, regenerate the goldens **there**.
@@ -130,6 +140,34 @@ green, plus `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -
   real data; see `docs/DECISIONS.md`.
 * `showIn3D` volume planes are Phase 2's (§7.3's Phase-1 scope says so explicitly), so the 3D pane of
   the gate-3 golden carries chrome but no volume.
+
+**Verification follow-up — 2026-08-27.** Two independent verifiers re-ran the gate from clean clones
+of the `phase-1` tag. Every number in the table above reproduced, several to the byte; what did not
+survive was concentrated in §8's 2D chrome ("a laterality-safety requirement, not decoration") and in
+the §11 rows whose *named* test had been reinterpreted rather than written. All of it is fixed on
+`main`, and `docs/DECISIONS.md` carries an entry per item. In short:
+
+| Found | Fixed by |
+|---|---|
+| The coronal pane mirrored the axial one under one `NEU` badge — §3's preset normals contradict §3's own definition of neurological | §3's presets become `(+Z, −Y, −X)`, the only triple that satisfies §11's three orientation tests at once |
+| §11's **three mandatory orientation tests** did not exist, on a fixture committed in Phase 0 for them alone | `packages/engine/test/e2e/orientation.spec.ts`; the coronal one fails against the old preset |
+| The corner `SLICE` number hardcoded a voxel axis per view mode — wrong on every SimNIBS `m2m` volume, and 0.05 % of a pane, so no golden could see it | derived from the affine (`voxelAxisAlong`), and the chrome is now **decoded** from the framebuffer, not just present in it |
+| The engine's auto-centre moved the cursor without emitting `cursor`, so §8's readout described world (0,0,0) while every crosshair described the bbox centre | the auto-centre goes through `setCursor`; asserted in the engine e2e and on the app's DOM |
+| Gate item 6's R16 half executed in **no** environment — one Playwright project, SwiftShader, on both runners | the `chromium-angle` project, where it runs in 0.6 s |
+| §11's compositing test used a label volume instead of the named continuous-scalar file, and sampled 0.26 % of the pane | the named file, and independence asserted over every pixel |
+| §11's pick test asserted 1 of its 4 clauses | all four, with `locate` bracketing `world` to ±1 mm |
+| `marching_cubes` had no test in any crate; five other §6.3 functions were missing their synthetic or real-data half | an analytic sphere plus a real-data enclosure test, and the missing halves; 177 → 189 cargo tests |
+| §11's Surface-invariant row names two meshes and only the first was asserted | `ernie-seeg.msh`'s 202,318 + 2,427,261 = 2,629,579, whole-mesh |
+| `tvx-mesh-io` had two root-public functions the contract did not describe | folded into `Mesh.label_table` and `MshOptions.tag_name`, §6.2 edited with them |
+| The app duck-typed five engine members the frozen §4.7 did not name | they are in §4.7; `engine/commands.ts` and every `as unknown as` cast are gone |
+| §9.1 row 10 measured natively under a WASM budget, and was **missed** in wasm (16.1 ms against < 15) | `plane_cut` stops allocating per cut tet; 12.9 ms in wasm, and both a wasm driver and a worker round-trip measurement now exist |
+| The app's gate spec hardcoded `launchApp('dev')`, so it reported green under `[packaged]` with nothing packaged | the project name is the target, `packagedUnavailable()` gates it |
+
+Two things the verifiers flagged that were **not** treated as defects, with the reasoning in
+`docs/DECISIONS.md`: §11's "genuinely different extents" (factually false of this dataset — the
+contract line was corrected, not the test), and "all three 2D slice indices changed" in the Pick row
+(the pick is on the camera axis, so only one *can* change; the test asserts all three equal what the
+picked point implies, and that the triple moved).
 
 **Work (one agent per bullet):**
 - `tvx-nifti` (§6.1) — reader, exact stats, `gpu_payload` ladder, `label_index`. Synthetic + real-data tests
