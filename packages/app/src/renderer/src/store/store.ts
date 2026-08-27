@@ -220,28 +220,34 @@ export function activeVolumeDataset(state: UiState): Dataset | null {
 
 // -- Phase 2, A-SHELL (appended) -----------------------------------------------------------------
 
+/** A volume dataset that is known to carry §4.3's `toTemplate`, so callers need no second guard. */
+export type TemplateVolume = Extract<Dataset, { kind: 'volume' }> & {
+  toTemplate: NonNullable<Extract<Dataset, { kind: 'volume' }>['toTemplate']>;
+};
+
 /**
- * The `toTemplate` the coordinate bar's MNI column uses, or null when no loaded volume has one.
+ * The volume whose `toTemplate` the coordinate bar's MNI column uses, or null when none has one.
  *
  * The active layer's dataset first, so a scene with a subject volume *and* an MNI-space overlay
  * reports the space of the thing the user is looking at; otherwise the topmost volume that carries
  * one, because "some dataset in this scene is in MNI" is still worth offering. `sform_code`/
  * `qform_code` = 4 is what makes a volume MNI152, and deriving that is E-SCENE's `scene/fromMeta.ts`
  * (audit P2-10) — the app only reads the field.
+ *
+ * **It returns the dataset itself, never a wrapper object.** A selector is read through
+ * `useSyncExternalStore`, which compares with `Object.is`; a `{ dataset, toTemplate }` literal is a
+ * new object on every call, so every store read looks like a change and React re-renders until it
+ * throws "Maximum update depth exceeded". Returning the identity that is already in the store is
+ * what makes the selector stable, and it is why the return type narrows instead of wrapping.
  */
-export function templateSource(state: UiState): {
-  dataset: Dataset;
-  toTemplate: NonNullable<Extract<Dataset, { kind: 'volume' }>['toTemplate']>;
-} | null {
+export function templateSource(state: UiState): TemplateVolume | null {
   const active = datasetOf(state, activeLayer(state));
-  if (active?.kind === 'volume' && active.toTemplate !== undefined) {
-    return { dataset: active, toTemplate: active.toTemplate };
-  }
+  if (active?.kind === 'volume' && active.toTemplate !== undefined) return active as TemplateVolume;
   for (let i = state.layers.length - 1; i >= 0; i--) {
     const layer = state.layers[i] as Layer;
     const dataset = state.datasets.find((d) => d.id === layer.datasetId);
     if (dataset?.kind === 'volume' && dataset.toTemplate !== undefined) {
-      return { dataset, toTemplate: dataset.toTemplate };
+      return dataset as TemplateVolume;
     }
   }
   return null;

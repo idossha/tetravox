@@ -72,7 +72,7 @@ export function CoordinateBar(): React.JSX.Element {
           title={
             template === null
               ? 'No loaded volume carries a toTemplate (§4.3) — nothing here is in a template space'
-              : `${template.toTemplate.name} via ${template.dataset.name}`
+              : `${template.toTemplate.name} via ${template.name}`
           }
         >
           {template === null ? 'MNI (none)' : template.toTemplate.name}

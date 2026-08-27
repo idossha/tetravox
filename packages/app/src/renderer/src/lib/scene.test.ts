@@ -174,6 +174,14 @@ describe('defaultSceneName', () => {
   it('falls back to `scene` for an empty scene', () => {
     expect(defaultSceneName(spec({ datasets: [] }))).toBe('scene.tetravox.json');
   });
+
+  it('takes the basename, because `DatasetRef.name` can be a whole path on real data', () => {
+    // `[DATA]`: the engine's `VolumeMeta.name` is the source URL's path, absolute and all.
+    const long = spec({
+      datasets: [ref({ name: '/Users/x/datasets/000/derivatives/SimNIBS/sub-ernie/T1.nii.gz' })],
+    });
+    expect(defaultSceneName(long)).toBe('T1.tetravox.json');
+  });
 });
 
 // ------------------------------------------------------------------------------------------------

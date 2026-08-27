@@ -173,9 +173,16 @@ export function parseScene(text: string): ParsedScene {
   return { ok: true, spec: spec as ViewSpec };
 }
 
-/** The default filename the Save dialog offers: the first dataset's stem, else `scene`. */
+/**
+ * The default filename the Save dialog offers: the first dataset's stem, else `scene`.
+ *
+ * The **basename** first, because `DatasetRef.name` is not guaranteed to be one: the engine takes it
+ * from `VolumeMeta.name`, which the loader derives from the source URL, and on the real dataset that
+ * is the whole absolute path `[DATA]`. Offering `_Users_idohaber_…_T1.tetravox.json` as a filename
+ * would be a defensible bug and a terrible default.
+ */
 export function defaultSceneName(spec: ViewSpec): string {
-  const first = spec.datasets[0]?.name ?? '';
+  const first = (spec.datasets[0]?.name ?? '').split(SEPARATOR).pop() ?? '';
   const stem = first
     .replace(/\.(nii\.gz|nii|mgz|mgh|msh|gii|stl|ply|obj)$/i, '')
     .replace(/[^\w.-]+/g, '_');

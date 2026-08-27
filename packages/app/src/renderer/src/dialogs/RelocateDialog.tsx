@@ -18,6 +18,7 @@
 
 import { useCallback, useState } from 'react';
 import type { DatasetRef } from '@tetravox/engine';
+import { baseName } from '../lib/sidecars';
 import { DialogFrame } from './dialog';
 
 export type FingerprintState = 'unrecorded' | 'unverified' | 'match' | 'differs';
@@ -125,7 +126,12 @@ export function RelocateDialog({
               className="rounded border border-tvx-line bg-tvx-bg/40 px-3 py-2"
             >
               <div className="flex items-baseline gap-2">
-                <span className="text-[11px] text-tvx-text">{entry.ref.name}</span>
+                {/* The basename, because `DatasetRef.name` is `VolumeMeta.name` and on real data
+                    that is the whole absolute path `[DATA]`. The full recorded path is one row
+                    down, where it is detail rather than the heading. */}
+                <span className="text-[11px] text-tvx-text" title={entry.ref.name}>
+                  {baseName(entry.ref.name)}
+                </span>
                 <span className="font-mono text-[10px] uppercase text-tvx-dim">
                   {entry.ref.kind}
                 </span>

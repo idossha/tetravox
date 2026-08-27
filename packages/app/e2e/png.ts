@@ -101,6 +101,31 @@ export function decodePng(buffer: Buffer): DecodedPng {
   return { width, height, pixels: out };
 }
 
+/**
+ * The `pHYs` chunk's DPI, or null when the file carries none.
+ *
+ * §11 on the screenshot spec: "the screenshot's pHYs chunk carries the requested DPI — **parse the
+ * chunk, do not eyeball the image**." Written here rather than reused from the renderer's
+ * `lib/png.ts` deliberately: an E2E must be able to disagree with the code under test, and a shared
+ * reader would only ever agree with itself. Unit 1 is metres; unit 0 is an aspect ratio and carries
+ * no DPI at all.
+ */
+export function readPngDpi(buffer: Buffer): number | null {
+  if (buffer.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG');
+  for (let offset = 8; offset + 8 <= buffer.length;) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString('ascii', offset + 4, offset + 8);
+    if (type === 'pHYs' && length >= 9) {
+      const body = buffer.subarray(offset + 8, offset + 8 + length);
+      if (body.readUInt8(8) !== 1) return null;
+      return Math.round(body.readUInt32BE(0) * 0.0254);
+    }
+    if (type === 'IEND') break;
+    offset += 12 + length;
+  }
+  return null;
+}
+
 export function pixelAt(png: DecodedPng, x: number, y: number): [number, number, number, number] {
   const i = (y * png.width + x) * 4;
   return [
