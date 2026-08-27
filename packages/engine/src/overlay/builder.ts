@@ -1,17 +1,18 @@
 /**
- * The §7.2 overlay pass geometry: orientation letters, corner info, the RAD/NEU badge, the
- * crosshair.
+ * `OverlayBuilder` — the one interleaved vertex buffer every §7.2 pass-3 item writes into.
  *
  * §8 calls the 2D view chrome **a laterality-safety requirement, not decoration**, and §11 requires
  * it present in every golden — so it is drawn into the GL framebuffer, not into a DOM layer above
  * it. A DOM overlay would be invisible to `readPixel` and to `screenshot()`, which is the same as
  * not testing it.
  *
- * Everything is built into one interleaved `[x, y, u, v, r, g, b, a]` buffer and drawn once.
- * `u < 0` marks a solid quad; otherwise the vertex samples the bitmap font atlas.
+ * Layout is `[x, y, u, v, r, g, b, a]` per vertex. `u < 0` marks a solid quad; otherwise the vertex
+ * samples the bitmap font atlas. Every item module in this directory (`letters`, `corner`, `badge`,
+ * `crosshair`, and Phase 2's `colorbar` / `gizmo`) appends into one of these and the pass makes one
+ * draw call out of the lot.
  */
 
-import { ATLAS_W, ATLAS_H, CELL_W, GLYPH_H, GLYPH_W, cellOf } from './font';
+import { ATLAS_W, ATLAS_H, CELL_W, GLYPH_H, GLYPH_W, cellOf } from '../render/font';
 import type { vec4 } from '../scene/types';
 
 export const FLOATS_PER_VERTEX = 8;
@@ -114,78 +115,20 @@ export class OverlayBuilder {
   }
 }
 
-export interface ChromeInput {
+/** Pane geometry every overlay item needs: size in device pixels and the font magnification. */
+export interface OverlayMetrics {
   widthPx: number;
   heightPx: number;
   /** Scale factor for the bitmap font, at least 1. */
-  uiScale: number;
-  letters?: { left: string; right: string; top: string; bottom: string };
-  /** `['AXIAL', 'SLICE 104', 'RAS -0.7 18.0 6.0']` — drawn bottom-left, one line each. */
-  cornerLines?: string[];
-  /** Always drawn when present; `Annotations.conventionBadge` is `true`, not optional (§8). */
-  badge?: 'RAD' | 'NEU';
-  /** Pane pixel position of the crosshair, or `null`. */
-  crosshair?: { x: number; y: number } | null;
-  crosshairColor: vec4;
-  textColor: vec4;
-  /** 1 px accent border, drawn when this pane is the active view. */
-  activeBorder?: vec4;
+  scale: number;
+  /** Edge padding in pane pixels. */
+  pad: number;
+  /** Baseline-to-baseline distance for stacked corner lines. */
+  lineH: number;
 }
 
-/** Compose one pane's chrome. Pure: every position is derived from `widthPx` / `heightPx`. */
-export function buildChrome(b: OverlayBuilder, c: ChromeInput): void {
-  const s = Math.max(1, Math.round(c.uiScale));
-  const pad = 4 * s;
-  const lineH = (GLYPH_H + 3) * s;
-
-  if (c.crosshair != null) {
-    const t = Math.max(1, s);
-    b.rect(0, c.crosshair.y - t / 2, c.widthPx, t, c.crosshairColor);
-    b.rect(c.crosshair.x - t / 2, 0, t, c.heightPx, c.crosshairColor);
-  }
-
-  if (c.letters !== undefined) {
-    // Rounded to the pixel grid on purpose: `heightPx / 2 - (GLYPH_H * s) / 2` is a half-pixel for
-    // an odd glyph height, and a glyph quad straddling pixel centres samples the NEAREST atlas one
-    // texel row late — it drops the glyph's top row, which is the difference between an `R` and
-    // something a template match calls an `X`. Every other string here is already integral.
-    const mid = Math.round(c.heightPx / 2 - (GLYPH_H * s) / 2);
-    const midX = c.widthPx / 2;
-    b.labelWithHalo(c.letters.left, pad, mid, s, c.textColor, 'left');
-    b.labelWithHalo(c.letters.right, c.widthPx - pad, mid, s, c.textColor, 'right');
-    b.labelWithHalo(c.letters.top, midX, c.heightPx - pad - GLYPH_H * s, s, c.textColor, 'center');
-    b.labelWithHalo(c.letters.bottom, midX, pad, s, c.textColor, 'center');
-  }
-
-  if (c.cornerLines !== undefined) {
-    c.cornerLines.forEach((line, i) => {
-      b.labelWithHalo(
-        line,
-        pad,
-        pad + (c.cornerLines!.length - 1 - i) * lineH,
-        s,
-        c.textColor,
-        'left'
-      );
-    });
-  }
-
-  if (c.badge !== undefined) {
-    b.labelWithHalo(
-      c.badge,
-      c.widthPx - pad,
-      c.heightPx - pad - GLYPH_H * s,
-      s,
-      c.textColor,
-      'right'
-    );
-  }
-
-  if (c.activeBorder !== undefined) {
-    const t = Math.max(1, s);
-    b.rect(0, 0, c.widthPx, t, c.activeBorder);
-    b.rect(0, c.heightPx - t, c.widthPx, t, c.activeBorder);
-    b.rect(0, 0, t, c.heightPx, c.activeBorder);
-    b.rect(c.widthPx - t, 0, t, c.heightPx, c.activeBorder);
-  }
+/** Derive {@link OverlayMetrics} from a pane's size and DPR. Pure — every position follows from it. */
+export function overlayMetrics(widthPx: number, heightPx: number, uiScale: number): OverlayMetrics {
+  const scale = Math.max(1, Math.round(uiScale));
+  return { widthPx, heightPx, scale, pad: 4 * scale, lineH: (GLYPH_H + 3) * scale };
 }

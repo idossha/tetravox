@@ -13,9 +13,34 @@ import type { SurfacePayload } from '@tetravox/protocol';
 import { Buffer, VertexArray } from '../gl/buffer';
 import { bytesPerVoxel, createAlpha2D, createLut, createTexture3D } from '../gl/texture';
 import { bakeScale } from '../color/colormaps';
-import type { ColormapName, DatasetId, Scale, VolumeDataset } from '../scene/types';
+import type { ColormapName, DatasetId, Scale, VolumeDataset, VolumeLayer } from '../scene/types';
 import { isColormapName } from '../color/colormaps';
 import { ATLAS_H, ATLAS_W, buildAtlas } from './font';
+
+/**
+ * The `GpuStore` key of one 4D frame of a volume: `${datasetId}|${volumeIndex}`.
+ *
+ * Stepping the 4D index (§7.5's `,`/`.`) therefore selects a **different texture** rather than
+ * mutating one in place, which is what lets `volumeFrame` (§6.5.2) upload the new frame beside the
+ * old one.
+ */
+export function volumeKey(layer: Pick<VolumeLayer, 'datasetId' | 'volumeIndex'>): string {
+  return `${layer.datasetId}|${layer.volumeIndex}`;
+}
+
+/**
+ * The `GpuStore` key of one surface variant: `${datasetId}|${variant}|${maskId ?? ''}`.
+ *
+ * §7.4's cache key is `(dataset, maskId, clip state)`; the clip state joins in Phase 2, when a clip
+ * change has to invalidate both variants.
+ */
+export function surfaceKey(
+  datasetId: string,
+  variant: 'indexed' | 'deindexed',
+  maskId?: number
+): string {
+  return `${datasetId}|${variant}|${maskId ?? ''}`;
+}
 
 export interface SurfaceGeometry {
   vao: VertexArray;

@@ -1,0 +1,25 @@
+/**
+ * `src/overlay/` — the §7.2 pass-3 items, one module per thing that is drawn.
+ *
+ * The pass itself (`render/passes/overlay.ts`) owns the GL program, the dynamic buffer and the one
+ * draw call; everything here is pure geometry appended into an {@link OverlayBuilder}. That split is
+ * what lets §11 test chrome placement without a GL context, and what keeps four Phase-2 additions —
+ * colour bars, the gizmo, contours and glyph labels — out of each other's files.
+ */
+
+export { OverlayBuilder, FLOATS_PER_VERTEX, overlayMetrics } from './builder';
+export type { OverlayMetrics } from './builder';
+export { badgeFor, drawBadge } from './badge';
+export type { ConventionBadge } from './badge';
+export { buildChrome } from './chrome';
+export type { ChromeInput } from './chrome';
+export { drawColorbar } from './colorbar';
+export type { ColorbarSpec, ColorbarTick } from './colorbar';
+export { drawCornerLines } from './corner';
+export type { CornerLines } from './corner';
+export { drawCrosshair } from './crosshair';
+export type { CrosshairSpec } from './crosshair';
+export { drawGizmo } from './gizmo';
+export type { GizmoSpec } from './gizmo';
+export { drawEdgeLetters } from './letters';
+export type { EdgeLetters } from './letters';

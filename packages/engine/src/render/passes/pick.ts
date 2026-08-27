@@ -1,5 +1,5 @@
 /**
- * The §7.2.3 pick pass.
+ * §7.2.3's pick pass — pass 4, on demand.
  *
  * Target: **two single-sample `R32UI` colour attachments** (id, depth-as-uint) plus a
  * `DEPTH_COMPONENT24` renderbuffer, at the same device-pixel size as the colour target so ids are
@@ -12,18 +12,25 @@
  *
  * Payload: `id = (layerIndex + 1) << 25 | kindBit << 24 | (gmshElementNumber & 0x00FFFFFF)`, and
  * **0 means miss** — hence the zero clear.
+ *
+ * **This pass must reproduce every discard of the main pass.** In Phase 1 that is §7.3's texcoord
+ * discard alone; Phase 2 adds the up-to-6 clip planes (the same enable set), the threshold and label
+ * discards, and the isolation `BitMask`. Otherwise double-click lands on geometry the user cannot
+ * see. Each owner appends its branch here and puts the decision itself in its own layer runtime.
  */
 
-import { Framebuffer } from '../gl/framebuffer';
-import { VertexArray } from '../gl/buffer';
-import type { Program } from '../gl/program';
-import type { GpuStore } from './gpu';
-import { surfaceKey, volumeKey } from './renderer';
-import type { ViewportRect } from '../view/layout';
-import type { mat4, Scene, vec3, View, ViewId } from '../scene/types';
-import type { PickResult } from '../api';
-import { invert4, transformPoint } from '../view/m4';
-import { sliceBasis } from '../view/geometry';
+import { Framebuffer } from '../../gl/framebuffer';
+import { VertexArray } from '../../gl/buffer';
+import { Program } from '../../gl/program';
+import { collectPickItems } from './pass';
+import type { DrawInput, Pass, PassContext } from './pass';
+import type { SliceQuad } from './slice';
+import { MESH_PICK_VS, PICK_FS, SLICE_PICK_FS, SLICE_PICK_VS } from '../../shaders';
+import { invert4, transformPoint } from '../../view/m4';
+import { sliceBasis } from '../../view/geometry';
+import type { mat4, vec3, View, ViewId } from '../../scene/types';
+import type { ViewportRect } from '../../view/layout';
+import type { PickResult } from '../../api';
 
 /** 7 bits of layer index (127 layers), 1 bit of kind, 24 bits of element number. */
 export function packId(layerIndex: number, kindBit: 0 | 1, elementId: number): number {
@@ -44,14 +51,29 @@ export function unpackId(
 /** §7.2.3: a 9×9 scissored read, resolved by nearest non-zero within a small radius. */
 const PICK_RECT = 9;
 
-export class PickPass {
+/** One pane plus the pointer, in device pixels within the pane, origin bottom-left. */
+export interface PickContext extends Omit<PassContext, 'eye'> {
+  px: number;
+  py: number;
+  /** The shared slice quad and the half-extent to write it at — the same one the frame drew. */
+  quad: SliceQuad;
+  quadHalf: number;
+}
+
+export class PickPass implements Pass {
+  readonly name = 'pick' as const;
+
   readonly #gl: WebGL2RenderingContext;
+  readonly #mesh: Program;
+  readonly #slice: Program;
   #fbo: Framebuffer | null = null;
   #readFormat: GLenum;
   #readType: GLenum;
 
   constructor(gl: WebGL2RenderingContext) {
     this.#gl = gl;
+    this.#mesh = new Program(gl, MESH_PICK_VS, PICK_FS);
+    this.#slice = new Program(gl, SLICE_PICK_VS, SLICE_PICK_FS);
     // §7.2.3: "read the enum, do not hardcode". The implementation-defined pair is
     // RED_INTEGER/UNSIGNED_INT on ANGLE/Metal *and* SwiftShader, but the spec-guaranteed fallback is
     // RGBA_INTEGER/UNSIGNED_INT, which also works on an R32UI target.
@@ -83,23 +105,9 @@ export class PickPass {
     return this.#fbo;
   }
 
-  /**
-   * Render the pick pass for one view and resolve the hit under `(px, py)`.
-   *
-   * `px, py` are **device pixels within the pane**, origin bottom-left, matching `gl.scissor`.
-   */
-  pick(
-    view: View,
-    rect: ViewportRect,
-    viewProj: mat4,
-    scene: Scene,
-    store: GpuStore,
-    programs: { mesh: Program; slice: Program },
-    quad: { vao: VertexArray; write: (c: vec3, r: vec3, u: vec3, h: number) => void },
-    quadHalf: number,
-    px: number,
-    py: number
-  ): PickResult | null {
+  /** Render the pick pass for one view and resolve the hit under the pointer. */
+  run(ctx: PickContext): PickResult | null {
+    const { view, rect, viewProj, input, px, py, quad, quadHalf } = ctx;
     const gl = this.#gl;
     const fbo = this.#ensure(rect.width, rect.height);
     fbo.bind();
@@ -123,59 +131,10 @@ export class PickPass {
     gl.disable(gl.BLEND);
     gl.disable(gl.CULL_FACE);
 
-    const isSliceView = (view as { mode?: string }).mode !== undefined;
-
-    scene.layers.forEach((layer, layerIndex) => {
-      // §7.2.3: only layers with `visible && pickable && opacity >= pickOpacityMin` (default 0.25).
-      if (!layer.visible || !layer.pickable || layer.opacity < 0.25) return;
-      if (layer.kind === 'mesh' && !isSliceView) {
-        const geom = store.surface(surfaceKey(layer.datasetId, 'deindexed'));
-        const ds = scene.datasets.get(layer.datasetId);
-        if (
-          geom === undefined ||
-          geom.ownerTexture === null ||
-          ds === undefined ||
-          ds.kind !== 'mesh'
-        )
-          return;
-        const prog = programs.mesh;
-        prog.use();
-        prog.mat4('uViewProj', viewProj);
-        prog.mat4('uModel', ds.transform);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, geom.ownerTexture);
-        prog.int('uOwnerTex', 0);
-        prog.int('uOwnerWidth', geom.ownerWidth);
-        const bits = packId(layerIndex, 0, 0);
-        const loc = prog.loc('uLayerBits');
-        if (loc !== null) gl.uniform1ui(loc, bits >>> 0);
-        geom.vao.bind();
-        for (const range of geom.perTag) {
-          const style = layer.tagStyle[range.tag];
-          if (style !== undefined && !style.visible) continue;
-          gl.drawArrays(gl.TRIANGLES, range.first, range.count);
-        }
-        VertexArray.unbind(gl);
-      } else if (layer.kind === 'volume' && isSliceView) {
-        // Slice quads participate: `elementKind:'slice'`, `elementId` = plane index, kindBit 0.
-        const ds = scene.datasets.get(layer.datasetId);
-        const gpu = store.volume(volumeKey(layer));
-        if (ds === undefined || ds.kind !== 'volume' || gpu === undefined) return;
-        const basis = sliceBasis(view as never, scene.radiological);
-        quad.write(scene.cursor, basis.right, basis.up, quadHalf);
-        const prog = programs.slice;
-        prog.use();
-        prog.mat4('uViewProj', viewProj);
-        prog.mat4('uInvAffine', ds.inverseAffine);
-        prog.vec3('uDims', ds.dims);
-        const planeIndex = scene.slices.findIndex((s) => s.id === (view as { id: ViewId }).id);
-        const loc = prog.loc('uId');
-        if (loc !== null) gl.uniform1ui(loc, packId(layerIndex, 0, Math.max(0, planeIndex)) >>> 0);
-        quad.vao.bind();
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-        VertexArray.unbind(gl);
-      }
-    });
+    for (const { item, layerIndex } of collectPickItems(input, view)) {
+      if (item.kind === 'mesh') this.#drawMesh(item, layerIndex, viewProj);
+      else this.#drawSliceQuad(item, layerIndex, view, viewProj, input, quad, quadHalf);
+    }
 
     const ids = new Uint32Array(
       PICK_RECT * PICK_RECT * (this.#readFormat === gl.RGBA_INTEGER ? 4 : 1)
@@ -208,7 +167,7 @@ export class PickPass {
     if (best === null) return null;
     const un = unpackId(best.id);
     if (un === null) return null;
-    const layer = scene.layers[un.layerIndex];
+    const layer = input.scene.layers[un.layerIndex];
     if (layer === undefined) return null;
 
     // Unproject: `world = inverse(viewProj) · (2(px+0.5)/w − 1, 2(py+0.5)/h − 1, 2z − 1, 1)`.
@@ -230,8 +189,77 @@ export class PickPass {
     };
   }
 
+  /**
+   * De-indexed mesh geometry. The element id is a `texelFetch` at `gl_VertexID / 3` against the
+   * per-triangle `ownerElm` table — WebGL2 has no `gl_PrimitiveID` (verified compile error
+   * `[M2Max]`), and a per-vertex id attribute would be a UI-thread vertex-buffer expansion, which
+   * §5 rule 7 forbids.
+   */
+  #drawMesh(
+    item: Extract<ReturnType<typeof collectPickItems>[number]['item'], { kind: 'mesh' }>,
+    layerIndex: number,
+    viewProj: mat4
+  ): void {
+    const gl = this.#gl;
+    const { layer, ds, geom } = item;
+    if (geom.ownerTexture === null) return;
+    const prog = this.#mesh;
+    prog.use();
+    prog.mat4('uViewProj', viewProj);
+    prog.mat4('uModel', ds.transform);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, geom.ownerTexture);
+    prog.int('uOwnerTex', 0);
+    prog.int('uOwnerWidth', geom.ownerWidth);
+    const bits = packId(layerIndex, 0, 0);
+    const loc = prog.loc('uLayerBits');
+    if (loc !== null) gl.uniform1ui(loc, bits >>> 0);
+    geom.vao.bind();
+    for (const range of geom.perTag) {
+      const style = layer.tagStyle[range.tag];
+      if (style !== undefined && !style.visible) continue;
+      gl.drawArrays(gl.TRIANGLES, range.first, range.count);
+    }
+    VertexArray.unbind(gl);
+  }
+
+  /**
+   * §7.2.3: "Volume slice quads participate (`elementKind: 'slice'`, `elementId` = plane index,
+   * `kindBit` 0) — double-clicking a slice plane in the 3D view is the primary Freeview gesture."
+   */
+  #drawSliceQuad(
+    item: Extract<ReturnType<typeof collectPickItems>[number]['item'], { kind: 'volume' }>,
+    layerIndex: number,
+    view: View,
+    viewProj: mat4,
+    input: DrawInput,
+    quad: SliceQuad,
+    quadHalf: number
+  ): void {
+    const gl = this.#gl;
+    const { ds } = item;
+    const basis = sliceBasis(view as never, input.scene.radiological);
+    quad.write(input.scene.cursor, basis.right, basis.up, quadHalf);
+    const prog = this.#slice;
+    prog.use();
+    prog.mat4('uViewProj', viewProj);
+    prog.mat4('uInvAffine', ds.inverseAffine);
+    prog.vec3('uDims', ds.dims as vec3);
+    const planeIndex = input.scene.slices.findIndex((s) => s.id === (view as { id: ViewId }).id);
+    const loc = prog.loc('uId');
+    if (loc !== null) gl.uniform1ui(loc, packId(layerIndex, 0, Math.max(0, planeIndex)) >>> 0);
+    quad.vao.bind();
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    VertexArray.unbind(gl);
+  }
+
   dispose(): void {
+    this.#mesh.dispose();
+    this.#slice.dispose();
     this.#fbo?.dispose();
     this.#fbo = null;
   }
 }
+
+/** Unused by the pick pass itself; kept so `ViewportRect` stays a named import for the context. */
+export type { ViewportRect };

@@ -16,13 +16,7 @@
  */
 
 import { ComputeClient } from '@tetravox/wasm';
-import type {
-  GpuCapsT,
-  LoadSource,
-  MeshMeta,
-  SurfacePayload,
-  VolumeMeta,
-} from '@tetravox/protocol';
+import type { GpuCapsT, MeshMeta, SurfacePayload, VolumeMeta } from '@tetravox/protocol';
 import type {
   DatasetSource,
   Engine,
@@ -32,23 +26,35 @@ import type {
   NewLayer,
   PickResult,
   ProbeResult,
-  ProbeRow,
   ScreenshotOptions,
 } from './api';
 import { applyForcedCaps } from './gl/caps';
 import type { Capabilities } from './gl/caps';
 import { createContext } from './gl/context';
 import { Timer } from './gl/timer';
-import { GpuStore } from './render/gpu';
-import { Renderer, surfaceKey, worldToVoxel } from './render/renderer';
-import { PickPass } from './render/pick';
+import { GpuStore, surfaceKey } from './render/gpu';
+import { Renderer } from './render/renderer';
+import { TRANSPARENT, encodeFrame } from './render/screenshot';
+import type { DrawInput } from './render/renderer';
+import { createLayerRuntime } from './layers/registry';
+import { buildLabelPalette } from './layers/volume';
+import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
 import { viewports } from './view/layout';
 import type { ViewportRect } from './view/layout';
-import { camera3dMatrices, fitCamera, presetRotation, sliceBasis, stepMm } from './view/geometry';
+import {
+  camera3dMatrices,
+  fitCamera,
+  presetRotation,
+  sliceBasis,
+  stepMm,
+  worldToVoxel,
+} from './view/geometry';
 import { meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
-import { defaultLayerFor, defaultScene, VIEW3D_ID } from './scene/defaults';
+import { defaultLayerFor, VIEW3D_ID } from './scene/defaults';
+import { SceneStore, isSliceView } from './scene/store';
+import { applyViewSpec, toViewSpec } from './scene/serialize';
+import { looksLikeVolume, sourceName, toLoadSource } from './datasets/source';
 import type {
-  Aabb,
   Annotations,
   Dataset,
   DatasetId,
@@ -79,61 +85,23 @@ interface DatasetRuntime {
   cancelled: boolean;
 }
 
-/** `.nii` / `.nii.gz` is a volume; everything else goes to the mesh loader (§6.2's `sniff`). */
-export function looksLikeVolume(name: string): boolean {
-  return /\.nii(\.gz)?$/i.test(name);
-}
-
-function sourceName(src: DatasetSource): string {
-  if (src.kind === 'path') return src.path.split(/[/\\]/).pop() ?? src.path;
-  if (src.kind === 'file') return src.file.name;
-  return src.name;
-}
-
-/**
- * `tetravox://file/<percent-encoded path>` (§5 directive A2).
- *
- * A `path` that is **already** a URL is passed through unchanged. Two things need that: a scene file
- * (§4.6) may legitimately reference one, and the §11 harness serves the reference dataset over
- * Vite's `/@fs/<abs path>` because `TETRAVOX_TESTDATA` lives outside the repo. Either way the worker
- * sees a `LoadSource.url` it can stream, and no byte reaches the UI thread (§5 rule 3).
- */
-export function fileUrl(path: string): string {
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path) || path.startsWith('/@fs/')) return path;
-  return `tetravox://file/${encodeURIComponent(path)}`;
-}
-
-function toLoadSource(src: DatasetSource): LoadSource {
-  switch (src.kind) {
-    case 'path':
-      return {
-        kind: 'url',
-        url: fileUrl(src.path),
-        sidecars: {
-          lut: src.sidecars?.lut !== undefined ? fileUrl(src.sidecars.lut) : undefined,
-          opt: src.sidecars?.opt !== undefined ? fileUrl(src.sidecars.opt) : undefined,
-        },
-      };
-    case 'file':
-      return { kind: 'file', file: src.file, sidecars: src.sidecars };
-    case 'bytes':
-      return { kind: 'bytes', name: src.name, bytes: src.bytes, sidecars: src.sidecars };
-  }
-}
-
 export class TetravoxEngine implements Engine {
   readonly caps: Capabilities;
 
   readonly #canvas: HTMLCanvasElement;
   readonly #gl: WebGL2RenderingContext;
-  readonly #store: GpuStore;
+  /** GPU resources, keyed by dataset (`render/gpu.ts`). */
+  readonly #gpu: GpuStore;
   readonly #renderer: Renderer;
-  readonly #pick: PickPass;
   readonly #timer: Timer;
   readonly #opts: EngineOptions;
 
-  #scene: Scene = defaultScene();
-  readonly #runtimes = new Map<DatasetId, DatasetRuntime>();
+  /** The §4.5 scene. Every mutation goes through it; every event is emitted from here. */
+  readonly #store = new SceneStore();
+  /** One `LayerRuntime` per layer — all per-kind decisions live there (`layers/`). */
+  readonly #layers = new Map<LayerId, LayerRuntime>();
+  /** One worker per dataset (§5 rule 1). */
+  readonly #workers = new Map<DatasetId, DatasetRuntime>();
   readonly #listeners = new Map<string, Set<Listener>>();
 
   #nextId = 1;
@@ -148,8 +116,21 @@ export class TetravoxEngine implements Engine {
   /** The view-projection each pane last rendered with, so a pick reuses it exactly (§7.2.3). */
   readonly #lastViewProj = new Map<ViewId, mat4>();
   readonly #lastRects = new Map<ViewId, ViewportRect>();
-  /** Async `locate` results, keyed by layer, so the synchronous `probe()` has mesh rows to show. */
-  readonly #locateCache = new Map<LayerId, { world: vec3; row: ProbeRow }>();
+
+  /** Read-only view of the scene the store owns. */
+  get #scene(): Scene {
+    return this.#store.scene;
+  }
+
+  /** The four things a `LayerRuntime` is allowed to reach (`layers/runtime.ts`). */
+  get #layerContext(): LayerRuntimeContext {
+    return {
+      gpu: this.#gpu,
+      client: (id: DatasetId) => this.#workers.get(id)?.client,
+      requestRender: () => this.requestRender(),
+      track: <T>(p: Promise<T>) => this.#track(p),
+    };
+  }
 
   constructor(canvas: HTMLCanvasElement, opts: EngineOptions = {}) {
     this.#canvas = canvas;
@@ -163,9 +144,8 @@ export class TetravoxEngine implements Engine {
     this.#gl = gl;
     // `forceCaps` may only ever REMOVE a capability (§7.1).
     this.caps = applyForcedCaps(caps, opts.forceCaps);
-    this.#store = new GpuStore(gl);
+    this.#gpu = new GpuStore(gl);
     this.#renderer = new Renderer(gl, this.caps);
-    this.#pick = new PickPass(gl);
     this.#timer = new Timer(gl, this.caps.timerQuery && opts.deterministic !== true);
     this.#schedule();
   }
@@ -197,29 +177,11 @@ export class TetravoxEngine implements Engine {
   // -----------------------------------------------------------------------------------------
 
   get scene(): Readonly<Scene> {
-    return this.#scene;
+    return this.#store.scene;
   }
 
   get views(): ReadonlyArray<View> {
-    return [...this.#scene.slices, this.#scene.view3d];
-  }
-
-  #view(id: ViewId): View | undefined {
-    return this.views.find((v) => v.id === id);
-  }
-
-  /** Every dataset's world AABB, for `fit()` and for the slice quad's size. */
-  #sceneBounds(): Aabb {
-    const min: vec3 = [Infinity, Infinity, Infinity];
-    const max: vec3 = [-Infinity, -Infinity, -Infinity];
-    for (const ds of this.#scene.datasets.values()) {
-      for (let i = 0; i < 3; i += 1) {
-        min[i] = Math.min(min[i] ?? 0, ds.bounds.min[i] ?? 0);
-        max[i] = Math.max(max[i] ?? 0, ds.bounds.max[i] ?? 0);
-      }
-    }
-    if (!Number.isFinite(min[0])) return { min: [-100, -100, -100], max: [100, 100, 100] };
-    return { min, max };
+    return this.#store.views;
   }
 
   // -----------------------------------------------------------------------------------------
@@ -257,7 +219,7 @@ export class TetravoxEngine implements Engine {
       },
     });
     runtime.client = client;
-    this.#runtimes.set(id, runtime);
+    this.#workers.set(id, runtime);
 
     const source = toLoadSource(src);
     const path = src.kind === 'path' ? src.path : undefined;
@@ -328,32 +290,11 @@ export class TetravoxEngine implements Engine {
       labelIds,
       denseIndexOf
     );
-    // §7.3's label path: a dense index remap in R8UI/R16UI plus an `N x 1 RGBA8` palette.
-    //
-    // The palette is indexed by the **dense** index, and `labelIds` is the remap in dense order
-    // (§6.1's `LabelIndex { ids, dense_of }`), so `palette[k]` is the colour of `ids[k]` — no
-    // offset. An off-by-one here paints every region with its neighbour's colour, which looks
-    // plausible and is wrong.
-    //
-    // Background is decided by **alpha**, not by index: SimNIBS and FreeSurfer LUTs give id 0
-    // ("Unknown") `A = 0`, and the shader discards a zero-alpha palette entry. Only when there is no
-    // table at all does the engine impose the convention that id 0 is background.
-    let palette: Uint8Array | null = null;
-    if (ds.isLabel && labelIds !== undefined) {
-      palette = new Uint8Array(labelIds.length * 4);
-      for (let k = 0; k < labelIds.length; k += 1) {
-        const labelId = labelIds[k] ?? 0;
-        const entry = ds.labelTable?.byId.get(labelId);
-        const c = entry?.color ?? (labelId === 0 ? ([0, 0, 0, 0] as const) : fallbackLabelColor(k));
-        palette[k * 4] = Math.round(c[0] * 255);
-        palette[k * 4 + 1] = Math.round(c[1] * 255);
-        palette[k * 4 + 2] = Math.round(c[2] * 255);
-        palette[k * 4 + 3] = Math.round(c[3] * 255);
-      }
-    }
-    this.#store.uploadVolume(`${id}|0`, ds, gpuBytes, meta.gpu, !ds.isLabel, palette);
+    // §7.3's label path — the dense index remap and its `N x 1 RGBA8` palette (`layers/volume.ts`).
+    const palette = buildLabelPalette(ds, labelIds);
+    this.#gpu.uploadVolume(`${id}|0`, ds, gpuBytes, meta.gpu, !ds.isLabel, palette);
 
-    this.#scene.datasets.set(id, ds);
+    this.#store.addDataset(ds);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#onFirstDataset();
     return ds;
@@ -361,7 +302,7 @@ export class TetravoxEngine implements Engine {
 
   async #adoptMesh(id: DatasetId, meta: MeshMeta, path: string | undefined): Promise<MeshDataset> {
     const ds = meshDatasetFromMeta(id, meta, { id: this.#nextId }, path);
-    const rt = this.#runtimes.get(id);
+    const rt = this.#workers.get(id);
     if (rt === undefined) throw new Error('dataset worker is gone');
 
     // §6.3's default 3D representation: the mesh's OWN tagged triangles when it has them, and the
@@ -375,8 +316,8 @@ export class TetravoxEngine implements Engine {
       : await this.#track(
           rt.client.call(`surface:${id}`, 'boundary', { handle: ds.handle, variant: 'indexed' })
         );
-    this.#store.uploadSurface(surfaceKey(id, 'indexed'), payload);
-    this.#scene.datasets.set(id, ds);
+    this.#gpu.uploadSurface(surfaceKey(id, 'indexed'), payload);
+    this.#store.addDataset(ds);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#onFirstDataset();
     return ds;
@@ -384,26 +325,25 @@ export class TetravoxEngine implements Engine {
 
   /** Centre the cursor and fit the 3D camera the first time there is anything to look at. */
   #onFirstDataset(): void {
-    const b = this.#sceneBounds();
+    const b = this.#store.bounds();
     const center: vec3 = [
       (b.min[0] + b.max[0]) / 2,
       (b.min[1] + b.max[1]) / 2,
       (b.min[2] + b.max[2]) / 2,
     ];
     if (this.#scene.datasets.size === 1) {
-      this.#scene.view3d = {
+      this.#store.setView3D({
         ...this.#scene.view3d,
         camera: fitCamera(this.#scene.view3d.camera, b),
-      };
+      });
       // Fit each 2D pane so the data fills it rather than sitting in a corner.
       const diag = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
       const rect = this.#lastRects.get(this.#scene.slices[0]?.id ?? '') ?? null;
       const px = rect !== null ? Math.min(rect.width, rect.height) : 512;
       const mmPerPx = Math.max(0.05, (diag * 0.62) / Math.max(1, px));
-      this.#scene.slices = this.#scene.slices.map((s) => ({
-        ...s,
-        camera: { center: [0, 0], mmPerPx },
-      }));
+      this.#store.setSlices(
+        this.#scene.slices.map((s) => ({ ...s, camera: { center: [0, 0], mmPerPx } }))
+      );
       // **Through `setCursor`, not by assignment.** Every pane's crosshair and corner annotation
       // read `scene.cursor` directly, but §8's info panel and coordinate bar are driven by the
       // `cursor` event alone — so a silent move leaves the app describing world (0,0,0) while the
@@ -415,15 +355,14 @@ export class TetravoxEngine implements Engine {
   }
 
   removeDataset(id: DatasetId): void {
-    this.#scene.layers = this.#scene.layers.filter((l) => l.datasetId !== id);
-    // The active layer may have been one of the removed ones; `removeLayer` already re-points it, and
-    // leaving it dangling here made `[`/`]` and `v` no-ops until the user clicked another row.
-    if (!this.#scene.layers.some((l) => l.id === this.#scene.activeLayerId)) {
-      this.#scene.activeLayerId = this.#scene.layers.at(-1)?.id ?? null;
+    // The store re-points a dangling `activeLayerId`; leaving it dangling made `[`/`]` and `v`
+    // no-ops until the user clicked another row.
+    for (const dropped of this.#store.removeDataset(id)) {
+      this.#layers.get(dropped.id)?.dispose();
+      this.#layers.delete(dropped.id);
     }
-    this.#scene.datasets.delete(id);
-    this.#store.dropVolume(id);
-    this.#store.dropSurfaces(id);
+    this.#gpu.dropVolume(id);
+    this.#gpu.dropSurfaces(id);
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#emit('layers', [...this.#scene.layers]);
@@ -439,22 +378,22 @@ export class TetravoxEngine implements Engine {
    * in-flight load"; `removeDataset` is the one that closes a dataset.
    */
   cancelDataset(id: DatasetId): void {
-    const rt = this.#runtimes.get(id);
+    const rt = this.#workers.get(id);
     if (rt === undefined || rt.loadId === null) return;
     rt.cancelled = true;
     rt.client.cancel(rt.loadId);
   }
 
   #teardown(id: DatasetId): void {
-    const rt = this.#runtimes.get(id);
+    const rt = this.#workers.get(id);
     if (rt === undefined) return;
     rt.client.terminate();
-    this.#runtimes.delete(id);
+    this.#workers.delete(id);
   }
 
   /** §8's status bar: `wasm_heap_bytes()` from that dataset's last `Res` (§6.5.2). */
   heapBytes(id: DatasetId): number | undefined {
-    return this.#runtimes.get(id)?.heapBytes;
+    return this.#workers.get(id)?.heapBytes;
   }
 
   // -----------------------------------------------------------------------------------------
@@ -462,54 +401,54 @@ export class TetravoxEngine implements Engine {
   // -----------------------------------------------------------------------------------------
 
   addLayer(spec: NewLayer): Layer {
-    const ds = this.#scene.datasets.get(spec.datasetId);
+    const ds = this.#store.dataset(spec.datasetId);
     if (ds === undefined) throw new Error(`no such dataset: ${spec.datasetId}`);
     const id: LayerId = `layer${this.#nextId++}`;
     const base = defaultLayerFor(id, ds as VolumeDataset | MeshDataset);
     const layer = { ...base, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
-    this.#scene.layers = [...this.#scene.layers, layer];
-    if (this.#scene.activeLayerId === null) this.#scene.activeLayerId = id;
+    this.#store.addLayer(layer);
+    // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
+    this.#layers.set(id, createLayerRuntime(layer, ds, this.#layerContext));
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
     return layer;
   }
 
   removeLayer(id: LayerId): void {
-    this.#scene.layers = this.#scene.layers.filter((l) => l.id !== id);
-    if (this.#scene.activeLayerId === id)
-      this.#scene.activeLayerId = this.#scene.layers.at(-1)?.id ?? null;
+    this.#store.removeLayer(id);
+    this.#layers.get(id)?.dispose();
+    this.#layers.delete(id);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
   }
 
   updateLayer<T extends Layer>(id: LayerId, patch: Partial<T>): void {
-    this.#scene.layers = this.#scene.layers.map((l) =>
-      l.id === id ? ({ ...l, ...patch } as Layer) : l
-    );
+    const next = this.#store.updateLayer(id, patch);
+    if (next !== undefined) this.#layers.get(id)?.applyPatch(next);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
   }
 
   reorderLayers(order: LayerId[]): void {
-    const byId = new Map(this.#scene.layers.map((l) => [l.id, l]));
-    const next: Layer[] = [];
-    for (const id of order) {
-      const l = byId.get(id);
-      if (l !== undefined) {
-        next.push(l);
-        byId.delete(id);
-      }
-    }
-    // Anything the caller forgot keeps its relative order at the top rather than vanishing.
-    this.#scene.layers = [...next, ...byId.values()];
+    this.#store.reorderLayers(order);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
   }
 
   setActiveLayer(id: LayerId | null): void {
-    this.#scene.activeLayerId = id;
+    this.#store.setActiveLayer(id);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
+  }
+
+  /** The runtimes in **layer order** (bottom → top, §4.4), which is the order everything consumes. */
+  #runtimesInOrder(): LayerRuntime[] {
+    const out: LayerRuntime[] = [];
+    for (const layer of this.#scene.layers) {
+      const rt = this.#layers.get(layer.id);
+      if (rt !== undefined) out.push(rt);
+    }
+    return out;
   }
 
   // -----------------------------------------------------------------------------------------
@@ -517,9 +456,11 @@ export class TetravoxEngine implements Engine {
   // -----------------------------------------------------------------------------------------
 
   setCursor(world: vec3): void {
-    this.#scene.cursor = world;
+    this.#store.setCursor(world);
     this.#emit('cursor', world);
-    this.#refreshMeshProbes(world);
+    // Anything asynchronous a probe row needs — §6.3's `locate_point` for a mesh layer — is refreshed
+    // here, latest-wins on each runtime's own key (§5 rule 6).
+    for (const rt of this.#runtimesInOrder()) rt.refreshProbe(world);
     this.requestRender();
   }
 
@@ -528,14 +469,14 @@ export class TetravoxEngine implements Engine {
    * plane** of the stepped layer — otherwise repeated steps drift.
    */
   stepCursor(viewId: ViewId, steps: number): void {
-    const view = this.#view(viewId);
+    const view = this.#store.view(viewId);
     if (view === undefined || !isSliceView(view)) return;
-    const top = this.#topVolume();
+    const top = this.#store.topVolume();
     const step = stepMm(
       view.normal,
       top?.ds.affine ?? null,
       top?.ds.spacing ?? null,
-      this.#sceneBounds()
+      this.#store.bounds()
     );
     const c = this.#scene.cursor;
     let next: vec3 = [
@@ -565,52 +506,38 @@ export class TetravoxEngine implements Engine {
     this.setCursor(next);
   }
 
-  #topVolume(): { layer: Layer; ds: VolumeDataset } | undefined {
-    for (let i = this.#scene.layers.length - 1; i >= 0; i -= 1) {
-      const l = this.#scene.layers[i];
-      if (l === undefined || l.kind !== 'volume' || !l.visible) continue;
-      const ds = this.#scene.datasets.get(l.datasetId);
-      if (ds !== undefined && ds.kind === 'volume') return { layer: l, ds };
-    }
-    return undefined;
-  }
-
   setLayout(layout: { kind: Scene['layout']['kind']; cells: ViewId[] }): void {
-    this.#scene.layout = layout;
+    this.#store.setLayout(layout);
     this.requestRender();
   }
 
   setView(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void {
-    if (id === VIEW3D_ID) {
-      this.#scene.view3d = { ...this.#scene.view3d, ...(patch as Partial<View3D>) };
-    } else {
-      this.#scene.slices = this.#scene.slices.map((s) =>
-        s.id === id ? ({ ...s, ...(patch as Partial<SliceView>) } as SliceView) : s
-      );
-    }
+    this.#store.setView(id, patch);
     this.requestRender();
   }
 
   setRadiological(on: boolean): void {
-    this.#scene.radiological = on;
+    this.#store.setRadiological(on);
     this.requestRender();
   }
 
   /** §7.5 `r`. Not in the frozen §4.7 facade; the app duck-types it (see `engine/commands.ts`). */
   resetView(viewId: ViewId): void {
-    const b = this.#sceneBounds();
+    const b = this.#store.bounds();
     if (viewId === VIEW3D_ID) {
-      this.#scene.view3d = {
+      this.#store.setView3D({
         ...this.#scene.view3d,
         camera: fitCamera(this.#scene.view3d.camera, b),
-      };
+      });
     } else {
       const diag = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
       const rect = this.#lastRects.get(viewId);
       const px = rect !== undefined ? Math.min(rect.width, rect.height) : 512;
       const mmPerPx = Math.max(0.05, (diag * 0.62) / Math.max(1, px));
-      this.#scene.slices = this.#scene.slices.map((s) =>
-        s.id === viewId ? { ...s, camera: { center: [0, 0], mmPerPx } } : s
+      this.#store.setSlices(
+        this.#scene.slices.map((s) =>
+          s.id === viewId ? { ...s, camera: { center: [0, 0], mmPerPx } } : s
+        )
       );
     }
     this.requestRender();
@@ -621,16 +548,16 @@ export class TetravoxEngine implements Engine {
     const table: Record<string, number> = { A: 1, P: 2, L: 3, R: 4, S: 5, I: 6 };
     const index = typeof preset === 'number' ? preset : (table[preset.toUpperCase()] ?? 1);
     if (viewId !== VIEW3D_ID) return;
-    this.#scene.view3d = {
+    this.#store.setView3D({
       ...this.#scene.view3d,
       camera: { ...this.#scene.view3d.camera, rotation: presetRotation(index) },
-    };
+    });
     this.requestRender();
   }
 
   /** §7.5 `c` and the §4.5 `Annotations` block. */
   setAnnotations(patch: Partial<Annotations>): void {
-    this.#scene.annotations = { ...this.#scene.annotations, ...patch, conventionBadge: true };
+    this.#store.setAnnotations(patch);
     this.requestRender();
   }
 
@@ -639,31 +566,17 @@ export class TetravoxEngine implements Engine {
   // -----------------------------------------------------------------------------------------
 
   pick(viewId: ViewId, px: number, py: number): PickResult | null {
-    const view = this.#view(viewId);
+    const view = this.#store.view(viewId);
     const rect = this.#lastRects.get(viewId);
     const viewProj = this.#lastViewProj.get(viewId);
     if (view === undefined || rect === undefined || viewProj === undefined) return null;
     // §7.2.3 wants the *pick* geometry to be de-indexed; the 3D mesh path needs that variant, which
     // is requested lazily and is a no-op if it has not landed yet.
-    this.#ensurePickGeometry(view);
+    for (const rt of this.#runtimesInOrder()) rt.ensurePickGeometry(view);
     const dpr = this.#dpr();
     const localX = px * dpr;
     const localY = rect.height - py * dpr;
-    // **The renderer's formula, not a second one.** The pick quad has to be the quad on screen: a
-    // narrower one makes a click near the edge of a panned pane miss a slice the user can see.
-    const half = this.#renderer.quadHalfFor(view, rect, this.#scene);
-    const hit = this.#pick.pick(
-      view,
-      rect,
-      viewProj,
-      this.#scene,
-      this.#store,
-      this.#renderer.pickPrograms,
-      this.#renderer.quad,
-      half,
-      localX,
-      localY
-    );
+    const hit = this.#renderer.pick(view, rect, viewProj, this.#drawInput(), localX, localY);
     this.#emit('pick', hit);
     // The pick pass scribbles on the default framebuffer's binding and viewport; the next frame
     // must repaint.
@@ -686,112 +599,7 @@ export class TetravoxEngine implements Engine {
    * round trip stale and is omitted entirely until the first result lands.
    */
   probe(world: vec3): ProbeResult {
-    const rows: ProbeRow[] = [];
-    for (const layer of this.#scene.layers) {
-      const ds = this.#scene.datasets.get(layer.datasetId);
-      if (ds === undefined) continue;
-      if (layer.kind === 'volume' && ds.kind === 'volume') {
-        const v = worldToVoxel(ds, world);
-        const i = Math.round(v[0]);
-        const j = Math.round(v[1]);
-        const k = Math.round(v[2]);
-        if (i < 0 || j < 0 || k < 0 || i >= ds.dims[0] || j >= ds.dims[1] || k >= ds.dims[2]) {
-          rows.push({ layerId: layer.id, layerName: layer.name, kind: layer.kind });
-          continue;
-        }
-        const idx =
-          (k * ds.dims[1] + j) * ds.dims[0] +
-          i +
-          layer.volumeIndex * ds.dims[0] * ds.dims[1] * ds.dims[2];
-        const raw = Number(ds.data[idx] ?? 0);
-        const value = raw * ds.sclSlope + ds.sclInter;
-        const row: ProbeRow = {
-          layerId: layer.id,
-          layerName: layer.name,
-          kind: layer.kind,
-          voxel: [i, j, k],
-          value,
-        };
-        if (ds.isLabel) {
-          row.labelId = Math.round(value);
-          row.labelName = ds.labelTable?.byId.get(row.labelId)?.name;
-        }
-        rows.push(row);
-      } else if (layer.kind === 'mesh') {
-        const cached = this.#locateCache.get(layer.id);
-        if (cached !== undefined && dist3(cached.world, world) < 1e-3) rows.push(cached.row);
-        else rows.push({ layerId: layer.id, layerName: layer.name, kind: layer.kind });
-      }
-    }
-    return { world, rows };
-  }
-
-  #refreshMeshProbes(world: vec3): void {
-    for (const layer of this.#scene.layers) {
-      if (layer.kind !== 'mesh') continue;
-      const ds = this.#scene.datasets.get(layer.datasetId);
-      const rt = this.#runtimes.get(layer.datasetId);
-      if (ds === undefined || ds.kind !== 'mesh' || rt === undefined || ds.nTets === 0) continue;
-      // Latest-wins on the key: a drag issues one `locate` per frame and only the last survives.
-      void rt.client
-        .call(`locate:${layer.id}`, 'locate', { handle: ds.handle, world })
-        .then((res) => {
-          if (res.hit === null) {
-            this.#locateCache.delete(layer.id);
-            return;
-          }
-          const tag = ds.tags.find((t) => t.id === res.hit?.tag);
-          this.#locateCache.set(layer.id, {
-            world,
-            row: {
-              layerId: layer.id,
-              layerName: layer.name,
-              kind: 'mesh',
-              elementId: res.hit.elementId,
-              tag: res.hit.tag,
-              tagName: tag?.name,
-              fields: [
-                ...Object.entries(res.hit.nodeValues).map(([name, v]) => ({
-                  name,
-                  value: v.length === 1 ? (v[0] ?? 0) : v,
-                })),
-                ...Object.entries(res.hit.elmValues).map(([name, v]) => ({
-                  name,
-                  value: v.length === 1 ? (v[0] ?? 0) : v,
-                })),
-              ],
-            },
-          });
-        })
-        .catch(() => {
-          // A superseded or cancelled locate is normal under latest-wins; it is not an error.
-        });
-    }
-  }
-
-  #ensurePickGeometry(view: View): void {
-    if (isSliceView(view)) return;
-    for (const layer of this.#scene.layers) {
-      if (layer.kind !== 'mesh' || !layer.pickable || !layer.visible) continue;
-      if (this.#store.surface(surfaceKey(layer.datasetId, 'deindexed')) !== undefined) continue;
-      const ds = this.#scene.datasets.get(layer.datasetId);
-      const rt = this.#runtimes.get(layer.datasetId);
-      if (ds === undefined || ds.kind !== 'mesh' || rt === undefined) continue;
-      const op = ds.hasTris ? 'surface' : 'boundary';
-      void this.#track(
-        rt.client.call(`pickgeom:${layer.datasetId}`, op, {
-          handle: ds.handle,
-          variant: 'deindexed',
-        })
-      )
-        .then((payload) => {
-          this.#store.uploadSurface(surfaceKey(layer.datasetId, 'deindexed'), payload);
-          this.requestRender();
-        })
-        .catch(() => {
-          /* a cancelled or superseded build is not an error */
-        });
-    }
+    return { world, rows: this.#runtimesInOrder().map((rt) => rt.probeRow(world)) };
   }
 
   // -----------------------------------------------------------------------------------------
@@ -816,6 +624,20 @@ export class TetravoxEngine implements Engine {
 
   #currentViewports(): ViewportRect[] {
     return viewports(this.#scene.layout, this.#canvas.width, this.#canvas.height);
+  }
+
+  /** Everything a frame (or a pick) needs that is not per-pane (§7.2's `DrawInput`). */
+  #drawInput(): DrawInput {
+    return {
+      scene: this.#scene,
+      store: this.#gpu,
+      runtimes: this.#layers,
+      canvasWidth: this.#canvas.width,
+      canvasHeight: this.#canvas.height,
+      activeViewId: null,
+      uiScale: Math.max(1, Math.round(this.#dpr())),
+      showChrome: true,
+    };
   }
 
   /** §7.2: sets a dirty bit; **never** renders synchronously. */
@@ -848,20 +670,13 @@ export class TetravoxEngine implements Engine {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     const rects = this.#currentViewports();
+    const input = this.#drawInput();
     this.#lastRects.clear();
     for (const rect of rects) {
-      const view = this.#view(rect.viewId);
+      const view = this.#store.view(rect.viewId);
       if (view === undefined) continue;
       this.#lastRects.set(rect.viewId, rect);
-      const viewProj = this.#renderer.renderView(view, rect, {
-        scene: this.#scene,
-        store: this.#store,
-        canvasWidth: this.#canvas.width,
-        canvasHeight: this.#canvas.height,
-        activeViewId: null,
-        uiScale: Math.max(1, Math.round(this.#dpr())),
-        showChrome: true,
-      });
+      const viewProj = this.#renderer.renderView(view, rect, input);
       this.#lastViewProj.set(rect.viewId, viewProj);
       const cpuMs = performance.now() - t0;
       this.#emit('frame', {
@@ -936,49 +751,14 @@ export class TetravoxEngine implements Engine {
     // for this one render and put the scene's colour back afterwards — the alternative, punching the
     // background colour out of the pixels, cannot tell a background pixel from a fragment that
     // happens to match it.
-    const sceneBackground = this.#scene.background;
-    if (opts.background === 'transparent') this.#scene.background = [0, 0, 0, 0];
+    const sceneBackground = this.#store.scene.background;
+    if (opts.background === 'transparent') this.#store.setBackground(TRANSPARENT);
     try {
       this.renderNow();
     } finally {
-      this.#scene.background = sceneBackground;
+      this.#store.setBackground(sceneBackground);
     }
-    const gl = this.#gl;
-    const w = this.#canvas.width;
-    const h = this.#canvas.height;
-    const px = new Uint8Array(w * h * 4);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    // Read back rather than `canvas.toBlob`: the drawing buffer may be composited (and cleared)
-    // between the render and an async encode, and this path is also what a `target:'view'` crop
-    // will use in Phase 2.
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    const ctx = c.getContext('2d');
-    if (ctx === null) throw new Error('2d context unavailable for screenshot encoding');
-    const img = ctx.createImageData(w, h);
-    // GL rows run bottom-up; ImageData runs top-down.
-    for (let y = 0; y < h; y += 1) {
-      const src = (h - 1 - y) * w * 4;
-      img.data.set(px.subarray(src, src + w * 4), y * w * 4);
-    }
-    if (opts.background === 'white') {
-      for (let i = 0; i < img.data.length; i += 4) {
-        const a = (img.data[i + 3] ?? 255) / 255;
-        for (let k = 0; k < 3; k += 1) {
-          img.data[i + k] = Math.round((img.data[i + k] ?? 0) * a + 255 * (1 - a));
-        }
-        img.data[i + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    return await new Promise<Blob>((resolve, reject) => {
-      c.toBlob(
-        (b) => (b !== null ? resolve(b) : reject(new Error('toBlob returned null'))),
-        'image/png'
-      );
-    });
+    return await encodeFrame(this.#gl, this.#canvas.width, this.#canvas.height, opts);
   }
 
   // -----------------------------------------------------------------------------------------
@@ -986,35 +766,7 @@ export class TetravoxEngine implements Engine {
   // -----------------------------------------------------------------------------------------
 
   serialize(): ViewSpec {
-    const datasets: DatasetRef[] = [...this.#scene.datasets.values()].map((ds) => ({
-      id: ds.id,
-      kind: ds.kind === 'volume' ? 'volume' : 'mesh',
-      name: ds.name,
-      path: ds.path ?? '',
-      absPath: ds.path,
-      // §4.6's fingerprint needs the file bytes, which the UI thread does not keep; Phase 2 computes
-      // it in the worker at load time and carries it on the meta.
-      fingerprint: '',
-    }));
-    return {
-      version: 1,
-      datasets,
-      layers: this.#scene.layers.map((l) => ({
-        ...l,
-        visibleLabels:
-          'visibleLabels' in l && l.visibleLabels !== undefined ? [...l.visibleLabels] : undefined,
-      })) as ViewSpec['layers'],
-      activeLayerId: this.#scene.activeLayerId,
-      slices: this.#scene.slices,
-      view3d: this.#scene.view3d,
-      layout: this.#scene.layout,
-      cursor: this.#scene.cursor,
-      radiological: this.#scene.radiological,
-      background: this.#scene.background,
-      lighting: this.#scene.lighting,
-      annotations: this.#scene.annotations,
-      transparency: this.#scene.transparency,
-    };
+    return toViewSpec(this.#scene);
   }
 
   async load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
@@ -1023,15 +775,7 @@ export class TetravoxEngine implements Engine {
       if (path === null) continue;
       await this.addDataset({ kind: 'path', path });
     }
-    this.#scene.slices = spec.slices;
-    this.#scene.view3d = spec.view3d;
-    this.#scene.layout = spec.layout;
-    this.#scene.cursor = spec.cursor;
-    this.#scene.radiological = spec.radiological;
-    this.#scene.background = spec.background;
-    this.#scene.lighting = spec.lighting;
-    this.#scene.annotations = spec.annotations;
-    this.#scene.transparency = spec.transparency;
+    applyViewSpec(this.#store, spec);
     this.requestRender();
   }
 
@@ -1041,36 +785,17 @@ export class TetravoxEngine implements Engine {
       globalThis.cancelAnimationFrame(this.#raf);
     }
     if (this.#settleTimer !== null) clearTimeout(this.#settleTimer);
-    for (const id of [...this.#runtimes.keys()]) this.#teardown(id);
-    this.#pick.dispose();
+    for (const id of [...this.#workers.keys()]) this.#teardown(id);
+    for (const rt of this.#layers.values()) rt.dispose();
+    this.#layers.clear();
     this.#renderer.dispose();
-    this.#store.dispose();
+    this.#gpu.dispose();
     this.#timer.dispose();
     this.#listeners.clear();
-    // Three maps that describe GL objects and worker results which no longer exist.
+    // Two maps that describe GL objects which no longer exist.
     this.#lastViewProj.clear();
     this.#lastRects.clear();
-    this.#locateCache.clear();
   }
-}
-
-function isSliceView(v: View): v is SliceView {
-  return (v as SliceView).mode !== undefined;
-}
-
-function dist3(a: vec3, b: vec3): number {
-  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-}
-
-/** Deterministic fallback colour for a label the LUT does not name (§7.6's glasbey-like palette). */
-function fallbackLabelColor(i: number): [number, number, number, number] {
-  // Golden-ratio hue rotation: maximally separated hues for any prefix length, no table, no RNG.
-  const h = (i * 0.618033988749895) % 1;
-  const s = 0.55 + (i % 3) * 0.15;
-  const v = 0.75 + (i % 2) * 0.2;
-  const k = (n: number): number => (n + h * 6) % 6;
-  const f = (n: number): number => v - v * s * Math.max(0, Math.min(Math.min(k(n), 4 - k(n)), 1));
-  return [f(5), f(3), f(1), 1];
 }
 
 export { camera3dMatrices, sliceBasis };

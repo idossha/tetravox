@@ -12,7 +12,15 @@
 import { mat4 as glMat4, quat, vec3 as gvec3 } from 'gl-matrix';
 import type { mat4 } from '../scene/types';
 import { asGl, identity4 } from './m4';
-import type { Aabb, Camera3D, Plane, SliceMode, SliceView, vec3 } from '../scene/types';
+import type {
+  Aabb,
+  Camera3D,
+  Plane,
+  SliceMode,
+  SliceView,
+  vec3,
+  VolumeDataset,
+} from '../scene/types';
 
 export interface SliceBasis {
   right: vec3;
@@ -352,4 +360,20 @@ export function stepMm(
     if (diag > 1e-6) return diag / 256;
   }
   return 1;
+}
+
+/**
+ * World mm → voxel index, through a volume's `inverseAffine`.
+ *
+ * Scene maths, not rendering: the probe path (`layers/volume.ts`), the slice-step snap (`engine.ts`)
+ * and the corner slice index (`render/passes/overlay.ts`) all need it, and it used to live in
+ * `render/renderer.ts` with two of those three importing it out of a rendering module.
+ */
+export function worldToVoxel(ds: VolumeDataset, w: vec3): vec3 {
+  const m = ds.inverseAffine;
+  return [
+    (m[0] ?? 0) * w[0] + (m[4] ?? 0) * w[1] + (m[8] ?? 0) * w[2] + (m[12] ?? 0),
+    (m[1] ?? 0) * w[0] + (m[5] ?? 0) * w[1] + (m[9] ?? 0) * w[2] + (m[13] ?? 0),
+    (m[2] ?? 0) * w[0] + (m[6] ?? 0) * w[1] + (m[10] ?? 0) * w[2] + (m[14] ?? 0),
+  ];
 }
