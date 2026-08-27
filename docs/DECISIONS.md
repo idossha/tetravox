@@ -1094,3 +1094,39 @@ integrator, so that Phase-1 gate items 2 and 7 have something behind them.
   implemented verbatim and `edgeLetters` is derived from the resulting basis, so no pane can ever lie
   about which side is which. **This is worth a contract decision in Phase 2**: either the coronal
   preset's normal becomes `−Y`, or §3 says explicitly that presets are cameras and not conventions.
+
+## 2026-08-27 — Phase-1 verification follow-up: two independent verifiers against the `phase-1` tag
+
+Two verifiers re-ran the gate from a clean clone of the tag. Everything numerical reproduced; what
+did not survive was concentrated in §8's 2D chrome — "a laterality-safety requirement, not
+decoration" — and in the §11 rows whose *named* test had been reinterpreted rather than written.
+Each entry below names the problem, the fix, and the evidence.
+
+- 2026-08-27 — **§3's canonical preset normals become `(+Z, −Y, −X)`, and the coronal pane stops
+  contradicting its own badge.** The entry above (Phase-1 integration, `packages/engine`) called the
+  formula and the presets "both normative" and deferred the disagreement to Phase 2. That framing
+  does not survive contact with the rest of the contract. §3's handedness bullet is
+  `right = cross(up, normal)` in **neurological** *(subject left on screen left, the default)*: the
+  parenthetical is the definition, the formula is the mechanism, and where a preset makes them
+  disagree it is the preset that is wrong — a `NEU` badge over a pane whose subject-left is on
+  screen-right is a false statement about laterality no matter how honestly the edge letters are
+  derived. Independently, §11's three mandatory orientation tests demand the left-anterior-superior
+  cube on screen-**left** in neurological in **each** of the three 2D views, and `(+Z, −Y, −X)` is
+  the *only* preset triple that satisfies all three at once (axial `right = +X`, coronal `+X`,
+  sagittal `−Y`). Nothing about the displayed slice changes: a plane and its opposite normal are the
+  same plane, so the sign picks only which side the camera sits on — coronal is now viewed from
+  behind rather than from the face, and sagittal from the subject's left, which is also what puts
+  anterior on screen-left. §3 was edited in the same commit (§12.3's rule), and the goldens
+  `gate3-t1-2x2-chrome` (coronal and sagittal panes) were regenerated with the visual change stated
+  in the commit body. **Evidence:** with coronal `+Y` the new coronal orientation test fails — the
+  bright pixel lands on screen-right — which is exactly the test §11 named and Phase 1 did not write.
+- 2026-08-27 — **§11's three mandatory orientation tests now exist, in
+  `packages/engine/test/e2e/orientation.spec.ts`.** They were the one §11 row with a fixture built for
+  it and nothing else (`testdata/vol_asym.nii`, Phase 0). The spec measures the bright octant's
+  centroid out of the dataset's own samples and maps it through `testdata/manifest.json`'s affine, so
+  it proves the fixture is left-anterior-superior rather than assuming it; the expected pixel is
+  computed from §3's basis rules written out as literals, never imported from `view/geometry.ts`; and
+  the mirror half asserts a whole scanline, not just one pixel, because §3 defines `radiological` as
+  a mirror about the vertical screen axis. The fixture is a 2-value integral volume, so §6.1's
+  `is_label` sends it down the `R8UI` + palette path where a non-cube pixel inside the volume is
+  *exactly* the scene background — which is what makes both halves of the assertion an exact RGBA.

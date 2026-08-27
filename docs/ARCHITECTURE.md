@@ -115,10 +115,19 @@ Rules:
   already applied**, and what was applied is reported in `MeshMeta.appliedTransform`; the per-dataset
   `MeshDataset.transform` is a separate, user-editable *additional* transform that starts as identity (§4.3).
 * 2D views: the plane is **derived from the cursor and the view basis**, never stored (§4.5). Canonical presets:
-  axial `normal = +Z`, coronal `normal = +Y`, sagittal `normal = +X`.
+  axial `normal = +Z`, coronal `normal = −Y`, sagittal `normal = −X`; screen-up is `+Y` for axial and `+Z` for
+  the other two. **A plane and its opposite normal are the same plane** — the sign picks only which side the
+  camera sits on — and these signs are the ones that make the presets agree with the handedness rule below
+  instead of contradicting it. Coronal `+Y` would give `right = cross(up, normal) = −X`, putting the subject's
+  left on screen **right** while the axial pane puts it on screen left: one `NEU` badge over two opposite
+  conventions. `(+Z, −Y, −X)` is also the *only* preset triple that satisfies §11's three mandatory orientation
+  tests, which require the left-anterior-superior cube on screen-left in neurological in **each** of the three
+  views. (Phase 1 shipped `(+Z, +Y, +X)` and the mirrored coronal pane that follows from it; see
+  `docs/DECISIONS.md`, 2026-08-27.)
 * Handedness: `right = cross(up, normal)` in **neurological** (subject left on screen left, the default).
   `radiological` negates `right` only — a mirror about the vertical screen axis. It never touches `up`. This is
-  the only definition; it is what makes the flag well-defined for oblique planes.
+  the only definition; it is what makes the flag well-defined for oblique planes. The parenthetical is the
+  *definition* and the formula is the *mechanism*: where a preset makes them disagree, the preset is wrong.
 * Cursor = one world point shared by all views. `hover` is a second, transient world point (§8).
 * Optional per-dataset `toTemplate?: { name, kind:'affine', matrix }` adds an MNI column to the readout. Affine
   only; nonlinear warps are out of scope.

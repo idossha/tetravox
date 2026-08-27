@@ -33,15 +33,25 @@ export function dot3(a: vec3, b: vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 
-/** §3's canonical preset normals: axial `+Z`, coronal `+Y`, sagittal `+X`. */
+/**
+ * §3's canonical preset normals: axial `+Z`, coronal `−Y`, sagittal `−X`.
+ *
+ * A plane and its opposite normal are the **same plane** — the sign chooses only which side the
+ * camera sits on — and §3 fixes those signs so that all three presets obey the handedness rule
+ * rather than contradicting it. With coronal `+Y`, `right = cross(up, normal)` is `−X`: the
+ * subject's left lands on screen **right** while the axial pane puts it on screen left, i.e. one
+ * `NEU` badge over two opposite conventions. `−Y` gives `right = +X`, and `−X` gives `right = −Y`,
+ * which is what makes §11's three orientation tests — a bright left-anterior-superior cube on
+ * screen-**left** in neurological, in *each* of the three views — simultaneously true.
+ */
 export function presetNormal(mode: SliceMode): vec3 {
   switch (mode) {
     case 'axial':
       return [0, 0, 1];
     case 'coronal':
-      return [0, 1, 0];
+      return [0, -1, 0];
     case 'sagittal':
-      return [1, 0, 0];
+      return [-1, 0, 0];
     case 'oblique':
       return norm([1, 1, 1]);
   }

@@ -76,8 +76,9 @@ export interface NoGlEngineOptions {
 
 const CANONICAL_SLICES: readonly { id: ViewId; mode: SliceView['mode']; normal: vec3; up: vec3 }[] =
   [
-    { id: 'sagittal', mode: 'sagittal', normal: [1, 0, 0], up: [0, 0, 1] },
-    { id: 'coronal', mode: 'coronal', normal: [0, 1, 0], up: [0, 0, 1] },
+    // §3's preset normals: coronal is −Y and sagittal −X, so every pane agrees with the NEU badge.
+    { id: 'sagittal', mode: 'sagittal', normal: [-1, 0, 0], up: [0, 0, 1] },
+    { id: 'coronal', mode: 'coronal', normal: [0, -1, 0], up: [0, 0, 1] },
     { id: 'axial', mode: 'axial', normal: [0, 0, 1], up: [0, 1, 0] },
   ];
 

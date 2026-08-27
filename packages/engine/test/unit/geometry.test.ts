@@ -61,11 +61,10 @@ describe('the slice basis', () => {
   });
 
   it('labels each preset with the letters its basis actually points at', () => {
-    // Recorded rather than assumed. §3 fixes both `right = cross(up, normal)` and the preset
-    // normals, and the two together make the **coronal** pane mirror the axial one on laterality:
-    // axial puts R on the right, coronal puts L there. Both are real cameras — the coronal preset is
-    // the "looking at the face" view — and the letters say so, which is the whole point of deriving
-    // them. See docs/DECISIONS.md (2026-08-27); Phase 2 owns whether the preset should change.
+    // §3: `right = cross(up, normal)` with the preset normals (+Z, −Y, −X). Every pane that has a
+    // left/right axis on screen puts **L on the left** in neurological, so the one `NEU` badge is
+    // true of all of them. Phase 1 shipped coronal `+Y`, which put R|L on the coronal pane while the
+    // axial pane read L|R under the same badge; see docs/DECISIONS.md (2026-08-27).
     expect(edgeLetters(basisOf('axial', false))).toEqual({
       left: 'L',
       right: 'R',
@@ -73,17 +72,33 @@ describe('the slice basis', () => {
       bottom: 'P',
     });
     expect(edgeLetters(basisOf('coronal', false))).toEqual({
-      left: 'R',
-      right: 'L',
+      left: 'L',
+      right: 'R',
       top: 'S',
       bottom: 'I',
     });
+    // Sagittal has no left/right axis on screen — the subject's L/R is the view normal — so what the
+    // convention fixes there is the mirror: anterior is screen-left in neurological.
     expect(edgeLetters(basisOf('sagittal', false))).toEqual({
-      left: 'P',
-      right: 'A',
+      left: 'A',
+      right: 'P',
       top: 'S',
       bottom: 'I',
     });
+  });
+
+  it('puts the subject-left half of the world on screen-left in every preset (§11)', () => {
+    // The screen-x of a world offset is `dot(offset, basis.right)`. §11's fixture is a bright cube
+    // in the LEFT-anterior-superior octant, i.e. offset (−1, +1, +1) from the volume centre; the
+    // three mandatory orientation tests require it on screen-LEFT in neurological and screen-RIGHT
+    // in radiological, in each of the three views. That is a property of the basis alone, so it is
+    // pinned here as arithmetic as well as in the pixel tests.
+    const las: vec3 = [-1, 1, 1];
+    const dot = (x: vec3, y: vec3): number => x[0] * y[0] + x[1] * y[1] + x[2] * y[2];
+    for (const mode of ['axial', 'coronal', 'sagittal'] as SliceMode[]) {
+      expect(dot(las, basisOf(mode, false).right), `${mode} neurological`).toBeLessThan(0);
+      expect(dot(las, basisOf(mode, true).right), `${mode} radiological`).toBeGreaterThan(0);
+    }
   });
 
   it('re-orthogonalises a degenerate `up` instead of producing NaN (§4.5)', () => {
