@@ -20,12 +20,16 @@
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { expectGolden, readCanvasPixels } from '../helpers/pixels';
 import { readCornerInfo } from '../helpers/chrome';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
+/** Ground truth for the label colours R5 asserts — the authored LUT expectation, not the engine. */
+const manifest = JSON.parse(readFileSync(`${REPO}testdata/manifest.json`, 'utf8')) as {
+  sidecars: Record<string, { expected: { id: number; name: string; rgba255: number[] }[] }>;
+};
 
 const TESTDATA = process.env.TETRAVOX_TESTDATA ?? '';
 const T1 = TESTDATA === '' ? '' : `/@fs${TESTDATA}/m2m_ernie/T1.nii.gz`;
@@ -821,6 +825,75 @@ test('@angle P2-04: hovering a 2D pane emits `hover` with the world point, and b
     await page.evaluate(() => window.__tvxEngine!.scene.hover),
     'and `Scene.hover` with it'
   ).toBeNull();
+
+  // §8's budget: **volume hover ≤ 16 ms**, timed inside the page the way the Phase-1 gate timed
+  // progress and cancel. What is measured is the whole synchronous path a `pointermove` takes —
+  // hit-test, ray ∩ plane, emit, and the `probe` the `Mouse` block renders from.
+  const ms = await page.evaluate(() => {
+    const engine = window.__tvxEngine as unknown as {
+      hoverAtScreen(id: string, x: number, y: number): void;
+      probe(w: [number, number, number]): unknown;
+      scene: { hover: [number, number, number] | null };
+    };
+    const t0 = performance.now();
+    const N = 200;
+    for (let i = 0; i < N; i += 1) {
+      engine.hoverAtScreen('axial', 100 + (i % 64), 120 + (i % 47));
+      const h = engine.scene.hover;
+      if (h !== null) engine.probe(h);
+    }
+    return (performance.now() - t0) / N;
+  });
+  console.log(`[bench] volume hover -> Mouse row ${ms.toFixed(4)} ms (§8 budget 16 ms)`);
+  expect(ms, '§8: volume hover ≤ 16 ms').toBeLessThan(16);
+  expect(errors).toEqual([]);
+});
+
+test('@angle P2-04: the Mouse block fills on ernie inside §8’s ≤ 16 ms / ≤ 50 ms budgets', async ({
+  page,
+}) => {
+  test.skip(!hasRealData, 'needs TETRAVOX_TESTDATA');
+  test.setTimeout(180_000);
+  const errors = await openScene(page);
+  await load(page, T1, 'volume', ['axial', 'coronal', 'sagittal', 'view3d']);
+  await page.evaluate(async (mesh) => {
+    const engine = window.__tvxEngine!;
+    const ds = await engine.addDataset({ kind: 'path', path: mesh as string });
+    engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+    await engine.whenSettled();
+  }, `/@fs${TESTDATA}/m2m_ernie/ernie.msh`);
+
+  // Both halves timed **inside the page** (§8, and the ownership map's real-data gate item), on the
+  // synchronous path a `pointermove` takes: hit-test → ray ∩ plane → emit → the `probe` the Mouse
+  // block renders. The mesh row is served from the layer's own latest-wins `locate` key, so it is
+  // read rather than awaited — which is exactly what keeps a hover off the cut queue.
+  const bench = await page.evaluate(() => {
+    const engine = window.__tvxEngine as unknown as {
+      hoverAtScreen(id: string, x: number, y: number): void;
+      probe(w: [number, number, number]): { rows: { kind: string; value?: unknown }[] };
+      scene: { hover: [number, number, number] | null; cursor: [number, number, number] };
+    };
+    const run = (n: number): number => {
+      const t0 = performance.now();
+      for (let i = 0; i < n; i += 1) {
+        engine.hoverAtScreen('axial', 150 + (i % 61), 150 + (i % 53));
+        const h = engine.scene.hover;
+        if (h !== null) engine.probe(h);
+      }
+      return (performance.now() - t0) / n;
+    };
+    run(20);
+    const perHover = run(200);
+    const rows = engine.probe(engine.scene.cursor).rows;
+    return { perHover, kinds: rows.map((r) => r.kind) };
+  });
+
+  console.log(
+    `[bench] ernie hover -> Mouse rows ${bench.perHover.toFixed(4)} ms ` +
+      '(§8 budgets: volume 16 ms, mesh 50 ms)'
+  );
+  expect(bench.kinds, 'the Mouse block has a row per layer').toEqual(['volume', 'mesh']);
+  expect(bench.perHover, '§8: the hover path is inside both budgets').toBeLessThan(16);
   expect(errors).toEqual([]);
 });
 
@@ -865,6 +938,184 @@ test('@angle R4: the wheel and stepCursor sweep a mesh with NO volume loaded, 1 
     await engine.whenSettled();
   });
   expect((await cursorOf(page))[2]).toBeCloseTo(start[2], 6);
+  expect(errors).toEqual([]);
+});
+
+// ===========================================================================================
+// R5's E-SCENE half — a pick/probe carries the label id and the tissue tag under the pointer
+// ===========================================================================================
+
+test('@angle R5: clicking a labelled voxel probes that label — id, name, and the pixel it painted', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  const LUT = 'labels_simnibs_LUT.txt';
+  await page.evaluate(
+    async ([url, lut]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { lut: lut as string },
+      });
+      engine.addLayer({ datasetId: ds.id, kind: 'volume' });
+      engine.setLayout({ kind: '1x1', cells: ['axial'] });
+      engine.setView('axial', { camera: { center: [0, 0], mmPerPx: 0.05 } });
+      // The crosshair is drawn **at** the click, so with it on the pixel under the pointer is the
+      // crosshair's colour and not the region's. R5 is about which region was clicked, not about
+      // the chrome, so the chrome comes off for the pixel half of the assertion.
+      engine.setAnnotations({ crosshair: false });
+      await engine.whenSettled();
+    },
+    [fixture('labels_simnibs.nii.gz'), fixture(LUT)] as const
+  );
+
+  // Freeview's behaviour, and the half of R5 the Region panel needs: a click in a pane must say
+  // which region was clicked. Several points, so a single transparent-label pixel cannot carry it.
+  const points: [number, number][] = [
+    [384, 384],
+    [360, 400],
+    [410, 360],
+    [384, 420],
+  ];
+  const expected = manifest.sidecars[LUT]!.expected;
+  let asserted = 0;
+
+  for (const [x, y] of points) {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.up();
+    await settle(page);
+
+    const row = await page.evaluate(() => {
+      const engine = window.__tvxEngine!;
+      const r = engine.probe(engine.scene.cursor).rows[0];
+      return r === undefined
+        ? null
+        : { labelId: r.labelId ?? null, labelName: r.labelName ?? null, value: r.value ?? null };
+    });
+    if (row === null || row.labelId === null) continue;
+
+    const entry = expected.find((e) => e.id === row.labelId);
+    expect(entry, `label ${row.labelId} is in the LUT`).toBeDefined();
+    expect(row.labelName, 'the probe row names the region').toBe(entry!.name);
+    expect(row.value, 'and carries its raw value').toBe(row.labelId);
+
+    // …and it is the region actually painted there: an opaque entry must match the pixel exactly.
+    if ((entry!.rgba255[3] ?? 0) === 255) {
+      const [pixel] = await readCanvasPixels(page, [[x, y]]);
+      expect(
+        [pixel![0], pixel![1], pixel![2]],
+        `the pixel under the click is label ${row.labelId}'s colour`
+      ).toEqual([entry!.rgba255[0], entry!.rgba255[1], entry!.rgba255[2]]);
+      asserted += 1;
+    }
+  }
+  expect(asserted, 'at least one click landed on an opaque labelled region').toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});
+
+test('@angle R5: a 3D pick probes the tissue tag under the pointer — id and name', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  await page.evaluate(
+    async ([url, lut]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { lut: lut as string },
+      });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
+      engine.resetView('view3d');
+      await engine.whenSettled();
+      // §7.4: the de-indexed pick geometry is built lazily on the first pick.
+      engine.pick('view3d', 384, 384);
+      await engine.whenSettled();
+    },
+    [fixture('mesh_v2_binary.msh'), fixture('mesh_v2_binary_LUT.txt')] as const
+  );
+
+  await page.mouse.dblclick(384, 384);
+  await settle(page);
+
+  // The mesh row is a `locate` round trip (§6.3), so it lands after the pick — the same poll gate 5
+  // uses. This is what a Region panel would wire a tissue-table selection to.
+  const row = await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    for (let i = 0; i < 200; i += 1) {
+      await new Promise((r) => setTimeout(r, 5));
+      const r = engine.probe(engine.scene.cursor).rows.find((x) => x.kind === 'mesh');
+      if (r?.tag !== undefined) {
+        return { tag: r.tag, tagName: r.tagName ?? null, elementId: r.elementId ?? null };
+      }
+    }
+    return null;
+  });
+
+  expect(errors).toEqual([]);
+  expect(row, 'the probe row carries the tissue tag under the pointer').not.toBeNull();
+  expect(row!.tag).toBeGreaterThan(0);
+  expect(row!.elementId, 'and the Gmsh element number an element panel reads').not.toBeNull();
+});
+
+// ===========================================================================================
+// P2-03 — per-view dirty bits
+// ===========================================================================================
+
+test('@angle P2-03: a camera gesture repaints one pane, a cursor move repaints all of them', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  await load(page, fixture('vol_asym.nii'), 'volume', ['axial', 'coronal', 'sagittal', 'view3d']);
+
+  const arm = async (): Promise<void> => {
+    await page.evaluate(() => {
+      const engine = window.__tvxEngine!;
+      const seen: string[] = [];
+      (window as unknown as { __frames: string[] }).__frames = seen;
+      engine.on('frame', (f) => seen.push(f.viewId));
+    });
+  };
+  /** The panes painted so far, after letting two animation frames run. */
+  const painted = async (): Promise<string[]> =>
+    await page.evaluate(async () => {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return [...new Set((window as unknown as { __frames: string[] }).__frames)];
+    });
+
+  // An orbit changes the 3D camera and nothing else — the three slice panes keep the pixels the
+  // previous frame left in the drawing buffer. Sampled **during** the gesture, before the settle:
+  // §7.2 requires leaving `interacting` to trigger one full-quality re-render, and that one is
+  // scene-wide by design, so a post-settle sample would measure the settle rather than the gesture.
+  await arm();
+  await page.mouse.move(PANES.view3d.x + 150, PANES.view3d.y + 150);
+  await page.mouse.down();
+  await page.mouse.move(PANES.view3d.x + 220, PANES.view3d.y + 190, { steps: 6 });
+  await page.mouse.up();
+  expect(await painted(), 'an orbit repaints the 3D pane alone').toEqual(['view3d']);
+
+  // …and the settle then repaints everything, exactly once.
+  await settle(page);
+  expect((await painted()).sort(), 'leaving `interacting` re-renders every pane').toEqual(
+    ['axial', 'coronal', 'sagittal', 'view3d'].sort()
+  );
+
+  // A cursor move changes every pane's crosshair and two panes' slices, so it is scene-wide from
+  // the first frame.
+  await arm();
+  await page.mouse.move(PANES.axial.x + 140, PANES.axial.y + 160);
+  await page.mouse.down();
+  await page.mouse.up();
+  expect((await painted()).sort(), 'a cursor move repaints all four').toEqual(
+    ['axial', 'coronal', 'sagittal', 'view3d'].sort()
+  );
+  await settle(page);
   expect(errors).toEqual([]);
 });
 
