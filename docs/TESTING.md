@@ -29,6 +29,7 @@ fine.
 | `pnpm --filter @tetravox/engine exec playwright test --project=chromium-angle` | just the ANGLE leg — where the R16 branch of the §6.1 ladder executes |
 | `pnpm --filter @tetravox/app run e2e` | the Playwright-Electron suite — **two projects**: `dev` and `packaged` |
 | `TETRAVOX_E2E_HEADED=1 pnpm e2e` | the same runs with **visible windows**, for debugging (§2.1) |
+| `TETRAVOX_ALLOW_SOFTWARE_ANGLE=1 pnpm e2e` | lets `chromium-angle` fall back to software instead of failing — a runner with no GPU (§2.2) |
 | `scripts/e2e-quiet-check.sh` | runs `pnpm e2e` and proves it took neither the screen nor the focus (§2.2) |
 
 Before the first `pnpm e2e` on a cold machine:
@@ -186,15 +187,32 @@ and cancel **4.9 ms** (< 500 ms) on the 492 MB `ernie_seeg.msh`, dev and package
 ### 2.2 Proving it: `scripts/e2e-quiet-check.sh`
 
 ```sh
+export TETRAVOX_TESTDATA=/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie
 scripts/e2e-quiet-check.sh                                  # runs `pnpm e2e`
 scripts/e2e-quiet-check.sh pnpm --filter @tetravox/app run e2e
 ```
+
+**Export `TETRAVOX_TESTDATA` first, and repackage first.** The check proves the run took no screen; it
+says nothing about what the run covered. Without the testdata root the engine reports 19 passed / 11
+skipped instead of 28/2 — the R16 gate, the phase-1 gate timings and the benchmarks all skip — and the
+script still prints `PASS`. Likewise the `packaged` project needs `pnpm package` to have run more
+recently than `packages/app/src` (`TETRAVOX_REQUIRE_PACKAGED=1` turns its self-skip into a failure).
+A windowless run is only evidence of GPU coverage together with those two.
 
 It samples two things every 0.5 s while the command runs: the frontmost application (`osascript` →
 `System Events`) and the on-screen window list (`CGWindowListCopyWindowInfo`, via ~30 lines of
 CoreGraphics it compiles with `clang` into a temp dir). It fails if the frontmost app is different at
 the end than at the start, if a test binary was ever frontmost, or if any window owned by
 Electron / Tetravox / Chromium appeared at layer 0.
+
+**An unreadable focus is exit 2, never agreement.** `osascript` needs Automation permission for
+"System Events" (System Settings → Privacy & Security → Automation), and without it it prints nothing
+and fails. Read as an empty string that would be a check that passes *vacuously*: before and after
+compare equal, the two focus greps run over an empty file, and the script prints `PASS` as a
+window-only check wearing the badge of a focus check — on a fresh machine or a CI runner, which is
+exactly who runs it. So an empty reading — first sample, last sample, or any sample in between — exits
+2 with the permission instructions, as does a command that ends before the first 0.5 s tick. Exit 0 is
+quiet, exit 1 is a window or the focus, exit 2 is *this check could not tell you*.
 
 The window list, not `win.getBounds()`, is what makes it a proof: `getBounds()` reports what Electron
 *asked* for, and macOS clamps it — the rejected off-screen candidate above asked for `x: -10000`, got
@@ -205,13 +223,18 @@ Measured on `main`'s successor with this change, 2026-08-27:
 ```
 e2e-quiet-check: frontmost before = ghostty
 e2e-quiet-check: running pnpm e2e
-packages/wasm   e2e: 51 passed,  1 skipped (15.0s)
-packages/engine e2e: 27 passed,  1 skipped (22.9s)
-packages/app    e2e: 58 passed             (18.3s)   # TETRAVOX_REQUIRE_PACKAGED=1: dev 29 + packaged 29
-e2e-quiet-check: frontmost after  = ghostty   (88 samples)
+packages/wasm   e2e: 51 passed,  1 skipped (14.5s)
+packages/engine e2e: 28 passed,  2 skipped (22.2s)   # both on chromium-swiftshader: gate 6's R16 branch
+packages/app    e2e: 58 passed             (19.8s)   #   and the @angle GPU assertion, neither of which
+                                                     #   applies to the golden authority
+e2e-quiet-check: frontmost after  = ghostty   (87 samples)
+e2e-quiet-check: command exited 0
 e2e-quiet-check: no Electron/Chromium window reached the screen.
 e2e-quiet-check: PASS
 ```
+
+with `TETRAVOX_TESTDATA` exported, `TETRAVOX_REQUIRE_PACKAGED=1`, and `pnpm package` run first
+(app: dev 29 + packaged 29).
 
 A *note* line (not a failure) reports any sample where some **other** app held the focus — a chat
 client stealing it mid-run is not this repo's doing, and the script says so rather than blaming the
@@ -253,10 +276,37 @@ running there would demand a capture rather than a comparison.
 | `chromium-swiftshader` | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` | everything, goldens included | false ⇒ the R16 test **skips with its reason** |
 | `chromium-angle` | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)` | `@angle` only | true ⇒ the R16 test **runs** (0.6 s) |
 
-On a runner with no GPU the `chromium-angle` project falls back to software, `caps.norm16` is false and
-the R16 test skips there too — the leg is then honestly empty rather than silently missing. Phase 1
-shipped the test without the project, so the R16 branch executed in **no** environment at all while the
-gate table recorded it as covered; that is the hole this project closes.
+Phase 1 shipped the R16 test without the project, so that branch executed in **no** environment at all
+while the gate table recorded it as covered; that is the hole this project closes.
+
+**The leg asserts that it is still the GPU leg.** `caps.spec.ts` ends with `@angle the second leg
+reaches the platform GPU, and records which one`, which runs *only* on `chromium-angle` (it skips by
+project name elsewhere) and does two things the leg previously had no way to do:
+
+* it **logs and attaches this leg's own capabilities**, as `[caps chromium-angle]` and
+  `capabilities-angle.json`. The other two caps tests are untagged, so `grep: /@angle/` excludes them:
+  before this, the `[caps]` block printed by an `--project=chromium-angle` run was the *SwiftShader*
+  leg's, and the ANGLE renderer string was never printed or asserted on anywhere.
+* it **fails if the renderer is software** — `isSoftware false`, `rendererClass 'angle-metal'`,
+  `norm16 true`. A fallback to SwiftShader fails nothing on its own: every `@angle` test either
+  self-skips (gate 6's R16 branch) or passes vacuously on software, so the leg reports green while
+  covering nothing. That is the failure mode §11 was written against, and until this change the only
+  signal against it was a *skip* — plus, before §2.1, the incidental sight of a window on screen.
+
+Measured on the leg itself (2026-08-27, M2 Max): `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max,
+Unspecified Version)` / `Google Inc. (Apple)`, `isSoftware false`, `norm16 true`, `timerQuery true`,
+`maxDrawBuffers 8`, `maxTextureSize 16384`. Forcing that same leg onto software with
+`--use-gl=angle --use-angle=swiftshader` turns it **red**, with the renderer string in the failure
+message — and in that same run gate 6's R16 branch skipped itself, which is the empty-leg shape this
+now catches.
+
+`TETRAVOX_ALLOW_SOFTWARE_ANGLE=1` is how to say *this runner really has no GPU*: the assertion becomes
+a skip with its reason, `caps.norm16` is false, the R16 test skips too, and the leg is then honestly
+empty rather than silently missing. It is the mirror of `TETRAVOX_REQUIRE_PACKAGED=1` — same idea,
+opposite default, because the machine this leg was written for always has a GPU.
+`.github/workflows/ci.yml` sets it on the **Linux** runner, which has none; macOS stays strict, so a
+hosted macOS runner that cannot reach Metal is a red leg naming the variable rather than a green empty
+one.
 
 ---
 

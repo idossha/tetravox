@@ -1439,3 +1439,35 @@ Each entry below names the problem, the fix, and the evidence.
   `CGWindowListCopyWindowInfo` listed the window on screen at `761,48,741x864`. `[M2Max]`
   `scripts/e2e-quiet-check.sh` is the standing proof (86 samples, frontmost unchanged, no window).
 
+
+- 2026-08-27 — **The windowless-E2E proof had two holes: the focus check failed open, and the GPU leg
+  could not fail.** Review of the entry above. (1) `scripts/e2e-quiet-check.sh` read the frontmost app
+  with `osascript … 2>/dev/null` and used its stdout with no status check. Without Automation
+  permission for "System Events" — a fresh machine or a CI runner, exactly who runs this script —
+  `frontmost` returns the empty string, `BEFORE` and `AFTER` compare equal, the STOLEN/MOVED greps run
+  over an empty file, and all three focus assertions pass **vacuously** while the script prints `PASS`:
+  a window-only check wearing the badge of a focus check. Reproduced with a stub `osascript` that exits
+  1 like a denied prompt — the old script printed `frontmost before = <unknown> … 0 samples … PASS`,
+  exit 0. An empty reading (first, last, or any sample in between) is now **exit 2** with the
+  permission instructions, as is a command that ends before the first 0.5 s tick; unreadable samples
+  are recorded as `<unreadable>` rather than dropped, so "no samples" cannot masquerade as agreement.
+  (2) `caps.spec.ts` was untagged, so `chromium-angle`'s `grep: /@angle/` excluded it: the `[caps]`
+  block in that project's output was the *SwiftShader* leg's, and nothing on the ANGLE leg ever
+  asserted the renderer. The only in-suite signal that the leg still reached the GPU was `@angle
+  gate 6` **not skipping** — a silently skipping test, which is the failure mode §11 exists to prevent
+  — and §2.1 had just removed the incidental cue of a window on screen. A third caps test, tagged
+  `@angle` and skipped by project name elsewhere, now logs that leg's own capabilities
+  (`capabilities-angle.json`) and asserts `isSoftware false`, `rendererClass 'angle-metal'` and
+  `norm16 true`. `[M2Max]` it passes on `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified
+  Version)`; forcing that leg onto `--use-angle=swiftshader` turns it red with the renderer string in
+  the message, and in that same run gate 6's R16 branch skipped itself — the empty-leg shape, now
+  caught. `TETRAVOX_ALLOW_SOFTWARE_ANGLE=1` downgrades it to a skip for a runner with no GPU (the
+  mirror of `TETRAVOX_REQUIRE_PACKAGED=1`, opposite default); `ci.yml` sets it on Linux only, so a
+  hosted macOS runner that cannot reach Metal is a red leg naming the variable rather than a green
+  empty one. Standing proof re-run after `pnpm package`, with `TETRAVOX_TESTDATA` exported and
+  `TETRAVOX_REQUIRE_PACKAGED=1`: 87 samples, frontmost `ghostty` throughout, no window on screen,
+  51 + 28 + 58 green. **`TETRAVOX_TESTDATA` is part of the recipe**, not decoration: without it the
+  engine reports 19 passed / 11 skipped against 28 / 2 — the R16 gate among the skips — and the quiet
+  check still prints `PASS`, because it proves what the run *showed*, never what the run *covered*.
+  (The GPU assertion is the one part that does not depend on it: it passes in that run too, so a
+  testdata-less suite can no longer hide a software leg either.)

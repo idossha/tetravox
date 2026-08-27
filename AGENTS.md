@@ -225,4 +225,7 @@ Both take an optional testdata root, default `$TETRAVOX_TESTDATA`, and print JSO
    (`docs/TESTING.md` §2.1 has every measurement). `TETRAVOX_E2E_HEADED=1` is the debugging opt-in and
    outranks everything; a user launch sets neither variable and is untouched. Do not "fix" a flaky
    test by making its window visible again, and do not add a Playwright project with
-   `headless: false` — prove it with `scripts/e2e-quiet-check.sh` instead.
+   `headless: false` — prove it with `scripts/e2e-quiet-check.sh` instead (export
+   `TETRAVOX_TESTDATA` first: that script proves what a run *showed*, never what it *covered*). The
+   window used to be the only visible sign that `chromium-angle` was really on the GPU; a tagged caps
+   test asserts it now, so a fallback to software fails that leg instead of quietly emptying it.

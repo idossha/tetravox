@@ -18,11 +18,17 @@
 #   scripts/e2e-quiet-check.sh pnpm --filter @tetravox/app run e2e
 #
 # Exit 0 = quiet. Exit 1 = a window appeared or the focus moved; the offending samples are printed.
-# macOS only — it is the platform with the monitor to hijack (Linux CI runs under Xvfb).
+# Exit 2 = the check itself could not run, so it proves nothing. macOS only — it is the platform with
+# the monitor to hijack (Linux CI runs under Xvfb).
 #
 # `osascript -e 'tell application "System Events" …'` needs Automation permission for the terminal
 # the first time; window *titles* additionally need Screen Recording, but ownership and bounds — all
-# this script asserts on — do not.
+# this script asserts on — do not. Without that permission `osascript` writes to stderr and prints
+# nothing, and an *empty* frontmost must never be read as "the focus did not move": before and after
+# would compare equal, the STOLEN/MOVED greps would run over an empty file, and all three focus
+# assertions would pass vacuously while the script still printed PASS — a window-only check wearing
+# the badge of a focus check, on exactly the machine (a fresh checkout, a CI runner) this script is
+# for. So an unreadable frontmost is a hard error, like the clang failure below.
 
 set -uo pipefail
 
@@ -74,8 +80,23 @@ if ! clang -o "$WORK/onscreen" "$WORK/onscreen.c" -framework ApplicationServices
   exit 2
 fi
 
+# The focus, or the empty string plus a reason in $WORK/osascript.log. Never silently empty.
 frontmost() {
-  osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null
+  osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>"$WORK/osascript.log"
+}
+
+# The sentinel written into focus.txt for a sample that could not be read; asserted on below.
+UNREADABLE='<unreadable>'
+
+die_unreadable() {
+  {
+    echo "e2e-quiet-check: could not read the frontmost application — $1."
+    echo "  This check cannot tell you whether the focus moved, so it refuses to claim it did not."
+    echo "  Grant Automation permission for \"System Events\" to this terminal:"
+    echo "  System Settings > Privacy & Security > Automation > <your terminal> > System Events."
+    [[ -s "$WORK/osascript.log" ]] && sed 's/^/  osascript: /' "$WORK/osascript.log"
+  } >&2
+  exit 2
 }
 
 # --- run, and watch --------------------------------------------------------------------------
@@ -83,7 +104,8 @@ CMD=("$@")
 [[ ${#CMD[@]} -eq 0 ]] && CMD=(pnpm e2e)
 
 BEFORE="$(frontmost)"
-echo "e2e-quiet-check: frontmost before = ${BEFORE:-<unknown>}"
+[[ -z "$BEFORE" ]] && die_unreadable "the first sample, before the command started, came back empty"
+echo "e2e-quiet-check: frontmost before = $BEFORE"
 echo "e2e-quiet-check: running ${CMD[*]}"
 
 ( cd "$ROOT" && "${CMD[@]}" ) &
@@ -92,16 +114,29 @@ CMD_PID=$!
 : >"$WORK/focus.txt"
 : >"$WORK/windows.txt"
 while kill -0 "$CMD_PID" 2>/dev/null; do
-  frontmost >>"$WORK/focus.txt"
+  SAMPLE="$(frontmost)"
+  echo "${SAMPLE:-$UNREADABLE}" >>"$WORK/focus.txt"
   "$WORK/onscreen" | grep -E "^layer=0	owner=($OWNERS)	" >>"$WORK/windows.txt"
   sleep 0.5
 done
 wait "$CMD_PID"
 CMD_STATUS=$?
 
-AFTER="$(frontmost)"
 SAMPLES=$(wc -l <"$WORK/focus.txt" | tr -d ' ')
-echo "e2e-quiet-check: frontmost after  = ${AFTER:-<unknown>}   (${SAMPLES} samples)"
+
+# The samples are judged before the "after" reading, so that permission lost *mid-run* is reported as
+# what it is rather than as a bad final reading.
+# A run with no samples at all observed nothing: the command was over before the first tick.
+if [[ $SAMPLES -eq 0 ]]; then
+  echo "e2e-quiet-check: the command exited before the first 0.5 s sample — nothing was observed." >&2
+  exit 2
+fi
+BLIND=$(grep -c "^$UNREADABLE$" "$WORK/focus.txt" || true)
+[[ $BLIND -gt 0 ]] && die_unreadable "$BLIND of $SAMPLES samples during the run came back empty"
+
+AFTER="$(frontmost)"
+[[ -z "$AFTER" ]] && die_unreadable "the last sample, after the command finished, came back empty"
+echo "e2e-quiet-check: frontmost after  = $AFTER   (${SAMPLES} samples)"
 echo "e2e-quiet-check: command exited ${CMD_STATUS}"
 
 STATUS=0
