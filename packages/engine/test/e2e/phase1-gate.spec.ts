@@ -579,12 +579,14 @@ async function ladderBranch(page: Page, query: string, expectedFormat: string): 
   });
 }
 
-test('gate 6: the R32F branch of the §6.1 ladder (forceCaps norm16:false)', async ({ page }) => {
+test('@angle gate 6: the R32F branch of the §6.1 ladder (forceCaps norm16:false)', async ({
+  page,
+}) => {
   test.setTimeout(120_000);
   await ladderBranch(page, '?norm16=0', 'R32F');
 });
 
-test('gate 6: the R16 branch of the §6.1 ladder, when the renderer has EXT_texture_norm16', async ({
+test('@angle gate 6: the R16 branch of the §6.1 ladder, when the renderer has EXT_texture_norm16', async ({
   page,
 }) => {
   test.setTimeout(120_000);

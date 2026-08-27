@@ -32,14 +32,16 @@ import { GOLDEN_THRESHOLD, goldenMaxDiffPixelRatio } from './test/helpers/pixels
 const PORT = Number(process.env.TETRAVOX_TEST_PORT ?? 5199);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
-/** §11's launch args, verbatim. */
-export const SWIFTSHADER_ARGS = [
-  '--enable-unsafe-swiftshader',
+/** The half of §11's launch args that is about determinism rather than about the renderer. */
+export const DETERMINISM_ARGS = [
   '--force-device-scale-factor=1',
   '--disable-lcd-text',
   '--font-render-hinting=none',
   '--hide-scrollbars',
 ];
+
+/** §11's launch args, verbatim. */
+export const SWIFTSHADER_ARGS = ['--enable-unsafe-swiftshader', ...DETERMINISM_ARGS];
 
 // `vite` is a devDependency of `packages/app` only and the Phase-0 lockfile is frozen (§12.3), so the
 // test-page server is that package's vite binary pointed at this package's config. `pnpm --filter`
@@ -90,6 +92,34 @@ export default defineConfig({
         browserName: 'chromium',
         // No `channel`: the bundled Chromium, whose build is pinned by @playwright/test's version.
         launchOptions: { args: SWIFTSHADER_ARGS },
+      },
+    },
+    {
+      // §11's **second leg**, and the only place the R16 branch of the §6.1 ladder can execute.
+      //
+      // The golden authority has no `EXT_texture_norm16` (§7.1 `[SwS]`), so `T1.nii.gz` is R32F in
+      // every golden and R16 in the shipping renderer. §11's answer is explicit: the coverage
+      // "comes from analytic `expectPixel` tests run **twice** on the macOS/ANGLE leg". Phase 1
+      // implemented the test and not the leg, so the R16 half self-skipped in every environment
+      // that existed — on a format that is the primary path for real data.
+      //
+      // `headless: false` + `channel: 'chromium'` is what selects the full browser and lets it
+      // reach the platform GPU; `--enable-unsafe-swiftshader` is deliberately absent, because this
+      // project exists to NOT be SwiftShader. On a machine or runner with no GPU it still falls
+      // back to software, `caps.norm16` is false and the R16 test skips with its reason — the leg
+      // is then honestly empty rather than silently missing.
+      //
+      // **`@angle` only.** No golden is captured here: §11 stores goldens per renderer class and
+      // `test/golden/angle-metal/` does not exist, so running a golden test on this project would
+      // demand a capture rather than a comparison. The tag marks the analytic tests, which are the
+      // ones §11 asks to run twice.
+      name: 'chromium-angle',
+      grep: /@angle/,
+      use: {
+        browserName: 'chromium',
+        channel: 'chromium',
+        headless: false,
+        launchOptions: { args: DETERMINISM_ARGS },
       },
     },
   ],

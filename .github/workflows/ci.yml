@@ -168,6 +168,11 @@ jobs:
       # Engine Playwright (§11 goldens + analytic pixels) and, once packages/app has an `e2e` script,
       # the Playwright-Electron app E2E — `pnpm e2e` is `pnpm -r --if-present run e2e`, so the app leg
       # joins this step by existing. Dev build only; packaging is separate.
+      # Two engine Playwright projects (§11): `chromium-swiftshader` captures the goldens, and
+      # `chromium-angle` runs the `@angle`-tagged analytic tests HEADED so they reach the platform
+      # GPU — the only place the R16 branch of the §6.1 ladder can execute, since SwiftShader has no
+      # EXT_texture_norm16. On a runner without a GPU that leg falls back to software and the R16
+      # test skips with its reason; the Xvfb started above is what lets it launch headed on Linux.
       - name: pnpm e2e
         run: pnpm e2e
 

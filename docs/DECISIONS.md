@@ -1166,3 +1166,14 @@ Each entry below names the problem, the fix, and the evidence.
   `RAS 3.8 26.7 −16.1` and the readout said `0.0 0.0 0.0 / voxel 154 144 100 / value 23597`, which
   is a real intensity from ~33 mm away. Routing through `setCursor` also refreshes the mesh probes
   for the new point, which the assignment skipped as well.
+- 2026-08-27 — **§11's "macOS/ANGLE leg" is now a Playwright project, `chromium-angle`.** Gate item 6
+  was recorded as met, but its R16 half executed nowhere: the engine config declared a single
+  `chromium-swiftshader` project, both CI runners ran that same `pnpm e2e`, SwiftShader has no
+  `EXT_texture_norm16`, so `test.skip(!norm16, …)` fired unconditionally — on the format the shipping
+  app actually gives `T1.nii.gz`. The new project runs the full Chromium headed with
+  `--enable-unsafe-swiftshader` deliberately absent, filtered to `grep: /@angle/`. It captures no
+  golden, because §11 keys goldens on the renderer class and `test/golden/angle-metal/` does not
+  exist — a golden test there would demand a capture, not a comparison. On a GPU-less runner the leg
+  falls back to software and the R16 test skips with its reason, which is an honestly empty leg
+  rather than a missing one. **Evidence:** `[chromium-angle] @angle gate 6: the R16 branch … (614 ms)`
+  on `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`.

@@ -25,7 +25,8 @@ fine.
 | `pnpm typecheck` | `pnpm wasm`, then `tsc --noEmit` per package |
 | `pnpm lint` | `eslint .` + `prettier --check .` |
 | `pnpm e2e` | every package's `e2e` script — today the engine's Playwright suite |
-| `pnpm --filter @tetravox/engine run e2e` | the engine suite alone |
+| `pnpm --filter @tetravox/engine run e2e` | the engine suite alone — **two projects**: `chromium-swiftshader` (everything) and `chromium-angle` (`@angle` only, on the real GPU) |
+| `pnpm --filter @tetravox/engine exec playwright test --project=chromium-angle` | just the ANGLE leg — where the R16 branch of the §6.1 ladder executes |
 
 Before the first `pnpm e2e` on a cold machine:
 
@@ -133,6 +134,23 @@ R16 in the shipping renderer. Goldens therefore cannot cover the primary format 
 from analytic `expectPixel` tests run twice on the macOS/ANGLE leg — once with `forceCaps` unset (R16) and
 once with `forceCaps: { norm16: false }` (R32F) — asserting the same physical value within each format's
 own tolerance. Same pattern as `forceDiscardClip`.
+
+**That second leg is a Playwright project, `chromium-angle`**, and it is what makes the sentence above
+true rather than aspirational. It runs the full Chromium headed (`channel: 'chromium'`,
+`headless: false`) with `--enable-unsafe-swiftshader` deliberately *absent*, so it reaches the platform
+GPU, and it is filtered to `grep: /@angle/` — the analytic tests. No golden is captured on it:
+§11 stores goldens per renderer class, `test/golden/angle-metal/` does not exist, and a golden test
+running there would demand a capture rather than a comparison.
+
+| Project | Renderer here `[M2Max]` | Runs | `caps.norm16` |
+|---|---|---|---|
+| `chromium-swiftshader` | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` | everything, goldens included | false ⇒ the R16 test **skips with its reason** |
+| `chromium-angle` | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)` | `@angle` only | true ⇒ the R16 test **runs** (0.6 s) |
+
+On a runner with no GPU the `chromium-angle` project falls back to software, `caps.norm16` is false and
+the R16 test skips there too — the leg is then honestly empty rather than silently missing. Phase 1
+shipped the test without the project, so the R16 branch executed in **no** environment at all while the
+gate table recorded it as covered; that is the hole this project closes.
 
 ---
 
