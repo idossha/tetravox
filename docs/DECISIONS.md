@@ -2149,3 +2149,60 @@ Each entry below names the problem, the fix, and the evidence.
   the assertion after it still fails if the clamp itself is wrong. Worth recording as a rule rather
   than a fix: on the golden-authority project this class of flake is invisible, so it will keep
   arriving through the GPU leg.
+
+- 2026-08-27 — **E2E is windowless by default on macOS, and gives up no GPU coverage.** `pnpm e2e`
+  launched ~20 visible windows, stealing the focus and re-tiling the developer's workspace each time.
+  Both suites now run without one, gated on `TETRAVOX_E2E_OFFSCREEN=1` (set by `packages/app`'s
+  `e2e/fixtures.ts` on darwin) with `TETRAVOX_E2E_HEADED=1` as the debugging opt-in; a user launch is
+  unaffected. **Engine `chromium-angle`: `headless: false` → `headless: true`.** The leg was headed
+  because that is how it reaches the platform GPU — but it is `channel: 'chromium'` (the full browser
+  rather than Playwright's headless *shell*) that does that, not the window. Measured `[M2Max]`:
+  headless full Chromium reports `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`, `norm16` **true**,
+  timer query true, `MAX_TEXTURE_SIZE` 16384, `MAX_DRAW_BUFFERS` 8, 36 extensions — identical to headed,
+  against the headless shell's SwiftShader / false / 8192 / 6 / 29; the `@angle gate 6` R16 test runs and
+  passes. `--use-angle=metal --enable-gpu --ignore-gpu-blocklist` and an explicit `--headless=new`
+  changed nothing and are not passed. **App: a `BrowserWindow` that is never shown**, plus
+  `app.dock.hide()` — same caps, 29/29 in both the `dev` and `packaged` projects, `page.screenshot()`,
+  in-page `readPixels`, `setContentSize` and rAF all unaffected, gate timings 12.8 ms progress / 4.9 ms
+  cancel against 200/500 ms budgets. Electron OSR (`webPreferences.offscreen`, with and without
+  `useSharedTexture`) also passes 29/29 on ANGLE/Metal and was **rejected on cost**: it made the §12.1
+  orbit benchmark read `gpuMs` 3.52/4.07 ms @1x/@2x against 2.02/3.32 for a never-shown window and
+  doubled `cpuMs` median, so the mode that runs the benchmark would be the mode that inflates it; it
+  also pins rAF to `setFrameRate` (61 Hz vs 122) and made `Page.captureScreenshot` disagree with
+  `capturePage()` on the same frame (5,188 B vs 17,065 B). A shown window parked off-screen
+  (`setBounds({ x: -10000 })`) — **rejected as measured-false**: macOS returned `x: -1240` and
+  `CGWindowListCopyWindowInfo` listed the window on screen at `761,48,741x864`. `[M2Max]`
+  `scripts/e2e-quiet-check.sh` is the standing proof (86 samples, frontmost unchanged, no window).
+
+
+- 2026-08-27 — **The windowless-E2E proof had two holes: the focus check failed open, and the GPU leg
+  could not fail.** Review of the entry above. (1) `scripts/e2e-quiet-check.sh` read the frontmost app
+  with `osascript … 2>/dev/null` and used its stdout with no status check. Without Automation
+  permission for "System Events" — a fresh machine or a CI runner, exactly who runs this script —
+  `frontmost` returns the empty string, `BEFORE` and `AFTER` compare equal, the STOLEN/MOVED greps run
+  over an empty file, and all three focus assertions pass **vacuously** while the script prints `PASS`:
+  a window-only check wearing the badge of a focus check. Reproduced with a stub `osascript` that exits
+  1 like a denied prompt — the old script printed `frontmost before = <unknown> … 0 samples … PASS`,
+  exit 0. An empty reading (first, last, or any sample in between) is now **exit 2** with the
+  permission instructions, as is a command that ends before the first 0.5 s tick; unreadable samples
+  are recorded as `<unreadable>` rather than dropped, so "no samples" cannot masquerade as agreement.
+  (2) `caps.spec.ts` was untagged, so `chromium-angle`'s `grep: /@angle/` excluded it: the `[caps]`
+  block in that project's output was the *SwiftShader* leg's, and nothing on the ANGLE leg ever
+  asserted the renderer. The only in-suite signal that the leg still reached the GPU was `@angle
+  gate 6` **not skipping** — a silently skipping test, which is the failure mode §11 exists to prevent
+  — and §2.1 had just removed the incidental cue of a window on screen. A third caps test, tagged
+  `@angle` and skipped by project name elsewhere, now logs that leg's own capabilities
+  (`capabilities-angle.json`) and asserts `isSoftware false`, `rendererClass 'angle-metal'` and
+  `norm16 true`. `[M2Max]` it passes on `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified
+  Version)`; forcing that leg onto `--use-angle=swiftshader` turns it red with the renderer string in
+  the message, and in that same run gate 6's R16 branch skipped itself — the empty-leg shape, now
+  caught. `TETRAVOX_ALLOW_SOFTWARE_ANGLE=1` downgrades it to a skip for a runner with no GPU (the
+  mirror of `TETRAVOX_REQUIRE_PACKAGED=1`, opposite default); `ci.yml` sets it on Linux only, so a
+  hosted macOS runner that cannot reach Metal is a red leg naming the variable rather than a green
+  empty one. Standing proof re-run after `pnpm package`, with `TETRAVOX_TESTDATA` exported and
+  `TETRAVOX_REQUIRE_PACKAGED=1`: 87 samples, frontmost `ghostty` throughout, no window on screen,
+  51 + 28 + 58 green. **`TETRAVOX_TESTDATA` is part of the recipe**, not decoration: without it the
+  engine reports 19 passed / 11 skipped against 28 / 2 — the R16 gate among the skips — and the quiet
+  check still prints `PASS`, because it proves what the run *showed*, never what the run *covered*.
+  (The GPU assertion is the one part that does not depend on it: it passes in that run too, so a
+  testdata-less suite can no longer hide a software leg either.)

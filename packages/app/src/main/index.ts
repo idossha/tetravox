@@ -30,6 +30,7 @@ import {
   showSaveSceneDialog,
   writeSceneFile,
 } from './scene-io';
+import { windowMode } from './window';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const rendererRoot = join(here, '..', 'renderer');
@@ -44,6 +45,14 @@ registerScheme();
 // a live path for the §8 status bar's GPU-ms readout.
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 app.commandLine.appendSwitch('enable-webgl-developer-extensions');
+
+/**
+ * `'offscreen'` under `TETRAVOX_E2E_OFFSCREEN=1` (what `e2e/fixtures.ts` sets by default on macOS):
+ * the window is built and never shown, so a test run cannot take the screen or the keyboard focus.
+ * `TETRAVOX_E2E_HEADED=1` forces `'normal'` back. A user launch sets neither and is `'normal'`.
+ * `src/main/window.ts` has the measurements behind the choice.
+ */
+const MODE = windowMode();
 
 let mainWindow: BrowserWindow | null = null;
 const getWindow = (): BrowserWindow | null => mainWindow;
@@ -128,7 +137,10 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  // The one behavioural difference of `'offscreen'`: `show()` is never called, so the window exists,
+  // renders on the GPU and answers CDP, but never reaches the screen or the window server's focus
+  // chain. `ready-to-show` still fires; only the reaction to it is suppressed.
+  if (MODE === 'normal') win.once('ready-to-show', () => win.show());
 
   const search = launchSearch(process.argv);
   const devServer = process.env['ELECTRON_RENDERER_URL'];
@@ -146,7 +158,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_event, argv, cwd) => {
     const opened = toOpened(collectCliPaths(argv, app.getAppPath(), cwd));
-    if (mainWindow) {
+    if (mainWindow && MODE === 'normal') {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
@@ -202,6 +214,11 @@ if (!app.requestSingleInstanceLock()) {
   );
 
   void app.whenReady().then(() => {
+    // No dock icon for a run that has no window: the bounce and the icon are themselves a visible
+    // interruption, and on macOS the dock is what a background Electron would otherwise announce
+    // itself with. `app.dock` is undefined off darwin.
+    if (MODE === 'offscreen') void app.dock?.hide();
+
     // 3. Serve the scheme (§5, directive A2).
     handleScheme(rendererRoot);
     buildMenu(getWindow);

@@ -6,12 +6,22 @@
  * **not** have `EXT_texture_norm16`, so every golden takes the R32F branch of the §6.1 payload ladder
  * while the shipping renderer takes R16. If that ever stops being true, the reasoning in §11 changes and
  * this test is where it should surface.
+ *
+ * The last test is the mirror of that on §11's **second** leg: `chromium-angle` exists to reach the
+ * platform GPU, and it has to be able to go wrong out loud. See its own comment.
  */
 
 import { expect, test } from '@playwright/test';
 
 /** §7.1's `isSoftware` rule, restated so the test checks the probe rather than trusting it. */
 const RE_SOFTWARE = /SwiftShader|llvmpipe|softpipe/i;
+
+/**
+ * `TETRAVOX_ALLOW_SOFTWARE_ANGLE=1` is consent for the `chromium-angle` leg to fall back to software —
+ * a runner with no usable GPU. Same shape as `TETRAVOX_REQUIRE_PACKAGED`, opposite default: a skip
+ * there needs opting *out* of, because the machine that matters here (a Mac) always has a GPU.
+ */
+const ALLOW_SOFTWARE = process.env.TETRAVOX_ALLOW_SOFTWARE_ANGLE === '1';
 
 test.describe('§7.1 capability probe', () => {
   test('createContext returns a live WebGL2 context and a complete Capabilities', async ({
@@ -84,5 +94,68 @@ test.describe('§7.1 capability probe', () => {
     // The consequence §11 spells out: every golden pins the R32F/R8 branch of the §6.1 ladder, and the
     // R16 branch is covered only by paired analytic tests through EngineOptions.forceCaps.
     expect(caps.norm16).toBe(false);
+  });
+
+  /**
+   * **The `chromium-angle` leg asserts that it is still the GPU leg.**
+   *
+   * Everything §11 gets from the second leg rests on one unverified premise: that `channel: 'chromium'`
+   * without `--enable-unsafe-swiftshader` actually reached ANGLE/Metal on this machine. Nothing used to
+   * check it. The two tests above are untagged, so `grep: /@angle/` excluded them and the `[caps]` line
+   * in an `--project=chromium-angle` run came from the *other* leg; the only in-suite signal left was
+   * `@angle gate 6` **not** skipping — and a silently skipping test is the exact failure mode §11 was
+   * written against (Phase 1 shipped that gate with no leg to run it, and the table called it covered).
+   * The leg used to have a visible window as an incidental sanity cue; now that it is headless, it has
+   * this instead.
+   *
+   * So: log this leg's own capabilities, and fail if they are the golden authority's. A fallback to
+   * SwiftShader here makes the leg *empty* — every `@angle` test either passes vacuously on software or
+   * self-skips — and an empty leg must be red, not green. `TETRAVOX_ALLOW_SOFTWARE_ANGLE=1` is the
+   * documented way to say "this runner has no GPU, I know".
+   */
+  test('@angle the second leg reaches the platform GPU, and records which one', async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== 'chromium-angle',
+      'the chromium-angle leg only — the other leg logs its own capabilities above'
+    );
+
+    await page.goto('/test/pages/caps.html');
+    await page.waitForFunction(() => window.__tvxProbe !== undefined);
+    const probe = await page.evaluate(() => window.__tvxProbe);
+    expect(probe?.ok, `probe failed: ${probe?.message ?? ''}`).toBe(true);
+    const caps = probe?.caps;
+    expect(caps).toBeDefined();
+    if (probe === undefined || caps === undefined) return;
+
+    // The ANGLE leg's own record, under its own name: `capabilities.json` from the run above is the
+    // golden authority's, and the two are meant to differ.
+    const report = JSON.stringify(
+      { rendererClass: probe.rendererClass, caps, limits: probe.limits },
+      null,
+      2
+    );
+    console.log(`[caps chromium-angle] ${report}`);
+    await testInfo.attach('capabilities-angle.json', {
+      body: report,
+      contentType: 'application/json',
+    });
+
+    const fallback =
+      `the chromium-angle leg is running on a SOFTWARE renderer (${caps.renderer}). ` +
+      'It exists to reach the platform GPU: on software every @angle test passes vacuously or ' +
+      'self-skips, so the leg is empty rather than green. Set TETRAVOX_ALLOW_SOFTWARE_ANGLE=1 if this ' +
+      'runner genuinely has no GPU (docs/TESTING.md §2.1).';
+    test.skip(caps.isSoftware && ALLOW_SOFTWARE, `${fallback} Allowed by the env var.`);
+
+    expect(caps.isSoftware, fallback).toBe(false);
+    expect(probe.rendererClass).toBe('angle-metal');
+    // The one capability the leg is *for*: without it `@angle gate 6`'s R16 branch skips itself and the
+    // §6.1 primary format path goes back to being covered nowhere (§7.1 [SwS], §2.1).
+    expect(
+      caps.norm16,
+      'this GPU reports no EXT_texture_norm16, so the R16 branch of the §6.1 ladder cannot run here'
+    ).toBe(true);
   });
 });
