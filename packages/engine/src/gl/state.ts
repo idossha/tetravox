@@ -93,6 +93,29 @@ export const GL_STATE = {
     blend: 'off',
     cull: 'none',
   },
+  /**
+   * **Appended by E-SLICE (Phase 2)** — §7.3's `showIn3D` planes, drawn in pass 1 of a 3D pane.
+   *
+   * §7.3 fixes three of the five fields outright: "`DEPTH_TEST` on, `depthFunc(LEQUAL)`,
+   * `depthMask(true)` for every slice layer of that plane" — shared plane geometry plus
+   * `invariant gl_Position` makes the depth bit-identical, and LEQUAL is what lets the second layer
+   * of the same plane through. **No separate full-plane depth prepass**, which would occlude meshes
+   * behind the plane where no volume layer draws.
+   *
+   * `blend` is `srcAlpha`, and that is the single field this block adds over `opaque3d`: two volume
+   * layers on one plane must composite in 3D exactly the way they do in 2D (`blend2d`), or the same
+   * two layers read differently in the 3D pane than in the 2×2 grid and `VolumeLayer.opacity` stops
+   * working in 3D with no error. §11's exact-100 % test is unaffected — at opacity 1 over an
+   * alpha-1 fragment, `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` reproduces the source exactly, which is what
+   * "independence over every pixel" asks for.
+   */
+  slice3d: {
+    depthTest: true,
+    depthFunc: 'lequal',
+    depthMask: true,
+    blend: 'srcAlpha',
+    cull: 'none',
+  },
 } as const satisfies Record<string, StateBlock>;
 
 export type StateBlockName = keyof typeof GL_STATE;

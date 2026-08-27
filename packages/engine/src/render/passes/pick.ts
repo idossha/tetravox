@@ -21,16 +21,17 @@
 
 import { Framebuffer } from '../../gl/framebuffer';
 import { VertexArray } from '../../gl/buffer';
-import { Program } from '../../gl/program';
+import { Program, ProgramVariants } from '../../gl/program';
 import { GL_STATE } from '../../gl/state';
 import type { GlState } from '../../gl/state';
 import { collectPickItems } from './pass';
 import type { DrawInput, Pass, PassContext } from './pass';
+import { bindSliceSampling } from './slice';
 import type { SliceQuad } from './slice';
-import { MESH_PICK_VS, PICK_FS, SLICE_PICK_FS, SLICE_PICK_VS } from '../../shaders';
+import { MESH_PICK_VS, PICK_FS, SLICE_PICK_GATED_FS, SLICE_PICK_VS } from '../../shaders';
 import { invert4, transformPoint } from '../../view/m4';
 import { sliceBasis } from '../../view/geometry';
-import type { mat4, vec3, View, ViewId } from '../../scene/types';
+import type { mat4, SliceView, View } from '../../scene/types';
 import type { ViewportRect } from '../../view/layout';
 import type { PickResult } from '../../api';
 
@@ -68,7 +69,16 @@ export class PickPass implements Pass {
   readonly #gl: WebGL2RenderingContext;
   readonly #state: GlState;
   readonly #mesh: Program;
-  readonly #slice: Program;
+  /**
+   * **E-SLICE (Phase 2): two variants, and the *gated* fragment shader.**
+   *
+   * `IS_LABEL` has to be a compile-time branch here for the same reason it is in the frame
+   * (`usampler3D` vs `sampler3D`), and the program is built from `SLICE_PICK_GATED_FS`, which shares
+   * its whole body with `SLICE_FS` — so §7.2.3's "the pick pass reproduces **every** discard of the
+   * main pass" is structural rather than a promise. Phase 1's `SLICE_PICK_FS` reproduced only the
+   * AABB discard, which was all Phase 1 drew.
+   */
+  readonly #slice: ProgramVariants;
   #fbo: Framebuffer | null = null;
   #readFormat: GLenum;
   #readType: GLenum;
@@ -77,7 +87,7 @@ export class PickPass implements Pass {
     this.#gl = gl;
     this.#state = state;
     this.#mesh = new Program(gl, MESH_PICK_VS, PICK_FS);
-    this.#slice = new Program(gl, SLICE_PICK_VS, SLICE_PICK_FS);
+    this.#slice = new ProgramVariants(gl, SLICE_PICK_VS, SLICE_PICK_GATED_FS);
     // §7.2.3: "read the enum, do not hardcode". The implementation-defined pair is
     // RED_INTEGER/UNSIGNED_INT on ANGLE/Metal *and* SwiftShader, but the spec-guaranteed fallback is
     // RGBA_INTEGER/UNSIGNED_INT, which also works on an R32UI target.
@@ -239,15 +249,21 @@ export class PickPass implements Pass {
     quadHalf: number
   ): void {
     const gl = this.#gl;
-    const { ds } = item;
-    const basis = sliceBasis(view as never, input.scene.radiological);
+    // E-SLICE (Phase 2): the quad's plane is the pane's own view in 2D and `item.plane` in a 3D
+    // pane, where `showIn3D` puts every slice plane in the frame (§7.2 pass 1).
+    const plane = item.plane ?? (view as SliceView);
+    const basis = sliceBasis(plane, input.scene.radiological);
     quad.write(input.scene.cursor, basis.right, basis.up, quadHalf);
-    const prog = this.#slice;
+    // Without the GPU handles the layer runtime could not tell us what it drew, so there is nothing
+    // to reproduce and the safe thing is to leave the quad unpickable rather than pick a fragment
+    // the frame discarded.
+    if (item.gpu === undefined) return;
+    const prog = this.#slice.get({ IS_LABEL: item.gpu.integer ? 1 : 0 });
     prog.use();
     prog.mat4('uViewProj', viewProj);
-    prog.mat4('uInvAffine', ds.inverseAffine);
-    prog.vec3('uDims', ds.dims as vec3);
-    const planeIndex = input.scene.slices.findIndex((s) => s.id === (view as { id: ViewId }).id);
+    // The same threshold, `truncate` clip, palette alpha and 4-tap outline test the frame applied.
+    bindSliceSampling(gl, prog, { ...item, gpu: item.gpu }, input);
+    const planeIndex = input.scene.slices.findIndex((s) => s.id === plane.id);
     const loc = prog.loc('uId');
     if (loc !== null) gl.uniform1ui(loc, packId(layerIndex, 0, Math.max(0, planeIndex)) >>> 0);
     quad.vao.bind();

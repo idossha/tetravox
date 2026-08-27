@@ -13,6 +13,7 @@ import type { SurfacePayload } from '@tetravox/protocol';
 import { Buffer, VertexArray } from '../gl/buffer';
 import { bytesPerVoxel, createAlpha2D, createLut, createTexture3D } from '../gl/texture';
 import { bakeScale } from '../color/colormaps';
+import type { BakedLut } from '../color/colormaps';
 import type { ColormapName, DatasetId, Scale, VolumeDataset, VolumeLayer } from '../scene/types';
 import { isColormapName } from '../color/colormaps';
 import { ATLAS_H, ATLAS_W, buildAtlas } from './font';
@@ -67,6 +68,37 @@ export interface VolumeGpu {
   bytes: number;
 }
 
+/**
+ * **Appended by E-SLICE (Phase 2).** One layer's label styling, as two `N × 1 RGBA8` textures.
+ *
+ * * `palette` — the §7.3 dense-index palette with `visibleLabels`, `labelOpacity` and any per-label
+ *   recolour already folded in. Hiding a label is `A = 0`; recolouring it rewrites `RGB`. Nothing in
+ *   the shader branches on either, which is what makes R5's "every other pixel byte-identical"
+ *   assertion true by construction.
+ * * `attrs` — `R = 255` when the label is **selected**, for R5's outline emphasis. A second texture
+ *   rather than two more rows of the first, because `gl/texture.ts`'s `createLut` builds `N × 1` and
+ *   that file is not E-SLICE's to widen.
+ *
+ * Keyed **per layer**, not per dataset: `visibleLabels` and `labelOpacity` are `VolumeLayer` fields
+ * (§4.4), so two layers on one atlas must be able to hide different regions. Label *colour* is not —
+ * it lives in the dataset's `LabelTable`, which is what a LUT file holds and what A-SHELL exports.
+ */
+export interface LabelStyleGpu {
+  palette: WebGLTexture;
+  attrs: WebGLTexture;
+  size: number;
+}
+
+/**
+ * The `GpuStore` key of one layer's label styling: `${layerId}|${volumeIndex}`.
+ *
+ * The 4D index is in the key because a 4D label volume's dense index remap is per frame
+ * (`VolumeFrameT.labelIds`), so frame 1's palette is not frame 0's.
+ */
+export function labelStyleKey(layerId: string, volumeIndex: number): string {
+  return `${layerId}|${volumeIndex}`;
+}
+
 /** `CODE_FULL` per §6.1: what GL's `[0,1]` read must be multiplied by to recover the stored code. */
 function codeFull(format: VolumeDataset['gpu']['format']): number {
   switch (format) {
@@ -93,6 +125,8 @@ export class GpuStore {
   readonly #volumes = new Map<string, VolumeGpu>();
   readonly #surfaces = new Map<string, SurfaceGeometry>();
   readonly #luts = new Map<string, WebGLTexture>();
+  /** E-SLICE (Phase 2): per-layer label styling, keyed by `labelStyleKey`. */
+  readonly #labelStyles = new Map<string, LabelStyleGpu>();
   #atlas: WebGLTexture | null = null;
 
   constructor(gl: WebGL2RenderingContext) {
@@ -257,11 +291,7 @@ export class GpuStore {
    * A baked colormap LUT, cached on the bake's inputs. §7.6: `kind:'heat'` "costs nothing extra in
    * the shader — it is a different bake", which is only true if the bake is memoised.
    */
-  lut(
-    scale: Scale,
-    colormap: string,
-    negative?: string
-  ): { texture: WebGLTexture; lo: number; hi: number } {
+  lut(scale: Scale, colormap: string, negative?: string): { texture: WebGLTexture } & BakedLut {
     const name: ColormapName = isColormapName(colormap) ? colormap : 'gray';
     const neg: ColormapName =
       negative !== undefined && isColormapName(negative) ? negative : 'blue-cyan';
@@ -272,11 +302,67 @@ export class GpuStore {
       tex = createLut(this.#gl, baked.rgba);
       this.#luts.set(key, tex);
     }
-    return { texture: tex, lo: baked.lo, hi: baked.hi };
+    // The whole bake comes back, not just `(lo, hi)`: `clipMax` is the `truncate` discard a LUT
+    // cannot express (§4.2), and `rgba` is the strip the colour bar draws (§8) — both are functions
+    // of exactly these three inputs, so re-deriving them at the call site would be a second bake.
+    return { texture: tex, ...baked };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // E-SLICE (Phase 2): per-layer label styling, and the 4D frame path.
+  // -------------------------------------------------------------------------------------------
+
+  /** One layer's label palette + selection table, or `undefined` while it is unstyled. */
+  labelStyle(key: string): LabelStyleGpu | undefined {
+    return this.#labelStyles.get(key);
+  }
+
+  /**
+   * Upload (or re-upload) one layer's label styling.
+   *
+   * Re-upload replaces the texture rather than `texSubImage`-ing it, because `palette` changes size
+   * when the 4D frame changes the dense index remap, and one path that always works beats two that
+   * are each right half the time. An `N × 1 RGBA8` pair is at most 64 kB for the 65535-label cap.
+   */
+  uploadLabelStyle(key: string, palette: Uint8Array, attrs: Uint8Array): LabelStyleGpu {
+    this.dropLabelStyle(key);
+    const style: LabelStyleGpu = {
+      palette: createLut(this.#gl, palette),
+      attrs: createLut(this.#gl, attrs),
+      size: palette.length / 4,
+    };
+    this.#labelStyles.set(key, style);
+    return style;
+  }
+
+  /** Drop one layer's label styling. */
+  dropLabelStyle(key: string): void {
+    const existing = this.#labelStyles.get(key);
+    if (existing === undefined) return;
+    this.#gl.deleteTexture(existing.palette);
+    this.#gl.deleteTexture(existing.attrs);
+    this.#labelStyles.delete(key);
+  }
+
+  /** Drop every frame's label styling for one layer (`dispose`, `removeLayer`). */
+  dropLabelStyles(layerId: string): void {
+    for (const k of [...this.#labelStyles.keys()]) {
+      if (k.startsWith(`${layerId}|`)) this.dropLabelStyle(k);
+    }
+  }
+
+  /** Is this 4D frame already on the GPU? `volumeFrame` is only worth a round trip when it is not. */
+  hasVolume(key: string): boolean {
+    return this.#volumes.has(key);
   }
 
   dispose(): void {
     const gl = this.#gl;
+    for (const s of this.#labelStyles.values()) {
+      gl.deleteTexture(s.palette);
+      gl.deleteTexture(s.attrs);
+    }
+    this.#labelStyles.clear();
     for (const v of this.#volumes.values()) {
       gl.deleteTexture(v.texture);
       if (v.palette !== null) gl.deleteTexture(v.palette);

@@ -18,6 +18,9 @@ export { buildChrome } from './chrome';
 export type { ChromeInput } from './chrome';
 export { drawColorbar } from './colorbar';
 export type { ColorbarSpec, ColorbarTick } from './colorbar';
+// Appended by E-SLICE (Phase 2): the bar's layout and the volume producer (§8).
+export { colorbarLayout, formatTick, volumeColorbarSpec } from './colorbar';
+export type { ColorbarLayout } from './colorbar';
 export { drawCornerLines } from './corner';
 export type { CornerLines } from './corner';
 export { drawCrosshair } from './crosshair';
