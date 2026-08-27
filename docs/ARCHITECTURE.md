@@ -350,6 +350,8 @@ export interface GlyphSpec {
   lengthMm: number;
   colorBy: 'magnitude' | 'solid'; color: vec4 /* 0..1 */;
   clipToCutPlane: boolean;
+  /** Where the origins come from (§7.4). Absent = 'surface'. */
+  origins?: 'surface' | 'volume';
 }
 
 export interface MeshLayer extends LayerBase {
@@ -2030,6 +2032,22 @@ declare `invariant gl_Position;`.
 * **Glyphs** (`GlyphSpec`): one instanced draw of a shared cone+shaft VAO with per-instance origin/direction/
   magnitude, in the opaque pass. No new geometry from WASM. Origins restricted to visible tags and, when a cut
   plane is active and `clipToCutPlane`, to elements the plane intersects.
+  **`GlyphSpec.origins` names which of the two origin tables the instance reads, and it is a compile-time
+  variant (`TVX_GLYPH_VOLUME` ∈ 0..1), never a uniform** — the two tables are indexed differently, so a runtime
+  branch would cost a texture fetch per instance to decide something constant for the draw.
+  * `'surface'` (the default, and what an absent field means) reads the layer's de-indexed `SurfacePayload`:
+    instance *g* takes triangle `first + g·stride`, averages its three vertices, and reads `ownerElm` for the
+    field row. The **restriction to visible tags is per-instance**, off the same tag-LUT alpha R5's hide edits,
+    so a hidden tissue's arrows vanish with its surface.
+  * `'volume'` reads §6.5.2's `meshCentroids`: one origin per **tet**, so the interior of a mesh gets glyphs at
+    all — the case an `E` field over all 5,900,498 elements of `ernie_TDCS_1_scalar.msh` invites and no surface
+    can serve. Points, not geometry, so "no new geometry from WASM" holds. Here the **restriction to visible
+    tags is per-request**: the op's `tags` argument carries the visible **tet** tags (tri tags are excluded —
+    `tags` is an allow-list over tet tags, so a tri tag is dead weight at best and, where a mesh numbers a tri
+    tag the same as a tet tag, re-admits a tissue the user hid), and `subsample` becomes the op's own `stride`,
+    which is what keeps a 4.7 M-element mesh from shipping 4.7 M origins over the wire. Every tet tag hidden is
+    an **empty request the engine does not make**: an absent `tags` means "no filter" to the op, so the draw is
+    skipped instead.
 
 ### 7.5 Views & interaction
 

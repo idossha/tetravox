@@ -441,6 +441,130 @@ test('vector glyphs draw from the field, and `subsample` is the knob that says h
   expect(counts.allTagsHidden, 'every tag hidden must leave no glyph').toBe(0);
 });
 
+/**
+ * `GlyphSpec.origins: 'volume'` — §6.5.2's `meshCentroids` as the origin table (§7.4).
+ *
+ * The two paths are separated by **one tagStyle state**: the lattice's surface is its stored
+ * triangles (tags 1001 / 1002) and its interior is its tets (tags 1 / 2), so hiding the tri tags and
+ * leaving the tet tags visible is a mesh whose *surface* no glyph belongs on. That state must give
+ * the surface path **nothing** — every instance's `faceTag` is hidden in the tag LUT — and the
+ * volume path **everything**, which is the whole reason the field over all 5,900,498 elements of
+ * `ernie_TDCS_1_scalar.msh` needed a second origin source at all. Hiding the surface is also what
+ * makes the interior arrows *visible*: an opaque 20 mm cube occludes every origin inside it.
+ *
+ * The rest asserts that the tag restriction really rides the **request** on this path (it cannot
+ * ride the shader — the op filtered before it strided, so nothing per-origin is left to test): one
+ * tet tag off is strictly less ink, and *every* tet tag off is a draw the engine does not make
+ * rather than a `tags`-less request, which `tet_centroids` would read as "no filter" and light the
+ * whole mesh up.
+ */
+test('`origins: "volume"` reads meshCentroids, and its tag filter rides the request', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const counts = await page.evaluate(
+    async ([url, opt]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { opt: opt as string },
+      });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
+      engine.resetView('view3d');
+      engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+
+      const tags = 'tags' in ds ? ds.tags : [];
+      /** Every tag explicitly, so nothing depends on `.msh.opt`'s seeded visibility. */
+      const style = (
+        visible: readonly number[]
+      ): Record<number, { visible: boolean; opacity: number }> =>
+        Object.fromEntries(
+          tags.map((t) => [t.id, { visible: visible.includes(t.id), opacity: 1 }])
+        );
+
+      const canvas = document.querySelector('canvas')!;
+      const gl = canvas.getContext('webgl2')!;
+      const countMagenta = (): number => {
+        engine.renderNow();
+        const px = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        let n = 0;
+        for (let i = 0; i < px.length; i += 4) {
+          if ((px[i] ?? 0) > 120 && (px[i + 1] ?? 0) < 60 && (px[i + 2] ?? 0) > 120) n += 1;
+        }
+        return n;
+      };
+
+      const glyphs = {
+        field: { source: 'elm' as const, name: 'E' },
+        shape: 'arrow' as const,
+        subsample: { everyNth: 1 },
+        scale: 'fixed' as const,
+        lengthMm: 3,
+        colorBy: 'solid' as const,
+        color: [1, 0, 1, 1] as [number, number, number, number],
+        clipToCutPlane: false,
+      };
+      const show = async (
+        origins: 'surface' | 'volume',
+        visible: readonly number[]
+      ): Promise<number> => {
+        engine.updateLayer(layer.id, {
+          visible: true,
+          tagStyle: style(visible),
+          glyphs: { ...glyphs, origins },
+        });
+        await engine.whenSettled();
+        return countMagenta();
+      };
+
+      // The tri tags are the surface, the tet tags the interior — `MeshTag.kind` says which.
+      const tri = tags.filter((t) => t.kind === 'tri').map((t) => t.id);
+      const tet = tags.filter((t) => t.kind === 'tet').map((t) => t.id);
+
+      return {
+        tri,
+        tet,
+        // The surface is visible: the surface path has origins, and they stick out of the box.
+        surfaceOnSurface: await show('surface', [...tri, ...tet]),
+        // The surface is hidden: the surface path has none, and the box no longer occludes.
+        surfaceHidden: await show('surface', tet),
+        volumeBoth: await show('volume', tet),
+        volumeOneTag: await show('volume', [tet[1]!]),
+        volumeNoTets: await show('volume', []),
+        errors: window.__tvxErrors ?? [],
+      };
+    },
+    [LATTICE, LATTICE_OPT] as const
+  );
+
+  expect(errors).toEqual([]);
+  expect(counts.errors).toEqual([]);
+  // The fixture is what the assertions below assume it is (`testdata/manifest.json`).
+  expect(counts.tri).toEqual([1001, 1002]);
+  expect(counts.tet).toEqual([1, 2]);
+
+  // The surface path works, and is bounded by the surface: hiding every tri tag removes every
+  // origin it has, because its filter is per-instance against `faceTag`.
+  expect(counts.surfaceOnSurface, 'surface origins draw arrows').toBeGreaterThan(0);
+  expect(counts.surfaceHidden, 'no visible surface tag ⇒ no surface origin').toBe(0);
+
+  // Same tagStyle, other table: the interior tets have origins the surface never had. This is the
+  // one assertion the feature exists for.
+  expect(
+    counts.volumeBoth,
+    'volume origins draw where the surface path drew nothing'
+  ).toBeGreaterThan(0);
+
+  // The filter rides the request: half the tets is strictly less ink, none of them is no draw at
+  // all — not a `tags`-less request, which the op reads as "every tet".
+  expect(counts.volumeOneTag).toBeGreaterThan(0);
+  expect(counts.volumeOneTag).toBeLessThan(counts.volumeBoth);
+  expect(counts.volumeNoTets, 'every tet tag hidden must leave no glyph').toBe(0);
+});
+
 // -------------------------------------------------------------------------------------------
 // Goldens (§11 (2)) — regression only, with the §8 chrome present
 // -------------------------------------------------------------------------------------------
@@ -513,4 +637,62 @@ test('golden: derived-points-and-iso', async ({ page }) => {
   );
   expect(errors).toEqual([]);
   await expectGolden(page, 'derived-points-and-iso');
+});
+
+/**
+ * The §11 golden the ownership map names `derived-glyphs-e-field`, on both origin tables at once.
+ *
+ * The 3D pane carries `origins: 'volume'` with the surface hidden — arrows on interior tet centroids
+ * that no `SurfacePayload` could have produced — and the three 2D panes carry the `fillIn2D` cut, so
+ * one image pins the whole `GlyphSpec` path against the cross-section it shares a dataset with.
+ * Colour is `colorBy: 'magnitude'` over the lattice's `E` (`magnitudeStats` 2.66 … 28.47 in
+ * `testdata/manifest.json`), so the ramp itself is in the picture: a solid colour would hide a
+ * broken field lookup, which is exactly what the un-permutation fix in §6.5.2 was about.
+ */
+test('golden: derived-glyphs-e-field', async ({ page }) => {
+  const errors = await openScene(page);
+  await page.evaluate(
+    async ([url, opt]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { opt: opt as string },
+      });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.updateLayer(layer.id, {
+        // The tets visible (they colour the 2D cut and gate the origins), the surface hidden (it
+        // would occlude every interior arrow in the 3D pane).
+        tagStyle: {
+          1: { visible: true, opacity: 1 },
+          2: { visible: true, opacity: 1 },
+          1001: { visible: false, opacity: 1 },
+          1002: { visible: false, opacity: 1 },
+        },
+        scale: { kind: 'linear', lo: 2.65, hi: 28.47 },
+        colormap: 'viridis',
+        glyphs: {
+          field: { source: 'elm', name: 'E' },
+          shape: 'arrow',
+          subsample: { everyNth: 1 },
+          scale: 'byMagnitude',
+          lengthMm: 4,
+          colorBy: 'magnitude',
+          color: [1, 0, 1, 1],
+          clipToCutPlane: false,
+          origins: 'volume',
+        },
+      });
+      engine.setLayout({ kind: '2x2', cells: ['axial', 'coronal', 'sagittal', 'view3d'] });
+      engine.setCursor([0, 2.5, 1.25]);
+      for (const id of ['axial', 'coronal', 'sagittal']) {
+        engine.setView(id, { camera: { center: [0, 0], mmPerPx: 0.08 } });
+      }
+      engine.resetView('view3d');
+      await engine.whenSettled();
+    },
+    [LATTICE, LATTICE_OPT] as const
+  );
+  expect(errors).toEqual([]);
+  await expectGolden(page, 'derived-glyphs-e-field');
 });

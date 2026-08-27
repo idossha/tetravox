@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildTagLut } from './tag-lut';
+import { buildTagLut, visibleTetTags } from './tag-lut';
 import type { MeshDataset, MeshLayer, vec4 } from '../scene/types';
 
 const wire = (r: number, g: number, b: number): vec4 => [r / 255, g / 255, b / 255, 1];
@@ -131,5 +131,56 @@ describe('buildTagLut', () => {
       dataset()
     );
     expect(c.key).not.toBe(a.key);
+  });
+});
+
+describe('visibleTetTags — the `tags` argument of `meshCentroids` (§6.5.2)', () => {
+  /** ernie's shape: the ten tissue tets, and the `1xxx` surface tags that mirror them. */
+  function withTris(): MeshDataset {
+    const ds = dataset();
+    return {
+      ...ds,
+      tags: [
+        ...ds.tags,
+        { id: 1001, name: 'WM', color: WM, kind: 'tri', count: 1 },
+        { id: 1002, name: 'GM', color: GM, kind: 'tri', count: 1 },
+      ],
+    };
+  }
+
+  it('is the visible **tet** tags only — a tri tag never reaches the op', () => {
+    expect(visibleTetTags(layer(), withTris())).toEqual([1, 2, 3, 5]);
+  });
+
+  it('drops a hidden tet tag, so its centroids are never computed (R5 hide)', () => {
+    const l = layer({ tagStyle: { ...layer().tagStyle, 2: { visible: false, opacity: 1 } } });
+    expect(visibleTetTags(l, withTris())).toEqual([1, 3, 5]);
+  });
+
+  it('a visible tri tag cannot re-admit the tet tag it shares a number with', () => {
+    // `tet_centroids`' filter is an allow-list (`tags.contains(&t)`), so a tri tag that happens to
+    // be numbered like a tet tag would light that tissue back up. This is the whole reason for the
+    // `kind !== 'tet'` guard, and the one case where including tri tags is wrong rather than merely
+    // wasteful.
+    const ds = dataset();
+    const shared: MeshDataset = {
+      ...ds,
+      tags: [...ds.tags, { id: 2, name: 'GM surface', color: GM, kind: 'tri', count: 1 }],
+    };
+    const l = layer({ tagStyle: { ...layer().tagStyle, 2: { visible: false, opacity: 1 } } });
+    expect(visibleTetTags(l, shared)).toEqual([1, 3, 5]);
+  });
+
+  it('is empty when every tet tag is hidden — the caller must skip the draw, not ask for "all"', () => {
+    const l = layer({
+      tagStyle: Object.fromEntries(
+        [1, 2, 3, 5].map((t) => [t, { visible: false, opacity: 1 }])
+      ) as MeshLayer['tagStyle'],
+    });
+    expect(visibleTetTags(l, withTris())).toEqual([]);
+  });
+
+  it('treats a tag with no `tagStyle` entry as visible, like §4.4 does everywhere else', () => {
+    expect(visibleTetTags(layer({ tagStyle: {} }), withTris())).toEqual([1, 2, 3, 5]);
   });
 });

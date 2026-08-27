@@ -41,7 +41,9 @@ import {
   POINT_QUAD_VERTICES,
 } from '../../shaders';
 import { buildArrow } from '../../derived/arrow';
+import { visibleTetTags } from '../../derived/tag-lut';
 import type { DerivedStore } from '../../derived/store';
+import type { Table } from '../../derived/tables';
 import type { IsoDrawItem, PointsDrawItem } from '../../layers/runtime';
 import { visibleIn } from '../../layers/runtime';
 import { isSliceView } from '../../scene/store';
@@ -60,7 +62,8 @@ export class DerivedPass implements FramePass {
   readonly #fill: ProgramVariants;
   readonly #contour: Program;
   readonly #points: ProgramVariants;
-  readonly #glyph: Program;
+  /** `TVX_GLYPH_VOLUME` ∈ {0,1} — `GlyphSpec.origins`, a compile-time branch like every other. */
+  readonly #glyph: ProgramVariants;
   readonly #iso: Program;
 
   readonly #arrowVao: VertexArray;
@@ -73,7 +76,7 @@ export class DerivedPass implements FramePass {
     this.#fill = new ProgramVariants(gl, FILL2D_VS, FILL2D_FS);
     this.#contour = new Program(gl, CONTOUR_VS, CONTOUR_FS);
     this.#points = new ProgramVariants(gl, POINTS_VS, POINTS_FS);
-    this.#glyph = new Program(gl, GLYPH_VS, GLYPH_FS);
+    this.#glyph = new ProgramVariants(gl, GLYPH_VS, GLYPH_FS);
     // An isosurface is a `SurfacePayload`, so it draws through the §7.4 mesh program unchanged —
     // same attribute layout, same headlight, same two-sided lighting.
     this.#iso = new Program(gl, MESH_VS, MESH_FS);
@@ -361,23 +364,57 @@ export class DerivedPass implements FramePass {
     }
   }
 
+  /**
+   * §7.4's glyphs, in the one of two origin sources `GlyphSpec.origins` names.
+   *
+   * The two paths differ only in *where the origin table comes from and how the instance indexes
+   * it*; the field lookup, the arrow frame, the colouring and the draw call are one piece of code
+   * because they are one feature. `'surface'` averages a de-indexed triangle and reads `ownerElm`;
+   * `'volume'` reads one `meshCentroids` point and its `ownerTet`, with the stride and the visible
+   * tags applied by the op instead of by the shader (§6.5.2, and `docs/DECISIONS.md`).
+   */
   #drawGlyphs(ctx: PassContext, store: DerivedStore, layer: MeshLayer, ds: MeshDataset): void {
     const gl = this.#gl;
     const spec = layer.glyphs;
     if (spec === undefined) return;
-    const surface = store.surfaceTables(ds);
-    if (surface === null) return;
+    const volume = spec.origins === 'volume';
+
+    // The stride's denominator is whatever the chosen source counts: surface triangles, or tets.
+    const population = volume ? ds.nTets : (store.surfaceTables(ds)?.triangleCount ?? 0);
+    const stride =
+      'everyNth' in spec.subsample
+        ? Math.max(1, Math.round(spec.subsample.everyNth))
+        : Math.max(1, Math.ceil(population / Math.max(1, spec.subsample.maxCount)));
+
+    // The origin table, and how many instances it is worth. `null` means "not here yet" for both —
+    // the op is in flight and its `.then` will dirty the frame.
+    let posTable: Table;
+    let ownerTable: Table;
+    let tagTable: Table | null = null;
+    let count: number;
+    if (volume) {
+      const tags = visibleTetTags(layer, ds);
+      // Every tet tag hidden: an absent `tags` would mean "no filter" to the op, so do not ask.
+      if (tags.length === 0) return;
+      const origins = store.centroidTables(ds, stride, tags);
+      if (origins === null) return;
+      posTable = origins.positions;
+      ownerTable = origins.owner;
+      count = origins.count;
+    } else {
+      const surface = store.surfaceTables(ds);
+      if (surface === null) return;
+      posTable = surface.positions;
+      ownerTable = surface.owner;
+      tagTable = surface.tag;
+      count = Math.max(0, Math.floor((surface.triangleCount - 1) / stride) + 1);
+    }
+    if (count === 0) return;
+
     const fx = store.fieldTable(ds, spec.field.source, spec.field.name, 0);
     const fy = store.fieldTable(ds, spec.field.source, spec.field.name, 1);
     const fz = store.fieldTable(ds, spec.field.source, spec.field.name, 2);
     if (fx === null || fy === null || fz === null) return;
-
-    const stride =
-      'everyNth' in spec.subsample
-        ? Math.max(1, Math.round(spec.subsample.everyNth))
-        : Math.max(1, Math.ceil(surface.triangleCount / Math.max(1, spec.subsample.maxCount)));
-    const count = Math.max(0, Math.floor((surface.triangleCount - 1) / stride) + 1);
-    if (count === 0) return;
 
     const lut = store.tagLut(layer, ds);
     const info = ds.fields.find(
@@ -390,7 +427,7 @@ export class DerivedPass implements FramePass {
       layer.colormapNegative
     );
 
-    const prog = this.#glyph;
+    const prog = this.#glyph.get({ TVX_GLYPH_VOLUME: volume ? 1 : 0 });
     prog.use();
     prog.mat4('uViewProj', ctx.viewProj);
     prog.mat4('uModel', ds.transform);
@@ -398,15 +435,17 @@ export class DerivedPass implements FramePass {
     prog.float('uAmbient', ctx.input.scene.lighting.ambient);
     prog.float('uOpacity', layer.opacity);
     prog.int('uFirst', 0);
-    prog.int('uStride', stride);
+    // The volume path's rows are already strided by the op; striding them twice would draw every
+    // `stride`-th of a list that is one in `stride` already.
+    prog.int('uStride', volume ? 1 : stride);
     prog.float('uLengthMm', spec.lengthMm);
     prog.float('uByMagnitude', spec.scale === 'byMagnitude' ? 1 : 0);
     prog.float('uRefMag', refMag);
     prog.vec2('uLutRange', [baked.lo, baked.hi]);
     prog.vec4('uSolidColor', spec.color);
     prog.float('uColorByMagnitude', spec.colorBy === 'magnitude' ? 1 : 0);
-    prog.int('uTableW', surface.owner.width);
-    prog.int('uPosW', surface.positions.width);
+    prog.int('uTableW', ownerTable.width);
+    prog.int('uPosW', posTable.width);
     prog.int('uFieldW', fx.width);
     prog.int('uTagLutW', lut.table.width);
     prog.int('uTagLutN', lut.count);
@@ -416,9 +455,9 @@ export class DerivedPass implements FramePass {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       prog.int(name, unit);
     };
-    bind(0, surface.positions.texture, 'uPosTex');
-    bind(1, surface.owner.texture, 'uOwnerTex');
-    bind(2, surface.tag.texture, 'uTagTex');
+    bind(0, posTable.texture, 'uPosTex');
+    bind(1, ownerTable.texture, 'uOwnerTex');
+    if (tagTable !== null) bind(2, tagTable.texture, 'uTagTex');
     bind(3, lut.table.texture, 'uTagLut');
     bind(4, fx.texture, 'uFx');
     bind(5, fy.texture, 'uFy');

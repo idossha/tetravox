@@ -2206,3 +2206,39 @@ Each entry below names the problem, the fix, and the evidence.
   check still prints `PASS`, because it proves what the run *showed*, never what the run *covered*.
   (The GPU assertion is the one part that does not depend on it: it passes in that run too, so a
   testdata-less suite can no longer hide a software leg either.)
+
+
+- 2026-08-27 — **`GlyphSpec.origins: 'surface' | 'volume'` — the frozen field W-WASM's gap-2 op left
+  unreachable.** W-WASM took gap 2 rather than closing it as "surface only": `meshCentroids` ships,
+  and `docs/ARCHITECTURE.md` §6.5.2 already calls it "glyph origins for a **volumetric**
+  `GlyphSpec`". Nothing named which spec asked for them, so the op had no consumer and
+  `ernie_TDCS_1_scalar.msh`'s `E` over 5,900,498 elements could only be drawn on the surface — the
+  one place §7.4's own rationale says the interesting arrows are not. `origins` is that name, in
+  `packages/engine/src/scene/types.ts` (frozen, §12.3) with the §4.4 and §7.4 ARCHITECTURE edits in
+  this commit. **Optional, defaulting to `'surface'`**: every existing scene, golden and
+  `ViewSpec` on disk keeps its meaning, and `serialize()` needs no migration.
+  Rejected: a *runtime* uniform selecting the table. The two tables are indexed differently — one
+  origin per de-indexed triangle against one per tet — so the choice is constant for a draw and a
+  uniform would pay a branch and a dead texture binding per instance to re-decide it. It is a
+  `ProgramVariants` define (`TVX_GLYPH_VOLUME`), which is what §7.1 already does for `isLabel` and
+  the clip-plane count. Also rejected: inferring `'volume'` from "the mesh has tets and no visible
+  tri tags". A viewer must not guess which arrows the user meant.
+  **The tag restriction moves from the shader to the request, and that is the substantive
+  difference.** The surface path tests `faceTag` against the tag LUT's alpha per instance; the
+  volume path cannot, because the op filtered before it strided and nothing per-origin is left to
+  test. So `visibleTetTags(layer, ds)` builds the op's `tags` argument, hidden tissues cost nothing
+  (their centroids are never computed, let alone shipped), and **every** tet tag hidden is a draw the
+  engine skips rather than a request it makes — an absent `tags` means "no filter" to
+  `tet_centroids`, so asking with an empty list would light the whole mesh up.
+  Tri tags are excluded from that list. Not, as an earlier draft of the comment claimed, because
+  including them "filters out every tet": `tet_centroids`'s `keep_tag` is
+  `tags.is_none_or(|list| list.contains(&t))`, an allow-list, so an unmatched tri tag is simply
+  inert. The real reason is narrower and worse — a mesh that numbers a tri tag the same as a tet tag
+  would have the visible tri tag **re-admit the hidden tet tag**, silently undoing an R5 hide. The
+  comment is corrected to say so.
+  `subsample` keeps its §4.4 meaning in both paths but is applied in different places: the surface
+  path strides in the shader (`uStride`), the volume path hands the same number to the op and then
+  draws row *g* (`uStride = 1`), because striding an already-strided list would take one in
+  `stride²`. `{ maxCount: n }` is an upper bound rather than a target on the volume path — the op
+  strides over *surviving* tets, so a tag filter yields fewer than `n` — which is the same trade
+  §6.3 already recorded for filtering before striding.

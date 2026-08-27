@@ -71,3 +71,30 @@ export function buildTagLut(layer: MeshLayer, ds: MeshDataset): TagLut {
   }
   return { rgba, count, key: `${layer.colorMode}|${parts.join(';')}` };
 }
+
+/**
+ * The visible **tet** tags, as `meshCentroids`' `tags` argument (§6.5.2).
+ *
+ * §7.4 restricts glyph origins "to visible tags". The surface path does that in the shader, off this
+ * LUT's alpha; the volumetric path cannot — the op has already filtered, so nothing per-origin is
+ * left to test — and the restriction therefore moves into the request, which is also where it is
+ * cheapest: a hidden tissue's centroids are never computed, let alone shipped.
+ *
+ * **Tri tags are excluded.** Not because they would empty the answer — `tet_centroids`' filter is
+ * `tags.is_none_or(|list| list.contains(&t))`, an **allow-list** over tet tags, so an unmatched
+ * `1002` is simply inert. The reason is narrower and worse: on a mesh that numbers a tri tag the
+ * same as a tet tag, a visible tri tag would **re-admit the tet tag the user hid**, silently undoing
+ * an R5 hide in the one place no pixel test would look. Sending only what the op filters on is also
+ * what makes the cache key honest — see `DerivedStore.centroidTables`.
+ *
+ * An **empty** result means every tet tag is hidden, and the caller must skip the draw rather than
+ * read it as "no filter" — which is exactly what an absent `tags` means to the op.
+ */
+export function visibleTetTags(layer: MeshLayer, ds: MeshDataset): number[] {
+  const out: number[] = [];
+  for (const t of ds.tags) {
+    if (t.kind !== 'tet') continue;
+    if ((layer.tagStyle[t.id]?.visible ?? true) === true) out.push(t.id);
+  }
+  return out;
+}

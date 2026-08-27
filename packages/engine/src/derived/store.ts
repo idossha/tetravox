@@ -16,6 +16,10 @@
  *   displayed is a **texture swap**, always free."
  * * **Surface position tables**, keyed `(datasetId)` — the de-indexed positions and `ownerElm` a
  *   surface `GlyphSpec` reads its origins from.
+ * * **Centroid tables**, keyed `(datasetId, stride, visible tet tags)` — §6.5.2's `meshCentroids`,
+ *   the origins a `GlyphSpec` with `origins: 'volume'` reads instead. Keyed by the *request* and not
+ *   by the dataset because the op does the striding and the tag filtering, so a different visible
+ *   set is a different table rather than a different draw.
  *
  * **Nothing in this file builds geometry.** Every array uploaded arrived from a dataset worker as a
  * transferable (§5 rule 7); the only allocations are the tag LUT (kilobytes) and the two
@@ -97,6 +101,21 @@ interface SurfaceTables {
   triangleCount: number;
 }
 
+/**
+ * The volumetric glyph origins — §6.5.2's `meshCentroids`, one point per surviving tet.
+ *
+ * There is no `tag` table here on purpose: the op filters by tag **before** it strides, so the rows
+ * that came back are exactly the ones to draw. That is also why this is keyed by the request rather
+ * than by the dataset — a different stride or a different visible-tag set is a different table, and
+ * hiding a tissue must not leave its arrows on screen.
+ */
+export interface CentroidTables {
+  positions: Table;
+  owner: Table;
+  /** Origins, i.e. `positions.count / 3` and `owner.count`. */
+  count: number;
+}
+
 /** The `ComputeClient` slice this store needs, plus the mesh handle behind a dataset id. */
 export interface DerivedTarget {
   client: ComputeClient;
@@ -127,6 +146,9 @@ export class DerivedStore {
   readonly #points = new Map<LayerId, PointEntry>();
   readonly #surfaces = new Map<DatasetId, SurfaceTables>();
   readonly #surfacePending = new Set<DatasetId>();
+  /** Volumetric glyph origins, keyed `(datasetId, stride, visible tet tags)`. */
+  readonly #centroids = new Map<string, CentroidTables>();
+  readonly #centroidPending = new Set<string>();
   /** Segments from the `contours` op, for triangle-only meshes, keyed `(datasetId, viewId)`. */
   readonly #surfaceContours = new Map<string, { plane: PlaneT; segments: Float32Array | null }>();
 
@@ -452,6 +474,51 @@ export class DerivedStore {
     return null;
   }
 
+  /**
+   * The volumetric glyph origins for one request — §6.5.2's `meshCentroids`, uploaded as two tables.
+   *
+   * `null` while the op is in flight, exactly like {@link DerivedStore.surfaceTables}; the pass skips
+   * the draw and the `.then` marks the frame dirty. `stride` and `tags` are the op's own arguments,
+   * not a post-filter: §7.4 restricts origins "to visible tags", and doing it in the worker is what
+   * keeps a 4,722,625-tet mesh off the wire (ernie at stride 64 is 73,792 origins, 39 ms → 7.3 ms
+   * `[M2Max]`, recorded in `docs/DECISIONS.md`).
+   *
+   * `tags` is sorted into the key so that two spellings of the same visible set share one table.
+   */
+  centroidTables(ds: MeshDataset, stride: number, tags: readonly number[]): CentroidTables | null {
+    const sorted = [...tags].sort((a, b) => a - b);
+    const key = `${ds.id}|${stride}|${sorted.join(',')}`;
+    const have = this.#centroids.get(key);
+    if (have !== undefined) return have;
+    if (this.#centroidPending.has(key)) return null;
+    const target = this.#target(ds.id);
+    if (target === undefined) return null;
+    this.#centroidPending.add(key);
+    void this.#track(
+      target.client.meshCentroids(`glyphorigins:${key}`, {
+        handle: target.handle,
+        stride,
+        // An empty list would be "no tags", not "every tag" — omit it instead.
+        ...(sorted.length > 0 ? { tags: sorted } : {}),
+      })
+    )
+      .then((payload) => {
+        const gl = this.#gl;
+        const count = payload.ownerTet.length;
+        this.#centroids.set(key, {
+          positions: createTable(gl, 'f32', payload.positions, payload.positions.length),
+          owner: createTable(gl, 'u32', payload.ownerTet, count),
+          count,
+        });
+        this.#centroidPending.delete(key);
+        this.#requestRender();
+      })
+      .catch(() => {
+        this.#centroidPending.delete(key);
+      });
+    return null;
+  }
+
   // -------------------------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------------------------
@@ -518,6 +585,12 @@ export class DerivedStore {
       if (f.table !== null) this.#gl.deleteTexture(f.table.texture);
       this.#fields.delete(k);
     }
+    for (const [k, c] of [...this.#centroids]) {
+      if (!k.startsWith(`${id}|`)) continue;
+      this.#gl.deleteTexture(c.positions.texture);
+      this.#gl.deleteTexture(c.owner.texture);
+      this.#centroids.delete(k);
+    }
     for (const k of [...this.#surfaceContours.keys()]) {
       if (k.startsWith(`${id}|`)) this.#surfaceContours.delete(k);
     }
@@ -546,6 +619,11 @@ export class DerivedStore {
       this.#gl.deleteTexture(s.tag.texture);
     }
     this.#surfaces.clear();
+    for (const c of this.#centroids.values()) {
+      this.#gl.deleteTexture(c.positions.texture);
+      this.#gl.deleteTexture(c.owner.texture);
+    }
+    this.#centroids.clear();
     this.#surfaceContours.clear();
   }
 

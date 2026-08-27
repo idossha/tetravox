@@ -366,6 +366,21 @@ export interface GlyphSpec {
   /** 0..1 */
   color: vec4;
   clipToCutPlane: boolean;
+  /**
+   * Where the origins come from (§7.4; added 2026-08-27 — see `docs/DECISIONS.md`).
+   *
+   * `'surface'` — the default, and what an absent field means — reads them off the de-indexed
+   * `SurfacePayload` the layer already has: one origin per surface triangle, with its element number
+   * from the same `ownerElm` table §7.2.3 uses. `'volume'` reads them from §6.5.2's `meshCentroids`:
+   * **one origin per interior tet**, which is the case a field over all 5,900,498 elements of
+   * `ernie_TDCS_1_scalar.msh` invites and which no surface can serve.
+   *
+   * Both stay inside §7.4's "**No new geometry from WASM**" — `meshCentroids` returns *points*, one
+   * per tet, and the renderer binds them as an origin table exactly as it binds the surface's
+   * positions. {@link GlyphSpec.subsample} is the density knob in both: for `'volume'` it becomes
+   * the op's own `stride`, so a 4.7 M-element mesh never ships 4.7 M origins over the wire.
+   */
+  origins?: 'surface' | 'volume';
 }
 
 export interface MeshLayer extends LayerBase {

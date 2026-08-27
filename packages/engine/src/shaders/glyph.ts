@@ -6,18 +6,28 @@
  * visible tags and, when a cut plane is active and `clipToCutPlane`, to elements the plane
  * intersects."
  *
- * **Where the origins come from, and why there is no per-instance origin attribute.** §6.5.2 has no
- * op that returns element centroids, and building them on the UI thread would be geometry (AGENTS
- * rule 7). So the origin is *read* on the GPU from geometry the worker already produced: a
- * de-indexed triangle set — either the layer's surface (`SurfacePayload`) or the current cut
- * (`CutPayload`) — uploaded verbatim as an `R32F` table. Instance `g` takes triangle
- * `uFirst + g * uStride` (that is `GlyphSpec.subsample`), averages its three vertices for the
- * origin, and reads its element number from the same `ownerElm` table §7.2.3 already uses. This is
- * the decision recorded in `docs/DECISIONS.md` as **surface-and-cut-plane-only**, and it is what
- * closes W-WASM's gap 2 without a protocol change.
+ * **Where the origins come from, and why there is no per-instance origin attribute.** Building
+ * origins on the UI thread would be geometry (AGENTS rule 7), so an origin is *read* on the GPU out
+ * of an `R32F` table the worker filled. There are two such tables and `GlyphSpec.origins` picks
+ * between them; both are uploaded verbatim, so §7.4's "**No new geometry from WASM**" holds either
+ * way.
+ *
+ * * **`TVX_GLYPH_VOLUME 0` — `origins: 'surface'`, the default.** The table is a de-indexed triangle
+ *   set (`SurfacePayload`). Instance `g` takes triangle `uFirst + g * uStride` (that is
+ *   `GlyphSpec.subsample`), averages its three vertices for the origin, and reads its element number
+ *   from the same `ownerElm` table §7.2.3 already uses. Per-triangle `faceTag` against the layer's
+ *   tag LUT is what restricts origins to visible tags.
+ * * **`TVX_GLYPH_VOLUME 1` — `origins: 'volume'`.** The table is §6.5.2's `meshCentroids`: one
+ *   point per interior tet, already strided by the op and already filtered to the visible **tet**
+ *   tags, in Morton order. Instance `g` reads position `3g` and element number `ownerTet[g]`. There
+ *   is no tag texture and no averaging — the op did the restricting, which is what makes a mesh
+ *   whose surface no glyph belongs on (a field over all 5,900,498 elements of
+ *   `ernie_TDCS_1_scalar.msh`) drawable at all.
  *
  * The field arrives as three `R32F` tables — one per component of `field`, from three `field` ops
  * (§6.5.2) — so no packing pass runs anywhere: each op's `Float32Array` is uploaded as it came.
+ * Both origin paths index them the same way, by `ownerElm`/`ownerTet` **minus one**, which §6.5.2
+ * licenses only when `MeshMeta.identityElementNumbers` holds.
  *
  * The template is a unit **cone + shaft along +Z** built once per engine (`derived/arrow.ts`); a
  * shared 24-triangle template is not dataset geometry and is exactly what §7.4 asks for.
@@ -67,6 +77,17 @@ float table1(sampler2D t, int w, int i) {
 }
 
 void main() {
+#if TVX_GLYPH_VOLUME
+  // One origin per surviving tet: \`meshCentroids\` applied the stride and the tag filter already,
+  // so instance \`g\` is row \`g\` and there is nothing left here to skip or to hide.
+  int row = gl_InstanceID;
+  int p0 = row * 3;
+  vec3 origin = vec3(table1(uPosTex, uPosW, p0), table1(uPosTex, uPosW, p0 + 1), table1(uPosTex, uPosW, p0 + 2));
+  vec4 style = vec4(1.0);
+  ivec2 tc = ivec2(row % uTableW, row / uTableW);
+  uint elm = texelFetch(uOwnerTex, tc, 0).r;
+  int fi = max(int(elm) - 1, 0);
+#else
   int tri = uFirst + gl_InstanceID * uStride;
   int v0 = tri * 9;                       // 3 vertices x 3 floats
   vec3 a = vec3(table1(uPosTex, uPosW, v0), table1(uPosTex, uPosW, v0 + 1), table1(uPosTex, uPosW, v0 + 2));
@@ -81,6 +102,7 @@ void main() {
 
   uint elm = texelFetch(uOwnerTex, tc, 0).r;
   int fi = max(int(elm) - 1, 0);
+#endif
   vec3 e = vec3(table1(uFx, uFieldW, fi), table1(uFy, uFieldW, fi), table1(uFz, uFieldW, fi));
   float mag = length(e);
   vAlpha = (style.a > 0.0 && mag > 0.0) ? 1.0 : 0.0;
