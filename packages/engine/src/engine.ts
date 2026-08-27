@@ -37,6 +37,8 @@ import { Renderer } from './render/renderer';
 import { TRANSPARENT, encodeFrame } from './render/screenshot';
 import type { DrawInput } from './render/renderer';
 import { createLayerRuntime } from './layers/registry';
+import { PaneCutSource } from './derived/cut-source';
+import { DerivedStore } from './derived/store';
 import { buildLabelPalette } from './layers/volume';
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
 import { viewports } from './view/layout';
@@ -93,6 +95,16 @@ export class TetravoxEngine implements Engine {
   /** GPU resources, keyed by dataset (`render/gpu.ts`). */
   readonly #gpu: GpuStore;
   readonly #renderer: Renderer;
+  /**
+   * E-DERIVED's half of a frame: the per-pane cut requests (§7.4's 2D `fillIn2D` / `contoursIn2D`)
+   * and every GPU resource drawn from them.
+   *
+   * `PaneCutSource` is the stand-in for `compute/cut-manager.ts`'s `requestCut` / `getCut` / `onCut`
+   * / `releaseCut` until E-MESH lands them (`docs/PHASE2-OWNERSHIP.md`, integration order): the
+   * interface is the agreed one, so swapping the implementation is this one construction.
+   */
+  readonly #cuts: PaneCutSource;
+  readonly #derived: DerivedStore;
   readonly #timer: Timer;
   readonly #opts: EngineOptions;
 
@@ -146,6 +158,27 @@ export class TetravoxEngine implements Engine {
     this.caps = applyForcedCaps(caps, opts.forceCaps);
     this.#gpu = new GpuStore(gl);
     this.#renderer = new Renderer(gl, this.caps);
+    this.#cuts = new PaneCutSource(
+      (id) => {
+        const rt = this.#workers.get(id);
+        const ds = this.#store.dataset(id);
+        if (rt === undefined || ds === undefined || ds.kind !== 'mesh') return undefined;
+        return { client: rt.client, handle: ds.handle };
+      },
+      (p) => this.#track(p)
+    );
+    this.#derived = new DerivedStore(
+      gl,
+      this.#cuts,
+      (id) => {
+        const rt = this.#workers.get(id);
+        const ds = this.#store.dataset(id);
+        if (rt === undefined || ds === undefined || ds.kind !== 'mesh') return undefined;
+        return { client: rt.client, handle: ds.handle };
+      },
+      () => this.requestRender(),
+      (p) => this.#track(p)
+    );
     this.#timer = new Timer(gl, this.caps.timerQuery && opts.deterministic !== true);
     this.#schedule();
   }
@@ -363,6 +396,8 @@ export class TetravoxEngine implements Engine {
     }
     this.#gpu.dropVolume(id);
     this.#gpu.dropSurfaces(id);
+    this.#derived.dropDataset(id);
+    this.#cuts.releaseDataset(id);
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.#emit('layers', [...this.#scene.layers]);
@@ -404,7 +439,7 @@ export class TetravoxEngine implements Engine {
     const ds = this.#store.dataset(spec.datasetId);
     if (ds === undefined) throw new Error(`no such dataset: ${spec.datasetId}`);
     const id: LayerId = `layer${this.#nextId++}`;
-    const base = defaultLayerFor(id, ds as VolumeDataset | MeshDataset);
+    const base = defaultLayerFor(id, ds as VolumeDataset | MeshDataset, spec.kind);
     const layer = { ...base, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
     this.#store.addLayer(layer);
     // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
@@ -418,6 +453,7 @@ export class TetravoxEngine implements Engine {
     this.#store.removeLayer(id);
     this.#layers.get(id)?.dispose();
     this.#layers.delete(id);
+    this.#derived.dropLayer(id);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
   }
@@ -637,6 +673,7 @@ export class TetravoxEngine implements Engine {
       activeViewId: null,
       uiScale: Math.max(1, Math.round(this.#dpr())),
       showChrome: true,
+      derived: { store: this.#derived },
     };
   }
 
@@ -789,6 +826,8 @@ export class TetravoxEngine implements Engine {
     for (const rt of this.#layers.values()) rt.dispose();
     this.#layers.clear();
     this.#renderer.dispose();
+    this.#derived.dispose();
+    this.#cuts.dispose();
     this.#gpu.dispose();
     this.#timer.dispose();
     this.#listeners.clear();

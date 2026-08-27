@@ -26,3 +26,6 @@ export { drawGizmo } from './gizmo';
 export type { GizmoSpec } from './gizmo';
 export { drawEdgeLetters } from './letters';
 export type { EdgeLetters } from './letters';
+// E-DERIVED: the contour item's pure screen-space expansion, the CPU twin of `shaders/contour.ts`.
+export { contourInstanceCount, expandContourSegment } from './contours';
+export type { ContourQuad } from './contours';
