@@ -16,6 +16,8 @@
 
 import { Buffer, VertexArray } from '../../gl/buffer';
 import { Program } from '../../gl/program';
+import { GL_STATE } from '../../gl/state';
+import type { GlState } from '../../gl/state';
 import type { FramePass, PassContext } from './pass';
 import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
 import { FLOATS_PER_VERTEX, OverlayBuilder, badgeFor, buildChrome } from '../../overlay';
@@ -32,13 +34,15 @@ export class OverlayPass implements FramePass {
   readonly name = 'overlay' as const;
 
   readonly #gl: WebGL2RenderingContext;
+  readonly #state: GlState;
   readonly #program: Program;
   readonly #buf: Buffer;
   readonly #vao: VertexArray;
   readonly #builder = new OverlayBuilder();
 
-  constructor(gl: WebGL2RenderingContext) {
+  constructor(gl: WebGL2RenderingContext, state: GlState) {
     this.#gl = gl;
+    this.#state = state;
     this.#program = new Program(gl, OVERLAY_VS, OVERLAY_FS);
     this.#buf = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
     this.#vao = new VertexArray(gl);
@@ -100,9 +104,8 @@ export class OverlayPass implements FramePass {
     if (b.vertexCount === 0) return;
     const gl = this.#gl;
     // §7.2 pass 3: all clip distances disabled, no depth.
-    gl.disable(gl.DEPTH_TEST);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    this.#state.apply(GL_STATE.blend2d);
+    this.#state.clipDistances(0);
     this.#buf.update(b.build());
     this.#program.use();
     gl.activeTexture(gl.TEXTURE0);

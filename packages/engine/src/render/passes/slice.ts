@@ -19,6 +19,8 @@
 
 import { Buffer, VertexArray } from '../../gl/buffer';
 import { ProgramVariants } from '../../gl/program';
+import { GL_STATE } from '../../gl/state';
+import type { GlState } from '../../gl/state';
 import { collectDrawItems } from './pass';
 import type { DrawInput, FramePass, PassContext } from './pass';
 import { SLICE_FS, SLICE_VS } from '../../shaders';
@@ -37,13 +39,15 @@ export class SlicePass implements FramePass {
   readonly name = 'slice' as const;
 
   readonly #gl: WebGL2RenderingContext;
+  readonly #state: GlState;
   readonly #program: ProgramVariants;
   readonly #quadBuf: Buffer;
   readonly #quadVao: VertexArray;
   readonly #quadData = new Float32Array(18);
 
-  constructor(gl: WebGL2RenderingContext) {
+  constructor(gl: WebGL2RenderingContext, state: GlState) {
     this.#gl = gl;
+    this.#state = state;
     this.#program = new ProgramVariants(gl, SLICE_VS, SLICE_FS);
     this.#quadBuf = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
     this.#quadVao = new VertexArray(gl);
@@ -105,9 +109,7 @@ export class SlicePass implements FramePass {
     const gl = this.#gl;
     const { scene } = input;
     // §7.3: depth test OFF for the whole 2D slice-layer pass; order is layer order, bottom -> top.
-    gl.disable(gl.DEPTH_TEST);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    this.#state.apply(GL_STATE.blend2d);
 
     const basis = sliceBasis(view, scene.radiological);
     this.#writeQuad(scene.cursor, basis.right, basis.up, this.quadHalfFor(view, rect, scene));

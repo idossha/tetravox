@@ -8,15 +8,19 @@
  * 3. **Overlay** — `passes/overlay.ts`.
  * 4. **Pick** — on demand, `passes/pick.ts`.
  *
- * The per-pass GL state, programs and buffers belong to the pass modules. This file knows the order
- * and the pane rectangle, and that is deliberately all it knows: §7.2's order is a contract, and a
- * file that also drew would let a feature change it by accident.
+ * Programs and buffers belong to the pass modules; the **GL state** they run in belongs to
+ * `gl/state.ts`, and this file owns the one {@link GlState} they share. A pass never issues a raw
+ * depth / blend / cull call — it enters a complete named block — so an appended fifth or sixth pass
+ * cannot inherit whatever the fourth left enabled. Beyond that this file knows the order and the
+ * pane rectangle, and deliberately nothing else: §7.2's order is a contract, and a file that also
+ * drew would let a feature change it by accident.
  *
  * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** A new pass is appended to the
  * sequence in {@link Renderer.renderView}; existing entries are never reordered.
  */
 
 import type { Capabilities } from '../gl/caps';
+import { GL_STATE, GlState } from '../gl/state';
 import { MeshPass } from './passes/mesh';
 import { OverlayPass } from './passes/overlay';
 import { PickPass } from './passes/pick';
@@ -32,6 +36,8 @@ import type { PickResult } from '../api';
 export class Renderer {
   readonly #gl: WebGL2RenderingContext;
   readonly #caps: Capabilities;
+  /** One tracker per context, shared by every pass — GL state is global (`gl/state.ts`). */
+  readonly #state: GlState;
   readonly #slice: SlicePass;
   readonly #mesh: MeshPass;
   readonly #overlay: OverlayPass;
@@ -40,10 +46,11 @@ export class Renderer {
   constructor(gl: WebGL2RenderingContext, caps: Capabilities) {
     this.#gl = gl;
     this.#caps = caps;
-    this.#slice = new SlicePass(gl);
-    this.#mesh = new MeshPass(gl);
-    this.#overlay = new OverlayPass(gl);
-    this.#pick = new PickPass(gl);
+    this.#state = new GlState(gl);
+    this.#slice = new SlicePass(gl, this.#state);
+    this.#mesh = new MeshPass(gl, this.#state);
+    this.#overlay = new OverlayPass(gl, this.#state);
+    this.#pick = new PickPass(gl, this.#state);
   }
 
   get caps(): Capabilities {
@@ -69,6 +76,9 @@ export class Renderer {
     const bg = input.scene.background;
     gl.clearColor(bg[0], bg[1], bg[2], bg[3]);
     gl.clearDepth(1);
+    // `gl.clear(DEPTH_BUFFER_BIT)` is masked by `depthMask`, so the clear gets a named state block
+    // too rather than trusting the last pass of the previous pane to have restored depth writes.
+    this.#state.apply(GL_STATE.opaque3d);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     const camera = this.#camera(view, rect, input.scene);

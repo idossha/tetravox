@@ -1368,3 +1368,24 @@ Each entry below names the problem, the fix, and the evidence.
   (`SurfacePayload.positions` + `ownerElm` + a field texture), so this one is a scope decision
   E-DERIVED must take before writing the shader. Nine other Phase-2 needs were checked against the
   protocol and are already covered; they are listed in the map so nobody re-files them.
+- 2026-08-27 — **`gl/state.ts`: one state tracker, five complete named blocks, no raw depth/blend/cull
+  call in a pass.** The audit's code-quality risk 2 survived the pass split: `passes/slice.ts` and
+  `passes/overlay.ts` held the same three lines verbatim, `passes/mesh.ts` and `passes/pick.ts` each
+  rolled their own set, nothing restored what it changed, and `passes/pass.ts` had codified "a pass
+  owns its GL state" as the design. Combined with `renderer.ts`'s additive-only "append a pass to the
+  sequence" rule that makes the *fifth* pass (E-DERIVED's contours) and the *sixth* (E-SCENE's gizmo
+  items) inherit whatever the fourth left enabled — a merge boundary that only holds by luck. Each
+  block now names **every** tracked field (`DEPTH_TEST`, `depthFunc`, `depthMask`, `BLEND`,
+  `blendFunc`, `CULL_FACE`, `cullFace`), so a pass's entry state is independent of what ran before
+  it, and the tracker issues only the calls that change, so completeness is free per frame. §7.4's
+  cap rule — "disable `CLIP_DISTANCE0_WEBGL + i` for the draw of plane *i*'s cap" — is
+  `clipDistances(count, except)` here rather than six copies in E-MESH's and E-DERIVED's files; it
+  emits no call while the set is empty, which is what keeps it safe on a context with no
+  `WEBGL_clip_cull_distance`. **`SCISSOR_TEST` is deliberately not tracked**: `renderer.ts` and
+  `engine.ts` set it around panes and frames, and two owners of one piece of state is how a tracker
+  goes stale. `Renderer.renderView` applies a block *before* `gl.clear`, because
+  `clear(DEPTH_BUFFER_BIT)` is masked by `depthMask` and previously depended on `passes/mesh.ts`
+  having restored it. Every golden is byte-identical and the e2e suite passes on both Playwright
+  projects — state is state, and each draw sees the same state it saw before. Landing it after the
+  Phase-2 branches, when six passes and four owners would have to be converted at once — rejected:
+  four is the cheapest this ever gets.

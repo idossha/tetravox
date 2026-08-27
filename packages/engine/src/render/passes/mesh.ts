@@ -20,6 +20,8 @@
  */
 
 import { Program } from '../../gl/program';
+import { GL_STATE } from '../../gl/state';
+import type { GlState } from '../../gl/state';
 import { VertexArray } from '../../gl/buffer';
 import { collectDrawItems } from './pass';
 import type { FramePass, PassContext } from './pass';
@@ -32,10 +34,12 @@ export class MeshPass implements FramePass {
   readonly name = 'mesh' as const;
 
   readonly #gl: WebGL2RenderingContext;
+  readonly #state: GlState;
   readonly #program: Program;
 
-  constructor(gl: WebGL2RenderingContext) {
+  constructor(gl: WebGL2RenderingContext, state: GlState) {
     this.#gl = gl;
+    this.#state = state;
     this.#program = new Program(gl, MESH_VS, MESH_FS);
   }
 
@@ -44,12 +48,8 @@ export class MeshPass implements FramePass {
     // Phase 1 draws meshes in 3D panes only; the runtimes already return nothing for a 2D pane, and
     // this guard keeps the GL state changes below off the 2D path entirely.
     if (isSliceView(view)) return;
-    const gl = this.#gl;
+    const state = this.#state;
     const draws = collectDrawItems(input, view).filter((d): d is MeshDrawItem => d.kind === 'mesh');
-
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LEQUAL);
-    gl.depthMask(true);
 
     const prog = this.#program;
     prog.use();
@@ -61,25 +61,18 @@ export class MeshPass implements FramePass {
     const translucent = draws.filter((d) => d.layer.opacity < 1);
 
     // Pass 1 — opaque.
-    gl.disable(gl.BLEND);
+    state.apply(GL_STATE.opaque3d);
     for (const d of opaque) {
       // §7.4: `faceMode` is forced to 'both' when orient.openComponents > 0, which every tagged
       // tissue surface hits — an interface triangle's winding is arbitrary.
-      if (d.layer.faceMode === 'cull' && d.ds.orient.openComponents === 0) {
-        gl.enable(gl.CULL_FACE);
-        gl.cullFace(gl.BACK);
-      } else {
-        gl.disable(gl.CULL_FACE);
-      }
+      const cull = d.layer.faceMode === 'cull' && d.ds.orient.openComponents === 0;
+      state.cull(cull ? 'back' : 'none');
       this.#draw(d, prog, 1);
     }
 
     // Pass 2 — transparent, two phases (§7.2). Sorted back-to-front by the depth of the sheet each
     // phase draws; with one shell per layer the centre depth is that ordering.
     if (translucent.length > 0) {
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      gl.depthMask(false);
       const depthOf = (d: MeshDrawItem): number => {
         const b = d.ds.bounds;
         const c: vec3 = [
@@ -92,17 +85,17 @@ export class MeshPass implements FramePass {
       const sorted = [...translucent].sort((a, b) => depthOf(b) - depthOf(a));
       const split = sorted.filter((d) => d.layer.faceMode === 'cull');
       const both = sorted.filter((d) => d.layer.faceMode !== 'cull');
-      gl.enable(gl.CULL_FACE);
-      gl.cullFace(gl.FRONT); // 2a — back faces
+      state.apply(GL_STATE.transparentBack); // 2a — back faces
       for (const d of split) this.#draw(d, prog, 1);
-      gl.cullFace(gl.BACK); // 2b — front faces
+      state.apply(GL_STATE.transparentFront); // 2b — front faces
       for (const d of split) this.#draw(d, prog, 1);
       // Layers with faceMode 'both' are excluded from the split and drawn last in 2b (§7.2).
-      gl.disable(gl.CULL_FACE);
+      state.cull('none');
       for (const d of both) this.#draw(d, prog, 1);
-      gl.depthMask(true);
     }
-    gl.disable(gl.CULL_FACE);
+    // Depth writes back on before the pass returns: `render/renderer.ts` clears the next pane's
+    // depth buffer, and `gl.clear(DEPTH_BUFFER_BIT)` is masked by `depthMask`.
+    state.apply(GL_STATE.opaque3d);
   }
 
   /**

@@ -22,6 +22,8 @@
 import { Framebuffer } from '../../gl/framebuffer';
 import { VertexArray } from '../../gl/buffer';
 import { Program } from '../../gl/program';
+import { GL_STATE } from '../../gl/state';
+import type { GlState } from '../../gl/state';
 import { collectPickItems } from './pass';
 import type { DrawInput, Pass, PassContext } from './pass';
 import type { SliceQuad } from './slice';
@@ -64,14 +66,16 @@ export class PickPass implements Pass {
   readonly name = 'pick' as const;
 
   readonly #gl: WebGL2RenderingContext;
+  readonly #state: GlState;
   readonly #mesh: Program;
   readonly #slice: Program;
   #fbo: Framebuffer | null = null;
   #readFormat: GLenum;
   #readType: GLenum;
 
-  constructor(gl: WebGL2RenderingContext) {
+  constructor(gl: WebGL2RenderingContext, state: GlState) {
     this.#gl = gl;
+    this.#state = state;
     this.#mesh = new Program(gl, MESH_PICK_VS, PICK_FS);
     this.#slice = new Program(gl, SLICE_PICK_VS, SLICE_PICK_FS);
     // §7.2.3: "read the enum, do not hardcode". The implementation-defined pair is
@@ -121,15 +125,13 @@ export class PickPass implements Pass {
 
     gl.enable(gl.SCISSOR_TEST);
     gl.scissor(x0, y0, PICK_RECT, PICK_RECT);
+    // Before the clears, not after: `clearBufferfi(DEPTH_STENCIL, …)` is masked by `depthMask`, so
+    // the depth clear below only happens because this block turns depth writes on.
+    this.#state.apply(GL_STATE.pick);
     // 0 means miss.
     gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]));
     gl.clearBufferuiv(gl.COLOR, 1, new Uint32Array([0, 0, 0, 0]));
     gl.clearBufferfi(gl.DEPTH_STENCIL, 0, 1, 0);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LESS);
-    gl.depthMask(true);
-    gl.disable(gl.BLEND);
-    gl.disable(gl.CULL_FACE);
 
     for (const { item, layerIndex } of collectPickItems(input, view)) {
       if (item.kind === 'mesh') this.#drawMesh(item, layerIndex, viewProj);
