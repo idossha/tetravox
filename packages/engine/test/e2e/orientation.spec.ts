@@ -148,7 +148,7 @@ async function setup(page: Page, view: Preset): Promise<Scene> {
       // Order matters: the engine centres the cursor and refits every pane on the first dataset.
       engine.setCursor(cur as [number, number, number]);
       engine.setView(id as string, { camera: { center: [0, 0], mmPerPx: mm as number } });
-      (engine as unknown as { setAnnotations(p: object): void }).setAnnotations({
+      engine.setAnnotations({
         crosshair: false,
         orientationLabels: false,
         cornerInfo: false,

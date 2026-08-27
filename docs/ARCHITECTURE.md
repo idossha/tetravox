@@ -484,7 +484,14 @@ opens a "relocate" dialog keyed on `fingerprint`.
 ### 4.7 Engine facade
 
 `packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. `MockEngine` implements it
-with no GL so the app agent can build the entire UI in Phase 1. It imports the §4.1–§4.6 types from
+with no GL — a *compile-time* proof that the facade is implementable without a context; the behavioural no-GL
+engine the app is developed against is `packages/app`'s `NoGlEngine`, which implements the same interface.
+
+**Everything the UI can do must be reachable from the `Engine` API alone** (§8), so the five members
+`resetView` / `cameraPreset` / `setAnnotations` / `heapBytes` / `renderNow` are part of the interface rather
+than optional extras the app probes for at runtime. Phase 1 shipped them on the concrete engine only, and the
+app reached them by declaring parallel optional interfaces and duck-typing — which meant nothing type-checked
+those calls against a contract. They are named here now (see `docs/DECISIONS.md`, 2026-08-27). It imports the §4.1–§4.6 types from
 `./scene/types`, `Capabilities` from `./gl/caps` (§7.1), and — from Phase 1 — the concrete `TetravoxEngine` from
 `./engine`, which is the single **value** import and exists only so `create()` can return a working engine
 synchronously. Nothing else. (Phase 0 said "exactly two things"; the third was added when `create()` stopped
@@ -498,6 +505,8 @@ export type DatasetSource =                     // maps 1:1 onto protocol `LoadS
       sidecars?: { lut?: ArrayBuffer; opt?: ArrayBuffer } };
 
 export type NewLayer = { datasetId: DatasetId; kind: Layer['kind'] } & Partial<Layer>;
+
+export type CameraPreset = 1 | 2 | 3 | 4 | 5 | 6 | 'A' | 'P' | 'L' | 'R' | 'S' | 'I';   // §7.5
 
 export interface PickResult {
   layerId: LayerId; datasetId: DatasetId;
@@ -571,7 +580,13 @@ export interface Engine {
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
 
+  resetView(viewId: ViewId): void;              // §7.5 `r`: refit to the scene bounds
+  cameraPreset(viewId: ViewId, preset: CameraPreset): void;        // §7.5 `1..6`
+  setAnnotations(patch: Partial<Annotations>): void;               // §7.5 `c` + the §4.5 block
+  heapBytes(id: DatasetId): number | undefined; // §8 status bar, from that dataset's last Res (§6.5.2)
+
   requestRender(viewId?: ViewId): void;
+  renderNow(): void;                            // draw synchronously — §11 readback, screenshot path
   whenSettled(): Promise<void>;                 // §7.2 — every golden test awaits this
   screenshot(opts: ScreenshotOptions): Promise<Blob>;
   readPixel(viewId: ViewId, px: number, py: number): Uint8Array;   // RGBA8, backs expectPixel (§11)
@@ -2174,7 +2189,7 @@ to prove the `.msh.opt` parses. Reference values for the *real* dataset come fro
 
 | Test | Asserts |
 |---|---|
-| Overlay compositing (Phase 1) | `Thalamus_TI_subject_TI_max.nii.gz` over `T1.nii.gz` (genuinely different extents) on an **oblique 2D view**: the overlay's visible pixel count within its own footprint is **exactly 100 %**. A percentage tolerance would let the coplanar-depth bug ship. Two volume layers only — no mesh, no 3D. |
+| Overlay compositing (Phase 1) | `Thalamus_TI_subject_TI_max.nii.gz` over `T1.nii.gz` on an **oblique 2D view**: the overlay's visible pixel count within its own footprint is **exactly 100 %**. A percentage tolerance would let the coplanar-depth bug ship. Two volume layers only — no mesh, no 3D. The named file matters because it is a **continuous scalar** field (0 … 3.152 `[DATA]`) and therefore takes the colormap-and-blend path; a label volume takes §7.3's `R8UI` + palette branch instead, where opacity is decided per label. (Phase 1's contract said "genuinely different extents": that is **false** — `T1.nii.gz`, `labeling.nii.gz` and `Thalamus_TI_subject_TI_max.nii.gz` all share the 256×256×208 grid and the same affine to 4 decimals `[DATA]` — and substituting the label volume on the strength of it is how the continuous-scalar case came to be covered nowhere.) "Exactly 100 %" is asserted as **independence over every pixel of the pane**: at opacity 1 the composite must not change when the layer underneath it does, tested by hiding the base and by re-windowing it. |
 | Overlay compositing in 3D (Phase 2) | The same pair on an oblique plane **in the 3D view**, i.e. with `VolumeLayer.showIn3D`, asserting the same exact-100 % count under `depthFunc(LEQUAL)`. This is the variant that pins §7.3's shared-plane-geometry rule; it needs the `showIn3D` plane path, which Phase 2 owns. |
 | Label outline zoom | `labeling.nii.gz` in `outline` mode at 0.05, 1.0 and 5.0 mm/px: measured thickness in **[0.8, 2.9] px** and ≥ 99 % coverage of the fill boundary at each. A voxel-space regression blows the upper bound immediately (12.87 px at 0.05 mm/px). |
 | Clip-path equivalence | Every clip golden runs twice — `gl_ClipDistance` and `TETRAVOX_FORCE_DISCARD_CLIP=1` — asserting identical pixels. |

@@ -1184,3 +1184,16 @@ Each entry below names the problem, the fix, and the evidence.
   `e2e/fixtures.ts::packagedUnavailable()` exists precisely to prevent that and every other app spec
   already used it. The same spec now also asserts §8's readout on the DOM — the coordinate bar and
   the `Cursor` block against `scene.cursor` — which is the app-visible half of the auto-centre bug.
+- 2026-08-27 — **§4.7 names the five members the app was duck-typing, and the parallel interfaces are
+  gone.** `resetView`, `cameraPreset`, `setAnnotations`, `heapBytes` and `renderNow` existed on the
+  concrete engine only; `packages/app/src/renderer/src/engine/commands.ts` re-declared three of them
+  as optional interfaces and probed with a runtime `hasAll(...)` guard, and the engine's own e2e
+  reached them through `engine as unknown as { … }` casts — so `create()` returned an `Engine` that
+  type-checked *none* of those calls. The earlier entry recorded the gap and said "leaving it
+  duck-typed forever is not the third option"; this is the first of the two closures it named.
+  §8's own rule decides it: *"Everything the UI can do must be reachable from the `Engine` API
+  alone"*. ARCHITECTURE §4.7 was edited in the same commit (§12.3), `MockEngine` grew the five
+  members, `NoGlEngine` grew `renderNow`, `commands.ts` is deleted and every cast in the specs with
+  it. `MockEngine`'s docstring now says what it is — a **compile-time** proof that the facade is
+  implementable with no GL, which is exactly what fails the build if `Engine` grows something
+  unimplementable — and points at `NoGlEngine` for behaviour.

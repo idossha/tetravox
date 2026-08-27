@@ -99,7 +99,9 @@ export async function readCanvasRect(
       const gl = el.getContext('webgl2');
       if (gl === null) throw new Error('canvas has no webgl2 context');
       if (rx < 0 || ry < 0 || rx + rw > el.width || ry + rh > el.height) {
-        throw new Error(`rect ${rx},${ry} ${rw}x${rh} is outside the ${el.width}x${el.height} canvas`);
+        throw new Error(
+          `rect ${rx},${ry} ${rw}x${rh} is outside the ${el.width}x${el.height} canvas`
+        );
       }
       window.__tvxRender?.();
       const px = new Uint8Array(rw * rh * 4);

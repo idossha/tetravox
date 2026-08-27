@@ -48,7 +48,6 @@ import type {
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
-import type { EngineHeapReporter, EngineViewCommands } from './commands';
 import type { CameraPreset } from '../lib/keymap';
 import { PHASES } from '../lib/loads';
 import { encodePng } from '../lib/png';
@@ -105,7 +104,7 @@ const FULL_QUALITY: QualityLevel = {
 // listener can satisfy. The two casts below are the whole cost, and `on`/`emit` stay typed.
 type Listeners = { [E in keyof EngineEvents]?: Set<(p: never) => void> };
 
-export class NoGlEngine implements Engine, EngineViewCommands, EngineHeapReporter {
+export class NoGlEngine implements Engine {
   private readonly listeners: Listeners = {};
   private readonly stepMs: number;
   private readonly parseFailSubstring: string | null;
@@ -542,6 +541,11 @@ export class NoGlEngine implements Engine, EngineViewCommands, EngineHeapReporte
       cpuMs,
       quality: this.state.quality.name,
     });
+  }
+
+  /** There is no drawing buffer here, so "now" and "at the next frame" are the same thing. */
+  renderNow(): void {
+    this.requestRender();
   }
 
   whenSettled(): Promise<void> {

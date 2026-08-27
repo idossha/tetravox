@@ -17,6 +17,7 @@
  */
 
 import type {
+  Annotations,
   Dataset,
   DatasetId,
   DatasetRef,
@@ -48,6 +49,9 @@ export type DatasetSource =
     };
 
 export type NewLayer = { datasetId: DatasetId; kind: Layer['kind'] } & Partial<Layer>;
+
+/** §7.5's `1..6` camera presets: anterior, posterior, left, right, superior, inferior. */
+export type CameraPreset = 1 | 2 | 3 | 4 | 5 | 6 | 'A' | 'P' | 'L' | 'R' | 'S' | 'I';
 
 export interface PickResult {
   layerId: LayerId;
@@ -161,7 +165,18 @@ export interface Engine {
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
 
+  /** §7.5 `r`: refit a view to the scene bounds. Engine maths, not the embedder's (§8). */
+  resetView(viewId: ViewId): void;
+  /** §7.5 `1..6`: the A/P/L/R/S/I camera presets on the 3D view. */
+  cameraPreset(viewId: ViewId, preset: CameraPreset): void;
+  /** §7.5 `c` and the rest of the §4.5 `Annotations` block; `conventionBadge` stays true (§8). */
+  setAnnotations(patch: Partial<Annotations>): void;
+  /** §8 status bar: wasm `heapBytes` from that dataset's last `Res` (§6.5.2). */
+  heapBytes(id: DatasetId): number | undefined;
+
   requestRender(viewId?: ViewId): void;
+  /** Draw now, synchronously, instead of at the next rAF — §11's readback and the screenshot path. */
+  renderNow(): void;
   /** §7.2 — every golden test awaits this. */
   whenSettled(): Promise<void>;
   screenshot(opts: ScreenshotOptions): Promise<Blob>;
@@ -182,10 +197,14 @@ export function create(canvas: HTMLCanvasElement, opts?: EngineOptions): Engine 
 }
 
 /**
- * A no-GL `Engine` so the app agent can build the entire UI in Phase 1 (§4.7, §12.3 item 3).
+ * A no-GL `Engine` (§4.7, §12.3 item 3).
  *
- * Phase 0 ships the shape only: every member throws `'phase 1'`. It is deliberately a `class` and not
- * an object literal, so `new MockEngine()` is a compile-time proof that the facade is implementable.
+ * It is deliberately a `class` and not an object literal: `class MockEngine implements Engine` is a
+ * **compile-time proof that the facade is implementable without GL**, and it is what fails the build
+ * the moment `Engine` grows a member nothing can satisfy. That is its whole job — every member
+ * throws, and the *behavioural* no-GL engine the app is developed against is
+ * `packages/app/src/renderer/src/engine/mockEngine.ts`'s `NoGlEngine`, which implements the same
+ * interface for real.
  */
 export class MockEngine implements Engine {
   get caps(): Capabilities {
@@ -273,8 +292,29 @@ export class MockEngine implements Engine {
     throw new Error('phase 1');
   }
 
+  resetView(viewId: ViewId): void {
+    void viewId;
+    throw new Error('phase 1');
+  }
+  cameraPreset(viewId: ViewId, preset: CameraPreset): void {
+    void viewId;
+    void preset;
+    throw new Error('phase 1');
+  }
+  setAnnotations(patch: Partial<Annotations>): void {
+    void patch;
+    throw new Error('phase 1');
+  }
+  heapBytes(id: DatasetId): number | undefined {
+    void id;
+    throw new Error('phase 1');
+  }
+
   requestRender(viewId?: ViewId): void {
     void viewId;
+    throw new Error('phase 1');
+  }
+  renderNow(): void {
     throw new Error('phase 1');
   }
   whenSettled(): Promise<void> {

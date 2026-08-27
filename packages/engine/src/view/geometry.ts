@@ -305,7 +305,10 @@ export function presetRotation(index: number): [number, number, number, number] 
  * dataset permutes them — `T1.nii.gz` maps `world x ← k`, `world y ← −i`, `world z ← j` `[DATA]`,
  * so its axial planes step along voxel `j` and its sagittal planes along voxel `k`.
  */
-export function voxelAxisAlong(normal: vec3, affine: Float32Array): { axis: 0 | 1 | 2; mm: number } {
+export function voxelAxisAlong(
+  normal: vec3,
+  affine: Float32Array
+): { axis: 0 | 1 | 2; mm: number } {
   let axis: 0 | 1 | 2 = 2;
   let best = -1;
   for (let a = 0; a < 3; a += 1) {

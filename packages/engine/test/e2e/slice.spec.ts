@@ -82,7 +82,7 @@ test('a label volume paints each region its LUT colour, at the voxel the affine 
       engine.setLayout({ kind: '1x1', cells: ['axial'] });
       engine.setCursor(cur as [number, number, number]);
       engine.setView('axial', { camera: { center: [0, 0], mmPerPx: mmPerPx as number } });
-      (engine as unknown as { setAnnotations(p: object): void }).setAnnotations({
+      engine.setAnnotations({
         crosshair: false,
         orientationLabels: false,
         cornerInfo: false,

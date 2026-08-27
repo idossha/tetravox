@@ -14,6 +14,7 @@
  */
 
 import type {
+  CameraPreset,
   Dataset,
   DatasetId,
   Engine,
@@ -30,7 +31,6 @@ import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import type { Command } from '../lib/keymap';
 import { LAYOUT_CYCLE, layoutCells, nextLayout } from '../lib/layout';
-import { heapReporter, viewCommands } from '../engine/commands';
 import * as loads from '../lib/loads';
 import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
@@ -70,7 +70,6 @@ export class ShellController {
 
   attach(): void {
     const { engine, store } = this;
-    const commands = viewCommands(engine);
 
     store.setState({
       status: 'ready',
@@ -111,10 +110,6 @@ export class ShellController {
       engine.on('error', (error) => this.onEngineError(error))
     );
 
-    if (commands === null) {
-      bridge().log('engine has no view commands: r / 1-6 / c are disabled (see DECISIONS.md)');
-    }
-
     // §8: "fps = frames drawn in the last second (0 when idle is correct under render-on-demand)".
     // Nothing re-renders when nothing is drawn, so the decay to zero needs its own heartbeat.
     this.tickTimer = setInterval(() => {
@@ -133,11 +128,9 @@ export class ShellController {
   }
 
   private readHeap(datasets: readonly Dataset[]): Record<DatasetId, number> {
-    const reporter = heapReporter(this.engine);
-    if (reporter === null) return {};
     const out: Record<DatasetId, number> = {};
     for (const dataset of datasets) {
-      const bytes = reporter.heapBytes(dataset.id);
+      const bytes = this.engine.heapBytes(dataset.id);
       if (bytes !== undefined) out[dataset.id] = bytes;
     }
     return out;
@@ -408,28 +401,21 @@ export class ShellController {
   }
 
   toggleCrosshair(): void {
-    const commands = viewCommands(this.engine);
-    if (commands === null) return;
     const next = !this.store.getState().crosshair;
-    commands.setAnnotations({ crosshair: next });
+    this.engine.setAnnotations({ crosshair: next });
     this.store.setState({ crosshair: next });
     this.engine.requestRender();
   }
 
   resetActiveView(): void {
-    const commands = viewCommands(this.engine);
     const viewId = this.store.getState().activeViewId;
-    if (commands === null || viewId === null) return;
-    commands.resetView(viewId);
+    if (viewId === null) return;
+    this.engine.resetView(viewId);
     this.engine.requestRender();
   }
 
-  cameraPreset(
-    preset: Parameters<NonNullable<ReturnType<typeof viewCommands>>['cameraPreset']>[1]
-  ): void {
-    const commands = viewCommands(this.engine);
-    if (commands === null) return;
-    commands.cameraPreset(this.engine.scene.view3d.id, preset);
+  cameraPreset(preset: CameraPreset): void {
+    this.engine.cameraPreset(this.engine.scene.view3d.id, preset);
     this.engine.requestRender();
   }
 

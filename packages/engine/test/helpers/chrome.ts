@@ -13,7 +13,15 @@
  * assertion is on the pixels a user sees.
  */
 
-import { ATLAS_CELLS, ATLAS_W, CELL_W, GLYPH_H, GLYPH_W, buildAtlas, cellOf } from '../../src/render/font';
+import {
+  ATLAS_CELLS,
+  ATLAS_W,
+  CELL_W,
+  GLYPH_H,
+  GLYPH_W,
+  buildAtlas,
+  cellOf,
+} from '../../src/render/font';
 import { readCanvasRect } from './pixels';
 import type { Page, Locator } from '@playwright/test';
 
