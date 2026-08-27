@@ -1414,3 +1414,32 @@ Each entry below names the problem, the fix, and the evidence.
   `layers/runtime.ts` unclaimed. Also recorded: audit id **P2-11** now appears by name (it is §10's
   whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
   "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.
+
+- 2026-08-27 — **§7.4's masked barycentric edges select with `mix(vec3, vec3, bvec3)`, never the
+  float `mix` and a 1e9 sentinel.** §7.4 states the edge mechanism as `d = bary / fwidth(bary)` with
+  `d[i] = 1e9` for a cleared `edgeMask` bit. Written the obvious way —
+  `mix(vec3(1e9), bary / fwidth(bary), edgeOn)` — it is wrong, and wrong in a way that looks like a
+  geometry bug: the float overload is specified as `x + a*(y - x)`, so a *kept* edge evaluates
+  `1e9 + 1.0*(d - 1e9)`, and in f32 `d - 1e9` rounds to exactly `-1e9` for every `d` a barycentric
+  distance can produce. The sum is 0, every fragment reports distance zero, and the whole primitive
+  is painted in the edge colour — measured on the fixture cap, where the entire cross-section came
+  back solid black `[SwS]`. The `bvec3` overload is a genuine per-component select and does no
+  arithmetic at all. The bug reached both the surface and the cap path because §7.4 asks for **one**
+  edge mechanism for both, so one line fixed both; `test/e2e/mesh-clip.spec.ts`'s cap-diagonal test
+  is what catches it, by asserting that a suppressed 2-2 diagonal is *not* the edge colour while the
+  quad's real edge is. Keeping the float `mix` with a smaller sentinel — rejected: any sentinel large
+  enough to lose the `min` is large enough to annihilate `d`.
+
+- 2026-08-27 — **`CutManager` applies a result that is the newest one *seen*, not the newest one
+  *issued*.** §5 rule 6's latest-wins is implemented in `ComputeClient`: one request in flight and at
+  most one queued per key, a new request replacing the queued one, and *"an in-flight request has no
+  abort flag"* — it runs to completion and its result arrives. The manager's own guard compared the
+  returning ticket against the newest ticket *issued*, which is a different thing: during a gizmo
+  drag the plane moves every frame, so every result is superseded before it lands and **not one
+  cross-section is ever delivered**. Measured on `ernie.msh` at 120 fps against a ~17 ms cut: zero
+  cuts applied in a two-second drag, the cap frozen where the drag began; with the fix, 113. The
+  guarantee that motivated the guard is kept by comparing against the newest ticket *applied*: a
+  snapshot is still never replaced by an older one, `generation` is still monotonic, and removing the
+  last plane still burns a ticket so an in-flight cut cannot resurrect the caps. Queueing inside the
+  manager instead — rejected: `ComputeClient` already coalesces per key, and a second queue would
+  only add a second place for the newest request to be lost.

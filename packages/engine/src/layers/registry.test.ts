@@ -32,6 +32,7 @@ const EMPTY_CONTEXT: LayerRuntimeContext = {
   track: <T>(p: Promise<T>) => p,
   // No dataset resolves, so every `requestCut` is a no-op — which is what a registry test wants.
   cuts: new CutManager(() => undefined),
+  dataset: () => undefined,
 };
 
 const AXIAL: SliceView = {

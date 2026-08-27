@@ -555,3 +555,60 @@ describe('CutManager — the recycled reply (§6.4)', () => {
     expect(client.cuts).toHaveLength(1);
   });
 });
+
+describe('CutManager — a drag is not starved by its own newest request', () => {
+  it('applies a result that is still the newest **seen**, not only the newest **issued**', async () => {
+    // The bug this pins is the one a real drag hits and no earlier test could: `ComputeClient`
+    // keeps one request in flight and one queued per key, and an in-flight request "has no abort
+    // flag" — it runs to completion and its result arrives. If the manager drops that result
+    // because newer requests have since been *issued*, a drag that moves the plane every frame
+    // never lands a single cut. Measured on ernie at 120 fps against a ~150 ms cut: zero
+    // cross-sections in two seconds, the cap frozen where the drag began.
+    const client = new FakeCutClient();
+    const m = manager(client);
+    const opts = { wantEdges: false, wantBoundary: false };
+    const seen: (CutSnapshot | null)[] = [];
+    m.onCut('ds1', CUT_KEY_3D_CLIP, (s) => seen.push(s));
+
+    // Ten frames of a drag, none of them settled yet.
+    for (let i = 0; i < 10; i += 1) {
+      m.requestCut('ds1', CUT_KEY_3D_CLIP, [{ normal: [0, 0, 1], offset: -i }], opts);
+      await drain();
+    }
+    expect(client.cuts).toHaveLength(10);
+    expect(seen).toEqual([]);
+
+    // The first one — the one that was actually in flight — comes back.
+    await client.settle(0, { mode: 'buffers', cuts: [payload(0, 4)] });
+    expect(seen).toHaveLength(1);
+    expect(m.getCut('ds1', CUT_KEY_3D_CLIP)?.triangleCount).toBe(4);
+    expect(m.getCut('ds1', CUT_KEY_3D_CLIP)?.generation).toBe(1);
+
+    // …and then a later one, which supersedes it.
+    await client.settle(7, { mode: 'buffers', cuts: [payload(0, 6)] });
+    expect(m.getCut('ds1', CUT_KEY_3D_CLIP)?.triangleCount).toBe(6);
+    expect(m.getCut('ds1', CUT_KEY_3D_CLIP)?.generation).toBe(2);
+
+    // …while one that started before it must still be refused, however late it arrives: the
+    // guarantee is that a snapshot is never replaced by an older one.
+    await client.settle(3, { mode: 'buffers', cuts: [payload(0, 99)] });
+    expect(m.getCut('ds1', CUT_KEY_3D_CLIP)?.triangleCount).toBe(6);
+    expect(m.getCut('ds1', CUT_KEY_3D_CLIP)?.generation).toBe(2);
+  });
+
+  it('removing the last plane refuses an in-flight cut rather than resurrecting the caps', async () => {
+    const client = new FakeCutClient();
+    const m = manager(client);
+    const opts = { wantEdges: false, wantBoundary: false };
+    m.requestCut('ds1', CUT_KEY_3D_CLIP, [AXIAL], opts);
+    await drain();
+    m.requestCut('ds1', CUT_KEY_3D_CLIP, [], opts);
+    expect(m.getCut('ds1', CUT_KEY_3D_CLIP)).toBeNull();
+
+    await client.settle(0, { mode: 'buffers', cuts: [payload(0, 5)] });
+    expect(
+      m.getCut('ds1', CUT_KEY_3D_CLIP),
+      'no planes means no cut, late result or not'
+    ).toBeNull();
+  });
+});

@@ -63,10 +63,28 @@ export const MESH_ATTR = {
   corner: 2,
   /** 3 is deliberately unused: §7.4's `edgeMask` is per triangle and lives in a texture, not here. */
   nodeIndex: 4,
+  // §7.4's cap VBO set, which names tag / owner / edgeMask as **buffers** rather than as the
+  // textures the surface path fetches at `gl_VertexID / 3` — see {@link GpuStore.uploadCaps}.
+  capInterpNodes: 5,
+  capInterpT: 6,
+  capTag: 7,
+  capOwner: 8,
+  capEdgeMask: 9,
 } as const;
 
 /** §7.4's default `edgeMask`: all three edges are real element edges. */
 export const EDGE_MASK_ALL = 0b111;
+
+/**
+ * The `GpuStore` key of one mesh layer's cap VBO set: `${layerId}|caps`.
+ *
+ * Keyed by **layer**, not by dataset: `MeshLayer.clip` is per layer, so two layers over one mesh can
+ * carry two different plane sets and two different cap buffers. (The `cut` they read is keyed by
+ * `(datasetId, '3d-clip')` — §7.4's own key — so they share the worker round trip.)
+ */
+export function capKey(layerId: string): string {
+  return `${layerId}|caps`;
+}
 
 export interface SurfaceGeometry {
   vao: VertexArray;
@@ -99,6 +117,108 @@ export interface SurfaceGeometry {
    * anything at all — scalp's box is the head, GM's is inside it.
    */
   tagBounds: Map<number, Aabb> | null;
+}
+
+/** Where one plane's cap triangles sit inside a {@link CapGeometry}'s buffers. */
+export interface CapPlaneRange {
+  /** Index into the layer's active clip planes — §7.4's cap rule disables exactly this one. */
+  plane: number;
+  firstVertex: number;
+  vertexCount: number;
+}
+
+/** One of the two buffer sets §7.4's "double-buffered" cap upload alternates between. */
+interface CapBufferSet {
+  vao: VertexArray;
+  buffers: Buffer[];
+}
+
+/**
+ * §7.4's cap VBO set: *"pre-sized, double-buffered, written with `bufferSubData` after an orphaning
+ * `bufferData(null)` — never a fresh sized `bufferData` per frame. Buffers grow by doubling and never
+ * shrink during a drag."*
+ *
+ * Two sets, alternated per upload, so a `bufferSubData` never writes the store a still-in-flight draw
+ * is reading; `Buffer.update` supplies the orphan and the doubling inside each one.
+ */
+export interface CapGeometry {
+  /** The set holding the data of the last {@link GpuStore.uploadCaps}. */
+  vao: VertexArray;
+  vertexCount: number;
+  triangleCount: number;
+  planeRanges: CapPlaneRange[];
+  /** The `CutSnapshot.generation` currently uploaded — the cache key against a stale re-upload. */
+  generation: number;
+  /** True once a node/element field or the tag index has been written at least once. */
+  hasFields: boolean;
+  /** Sum of every buffer's byte length, for §9.2's budget line. */
+  bytes: number;
+}
+
+interface CapEntry extends CapGeometry {
+  sets: [CapBufferSet, CapBufferSet];
+  next: 0 | 1;
+  /** CPU expansion arenas: per-triangle cut values broadcast to the triangle's three vertices. */
+  tagArena: Int32Array;
+  ownerArena: Uint32Array;
+  edgeArena: Uint8Array;
+}
+
+/**
+ * The three per-triangle cut arrays, broadcast to per-vertex.
+ *
+ * **Why this copy exists, and why it is not the geometry §5 rule 7 forbids.** `CutPayload` carries
+ * `tag` / `ownerTet` / `edgeMask` once per *triangle*; §7.4's cap VBO set and §7.2.3 (*"cut caps …
+ * are already de-indexed and carry `ownerElm`"*) both name them as per-*vertex* attributes, and the
+ * frozen protocol has no per-vertex form. §7.4's own budget settles which reading is meant: *"~6 MB
+ * per buffer set for ernie (62,966 cap triangles)"* is 188,898 vertices × (12 + 8 + 4 + 4 + 4 + 1) =
+ * 5.95 MB — the per-**vertex** total, to three digits. So the broadcast is what the contract sized
+ * for. It builds no geometry: no de-indexing (the cut arrives de-indexed), no normals (a uniform),
+ * no new vertices — three integer writes per existing vertex, measured in
+ * `docs/benchmarks/phase2-mesh.md`.
+ */
+function expandCapAttributes(
+  snap: {
+    tag: Int32Array;
+    ownerTet: Uint32Array;
+    edgeMask: Uint8Array;
+    triangleCount: number;
+  },
+  denseTagOf: ReadonlyMap<number, number>,
+  tagOut: Int32Array,
+  ownerOut: Uint32Array,
+  edgeOut: Uint8Array
+): void {
+  const n = snap.triangleCount;
+  for (let t = 0, v = 0; t < n; t += 1) {
+    const dense = denseTagOf.get(snap.tag[t] ?? 0) ?? 0;
+    const owner = snap.ownerTet[t] ?? 0;
+    const mask = snap.edgeMask[t] ?? EDGE_MASK_ALL;
+    tagOut[v] = dense;
+    ownerOut[v] = owner;
+    edgeOut[v] = mask;
+    v += 1;
+    tagOut[v] = dense;
+    ownerOut[v] = owner;
+    edgeOut[v] = mask;
+    v += 1;
+    tagOut[v] = dense;
+    ownerOut[v] = owner;
+    edgeOut[v] = mask;
+    v += 1;
+  }
+}
+
+/** Grow by doubling, never shrink — §7.4's cap rule, on the CPU side of the upload. */
+function growArena<T extends Int32Array | Uint32Array | Uint8Array>(
+  current: T,
+  need: number,
+  make: (n: number) => T
+): T {
+  if (current.length >= need) return current;
+  let cap = Math.max(1, current.length);
+  while (cap < need) cap *= 2;
+  return make(cap);
 }
 
 export interface VolumeGpu {
@@ -181,6 +301,8 @@ export class GpuStore {
   readonly #luts = new Map<string, WebGLTexture>();
   /** §7.4's node / element field tables and label palettes, keyed like the surfaces. */
   readonly #tables = new Map<string, { texture: WebGLTexture; width: number; size: number }>();
+  /** §7.4's cap VBO sets, keyed by `capKey(layerId)`. */
+  readonly #caps = new Map<string, CapEntry>();
   #atlas: WebGLTexture | null = null;
 
   constructor(gl: WebGL2RenderingContext) {
@@ -393,6 +515,131 @@ export class GpuStore {
     return g;
   }
 
+  // ---------------------------------------------------------------------------------------------
+  // §7.4's cap VBO set
+  // ---------------------------------------------------------------------------------------------
+
+  caps(key: string): CapGeometry | undefined {
+    return this.#caps.get(key);
+  }
+
+  /**
+   * Write one {@link CutSnapshot} into `key`'s cap buffers and return what to draw.
+   *
+   * Re-uploading the same `generation` is a no-op, so a re-render during a drag does not re-write
+   * buffers that have not changed.
+   *
+   * `denseTagOf` maps a **tet tag** to its index in the layer's tag palette (`layers/mesh.ts`), which
+   * is what makes `tagStyle` recolour / hide on a cap a palette re-upload rather than a re-cut (R5).
+   */
+  uploadCaps(
+    key: string,
+    snap: {
+      generation: number;
+      positions: Float32Array;
+      interpNodes: Uint32Array;
+      interpT: Float32Array;
+      ownerTet: Uint32Array;
+      tag: Int32Array;
+      edgeMask: Uint8Array;
+      planeRanges: readonly { plane: number; firstVertex: number; vertexCount: number }[];
+      vertexCount: number;
+      triangleCount: number;
+    },
+    denseTagOf: ReadonlyMap<number, number>
+  ): CapGeometry {
+    let entry = this.#caps.get(key);
+    if (entry === undefined) {
+      entry = {
+        vao: null as never,
+        vertexCount: 0,
+        triangleCount: 0,
+        planeRanges: [],
+        generation: -1,
+        hasFields: false,
+        bytes: 0,
+        sets: [this.#newCapSet(), this.#newCapSet()],
+        next: 0,
+        tagArena: new Int32Array(0),
+        ownerArena: new Uint32Array(0),
+        edgeArena: new Uint8Array(0),
+      };
+      entry.vao = entry.sets[0].vao;
+      this.#caps.set(key, entry);
+    }
+    if (entry.generation === snap.generation && entry.vertexCount === snap.vertexCount)
+      return entry;
+
+    const n = snap.vertexCount;
+    entry.tagArena = growArena(entry.tagArena, n, (m) => new Int32Array(m));
+    entry.ownerArena = growArena(entry.ownerArena, n, (m) => new Uint32Array(m));
+    entry.edgeArena = growArena(entry.edgeArena, n, (m) => new Uint8Array(m));
+    expandCapAttributes(snap, denseTagOf, entry.tagArena, entry.ownerArena, entry.edgeArena);
+
+    // Alternate sets: a `bufferSubData` never lands on the store the previous frame's draw is
+    // still reading.
+    const set = entry.sets[entry.next];
+    entry.next = entry.next === 0 ? 1 : 0;
+    const [pos, interpNodes, interpT, tag, owner, edge] = set.buffers as [
+      Buffer,
+      Buffer,
+      Buffer,
+      Buffer,
+      Buffer,
+      Buffer,
+    ];
+    pos.update(snap.positions.subarray(0, n * 3));
+    interpNodes.update(snap.interpNodes.subarray(0, n * 2));
+    interpT.update(snap.interpT.subarray(0, n));
+    tag.update(entry.tagArena.subarray(0, n));
+    owner.update(entry.ownerArena.subarray(0, n));
+    edge.update(entry.edgeArena.subarray(0, n));
+
+    entry.vao = set.vao;
+    entry.vertexCount = n;
+    entry.triangleCount = snap.triangleCount;
+    entry.planeRanges = snap.planeRanges.map((r) => ({
+      plane: r.plane,
+      firstVertex: r.firstVertex,
+      vertexCount: r.vertexCount,
+    }));
+    entry.generation = snap.generation;
+    entry.hasFields = true;
+    entry.bytes = n * (12 + 8 + 4 + 4 + 4 + 1);
+    return entry;
+  }
+
+  /** Drop one layer's cap buffers — `removeLayer`, or a layer that stopped clipping. */
+  dropCaps(key: string): void {
+    const entry = this.#caps.get(key);
+    if (entry === undefined) return;
+    for (const set of entry.sets) {
+      set.vao.dispose();
+      for (const b of set.buffers) b.dispose();
+    }
+    this.#caps.delete(key);
+  }
+
+  /** One set of the §7.4 cap VBOs, with the attribute layout `shaders/mesh.ts`'s `TVX_CAP` reads. */
+  #newCapSet(): CapBufferSet {
+    const gl = this.#gl;
+    const vao = new VertexArray(gl);
+    const pos = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+    const interpNodes = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+    const interpT = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+    const tag = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+    const owner = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+    const edge = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+    vao.attrib(MESH_ATTR.position, pos, 3, gl.FLOAT);
+    vao.attribI(MESH_ATTR.capInterpNodes, interpNodes, 2, gl.UNSIGNED_INT);
+    vao.attrib(MESH_ATTR.capInterpT, interpT, 1, gl.FLOAT);
+    vao.attribI(MESH_ATTR.capTag, tag, 1, gl.INT);
+    vao.attribI(MESH_ATTR.capOwner, owner, 1, gl.UNSIGNED_INT);
+    vao.attribI(MESH_ATTR.capEdgeMask, edge, 1, gl.UNSIGNED_BYTE);
+    VertexArray.unbind(gl);
+    return { vao, buffers: [pos, interpNodes, interpT, tag, owner, edge] };
+  }
+
   /**
    * A `texelFetch`-only `R32F` table — §7.4's node-field / element-field texture.
    *
@@ -488,6 +735,23 @@ export class GpuStore {
     }
   }
 
+  /**
+   * Drop **one** surface variant by key.
+   *
+   * §7.4: "Isolation or clip changes invalidate both variants." The isolated geometry lands under a
+   * different `surfaceKey` (the mask id is part of it), so the *old* mask's variants have to go one
+   * key at a time — `dropSurfaces(datasetId)` would take another layer's geometry with them.
+   */
+  dropSurface(key: string): void {
+    const g = this.#surfaces.get(key);
+    if (g === undefined) return;
+    g.vao.dispose();
+    for (const b of g.buffers) b.dispose();
+    if (g.ownerTexture !== null) this.#gl.deleteTexture(g.ownerTexture);
+    if (g.edgeMaskTexture !== null) this.#gl.deleteTexture(g.edgeMaskTexture);
+    this.#surfaces.delete(key);
+  }
+
   dropSurfaces(datasetId: DatasetId): void {
     for (const [k, g] of [...this.#surfaces]) {
       if (k.startsWith(`${datasetId}|`)) {
@@ -540,6 +804,13 @@ export class GpuStore {
     this.#luts.clear();
     for (const t of this.#tables.values()) gl.deleteTexture(t.texture);
     this.#tables.clear();
+    for (const entry of this.#caps.values()) {
+      for (const set of entry.sets) {
+        set.vao.dispose();
+        for (const b of set.buffers) b.dispose();
+      }
+    }
+    this.#caps.clear();
     if (this.#atlas !== null) gl.deleteTexture(this.#atlas);
     this.#atlas = null;
   }

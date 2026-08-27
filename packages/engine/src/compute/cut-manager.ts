@@ -68,6 +68,16 @@ export interface CutClient {
 /** How a `datasetId` resolves to its worker client and mesh handle. */
 export type CutSource = (datasetId: DatasetId) => { client: CutClient; handle: number } | undefined;
 
+/**
+ * Register an in-flight request with the engine's `whenSettled()` (§7.2).
+ *
+ * A cut **is** "a pending worker request for a visible layer": §7.4's caps are geometry the frame
+ * draws, so a golden that does not wait for one photographs the frame before the cross-section
+ * exists. It is passed in rather than reached for because this class is unit-tested with a fake
+ * client and no engine.
+ */
+export type CutTracker = <T>(p: Promise<T>) => Promise<T>;
+
 /** One field to carry on the cut, named exactly as `MeshFieldInfo` names it. */
 export interface CutFieldRef {
   source: 'node' | 'elm';
@@ -117,6 +127,11 @@ export interface CutPlaneRange {
  * Triangles are **de-indexed**: `positions` is 3 floats per vertex, three vertices per triangle, so
  * triangle `t` owns vertices `3t, 3t+1, 3t+2` — the same layout the de-indexed `SurfacePayload`
  * uses, and the one §7.4's barycentric edges need.
+ *
+ * The wire form is **not** that shape: `CutPayload.positions` is per *polygon vertex* and its
+ * `ownerTet` / `tag` / `edgeMask` are per *fan triangle*, so a 2-2 split contributes 4 vertices and
+ * 2 triangles. {@link CutEntry} de-indexes on the way into the arena — see `#fan`, which explains
+ * why that is the manager's job and not a consumer's.
  */
 export interface CutSnapshot {
   /** The planes this cut was computed for, in request order. */
@@ -253,11 +268,29 @@ interface CutRequest {
 class CutEntry {
   readonly #client: CutClient;
   readonly #handle: number;
+  readonly #track: CutTracker;
   /** §5 rule 6's latest-wins key. Distinct per consumer, which is the whole point (R4). */
   readonly #clientKey: string;
 
   #ticket = 0;
-  #latest = 0;
+  /**
+   * The newest ticket whose result has been **applied** — not the newest one issued.
+   *
+   * This distinction is the whole of §5 rule 6 as a drag actually experiences it. `ComputeClient`
+   * already coalesces: it keeps one request in flight and at most one queued per key, and a new
+   * request replaces the queued one. The in-flight one is **not** cancelled — "an in-flight request
+   * has no abort flag" — so it runs to completion and its result arrives.
+   *
+   * Dropping that result because newer requests have since been *issued* is what starves a drag.
+   * Measured on ernie: a plane moved every frame at 120 fps against a ~150 ms cut means every
+   * result is superseded before it lands, and **not one cross-section ever appears** — the cap
+   * freezes at the pre-drag plane for as long as the drag continues `[M2Max]`.
+   *
+   * Comparing against the newest *applied* ticket keeps the guarantee that matters — a snapshot is
+   * never replaced by an older one, so `generation` stays monotonic and a stale cut is never
+   * delivered — while letting every result that is still the newest one seen through.
+   */
+  #applied = 0;
   #requested: CutRequest | null = null;
   #state: CutState | null = null;
   #generation = 0;
@@ -273,10 +306,11 @@ class CutEntry {
    */
   #recycle = false;
 
-  constructor(client: CutClient, handle: number, clientKey: string) {
+  constructor(client: CutClient, handle: number, clientKey: string, track: CutTracker) {
     this.#client = client;
     this.#handle = handle;
     this.#clientKey = clientKey;
+    this.#track = track;
   }
 
   state(): CutState | null {
@@ -330,8 +364,9 @@ class CutEntry {
     this.#requested = next;
     if (next.planes.length === 0) {
       // No planes is not a cut with zero triangles; it is *no cut*, and the consumers must stop
-      // drawing caps rather than keep the last ones.
-      this.#latest = ++this.#ticket;
+      // drawing caps rather than keep the last ones. The ticket is burned **and marked applied**,
+      // so an in-flight cut for the plane set that was just removed cannot resurrect the caps.
+      this.#applied = ++this.#ticket;
       this.#publish(null);
       return;
     }
@@ -340,24 +375,28 @@ class CutEntry {
 
   async #issue(req: CutRequest, recycle: boolean): Promise<void> {
     const ticket = ++this.#ticket;
-    this.#latest = ticket;
     let res: OpResult['cut'];
     let fieldValues: Map<string, Float32Array>;
     try {
       // Issued on the same latest-wins key, so a superseded drag frame drops these too; they are
       // cached, so a whole drag pays for a field once.
       fieldValues = await this.#fields(req.fields);
-      res = await this.#client.call(this.#clientKey, 'cut', {
-        handle: this.#handle,
-        planes: req.planes,
-        maskId: req.maskId,
-        recycle,
-      });
+      // Tracked, so `whenSettled()` waits for the caps this cut becomes (§7.2). A superseded cut
+      // rejects and `whenSettled` uses `allSettled`, so latest-wins is unaffected.
+      res = await this.#track(
+        this.#client.call(this.#clientKey, 'cut', {
+          handle: this.#handle,
+          planes: req.planes,
+          maskId: req.maskId,
+          recycle,
+        })
+      );
     } catch {
       // A superseded or cancelled cut is normal under latest-wins; it is not an error (§5 rule 6).
       return;
     }
-    if (this.#disposed || ticket !== this.#latest) return;
+    // See `#applied`: older than what is already on screen, or disposed, and this result is waste.
+    if (this.#disposed || ticket <= this.#applied) return;
 
     if (res.mode === 'recycled') {
       // §6.5.1: `truncated` means the pool was too small and **nothing was written**, and `counts`
@@ -370,6 +409,7 @@ class CutEntry {
       }
       return;
     }
+    this.#applied = ticket;
     this.#publish(this.#pack(req, res.cuts, fieldValues));
   }
 
@@ -380,12 +420,14 @@ class CutEntry {
       const cacheKey = `${ref.source}:${ref.name}`;
       let values = this.#fieldCache.get(cacheKey);
       if (values === undefined) {
-        const res = await this.#client.call(this.#clientKey, 'field', {
-          handle: this.#handle,
-          source: ref.source,
-          name: ref.name,
-          component: 'mag',
-        });
+        const res = await this.#track(
+          this.#client.call(this.#clientKey, 'field', {
+            handle: this.#handle,
+            source: ref.source,
+            name: ref.name,
+            component: 'mag',
+          })
+        );
         values = res.values;
         this.#fieldCache.set(cacheKey, values);
       }
@@ -400,21 +442,88 @@ class CutEntry {
    * The copy is what buys a stable address and length across a drag (§7.4's cap VBO set). Shape for
    * ernie's mid-axial cut: 62,966 cap triangles ⇒ 188,898 vertices ⇒ ~2.3 MB of positions `[M2Max]`.
    */
+  /**
+   * De-index one plane's cut into three vertices per triangle.
+   *
+   * **This is the shape of `CutPayload`, and it is not the shape §6.3's doc comment suggests.**
+   * `plane_cut` emits, per cut tet, the *polygon* it produced — 3 vertices for a 1-3 split, 4 for a
+   * 2-2 split, more once a second plane has clipped it — and then fan-triangulates it as
+   * `(0, i, i+1)`, pushing one `ownerTet` / `tag` / `edgeMask` per fan triangle. So `positions` is
+   * **per polygon vertex** while the three per-triangle arrays are per triangle, and the two counts
+   * differ exactly where a quad appears: ernie's fixture cut is 120 vertices against 48 triangles.
+   * Reading `positions` as `3t, 3t+1, 3t+2` therefore draws the right picture only until the first
+   * 2-2 split, and then silently mixes one tet's vertices with the next tet's.
+   *
+   * The fan is reconstructed here without any extra information from the worker: fan triangles of
+   * one polygon are **consecutive and share an `ownerTet`** (a Gmsh element number, unique per tet,
+   * and each tet contributes at most one polygon per plane), so a run of `k` equal owners is a
+   * polygon of `k + 2` vertices. That identity is what makes the reconstruction exact rather than a
+   * heuristic.
+   *
+   * De-indexing rather than emitting an index buffer is forced by §7.4: barycentric edges "require
+   * de-indexed geometry — under `drawElements` `gl_VertexID` is the index value, not the corner
+   * ordinal", and §7.4 wants one edge mechanism "for surfaces and caps alike". It is also the layout
+   * §7.4's own cap budget is quoted in: "~6 MB per buffer set for ernie (62,966 cap triangles)" is
+   * 62,966 × 3 × (12 + 8 + 4 + 4 + 4 + 1) = 5.95 MB.
+   */
+  static #fan(
+    c: CutPayload,
+    positions: Float32Array,
+    interpNodes: Uint32Array,
+    interpT: Float32Array,
+    firstVertex: number
+  ): void {
+    const owners = c.ownerTet;
+    const nTris = owners.length;
+    const srcVertices = c.positions.length / 3;
+    let src = 0;
+    let dst = firstVertex;
+    let t = 0;
+    const emit = (from: number): void => {
+      positions[dst * 3] = c.positions[from * 3] ?? 0;
+      positions[dst * 3 + 1] = c.positions[from * 3 + 1] ?? 0;
+      positions[dst * 3 + 2] = c.positions[from * 3 + 2] ?? 0;
+      interpNodes[dst * 2] = c.interpNodes[from * 2] ?? 0;
+      interpNodes[dst * 2 + 1] = c.interpNodes[from * 2 + 1] ?? 0;
+      interpT[dst] = c.interpT[from] ?? 0;
+      dst += 1;
+    };
+    while (t < nTris) {
+      let k = 1;
+      while (t + k < nTris && owners[t + k] === owners[t]) k += 1;
+      const n = k + 2;
+      if (src + n > srcVertices) {
+        // A payload whose vertex count does not match its fan structure is a worker-side bug, not
+        // something to paper over with half a polygon: stop, and leave the rest of the arena as it
+        // was. The snapshot's own `vertexCount` still says three per triangle, so the extra
+        // triangles draw degenerate rather than reading another tet's vertices.
+        break;
+      }
+      for (let i = 0; i < k; i += 1) {
+        emit(src);
+        emit(src + i + 1);
+        emit(src + i + 2);
+      }
+      src += n;
+      t += k;
+    }
+  }
+
   #pack(
     req: CutRequest,
     cuts: readonly CutPayload[],
     fieldValues: ReadonlyMap<string, Float32Array>
   ): CutState {
-    let vertices = 0;
     let triangles = 0;
     let edgeSegs = 0;
     let boundarySegs = 0;
     for (const c of cuts) {
-      vertices += c.positions.length / 3;
       triangles += c.ownerTet.length;
       if (req.wantEdges) edgeSegs += c.edgeSegments.length / 6;
       if (req.wantBoundary) boundarySegs += c.boundarySegments.length / 6;
     }
+    // **De-indexed**: three vertices per triangle. See {@link CutSnapshot} and `#fan`.
+    const vertices = triangles * 3;
 
     const a = this.#arena;
     a.positions = grow(a.positions, vertices * 3, (n) => new Float32Array(n));
@@ -432,13 +541,11 @@ class CutEntry {
     let e = 0;
     let b = 0;
     for (const c of cuts) {
-      const nv = c.positions.length / 3;
       const nt = c.ownerTet.length;
+      const nv = nt * 3;
       const ne = req.wantEdges ? c.edgeSegments.length / 6 : 0;
       const nb = req.wantBoundary ? c.boundarySegments.length / 6 : 0;
-      a.positions.set(c.positions, v * 3);
-      a.interpNodes.set(c.interpNodes, v * 2);
-      a.interpT.set(c.interpT, v);
+      CutEntry.#fan(c, a.positions, a.interpNodes, a.interpT, v);
       a.ownerTet.set(c.ownerTet, t);
       a.tag.set(c.tag, t);
       a.edgeMask.set(c.edgeMask, t);
@@ -544,10 +651,12 @@ class CutEntry {
  */
 export class CutManager {
   readonly #source: CutSource;
+  readonly #track: CutTracker;
   readonly #entries = new Map<string, CutEntry>();
 
-  constructor(source: CutSource) {
+  constructor(source: CutSource, track: CutTracker = (p) => p) {
     this.#source = source;
+    this.#track = track;
   }
 
   /** `datasetId` cannot contain a space (`engine.ts` mints `dsN`), so this is unambiguous. */
@@ -561,7 +670,7 @@ export class CutManager {
     if (entry === undefined && create) {
       const src = this.#source(datasetId);
       if (src === undefined) return undefined;
-      entry = new CutEntry(src.client, src.handle, `cut:${key}`);
+      entry = new CutEntry(src.client, src.handle, `cut:${key}`, this.#track);
       this.#entries.set(id, entry);
     }
     return entry;

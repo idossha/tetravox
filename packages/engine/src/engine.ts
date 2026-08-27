@@ -31,12 +31,13 @@ import type {
 import { applyForcedCaps } from './gl/caps';
 import type { Capabilities } from './gl/caps';
 import { createContext } from './gl/context';
+import { MAX_CLIP_PLANES } from './gl/state';
 import { Timer } from './gl/timer';
-import { GpuStore, surfaceKey } from './render/gpu';
+import { capKey, GpuStore, surfaceKey } from './render/gpu';
 import { Renderer } from './render/renderer';
 import { TRANSPARENT, encodeFrame } from './render/screenshot';
 import type { DrawInput } from './render/renderer';
-import { CutManager } from './compute/cut-manager';
+import { CutManager, CUT_KEY_3D_CLIP } from './compute/cut-manager';
 import { MeshLayerRuntime } from './layers/mesh';
 import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
@@ -109,12 +110,18 @@ export class TetravoxEngine implements Engine {
    * The engine's one owner of the `cut` op (§6.5.2), keyed by `(datasetId, key)` so §7.4's 3D caps
    * and each 2D pane's cross-section never supersede one another (`compute/cut-manager.ts`).
    */
-  readonly #cuts = new CutManager((id) => {
-    const rt = this.#workers.get(id);
-    const ds = this.#store.dataset(id);
-    if (rt === undefined || ds === undefined || ds.kind !== 'mesh') return undefined;
-    return { client: rt.client, handle: ds.handle };
-  });
+  readonly #cuts = new CutManager(
+    (id) => {
+      const rt = this.#workers.get(id);
+      const ds = this.#store.dataset(id);
+      if (rt === undefined || ds === undefined || ds.kind !== 'mesh') return undefined;
+      return { client: rt.client, handle: ds.handle };
+    },
+    // §7.2: `whenSettled()` waits for "all pending worker requests for visible layers". A cut is
+    // one — §7.4's caps are geometry the frame draws — so every golden waits for the cross-section
+    // instead of photographing the frame before it exists.
+    <T>(p: Promise<T>) => this.#track(p)
+  );
   readonly #listeners = new Map<string, Set<Listener>>();
 
   #nextId = 1;
@@ -143,6 +150,9 @@ export class TetravoxEngine implements Engine {
       requestRender: () => this.requestRender(),
       track: <T>(p: Promise<T>) => this.#track(p),
       cuts: this.#cuts,
+      // §4.4's `IsolateSpec.labelVolume` names another dataset; §5 rule 2 makes it the one
+      // cross-dataset op in v1, and the samples are structured-cloned rather than transferred.
+      dataset: (id: DatasetId) => this.#store.dataset(id),
     };
   }
 
@@ -486,6 +496,104 @@ export class TetravoxEngine implements Engine {
     return rt instanceof MeshLayerRuntime ? rt.loading : false;
   }
 
+  /**
+   * §7.4's clip cut for one mesh layer, **copied** out of the manager's arena.
+   *
+   * §11's *cap diagonal* test is the reason this exists: it has to name a specific 2-2-split quad —
+   * two triangles with `edgeMask` `0b101` and `0b011` sharing the diagonal the mask suppresses — and
+   * assert that the pixel on that diagonal is *not* the edge colour. That needs the same
+   * `Cut.edge_mask` the shader read, not a re-derivation, or the test is only checking itself.
+   *
+   * The arrays are copies because a {@link CutSnapshot}'s are views into a per-key arena that the
+   * next cut overwrites (`compute/cut-manager.ts`), and a test holds them across further requests.
+   */
+  meshCut(layerId: LayerId): {
+    generation: number;
+    vertexCount: number;
+    triangleCount: number;
+    planes: { normal: vec3; offset: number }[];
+    planeRanges: { plane: number; firstVertex: number; vertexCount: number }[];
+    positions: Float32Array;
+    tag: Int32Array;
+    ownerTet: Uint32Array;
+    edgeMask: Uint8Array;
+    capBytes: number;
+  } | null {
+    const rt = this.#layers.get(layerId);
+    if (!(rt instanceof MeshLayerRuntime)) return null;
+    const snap = this.#cuts.getCut(rt.datasetId, CUT_KEY_3D_CLIP);
+    if (snap === null) return null;
+    return {
+      generation: snap.generation,
+      vertexCount: snap.vertexCount,
+      triangleCount: snap.triangleCount,
+      planes: snap.planes.map((p) => ({
+        normal: [p.normal[0], p.normal[1], p.normal[2]] as vec3,
+        offset: p.offset,
+      })),
+      planeRanges: snap.planeRanges.map((r) => ({
+        plane: r.plane,
+        firstVertex: r.firstVertex,
+        vertexCount: r.vertexCount,
+      })),
+      positions: snap.positions.slice(),
+      tag: snap.tag.slice(),
+      ownerTet: snap.ownerTet.slice(),
+      edgeMask: snap.edgeMask.slice(),
+      capBytes: this.#gpu.caps(capKey(layerId))?.bytes ?? 0,
+    };
+  }
+
+  /**
+   * The isolation in force on one mesh layer (§6.5.2's `{ maskId, visibleTets, generation }`).
+   *
+   * `visibleTets` is what §11's real-data isolation test cross-checks against a numpy count, and
+   * §8's region panel shows beside the criteria.
+   */
+  meshIsolation(
+    layerId: LayerId
+  ): { maskId: number; visibleTets: number; generation: number } | null {
+    const rt = this.#layers.get(layerId);
+    if (!(rt instanceof MeshLayerRuntime)) return null;
+    const state = rt.isolation;
+    return state === null
+      ? null
+      : { maskId: state.maskId, visibleTets: state.visibleTets, generation: state.generation };
+  }
+
+  /**
+   * §7.4's **active** clip planes of one mesh layer — the gizmo hook.
+   *
+   * E-SCENE draws the cut-plane gizmo (`overlay/gizmo.ts`, in the overlay pass with every clip
+   * distance disabled) and writes a drag back through `updateLayer(id, { clip })`. What it needs
+   * from here is which planes are live and **in what order**, because "plane *i*" has to mean one
+   * thing in four places: the shader's `uClipPlanes[i]`, the `CLIP_DISTANCE(i)` enable set, §7.4's
+   * cap rule, and `CutSnapshot.planeRanges[].plane`. `index` is the position in
+   * `MeshLayer.clip.planes` — the array a patch edits — while the row's position in this list is
+   * the `i` those four share; a disabled plane occupies the first and not the second.
+   *
+   * Reading `scene` directly would give the unfiltered array and the two indices would diverge the
+   * moment a plane is disabled, which is exactly the bug that exempts the wrong plane from its own
+   * cap.
+   */
+  meshClipPlanes(layerId: LayerId): { index: number; plane: { normal: vec3; offset: number } }[] {
+    const layer = this.#scene.layers.find((l) => l.id === layerId);
+    if (layer === undefined || layer.kind !== 'mesh') return [];
+    const out: { index: number; plane: { normal: vec3; offset: number } }[] = [];
+    for (const [index, cp] of layer.clip.planes.entries()) {
+      if (!cp.enabled) continue;
+      out.push({
+        index,
+        plane: {
+          normal: [cp.plane.normal[0], cp.plane.normal[1], cp.plane.normal[2]] as vec3,
+          offset: cp.plane.offset,
+        },
+      });
+      if (out.length === MAX_CLIP_PLANES) break;
+    }
+    return out;
+  }
+
   /** The runtimes in **layer order** (bottom → top, §4.4), which is the order everything consumes. */
   #runtimesInOrder(): LayerRuntime[] {
     const out: LayerRuntime[] = [];
@@ -682,6 +790,11 @@ export class TetravoxEngine implements Engine {
       activeViewId: null,
       uiScale: Math.max(1, Math.round(this.#dpr())),
       showChrome: true,
+      // §7.1's capability, after `forceCaps` — which may only ever remove one — and §7.4's
+      // fallback axis. A pass never reads `Capabilities` directly, so a forced removal reaches the
+      // shader variant and the `CLIP_DISTANCE` enable set by the same route.
+      clipDistance: this.caps.clipDistance,
+      forceDiscardClip: this.#opts.forceDiscardClip === true,
     };
   }
 

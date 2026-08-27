@@ -36,6 +36,20 @@ export interface DrawInput {
   uiScale: number;
   /** Chrome is skipped entirely when `annotations` says so; the badge is never optional (§8). */
   showChrome: boolean;
+  /**
+   * `caps.clipDistance` — whether `WEBGL_clip_cull_distance` was **requested and granted** (§7.1).
+   *
+   * A pass reads it here rather than off the engine's `Capabilities` so that `EngineOptions.forceCaps`
+   * (which may only ever *remove* a capability) is already applied. Absent means the `discard` clip
+   * path, which is the safe direction: `gl.enable(0x3000)` on a context without the extension is an
+   * `INVALID_ENUM`.
+   */
+  clipDistance?: boolean;
+  /**
+   * §7.4 / §11's clip-path axis: force the `vec4`-uniform + `discard` fallback even where the
+   * hardware path exists, so **both** paths run under the same goldens.
+   */
+  forceDiscardClip?: boolean;
 }
 
 /** One pane, mid-frame. */
