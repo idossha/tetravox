@@ -1628,3 +1628,26 @@ Each entry below names the problem, the fix, and the evidence.
   `Engine` while constructing a `TetravoxEngine`, so every spec driving a Phase-2 gesture cast it
   straight back up, once per call; it now publishes the concrete type. Widening only — every `Engine`
   member is still there and no existing spec changed.
+
+- 2026-08-27 — **`.msh.opt` seeding is partial about colormaps, on purpose** (E-SCENE, §7.6). The
+  sidecar seeds tag colours and visibility, the field range (`RangeType = 2` and only then, since
+  `CustomMin`/`CustomMax` are otherwise whatever the last Gmsh save left behind), the colour bar
+  (`ShowScale`), and the colormap — but the colormap table covers only `ColormapNumber = 2`, which is
+  what SimNIBS writes in every `.msh.opt` it produces `[DATA]` and is Gmsh's rainbow/jet, plus the
+  four numbers whose Gmsh names are a §7.6 `ColormapName` exactly. Every other number leaves the
+  layer's own default alone. Guessing at the rest of Gmsh's colour-table numbering would paint a
+  field in the wrong colours **silently**, which is the one failure a viewer may not have; a viewer
+  that disagrees with Gmsh about a colormap is visible and correctable. Seeding fires only for a
+  dataset the host gave a sidecar for (`app/.../lib/sidecars.ts` derives the candidates), so no
+  Phase-1 golden — none of which passes one — moved.
+
+- 2026-08-27 — **R2's corner `×zoom` readout appears only off the fit, and measures against the fit
+  the user last asked for** (E-SCENE). Two decisions, each forced by a failing test rather than by
+  taste. A line that is always present shifts the other three up a row in every pane of every
+  picture, i.e. six regenerated Phase-1 goldens — two of them a closed gate's — to print `ZOOM 1.00X`
+  under an image nobody zoomed; so at the fit it prints nothing. And measuring against a fit
+  **recomputed for the pane's current size** made every pane claim to be zoomed the moment the layout
+  changed, which is how it broke gate 5's slice-index decode: that test picks in a 1×1 pane and then
+  reads the corner block in a 2×2. `DrawInput.viewFit` remembers what each pane was fitted at
+  (`resetView`, and the auto-fit on the first dataset), so "zoom" means what a user means by it and
+  `r` always returns the readout to nothing.

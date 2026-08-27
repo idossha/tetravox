@@ -56,6 +56,7 @@ import {
   camera3dMatrices,
   effectiveSliceView,
   fitCamera,
+  fitMmPerPx,
   paneToWorld,
   planeAnchor,
   planeFromPoints,
@@ -88,7 +89,8 @@ import { gizmoHandleAt } from './overlay';
 import type { GizmoHandle, GizmoSpec } from './overlay';
 import type { PaneHit, PointerHost } from './input';
 import { applyAffine, meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
-import { defaultLayerFor, VIEW3D_ID } from './scene/defaults';
+import { defaultLayerFor, seedMeshLayerFromOpt, VIEW3D_ID } from './scene/defaults';
+import type { MshOptSeed } from './scene/defaults';
 import { SceneStore, isSliceView } from './scene/store';
 import {
   applyViewSpec,
@@ -214,6 +216,11 @@ export class TetravoxEngine implements Engine, PointerHost {
    * All three are engine-private and none of them is in `Scene`: they are transient interaction
    * state, and a saved `ViewSpec` (§4.6) must not carry "the user was mid-drag on the rotate handle".
    */
+  /**
+   * The `mmPerPx` each 2D pane was last **fitted** at — R2's corner `×zoom` readout measures against
+   * this rather than against a fit recomputed for the pane's current size (`DrawInput.viewFit`).
+   */
+  readonly #viewFit = new Map<ViewId, number>();
   #gizmoView: ViewId | null = null;
   #gizmoHot: 'none' | GizmoHandle = 'none';
   #planePoints: { viewId: ViewId; points: vec3[] } | null = null;
@@ -466,13 +473,13 @@ export class TetravoxEngine implements Engine, PointerHost {
         camera: fitCamera(this.#scene.view3d.camera, b),
       });
       // Fit each 2D pane so the data fills it rather than sitting in a corner.
-      const diag = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
       const rect = this.#lastRects.get(this.#scene.slices[0]?.id ?? '') ?? null;
       const px = rect !== null ? Math.min(rect.width, rect.height) : 512;
-      const mmPerPx = Math.max(0.05, (diag * 0.62) / Math.max(1, px));
+      const mmPerPx = fitMmPerPx(b, px);
       this.#store.setSlices(
         this.#scene.slices.map((s) => ({ ...s, camera: { center: [0, 0], mmPerPx } }))
       );
+      for (const s of this.#scene.slices) this.#viewFit.set(s.id, mmPerPx);
       // **Through `setCursor`, not by assignment.** Every pane's crosshair and corner annotation
       // read `scene.cursor` directly, but §8's info panel and coordinate bar are driven by the
       // `cursor` event alone — so a silent move leaves the app describing world (0,0,0) while the
@@ -691,15 +698,15 @@ export class TetravoxEngine implements Engine, PointerHost {
         camera: fitCamera(this.#scene.view3d.camera, b),
       });
     } else {
-      const diag = Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
       const rect = this.#lastRects.get(viewId);
       const px = rect !== undefined ? Math.min(rect.width, rect.height) : 512;
-      const mmPerPx = Math.max(0.05, (diag * 0.62) / Math.max(1, px));
+      const mmPerPx = fitMmPerPx(b, px);
       this.#store.setSlices(
         this.#scene.slices.map((s) =>
           s.id === viewId ? { ...s, camera: { center: [0, 0], mmPerPx } } : s
         )
       );
+      this.#viewFit.set(viewId, mmPerPx);
     }
     this.requestRender();
   }
@@ -836,6 +843,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       showChrome: true,
       // §7.5's oblique affordances. `null` whenever no gizmo is shown, which is the default.
       gizmo: this.gizmoSpec(),
+      viewFit: this.#viewFit,
     };
   }
 
@@ -1486,6 +1494,23 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#planePoints = null;
     this.setViewPlaneFromPoints(pending.viewId, a, b, c);
     return true;
+  }
+
+  /**
+   * §7.6's "defaults from X.msh.opt": which layer fields the sidecar seeded, and its name.
+   *
+   * A-SHELL owns the chip and the one-click Reset; this is the metadata it needs, and it is derived
+   * rather than stored — the same `seedMeshLayerFromOpt` that produced the layer, asked again. Reset
+   * is `defaultMeshLayer` without the seeding, which the app reaches by patching the layer back to
+   * the values the chip names.
+   */
+  optDefaults(datasetId: DatasetId): MshOptSeed | null {
+    const ds = this.#store.dataset(datasetId);
+    if (ds === undefined || ds.kind !== 'mesh') return null;
+    const layer = this.#scene.layers.find((l) => l.datasetId === datasetId && l.kind === 'mesh') as
+      MeshLayer | undefined;
+    if (layer === undefined) return null;
+    return seedMeshLayerFromOpt(layer, ds).seed;
   }
 
   /**

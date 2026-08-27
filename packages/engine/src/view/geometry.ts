@@ -492,6 +492,27 @@ export function rotatePlane(
 // -------------------------------------------------------------------------------------------
 
 /**
+ * The `mmPerPx` that fits `bounds` into a square pane of `px` pixels — §7.5's `r`, in one place.
+ *
+ * `0.62` of the bounding-box **diagonal** rather than of an axis: a slice plane can cut a volume at
+ * any angle, so the widest thing a pane may have to show is the diagonal, and fitting to an axis
+ * leaves an oblique cut clipped. The `0.05` floor is R2's clamp, applied here so a fit is never a
+ * value the zoom would refuse.
+ *
+ * Shared by `resetView`, the auto-fit on the first dataset, and §8's corner `ZOOM` readout — three
+ * places that each had (or would have grown) a copy, and where a disagreement means `r` produces a
+ * pane the readout then calls 0.98x.
+ */
+export function fitMmPerPx(bounds: Aabb, px: number): number {
+  const diag = Math.hypot(
+    bounds.max[0] - bounds.min[0],
+    bounds.max[1] - bounds.min[1],
+    bounds.max[2] - bounds.min[2]
+  );
+  return Math.max(0.05, (diag * 0.62) / Math.max(1, px));
+}
+
+/**
  * The world point a 2D pane's in-plane coordinates are measured from.
  *
  * **This is the change R3 asks for**, and it is worth stating plainly because §4.5's inline comment

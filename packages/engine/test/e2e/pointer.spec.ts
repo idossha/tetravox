@@ -537,6 +537,50 @@ test('@angle R2: `+` and `-` zoom about the pane centre, and mmPerPx is clamped 
   expect(errors).toEqual([]);
 });
 
+test('@angle R2: the corner block gains a ×zoom readout when the pane leaves its fit, and loses it again', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  await load(page, fixture('vol_asym.nii'), 'volume', ['axial']);
+  await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    engine.resetView('axial');
+    await engine.whenSettled();
+  });
+
+  // Decoded out of the framebuffer, not read from scene state (§11, `helpers/chrome.ts`): the corner
+  // block is a few hundred pixels of a 589,824-pixel pane, so a golden cannot police it.
+  const corner = async (lines: number): Promise<string[]> =>
+    await readCornerInfo(page, {
+      canvasHeight: CANVAS,
+      pane: { x: 0, y: 0, width: CANVAS, height: CANVAS },
+      lineCount: lines,
+      length: 'RAS -00.0 -00.0 -00.0'.length,
+    });
+
+  // At the fit there is nothing to report, so the block is the §8 three: mode, RAS, slice index.
+  const atFit = await corner(3);
+  expect(atFit[0]?.trim()).toBe('AXIAL');
+  expect(atFit[2]?.trim()).toMatch(/^SLICE /);
+
+  // Two notches out is 1.2^-2 = 0.69x.
+  await page.mouse.move(CANVAS / 2, CANVAS / 2);
+  await page.keyboard.press('-');
+  await page.keyboard.press('-');
+  await settle(page);
+  const zoomed = await corner(4);
+  expect(zoomed[0]?.trim()).toBe('AXIAL');
+  expect(zoomed[3]?.trim()).toBe(`ZOOM ${(1 / 1.2 ** 2).toFixed(2)}X`);
+
+  // Two notches back in, and the readout goes away rather than printing 1.00X under an unzoomed pane.
+  await page.keyboard.press('+');
+  await page.keyboard.press('+');
+  await settle(page);
+  expect((await corner(3))[2]?.trim()).toMatch(/^SLICE /);
+  expect(errors).toEqual([]);
+});
+
 // ===========================================================================================
 // R3 — move the crosshair, not the scan
 // ===========================================================================================

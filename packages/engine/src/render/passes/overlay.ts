@@ -91,7 +91,8 @@ export class OverlayPass implements FramePass {
         const cy = rect.height / 2 - view.camera.center[1] / view.camera.mmPerPx;
         crosshair = { x: cx, y: cy };
       }
-      if (a.cornerInfo) cornerLines.push(...sliceCornerLines(view, scene));
+      if (a.cornerInfo)
+        cornerLines.push(...sliceCornerLines(view, scene, input.viewFit?.get(view.id)));
     } else {
       // A 3D pane's letters come from the camera basis — which anatomical direction is screen-right
       // and screen-up. Same derivation, same safety property, no hardcoding.
@@ -158,8 +159,21 @@ export class OverlayPass implements FramePass {
   }
 }
 
-/** §8's corner annotation: "view name, slice index of the active volume layer, world RAS". */
-function sliceCornerLines(view: SliceView, scene: Scene): string[] {
+/**
+ * §8's corner annotation: "view name, slice index of the active volume layer, world RAS" — plus
+ * R2's `×zoom` readout.
+ *
+ * **The zoom line appears only when the pane is not at its fit.** R2 asks the corner info to "gain a
+ * `×zoom` readout"; a line that is always there would shift the other three up by one row in every
+ * pane of every picture, which means regenerating six Phase-1 goldens — including two a closed gate
+ * photographed — to say `ZOOM 1.00X` under an image nobody zoomed. At the fit the readout has
+ * nothing to report, so it reports nothing, and the moment a user zooms it appears. The threshold is
+ * half a percent, well inside the rounding of the two decimals it prints.
+ *
+ * The fit it is measured against is `DrawInput.viewFit`, the value the pane was last **fitted** at,
+ * not a fit recomputed for the pane's current size — see that field for why.
+ */
+function sliceCornerLines(view: SliceView, scene: Scene, fit0: number | undefined): string[] {
   const lines = [view.mode.toUpperCase()];
   const c = scene.cursor;
   lines.push(`RAS ${fmt(c[0])} ${fmt(c[1])} ${fmt(c[2])}`);
@@ -167,6 +181,11 @@ function sliceCornerLines(view: SliceView, scene: Scene): string[] {
   if (top !== null) {
     const v = worldToVoxel(top.ds, c);
     lines.push(`SLICE ${Math.round(sliceIndex(view, top.ds, v))}`);
+  }
+  const fit = fit0;
+  if (fit !== undefined && view.camera.mmPerPx > 0) {
+    const zoom = fit / view.camera.mmPerPx;
+    if (Math.abs(zoom - 1) > 0.005) lines.push(`ZOOM ${zoom.toFixed(2)}X`);
   }
   return lines;
 }

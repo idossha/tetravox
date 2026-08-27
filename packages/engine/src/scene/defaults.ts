@@ -14,6 +14,7 @@
 import { identity4 } from '../view/m4';
 import { presetNormal, presetUp } from '../view/geometry';
 import type {
+  ColormapName,
   Layer,
   MeshDataset,
   MeshLayer,
@@ -176,7 +177,106 @@ export function defaultMeshLayer(id: string, ds: MeshDataset): MeshLayer {
 }
 
 export function defaultLayerFor(id: string, ds: VolumeDataset | MeshDataset): Layer {
-  return ds.kind === 'volume' ? defaultVolumeLayer(id, ds) : defaultMeshLayer(id, ds);
+  if (ds.kind === 'volume') return defaultVolumeLayer(id, ds);
+  // §7.6: a `<mesh>.msh.opt` seeds the layer **on open**. It only ever fires for a dataset the host
+  // gave a sidecar for (`app/.../lib/sidecars.ts` derives the candidates), so a mesh opened without
+  // one — which is every mesh in every Phase-1 golden — gets exactly `defaultMeshLayer`.
+  return seedMeshLayerFromOpt(defaultMeshLayer(id, ds), ds).layer;
 }
 
 export { identity4 };
+
+// ---------------------------------------------------------------------------------------------
+// Appended by E-SCENE: `.msh.opt` seeding (§7.6). Shared-file rule: additive only.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Gmsh `View[n].ColormapNumber` → a §7.6 `ColormapName`.
+ *
+ * **Deliberately partial.** Gmsh's colour-table numbering is a list of names, and guessing at the
+ * ones this project has no independent reading for would silently paint a field in the wrong
+ * colours — the failure mode a viewer must never have. So the table covers the number the reference
+ * data actually uses — SimNIBS writes `ColormapNumber = 2` in every `.msh.opt` it produces `[DATA]`,
+ * which is Gmsh's rainbow/jet, the colouring a SimNIBS user sees in Gmsh — plus the four whose Gmsh
+ * names are a §7.6 name exactly. Anything else leaves the layer's own default alone, which is a
+ * viewer disagreeing with Gmsh about a colormap rather than lying about a field.
+ */
+export const MSH_OPT_COLORMAPS: Record<number, ColormapName> = {
+  2: 'jet',
+  7: 'hot',
+  9: 'gray',
+  13: 'bone',
+  18: 'cool',
+};
+
+/** Which fields a `.msh.opt` actually seeded, for §7.6's "defaults from X.msh.opt" chip. */
+export interface MshOptSeed {
+  /** The sidecar's name, for the chip: `<mesh>.msh.opt`. */
+  file: string;
+  /** Field names, in the order they appear in `MeshLayer`. */
+  seeded: string[];
+}
+
+/**
+ * Seed a mesh layer from its `.msh.opt` (§7.6: "seeds tag colours/visibility, field range, colormap
+ * and colorbar on open, with a 'defaults from X.msh.opt' chip and a one-click Reset").
+ *
+ * Mutates nothing: it returns the patched layer and the list of what it touched, so A-SHELL's chip
+ * can name the fields and its Reset can put back `defaultMeshLayer`'s values by rebuilding the layer
+ * without the sidecar.
+ *
+ * A dataset with no `.msh.opt` — every mesh the caller opened without one, which is every mesh in
+ * every Phase-1 golden — comes back untouched with `seed: null`.
+ */
+export function seedMeshLayerFromOpt(
+  layer: MeshLayer,
+  ds: MeshDataset
+): { layer: MeshLayer; seed: MshOptSeed | null } {
+  const opt = ds.opt;
+  if (opt === undefined) return { layer, seed: null };
+  const seeded: string[] = [];
+  const next: MeshLayer = { ...layer };
+
+  // Tag colours and visibility. The colours are *also* on `MeshTag.color` (§6.2's ladder resolved
+  // them); seeding `tagStyle` as well is what gives an edit somewhere to live and a Reset something
+  // to put back.
+  const tagStyle: MeshLayer['tagStyle'] = {};
+  let tagColours = 0;
+  for (const tag of ds.tags) {
+    const base = layer.tagStyle[tag.id] ?? { visible: true, opacity: 1 };
+    const color = opt.tagColor[tag.id];
+    if (color !== undefined) tagColours += 1;
+    tagStyle[tag.id] = color !== undefined ? { ...base, color } : base;
+  }
+  next.tagStyle = tagStyle;
+  if (tagColours > 0) seeded.push('tagStyle.color');
+  if (Object.keys(opt.tagVisible).length > 0) seeded.push('tagStyle.visible');
+
+  // The first `View[n]` block. SimNIBS writes exactly one, and a mesh's field range, colormap and
+  // colour bar are per-view in Gmsh's model as they are per-layer in §4.4's.
+  const view = opt.views[0];
+  if (view !== undefined) {
+    // `RangeType = 2` is Gmsh's "custom", and only then do `CustomMin` / `CustomMax` mean anything:
+    // with RangeType 1 they are whatever the last save happened to leave behind.
+    if (view.rangeType === 2 && view.customMin !== undefined && view.customMax !== undefined) {
+      if (view.customMax > view.customMin) {
+        next.scale = { kind: 'linear', lo: view.customMin, hi: view.customMax };
+        seeded.push('scale');
+      }
+    }
+    const colormap =
+      view.colormapNumber !== undefined ? MSH_OPT_COLORMAPS[view.colormapNumber] : undefined;
+    if (colormap !== undefined) {
+      next.colormap = colormap;
+      seeded.push('colormap');
+    }
+    if (view.showScale === true) {
+      next.showColorbar = true;
+      seeded.push('showColorbar');
+    }
+  }
+
+  return seeded.length > 0
+    ? { layer: next, seed: { file: `${ds.name}.opt`, seeded } }
+    : { layer, seed: null };
+}

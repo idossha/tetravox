@@ -46,6 +46,17 @@ export interface DrawInput {
    * pointer knows for the length of a drag, and a saved `ViewSpec` should never carry them.
    */
   gizmo?: GizmoSpec | null;
+  /**
+   * The `mmPerPx` each 2D pane was last **fitted** at, for R2's corner `×zoom` readout (appended by
+   * E-SCENE; shared-file rule: additive only).
+   *
+   * Remembered rather than recomputed per frame, and this is the whole difference between a readout
+   * that means something and one that does not: recomputing the fit for the pane's *current* size
+   * makes every pane claim to be zoomed the moment the layout changes, though the user did nothing.
+   * "Zoom" is measured against the fit the user last asked for (`resetView`, or the auto-fit on the
+   * first dataset), which is what `r` returns them to.
+   */
+  viewFit?: ReadonlyMap<ViewId, number>;
 }
 
 /** One pane, mid-frame. */
