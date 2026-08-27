@@ -1,10 +1,12 @@
 //! `tvx-mesh-io` — mesh readers: Gmsh `.msh` v2/v4.1, `.msh.opt`, GIfTI, FreeSurfer surf/curv/annot,
 //! STL/PLY/OBJ.
 //!
-//! This crate is [`docs/ARCHITECTURE.md` §6.2](../../../docs/ARCHITECTURE.md) verbatim; every public
-//! signature is **frozen** (§12.3). Phase 0 ships signatures only.
+//! This crate is [`docs/ARCHITECTURE.md` §6.2](../../../docs/ARCHITECTURE.md) verbatim; every §6.2
+//! signature is **frozen** (§12.3). [`read_gifti_labels`] and [`read_msh_opt_names`] are **additive**
+//! — they carry data §6.2 promises but `Mesh` / `MshOptions` have no field for; see
+//! `docs/DECISIONS.md` (2026-08-27) for why, and fold them in when §6.2 grows a home for them.
 //!
-//! Normative rules Phase 1 must honour (§6.2), restated so they are not lost:
+//! Normative rules (§6.2), restated so they are not lost:
 //!
 //! * **Gmsh v2 binary (`2.2 1 8`, the SimNIBS default).** `$Nodes` records are `i32 id + 3×f64`.
 //!   `$Elements` blocks are `[elm_type: i32, count: i32, n_tags: i32]` then `count` records of
