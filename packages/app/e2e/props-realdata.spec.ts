@@ -276,5 +276,65 @@ test.describe('the tissue table on ernie.msh (real data)', () => {
     // §7.2: per-tag sub-draws mean per-tag opacity, and this is where it comes from.
     expect(style?.opacity).toBeCloseTo(0.35, 5);
     expect(style?.visible).toBe(true);
+
+    // R5's recolour, on a real tag: the picker's 8-bit value arrives as §4.1's 0..1 floats,
+    // **exactly** — `k / 255` round trips, which is what keeps §11's "the pixel is exactly the tag
+    // colour" true after a user edit. The edit lives in the layer, so it is what `serialize()`
+    // writes; the reset drops it and the file's own `.msh.opt` colour comes back.
+    const scalp = 1005;
+    const before = await page.evaluate(
+      ([id, tag]: [string, number]) => {
+        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
+        const dataset = window.__tetravox?.store
+          .getState()
+          .datasets.find((d) => d.id === (layer?.datasetId ?? ''));
+        if (layer?.kind !== 'mesh' || dataset?.kind !== 'mesh') throw new Error('no mesh');
+        return {
+          override: layer.tagStyle[tag]?.color ?? null,
+          file: dataset.tags.find((t) => t.id === tag)?.color ?? null,
+        };
+      },
+      [layerId, scalp] as [string, number]
+    );
+    expect(before.override).toBeNull();
+    // `ernie.msh.opt` paints Scalp 255,166,133 — the wire value, exactly (§4.1).
+    expect(before.file?.map((c) => Math.round(c * 255))).toEqual([255, 166, 133, 255]);
+
+    await page.evaluate(
+      ([id, tag]: [string, number]) => {
+        const el = document.querySelector(`[data-testid="mesh-tag-color-${id}-${tag}"]`);
+        if (el === null) throw new Error('no colour swatch');
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(el, '#ff00ff');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      },
+      [layerId, scalp] as [string, number]
+    );
+
+    const recoloured = await page.evaluate(
+      ([id, tag]: [string, number]) => {
+        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
+        if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
+        return layer.tagStyle[tag]?.color ?? null;
+      },
+      [layerId, scalp] as [string, number]
+    );
+    expect(recoloured).toEqual([1, 0, 1, 1]);
+    await expect(page.locator(`[data-testid="mesh-tag-row-${layerId}-${scalp}"]`)).toHaveAttribute(
+      'data-recoloured',
+      'true'
+    );
+
+    await page.click(`[data-testid="mesh-tag-color-reset-${layerId}-${scalp}"]`);
+    const reset = await page.evaluate(
+      ([id, tag]: [string, number]) => {
+        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
+        if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
+        return layer.tagStyle[tag]?.color ?? null;
+      },
+      [layerId, scalp] as [string, number]
+    );
+    expect(reset).toBeNull();
   });
 });
