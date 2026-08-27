@@ -19,7 +19,7 @@
  * integrator; see `./regions.ts`.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { LayerId } from '@tetravox/engine';
 import { useController, useUi } from '../../ui/context';
@@ -30,6 +30,7 @@ import {
   filterRows,
   fromHex,
   opacityPatch,
+  probedRegionId,
   regionSourceFor,
   selectOnClick,
   soloVisible,
@@ -67,11 +68,19 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
   );
 
   // R5's Freeview behaviour: a click in a pane selects the row under the cursor. The engine already
-  // resolved the label id into the probe; this only routes it (§8: no logic in React).
+  // resolved the label id into the probe (`ProbeRow.labelId` / `.tag`); this only routes it.
+  //
+  // It fires on a **change** of the probed id and not on every probe: `updateLayer` re-probes the
+  // cursor, so an unguarded effect would undo the selection the user had just made with the very
+  // patch that made it — Alt-click solo selected a row and then immediately reselected whatever the
+  // cursor happened to be sitting on.
+  const probedId = source === null ? null : probedRegionId(source, cursorProbe);
+  const lastProbedId = useRef<number | null>(null);
   useEffect(() => {
-    if (source === null) return;
-    controller.selectRegionsFromProbe(layerId);
-  }, [controller, layerId, source, cursorProbe]);
+    if (probedId === null || probedId === lastProbedId.current) return;
+    lastProbedId.current = probedId;
+    controller.selectRegions(layerId, { ids: [probedId], anchor: probedId });
+  }, [controller, layerId, probedId]);
 
   const shown = useMemo(
     () => (source === null ? [] : filterRows(source.rows, query)),

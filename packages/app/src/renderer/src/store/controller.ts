@@ -37,7 +37,6 @@ import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
 import { formatTriple, parseTriple, roundVoxel, voxelToWorld, worldToVoxel } from '../lib/coords';
 import { bridge } from '../bridge';
-import { EMPTY_SELECTION, probedRegionId, regionSourceFor } from '../panels/regions/regions';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
 
 function errorCode(error: unknown): string {
@@ -598,27 +597,6 @@ export class ShellController {
     this.store.setState((s) => ({
       regionSelection: { ...s.regionSelection, [layerId]: selection },
     }));
-  }
-
-  /**
-   * R5's "clicking a labelled voxel / tissue in a pane selects that row".
-   *
-   * The id comes from the probe the engine already produced for the cursor (`ProbeRow.labelId` /
-   * `ProbeRow.tag`, §4.7) — the panel never resolves a voxel itself.
-   */
-  selectRegionsFromProbe(layerId: LayerId): void {
-    const state = this.store.getState();
-    const layer = state.layers.find((l) => l.id === layerId);
-    if (layer === undefined) return;
-    const dataset = state.datasets.find((d) => d.id === layer.datasetId);
-    if (dataset === undefined) return;
-    const source = regionSourceFor(layer, dataset, state.regionStats[layerId]);
-    if (source === null) return;
-    const id = probedRegionId(source, state.cursorProbe);
-    if (id === null) return;
-    const current = state.regionSelection[layerId] ?? EMPTY_SELECTION;
-    if (current.ids.length === 1 && current.ids[0] === id) return;
-    this.selectRegions(layerId, { ids: [id], anchor: id });
   }
 
   /**
