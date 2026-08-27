@@ -7,7 +7,17 @@
  * plus 2D "arrows nudge the cursor; PgUp/PgDn slice".
  *
  * Resolution is separated from execution so the map is testable without an engine, a DOM or React.
- * `Shift+drag` is a pointer gesture on the canvas and belongs to the engine (§7.5), not here.
+ *
+ * **The pointer gestures are the engine's, and so are three keys.** `packages/engine/src/input/`
+ * binds `pointerdown`/`move`/`up`/`wheel` on the canvas itself (P2-01), and with them `+` / `-`
+ * (zoom the pane **under the pointer**) and `space` (the pan modifier) — R2 and R3 scope those to a
+ * pane, and only the engine knows which pane the pointer is in. `r` is bound in both places and is
+ * idempotent: the engine resets the hovered pane, this map resets the active one, and when the
+ * pointer is over the active pane they are the same call twice. {@link KEYMAP_HELP} lists the
+ * gestures so §8's keyboard help sheet can show the whole §7.5 surface in one place.
+ *
+ * §7.2 counts key repeat as an interaction. A host that wants `interacting` to cover the keyboard
+ * calls `engine.noteInput()` alongside `runCommand`; the pointer layer does it for itself.
  *
  * `⌘O` is deliberately **absent**: the Electron application menu owns that accelerator (§8), and
  * binding it here too would open two dialogs.
@@ -113,3 +123,12 @@ export function resolveKey(event: KeyEventLike): Command | null {
 export const KEYMAP_HELP =
   '[ / ] active layer · v visibility · Ctrl+↑/↓ reorder · x layout · c crosshair · ' +
   'r reset · 1–6 A/P/L/R/S/I · o orthographic · , / . 4D index · ↑↓←→ PgUp/PgDn slice';
+
+/**
+ * The §7.5 **pointer** bindings, for the same help sheet. Handled in the engine's input layer, so
+ * they are listed rather than resolved here.
+ */
+export const POINTER_HELP =
+  '2D: left click/drag cursor · wheel slice · ⌘/Ctrl+wheel or pinch zoom about the pointer · ' +
+  '+ / − zoom · r fit · middle-drag, space+drag or two-finger drag pan · right-drag window/level · ' +
+  'Shift+drag opacity — 3D: left orbit · right pan · wheel dolly · double-click pick';

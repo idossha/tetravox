@@ -1455,3 +1455,25 @@ Each entry below names the problem, the fix, and the evidence.
   ~50 px of a 589,824 px pane, three orders below §11's `maxDiffPixelRatio: 0.002`, so **no Phase-1
   golden was regenerated** — `gate3-t1-2x2-chrome` and `gate5-ernie-pick` both still pass against the
   committed PNGs, which is the honest way to add an item to a pane a closed gate photographs.
+
+- 2026-08-27 — **The pointer layer's operations are public methods on `TetravoxEngine`, not private
+  event handlers** (E-SCENE, P2-01). Every gesture §7.5 binds — `setCursorFromScreen`, `panView`,
+  `zoomViewAt`, `zoomView`, `stepSlice`, `windowLevelDrag`, `opacityDrag`, `orbitView`, `pan3DView`,
+  `dollyView`, `pickToCursor`, `hoverAtScreen`, `noteInput` — is a method the class exposes, and
+  `PointerLayer` is the only caller of them inside the engine (`TetravoxEngine implements PointerHost`
+  is what keeps that honest). §8 requires that "everything the UI can do must be reachable from the
+  `Engine` API alone", and a gesture implemented inside a DOM handler is reachable from nothing: not
+  from the app, not from a script, not from a test that does not synthesise events. They are appended
+  to the concrete engine rather than to the frozen §4.7 `Engine`, because the ownership map gives
+  E-SCENE exactly **one** `api.ts` carve-out and it is P2-09's; promoting this set to the facade is a
+  W-WASM item whenever the app wants to reach it through the interface rather than the class.
+
+- 2026-08-27 — **`Engine.probe` remembers the last non-empty row per layer at the cursor** (E-SCENE,
+  P2-04). A mesh probe is a `locate` round trip, latest-wins on **one key per layer** (§6.3), and P2-04
+  points that key at the hover position so §8's `Mouse` block can fill inside its 50 ms budget. That
+  alone would blank §8's `Cursor` block — "last click, **persistent**" — every time the mouse moved,
+  because `probeRow` serves whatever the last `locate` answered and its world point no longer matches
+  the cursor. The memo is engine-side, keyed by layer, filled only for a probe **at** the cursor, and
+  cleared by `setCursor`, so it can never describe a point the cursor has left. Two `locate` keys per
+  layer was the alternative and was rejected: the key belongs to `layers/mesh.ts`, which is E-MESH's,
+  and doubling the in-flight requests to keep a UI panel populated is the wrong end of the problem.
