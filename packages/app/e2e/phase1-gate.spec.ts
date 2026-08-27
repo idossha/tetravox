@@ -19,7 +19,8 @@ import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp } from './fixtures';
+import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import type { LaunchTarget } from './fixtures';
 
 const ROOT = process.env.TETRAVOX_TESTDATA ?? '';
 const ERNIE_SEEG = join(ROOT, 'm2m_ernie', 'ernie_seeg.msh');
@@ -33,8 +34,14 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
   test.skip(ROOT === '', 'TETRAVOX_TESTDATA is unset');
   test.describe.configure({ mode: 'serial' });
 
-  test.beforeAll(async () => {
-    app = await launchApp('dev', { search: 'engine=real' });
+  test.beforeAll(async ({}, workerInfo) => {
+    // §12.1 has two projects and the project name IS the launch target. Hardcoding `'dev'` here
+    // made all three tests report as passing under `[packaged]` with no artefact in the tree, and
+    // turned the `[packaged]` benchmark lines into the dev target measured a second time.
+    const target = workerInfo.project.name as LaunchTarget;
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
+    app = await launchApp(target, { search: 'engine=real' });
     page = await app.firstWindow();
     await app.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0]?.setContentSize(1400, 900);
@@ -363,5 +370,39 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
       });
       await page.screenshot({ path: join(out, 'app-shell-t1-and-ernie.png') });
     }
+  });
+
+  test('§8: the coordinate bar and Cursor block describe the point the crosshairs do', async () => {
+    // The panes read `scene.cursor`; §8's readout is driven by `EngineEvents.cursor` alone. When
+    // the engine's auto-centre moved the cursor without emitting, every pane annotated the bbox
+    // centre while this bar read `0.0 0.0 0.0` and the Cursor block reported a genuine intensity
+    // from 33 mm away. This is that, asserted on the DOM a user actually reads.
+    const seen = await page.evaluate(() => {
+      const tv = window.__tetravox;
+      const engine = tv?.engine as unknown as {
+        scene: { cursor: [number, number, number] };
+      } | null;
+      if (engine == null || tv?.store == null) throw new Error('no engine');
+      const fmt = (v: readonly number[]): string =>
+        v.map((c) => (c === 0 ? 0 : c).toFixed(1).replace(/^-0\.0$/, '0.0')).join(' ');
+      const bar = document.querySelector<HTMLInputElement>('[data-testid="coord-input"]');
+      const ras = document.querySelector('[data-testid="info-cursor-ras"]');
+      return {
+        sceneCursor: [...engine.scene.cursor],
+        storeCursor: [...tv.store.getState().cursor],
+        expected: fmt(engine.scene.cursor),
+        barText: bar?.value ?? null,
+        rasText: ras?.textContent?.trim() ?? null,
+        probeWorld: tv.store.getState().cursorProbe?.world ?? null,
+      };
+    });
+
+    expect(seen.sceneCursor, 'the auto-centre must have moved the cursor').not.toEqual([0, 0, 0]);
+    expect(seen.storeCursor, 'the store follows the engine').toEqual(seen.sceneCursor);
+    expect(seen.barText, 'the coordinate bar shows the cursor, not the origin').toBe(seen.expected);
+    expect(seen.rasText, 'and so does the Cursor block').toBe(seen.expected);
+    expect(seen.probeWorld, 'the probed values belong to that same point').toEqual(
+      seen.sceneCursor
+    );
   });
 });

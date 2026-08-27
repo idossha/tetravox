@@ -1177,3 +1177,10 @@ Each entry below names the problem, the fix, and the evidence.
   falls back to software and the R16 test skips with its reason, which is an honestly empty leg
   rather than a missing one. **Evidence:** `[chromium-angle] @angle gate 6: the R16 branch … (614 ms)`
   on `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`.
+- 2026-08-27 — **The app's gate spec launches the project's own target.** `packages/app/e2e/phase1-gate.spec.ts`
+  hardcoded `launchApp('dev')` in `beforeAll`, so under the `packaged` project it launched the dev
+  build and never self-skipped: three tests reported green under `[packaged]` with no artefact in the
+  tree, and the `[packaged]` benchmark lines were the dev target measured a second time.
+  `e2e/fixtures.ts::packagedUnavailable()` exists precisely to prevent that and every other app spec
+  already used it. The same spec now also asserts §8's readout on the DOM — the coordinate bar and
+  the `Cursor` block against `scene.cursor` — which is the app-visible half of the auto-centre bug.
