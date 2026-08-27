@@ -35,7 +35,14 @@ export type Command =
   | { kind: 'toggleActiveLayerVisible' }
   | { kind: 'reorderActiveLayer'; delta: -1 | 1 }
   | { kind: 'stepVolumeIndex'; delta: -1 | 1 }
-  | { kind: 'stepCursor'; steps: -1 | 1 };
+  | { kind: 'stepCursor'; steps: -1 | 1 }
+  /**
+   * §7.5's "arrows nudge the cursor" — **in the pane's plane**, not along its normal (P2-09).
+   *
+   * `dx` is along the pane's `right` and `dy` along its `up`, both in ±1 steps; the engine owns the
+   * basis (`Engine.nudgeCursor`), because §8 forbids the app computing it.
+   */
+  | { kind: 'nudgeCursor'; dx: -1 | 0 | 1; dy: -1 | 0 | 1 };
 
 /** `1..6` → the §7.5 3D camera presets, in A/P/L/R/S/I order. */
 export const PRESET_KEYS: Record<string, CameraPreset> = {
@@ -106,14 +113,21 @@ export function resolveKey(event: KeyEventLike): Command | null {
       return { kind: 'stepVolumeIndex', delta: -1 };
     case '.':
       return { kind: 'stepVolumeIndex', delta: 1 };
+    // §7.5 lists two bindings, and they are two: PgUp/PgDn steps the **slice** (along the plane
+    // normal), the arrows nudge the cursor **in the plane**. Phase 1 gave all six keys to
+    // `stepCursor`, so pressing the right arrow in the axial pane changed the axial slice.
     case 'PageUp':
-    case 'ArrowUp':
-    case 'ArrowRight':
       return { kind: 'stepCursor', steps: 1 };
     case 'PageDown':
-    case 'ArrowDown':
-    case 'ArrowLeft':
       return { kind: 'stepCursor', steps: -1 };
+    case 'ArrowRight':
+      return { kind: 'nudgeCursor', dx: 1, dy: 0 };
+    case 'ArrowLeft':
+      return { kind: 'nudgeCursor', dx: -1, dy: 0 };
+    case 'ArrowUp':
+      return { kind: 'nudgeCursor', dx: 0, dy: 1 };
+    case 'ArrowDown':
+      return { kind: 'nudgeCursor', dx: 0, dy: -1 };
     default:
       return null;
   }
@@ -122,7 +136,8 @@ export function resolveKey(event: KeyEventLike): Command | null {
 /** One-line help, shown in the toolbar's title attribute so the map is discoverable. */
 export const KEYMAP_HELP =
   '[ / ] active layer · v visibility · Ctrl+↑/↓ reorder · x layout · c crosshair · ' +
-  'r reset · 1–6 A/P/L/R/S/I · o orthographic · , / . 4D index · ↑↓←→ PgUp/PgDn slice';
+  'r reset · 1–6 A/P/L/R/S/I · o orthographic · , / . 4D index · ' +
+  '↑↓←→ nudge the cursor in-plane · PgUp/PgDn slice';
 
 /**
  * The §7.5 **pointer** bindings, for the same help sheet. Handled in the engine's input layer, so

@@ -392,6 +392,31 @@ export function worldToVoxel(ds: VolumeDataset, w: vec3): vec3 {
   ];
 }
 
+/**
+ * Slide `world` along `dir` until the voxel index that direction steps along is an **integer**.
+ *
+ * §7.5's anti-drift rule — "snap the cursor's along-normal component to the nearest voxel plane" —
+ * read literally, and shared by both keyboard steps: `stepCursor` snaps along the plane normal
+ * (PgUp/PgDn and the wheel), `nudgeCursor` along the pane's `right` and `up` (the arrows, P2-09).
+ *
+ * "Along `dir`" is the whole point. Rounding all three voxel indices instead — which Phase 1 did —
+ * also drags the cursor sideways to the nearest voxel *centre*, so one step moves it in a direction
+ * the user did not ask for. Solving for the distance along `dir` that puts the stepping index
+ * (`voxelAxisAlong`, the same derivation §8's corner readout uses) on an integer cannot touch the
+ * other two axes, and is correct for an oblique plane as well as a canonical one.
+ *
+ * The rate is non-zero by construction: `axis` is the argmax of exactly this projection.
+ */
+export function snapAlong(ds: VolumeDataset, world: vec3, dir: vec3): vec3 {
+  const { axis } = voxelAxisAlong(dir, ds.affine);
+  const v = worldToVoxel(ds, world);
+  const m = ds.inverseAffine;
+  const rate = (m[axis] ?? 0) * dir[0] + (m[4 + axis] ?? 0) * dir[1] + (m[8 + axis] ?? 0) * dir[2];
+  if (!(Math.abs(rate) > 1e-9)) return world;
+  const t = (Math.round(v[axis] ?? 0) - (v[axis] ?? 0)) / rate;
+  return [world[0] + dir[0] * t, world[1] + dir[1] * t, world[2] + dir[2] * t];
+}
+
 // -------------------------------------------------------------------------------------------
 // The pane's in-plane origin — §7.5 / maintainer requirement R3
 // -------------------------------------------------------------------------------------------

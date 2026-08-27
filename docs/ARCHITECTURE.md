@@ -503,7 +503,13 @@ opens a "relocate" dialog keyed on `fingerprint`.
 
 ### 4.7 Engine facade
 
-`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. `MockEngine` implements it
+`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. **One member was added in Phase 2:
+`nudgeCursor`** (2026-08-27, E-SCENE, under the single carve-out named in
+`docs/PHASE2-OWNERSHIP.md`; see `docs/DECISIONS.md`). §7.5 lists "arrows nudge the cursor" and
+"PgUp/PgDn slice" as two bindings, and the facade had only `stepCursor` — "±1 voxel along the view
+normal" — so all six keys stepped the slice and the in-plane nudge existed nowhere. The app cannot
+supply it: the step is along `sliceBasis(view, radiological).right` / `.up`, which is engine geometry,
+and §8 forbids the UI computing it. `MockEngine` implements it
 with no GL — a *compile-time* proof that the facade is implementable without a context; the behavioural no-GL
 engine the app is developed against is `packages/app`'s `NoGlEngine`, which implements the same interface.
 
@@ -592,6 +598,7 @@ export interface Engine {
 
   setCursor(world: vec3): void;
   stepCursor(viewId: ViewId, steps: number): void;   // ±1 voxel along the view normal (§7.5)
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void;  // ±1 step IN THE PLANE (§7.5 arrows)
   setLayout(layout: Layout): void;
   setView(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void;
   setRadiological(on: boolean): void;
@@ -1940,6 +1947,16 @@ from the meshes and the wheel sweeps the mesh's cross-section (R4).
 *(The mesh-only fallback was `bboxDiagonal / 256` until R4, 2026-08-27. It made one wheel notch mean a different
 distance per file — 1.32 mm on `ernie.msh`, 0.53 mm on `lh.central.gii` — for a gesture whose whole purpose is to
 sweep at a predictable rate.)*
+
+**The arrows and PgUp/PgDn are two different steps, and the snap is per direction** (P2-09, 2026-08-27). PgUp /
+PgDn and the wheel step along the plane **normal**, as above. The **arrows nudge the cursor in the plane**:
+`cursor += right · step_right · dx + up · step_up · dy`, where `right` / `up` are
+`sliceBasis(view, radiological)` — so pressing → moves the crosshair toward screen-right in either convention, and
+one press lands exactly where a one-`step_mm` drag to the right lands. Each axis takes `step_mm` computed for its
+own direction by the rule above, and each is snapped onto the voxel grid **along that direction alone**, never by
+rounding all three voxel indices: rounding drags the cursor sideways to the nearest voxel centre, which is a
+movement the user did not ask for. This is `Engine.nudgeCursor` (§4.7); it is a facade member because the basis is
+engine geometry and §8 forbids the app deriving it.
 
 Input (Freeview-like):
 * **2D** — left-click/drag sets the cursor; wheel = slice ±1 (⌘/Ctrl+wheel = zoom); right-drag = window/level on

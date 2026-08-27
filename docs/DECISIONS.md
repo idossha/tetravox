@@ -1572,3 +1572,24 @@ Each entry below names the problem, the fix, and the evidence.
   a coordinate in a paper that is wrong by centimetres. Code 5 (`TEMPLATE_OTHER`) names no template
   and claims nothing. No protocol change, exactly as the ownership map's "explicitly not gaps" table
   predicted.
+
+- 2026-08-27 — **`Engine.nudgeCursor(viewId, dx, dy)` — the one `api.ts` change E-SCENE owns**
+  (P2-09, under the single named carve-out in `docs/PHASE2-OWNERSHIP.md`; ARCHITECTURE §4.7 and §7.5
+  amended in this commit, as §12.3 requires). §7.5 lists "arrows nudge the cursor" and "PgUp/PgDn
+  slice" as two bindings; the frozen facade had only `stepCursor`, "±1 voxel along the view normal",
+  so Phase 1's keymap gave all six keys to it and pressing → in the axial pane changed the axial
+  **slice**. The in-plane nudge cannot live in the app: the step is along
+  `sliceBasis(view, radiological).right` / `.up`, engine geometry that §8 forbids React from
+  computing. Shape chosen over an extended `stepCursor(viewId, steps, axis?)`: two independent
+  components let one call move diagonally and keep `stepCursor`'s signature — and therefore every
+  existing caller and test — untouched. `MockEngine` and `NoGlEngine` both grew the member in the
+  same commit, which is what the carve-out's terms require.
+
+- 2026-08-27 — **The voxel-grid snap is one function, applied along whichever direction is being
+  stepped** (E-SCENE, P2-09). `stepCursor` and `nudgeCursor` are the same operation in different
+  directions, so `view/geometry.ts`'s `snapAlong(ds, world, dir)` is now the single implementation:
+  it solves for the distance along `dir` that puts the voxel index `voxelAxisAlong(dir, affine)`
+  names on an integer. Applying it per axis is what makes 100 nudges out and 100 back return to the
+  starting voxel exactly, in-plane as well as along the normal, and it keeps the property the
+  along-normal snap was fixed for earlier today: a step never moves the cursor in a direction the
+  user did not ask for.

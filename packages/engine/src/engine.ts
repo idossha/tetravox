@@ -60,9 +60,8 @@ import {
   planeAnchor,
   presetRotation,
   sliceBasis,
+  snapAlong,
   stepMm,
-  voxelAxisAlong,
-  worldToVoxel,
 } from './view/geometry';
 import {
   adaptiveLevel,
@@ -582,42 +581,59 @@ export class TetravoxEngine implements Engine, PointerHost {
   stepCursor(viewId: ViewId, steps: number): void {
     const view = this.#store.view(viewId);
     if (view === undefined || !isSliceView(view)) return;
-    const top = this.#store.topVolume();
-    const step = stepMm(
-      view.normal,
-      top?.ds.affine ?? null,
-      top?.ds.spacing ?? null,
-      this.#store.bounds()
-    );
-    const c = this.#scene.cursor;
-    let next: vec3 = [
-      c[0] + view.normal[0] * step * steps,
-      c[1] + view.normal[1] * step * steps,
-      c[2] + view.normal[2] * step * steps,
-    ];
-    if (top !== undefined) {
-      // The voxel axis this plane steps along (§8's corner index uses the same derivation, and
-      // neither may assume a voxel axis per view mode — every `m2m_*` volume permutes them).
-      const { axis } = voxelAxisAlong(view.normal, top.ds.affine);
-      const v = worldToVoxel(top.ds, next);
-      // How fast that index changes as the cursor slides along the normal: row `axis` of the
-      // inverse affine, dotted with the normal. It is non-zero by construction — `axis` is the
-      // argmax of exactly this projection.
-      const m = top.ds.inverseAffine;
-      const rate =
-        (m[axis] ?? 0) * view.normal[0] +
-        (m[4 + axis] ?? 0) * view.normal[1] +
-        (m[8 + axis] ?? 0) * view.normal[2];
-      if (Math.abs(rate) > 1e-9) {
-        const t = (Math.round(v[axis]) - v[axis]) / rate;
-        next = [
-          next[0] + view.normal[0] * t,
-          next[1] + view.normal[1] * t,
-          next[2] + view.normal[2] * t,
-        ];
-      }
-    }
+    this.setCursor(this.#alongBy(view.normal, steps, this.#scene.cursor));
+  }
+
+  /**
+   * §7.5's "**arrows nudge the cursor**" — ±1 step **in the view plane**, along the pane's `right`
+   * and `up` (P2-09, and the one `api.ts` carve-out in `docs/PHASE2-OWNERSHIP.md`).
+   *
+   * §7.5 lists the arrows and PgUp/PgDn as two different bindings and Phase 1 gave both to
+   * `stepCursor`, so all four arrows walked the cursor along the plane **normal**: pressing → in the
+   * axial pane changed the axial slice instead of moving the crosshair right, and the in-plane nudge
+   * §7.5 names existed nowhere. It cannot live in the app — §8 forbids logic in React, and the basis
+   * is `sliceBasis(view, radiological)`, engine geometry the app has no business recomputing — so it
+   * is an `Engine` member, which is why this is the one frozen-file change E-SCENE owns.
+   *
+   * The basis is the **radiological-aware** one, the same `paneToWorld` uses: pressing → moves the
+   * crosshair toward screen-right in either convention, and a one-step nudge lands exactly where a
+   * one-`step_mm` drag to the right lands. Each axis takes its own `step_mm` (§7.5's rule applied to
+   * `right` and `up` rather than to the normal), and each is snapped along its own direction, so 100
+   * nudges out and 100 back return to the starting point exactly — including on a rotated affine,
+   * where the effective step is the voxel-plane spacing along that direction rather than `step_mm`.
+   *
+   * A diagonal nudge snaps **sequentially**, `right` then `up`. On an axis-aligned volume the two are
+   * independent and the order does not matter; on a rotated one the second snap perturbs the first
+   * axis's index slightly, which is why the anti-drift property is stated and tested per axis — the
+   * form §7.5 and §11 both state it in.
+   */
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void {
+    const view = this.#store.view(viewId);
+    if (view === undefined || !isSliceView(view)) return;
+    const { right, up } = sliceBasis(view, this.#scene.radiological);
+    let next = this.#scene.cursor;
+    if (dx !== 0) next = this.#alongBy(right, dx, next);
+    if (dy !== 0) next = this.#alongBy(up, dy, next);
+    if (next === this.#scene.cursor) return;
     this.setCursor(next);
+  }
+
+  /**
+   * `world + dir · step_mm · steps`, snapped back onto the voxel grid along `dir`.
+   *
+   * §7.5's slice step and P2-09's in-plane nudge are the same operation in two directions, and the
+   * anti-drift snap is what makes repeated steps exact — see `view/geometry.ts`'s `snapAlong`. With
+   * no volume in the scene `stepMm` falls back to 1 mm (R4) and there is nothing to snap to.
+   */
+  #alongBy(dir: vec3, steps: number, from: vec3): vec3 {
+    const top = this.#store.topVolume();
+    const step = stepMm(dir, top?.ds.affine ?? null, top?.ds.spacing ?? null, this.#store.bounds());
+    const moved: vec3 = [
+      from[0] + dir[0] * step * steps,
+      from[1] + dir[1] * step * steps,
+      from[2] + dir[2] * step * steps,
+    ];
+    return top !== undefined ? snapAlong(top.ds, moved, dir) : moved;
   }
 
   setLayout(layout: { kind: Scene['layout']['kind']; cells: ViewId[] }): void {
