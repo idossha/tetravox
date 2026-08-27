@@ -222,6 +222,11 @@ jobs:
       - name: pnpm e2e
         run: pnpm e2e
 
+      # Both suites `pnpm e2e` runs, not just the engine's: the app's dev-leg report was uploaded on
+      # no runner at all (the `packaged` step below collects packages/app, but only on macOS), so an
+      # app E2E failure on Linux left its screenshots and traces on the runner and nothing to look at
+      # here. That is the leg that is hardest to reproduce locally, so it is the one that most needs
+      # its artefacts.
       - name: Upload the Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -230,6 +235,8 @@ jobs:
           path: |
             packages/engine/playwright-report
             packages/engine/test-results
+            packages/app/playwright-report
+            packages/app/test-results
           retention-days: 7
           if-no-files-found: ignore
 
