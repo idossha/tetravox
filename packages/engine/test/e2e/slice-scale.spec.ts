@@ -95,7 +95,7 @@ function linearRgba(lo: number, hi: number, v: number): [number, number, number,
 }
 
 /** `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` over the cleared background, in 8-bit storage. */
-function over(src: [number, number, number, number], alpha: number, bg: number[]): Rgba {
+function over(src: [number, number, number, number], alpha: number, bg: Rgba): Rgba {
   const a = clamp01(alpha) * (src[3] / 255);
   return [
     Math.round(src[0] * a + (bg[0] ?? 0) * (1 - a)),
@@ -129,7 +129,8 @@ function expectRgb(px: Rgba, expected: Rgba, tol: number, label: string): void {
 interface Loaded {
   layerId: string;
   cursor: [number, number, number];
-  background: number[];
+  /** The cleared background, as `readCanvasPixels` reports it — the RGBA every discard leaves. */
+  background: Rgba;
   format: string;
   /**
    * Per-channel tolerance.
@@ -181,7 +182,9 @@ async function openVolume(page: Page, norm16 = true): Promise<Loaded> {
   expect(info.isLabel).toBe(false);
   expect(info.format, 'the §6.1 ladder row this leg takes').toBe(info.norm16 ? 'R16' : 'R32F');
   if (!norm16) expect(info.norm16, '`forceCaps` may only ever REMOVE a capability').toBe(false);
-  return { ...info, tol: info.format === 'R32F' ? 0 : 3 };
+  const bg = info.background;
+  const background: Rgba = [bg[0] ?? 0, bg[1] ?? 0, bg[2] ?? 0, 255];
+  return { ...info, background, tol: info.format === 'R32F' ? 0 : 3 };
 }
 
 /** Pane pixel (top-left origin) → world mm, for a neurological axial pane at `camera.center` 0. */
@@ -267,7 +270,7 @@ for (const leg of LEGS) {
       const label = `(${pt.join(',')}) v=${value}`;
       if (value === undefined) {
         // Outside the volume's own AABB — §7.3's texcoord discard.
-        expectRgb(px, info.background as Rgba, 0, `${label} outside the volume`);
+        expectRgb(px, info.background, 0, `${label} outside the volume`);
         continue;
       }
       const src = heatRgba(HEAT, value);
@@ -387,10 +390,10 @@ for (const leg of LEGS) {
       const label = `(${pt.join(',')}) v=${value}`;
       if (value < threshold.lo) {
         below += 1;
-        expectRgb(px, info.background as Rgba, 0, `${label} below lo must be discarded`);
+        expectRgb(px, info.background, 0, `${label} below lo must be discarded`);
       } else if (value > threshold.hi) {
         above += 1;
-        expectRgb(px, info.background as Rgba, 0, `${label} above hi must be discarded`);
+        expectRgb(px, info.background, 0, `${label} above hi must be discarded`);
       } else {
         inside += 1;
         expectRgb(
@@ -433,7 +436,7 @@ for (const leg of LEGS) {
         (1 - smoothstep(threshold.hi - ramp, threshold.hi, value));
       const label = `(${pt.join(',')}) v=${value} a=${alpha.toFixed(4)}`;
       if (alpha <= 0) {
-        expectRgb(px, info.background as Rgba, 0, `${label} fully ramped out`);
+        expectRgb(px, info.background, 0, `${label} fully ramped out`);
         continue;
       }
       if (alpha > 0.02 && alpha < 0.98) ramped += 1;
@@ -466,7 +469,7 @@ for (const leg of LEGS) {
       const label = `(${pt.join(',')}) v=${value}`;
       if (Math.abs(value) < threshold.lo || Math.abs(value) > threshold.hi) {
         nearZeroDropped += 1;
-        expectRgb(px, info.background as Rgba, 0, `${label} outside |v| window`);
+        expectRgb(px, info.background, 0, `${label} outside |v| window`);
       } else {
         if (value < 0) negativeKept += 1;
         expectRgb(
