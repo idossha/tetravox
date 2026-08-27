@@ -1478,3 +1478,50 @@ Each entry below names the problem, the fix, and the evidence.
   rather than more rows of the first, because `gl/texture.ts`'s `createLut` builds `N × 1` and that
   file belongs to the integrator. Rejected: a `visibleLabels` uniform array (ESSL 3.00 cannot index
   one dynamically at the 65535-label cap — the same reason the palette is a texture at all).
+
+- 2026-08-27 — **R5's recolour and selection need two `VolumeLayer` fields that do not exist; filed
+  with the integrator rather than added (E-SLICE).** `docs/PHASE2-OWNERSHIP.md` closes its R5 row
+  with "No frozen-type change is needed: recolouring edits the layer's own `LabelTable`
+  (`VolumeLayer.labelLut`, `MeshLayer.label.table`)". **`VolumeLayer` has no `labelLut`** — §4.4 and
+  `packages/engine/src/scene/types.ts` carry `visibleLabels`, `labelOpacity`, `labelMode` and
+  `outlineWidthPx` and nothing else — and it has no home for a selection either, so the map's claim
+  is true of `MeshLayer` and false of `VolumeLayer`. §12.3 closes that file to everyone but W-WASM,
+  so the two fields are **filed**, not added:
+  * `VolumeLayer.labelLut?: LabelTable` — a per-layer colour override, plus a serialisable form in
+    `SerializableLayer` (a `LabelTable` holds a `Map`), so a recolour survives save/load as R5's
+    gate requires.
+  * `VolumeLayer.selectedLabels?: Uint32Array` — the region panel's selection, plus
+    `selectedLabels?: number[]` in `SerializableLayer`, exactly as `visibleLabels` is handled today.
+
+  Until they land, the engine carries both **outside** the frozen surface: label colour is patched
+  into the **dataset's** `LabelTable` (which is what a `*_LUT.txt` holds, what §8's "Save LUT…"
+  exports, and what every layer on that atlas reads) through `TetravoxEngine.setLabelColor`, and the
+  selection lives on the layer's runtime through `TetravoxEngine.setSelectedLabels`. Both are
+  appended `TetravoxEngine` methods, not §4.7 `Engine` members, so **A-PROPS cannot reach them from
+  React** — §8 requires everything the UI does to go through §4.7 alone. That is the part of R5 this
+  owner cannot close, and it is one W-WASM commit away. The palette pipeline behind it is complete
+  and tested: `buildLabelPalette(ds, ids, { visibleLabels, labelOpacity })` and `buildLabelAttrs`
+  already take the styling as parameters, so the two fields become two arguments at one call site.
+
+- 2026-08-27 — **`Annotations.colorbars` stays `false` by default, even though §11 now requires
+  colour bars in every screenshot.** `scene/defaults.ts` is a shared file whose rule is "never change
+  an existing default — it moves every golden that layer appears in", and flipping this one moves
+  `gate3-t1-2x2-chrome`, `gate3-t1-axial-radiological`, `gate4-t1-oblique`, `gate5-ernie-pick` and
+  `gate5-overlay-composite-oblique` — five goldens belonging to `phase1-gate.spec.ts`, "a closed
+  record of a passed gate" that this owner may not regenerate. Every Phase-2 golden turns the bars on
+  explicitly, so the requirement is met where it is testable. **The default flip is the integrator's
+  to make**, in the commit that regenerates the Phase-1 goldens — most naturally the same commit that
+  regenerates them on `ubuntu-24.04`, which §11 makes the authority and which has still never run.
+
+- 2026-08-27 — **The label outline is a binary 4-tap test, not §7.0.5's `fwidth`-scaled ramp.**
+  §7.0.5 asks for label outlines to "derive a distance-to-boundary from the neighbour-label test and
+  `fwidth`-scale the smoothstep, not a binary 'different label ⇒ outline colour'". §7.3's **normative**
+  formula, added later and in more detail, is four binary taps at `± 0.5 · outlineWidthPx · duv`, and
+  says in the same paragraph that four binary taps "cannot recover a distance … anyway". The two
+  cannot both be implemented; §7.3 is the specific, normative, measured one ("2.00 px axis-aligned /
+  2.69 px at 45°", "8 taps buy nothing … at 12 % more slice-composite cost"), so it wins and §7.0.5's
+  clause is read as an aspiration that its own successor retired. Measured here on
+  `labeling.nii.gz` at `outlineWidthPx: 2`: **2.00 px at 0.05 mm/px, 2.01 px at 1.0, 2.01 px at 5.0,
+  with 100.0 % of the fill boundary covered at all three** — §11's Label-outline-zoom row wants
+  [0.8, 2.9] px and ≥ 99 %. A ramp would need a distance, and the only honest source of one is
+  Phase 3's label-minification work (§ROADMAP Phase 3), which owns the sampler this sits on.
