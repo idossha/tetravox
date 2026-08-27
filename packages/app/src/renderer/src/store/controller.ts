@@ -433,6 +433,19 @@ export class ShellController {
     this.engine.stepCursor(viewId, steps);
   }
 
+  /**
+   * §7.5's arrows — the in-plane nudge (P2-09), as opposed to PgUp/PgDn's {@link stepCursor}.
+   *
+   * One `Engine` call and no arithmetic: the pane's `right` / `up` basis is engine geometry, and §8
+   * puts it there ("everything the UI can do must be reachable from the `Engine` API alone. No logic
+   * in React").
+   */
+  nudgeCursor(dx: -1 | 0 | 1, dy: -1 | 0 | 1): void {
+    const viewId = this.store.getState().activeViewId;
+    if (viewId === null) return;
+    this.engine.nudgeCursor(viewId, dx, dy);
+  }
+
   // ------------------------------------------------------------------------------------------
   // Coordinate bar (§8)
   // ------------------------------------------------------------------------------------------
@@ -561,6 +574,8 @@ export class ShellController {
         return this.stepVolumeIndex(command.delta);
       case 'stepCursor':
         return this.stepCursor(command.steps);
+      case 'nudgeCursor':
+        return this.nudgeCursor(command.dx, command.dy);
     }
   }
 

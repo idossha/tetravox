@@ -157,6 +157,16 @@ export interface Engine {
   setCursor(world: vec3): void;
   /** ±1 voxel along the view normal (§7.5). */
   stepCursor(viewId: ViewId, steps: number): void;
+  /**
+   * §7.5's "arrows nudge the cursor": ±1 step **in the view plane**, along that pane's `right` and
+   * `up`, radiological flag included (§4.7 / §7.5, added 2026-08-27 — see `docs/DECISIONS.md`).
+   *
+   * Distinct from {@link Engine.stepCursor}, which steps along the plane **normal** (PgUp / PgDn and
+   * the wheel). §7.5 lists the two bindings separately; giving both to `stepCursor` made all four
+   * arrows change the slice. The app may not compute the basis itself (§8: no logic in React), so
+   * the in-plane step has to be an engine member.
+   */
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void;
   setLayout(layout: Layout): void;
   setView(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void;
   setRadiological(on: boolean): void;
@@ -259,6 +269,12 @@ export class MockEngine implements Engine {
   stepCursor(viewId: ViewId, steps: number): void {
     void viewId;
     void steps;
+    throw new Error('phase 1');
+  }
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void {
+    void viewId;
+    void dx;
+    void dy;
     throw new Error('phase 1');
   }
   setLayout(layout: Layout): void {

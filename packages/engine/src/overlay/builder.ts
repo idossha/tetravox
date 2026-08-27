@@ -47,6 +47,23 @@ export class OverlayBuilder {
   }
 
   /**
+   * An arbitrary convex quad, corners in order — the primitive a **rotated** line needs.
+   *
+   * Every Phase-1 item was axis-aligned, so {@link OverlayBuilder.rect} was enough. §7.0.6's
+   * screen-space quad expansion is not — "`gl.lineWidth()` is a no-op; `ALIASED_LINE_WIDTH_RANGE` is
+   * `[1,1]` `[M2Max]`" — so the gizmo's ring and arcs are thick segments built from this.
+   */
+  quad(
+    a: [number, number],
+    b: [number, number],
+    c: [number, number],
+    d: [number, number],
+    color: vec4
+  ): void {
+    for (const [px, py] of [a, b, c, a, c, d]) this.#vertex(px, py, -1, -1, color);
+  }
+
+  /**
    * Draw `text` with its lower-left corner at `(x, y)`, magnified `scale`×.
    *
    * `align` positions the whole string: `'left'` puts `x` at the left edge, `'center'` centres on

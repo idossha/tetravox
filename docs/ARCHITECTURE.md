@@ -454,6 +454,26 @@ export interface MeshGeometry { vao: WebGLVertexArrayObject; buffers: WebGLBuffe
                                                     `generation` per §6.5.2's lifecycle rules */ }
 ```
 
+**`SliceView.camera.center` is measured from the scene bounding-box centre, not from the cursor**
+(maintainer requirement R3, 2026-08-27 — where a requirement and this contract disagree, the
+requirement wins). The block above still carries Phase 0's inline comment "relative to the cursor's
+projection", because `scene/types.ts` is frozen and a comment there is W-WASM's to reword; this
+paragraph is the normative statement, and the two must be read together until that edit lands.
+
+The reason is R3 itself — *move the crosshair, not the scan*. With the cursor as the in-plane origin,
+setting the cursor moves the **image** under a crosshair pinned to the pane centre, which is the
+behaviour R3 forbids and which made a left-click-to-set-cursor gesture impossible to write: the point
+the user clicked slid away from the pointer as the click landed. With a cursor-independent anchor,
+`center` is a pure pan, the crosshair is drawn where the cursor projects, and a left-drag leaves every
+non-crosshair pixel of that pane byte-identical.
+
+The anchor is **derived, never stored** — the same discipline the slice plane already follows. It is
+the centre of `Scene`'s dataset bounds, so it changes only when a dataset is added or removed, and it
+coincides with the cursor at load (§4.7's first-dataset auto-centre puts the cursor there), which is
+why adopting it moved no Phase-1 golden. `resetView` sets `center = [0, 0]`, which now frames the
+**data** rather than wherever the cursor happens to be. The along-normal component of the plane is
+still the cursor's alone.
+
 ### 4.6 ViewSpec — the persisted form (`*.tetravox.json`)
 
 ```ts
@@ -517,7 +537,13 @@ make the file look like a different one.
 
 ### 4.7 Engine facade
 
-`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. `MockEngine` implements it
+`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. **One member was added in Phase 2:
+`nudgeCursor`** (2026-08-27, E-SCENE, under the single carve-out named in
+`docs/PHASE2-OWNERSHIP.md`; see `docs/DECISIONS.md`). §7.5 lists "arrows nudge the cursor" and
+"PgUp/PgDn slice" as two bindings, and the facade had only `stepCursor` — "±1 voxel along the view
+normal" — so all six keys stepped the slice and the in-plane nudge existed nowhere. The app cannot
+supply it: the step is along `sliceBasis(view, radiological).right` / `.up`, which is engine geometry,
+and §8 forbids the UI computing it. `MockEngine` implements it
 with no GL — a *compile-time* proof that the facade is implementable without a context; the behavioural no-GL
 engine the app is developed against is `packages/app`'s `NoGlEngine`, which implements the same interface.
 
@@ -606,6 +632,7 @@ export interface Engine {
 
   setCursor(world: vec3): void;
   stepCursor(viewId: ViewId, steps: number): void;   // ±1 voxel along the view normal (§7.5)
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void;  // ±1 step IN THE PLANE (§7.5 arrows)
   setLayout(layout: Layout): void;
   setView(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void;
   setRadiological(on: boolean): void;
@@ -1990,15 +2017,39 @@ would be a second source of truth). 3D camera: orbit (arcball) / pan / dolly, `f
 **Slice stepping, defined once so it needs no rewrite for oblique:**
 `step_mm = max over voxel axes a of |dot(normal, A[:,a])|`, where `A` is the 3×3 of the topmost visible volume
 layer's affine (this reduces to voxel spacing for canonical views on an axis-aligned volume). Fall back to
-`min(spacing)` of any volume, else `bboxDiagonal / 256` for mesh-only scenes. Wheel / PgUp / PgDn / arrows do
+`min(spacing)` of any volume, else **1 mm (configurable)** for mesh-only scenes. Wheel / PgUp / PgDn / arrows do
 `cursor += normal · step · k`, then **snap the cursor's along-normal component to the nearest voxel plane** of that
-layer to stop drift over repeated steps.
+layer to stop drift over repeated steps. Stepping never requires a volume: with a mesh alone the scene bounds come
+from the meshes and the wheel sweeps the mesh's cross-section (R4).
+
+*(The mesh-only fallback was `bboxDiagonal / 256` until R4, 2026-08-27. It made one wheel notch mean a different
+distance per file — 1.32 mm on `ernie.msh`, 0.53 mm on `lh.central.gii` — for a gesture whose whole purpose is to
+sweep at a predictable rate.)*
+
+**The arrows and PgUp/PgDn are two different steps, and the snap is per direction** (P2-09, 2026-08-27). PgUp /
+PgDn and the wheel step along the plane **normal**, as above. The **arrows nudge the cursor in the plane**:
+`cursor += right · step_right · dx + up · step_up · dy`, where `right` / `up` are
+`sliceBasis(view, radiological)` — so pressing → moves the crosshair toward screen-right in either convention, and
+one press lands exactly where a one-`step_mm` drag to the right lands. Each axis takes `step_mm` computed for its
+own direction by the rule above, and each is snapped onto the voxel grid **along that direction alone**, never by
+rounding all three voxel indices: rounding drags the cursor sideways to the nearest voxel centre, which is a
+movement the user did not ask for. This is `Engine.nudgeCursor` (§4.7); it is a facade member because the basis is
+engine geometry and §8 forbids the app deriving it.
 
 Input (Freeview-like):
 * **2D** — left-click/drag sets the cursor; wheel = slice ±1 (⌘/Ctrl+wheel = zoom); right-drag = window/level on
   the **active** layer, falling back to the topmost non-label volume layer; middle/space-drag = pan; arrows nudge
   the cursor; PgUp/PgDn slice.
 * **3D** — left orbit, right pan, wheel dolly, double-click = `setCursorFromPick`.
+* **`Shift`+drag is the active layer's opacity in every pane** — it is a layer gesture, not a camera one.
+* **Left-drag never pans** (R3). Pan is middle-drag, `space`+left-drag, or a two-finger trackpad drag — which
+  arrives as a `wheel` event with a non-zero `deltaX`, the one honest discriminator between it and a mouse wheel.
+* **Zoom is per pane, about the pointer** (R2): `⌘/Ctrl+wheel` — and a trackpad pinch, which Chromium delivers as
+  a `wheel` with `ctrlKey: true` — hold the world point under the pointer fixed; `+` / `-` do the same about the
+  pane centre; `r`, and `Alt`+double-click on a 2D pane, reset to fit. `mmPerPx` is clamped to **[0.05, 20]**, one
+  notch is a factor of 1.2, and the keys act on the pane **under the pointer**, which is what makes them per-pane.
+* The pane a drag belongs to is **latched at `pointerdown`** and held by a pointer capture, so a drag that leaves
+  the pane — or the window — keeps driving the pane it started in.
 * Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic,
   `[`/`]` cycle the active layer, `v` toggle the active layer's visibility, `Shift+drag` its opacity,
   `Ctrl+↑/↓` reorder it, `,`/`.` step the active volume layer's 4D index (each step is a `volumeFrame` op —

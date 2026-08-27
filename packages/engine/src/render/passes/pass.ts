@@ -21,6 +21,7 @@ import type { DrawItem, LayerRuntime, PickItem } from '../../layers/runtime';
 import { pickableIn } from '../../layers/runtime';
 import type { LayerId, mat4, Scene, vec3, View, ViewId } from '../../scene/types';
 import type { ViewportRect } from '../../view/layout';
+import type { GizmoSpec } from '../../overlay/gizmo';
 
 /** Everything a frame needs that is not per-pane. Assembled once per frame by the engine. */
 export interface DrawInput {
@@ -36,6 +37,26 @@ export interface DrawInput {
   uiScale: number;
   /** Chrome is skipped entirely when `annotations` says so; the badge is never optional (§8). */
   showChrome: boolean;
+  /**
+   * The cut-plane gizmo to draw in the 3D pane, or `null` — §7.5's oblique affordances (appended by
+   * E-SCENE; shared-file rule: additive only).
+   *
+   * It lives here rather than in `Scene` because §4.5 is frozen **and** because a gizmo is transient
+   * UI state, not scene state: which plane is being manipulated and which handle is hot are things a
+   * pointer knows for the length of a drag, and a saved `ViewSpec` should never carry them.
+   */
+  gizmo?: GizmoSpec | null;
+  /**
+   * The `mmPerPx` each 2D pane was last **fitted** at, for R2's corner `×zoom` readout (appended by
+   * E-SCENE; shared-file rule: additive only).
+   *
+   * Remembered rather than recomputed per frame, and this is the whole difference between a readout
+   * that means something and one that does not: recomputing the fit for the pane's *current* size
+   * makes every pane claim to be zoomed the moment the layout changes, though the user did nothing.
+   * "Zoom" is measured against the fit the user last asked for (`resetView`, or the auto-fit on the
+   * first dataset), which is what `r` returns them to.
+   */
+  viewFit?: ReadonlyMap<ViewId, number>;
 }
 
 /** One pane, mid-frame. */

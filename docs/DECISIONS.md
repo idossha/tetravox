@@ -1498,3 +1498,249 @@ Each entry below names the problem, the fix, and the evidence.
   on `grey_Thalamus_TI.msh` itself. Making `contours` fall back to the tet path — rejected: it would
   need `TetBlocks` in a §6.3 signature that has none, and it would hide the distinction the 2D
   overlay has to make anyway.
+- 2026-08-27 — **A 2D pane's in-plane origin is the scene bounding-box centre, not the cursor**
+  (E-SCENE, R3). §4.5 defined `SliceView.camera.center` as "relative to the cursor's projection", and
+  `sliceViewProj` implemented it literally: the pane's world-to-screen map was a function of
+  `scene.cursor`. That is the defect R3 names — *move the crosshair, not the scan*. Under it, setting
+  the cursor slides the image and leaves the crosshair pinned to the pane, so a left-click-to-set-cursor
+  gesture is not merely wrong but unwritable: the point the user clicked moves away from the pointer as
+  the click lands, and R3's gate ("the pixel colour at a fixed screen point away from the crosshair is
+  byte-identical before/after the left-drag") cannot be satisfied by any implementation of it. The
+  anchor is derived, never stored — the discipline §4.5 already applies to the slice plane — and it is
+  the bounds centre because that is the one point in the scene no gesture moves and because it
+  **coincides with the cursor at load** (§4.7 auto-centres there), which is why the change moved no
+  Phase-1 golden: every one of them is captured with `center = [0,0]` and the cursor on the bbox centre.
+  The compensation is applied in one place, `view/geometry.ts`'s `effectiveSliceView`, which
+  re-expresses `center` in the cursor-relative frame the renderer already speaks. That was chosen over
+  teaching the anchor to `sliceViewProj`, `SlicePass.quadHalfFor`, `SlicePass.#writeQuad` and
+  `OverlayPass`'s crosshair placement — four call sites in three files, two of them owned by E-SLICE
+  and by the shared pass layer — and it makes `quadHalfFor`'s `paneHalf + |center|` *correct* rather
+  than merely unchanged, since that expression always meant "quad centre to pane corner". **One
+  follow-up is owed to W-WASM**: the inline comment on `SliceView.camera.center` in the frozen
+  `scene/types.ts` still says "relative to the cursor's projection". It is a comment, not a type, so
+  nothing compiles differently; §4.5 now carries the normative paragraph and names the reword as
+  W-WASM's.
+
+- 2026-08-27 — **A mesh-only scene steps 1 mm per slice, not `bboxDiagonal / 256`** (E-SCENE, R4).
+  §7.5's fallback made a wheel notch mean a different distance per file — 1.32 mm on `ernie.msh`,
+  0.53 mm on `lh.central.gii`, 0.13 mm on a single electrode — for the one gesture whose value is that
+  it sweeps at a rate the user can predict and count. `stepMm` takes the step as an optional argument
+  (R4's "(configurable)") and defaults it to `MESH_ONLY_STEP_MM = 1`. The existing §7.5 unit test is
+  unchanged and still passes: its bounds have a 256 mm diagonal, where the two rules agree.
+
+- 2026-08-27 — **The 3D pane draws a crosshair marker, and it is a short cross rather than the 2D
+  pane's full-span rules** (E-SCENE, R1). R1's gate ends "and the 3D crosshair moves", and Phase 1
+  drew no crosshair in a `View3D` at all — `passes/overlay.ts` computed one only for a `SliceView`, so
+  the 3D pane had no way to show where the cursor was. The cursor is projected through the pane's own
+  view-projection (`worldToPane3D`) and drawn as a ±14 px cross, dropped when it is behind the eye.
+  Full-span rules were rejected: in a perspective view they read as two lines floating in space with no
+  relation to the geometry, and they cross the orientation letters on all four edges. The marker is
+  ~50 px of a 589,824 px pane, three orders below §11's `maxDiffPixelRatio: 0.002`, so **no Phase-1
+  golden was regenerated** — `gate3-t1-2x2-chrome` and `gate5-ernie-pick` both still pass against the
+  committed PNGs, which is the honest way to add an item to a pane a closed gate photographs.
+
+- 2026-08-27 — **The pointer layer's operations are public methods on `TetravoxEngine`, not private
+  event handlers** (E-SCENE, P2-01). Every gesture §7.5 binds — `setCursorFromScreen`, `panView`,
+  `zoomViewAt`, `zoomView`, `stepSlice`, `windowLevelDrag`, `opacityDrag`, `orbitView`, `pan3DView`,
+  `dollyView`, `pickToCursor`, `hoverAtScreen`, `noteInput` — is a method the class exposes, and
+  `PointerLayer` is the only caller of them inside the engine (`TetravoxEngine implements PointerHost`
+  is what keeps that honest). §8 requires that "everything the UI can do must be reachable from the
+  `Engine` API alone", and a gesture implemented inside a DOM handler is reachable from nothing: not
+  from the app, not from a script, not from a test that does not synthesise events. They are appended
+  to the concrete engine rather than to the frozen §4.7 `Engine`, because the ownership map gives
+  E-SCENE exactly **one** `api.ts` carve-out and it is P2-09's; promoting this set to the facade is a
+  W-WASM item whenever the app wants to reach it through the interface rather than the class.
+
+- 2026-08-27 — **`Engine.probe` remembers the last non-empty row per layer at the cursor** (E-SCENE,
+  P2-04). A mesh probe is a `locate` round trip, latest-wins on **one key per layer** (§6.3), and P2-04
+  points that key at the hover position so §8's `Mouse` block can fill inside its 50 ms budget. That
+  alone would blank §8's `Cursor` block — "last click, **persistent**" — every time the mouse moved,
+  because `probeRow` serves whatever the last `locate` answered and its world point no longer matches
+  the cursor. The memo is engine-side, keyed by layer, filled only for a probe **at** the cursor, and
+  cleared by `setCursor`, so it can never describe a point the cursor has left. Two `locate` keys per
+  layer was the alternative and was rejected: the key belongs to `layers/mesh.ts`, which is E-MESH's,
+  and doubling the in-flight requests to keep a UI panel populated is the wrong end of the problem.
+
+- 2026-08-27 — **§7.5's slice-step snap is along the normal only** (E-SCENE, found by the R1/R3 gate).
+  §7.5 says "snap **the cursor's along-normal component** to the nearest voxel plane"; Phase 1 rounded
+  all three voxel indices and rebuilt the world point from them, which also dragged the cursor
+  sideways to the nearest voxel *centre*. On `vol_asym.nii` one wheel notch after a click moved the
+  cursor 1 mm along the normal **and 0.5 mm across the plane**, so §7.5's "moves the cursor by
+  `step_mm`" was false and a click-then-scroll walked the crosshair off the anatomy the user had
+  picked. The snap now solves for the distance along the normal that puts the stepping voxel index
+  (`voxelAxisAlong`, the same derivation §8's corner index uses) on an integer: exact for canonical
+  planes, correct for oblique, and it cannot touch the in-plane position. It surfaced only once a
+  pointer could put the cursor at an arbitrary in-plane point — before P2-01 every cursor came from
+  `setCursor`, a pick, or a step, and the last two are already on the grid.
+
+- 2026-08-27 — **Harness note: two worktrees cannot share the Playwright test-server port.**
+  `playwright.config.ts` sets `reuseExistingServer: !CI` on a fixed 5199, so a second worktree running
+  `pnpm e2e` silently drives the *first* worktree's Vite — which serves that worktree's source and
+  whose `fs.allow` rejects this one's `testdata/`, producing `403 Forbidden` on every fixture and a
+  stack trace naming a directory the run has nothing to do with. `TETRAVOX_TEST_PORT` already exists
+  for this; Phase-2's parallel branches need to use it (`TETRAVOX_TEST_PORT=59xx pnpm --filter
+  @tetravox/engine exec playwright test`). Recorded rather than fixed: the port default is
+  `docs/TESTING.md`'s and the integrator's, not E-SCENE's.
+
+- 2026-08-27 — **`background: 'transparent'` is a two-render matte, not an alpha clear** (E-SCENE,
+  P2-06). The engine's context is created with `alpha: false` (`gl/context.ts`) — the right default for
+  a viewer, since an alpha canvas composites against the page every frame — so the default framebuffer
+  has **no alpha channel to read back**: clearing to `[0,0,0,0]` yields an opaque black PNG, which is
+  what the Phase-1 audit's fix F4 actually shipped. `screenshot()` now draws the frame twice, over
+  opaque black and over opaque white, and solves `α = 1 − (R_white − R_black)`, `C = R_black / α` per
+  pixel — exact for the `src·α + dst·(1−α)` blend every pass uses, and it costs a second render only on
+  the one `background` mode that needs it. `'white'` stopped being a post-composite at the same time
+  (compositing an already-opaque background over white is a no-op, so it returned the dark scene
+  colour) and is now simply a clear to white. Flipping the context to `alpha: true` was rejected: it is
+  `gl/context.ts`, the integrator's, and it would change how **every** frame composites to fix a
+  screenshot mode.
+
+- 2026-08-27 — **A screenshot at a size is a render at that size, and `include` is an `Annotations`
+  override** (E-SCENE, P2-06). §7.0.4 measured that `blitFramebuffer` cannot resolve **and** rescale in
+  one call, so `width`/`height`/`scale` cannot be a blit; the drawing buffer is resized to what
+  `screenshotPlan` computes, the frame is drawn, and the canvas is restored — all inside one task, so
+  the compositor never sees the intermediate size. For `target: 'view'` the plan sizes the **whole
+  canvas** so that the pane lands at the requested pixels (a 1200 px pane of a 2×2 layout needs a
+  2400 px canvas), which is what makes it a render rather than an upscale of 384 px. The `include`
+  flags map onto §4.5's `Annotations` for the duration of that render, because the chrome is drawn
+  *into* the framebuffer (§8, §11) and a post-process cannot tell a letter from the anatomy under it.
+  `conventionBadge` stays `true` throughout: §8 says it is not optional and `include` has no flag for
+  it, so a screenshot can never leave the application without its RAD/NEU badge.
+
+- 2026-08-27 — **The R2 zoom gate had to lift itself off the `mmPerPx` clamp** (E-SCENE, found by
+  running the suite the way CI runs it). `pointer.spec.ts`'s R2 test falls back to `vol_asym.nii` when
+  `TETRAVOX_TESTDATA` is unset — which is exactly what CI does, by design — and that fixture's 8 mm
+  extent fits to `max(0.05, …)`, i.e. the **0.05 floor** of R2's [0.05, 20] clamp. One notch in from
+  there is a no-op, so "one notch divides `mmPerPx` by 1.2" was asserting the clamp. The test now zooms
+  three notches out (about the pane centre, so `camera.center` stays `[0,0]`) before measuring, and the
+  "`r` restores the fit" leg zooms **out** rather than in for the same reason. It passed locally
+  because the local run has the real data; it would have failed on the first CI run.
+
+- 2026-08-27 — **`serialize()` is told where the scene file will live; it does not guess twice**
+  (E-SCENE, P2-07). §4.6 wants `DatasetRef.path` relative to the scene file and §4.7's `serialize()`
+  is frozen with no argument, so the one fact the engine cannot derive — the directory the host is
+  about to write to — is set on the concrete engine (`TetravoxEngine.setSceneDir`, outside the frozen
+  facade, like the rest of P2-01's surface). Unset, it measures from the datasets' own **common
+  directory**, which is exactly right for a scene saved beside its data and never worse than the
+  absolute path it also always writes. Resolution is the caller's (`load(spec, resolve)` is the
+  relocate hook), so the "scene-relative first, absolute fallback" order ships as one exported
+  function, `candidatePaths` — one implementation rather than one per host. A Vite `/@fs/<abs>` alias
+  is deliberately **not** treated as opaque: it is structurally a path, and treating it as one is what
+  lets the §11 harness exercise the relative-path code instead of skipping past it.
+
+- 2026-08-27 — **Restoring a scene is datasets, then layers, then views — in that order** (E-SCENE,
+  P2-07). `addDataset` mints a fresh `DatasetId`, so the spec's ids are stale from the first load:
+  layers can only be recreated once the old→new map exists, and `activeLayerId` /
+  `SliceView.layerVisibility` / `View3D.layerVisibility` only once the layers have theirs. Phase 1
+  restored neither and, as `scene/serialize.ts` said at the time, could not have. `remapLayer` also
+  rewrites the **second** dataset two layer kinds name — `MeshLayer.isolate.labelVolume` and
+  `IsosurfaceLayer.source` — and drops an isolation whose label volume did not come back rather than
+  leaving it pointed at whichever dataset now holds that id. A dataset the hook cannot place takes its
+  layers with it, so a partly relocated scene opens as the part that resolved.
+
+- 2026-08-27 — **`DatasetRef.fingerprint` is read from the meta, not asserted onto it** (E-SCENE,
+  P2-07 / W-WASM gap 1). The fingerprint has to be computed over the input bytes inside the dataset's
+  worker (§5 rule 3), and `VolumeMeta` / `MeshMeta` do not carry the field yet — it is W-WASM's, in a
+  frozen file E-SCENE may not touch. `fingerprintFromMeta` therefore reads whatever is on the meta,
+  accepts only a string and yields `''` otherwise. A cast that *declared* the field would have been a
+  lie about the wire; `''` is what §4.6's consumer, the relocate dialog, already reads as "cannot
+  verify", and the field lights up the day W-WASM lands with no change on this side.
+
+- 2026-08-27 — **`toTemplate` is derived from `sform_code`/`qform_code`, and only from the form the
+  reader actually used** (E-SCENE, P2-10). NIfTI-1 code 4 is `NIFTI_XFORM_MNI_152`, so a volume with
+  it is *already* in MNI152 mm and the transform is the identity — which is why the field is still a
+  matrix: `MNI305`, or a real registration, slots into the same shape. `headerJson` carries the codes
+  **and** the derived `affineSource`, so the check is against the form `affine_of` chose: a volume with
+  `sform_code = 2` and a stale `qform_code = 4` is in scanner space, and reporting MNI for it would put
+  a coordinate in a paper that is wrong by centimetres. Code 5 (`TEMPLATE_OTHER`) names no template
+  and claims nothing. No protocol change, exactly as the ownership map's "explicitly not gaps" table
+  predicted.
+
+- 2026-08-27 — **`Engine.nudgeCursor(viewId, dx, dy)` — the one `api.ts` change E-SCENE owns**
+  (P2-09, under the single named carve-out in `docs/PHASE2-OWNERSHIP.md`; ARCHITECTURE §4.7 and §7.5
+  amended in this commit, as §12.3 requires). §7.5 lists "arrows nudge the cursor" and "PgUp/PgDn
+  slice" as two bindings; the frozen facade had only `stepCursor`, "±1 voxel along the view normal",
+  so Phase 1's keymap gave all six keys to it and pressing → in the axial pane changed the axial
+  **slice**. The in-plane nudge cannot live in the app: the step is along
+  `sliceBasis(view, radiological).right` / `.up`, engine geometry that §8 forbids React from
+  computing. Shape chosen over an extended `stepCursor(viewId, steps, axis?)`: two independent
+  components let one call move diagonally and keep `stepCursor`'s signature — and therefore every
+  existing caller and test — untouched. `MockEngine` and `NoGlEngine` both grew the member in the
+  same commit, which is what the carve-out's terms require.
+
+- 2026-08-27 — **The voxel-grid snap is one function, applied along whichever direction is being
+  stepped** (E-SCENE, P2-09). `stepCursor` and `nudgeCursor` are the same operation in different
+  directions, so `view/geometry.ts`'s `snapAlong(ds, world, dir)` is now the single implementation:
+  it solves for the distance along `dir` that puts the voxel index `voxelAxisAlong(dir, affine)`
+  names on an integer. Applying it per axis is what makes 100 nudges out and 100 back return to the
+  starting voxel exactly, in-plane as well as along the normal, and it keeps the property the
+  along-normal snap was fixed for earlier today: a step never moves the cursor in a direction the
+  user did not ask for.
+
+- 2026-08-27 — **The cut-plane gizmo lives in the 3D pane and manipulates a 2D pane's plane**
+  (E-SCENE, §7.5's oblique affordances). A gizmo drawn inside the pane whose plane it rotates would be
+  looking at that plane edge-on — at a line — so `showGizmo(viewId)` names the *slice* view whose
+  plane is being manipulated and the geometry is drawn in the `View3D`. §7.2's "all clip distances
+  disabled" in pass 3 is what keeps it from being clipped by the plane it manipulates, and it is
+  drawn **after** the letters and corner block so nothing but the active-pane border covers the thing
+  the user is dragging. Its state — which plane, which handle is hot, how many plane-from-3-points
+  clicks are outstanding — is engine-private and is deliberately **not** in `Scene`: §4.5 is frozen,
+  and a saved `ViewSpec` must not carry "the user was mid-drag on a rotate handle".
+
+- 2026-08-27 — **A rotate handle rotates `normal` and `up` together, through Rodrigues** (E-SCENE).
+  Rotating the normal alone leaves `up` pointing out of the new plane, and `sliceBasis` then
+  re-orthogonalises it to whatever falls out — so a rotate handle would also *roll* the pane by an
+  amount nobody asked for, differently depending on which axis the orthogonalisation branched on.
+  `view/geometry.ts`'s `rotatePlane` carries both vectors rigidly and re-normalises, and the e2e
+  asserts the property directly: after a 90 px drag on the `rotateU` handle the normal has moved and
+  `up` is **unchanged**.
+
+- 2026-08-27 — **The gizmo's hit test and its drawing read the same `handlePoints`** (E-SCENE). Two
+  copies of "where is the rotate handle" is how a control becomes a picture of a control: the drawing
+  drifts by a few pixels, the grab radius no longer covers it, and the user's cursor sits on a handle
+  that does not respond. `overlay/gizmo.ts` exports the three world points once; `drawGizmo` puts
+  knobs there and `gizmoHandleAt` measures distance to them, both through the pane's own `viewProj`.
+  The e2e finds the handle by **scanning pane pixels with the engine's own hit test** rather than
+  through a test-only accessor, which is the same claim from the outside: a handle a user can see is
+  a handle a user can reach.
+
+- 2026-08-27 — **`OverlayBuilder` gained `quad()`, and the test page publishes `TetravoxEngine`**
+  (E-SCENE, two small consequences of the gizmo). Every Phase-1 overlay item was axis-aligned, so
+  `rect()` sufficed; §7.0.6's screen-space quad expansion is not axis-aligned, and the gizmo's ring
+  and arcs are rotated segments. And `test/pages/scene.ts` published its engine as the frozen §4.7
+  `Engine` while constructing a `TetravoxEngine`, so every spec driving a Phase-2 gesture cast it
+  straight back up, once per call; it now publishes the concrete type. Widening only — every `Engine`
+  member is still there and no existing spec changed.
+
+- 2026-08-27 — **`.msh.opt` seeding is partial about colormaps, on purpose** (E-SCENE, §7.6). The
+  sidecar seeds tag colours and visibility, the field range (`RangeType = 2` and only then, since
+  `CustomMin`/`CustomMax` are otherwise whatever the last Gmsh save left behind), the colour bar
+  (`ShowScale`), and the colormap — but the colormap table covers only `ColormapNumber = 2`, which is
+  what SimNIBS writes in every `.msh.opt` it produces `[DATA]` and is Gmsh's rainbow/jet, plus the
+  four numbers whose Gmsh names are a §7.6 `ColormapName` exactly. Every other number leaves the
+  layer's own default alone. Guessing at the rest of Gmsh's colour-table numbering would paint a
+  field in the wrong colours **silently**, which is the one failure a viewer may not have; a viewer
+  that disagrees with Gmsh about a colormap is visible and correctable. Seeding fires only for a
+  dataset the host gave a sidecar for (`app/.../lib/sidecars.ts` derives the candidates), so no
+  Phase-1 golden — none of which passes one — moved.
+
+- 2026-08-27 — **R2's corner `×zoom` readout appears only off the fit, and measures against the fit
+  the user last asked for** (E-SCENE). Two decisions, each forced by a failing test rather than by
+  taste. A line that is always present shifts the other three up a row in every pane of every
+  picture, i.e. six regenerated Phase-1 goldens — two of them a closed gate's — to print `ZOOM 1.00X`
+  under an image nobody zoomed; so at the fit it prints nothing. And measuring against a fit
+  **recomputed for the pane's current size** made every pane claim to be zoomed the moment the layout
+  changed, which is how it broke gate 5's slice-index decode: that test picks in a 1×1 pane and then
+  reads the corner block in a 2×2. `DrawInput.viewFit` remembers what each pane was fitted at
+  (`resetView`, and the auto-fit on the first dataset), so "zoom" means what a user means by it and
+  `r` always returns the readout to nothing.
+
+- 2026-08-27 — **`page.mouse.wheel` resolves before the page has handled the wheel** (E-SCENE, found
+  by running both Playwright projects together). It resolves once the event is *dispatched* to the
+  renderer, so a `whenSettled()` immediately after it sees an engine with nothing pending and returns
+  at once — and the next `cursorOf` reads the cursor from before the notch. The SwiftShader project
+  happened to win that race on every run; the headed **ANGLE** one does not, and §7.5's anti-drift
+  test read a one-voxel step as `2.5` — two notches, one reading. `pointer.spec.ts`'s `wheelNotch`
+  now waits for the cursor to actually move before settling. Worth recording because it is a property
+  of `page.mouse.wheel`, not of this test: any spec that wheels and then reads state needs the same
+  wait, and the failure is invisible on the golden-authority project.

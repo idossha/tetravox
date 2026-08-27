@@ -21,14 +21,29 @@ import type { GlState } from '../../gl/state';
 import type { FramePass, PassContext } from './pass';
 import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
 import { FLOATS_PER_VERTEX, OverlayBuilder, badgeFor, buildChrome } from '../../overlay';
-import type { EdgeLetters } from '../../overlay';
+import type { ChromeInput, EdgeLetters } from '../../overlay';
 import { isSliceView, topVolume } from '../../scene/store';
-import { edgeLetters, sliceBasis, voxelAxisAlong, worldToVoxel } from '../../view/geometry';
+import {
+  edgeLetters,
+  sliceBasis,
+  voxelAxisAlong,
+  worldToPane3D,
+  worldToVoxel,
+} from '../../view/geometry';
 import type { Scene, SliceView, vec3, vec4, VolumeDataset } from '../../scene/types';
 
 const TEXT_COLOR: vec4 = [0.92, 0.94, 0.98, 1];
 const CROSSHAIR_COLOR: vec4 = [1, 0.85, 0.2, 0.9];
 const ACTIVE_BORDER: vec4 = [0.35, 0.62, 1, 1];
+/**
+ * The gizmo's two colours (appended by E-SCENE, §7.5's oblique affordances).
+ *
+ * Cyan, deliberately not the crosshair's amber and not the active border's blue: three overlay items
+ * that can share a pane need three colours a test can tell apart, and `pointer.spec.ts` already
+ * finds the crosshair by "bright in R and G, dark in B".
+ */
+const GIZMO_COLOR: vec4 = [0.25, 0.85, 0.95, 0.95];
+const GIZMO_HOT_COLOR: vec4 = [0.4, 1, 0.55, 1];
 
 export class OverlayPass implements FramePass {
   readonly name = 'overlay' as const;
@@ -63,6 +78,8 @@ export class OverlayPass implements FramePass {
 
     let letters: EdgeLetters | undefined;
     let crosshair: { x: number; y: number } | null = null;
+    let crosshair3d: { x: number; y: number } | null = null;
+    let gizmo: ChromeInput['gizmo'] = null;
     const cornerLines: string[] = [];
 
     if (isSliceView(view)) {
@@ -74,7 +91,8 @@ export class OverlayPass implements FramePass {
         const cy = rect.height / 2 - view.camera.center[1] / view.camera.mmPerPx;
         crosshair = { x: cx, y: cy };
       }
-      if (a.cornerInfo) cornerLines.push(...sliceCornerLines(view, scene));
+      if (a.cornerInfo)
+        cornerLines.push(...sliceCornerLines(view, scene, input.viewFit?.get(view.id)));
     } else {
       // A 3D pane's letters come from the camera basis — which anatomical direction is screen-right
       // and screen-up. Same derivation, same safety property, no hardcoding.
@@ -84,6 +102,22 @@ export class OverlayPass implements FramePass {
         letters = edgeLetters({ right, up, normal: [0, 0, 1] });
       }
       if (a.cornerInfo) cornerLines.push('3D');
+      // R1: "the 3D crosshair moves". The cursor projected through the pane's own view-projection,
+      // in the pane's pixels, with a bottom-left origin like every other overlay item.
+      if (a.crosshair) {
+        const p = worldToPane3D(viewProj, rect, scene.cursor);
+        if (p !== null) crosshair3d = { x: p[0], y: rect.height - 1 - p[1] };
+      }
+      // §7.5's oblique affordances: the gizmo is a 3D-pane item, and §7.2 draws it in this pass with
+      // **all clip distances disabled** — the reset three lines below — or it would be clipped by
+      // the very plane it manipulates.
+      if (input.gizmo != null) {
+        gizmo = {
+          spec: input.gizmo,
+          viewProj,
+          colors: { ring: GIZMO_COLOR, hot: GIZMO_HOT_COLOR },
+        };
+      }
     }
 
     buildChrome(b, {
@@ -95,6 +129,8 @@ export class OverlayPass implements FramePass {
       // §8: `Annotations.conventionBadge` is `true`, not optional — the badge is always drawn.
       badge: badgeFor(scene.radiological),
       crosshair,
+      crosshair3d,
+      gizmo,
       crosshairColor: CROSSHAIR_COLOR,
       textColor: TEXT_COLOR,
       activeBorder:
@@ -123,8 +159,21 @@ export class OverlayPass implements FramePass {
   }
 }
 
-/** §8's corner annotation: "view name, slice index of the active volume layer, world RAS". */
-function sliceCornerLines(view: SliceView, scene: Scene): string[] {
+/**
+ * §8's corner annotation: "view name, slice index of the active volume layer, world RAS" — plus
+ * R2's `×zoom` readout.
+ *
+ * **The zoom line appears only when the pane is not at its fit.** R2 asks the corner info to "gain a
+ * `×zoom` readout"; a line that is always there would shift the other three up by one row in every
+ * pane of every picture, which means regenerating six Phase-1 goldens — including two a closed gate
+ * photographed — to say `ZOOM 1.00X` under an image nobody zoomed. At the fit the readout has
+ * nothing to report, so it reports nothing, and the moment a user zooms it appears. The threshold is
+ * half a percent, well inside the rounding of the two decimals it prints.
+ *
+ * The fit it is measured against is `DrawInput.viewFit`, the value the pane was last **fitted** at,
+ * not a fit recomputed for the pane's current size — see that field for why.
+ */
+function sliceCornerLines(view: SliceView, scene: Scene, fit0: number | undefined): string[] {
   const lines = [view.mode.toUpperCase()];
   const c = scene.cursor;
   lines.push(`RAS ${fmt(c[0])} ${fmt(c[1])} ${fmt(c[2])}`);
@@ -132,6 +181,11 @@ function sliceCornerLines(view: SliceView, scene: Scene): string[] {
   if (top !== null) {
     const v = worldToVoxel(top.ds, c);
     lines.push(`SLICE ${Math.round(sliceIndex(view, top.ds, v))}`);
+  }
+  const fit = fit0;
+  if (fit !== undefined && view.camera.mmPerPx > 0) {
+    const zoom = fit / view.camera.mmPerPx;
+    if (Math.abs(zoom - 1) > 0.005) lines.push(`ZOOM ${zoom.toFixed(2)}X`);
   }
   return lines;
 }

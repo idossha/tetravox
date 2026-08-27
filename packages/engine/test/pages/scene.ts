@@ -11,7 +11,6 @@
  */
 
 import { create } from '../../src/api';
-import type { Engine } from '../../src/api';
 import type { TetravoxEngine } from '../../src/engine';
 
 const params = new URLSearchParams(location.search);
@@ -32,7 +31,17 @@ const engine = create(canvas, {
 
 declare global {
   interface Window {
-    __tvxEngine?: Engine;
+    /**
+     * The **concrete** engine, not the frozen §4.7 `Engine`.
+     *
+     * The page already builds a `TetravoxEngine` and casts it down; publishing it as `Engine` meant
+     * every spec that drives a Phase-2 gesture (`zoomView`, `showGizmo`, `setSliceMode`, …) had to
+     * cast it straight back up, once per call. Those methods are public on the class by design —
+     * §8's "everything the UI can do must be reachable from the `Engine` API alone" is what put them
+     * there — so the harness names the type that has them. Widening only: every `Engine` member is
+     * still present, and no existing spec changes.
+     */
+    __tvxEngine?: TetravoxEngine;
     /** Errors the engine emitted, so a spec can assert a clean run rather than guessing. */
     __tvxErrors?: string[];
     /** Every op the dataset workers were asked to run, in order — gate item 2's evidence. */

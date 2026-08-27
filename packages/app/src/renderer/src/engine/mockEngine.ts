@@ -392,6 +392,30 @@ export class NoGlEngine implements Engine {
     ]);
   }
 
+  /**
+   * §7.5's in-plane nudge (P2-09) — the arrows, as opposed to PgUp/PgDn's {@link stepCursor}.
+   *
+   * The real engine derives `right` / `up` from `sliceBasis(view, radiological)` and snaps each axis
+   * onto the voxel grid; this stand-in reproduces the **basis**, which is what the app's tests are
+   * about (that pressing → moves the cursor along the pane's right, not along its normal), and skips
+   * the snap, which needs an affine there is no dataset for here.
+   */
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void {
+    const view = this.state.slices.find((s) => s.id === viewId);
+    if (view === undefined) return;
+    const n = normalize(view.normal);
+    let u = normalize(reject(view.up, n));
+    if (u === null) u = [0, 0, 1];
+    let right = cross(u, n);
+    if (this.state.radiological) right = [-right[0], -right[1], -right[2]];
+    const step = this.stepMm(n);
+    this.setCursor([
+      this.state.cursor[0] + (right[0] * dx + u[0] * dy) * step,
+      this.state.cursor[1] + (right[1] * dx + u[1] * dy) * step,
+      this.state.cursor[2] + (right[2] * dx + u[2] * dy) * step,
+    ]);
+  }
+
   private stepMm(normal: vec3): number {
     for (let i = this.state.layers.length - 1; i >= 0; i--) {
       const layer = this.state.layers[i] as Layer;
@@ -631,4 +655,28 @@ export class NoGlEngine implements Engine {
     this.state.datasets.clear();
     this.state.layers = [];
   }
+}
+
+// ------------------------------------------------------------------------------------------------
+// §3's slice basis, the three lines of it `nudgeCursor` needs.
+//
+// Duplicated rather than imported from `@tetravox/engine`'s `view/geometry.ts`, which is not part of
+// the package's public entry point (§4.7: the barrel exports the scene model, the facade and the
+// capability probe, and nothing else). Three vector helpers are a smaller price than widening a
+// frozen interface for a stand-in.
+// ------------------------------------------------------------------------------------------------
+
+function normalize(v: vec3): vec3 {
+  const l = Math.hypot(v[0], v[1], v[2]);
+  return l > 0 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 1];
+}
+
+/** `v` with its component along the unit vector `n` removed. */
+function reject(v: vec3, n: vec3): vec3 {
+  const d = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+  return [v[0] - d * n[0], v[1] - d * n[1], v[2] - d * n[2]];
+}
+
+function cross(a: vec3, b: vec3): vec3 {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }

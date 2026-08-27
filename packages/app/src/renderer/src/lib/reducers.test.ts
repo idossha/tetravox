@@ -296,9 +296,15 @@ describe('resolveKey', () => {
     expect(key('ArrowUp', { ctrlKey: true, shiftKey: true })).toBeNull();
   });
 
-  it('steps the cursor on the arrows and PgUp/PgDn', () => {
-    expect(key('ArrowUp')).toEqual({ kind: 'stepCursor', steps: 1 });
+  it('separates the slice step from the in-plane nudge, as §7.5 lists them (P2-09)', () => {
+    // PgUp/PgDn steps the slice: along the plane normal.
+    expect(key('PageUp')).toEqual({ kind: 'stepCursor', steps: 1 });
     expect(key('PageDown')).toEqual({ kind: 'stepCursor', steps: -1 });
+    // The arrows nudge the cursor **in** the plane: along the pane's right and up.
+    expect(key('ArrowRight')).toEqual({ kind: 'nudgeCursor', dx: 1, dy: 0 });
+    expect(key('ArrowLeft')).toEqual({ kind: 'nudgeCursor', dx: -1, dy: 0 });
+    expect(key('ArrowUp')).toEqual({ kind: 'nudgeCursor', dx: 0, dy: 1 });
+    expect(key('ArrowDown')).toEqual({ kind: 'nudgeCursor', dx: 0, dy: -1 });
   });
 
   it('is silent while the user is typing a coordinate', () => {

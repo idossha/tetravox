@@ -22,7 +22,19 @@ export { drawCornerLines } from './corner';
 export type { CornerLines } from './corner';
 export { drawCrosshair } from './crosshair';
 export type { CrosshairSpec } from './crosshair';
+export { drawCrosshair3D, CROSSHAIR_3D_ARM_PX } from './crosshair';
 export { drawGizmo } from './gizmo';
 export type { GizmoSpec } from './gizmo';
+export {
+  gizmoBasis,
+  gizmoHandleAt,
+  handlePoints,
+  planeBasis,
+  ARC_SEGMENTS,
+  HANDLE_HIT_PX,
+  KNOB_PX,
+  RING_SEGMENTS,
+} from './gizmo';
+export type { GizmoColors, GizmoHandle } from './gizmo';
 export { drawEdgeLetters } from './letters';
 export type { EdgeLetters } from './letters';
