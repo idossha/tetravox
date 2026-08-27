@@ -15,9 +15,11 @@ import { identity4 } from '../view/m4';
 import { presetNormal, presetUp } from '../view/geometry';
 import type {
   ColormapName,
+  IsosurfaceLayer,
   Layer,
   MeshDataset,
   MeshLayer,
+  PointsLayer,
   Scene,
   SliceMode,
   SliceView,
@@ -170,18 +172,117 @@ export function defaultMeshLayer(id: string, ds: MeshDataset): MeshLayer {
     // complex has, because an interface triangle's winding is arbitrary.
     faceMode: ds.orient.openComponents > 0 ? 'both' : 'cull',
     clip: { planes: [], caps: true, capColorMode: 'inherit' },
-    contoursIn2D: false,
+    // **R4 (`docs/requirements/2026-08-27-maintainer.md`): "Default when a mesh is opened: fill and
+    // contours on."** A maintainer requirement wins over the contract where the two disagree, and
+    // this is the one place they do: §4.4 shipped both `false` in Phase 1 because nothing drew a
+    // mesh in a 2D pane at all. No Phase-1 golden contains a mesh in a 2D pane, so no golden moves.
+    // See `docs/DECISIONS.md`, 2026-08-27.
+    contoursIn2D: true,
     contourWidthPx: 1,
-    fillIn2D: false,
+    fillIn2D: true,
   };
 }
 
-export function defaultLayerFor(id: string, ds: VolumeDataset | MeshDataset): Layer {
-  if (ds.kind === 'volume') return defaultVolumeLayer(id, ds);
-  // §7.6: a `<mesh>.msh.opt` seeds the layer **on open**. It only ever fires for a dataset the host
-  // gave a sidecar for (`app/.../lib/sidecars.ts` derives the candidates), so a mesh opened without
-  // one — which is every mesh in every Phase-1 golden — gets exactly `defaultMeshLayer`.
+/**
+ * `defaultMeshLayer` with §7.6's `.msh.opt` seeding applied (E-SCENE, appended).
+ *
+ * It only ever fires for a dataset the host gave a sidecar for (`app/.../lib/sidecars.ts` derives
+ * the candidates), so a mesh opened without one — which is every mesh in every Phase-1 golden —
+ * gets exactly `defaultMeshLayer`.
+ */
+function seededMeshLayer(id: string, ds: MeshDataset): MeshLayer {
   return seedMeshLayerFromOpt(defaultMeshLayer(id, ds), ds).layer;
+}
+
+/** Electrodes and ROI spheres are drawn over anatomy (§8), so the default is a high-contrast amber. */
+const DEFAULT_POINT_COLOR: vec4 = [1, 0.85, 0.2, 1];
+const DEFAULT_ISO_COLOR: vec4 = [0.85, 0.85, 0.88, 1];
+
+/**
+ * §4.4's `IsosurfaceLayer` (E-DERIVED, appended).
+ *
+ * The isovalue seeds from the source's own statistics rather than from a constant: the 98th
+ * percentile of a scalar volume is a surface that encloses something, where a hardcoded `0.5` is
+ * empty on every scalar volume that is not a probability map. A **label** volume is the case `0.5`
+ * is right for, and it is the one §11's "isosurface of `final_tissues.nii.gz` at 0.5" names.
+ */
+export function defaultIsoLayer(id: string, ds: VolumeDataset | MeshDataset): IsosurfaceLayer {
+  const field = ds.kind === 'mesh' ? ds.fields[0] : undefined;
+  const iso =
+    ds.kind === 'volume'
+      ? ds.isLabel
+        ? 0.5
+        : ds.stats.percentiles['98']
+      : (field?.stats.percentiles['98'] ?? 0.5);
+  return {
+    id,
+    datasetId: ds.id,
+    name: `${ds.name} iso`,
+    visible: true,
+    opacity: 1,
+    pickable: false,
+    showColorbar: false,
+    kind: 'iso',
+    source: {
+      datasetId: ds.id,
+      volumeIndex: ds.kind === 'volume' ? 0 : undefined,
+      field:
+        field === undefined
+          ? undefined
+          : { source: field.source, name: field.name, component: 'mag' },
+    },
+    iso,
+    color: DEFAULT_ISO_COLOR,
+    smooth: true,
+    // Marching cubes / tets return a closed, consistently wound surface, so back-face culling is
+    // safe here in a way §7.4 says it is not for a tagged tissue complex.
+    faceMode: 'cull',
+  };
+}
+
+/** §4.4's `PointsLayer` (E-DERIVED, appended). The points arrive with the layer, not with a worker. */
+export function defaultPointsLayer(id: string, ds: VolumeDataset | MeshDataset): PointsLayer {
+  return {
+    id,
+    datasetId: ds.id,
+    name: 'Points',
+    visible: true,
+    opacity: 1,
+    pickable: false,
+    showColorbar: false,
+    kind: 'points',
+    points: [],
+    shape: 'sphere',
+    radiusMm: 4,
+    color: DEFAULT_POINT_COLOR,
+    showLabels: false,
+  };
+}
+
+/**
+ * The default layer for a dataset, of a given kind.
+ *
+ * `kind` is optional and defaults to the dataset's own, so every Phase-1 call site is unchanged.
+ * Without it `Engine.addLayer({ kind: 'iso' })` could not work at all: the facade builds the layer
+ * from this function and then re-imposes `base.kind`, so a caller-requested kind this function never
+ * produced was silently replaced by the dataset's own.
+ */
+export function defaultLayerFor(
+  id: string,
+  ds: VolumeDataset | MeshDataset,
+  kind?: Layer['kind']
+): Layer {
+  const want = kind ?? (ds.kind === 'volume' ? 'volume' : 'mesh');
+  switch (want) {
+    case 'volume':
+      return ds.kind === 'volume' ? defaultVolumeLayer(id, ds) : seededMeshLayer(id, ds);
+    case 'mesh':
+      return ds.kind === 'mesh' ? seededMeshLayer(id, ds) : defaultVolumeLayer(id, ds);
+    case 'iso':
+      return defaultIsoLayer(id, ds);
+    case 'points':
+      return defaultPointsLayer(id, ds);
+  }
 }
 
 export { identity4 };

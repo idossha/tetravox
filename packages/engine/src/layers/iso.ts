@@ -1,19 +1,45 @@
 /**
- * The `iso` layer runtime — **Phase 2** (owner: E-DERIVED).
+ * The `iso` layer runtime — §4.4's `IsosurfaceLayer`, the engine half of marching cubes / tets.
  *
- * §4.4's `IsosurfaceLayer` is the engine/UI half of marching cubes / tets; the `tvx-geom` half
- * landed in Phase 1 (`marching_cubes`, `marching_tets`, with `marchingCubes` / `marchingTets` ops in
- * §6.5.2 and an analytic-sphere test in `crates/tvx-geom`). Nothing here calls them yet.
+ * The `tvx-geom` half landed in Phase 1 with an analytic-sphere test, and §6.5.2 already exposes it
+ * as two ops. This runtime's whole job is therefore **owning the op and its cache**:
  *
- * Typed and inert on purpose: `addLayer({kind:'iso'})` must produce a runtime rather than crash, so
- * that the app can offer the layer kind and the registry stays exhaustive over §4.4's four kinds.
- * The isosurface arrives as a `SurfacePayload` — the same shape `surface` / `boundary` return — so
- * it will draw through the **mesh** pass, and this runtime's job is to own the op and its cache.
+ * * a volume source issues `marchingCubes` on `(volumeIndex, iso, smooth)`;
+ * * a mesh source issues `marchingTets` on `(field, component, iso)`;
+ * * both come back as a `SurfacePayload` — the same shape `surface` / `boundary` return — so the
+ *   result uploads through `GpuStore.uploadSurface` and draws through the §7.4 mesh program with no
+ *   new geometry path at all.
+ *
+ * **Latest-wins on `iso:<layerId>`** (§5 rule 6): dragging an isovalue slider replaces its own
+ * pending request rather than queueing one surface per pixel of travel. The request is `track`ed, so
+ * `whenSettled()` — and therefore every golden — waits for it (§7.2).
+ *
+ * `source.datasetId` is the dataset the surface is computed *from*; `layer.datasetId` is the one the
+ * layer hangs off. They are the same by construction (`scene/defaults.ts` seeds them together), and
+ * this runtime uses the layer's, because that is the handle the registry gave it.
  */
 
-import type { DrawItem, LayerRuntime, LayerRuntimeContext, PickItem } from './runtime';
+import { visibleIn } from './runtime';
+import type { DrawItem, IsoDrawItem, LayerRuntime, LayerRuntimeContext, PickItem } from './runtime';
 import type { ProbeRow } from '../api';
-import type { Dataset, DatasetId, IsosurfaceLayer, LayerId, vec3 } from '../scene/types';
+import type { ComponentSel } from '@tetravox/protocol';
+import type {
+  Dataset,
+  DatasetId,
+  IsosurfaceLayer,
+  LayerId,
+  MeshDataset,
+  vec3,
+  View,
+  VolumeDataset,
+} from '../scene/types';
+
+/** The `GpuStore` key of one isosurface: its inputs, so a changed isovalue is a different surface. */
+export function isoKey(layer: IsosurfaceLayer): string {
+  const f = layer.source.field;
+  const field = f === undefined ? '' : `${f.source}:${f.name}:${String(f.component)}`;
+  return `${layer.datasetId}|iso|${layer.source.volumeIndex ?? 0}|${field}|${layer.iso}|${layer.smooth ? 1 : 0}`;
+}
 
 export class IsoLayerRuntime implements LayerRuntime {
   readonly kind = 'iso' as const;
@@ -21,9 +47,15 @@ export class IsoLayerRuntime implements LayerRuntime {
   readonly datasetId: DatasetId;
 
   #layer: IsosurfaceLayer;
+  readonly #ds: Dataset;
+  readonly #ctx: LayerRuntimeContext;
+  /** The key currently being computed, so a re-render does not re-issue the same op. */
+  #inFlight: string | null = null;
 
-  constructor(layer: IsosurfaceLayer, _ds: Dataset, _ctx: LayerRuntimeContext) {
+  constructor(layer: IsosurfaceLayer, ds: Dataset, ctx: LayerRuntimeContext) {
     this.#layer = layer;
+    this.#ds = ds;
+    this.#ctx = ctx;
     this.id = layer.id;
     this.datasetId = layer.datasetId;
   }
@@ -34,8 +66,8 @@ export class IsoLayerRuntime implements LayerRuntime {
 
   applyPatch(next: IsosurfaceLayer): void {
     this.#layer = next;
-    // PHASE 2 (E-DERIVED): a changed `iso` / `source` / `smooth` re-issues `marchingCubes` or
-    // `marchingTets`, latest-wins on `iso:<layerId>`, and re-uploads the returned `SurfacePayload`.
+    // A changed `iso` / `source` / `smooth` is a different `isoKey`, so the next frame asks for the
+    // new surface and the old one stays cached until the dataset goes.
   }
 
   probeRow(_world: vec3): ProbeRow {
@@ -45,13 +77,67 @@ export class IsoLayerRuntime implements LayerRuntime {
   refreshProbe(): void {}
   ensurePickGeometry(): void {}
 
-  drawItems(): DrawItem[] {
-    return [];
+  drawItems(view: View): DrawItem[] {
+    if (!visibleIn(this.#layer, view)) return [];
+    const key = isoKey(this.#layer);
+    const geom = this.#ctx.gpu.surface(key);
+    if (geom === undefined) {
+      this.#request(key);
+      return [];
+    }
+    const item: IsoDrawItem = { kind: 'iso', layer: this.#layer, geom };
+    return [item];
   }
 
   pickItems(): PickItem[] {
+    // §7.2.3 wants the pick pass to reproduce every discard of the main pass; an isosurface has none
+    // of its own, but it also has no element identity to report, so it stays out of the pick target
+    // rather than returning a meaningless `elementId`.
     return [];
   }
 
-  dispose(): void {}
+  dispose(): void {
+    this.#inFlight = null;
+  }
+
+  #request(key: string): void {
+    if (this.#inFlight === key) return;
+    const client = this.#ctx.client(this.datasetId);
+    if (client === undefined) return;
+    const layer = this.#layer;
+    const field = layer.source.field;
+    this.#inFlight = key;
+    const promise =
+      this.#ds.kind === 'volume'
+        ? client.call(`iso:${layer.id}`, 'marchingCubes', {
+            handle: (this.#ds as VolumeDataset).handle,
+            volumeIndex: layer.source.volumeIndex ?? 0,
+            iso: layer.iso,
+            smooth: layer.smooth,
+          })
+        : field === undefined
+          ? null
+          : client.call(`iso:${layer.id}`, 'marchingTets', {
+              handle: (this.#ds as MeshDataset).handle,
+              source: field.source,
+              name: field.name,
+              component: field.component as ComponentSel,
+              iso: layer.iso,
+            });
+    if (promise === null) {
+      this.#inFlight = null;
+      return;
+    }
+    void this.#ctx
+      .track(promise)
+      .then((payload) => {
+        this.#ctx.gpu.uploadSurface(key, payload);
+        if (this.#inFlight === key) this.#inFlight = null;
+        this.#ctx.requestRender();
+      })
+      .catch(() => {
+        // A superseded or cancelled build is not an error under latest-wins.
+        if (this.#inFlight === key) this.#inFlight = null;
+      });
+  }
 }

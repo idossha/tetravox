@@ -52,7 +52,9 @@ import { CutManager, CUT_KEY_3D_CLIP } from './compute/cut-manager';
 import { MeshLayerRuntime } from './layers/mesh';
 import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
+import { DerivedStore } from './derived/store';
 import { VolumeLayerRuntime, buildLabelPalette, recolourLabel } from './layers/volume';
+
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
 import { viewports } from './view/layout';
 import type { ViewportRect } from './view/layout';
@@ -160,6 +162,15 @@ export class TetravoxEngine implements Engine, PointerHost {
   /** GPU resources, keyed by dataset (`render/gpu.ts`). */
   readonly #gpu: GpuStore;
   readonly #renderer: Renderer;
+  /**
+   * E-DERIVED's half of a frame: the GPU resources drawn from the per-pane cuts (§7.4's 2D
+   * `fillIn2D` / `contoursIn2D`), the glyph instances, the isosurfaces and the points.
+   *
+   * It reads cuts through `#cuts` below — the one `CutManager`, not a second requester. E-DERIVED's
+   * branch shipped `PaneCutSource` as a stand-in because its stage lands after E-MESH's; the
+   * integrator swapped it here, which is the whole of that swap (`derived/cut-source.ts`).
+   */
+  readonly #derived: DerivedStore;
   readonly #timer: Timer;
   readonly #opts: EngineOptions;
 
@@ -288,6 +299,18 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.caps = applyForcedCaps(caps, opts.forceCaps);
     this.#gpu = new GpuStore(gl);
     this.#renderer = new Renderer(gl, this.caps);
+    this.#derived = new DerivedStore(
+      gl,
+      this.#cuts,
+      (id) => {
+        const rt = this.#workers.get(id);
+        const ds = this.#store.dataset(id);
+        if (rt === undefined || ds === undefined || ds.kind !== 'mesh') return undefined;
+        return { client: rt.client, handle: ds.handle };
+      },
+      () => this.requestRender(),
+      (p) => this.#track(p)
+    );
     this.#timer = new Timer(gl, this.caps.timerQuery && opts.deterministic !== true);
     // §7.2: entered on input, left `settleMs` after the last one; leaving it triggers **exactly
     // one** full-quality re-render, which is the `#dirtyAll` below and nothing else.
@@ -530,6 +553,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#gpu.dropSurfaces(id);
     this.#fingerprints.delete(id);
     this.#gpu.dropMeshTables(id);
+    this.#derived.dropDataset(id);
     this.#cuts.releaseDataset(id);
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
@@ -572,7 +596,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     const ds = this.#store.dataset(spec.datasetId);
     if (ds === undefined) throw new Error(`no such dataset: ${spec.datasetId}`);
     const id: LayerId = `layer${this.#nextId++}`;
-    const base = defaultLayerFor(id, ds as VolumeDataset | MeshDataset);
+    const base = defaultLayerFor(id, ds as VolumeDataset | MeshDataset, spec.kind);
     const layer = { ...base, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
     this.#store.addLayer(layer);
     // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
@@ -586,6 +610,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#store.removeLayer(id);
     this.#layers.get(id)?.dispose();
     this.#layers.delete(id);
+    this.#derived.dropLayer(id);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
   }
@@ -1069,6 +1094,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       // shader variant and the `CLIP_DISTANCE` enable set by the same route.
       clipDistance: this.caps.clipDistance,
       forceDiscardClip: this.#opts.forceDiscardClip === true,
+      derived: { store: this.#derived },
     };
   }
 
@@ -1835,6 +1861,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     for (const rt of this.#layers.values()) rt.dispose();
     this.#layers.clear();
     this.#renderer.dispose();
+    this.#derived.dispose();
     this.#gpu.dispose();
     this.#timer.dispose();
     this.#listeners.clear();

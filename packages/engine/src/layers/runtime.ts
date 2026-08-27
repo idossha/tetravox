@@ -39,11 +39,13 @@ import { isSliceView } from '../scene/store';
 import type {
   Dataset,
   DatasetId,
+  IsosurfaceLayer,
   Layer,
   LayerId,
   MeshDataset,
   MeshLayer,
   SliceView,
+  PointsLayer,
   vec3,
   View,
   VolumeDataset,
@@ -175,7 +177,32 @@ export interface MeshDrawItem {
   caps?: CapGeometry;
 }
 
-export type DrawItem = VolumeDrawItem | MeshDrawItem;
+/**
+ * One isosurface, as the `SurfacePayload` §6.5.2's `marchingCubes` / `marchingTets` returned.
+ *
+ * Deliberately **not** a `MeshDrawItem`: the two share a geometry shape and nothing else — an
+ * isosurface has one colour, no tags, no `tagStyle`, no clip caps — and `MeshDrawItem.layer` is a
+ * `MeshLayer`, which an `IsosurfaceLayer` is not.
+ */
+export interface IsoDrawItem {
+  kind: 'iso';
+  layer: IsosurfaceLayer;
+  geom: SurfaceGeometry;
+}
+
+/**
+ * One points layer — §4.4's electrodes and ROI spheres, drawn instanced (§7.4).
+ *
+ * The item carries the layer and nothing else: the instance buffer is a GPU resource and lives with
+ * the other derived GPU resources, keyed by layer id, the same way a volume's texture lives in
+ * `render/gpu.ts` rather than in `VolumeDrawItem`.
+ */
+export interface PointsDrawItem {
+  kind: 'points';
+  layer: PointsLayer;
+}
+
+export type DrawItem = VolumeDrawItem | MeshDrawItem | IsoDrawItem | PointsDrawItem;
 
 /** The slice quad of a volume layer, which participates in picking (§7.2.3). */
 export interface VolumePickItem {

@@ -9,6 +9,9 @@
  *    back-to-front by the depth of the sheet that phase draws.
  * 3. **Overlay** — crosshair, gizmo, contours, glyph labels, annotations, orientation letters,
  *    corner info, RAD/NEU badge, colour bars, scale bar. **All clip distances disabled.**
+ *    E-DERIVED's `derived` pass runs between 2 and 3 and carries the items §7.2 puts in pass 1 that
+ *    a mesh only implies — `fillIn2D`, glyphs, isosurfaces, points — plus the contour lines pass 3
+ *    names, which must be under the crosshair (R4).
  * 4. **Pick** — on demand, §7.2.3. Not a frame pass: it renders to its own FBO and returns a value,
  *    so it implements {@link Pass} without {@link FramePass}.
  *
@@ -16,6 +19,7 @@
  * its buffers and its GL state. Nothing outside a pass calls `gl.draw*`.
  */
 
+import type { DerivedStore } from '../../derived/store';
 import type { GpuStore } from '../gpu';
 import type { DrawItem, LayerRuntime, PickItem } from '../../layers/runtime';
 import { pickableIn } from '../../layers/runtime';
@@ -71,6 +75,20 @@ export interface DrawInput {
    * hardware path exists, so **both** paths run under the same goldens.
    */
   forceDiscardClip?: boolean;
+  /**
+   * What the **derived** pass needs and no other pass does (E-DERIVED): the GPU resources it draws
+   * from and the cut source behind them.
+   *
+   * Optional because a `DrawInput` is also assembled by tests and by the no-GL engine, and a pass
+   * that has nothing to draw from must be a no-op rather than a crash — the same shape as
+   * `activeViewId: null`.
+   */
+  derived?: DerivedInput;
+}
+
+/** The derived pass's half of a frame. See `src/derived/store.ts`. */
+export interface DerivedInput {
+  store: DerivedStore;
 }
 
 /** One pane, mid-frame. */
@@ -85,7 +103,7 @@ export interface PassContext {
   input: DrawInput;
 }
 
-export type PassName = 'slice' | 'mesh' | 'overlay' | 'pick';
+export type PassName = 'slice' | 'mesh' | 'overlay' | 'pick' | 'derived';
 
 export interface Pass {
   readonly name: PassName;
