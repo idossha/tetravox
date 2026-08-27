@@ -1458,3 +1458,21 @@ Each entry below names the problem, the fix, and the evidence.
   as this one. Forcing the leg to SwiftShader with `--use-gl=angle --use-angle=swiftshader` — rejected:
   it would make the project a duplicate of `chromium-swiftshader` by construction, which is exactly the
   thing §11 says the second renderer class must not be.
+
+- 2026-08-27 — **The app E2E launches Electron with `--disable-gpu` on Linux, alongside the
+  `--no-sandbox` §12.2 already required.** On a GPU-less `ubuntu-24.04` runner under Xvfb, WebGL is
+  *not* the problem — the renderer string is `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device
+  (Subzero)))`, `tvx_ping` round-trips through wasm, and `readPixels` returns `#e5d634` exactly, so
+  `phase0.spec.ts`'s drawing-buffer assertions pass. The *display compositor* is: `page.screenshot()`
+  comes back with the whole 800×600 canvas box painted **white**, with Chromium's broken-image glyph
+  in its corner, while every other pixel of the app — header, footer, the capability table — renders
+  correctly (measured on run 33125161134; the artefact is `phase0-dev.png`, and the macOS
+  `phase0-packaged.png` in the same run is the correct picture). `--disable-gpu` puts compositing in
+  software, where SwiftShader already is, so the frame the test reads back is the frame the page drew;
+  WebGL2 survives because `src/main/index.ts` appends `--enable-unsafe-swiftshader` unconditionally,
+  and that pair is the combination already measured in `packages/engine/playwright.config.ts`. It is a
+  **test-harness** launch arg, in `packages/app/e2e/fixtures.ts`, not a shipped one: a Linux desktop
+  with a working GPU composites the canvas normally, and the app already reports `caps.isSoftware` in
+  its status bar for the machine that has none. Asserting the canvas only through `readPixels` and
+  dropping the screenshot leg — rejected: §11's whole point is that the screenshot and the drawing
+  buffer must agree, and on macOS they do.

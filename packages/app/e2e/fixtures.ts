@@ -128,9 +128,22 @@ export async function launchApp(
 ): Promise<ElectronApplication> {
   const search = options.search === undefined ? [] : [`--tvx-search=${options.search}`];
   const args = [...search, ...(options.args ?? [])];
-  // The AppImage/deb sandbox needs a correctly-owned chrome-sandbox that a CI runner rarely has
-  // (§12.2); on Linux the packaged binary is launched with --no-sandbox for that reason.
-  const linuxSandbox = process.platform === 'linux' ? ['--no-sandbox'] : [];
+  // Linux launch args, both of them about a runner rather than about the app.
+  //
+  // `--no-sandbox`: the AppImage/deb sandbox needs a correctly-owned `chrome-sandbox` that a CI
+  // runner rarely has (§12.2), and Chromium aborts rather than drop the sandbox on its own.
+  //
+  // `--disable-gpu`: on a GPU-less runner under Xvfb, WebGL itself is fine — the renderer string
+  // is `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` and `readPixels` returns the exact
+  // triangle colour — but the *display compositor* does not get the canvas's image, so
+  // `page.screenshot()` comes back with the 800x600 canvas box painted white (measured on
+  // ubuntu-24.04, run 33125161134: `phase0.spec.ts` "the screenshot contains that same colour"
+  // read 255,255,255 where the same test on macOS reads the triangle). `--disable-gpu` moves
+  // compositing into software, which is where SwiftShader already is, so the frame the test reads
+  // back is the frame the page drew. WebGL2 survives it: `--disable-gpu` plus
+  // `--enable-unsafe-swiftshader` — which `src/main/index.ts` appends unconditionally — is the
+  // combination measured in `packages/engine/playwright.config.ts`. macOS keeps its real GPU.
+  const linuxArgs = process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [];
 
   // `env` REPLACES the child's environment when given, so it is always merged onto `process.env`:
   // dropping PATH/HOME from an Electron launch fails in ways that look nothing like the cause.
@@ -144,12 +157,12 @@ export async function launchApp(
     if (executablePath === null) throw new Error('packaged artefact missing');
     return electron.launch({
       executablePath,
-      args: [...DETERMINISM_ARGS, ...linuxSandbox, ...args],
+      args: [...DETERMINISM_ARGS, ...linuxArgs, ...args],
       ...(env === undefined ? {} : { env }),
     });
   }
   return electron.launch({
-    args: [APP_ROOT, ...DETERMINISM_ARGS, ...linuxSandbox, ...args],
+    args: [APP_ROOT, ...DETERMINISM_ARGS, ...linuxArgs, ...args],
     cwd: APP_ROOT,
     ...(env === undefined ? {} : { env }),
   });
