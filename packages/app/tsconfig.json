@@ -1,7 +1,10 @@
 {
+  // Editor convenience only. `pnpm typecheck` runs the two halves separately, because they do not
+  // share a `lib`: main/preload run in Node and must not see `DOM`; the renderer runs in Chromium and
+  // must not see `node` (§5 rule 3 keeps the renderer away from the filesystem entirely).
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx"
   },
-  "include": ["src"]
+  "include": ["src", "e2e", "electron.vite.config.ts", "playwright.config.ts"]
 }

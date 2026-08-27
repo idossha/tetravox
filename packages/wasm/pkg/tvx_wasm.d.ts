@@ -142,6 +142,32 @@ export function mesh_marching_tets(handle: number, source: string, name: string,
 export function mesh_surface(handle: number, mask_id: number | null | undefined, variant: string, on_progress: Function): any;
 
 /**
+ * Phase-0 liveness: a pure 32-bit avalanche of `x` (the murmur3 finalizer with a
+ * `0x9E37_79B9` pre-whitening), so a caller can predict the answer analytically instead of
+ * comparing against a previous run (§11 rule 0).
+ *
+ * Reference: `tvx_ping(0x54565830) == 0x58E5_D634`; the Phase-0 e2e recomputes it in JS with
+ * `Math.imul` and asserts the triangle's pixel bytes against `(h >> 16, h >> 8, h) & 0xff`.
+ */
+export function tvx_ping(x: number): number;
+
+/**
+ * Phase-0 liveness: fold [`tvx_ping`] over `bytes`, so "a module Worker under that origin fetches a
+ * file and hands the bytes to WASM" (ROADMAP Phase-0 gate 3) is a real wasm call over the real bytes
+ * and not a byte count computed in JS. `Vec<u8>` is wasm-bindgen's copy-in, matching §5 rule 5.
+ */
+export function tvx_ping_bytes(bytes: Uint8Array): number;
+
+/**
+ * Phase-0 liveness: the crate version, so the shell can prove it instantiated *this* module.
+ *
+ * No op maps to it (§6.4). It exists because ROADMAP Phase-0 gate 2 demands a packaged artefact whose
+ * triangle colour came from a real WASM call, and every other export is an `unimplemented!()` stub
+ * until Phase 1.
+ */
+export function tvx_version(): string;
+
+/**
  * The **only** way to display a 4D index ≠ 0 (§6.5.2). Returns `VolumeFrameT`.
  */
 export function volume_frame(handle: number, vol_index: number, float_linear: boolean, norm16: boolean, max_3d: number, want_linear: boolean): any;
@@ -152,7 +178,6 @@ export function volume_marching_cubes(handle: number, vol_index: number, iso: nu
 
 /**
  * Stamped onto every `Res` (§6.5) and read by the §9 memory bar and `scripts/bench.ts`.
- * The only export without an op.
  */
 export function wasm_heap_bytes(): number;
 
@@ -192,6 +217,9 @@ export interface InitOutput {
     readonly mesh_locate: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly mesh_marching_tets: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: any) => [number, number, number];
     readonly mesh_surface: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly tvx_ping: (a: number) => number;
+    readonly tvx_ping_bytes: (a: number, b: number) => number;
+    readonly tvx_version: () => [number, number];
     readonly volume_frame: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly volume_label_centroids: (a: number, b: number) => [number, number, number];
     readonly volume_marching_cubes: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
@@ -202,6 +230,7 @@ export interface InitOutput {
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;
+    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

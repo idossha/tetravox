@@ -23,8 +23,9 @@
 //! `elmToNode`→[`mesh_convert_field`] · `locate`→[`mesh_locate`] ·
 //! `marchingCubes`→[`volume_marching_cubes`] · `marchingTets`→[`mesh_marching_tets`] ·
 //! `contours`→[`mesh_contours`] · `labelCentroids`→[`volume_label_centroids`] · `free`→[`free`] ·
-//! `freeMask`→[`free_mask`]. [`wasm_heap_bytes`] is the only export without an op; it is read after every
-//! call and stamped onto `Res`.
+//! `freeMask`→[`free_mask`]. [`wasm_heap_bytes`] is read after every call and stamped onto `Res`;
+//! [`tvx_version`], [`tvx_ping`] and [`tvx_ping_bytes`] are the Phase-0 liveness set. Those four are
+//! the only exports without an op.
 
 #![forbid(unsafe_code)]
 // The §6.4 signatures are flattened deliberately — `GpuCaps` travels in the op args as scalars so the
@@ -250,10 +251,73 @@ pub fn free_mask(handle: u32, mask_id: u32) {
 }
 
 /// Stamped onto every `Res` (§6.5) and read by the §9 memory bar and `scripts/bench.ts`.
-/// The only export without an op.
 #[wasm_bindgen]
 pub fn wasm_heap_bytes() -> u32 {
     unimplemented!("phase 1")
+}
+
+/// Phase-0 liveness: the crate version, so the shell can prove it instantiated *this* module.
+///
+/// No op maps to it (§6.4). It exists because ROADMAP Phase-0 gate 2 demands a packaged artefact whose
+/// triangle colour came from a real WASM call, and every other export is an `unimplemented!()` stub
+/// until Phase 1.
+#[wasm_bindgen]
+pub fn tvx_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Phase-0 liveness: a pure 32-bit avalanche of `x` (the murmur3 finalizer with a
+/// `0x9E37_79B9` pre-whitening), so a caller can predict the answer analytically instead of
+/// comparing against a previous run (§11 rule 0).
+///
+/// Reference: `tvx_ping(0x54565830) == 0x58E5_D634`; the Phase-0 e2e recomputes it in JS with
+/// `Math.imul` and asserts the triangle's pixel bytes against `(h >> 16, h >> 8, h) & 0xff`.
+#[wasm_bindgen]
+pub fn tvx_ping(x: u32) -> u32 {
+    let mut h = x ^ 0x9E37_79B9;
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 13;
+    h = h.wrapping_mul(0xC2B2_AE35);
+    h ^= h >> 16;
+    h
+}
+
+/// Phase-0 liveness: fold [`tvx_ping`] over `bytes`, so "a module Worker under that origin fetches a
+/// file and hands the bytes to WASM" (ROADMAP Phase-0 gate 3) is a real wasm call over the real bytes
+/// and not a byte count computed in JS. `Vec<u8>` is wasm-bindgen's copy-in, matching §5 rule 5.
+#[wasm_bindgen]
+pub fn tvx_ping_bytes(bytes: Vec<u8>) -> u32 {
+    bytes
+        .iter()
+        .fold(bytes.len() as u32, |h, &b| tvx_ping(h ^ u32::from(b)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins the constant the Phase-0 e2e recomputes in JS. If this changes, the expected triangle
+    /// colour changes with it.
+    #[test]
+    fn ping_avalanche_is_stable() {
+        assert_eq!(tvx_ping(0x5456_5830), 0x58E5_D634);
+        assert_eq!(tvx_ping(0), tvx_ping(0));
+        assert_ne!(tvx_ping(0), tvx_ping(1));
+    }
+
+    /// The e2e recomputes this in JS over `resources/phase0-fixture.bin` (bytes 0..=255).
+    #[test]
+    fn ping_bytes_folds_over_the_phase0_fixture() {
+        let fixture: Vec<u8> = (0..=255u8).collect();
+        assert_eq!(tvx_ping_bytes(fixture), 0xFEC4_15B3);
+        assert_eq!(tvx_ping_bytes(Vec::new()), 0);
+    }
+
+    #[test]
+    fn version_is_the_crate_version() {
+        assert_eq!(tvx_version(), env!("CARGO_PKG_VERSION"));
+    }
 }
 
 /// Recycled cut arena (§6.4). ONE instance covers ALL planes of a [`mesh_cut`] call: each array is packed
