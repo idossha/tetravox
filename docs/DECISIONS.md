@@ -1035,3 +1035,62 @@ integrator, so that Phase-1 gate items 2 and 7 have something behind them.
 - 2026-08-27 — **`tvx-wasm`'s `geom` feature is now `default = ["geom"]`.** The switch is kept
   rather than deleted so `--no-default-features` still builds the module whose geometry ops answer
   `Error::Unsupported`, which is what `packages/wasm/e2e/geometry.spec.ts` probes at runtime.
+
+## 2026-08-27 — Phase 1 integration, `packages/engine` (§7) and the wiring
+
+`p1/engine` was never created either. The engine foundation is implemented here, by the integrator.
+
+- 2026-08-27 — **`api.ts` gained a third import, and §4.7 was amended in the same commit.** §4.7 said
+  the frozen facade "imports exactly two things … and nothing else", but `create()` has to return a
+  *working* engine **synchronously**, and the working engine is another module. The alternatives were
+  inlining the whole WebGL2 renderer into the frozen file, or leaving `create()` throwing while
+  `index.ts` quietly exported a different one — a second `create` that behaves differently from the
+  documented one is worse than an honest contract edit. `./engine` imports back from `./api` with
+  `import type` only, so there is no runtime cycle.
+- 2026-08-27 — **The engine does not resize the canvas; the embedder owns the drawing buffer.** §8's
+  view grid already keeps it the size of its host in device pixels with a `ResizeObserver`. The
+  engine's first version *also* resized it, from `clientWidth * devicePixelRatio` — which is stable
+  only at DPR 1 and doubles the buffer every frame at DPR 2, because a canvas with no CSS size
+  reports its backing-store width as its layout width. The engine now reads `canvas.width/height` as
+  an input and derives the DPR from `canvas.width / canvas.clientWidth`.
+- 2026-08-27 — **The 2D chrome is drawn with a 5×7 bitmap font defined in the repository.** §8 calls
+  the orientation letters a laterality-safety requirement and §11 requires the chrome in every
+  golden, compared at `maxDiffPixelRatio ≤ 0.002` across macOS and ubuntu-24.04. Any `fillText`
+  rasterises differently on the two, which would make the letters the least reproducible pixels on
+  the page. The glyphs are bytes in `render/font.ts` and a unit test asserts every one is 35 bits.
+- 2026-08-27 — **`loadVolume` asks for `wantLinear: false`.** §6.1 says `want_linear` is false when
+  the layer is a label or `interpolation === 'nearest'`, but no layer exists yet at load time. It
+  gates ladder **rows 1–2 only**, which are the label rows, so `false` is correct for both cases: a
+  label volume takes the `R8UI`/`R16UI` dense-index path §7.3 needs, and a scalar volume is
+  unaffected. Asking for `true` silently turned every label volume into a filterable `R8` grey ramp —
+  found by the analytic label test, not by reading the code.
+- 2026-08-27 — **The label palette is indexed by dense index with no offset, and background is
+  decided by alpha.** `labelIds` is the remap in dense order, so `palette[k]` is the colour of
+  `ids[k]`; the first implementation shifted by one and painted every region with its neighbour's
+  colour, which looks entirely plausible on screen. Background is *not* "dense index 0": SimNIBS and
+  FreeSurfer LUTs give id 0 (`Unknown`) `A = 0` and the shader discards a zero-alpha palette entry,
+  which also does the right thing for an atlas whose lowest id is not zero.
+- 2026-08-27 — **`interpolation` is applied per draw, not baked at upload.** §4.4 makes it a property
+  of the *layer* and §7.2 forbids ever degrading it as a quality knob, because it is a reading rather
+  than a rendering setting. §7.1's invariant still overrules the layer: LINEAR on a non-filterable or
+  integer format makes the texture incomplete and it samples **0 with no GL error**.
+- 2026-08-27 — **`probe()` is synchronous, so mesh rows are one round trip stale.** §4.7 freezes
+  `probe(world): ProbeResult` as a synchronous call, but a mesh probe is §6.3's `locate_point` in a
+  worker. Volume rows are computed here from `VolumeDataset.data`, which §4.3 keeps on the UI thread
+  for exactly this; a mesh row comes from the most recent `locate` for that point, refreshed
+  asynchronously on every cursor move, and is absent until the first result lands. Phase 2's info
+  panel should either accept that or §4.7 should grow an async probe.
+- 2026-08-27 — **The `frame` event, not wall clock, is the frame-time benchmark.** Timing
+  `renderNow()` plus `await requestAnimationFrame` reported 8.20 ms median at both 1× and 2× DPR —
+  the ProMotion display's 8.33 ms vsync period, measured twice. `EngineEvents.frame` carries `cpuMs`
+  and, where `EXT_disjoint_timer_query_webgl2` is present, `gpuMs`; those are the numbers in
+  `docs/benchmarks/phase1.md`.
+- 2026-08-27 — **§3's `right = cross(up, normal)` makes the coronal preset disagree with the axial
+  one about laterality, and the letters tell the truth about it.** With §3's preset normals (axial
+  `+Z`, coronal `+Y`, sagittal `+X`) and screen-up (`+Y`, `+Z`, `+Z`), the formula gives `right = +X`
+  for axial (subject right on screen right — neurological) but `right = −X` for coronal (subject
+  left on screen right). Both are physically real cameras — the coronal one is "looking at the face"
+  — but the two panes mirror each other. The formula and the presets are both normative, so both are
+  implemented verbatim and `edgeLetters` is derived from the resulting basis, so no pane can ever lie
+  about which side is which. **This is worth a contract decision in Phase 2**: either the coronal
+  preset's normal becomes `−Y`, or §3 says explicitly that presets are cameras and not conventions.

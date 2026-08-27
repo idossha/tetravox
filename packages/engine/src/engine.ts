@@ -780,8 +780,20 @@ export class TetravoxEngine implements Engine {
   // Frame pump
   // -----------------------------------------------------------------------------------------
 
+  /**
+   * Device pixels per CSS pixel, **derived from the canvas the embedder sized**.
+   *
+   * The engine does not resize the canvas: §8's view grid already keeps the drawing buffer the size
+   * of its host in device pixels, with a `ResizeObserver`, and two owners of one backing store is a
+   * bug waiting to happen — with `devicePixelRatio = 2` the engine would have multiplied
+   * `clientWidth` by 2 every frame and the buffer would have run away. So the canvas's size is an
+   * input here, and the ratio is read back out of it.
+   */
   #dpr(): number {
-    return this.#opts.dpr ?? globalThis.devicePixelRatio ?? 1;
+    if (this.#opts.dpr !== undefined) return this.#opts.dpr;
+    const cssW = this.#canvas.clientWidth;
+    if (cssW > 0 && this.#canvas.width > 0) return this.#canvas.width / cssW;
+    return globalThis.devicePixelRatio ?? 1;
   }
 
   #currentViewports(): ViewportRect[] {
@@ -813,22 +825,9 @@ export class TetravoxEngine implements Engine {
     });
   }
 
-  #resizeCanvas(): void {
-    const dpr = this.#dpr();
-    const cssW = this.#canvas.clientWidth || this.#canvas.width || 1;
-    const cssH = this.#canvas.clientHeight || this.#canvas.height || 1;
-    const w = Math.max(1, Math.round(cssW * dpr));
-    const h = Math.max(1, Math.round(cssH * dpr));
-    if (this.#canvas.width !== w || this.#canvas.height !== h) {
-      this.#canvas.width = w;
-      this.#canvas.height = h;
-    }
-  }
-
   #renderFrame(): void {
     if (this.#destroyed) return;
     this.#dirty = false;
-    this.#resizeCanvas();
     const t0 = performance.now();
     this.#timer.begin();
 

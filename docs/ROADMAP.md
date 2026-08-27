@@ -94,6 +94,43 @@ reproducible; the numbers are what it printed.
 7. `wasm_heap_bytes()` stays under the §9.2 **load-path** bar for `ernie_seeg.msh` (≤ 1.0 GB). The
    `buildTopology` bar is Phase 2's, since nothing in Phase 1 clips or isolates.
 
+**Gate passed — 2026-08-27**, on macOS 15.7.3 arm64 (Apple M2 Max), against
+`TETRAVOX_TESTDATA=/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie`. Every command below
+was run from a clean tree; the numbers are what it printed. Screenshots of each rendered item are
+committed under `docs/screenshots/phase1/`, and the measurements are in `docs/benchmarks/phase1.md`.
+
+| # | Gate item | Command that proved it | Result |
+|---|---|---|---|
+| 1 | `ernie_seeg.msh` (492 MB): moving progress bar < 200 ms, cancel < 500 ms | `pnpm --filter @tetravox/app exec playwright test phase1-gate --project=dev` → `e2e/phase1-gate.spec.ts` | ✔ card on screen **0.8 ms**, first progress **13–28 ms** (phase `read`), cancel → `cancelled` **4–6 ms**. Timed **inside the page** around the exact call the Open dialog makes, so no Playwright IPC is charged to the budget. Cancel is `worker.terminate()`; afterwards `datasets` and `layers` are both 0. Real engine, real worker, ANGLE/Metal. |
+| 2 | `ernie.msh` tag surfaces orbiting, **no `build_topology`** on that path | `pnpm --filter @tetravox/engine run e2e -- phase1-gate` → `gate 2` | ✔ 847,165 nodes / 1,177,213 tris / 4,722,625 tets; the ten tissue tags, tag 4 absent; `orient_surface` flips 41 components. **The worker op log is exactly `['loadMesh', 'surface']`** — no `buildTopology`, no `boundary` — captured by wrapping `Worker.prototype.postMessage`. 24-step orbit, > 25 % of the pane covered. Golden `gate2-ernie-tag-surfaces`. |
+| 3 | `T1.nii.gz` in the three canonical views + 3D, with letters, corner info and the badge | same run → `gate 3` (two tests) | ✔ 256×256×208 `f32`, max exactly 65535, `R32F` on the golden authority. Goldens `gate3-t1-2x2-chrome` (2×2: axial, coronal, sagittal, 3D — every pane carries edge letters, corner info and the `NEU` badge) and `gate3-t1-axial-radiological` (the same slice with `RAD`, `R` and `L` swapped — §3's "radiological negates `right` only"). Letters are derived from the view basis, never hardcoded per pane (§8). |
+| 4 | The Phase-1 oblique golden | same run → `gate 4` | ✔ `mode: 'oblique'`, `normal = normalize([1,1,1])`, `T1.nii.gz` alone. Golden `gate4-t1-oblique`; the hexagonal footprint is the plane ∩ the volume's box, which is the §7.3 texcoord discard doing its job. |
+| 5 | The pick golden **and** the Phase-1 overlay-compositing golden | same run → `gate 5` (two tests) | ✔ **Compositing**: `T1.nii.gz` + `segmentation/labeling.nii.gz` (a **float32** label volume, 57 ids → `R8UI`) on an oblique 2D view. Captured twice — base alone, then composited — and asserted pixel by pixel: every changed pixel is *exactly* one of the atlas's LUT colours (no blend ⇒ a true 100 % footprint) and every unchanged pixel is byte-identical to the base. Golden `gate5-overlay-composite-oblique`. **Pick**: a 3D pick on `ernie.msh` returns `elementKind: 'tri'` with a Gmsh element number inside the tri block, a pane corner returns `null` (0 = miss), and still no `buildTopology`. Golden `gate5-ernie-pick`. |
+| 6 | Both §6.1 ladder branches, via `forceCaps`, as analytic pixel tests | same run → `gate 6` (two tests) | ✔ `?norm16=0` ⇒ **R32F**; the unforced run ⇒ **R16** where the renderer has `EXT_texture_norm16`, and **skips with a reason** on the golden authority, which does not (§7.1 `[SwS]`) — rather than silently asserting the other branch twice. Each branch compares the rendered grey against the value `Engine.probe` reads from the **CPU** array at the same world point, through the §7.6 bake: two paths that share only the parsed samples. |
+| 7 | `wasm_heap_bytes()` ≤ 1.0 GB for `ernie_seeg.msh` | `pnpm --filter @tetravox/wasm run e2e -- realdata` | ✔ **956,694,528 B = 912.4 MB** (1.94 × file), **with `tvx-geom` built in**. Unchanged from the pre-`geom` measurement: the Morton reorder, block index and point locator all run after the parse has freed its transients, so the high-water mark is still the parse's. `ernie.msh` 341.8 MB against its ≤ 380 MB bar. |
+
+**Whole chain, same tree:** `pnpm wasm && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm e2e`
+green, plus `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo test --workspace` (177 passed / 0 failed / 1 ignored) with `TETRAVOX_TESTDATA` set **and** unset.
+
+**Outstanding at the gate** (tracked, not blocking Phase 2's start):
+
+* **`p1/geom` and `p1/engine` were never created.** `crates/tvx-geom` and `packages/engine` reached
+  the integrator as Phase-0 `unimplemented!()` / `throw new Error('phase 1')` stubs, and both were
+  implemented during integration rather than by their own agent. They therefore had one pass of
+  review, not two, and `docs/DECISIONS.md` carries the judgement calls.
+* **ubuntu-24.04 has still never run** — the Phase-0 carry-over. Every golden here was captured on
+  SwiftShader **on macOS arm64**, and `ubuntu-24.04` is the golden authority (§11). If the first CI
+  run disagrees, regenerate the goldens **there**.
+* **§9.1 row 1 is missed on this machine**: 418 ms to first frame for `T1.nii.gz` against a < 400 ms
+  budget, dominated by the worker round trip rather than by rendering. The row stays `[TARGET]`;
+  Phase 3's performance pass owns it. `docs/benchmarks/phase1.md` has the breakdown.
+* **Two Phase-0 fixture assertions were corrected, not implemented** — `extract_boundary`'s face
+  count and `orient_surface`'s non-manifold-edge count. Both are argued from §6.3 and confirmed on
+  real data; see `docs/DECISIONS.md`.
+* `showIn3D` volume planes are Phase 2's (§7.3's Phase-1 scope says so explicitly), so the 3D pane of
+  the gate-3 golden carries chrome but no volume.
+
 **Work (one agent per bullet):**
 - `tvx-nifti` (§6.1) — reader, exact stats, `gpu_payload` ladder, `label_index`. Synthetic + real-data tests
   (qfac, NaN slope, float32 label volume) and criterion benches.
