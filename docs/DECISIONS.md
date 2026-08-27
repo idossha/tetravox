@@ -709,3 +709,52 @@ measurement. `crates/tvx-nifti/src/lib.rs`'s module docs carry the first two.
   physical samples are not integral and non-negative, refuses the two colour dtypes, and refuses ids
   whose span exceeds 2^24 or whose count exceeds 65536 — its `dense_of` is as long as the largest
   id (531 entries for `labeling.nii.gz`), and ids absent from the volume map to dense 0.
+
+## 2026-08-27 — Phase 1, `tvx-mesh-io` (§6.2)
+
+- 2026-08-27 — **§6.2 promises two pieces of data the frozen structs have no field for, so both got an
+  *additive* entry point rather than a struct change.** §6.2 says a `.label.gii`'s `<LabelTable>` "becomes a
+  `LabelTable`", but `read_gifti` returns a `Mesh`, which has no such field; and §6.2's name ladder ends at
+  "sibling `<mesh>.msh.opt` (`Physical Volume(" GM",2)` …)", but `MshOptions` carries only
+  `tag_color` / `tag_visible` / `views`. The second gap is not academic: `m2m_ernie/ernie.msh` has **no
+  `$PhysicalNames` section at all** `[DATA]`, so its `.msh.opt` is the *only* source of "WM", "GM", "CSF" …
+  for the flagship file, and a reader that drops those names leaves the tissue table unnamed. Changing
+  either struct is an ARCHITECTURE.md edit, which is not this agent's to make, and silently discarding the
+  data is worse than a two-line addition — so `tvx_mesh_io::read_gifti_labels(&[u8]) -> Result<LabelTable>`
+  and `tvx_mesh_io::read_msh_opt_names(&[u8]) -> Result<Vec<(i32, String)>>` exist beside the frozen
+  signatures, which are untouched. **The integrator should fold them into §6.2** — most naturally as
+  `Mesh.label_table: Option<LabelTable>` and `MshOptions.tag_name: Vec<(i32, String)>` — and then delete
+  them.
+- 2026-08-27 — **`Mesh.gmsh_elm_numbers` needs the element *kind* during parsing, and it rides in bit 63 of
+  the transient id array.** §6.2 defines the array in (tris then tets) order while a file may write the
+  blocks in any order, so the reader has to remember which kind each file-order id belonged to. A parallel
+  `Vec<bool>` would cost 15.8 MB on `ernie-seeg.msh` (15,787,627 elements `[DATA]`) for a fact that is
+  discarded seconds later. Element numbers are `<= u32::MAX` by §6.2's own rule — checked at parse time, and
+  the check is what makes the trick sound — so bit 63 is free. The flag is stripped in
+  `finish_elements`, which also runs §6.2's identity test and drops the whole array when it passes, which is
+  the case for every reference `.msh` `[DATA]`.
+- 2026-08-27 — **`Mesh.Color.<Ordinal>` is indexed by *tag number*, not by declaration order.**
+  §6.2 names the syntax but not the mapping, and the two readings disagree on real data:
+  `m2m_ernie/ernie.msh.opt` declares 9 volumes (tags 1,2,3,5,6,7,8,9,10 — no 4) and 10 surfaces, so
+  declaration order would give Scalp (tag 5) `Mesh.Color.Four`. `simnibs/mesh_tools/gmsh_view.py`'s `Color`
+  defaults settle it: `Four = [255,239,179]` (bone cream, tag 4 = the old skull label) and
+  `Five = [255,166,133]` (skin, tag 5 = Scalp), i.e. ordinal *N* is Gmsh's colour-carousel slot *N* and
+  SimNIBS writes tissue *N*'s colour there. `testdata/manifest.json`'s authored expectation agrees
+  independently: its `Mesh.Color.Three` colours nothing, because no physical entity 3 is declared. A colour
+  is therefore emitted only for a tag the file actually declares, and §6.2's `1xxx → 1xxx − 1000`
+  inheritance is applied on top — which is what makes `1001` take `Mesh.Color.One` rather than
+  `Mesh.Color.Three`.
+- 2026-08-27 — **FreeSurfer colortables store *transparency*; `LabelEntry.color[3]` is `255 − t`.** §4.1's
+  wire form is RGBA, and every `.annot` in the dataset writes `t = 0` `[DATA]`, so reading `t` as alpha
+  would make every region invisible. `testdata/manifest.json` records the raw quadruple as `rgba255`
+  (`[25,5,25,0]` for `unknown`) and the committed fixture test asserts only the RGB triple, so nothing
+  pins the wrong reading.
+- 2026-08-27 — **`read_stl` welds coincident vertices by exact bit pattern.** §6.2 leaves the policy open
+  and `testdata/manifest.json` accepts either 16 welded nodes or 54 unwelded ones for `patch_*.stl`.
+  Welding is what gives an STL shared vertex normals in §6.3's `Indexed` variant, and an exact-bits key
+  never merges two points the writer meant to keep apart. `tri_edge_mask` stays `None`, as §6.2 requires.
+- 2026-08-27 — **`$NodeData`/`$ElementData` percentiles are bin-centre reconstructions.** §6.1 specifies the
+  65536-bin histogram and its error bound for volumes; `FieldStats` is shared, so mesh fields use the same
+  code. `min` and `max` are exact, the histogram is exact, and an interior percentile is the centre of its
+  bin — within `(max−min)/131072` of the true value. Nothing in `testdata/manifest.json` or AGENTS.md
+  asserts a mesh-field percentile, so this is a note, not a claim.
