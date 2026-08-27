@@ -499,6 +499,9 @@ fingerprint(bytes) = "tvxfp1-" ++ hex16(len) ++ "-" ++ hex16(h)
 * The chunks are the whole slice when `len ≤ 8 MiB`; otherwise exactly three 1 MiB windows — at `0`, at
   `len/2 − 512 KiB`, and at `len − 1 MiB`. Above 8 MiB those never overlap, so any file is digested over 3 MiB.
 
+Cost, measured native on `m2m_ernie/ernie.msh` (184,207,351 B): **8.9 ms** `[M2Max]`, i.e. 0.6 % of §9.1
+row 3's 1.5 s parse budget, because only 3 MiB of any file is ever hashed.
+
 This **identifies** a file; it does not authenticate one. A cryptographic digest would mean a new workspace
 dependency (frozen, §12.3) and ~180 MB of SHA-256 on the load path for `ernie.msh`. The algorithm is written out
 rather than delegated to a hasher's default because the string is persisted in a `*.tetravox.json` and has to
@@ -1208,7 +1211,9 @@ Rules:
   is **0.0156 mm** from the mean of all 1,340,029 of them `[M2Max]`, so the region panel's jump-to-centroid can
   use it for a mesh tissue tag. `mask` and `tags` filter **first** and `stride` then keeps every `stride`-th
   survivor, so the count is `ceil(surviving / stride)` and a rare tag still gets glyphs; `stride = 0` is
-  `Error::Parse` and an unused tag is an empty result, not an error.
+  `Error::Parse` and an unused tag is an empty result, not an error. Cost on `ernie.msh` native `[M2Max]`:
+  **39 ms** for all 4,722,625 origins (56 MB), **7.3 ms** at stride 64 (73,792 origins), **12.3 ms** at stride 64
+  restricted to tag 2 (20,938) — one O(N) pass either way, against §9.1 row 7b's "same class as #6".
 * **`locate_point` rejects a candidate by its AABB before evaluating barycentric coordinates.** The locator's
   cells must be at least as large as the largest tet (that is what makes the 3×3×3 scan exhaustive), so on
   `ernie.msh` a candidate can be ~60 mm from the probe point — and an f32 barycentric test on a **sliver** tet
