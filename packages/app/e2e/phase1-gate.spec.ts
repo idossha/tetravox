@@ -15,6 +15,10 @@
  * Skips, never fails, when `TETRAVOX_TESTDATA` is unset (AGENTS rule 2).
  */
 
+/* eslint-disable no-empty-pattern */
+// `test.beforeAll(async ({}, workerInfo) => …)` is Playwright's own signature for a hook that wants
+// the worker info and no fixtures; the same disable is in `phase0.spec.ts` and `shell.spec.ts`.
+
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -170,14 +174,7 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
         const tv = window.__tetravox;
         if (tv?.controller == null || tv.engine == null) throw new Error('no controller');
         const { store, controller } = tv;
-        const engine = tv.engine as unknown as {
-          renderNow(): void;
-          whenSettled(): Promise<void>;
-          setLayout(l: { kind: string; cells: string[] }): void;
-          setView(id: string, patch: unknown): void;
-          scene: { view3d: { camera: Record<string, unknown> }; layers: unknown[] };
-          caps: { renderer: string };
-        };
+        const engine = tv.engine;
         const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
         // Mirrors `open/sources.ts::requestFromPath`, which is module-private: derive the sibling
@@ -269,11 +266,7 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
 
           const cpu: number[] = [];
           const gpu: number[] = [];
-          const off = (
-            engine as unknown as {
-              on(e: 'frame', cb: (p: { cpuMs: number; gpuMs?: number }) => void): () => void;
-            }
-          ).on('frame', (f) => {
+          const off = engine.on('frame', (f) => {
             cpu.push(f.cpuMs);
             if (typeof f.gpuMs === 'number') gpu.push(f.gpuMs);
           });
@@ -311,7 +304,7 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
         return {
           renderer: engine.caps.renderer,
           devicePixelRatio: window.devicePixelRatio,
-          timerQuery: (engine as unknown as { caps: { timerQuery: boolean } }).caps.timerQuery,
+          timerQuery: engine.caps.timerQuery,
           t1Ms,
           ernieMs,
           dpr1,
@@ -359,11 +352,8 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
       await page.waitForTimeout(400);
       await page.evaluate(async () => {
         const tv = window.__tetravox;
-        const engine = tv?.engine as unknown as {
-          setLayout(l: { kind: string; cells: string[] }): void;
-          whenSettled(): Promise<void>;
-          renderNow(): void;
-        };
+        const engine = tv?.engine;
+        if (engine == null) throw new Error('no engine');
         engine.setLayout({ kind: '2x2', cells: ['axial', 'coronal', 'sagittal', 'view3d'] });
         await engine.whenSettled();
         engine.renderNow();
@@ -379,9 +369,7 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
     // from 33 mm away. This is that, asserted on the DOM a user actually reads.
     const seen = await page.evaluate(() => {
       const tv = window.__tetravox;
-      const engine = tv?.engine as unknown as {
-        scene: { cursor: [number, number, number] };
-      } | null;
+      const engine = tv?.engine;
       if (engine == null || tv?.store == null) throw new Error('no engine');
       const fmt = (v: readonly number[]): string =>
         v.map((c) => (c === 0 ? 0 : c).toFixed(1).replace(/^-0\.0$/, '0.0')).join(' ');

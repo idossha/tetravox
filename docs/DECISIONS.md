@@ -1197,3 +1197,32 @@ Each entry below names the problem, the fix, and the evidence.
   it. `MockEngine`'s docstring now says what it is — a **compile-time** proof that the facade is
   implementable with no GL, which is exactly what fails the build if `Engine` grows something
   unimplementable — and points at `NoGlEngine` for behaviour.
+- 2026-08-27 — **§11's named tests now assert what §11 names.** Three of them had been
+  reinterpreted, each defensibly on its own and collectively leaving the row's point uncovered:
+  * *Overlay compositing* used `segmentation/labeling.nii.gz` instead of the named
+    `Thalamus_TI_subject_TI_max.nii.gz`. That is not a smaller version of the same test: a label
+    volume takes §7.3's `R8UI` + palette branch, where opacity is decided per label, so the
+    **continuous-scalar colormap-and-blend path the row is about was covered nowhere**. The named
+    file is used now, and "exactly 100 %" is asserted as *independence over every pixel of the pane*
+    rather than over a 39×39 sample grid: at opacity 1 the composite must not change when the layer
+    underneath it does, tested twice — by hiding the base and by re-windowing it — with both
+    perturbations first shown to change the base on its own. §11's parenthetical "genuinely
+    different extents" was also simply wrong: all three volumes share the 256×256×208 grid and the
+    same affine to four decimals `[DATA]`. §11's row was corrected in the same commit.
+  * *Pick* asserted one of four clauses. The missing `world`-within-1 mm clause had no reference
+    point written down anywhere, so one is constructed instead: the default 3D camera has identity
+    rotation, sits on +Z and looks down −Z, so the pane-centre pick lands on the top of the scalp
+    with the outward normal along +Z — and `locate` 1 mm outward returns null while 1 mm inward
+    returns tag 5. That brackets the hit to ±1 mm *and* is §11's `locate` cross-check, through a
+    second code path (§6.3's `locate_point` in the worker). The cross-check is made 1 mm inside
+    rather than on the surface because a point exactly on a boundary face is a floating-point coin
+    toss for a containment test. The slice-index clause is read off the panes themselves with the
+    glyph decoder. Note that "all three changed" cannot be literally true for this pick: it is on
+    the camera axis through the bbox centre, so only the axial index can move; the test asserts the
+    three shown indices are exactly what the picked point implies, and that the triple changed.
+  * *A 4-tet mesh with tag colours from a fixture LUT* had no pixel assertion at all — the mesh
+    renderer's colour path shipped with a coverage count. It has one now, and it needs no constant
+    from the shader: §7.4's headlight gives `P = C·s + t` with `s` and `t` shared by all three
+    channels of a pixel, so each sampled pixel is **fitted** against its own tag's colour and the
+    residual is the test. Measured residuals are 0.09 and 0.11 of 255; fitting the *other* tag's
+    colour to the same pixel needs a negative `s`.
