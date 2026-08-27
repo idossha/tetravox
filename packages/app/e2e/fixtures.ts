@@ -122,6 +122,33 @@ export interface LaunchOptions {
  */
 const DETERMINISM_ARGS = ['--force-color-profile=srgb', '--force-device-scale-factor=1'];
 
+/**
+ * A test run must not hijack the monitor (`src/main/window.ts`).
+ *
+ * On macOS every launch here used to raise a window, steal the keyboard focus and — under a tiling
+ * window manager — re-tile the developer's whole workspace, a dozen times per `pnpm e2e`.
+ * `TETRAVOX_E2E_OFFSCREEN=1` tells main to build the window and never show it. It stays on the real
+ * GPU: `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`, `norm16` and the timer query all
+ * present, which is what these tests exist to cover.
+ *
+ * **Default on darwin only.** Linux CI runs under Xvfb, where there is no monitor to hijack and
+ * where the shown-window path is the one worth exercising; Windows is not a target. Setting
+ * `TETRAVOX_E2E_HEADED=1` restores visible windows everywhere — main gives that variable priority,
+ * so the one export covers this suite and the engine's ANGLE project alike.
+ *
+ * The value is merged onto `process.env`, never assigned over it: `electron.launch({ env })`
+ * REPLACES the child's environment, and dropping PATH/HOME from an Electron launch fails in ways
+ * that look nothing like the cause.
+ */
+export function offscreenEnv(
+  env: NodeJS.ProcessEnv = process.env
+): Record<string, string> | undefined {
+  if (env['TETRAVOX_E2E_HEADED'] === '1') return undefined;
+  if (env['TETRAVOX_E2E_OFFSCREEN'] !== undefined)
+    return { TETRAVOX_E2E_OFFSCREEN: env['TETRAVOX_E2E_OFFSCREEN'] };
+  return process.platform === 'darwin' ? { TETRAVOX_E2E_OFFSCREEN: '1' } : undefined;
+}
+
 export async function launchApp(
   target: LaunchTarget,
   options: LaunchOptions = {}
@@ -134,10 +161,13 @@ export async function launchApp(
 
   // `env` REPLACES the child's environment when given, so it is always merged onto `process.env`:
   // dropping PATH/HOME from an Electron launch fails in ways that look nothing like the cause.
-  const env =
-    options.env === undefined
+  const offscreen = offscreenEnv();
+  const extra =
+    offscreen === undefined && options.env === undefined
       ? undefined
-      : ({ ...process.env, ...options.env } as Record<string, string>);
+      : { ...offscreen, ...options.env };
+  const env =
+    extra === undefined ? undefined : ({ ...process.env, ...extra } as Record<string, string>);
 
   if (target === 'packaged') {
     const executablePath = packagedExecutable();

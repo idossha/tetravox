@@ -29,6 +29,13 @@ import { defineConfig } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { GOLDEN_THRESHOLD, goldenMaxDiffPixelRatio } from './test/helpers/pixels';
 
+/**
+ * `TETRAVOX_E2E_HEADED=1` opts back in to visible browser windows, for debugging. Every leg of the
+ * suite is windowless by default; see the `chromium-angle` project below and `packages/app`'s
+ * `src/main/window.ts` for what each leg does with that.
+ */
+const HEADED = process.env.TETRAVOX_E2E_HEADED === '1';
+
 const PORT = Number(process.env.TETRAVOX_TEST_PORT ?? 5199);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
@@ -103,11 +110,23 @@ export default defineConfig({
       // implemented the test and not the leg, so the R16 half self-skipped in every environment
       // that existed — on a format that is the primary path for real data.
       //
-      // `headless: false` + `channel: 'chromium'` is what selects the full browser and lets it
-      // reach the platform GPU; `--enable-unsafe-swiftshader` is deliberately absent, because this
-      // project exists to NOT be SwiftShader. On a machine or runner with no GPU it still falls
-      // back to software, `caps.norm16` is false and the R16 test skips with its reason — the leg
-      // is then honestly empty rather than silently missing.
+      // `channel: 'chromium'` is what selects the full browser rather than the headless shell, and
+      // it is the full browser that reaches the platform GPU; `--enable-unsafe-swiftshader` is
+      // deliberately absent, because this project exists to NOT be SwiftShader. On a machine or
+      // runner with no GPU it still falls back to software, `caps.norm16` is false and the R16 test
+      // skips with its reason — the leg is then honestly empty rather than silently missing.
+      //
+      // **`headless: true`, and it is still ANGLE/Metal.** The leg used to run headed, which put a
+      // Chromium window on the developer's screen and took the focus on every `pnpm e2e`. It does
+      // not have to: measured 2026-08-27 on an M2 Max / macOS 15.7 with this exact Playwright, the
+      // full Chromium in headless mode reports `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`,
+      // `EXT_texture_norm16` **true**, `EXT_disjoint_timer_query_webgl2` true, `MAX_TEXTURE_SIZE`
+      // 16384, `MAX_DRAW_BUFFERS` 8 and 36 extensions — identical to the headed run, and nothing
+      // like the headless *shell*'s SwiftShader (norm16 false, 8192, 6, 29 extensions). No GPU
+      // switch is needed to get there: `--use-angle=metal --enable-gpu --ignore-gpu-blocklist` and
+      // an explicit `--headless=new` each changed exactly nothing, so none of them is passed.
+      // `docs/TESTING.md` §2 has the table. `TETRAVOX_E2E_HEADED=1` puts the window back for
+      // debugging — the same variable the app's E2E reads.
       //
       // **`@angle` only.** No golden is captured here: §11 stores goldens per renderer class and
       // `test/golden/angle-metal/` does not exist, so running a golden test on this project would
@@ -118,7 +137,7 @@ export default defineConfig({
       use: {
         browserName: 'chromium',
         channel: 'chromium',
-        headless: false,
+        headless: !HEADED,
         launchOptions: { args: DETERMINISM_ARGS },
       },
     },
