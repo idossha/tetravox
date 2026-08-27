@@ -1593,3 +1593,38 @@ Each entry below names the problem, the fix, and the evidence.
   starting voxel exactly, in-plane as well as along the normal, and it keeps the property the
   along-normal snap was fixed for earlier today: a step never moves the cursor in a direction the
   user did not ask for.
+
+- 2026-08-27 — **The cut-plane gizmo lives in the 3D pane and manipulates a 2D pane's plane**
+  (E-SCENE, §7.5's oblique affordances). A gizmo drawn inside the pane whose plane it rotates would be
+  looking at that plane edge-on — at a line — so `showGizmo(viewId)` names the *slice* view whose
+  plane is being manipulated and the geometry is drawn in the `View3D`. §7.2's "all clip distances
+  disabled" in pass 3 is what keeps it from being clipped by the plane it manipulates, and it is
+  drawn **after** the letters and corner block so nothing but the active-pane border covers the thing
+  the user is dragging. Its state — which plane, which handle is hot, how many plane-from-3-points
+  clicks are outstanding — is engine-private and is deliberately **not** in `Scene`: §4.5 is frozen,
+  and a saved `ViewSpec` must not carry "the user was mid-drag on a rotate handle".
+
+- 2026-08-27 — **A rotate handle rotates `normal` and `up` together, through Rodrigues** (E-SCENE).
+  Rotating the normal alone leaves `up` pointing out of the new plane, and `sliceBasis` then
+  re-orthogonalises it to whatever falls out — so a rotate handle would also *roll* the pane by an
+  amount nobody asked for, differently depending on which axis the orthogonalisation branched on.
+  `view/geometry.ts`'s `rotatePlane` carries both vectors rigidly and re-normalises, and the e2e
+  asserts the property directly: after a 90 px drag on the `rotateU` handle the normal has moved and
+  `up` is **unchanged**.
+
+- 2026-08-27 — **The gizmo's hit test and its drawing read the same `handlePoints`** (E-SCENE). Two
+  copies of "where is the rotate handle" is how a control becomes a picture of a control: the drawing
+  drifts by a few pixels, the grab radius no longer covers it, and the user's cursor sits on a handle
+  that does not respond. `overlay/gizmo.ts` exports the three world points once; `drawGizmo` puts
+  knobs there and `gizmoHandleAt` measures distance to them, both through the pane's own `viewProj`.
+  The e2e finds the handle by **scanning pane pixels with the engine's own hit test** rather than
+  through a test-only accessor, which is the same claim from the outside: a handle a user can see is
+  a handle a user can reach.
+
+- 2026-08-27 — **`OverlayBuilder` gained `quad()`, and the test page publishes `TetravoxEngine`**
+  (E-SCENE, two small consequences of the gizmo). Every Phase-1 overlay item was axis-aligned, so
+  `rect()` sufficed; §7.0.6's screen-space quad expansion is not axis-aligned, and the gizmo's ring
+  and arcs are rotated segments. And `test/pages/scene.ts` published its engine as the frozen §4.7
+  `Engine` while constructing a `TetravoxEngine`, so every spec driving a Phase-2 gesture cast it
+  straight back up, once per call; it now publishes the concrete type. Widening only — every `Engine`
+  member is still there and no existing spec changed.

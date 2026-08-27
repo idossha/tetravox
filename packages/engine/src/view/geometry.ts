@@ -418,6 +418,76 @@ export function snapAlong(ds: VolumeDataset, world: vec3, dir: vec3): vec3 {
 }
 
 // -------------------------------------------------------------------------------------------
+// Oblique affordances — §7.5's gizmo, rotate handles and plane-from-3-points
+// -------------------------------------------------------------------------------------------
+
+/**
+ * The plane through three world points, as a `{ normal, up }` a `SliceView` can adopt.
+ *
+ * §7.5's third oblique affordance. `normal = normalize((b − a) × (c − a))`, and `up` is the
+ * in-plane direction closest to the world superior axis — with the world **anterior** axis as the
+ * fallback for a plane that is itself axial, where "superior" has no in-plane component at all. That
+ * rule is what keeps the resulting pane readable rather than rolled to an arbitrary angle: the same
+ * choice §3's presets make (`presetUp` is `+Z` for coronal and sagittal, `+Y` for axial).
+ *
+ * Returns `null` for three collinear (or coincident) points, where no plane exists — a clicked
+ * third point on the line through the first two must fail visibly, not produce a NaN normal.
+ */
+export function planeFromPoints(
+  a: vec3,
+  b: vec3,
+  c: vec3,
+  minArea = 1e-6
+): { normal: vec3; up: vec3 } | null {
+  const ab: vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ac: vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const n = cross(ab, ac);
+  // |ab × ac| is twice the triangle's area: zero exactly when the three points are collinear.
+  if (Math.hypot(n[0], n[1], n[2]) <= minArea) return null;
+  const normal = norm(n);
+  const superior: vec3 = [0, 0, 1];
+  let up = reject(superior, normal);
+  if (Math.hypot(up[0], up[1], up[2]) < 1e-4) up = reject([0, 1, 0], normal);
+  return { normal, up: norm(up) };
+}
+
+/** `v` with its component along the unit vector `n` removed. */
+function reject(v: vec3, n: vec3): vec3 {
+  const d = dot3(v, n);
+  return [v[0] - d * n[0], v[1] - d * n[1], v[2] - d * n[2]];
+}
+
+/**
+ * Rotate a plane's `{ normal, up }` by `angle` radians about an **in-plane** axis.
+ *
+ * The gizmo's two rotate handles, and the only correct way to write them: rotating the normal alone
+ * would leave `up` pointing out of the new plane, and `sliceBasis` would then re-orthogonalise it to
+ * whatever fell out — the pane would roll by an amount nobody asked for. Rodrigues on both vectors
+ * keeps the frame rigid, so a rotate handle rotates the view and does not also spin it.
+ */
+export function rotatePlane(
+  normal: vec3,
+  up: vec3,
+  axis: vec3,
+  angle: number
+): { normal: vec3; up: vec3 } {
+  const k = norm(axis);
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const rodrigues = (v: vec3): vec3 => {
+    const kv = cross(k, v);
+    const kd = dot3(k, v) * (1 - cosA);
+    return [
+      v[0] * cosA + kv[0] * sinA + k[0] * kd,
+      v[1] * cosA + kv[1] * sinA + k[1] * kd,
+      v[2] * cosA + kv[2] * sinA + k[2] * kd,
+    ];
+  };
+  const n = norm(rodrigues(normal));
+  return { normal: n, up: norm(reject(rodrigues(up), n)) };
+}
+
+// -------------------------------------------------------------------------------------------
 // The pane's in-plane origin — §7.5 / maintainer requirement R3
 // -------------------------------------------------------------------------------------------
 

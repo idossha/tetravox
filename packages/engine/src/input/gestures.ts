@@ -27,7 +27,9 @@ export type GestureKind =
   /** 3D left-drag: arcball orbit. */
   | 'orbit'
   /** 3D right/middle-drag: pan the 3D camera target. */
-  | 'pan3d';
+  | 'pan3d'
+  /** 3D left-drag that started on a cut-plane gizmo handle: manipulate the plane (§7.5). */
+  | 'gizmo';
 
 export interface Modifiers {
   shift: boolean;
@@ -56,13 +58,21 @@ export const NO_MODIFIERS: Modifiers = {
  * qualifying it by pane kind — it is a layer gesture, not a camera one, and it means the same thing
  * in the 3D pane as in a 2D one.
  */
-export function resolveGesture(button: number, mods: Modifiers, is3D: boolean): GestureKind | null {
+export function resolveGesture(
+  button: number,
+  mods: Modifiers,
+  is3D: boolean,
+  overGizmo = false
+): GestureKind | null {
   // A platform modifier on the primary button is a menu accelerator or, on macOS, the OS's own
   // right-click emulation — which Chromium has already turned into `button === 2` by the time it
   // gets here. Either way it is not a drag.
   if (button === 0 && (mods.ctrl || mods.meta)) return null;
   if (mods.shift && button === 0) return 'opacity';
   if (is3D) {
+    // §7.5's gizmo takes precedence over the orbit it would otherwise start: a handle the user can
+    // see and aim at has to be grabbable, and the orbit is available everywhere else in the pane.
+    if (button === 0 && overGizmo) return 'gizmo';
     if (button === 0) return 'orbit';
     if (button === 1 || button === 2) return 'pan3d';
     return null;
@@ -137,7 +147,13 @@ export class GestureMachine {
     return this.#viewId;
   }
 
-  down(pointerId: number, button: number, at: PanePoint, mods: Modifiers): GestureEvent[] {
+  down(
+    pointerId: number,
+    button: number,
+    at: PanePoint,
+    mods: Modifiers,
+    overGizmo = false
+  ): GestureEvent[] {
     const out: GestureEvent[] = [];
     this.#down.set(pointerId, { x: at.x, y: at.y });
 
@@ -154,7 +170,7 @@ export class GestureMachine {
       return out;
     }
 
-    const kind = resolveGesture(button, mods, at.is3D);
+    const kind = resolveGesture(button, mods, at.is3D, overGizmo);
     if (kind === null) return out;
     this.#kind = kind;
     this.#viewId = at.viewId;

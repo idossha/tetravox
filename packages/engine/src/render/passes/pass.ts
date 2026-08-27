@@ -21,6 +21,7 @@ import type { DrawItem, LayerRuntime, PickItem } from '../../layers/runtime';
 import { pickableIn } from '../../layers/runtime';
 import type { LayerId, mat4, Scene, vec3, View, ViewId } from '../../scene/types';
 import type { ViewportRect } from '../../view/layout';
+import type { GizmoSpec } from '../../overlay/gizmo';
 
 /** Everything a frame needs that is not per-pane. Assembled once per frame by the engine. */
 export interface DrawInput {
@@ -36,6 +37,15 @@ export interface DrawInput {
   uiScale: number;
   /** Chrome is skipped entirely when `annotations` says so; the badge is never optional (§8). */
   showChrome: boolean;
+  /**
+   * The cut-plane gizmo to draw in the 3D pane, or `null` — §7.5's oblique affordances (appended by
+   * E-SCENE; shared-file rule: additive only).
+   *
+   * It lives here rather than in `Scene` because §4.5 is frozen **and** because a gizmo is transient
+   * UI state, not scene state: which plane is being manipulated and which handle is hot are things a
+   * pointer knows for the length of a drag, and a saved `ViewSpec` should never carry them.
+   */
+  gizmo?: GizmoSpec | null;
 }
 
 /** One pane, mid-frame. */

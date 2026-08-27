@@ -69,6 +69,18 @@ export interface PointerHost {
   dollyView(viewId: string, deltaY: number): void;
   pickToCursor(viewId: string, x: number, y: number): void;
   resetView(viewId: string): void;
+
+  // §7.5's oblique affordances (appended with the gizmo; same rule as the rest of this interface —
+  // every member is one thing §7.5 binds, and every one is public on `TetravoxEngine`).
+
+  /** Which cut-plane gizmo handle a 3D-pane pixel is over, latching the highlight. */
+  gizmoAt(viewId: string, x: number, y: number): 'translate' | 'rotateU' | 'rotateV' | null;
+  /** Drag a gizmo handle: translate along the normal, or rotate about an in-plane axis. */
+  gizmoDrag(handle: 'translate' | 'rotateU' | 'rotateV', dxPx: number, dyPx: number): void;
+  /** How many plane-from-3-points clicks are still being collected, or `null` when not collecting. */
+  readonly planeFromPointsPending: number | null;
+  /** Contribute one click to an armed plane-from-3-points; `true` while it is consuming clicks. */
+  addPlanePoint(viewId: string, x: number, y: number): boolean;
 }
 
 /** True when the key event is going into a text field and no shortcut may fire. */
@@ -85,6 +97,8 @@ export class PointerLayer {
   readonly #machine = new GestureMachine();
   readonly #off: (() => void)[] = [];
   #mods: Modifiers = { ...NO_MODIFIERS };
+  /** The gizmo handle the current drag grabbed at `pointerdown`, for the length of that drag. */
+  #gizmoHandle: 'translate' | 'rotateU' | 'rotateV' | null = null;
   /** The pane the pointer is currently over, for the keys R2 binds per pane. */
   #hovered: string | null = null;
   #destroyed = false;
@@ -157,6 +171,18 @@ export class PointerLayer {
     this.#mods = this.#modsOf(e);
     this.#hovered = pane.viewId;
     this.#host.noteInput();
+    // §7.5's plane-from-3-points, while it is armed: a left-click in a 2D pane contributes a point
+    // instead of setting the cursor, and the engine sets the plane on the third one.
+    if (
+      e.button === 0 &&
+      !pane.is3D &&
+      this.#host.planeFromPointsPending !== null &&
+      this.#host.addPlanePoint(pane.viewId, pane.x, pane.y)
+    ) {
+      e.preventDefault();
+      return;
+    }
+    this.#gizmoHandle = pane.is3D ? this.#host.gizmoAt(pane.viewId, pane.x, pane.y) : null;
     // Capture first: a drag that leaves the canvas must keep arriving.
     try {
       this.#canvas.setPointerCapture(e.pointerId);
@@ -169,7 +195,8 @@ export class PointerLayer {
       e.pointerId,
       e.button,
       { viewId: pane.viewId, is3D: pane.is3D, x: pane.x, y: pane.y },
-      this.#mods
+      this.#mods,
+      this.#gizmoHandle !== null
     )) {
       if (g.type === 'begin' && g.kind === 'cursor') {
         // R1: **left-click sets the cursor**, before any movement.
@@ -190,6 +217,7 @@ export class PointerLayer {
       const pane = this.#host.paneAt(p.x, p.y);
       this.#hovered = pane?.viewId ?? null;
       if (pane === null) this.#host.hoverAtScreen(null, 0, 0);
+      else if (pane.is3D) this.#host.gizmoAt(pane.viewId, pane.x, pane.y);
       else this.#host.hoverAtScreen(pane.viewId, pane.x, pane.y);
       return;
     }
@@ -203,6 +231,7 @@ export class PointerLayer {
 
   readonly #onUp = (e: PointerEvent): void => {
     if (this.#destroyed) return;
+    this.#gizmoHandle = null;
     for (const g of this.#machine.up(e.pointerId)) void g;
     try {
       if (this.#canvas.hasPointerCapture(e.pointerId)) {
@@ -214,6 +243,7 @@ export class PointerLayer {
   };
 
   readonly #onCancel = (): void => {
+    this.#gizmoHandle = null;
     this.#machine.reset();
   };
 
@@ -358,6 +388,11 @@ export class PointerLayer {
             break;
           case 'pan3d':
             this.#host.pan3DView(g.viewId, g.dx, g.dy);
+            break;
+          case 'gizmo':
+            if (this.#gizmoHandle !== null) {
+              this.#host.gizmoDrag(this.#gizmoHandle, g.dx, g.dy);
+            }
             break;
         }
         break;

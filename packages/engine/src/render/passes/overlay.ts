@@ -21,7 +21,7 @@ import type { GlState } from '../../gl/state';
 import type { FramePass, PassContext } from './pass';
 import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
 import { FLOATS_PER_VERTEX, OverlayBuilder, badgeFor, buildChrome } from '../../overlay';
-import type { EdgeLetters } from '../../overlay';
+import type { ChromeInput, EdgeLetters } from '../../overlay';
 import { isSliceView, topVolume } from '../../scene/store';
 import {
   edgeLetters,
@@ -35,6 +35,15 @@ import type { Scene, SliceView, vec3, vec4, VolumeDataset } from '../../scene/ty
 const TEXT_COLOR: vec4 = [0.92, 0.94, 0.98, 1];
 const CROSSHAIR_COLOR: vec4 = [1, 0.85, 0.2, 0.9];
 const ACTIVE_BORDER: vec4 = [0.35, 0.62, 1, 1];
+/**
+ * The gizmo's two colours (appended by E-SCENE, §7.5's oblique affordances).
+ *
+ * Cyan, deliberately not the crosshair's amber and not the active border's blue: three overlay items
+ * that can share a pane need three colours a test can tell apart, and `pointer.spec.ts` already
+ * finds the crosshair by "bright in R and G, dark in B".
+ */
+const GIZMO_COLOR: vec4 = [0.25, 0.85, 0.95, 0.95];
+const GIZMO_HOT_COLOR: vec4 = [0.4, 1, 0.55, 1];
 
 export class OverlayPass implements FramePass {
   readonly name = 'overlay' as const;
@@ -70,6 +79,7 @@ export class OverlayPass implements FramePass {
     let letters: EdgeLetters | undefined;
     let crosshair: { x: number; y: number } | null = null;
     let crosshair3d: { x: number; y: number } | null = null;
+    let gizmo: ChromeInput['gizmo'] = null;
     const cornerLines: string[] = [];
 
     if (isSliceView(view)) {
@@ -97,6 +107,16 @@ export class OverlayPass implements FramePass {
         const p = worldToPane3D(viewProj, rect, scene.cursor);
         if (p !== null) crosshair3d = { x: p[0], y: rect.height - 1 - p[1] };
       }
+      // §7.5's oblique affordances: the gizmo is a 3D-pane item, and §7.2 draws it in this pass with
+      // **all clip distances disabled** — the reset three lines below — or it would be clipped by
+      // the very plane it manipulates.
+      if (input.gizmo != null) {
+        gizmo = {
+          spec: input.gizmo,
+          viewProj,
+          colors: { ring: GIZMO_COLOR, hot: GIZMO_HOT_COLOR },
+        };
+      }
     }
 
     buildChrome(b, {
@@ -109,6 +129,7 @@ export class OverlayPass implements FramePass {
       badge: badgeFor(scene.radiological),
       crosshair,
       crosshair3d,
+      gizmo,
       crosshairColor: CROSSHAIR_COLOR,
       textColor: TEXT_COLOR,
       activeBorder:

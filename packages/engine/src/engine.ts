@@ -58,8 +58,13 @@ import {
   fitCamera,
   paneToWorld,
   planeAnchor,
+  planeFromPoints,
+  presetNormal,
   presetRotation,
+  presetUp,
+  rotatePlane,
   sliceBasis,
+  slicePlane,
   snapAlong,
   stepMm,
 } from './view/geometry';
@@ -68,6 +73,7 @@ import {
   dolly,
   FRAME_WINDOW,
   InteractionState,
+  mmPerPx3D,
   opacityAfterDrag,
   orbit,
   pan3D,
@@ -78,6 +84,8 @@ import {
   zoomAbout,
   zoomAboutCentre,
 } from './input';
+import { gizmoHandleAt } from './overlay';
+import type { GizmoHandle, GizmoSpec } from './overlay';
 import type { PaneHit, PointerHost } from './input';
 import { applyAffine, meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
 import { defaultLayerFor, VIEW3D_ID } from './scene/defaults';
@@ -103,6 +111,7 @@ import type {
   QualityLevel,
   Scale,
   Scene,
+  SliceMode,
   SliceView,
   vec3,
   vec4,
@@ -115,6 +124,17 @@ import type {
 } from './scene/types';
 
 type Listener = (payload: never) => void;
+
+/**
+ * The gizmo's ring radius, as a fraction of the scene's bounding-box diagonal.
+ *
+ * A fraction rather than a fixed millimetre count because the same gizmo has to be grabbable on a
+ * 250 mm head and on an 8 mm fixture; 0.22 of the diagonal is about a third of the way to the edge
+ * of a fitted 3D view, which leaves the handles clear of both the geometry and the pane's chrome.
+ */
+const GIZMO_RADIUS_FRACTION = 0.22;
+/** Radians per device pixel of a rotate-handle drag. A 180 degree turn is ~350 px, like the orbit. */
+const GIZMO_RAD_PER_PX = 0.009;
 
 interface DatasetRuntime {
   worker: Worker;
@@ -187,6 +207,16 @@ export class TetravoxEngine implements Engine, PointerHost {
   readonly #fingerprints = new Map<DatasetId, string>();
   /** §4.6's "relative to the scene file" — see {@link TetravoxEngine.setSceneDir}. */
   #sceneDir: string | null = null;
+  /**
+   * §7.5's oblique affordances: which slice view's plane the gizmo manipulates, which handle is hot,
+   * and the plane-from-3-points collector.
+   *
+   * All three are engine-private and none of them is in `Scene`: they are transient interaction
+   * state, and a saved `ViewSpec` (§4.6) must not carry "the user was mid-drag on the rotate handle".
+   */
+  #gizmoView: ViewId | null = null;
+  #gizmoHot: 'none' | GizmoHandle = 'none';
+  #planePoints: { viewId: ViewId; points: vec3[] } | null = null;
 
   /** Read-only view of the scene the store owns. */
   get #scene(): Scene {
@@ -804,6 +834,8 @@ export class TetravoxEngine implements Engine, PointerHost {
       activeViewId: null,
       uiScale: Math.max(1, Math.round(this.#dpr())),
       showChrome: true,
+      // §7.5's oblique affordances. `null` whenever no gizmo is shown, which is the default.
+      gizmo: this.gizmoSpec(),
     };
   }
 
@@ -1284,6 +1316,190 @@ export class TetravoxEngine implements Engine, PointerHost {
   pickToCursor(viewId: ViewId, x: number, y: number): boolean {
     const dpr = this.#dpr();
     return this.setCursorFromPick(viewId, x / dpr, y / dpr);
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // §7.5's oblique affordances: the gizmo, its rotate handles, plane-from-3-points, and presets.
+  //
+  // §7.5 closes with "`mode:'oblique'` is fully supported by the model and the shader path from
+  // Phase 1 and gets its **affordances** (gizmo, rotate handles, plane-from-3-points) in Phase 2" —
+  // which is to say the plane maths already worked and there was no way to *reach* an oblique plane
+  // from the viewer. These four methods are that way, and like the rest of P2-01's surface they are
+  // public on the concrete engine rather than on the frozen §4.7 facade.
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * Show the cut-plane gizmo for one slice view, or hide it (`null`).
+   *
+   * The gizmo is drawn in the **3D** pane and manipulates the named 2D pane's plane, which is the
+   * only arrangement that makes sense for an oblique view: a gizmo drawn inside the pane whose plane
+   * it rotates would be looking at that plane edge-on, i.e. at a line.
+   */
+  showGizmo(viewId: ViewId | null): void {
+    this.#gizmoView = viewId;
+    this.#gizmoHot = 'none';
+    this.requestRender();
+  }
+
+  get gizmoView(): ViewId | null {
+    return this.#gizmoView;
+  }
+
+  /** The live {@link GizmoSpec}, or `null` when no gizmo is shown. */
+  gizmoSpec(): GizmoSpec | null {
+    if (this.#gizmoView === null) return null;
+    const view = this.#store.view(this.#gizmoView);
+    if (view === undefined || !isSliceView(view)) return null;
+    const bounds = this.#store.bounds();
+    const { right, up } = sliceBasis(view, this.#scene.radiological);
+    const diag = Math.hypot(
+      bounds.max[0] - bounds.min[0],
+      bounds.max[1] - bounds.min[1],
+      bounds.max[2] - bounds.min[2]
+    );
+    return {
+      // §4.5: the plane is derived from the cursor, never stored — including here.
+      plane: slicePlane(view, this.#scene.cursor),
+      center: this.#scene.cursor,
+      radiusMm: Math.max(1, diag * GIZMO_RADIUS_FRACTION),
+      hot: this.#gizmoHot,
+      u: right,
+      v: up,
+    };
+  }
+
+  /**
+   * Which gizmo handle a point in the 3D pane is over — device pixels, pane-local, top-left origin.
+   *
+   * Also latches the highlight, so hovering a handle lights it up: the hit test and the picture are
+   * the same three points (`overlay/gizmo.ts`), and a handle that highlights is how a user learns
+   * there is something to grab.
+   */
+  gizmoAt(viewId: ViewId, x: number, y: number): GizmoHandle | null {
+    const spec = this.gizmoSpec();
+    const rect = this.paneRect(viewId);
+    const viewProj = this.#lastViewProj.get(viewId);
+    const view = this.#store.view(viewId);
+    if (spec === null || rect === null || viewProj === undefined) return null;
+    if (view === undefined || isSliceView(view)) return null;
+    const hit = gizmoHandleAt(viewProj, rect, spec, x, y);
+    if (hit !== this.#gizmoHot && (hit ?? 'none') !== this.#gizmoHot) {
+      this.#gizmoHot = hit ?? 'none';
+      this.requestRender(viewId);
+    }
+    return hit;
+  }
+
+  /**
+   * Drag a gizmo handle: `translate` slides the plane along its normal, `rotateU` / `rotateV` rotate
+   * it about its own in-plane axes.
+   *
+   * Translation moves the **cursor**, not a stored offset — §4.5 derives the plane from the cursor
+   * and "one source of truth (the cursor) ⇒ cursor sync is identical for canonical and oblique
+   * views". Rotation goes through `rotatePlane`, which carries `up` along rigidly so the pane rotates
+   * without also rolling.
+   */
+  gizmoDrag(handle: GizmoHandle, dxPx: number, dyPx: number): void {
+    const viewId = this.#gizmoView;
+    if (viewId === null) return;
+    const view = this.#store.view(viewId);
+    if (view === undefined || !isSliceView(view)) return;
+    this.#gizmoHot = handle;
+    if (handle === 'translate') {
+      const camera = this.#store.scene.view3d.camera;
+      const rect = this.paneRect(VIEW3D_ID);
+      const mmPerPx = mmPerPx3D(camera, rect?.height ?? 512);
+      // Screen-down is world-negative along the normal, so a downward drag pushes the plane away.
+      const mm = -dyPx * mmPerPx;
+      const c = this.#scene.cursor;
+      this.setCursor([
+        c[0] + view.normal[0] * mm,
+        c[1] + view.normal[1] * mm,
+        c[2] + view.normal[2] * mm,
+      ]);
+      return;
+    }
+    const { right, up } = sliceBasis(view, this.#scene.radiological);
+    // Rotating about `up` is what the handle on `right` sweeps, and vice versa.
+    const axis = handle === 'rotateU' ? up : right;
+    const angle = (handle === 'rotateU' ? dxPx : -dyPx) * GIZMO_RAD_PER_PX;
+    const rotated = rotatePlane(view.normal, view.up, axis, angle);
+    this.setView(viewId, { mode: 'oblique', normal: rotated.normal, up: rotated.up });
+    // The plane moved, so every pane's geometry did: this is not a one-pane repaint.
+    this.requestRender();
+  }
+
+  /**
+   * §7.5's **plane-from-3-points**: set a pane's plane to the one through three world points, and
+   * move the cursor onto it.
+   *
+   * Returns `false` for three collinear points, where no plane exists (`planeFromPoints`) — a third
+   * click on the line through the first two has to fail visibly rather than produce a NaN normal that
+   * blanks every pane.
+   */
+  setViewPlaneFromPoints(viewId: ViewId, a: vec3, b: vec3, c: vec3): boolean {
+    const view = this.#store.view(viewId);
+    if (view === undefined || !isSliceView(view)) return false;
+    const plane = planeFromPoints(a, b, c);
+    if (plane === null) return false;
+    this.setView(viewId, { mode: 'oblique', normal: plane.normal, up: plane.up });
+    // The centroid: on the plane by construction, and the point the three clicks were about.
+    this.setCursor([(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3]);
+    return true;
+  }
+
+  /**
+   * Start (or abandon, with `null`) collecting three clicks for {@link setViewPlaneFromPoints}.
+   *
+   * The collector is engine-side because the points are **world** points on the panes' current
+   * planes, which only the engine can compute (§7.2.3: a 2D cursor is the pointer ray ∩ that view's
+   * derived plane). While it is armed, a left-click in any 2D pane contributes a point instead of
+   * setting the cursor; the third one sets the plane.
+   */
+  beginPlaneFromPoints(viewId: ViewId | null): void {
+    this.#planePoints = viewId === null ? null : { viewId, points: [] };
+  }
+
+  /** How many of the three points have been collected, or `null` when not collecting. */
+  get planeFromPointsPending(): number | null {
+    return this.#planePoints === null ? null : this.#planePoints.points.length;
+  }
+
+  /**
+   * Contribute one world point to an armed plane-from-3-points, from a pane pixel.
+   *
+   * Returns `true` while it is consuming clicks, so the pointer layer knows not to also move the
+   * cursor. The collector disarms itself on the third point, whether the plane could be built or not
+   * — three collinear clicks end the gesture rather than trapping the user in it.
+   */
+  addPlanePoint(viewId: ViewId, x: number, y: number): boolean {
+    const pending = this.#planePoints;
+    if (pending === null) return false;
+    const world = this.worldAtScreen(viewId, x, y);
+    if (world === null) return true;
+    pending.points.push(world);
+    if (pending.points.length < 3) {
+      this.requestRender();
+      return true;
+    }
+    const [a, b, c] = pending.points as [vec3, vec3, vec3];
+    this.#planePoints = null;
+    this.setViewPlaneFromPoints(pending.viewId, a, b, c);
+    return true;
+  }
+
+  /**
+   * §7.5's preset normals, on a **2D** pane — the way back from oblique.
+   *
+   * `cameraPreset` is the 3D camera's `1..6`; this is its slice-view twin, and it is what makes the
+   * oblique affordances safe to offer: a user who has rotated a pane into an unrecognisable
+   * orientation needs one action that puts it back, and "reload the scene" is not it.
+   */
+  setSliceMode(viewId: ViewId, mode: SliceMode): void {
+    const view = this.#store.view(viewId);
+    if (view === undefined || !isSliceView(view)) return;
+    this.setView(viewId, { mode, normal: presetNormal(mode), up: presetUp(mode) });
+    this.requestRender();
   }
 
   // -----------------------------------------------------------------------------------------
