@@ -17,3 +17,5 @@ export { MESH_FS, MESH_VS } from './mesh';
 export { OVERLAY_FS, OVERLAY_VS } from './overlay';
 export { MESH_PICK_VS, PICK_FS, SLICE_PICK_FS, SLICE_PICK_VS } from './pick';
 export { SLICE_FS, SLICE_VS } from './slice';
+// Appended by E-SLICE (Phase 2): the slice pick program, gated exactly like the frame (§7.2.3).
+export { SLICE_PICK_GATED_FS } from './slice';

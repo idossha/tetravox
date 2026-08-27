@@ -20,8 +20,17 @@ import { GL_STATE } from '../../gl/state';
 import type { GlState } from '../../gl/state';
 import type { FramePass, PassContext } from './pass';
 import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
-import { FLOATS_PER_VERTEX, OverlayBuilder, badgeFor, buildChrome } from '../../overlay';
+import {
+  FLOATS_PER_VERTEX,
+  OverlayBuilder,
+  badgeFor,
+  buildChrome,
+  drawColorbar,
+  overlayMetrics,
+  volumeColorbarSpec,
+} from '../../overlay';
 import type { ChromeInput, EdgeLetters } from '../../overlay';
+import { visibleIn } from '../../layers/runtime';
 import { isSliceView, topVolume } from '../../scene/store';
 import {
   edgeLetters,
@@ -30,7 +39,9 @@ import {
   worldToPane3D,
   worldToVoxel,
 } from '../../view/geometry';
-import type { Scene, SliceView, vec3, vec4, VolumeDataset } from '../../scene/types';
+import type { DrawInput } from './pass';
+import type { ViewportRect } from '../../view/layout';
+import type { Scene, SliceView, vec3, vec4, View, VolumeDataset } from '../../scene/types';
 
 const TEXT_COLOR: vec4 = [0.92, 0.94, 0.98, 1];
 const CROSSHAIR_COLOR: vec4 = [1, 0.85, 0.2, 0.9];
@@ -137,6 +148,11 @@ export class OverlayPass implements FramePass {
         input.activeViewId === view.id && input.activeViewId !== null ? ACTIVE_BORDER : undefined,
     });
 
+    // Appended by E-SLICE (Phase 2): §8's colour bars, one per visible scalar layer. They go in
+    // after `buildChrome` and before the draw, which is the slot `overlay/chrome.ts` reserves for
+    // them — between the chrome and the active-pane border.
+    if (a.colorbars) drawColorbars(b, view, rect, input, TEXT_COLOR);
+
     if (b.vertexCount === 0) return;
     const gl = this.#gl;
     // §7.2 pass 3: all clip distances disabled, no depth.
@@ -156,6 +172,39 @@ export class OverlayPass implements FramePass {
     this.#program.dispose();
     this.#buf.dispose();
     this.#vao.dispose();
+  }
+}
+
+/**
+ * §8's colour bars: "one per visible scalar layer — colormap, numeric ticks at the scale endpoints
+ * and at `mid` for heat, the threshold cut drawn as a notch, the field name, and units".
+ *
+ * Bottom-to-top in layer order, so a bar's slot matches its row in §8's layer panel. A label volume
+ * has no bar (it has the region panel instead) and `volumeColorbarSpec` returns `null` for it, as it
+ * does for a layer with `showColorbar` off.
+ *
+ * §11 requires these in **every** golden from Phase 2 on. They are off by default
+ * (`Annotations.colorbars`, `scene/defaults.ts`) because turning them on by default would move every
+ * Phase-1 golden, which is a `docs/DECISIONS.md` conversation and not a patch.
+ */
+function drawColorbars(
+  b: OverlayBuilder,
+  view: View,
+  rect: ViewportRect,
+  input: DrawInput,
+  textColor: vec4
+): void {
+  const m = overlayMetrics(rect.width, rect.height, input.uiScale);
+  let slot = 0;
+  for (const layer of input.scene.layers) {
+    if (layer.kind !== 'volume' || !visibleIn(layer, view)) continue;
+    const ds = input.scene.datasets.get(layer.datasetId);
+    if (ds === undefined || ds.kind !== 'volume') continue;
+    const baked = input.store.lut(layer.scale, layer.colormap, layer.colormapNegative);
+    const spec = volumeColorbarSpec(layer, ds, baked);
+    if (spec === null) continue;
+    drawColorbar(b, m, spec, textColor, slot);
+    slot += 1;
   }
 }
 

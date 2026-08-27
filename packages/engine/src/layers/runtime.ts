@@ -24,9 +24,10 @@
  * someone else.
  */
 
+import type { GpuCapsT } from '@tetravox/protocol';
 import type { ComputeClient } from '@tetravox/wasm';
 import type { ProbeRow } from '../api';
-import type { GpuStore, SurfaceGeometry, VolumeGpu } from '../render/gpu';
+import type { GpuStore, LabelStyleGpu, SurfaceGeometry, VolumeGpu } from '../render/gpu';
 import { isSliceView } from '../scene/store';
 import type {
   DatasetId,
@@ -34,6 +35,7 @@ import type {
   LayerId,
   MeshDataset,
   MeshLayer,
+  SliceView,
   vec3,
   View,
   VolumeDataset,
@@ -50,6 +52,23 @@ export interface LayerRuntimeContext {
   requestRender(): void;
   /** Register a promise with `whenSettled()`, so a golden waits for it (§7.2). */
   track<T>(p: Promise<T>): Promise<T>;
+  /**
+   * **Appended by E-SLICE (Phase 2).** The scene's slice planes.
+   *
+   * §7.2 pass 1 draws, in a **3D** pane, "the plane of each `SliceView` whose owning volume layer has
+   * `showIn3D`" — so a volume runtime enumerating its draws for the 3D pane has to know which planes
+   * exist. `drawItems(view)` is handed one view and the 3D one is not a plane, and widening that
+   * signature would touch every other owner's runtime, so the planes arrive here instead.
+   */
+  slicePlanes(): readonly SliceView[];
+  /**
+   * **Appended by E-SLICE (Phase 2).** The §6.5 `GpuCapsT` the worker needs to pick a payload format.
+   *
+   * `loadVolume` is issued by the facade, which has `Capabilities`; `volumeFrame` (§6.5.2) is issued
+   * *here*, when a 4D index changes, and needs the identical three fields or frame 1 comes back in a
+   * different format from frame 0.
+   */
+  gpuCaps(): GpuCapsT;
 }
 
 /** One (layer, plane) slice draw: §7.3's "one draw per (layer, plane)". */
@@ -58,6 +77,21 @@ export interface VolumeDrawItem {
   layer: VolumeLayer;
   ds: VolumeDataset;
   gpu: VolumeGpu;
+  /**
+   * **Appended by E-SLICE (Phase 2).** The `SliceView` whose plane this draw sits on, when the pane
+   * is a **3D** one and the layer has `showIn3D` — §7.2 pass 1 draws "the plane of each `SliceView`
+   * whose owning volume layer has `showIn3D`", so one layer contributes one item *per plane* there.
+   *
+   * `undefined` in a 2D pane, where the plane is the pane's own view and the pass already has it.
+   */
+  plane?: SliceView;
+  /**
+   * **Appended by E-SLICE (Phase 2).** This layer's own label palette and selection table, when the
+   * dataset is a label volume and the layer has styled it (`visibleLabels`, `labelOpacity`, a
+   * recolour, or a selection). Absent means the dataset's own unstyled `gpu.palette` is the palette,
+   * which is what a freshly added layer uses until something is styled.
+   */
+  labelStyle?: LabelStyleGpu;
 }
 
 /** One mesh surface draw, with the per-tag sub-ranges §7.4 draws it in. */
@@ -75,6 +109,16 @@ export interface VolumePickItem {
   kind: 'volume';
   layer: VolumeLayer;
   ds: VolumeDataset;
+  /**
+   * **Appended by E-SLICE (Phase 2).** §7.2.3 requires the pick pass to reproduce *every* discard of
+   * the main pass, and for a label slice that means the same palette (a hidden label is `A = 0`) and
+   * the same 4-tap outline test. Carrying the GPU handles here rather than looking them up in the
+   * pass keeps the decision in this layer's runtime, where the rest of it lives.
+   */
+  gpu?: VolumeGpu;
+  labelStyle?: LabelStyleGpu;
+  /** The plane this quad is on, when the pane is a 3D one (`showIn3D`); see `VolumeDrawItem.plane`. */
+  plane?: SliceView;
 }
 
 /** De-indexed mesh geometry plus its `ownerElm` texture — the only pickable mesh variant. */

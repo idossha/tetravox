@@ -48,7 +48,7 @@ import {
 import type { Image } from './render/screenshot';
 import type { DrawInput } from './render/renderer';
 import { createLayerRuntime } from './layers/registry';
-import { buildLabelPalette } from './layers/volume';
+import { VolumeLayerRuntime, buildLabelPalette, recolourLabel } from './layers/volume';
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
 import { viewports } from './view/layout';
 import type { ViewportRect } from './view/layout';
@@ -115,6 +115,7 @@ import type {
   Scene,
   SliceMode,
   SliceView,
+  Stats,
   vec3,
   vec4,
   View,
@@ -235,13 +236,17 @@ export class TetravoxEngine implements Engine, PointerHost {
     return this.#dirtyAll || this.#dirtyViews.size > 0;
   }
 
-  /** The four things a `LayerRuntime` is allowed to reach (`layers/runtime.ts`). */
+  /** The things a `LayerRuntime` is allowed to reach (`layers/runtime.ts`). */
   get #layerContext(): LayerRuntimeContext {
     return {
       gpu: this.#gpu,
       client: (id: DatasetId) => this.#workers.get(id)?.client,
       requestRender: () => this.requestRender(),
       track: <T>(p: Promise<T>) => this.#track(p),
+      // Appended for E-SLICE (Phase 2): §7.2 pass 1 draws every `showIn3D` plane in a 3D pane, and
+      // `volumeFrame` (§6.5.2) needs the same `GpuCapsT` `loadVolume` was issued with.
+      slicePlanes: () => this.#scene.slices,
+      gpuCaps: () => this.#gpuCaps(),
     };
   }
 
@@ -727,6 +732,68 @@ export class TetravoxEngine implements Engine, PointerHost {
   setAnnotations(patch: Partial<Annotations>): void {
     this.#store.setAnnotations(patch);
     this.requestRender();
+  }
+
+  // -----------------------------------------------------------------------------------------
+  // R5 — region select / mute / recolour (E-SLICE, Phase 2)
+  //
+  // `visibleLabels` and `labelOpacity` are frozen `VolumeLayer` fields and travel through
+  // `updateLayer` like any other patch; the two things §4.4 has no field for are a label's **colour**
+  // and the **selection**, and they land here. Colour is written into the dataset's `LabelTable` —
+  // it is what a `*_LUT.txt` holds, what §8's "Save LUT…" exports and what every layer on that atlas
+  // reads — while the selection is per layer, because §8's region panel belongs to a layer's row.
+  //
+  // Neither is on the frozen §4.7 `Engine` yet; both are filed with the integrator (see the
+  // Phase-2 result note), because `VolumeLayer` has no `labelLut` and no `selectedLabels` and
+  // `docs/PHASE2-OWNERSHIP.md` assumed it had.
+  // -----------------------------------------------------------------------------------------
+
+  /**
+   * R5's colour swatch: recolour one label of the atlas a layer draws.
+   *
+   * Returns `false` when the layer is not a label volume or the atlas has no such id, so a panel can
+   * tell "no such region" from "done".
+   */
+  setLabelColor(layerId: LayerId, labelId: number, color: vec4): boolean {
+    const rt = this.#layers.get(layerId);
+    if (rt === undefined || rt.kind !== 'volume') return false;
+    const ds = this.#store.dataset(rt.datasetId);
+    if (ds === undefined || ds.kind !== 'volume') return false;
+    if (!recolourLabel(ds, labelId, color)) return false;
+    // Every layer that draws this atlas takes the new colour: the table is the atlas's, not a view's.
+    for (const other of this.#layers.values()) {
+      if (other.datasetId === ds.id && other instanceof VolumeLayerRuntime) {
+        other.invalidateLabelStyle();
+      }
+    }
+    this.#emit('datasets', [...this.#scene.datasets.values()]);
+    this.requestRender();
+    return true;
+  }
+
+  /** R5's selection: these labels get the emphasis rim in every pane this layer draws in. */
+  setSelectedLabels(layerId: LayerId, labelIds: readonly number[]): void {
+    const rt = this.#layers.get(layerId);
+    if (!(rt instanceof VolumeLayerRuntime)) return;
+    rt.setSelectedLabels(labelIds);
+    this.requestRender();
+  }
+
+  /** What {@link setSelectedLabels} last set, so a panel can round-trip its own state. */
+  selectedLabels(layerId: LayerId): Uint32Array {
+    const rt = this.#layers.get(layerId);
+    return rt instanceof VolumeLayerRuntime ? rt.selectedLabels : new Uint32Array(0);
+  }
+
+  /**
+   * The `Stats` of the 4D frame a layer currently displays (§8's colour bar and histogram).
+   *
+   * `VolumeDataset.stats` is volume 0's by contract (§6.5.1); at index k it is the wrong
+   * distribution, and P2-05 is exactly the bug of not having anywhere else to ask.
+   */
+  layerStats(layerId: LayerId): Stats | undefined {
+    const rt = this.#layers.get(layerId);
+    return rt instanceof VolumeLayerRuntime ? rt.stats : undefined;
   }
 
   // -----------------------------------------------------------------------------------------

@@ -25,10 +25,24 @@ import type {
 
 /** A context whose GPU store holds nothing: enough for probes, and for "no texture ⇒ no draw". */
 const EMPTY_CONTEXT: LayerRuntimeContext = {
-  gpu: { volume: () => undefined, surface: () => undefined } as unknown as GpuStore,
+  gpu: {
+    volume: () => undefined,
+    surface: () => undefined,
+    // E-SLICE (Phase 2): a volume runtime with no texture asks whether the 4D frame is on the GPU
+    // before issuing `volumeFrame`, and drops its label styling when it is disposed.
+    hasVolume: () => false,
+    labelStyle: () => undefined,
+    uploadLabelStyle: () => undefined,
+    dropLabelStyles: () => {},
+  } as unknown as GpuStore,
   client: () => undefined,
   requestRender: () => {},
   track: <T>(p: Promise<T>) => p,
+  // E-SLICE (Phase 2): a runtime enumerating `showIn3D` planes asks for them here, and the 4D
+  // `volumeFrame` op needs the caps `loadVolume` was issued with. Empty is right for these tests:
+  // no planes and no worker means no 3D draw item and no frame request.
+  slicePlanes: () => [],
+  gpuCaps: () => ({ floatLinear: true, norm16: true, max3d: 2048 }),
 };
 
 const AXIAL: SliceView = {
