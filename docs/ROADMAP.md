@@ -202,6 +202,11 @@ picked point implies, and that the triple moved).
 
 ## Phase 2 — Feature layers
 
+**Ownership:** `docs/PHASE2-OWNERSHIP.md` assigns every bullet below, and every larger gap from
+`docs/review/2026-08-27-phase1-audit.md`, to exactly one of seven owners — with the directories each may touch,
+the additive-only rules for the eleven shared files, the integration order, and each owner's §11 test and
+real-data gate obligations.
+
 **Gate:** every feature below has a golden **and** an analytic pixel test on ernie; UX walk-through recorded as a
 GIF; `grey_Thalamus_TI.msh` (0 tris) renders via `extract_boundary` in < 1.5 s; plus the two §11 goldens Phase 1
 deferred because they need Phase-2 rendering — **oblique slice + mesh contours** and **overlay compositing in

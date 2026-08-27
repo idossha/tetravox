@@ -1327,3 +1327,44 @@ Each entry below names the problem, the fix, and the evidence.
   `docs/benchmarks/phase1.md`, and re-baselining a published benchmark is not a refactor's business.
   §9's performance pass (Phase 3) owns it; it is in the audit's code-quality section so it is not
   later mistaken for a regression.
+
+## 2026-08-27 — the Phase-2 seams, and who owns what
+
+- 2026-08-27 — **`packages/engine/src` is one file per layer kind, per pass and per program, and
+  `packages/app/src/renderer/src` is one directory per panel.** Phase 2 puts four to seven agents
+  into two packages that Phase 1 shipped as a 1,057-line `engine.ts` and a 530-line `renderer.ts`,
+  and AGENTS rule 3 is disjoint ownership. The seams chosen are the ones the contract already
+  describes, so nothing was invented: §4.4's four layer kinds became `src/layers/*` behind a
+  `Record<Layer['kind'], …>` registry (the six scattered `if (layer.kind === …)` branches were not
+  exhaustive — a fifth kind compiled and drew nothing); §7.2's pass list became `src/render/passes/*`
+  behind a `Pass` interface, leaving `renderer.ts` at 134 lines of order, viewports and framebuffers;
+  §7.1's "`#include`-style chunks" became `src/shaders/*` with `chunks/{caps,ladder,lut}.ts`; §7.2's
+  pass-3 items became `src/overlay/*`. **Behaviour is identical and every golden is byte-identical**,
+  which was checked twice over rather than asserted: throwaway tests compared all ten assembled
+  shader sources and three composed chrome vertex buffers against the pre-split implementations
+  before the old files were deleted, and then the whole e2e suite ran on both Playwright projects.
+  A single "god object with a comment saying which agent owns which region" — rejected: a comment is
+  not a merge boundary.
+- 2026-08-27 — **`CutManager` and `IsolateManager` exist before their GPU sides do.** `plane_cut`'s
+  output feeds two unrelated consumers — §7.4's 3D caps and the 2D overlay's `contoursIn2D` /
+  `fillIn2D`, where §7.4 says `Cut.edge_segments` "is **not** used in the 3D passes" — and two
+  callers would issue two cuts for one plane set, doubling 12.9 ms per drag frame in wasm and letting
+  the two disagree about which cut is current. `IsolateManager` exists for §6.5.2's "the client owns
+  `maskId` and must `freeMask`": it frees the previous mask **after** the new one lands, frees a
+  superseded isolation's mask, and frees on dispose because `removeLayer` leaves the worker alive.
+  Both are unit-tested against a fake client that resolves calls by hand, so the ordering a race
+  depends on is the test's to choose. Writing them when the first consumer needs them — rejected:
+  the second consumer would then have written its own.
+- 2026-08-27 — **`docs/PHASE2-OWNERSHIP.md`: seven owners, eleven additive-only shared files, one
+  integration order.** Every ROADMAP Phase-2 bullet and every `P2-xx` from the audit is assigned to
+  exactly one owner, with its §11 analytic-pixel and golden obligations and its real-data gate items.
+  The frozen §12.3 interfaces are **not** shared files — they are closed, and only W-WASM may edit
+  them, with an ARCHITECTURE edit in the same commit.
+- 2026-08-27 — **W-WASM is not "none": two protocol gaps.** (1) `DatasetRef.fingerprint` has no
+  producer — §4.6 requires it, §5 rule 3 forbids computing it on the UI thread, and neither
+  `VolumeMeta` nor `MeshMeta` carries the field, so it must be digested in the loader over the input
+  bytes before §5 rule 5 drops them. (2) A **volumetric** `GlyphSpec` has no origin source: no §6.5.2
+  op returns element centroids or bulk node positions. Surface glyphs need nothing new
+  (`SurfacePayload.positions` + `ownerElm` + a field texture), so this one is a scope decision
+  E-DERIVED must take before writing the shader. Nine other Phase-2 needs were checked against the
+  protocol and are already covered; they are listed in the map so nobody re-files them.
