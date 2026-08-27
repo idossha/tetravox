@@ -23,6 +23,13 @@ import { buildMenu, sendOpened, showOpenDialog, toOpened } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
+import {
+  readSceneFile,
+  showOpenSceneDialog,
+  showRelocateDialog,
+  showSaveSceneDialog,
+  writeSceneFile,
+} from './scene-io';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const rendererRoot = join(here, '..', 'renderer');
@@ -179,6 +186,20 @@ if (!app.requestSingleInstanceLock()) {
   ipcMain.on('tetravox:log', (_event, message: unknown) => {
     console.log(`[tetravox:renderer] ${String(message)}`);
   });
+
+  // Scene save/load (§4.6, §8). Small JSON, capped and allow-listed in `scene-io.ts`; the dataset
+  // bytes behind a `DatasetRef` still never cross IPC — the worker fetches them itself (§5 rule 3).
+  ipcMain.handle('tetravox:open-scene-dialog', async () => showOpenSceneDialog(getWindow()));
+  ipcMain.handle('tetravox:save-scene-dialog', async (_event, defaultName: unknown) =>
+    showSaveSceneDialog(getWindow(), defaultName)
+  );
+  ipcMain.handle('tetravox:relocate-dialog', async (_event, missingName: unknown) =>
+    showRelocateDialog(getWindow(), missingName)
+  );
+  ipcMain.handle('tetravox:read-scene', (_event, path: unknown) => readSceneFile(path));
+  ipcMain.handle('tetravox:write-scene', (_event, path: unknown, text: unknown) =>
+    writeSceneFile(path, text)
+  );
 
   void app.whenReady().then(() => {
     // 3. Serve the scheme (§5, directive A2).
