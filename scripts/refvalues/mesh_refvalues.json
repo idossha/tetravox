@@ -1,0 +1,330 @@
+{
+ "root": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie",
+ "meshes": [
+  {
+   "path": "m2m_ernie/ernie.msh",
+   "bytes": 184207351,
+   "nodes": 847165,
+   "elements": 5899838,
+   "tris": 1177213,
+   "tets": 4722625,
+   "tri_tags": {
+    "1001": 249245,
+    "1002": 335930,
+    "1003": 121238,
+    "1005": 77032,
+    "1006": 2178,
+    "1007": 143499,
+    "1008": 158262,
+    "1009": 35930,
+    "1010": 2317,
+    "1099": 51582
+   },
+   "tet_tags": {
+    "1": 517144,
+    "2": 1340029,
+    "3": 874602,
+    "5": 567089,
+    "6": 4546,
+    "7": 1056826,
+    "8": 283432,
+    "9": 74557,
+    "10": 4400
+   },
+   "bbox_min": [
+    -84.436612,
+    -92.398125,
+    -128.860523
+   ],
+   "bbox_max": [
+    83.3978,
+    136.15704,
+    99.951712
+   ],
+   "fields": []
+  },
+  {
+   "path": "Simulations/Thalamus/TI/mesh/Thalamus_TI.msh",
+   "bytes": 255005467,
+   "nodes": 847165,
+   "elements": 5899838,
+   "tris": 1177213,
+   "tets": 4722625,
+   "tri_tags": {
+    "1001": 249245,
+    "1002": 335930,
+    "1003": 121238,
+    "1005": 77032,
+    "1006": 2178,
+    "1007": 143499,
+    "1008": 158262,
+    "1009": 35930,
+    "1010": 2317,
+    "1099": 51582
+   },
+   "tet_tags": {
+    "1": 517144,
+    "2": 1340029,
+    "3": 874602,
+    "5": 567089,
+    "6": 4546,
+    "7": 1056826,
+    "8": 283432,
+    "9": 74557,
+    "10": 4400
+   },
+   "bbox_min": [
+    -84.436612,
+    -92.398125,
+    -128.860523
+   ],
+   "bbox_max": [
+    83.3978,
+    136.15704,
+    99.951712
+   ],
+   "fields": [
+    {
+     "name": "TI_max",
+     "kind": "elmdata",
+     "n": 5899838,
+     "ncomp": 1,
+     "min": 1.0863735014567724e-12,
+     "max": 10.293712064403254
+    }
+   ]
+  },
+  {
+   "path": "Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh",
+   "bytes": 63926663,
+   "nodes": 368762,
+   "elements": 1340029,
+   "tris": 0,
+   "tets": 1340029,
+   "tri_tags": {},
+   "tet_tags": {
+    "2": 1340029
+   },
+   "bbox_min": [
+    -65.293617,
+    -80.356236,
+    -50.713399
+   ],
+   "bbox_max": [
+    69.30253,
+    103.183221,
+    82.478744
+   ],
+   "fields": [
+    {
+     "name": "TI_max",
+     "kind": "elmdata",
+     "n": 1340029,
+     "ncomp": 1,
+     "min": 0.010271207198531621,
+     "max": 0.5450851782061356
+    }
+   ]
+  },
+  {
+   "path": "m2m_ernie/ernie_seeg.msh",
+   "bytes": 492090201,
+   "nodes": 2301899,
+   "elements": 15645950,
+   "tris": 2612423,
+   "tets": 13033527,
+   "tri_tags": {
+    "1001": 456376,
+    "1002": 800977,
+    "1003": 200831,
+    "1005": 88790,
+    "1006": 2722,
+    "1007": 256812,
+    "1008": 324022,
+    "1009": 87941,
+    "1010": 4451,
+    "1013": 68178,
+    "1014": 91918,
+    "1015": 117131,
+    "1099": 112274
+   },
+   "tet_tags": {
+    "1": 1105343,
+    "2": 4040832,
+    "3": 2210672,
+    "5": 1074609,
+    "6": 5656,
+    "7": 2500067,
+    "8": 699693,
+    "9": 232173,
+    "10": 11283,
+    "13": 206930,
+    "14": 373004,
+    "15": 573265
+   },
+   "bbox_min": [
+    -84.393866,
+    -92.294742,
+    -128.728416
+   ],
+   "bbox_max": [
+    83.377527,
+    136.4886,
+    99.839603
+   ]
+  },
+  {
+   "path": "m2m_ernie-seeg/ernie-seeg.msh",
+   "bytes": 496603805,
+   "nodes": 2323873,
+   "elements": 15787627,
+   "tris": 2629579,
+   "tets": 13158048,
+   "tri_tags": {
+    "1001": 456601,
+    "1002": 812921,
+    "1003": 203551,
+    "1005": 89084,
+    "1006": 2788,
+    "1007": 257598,
+    "1008": 324182,
+    "1009": 88676,
+    "1010": 4480,
+    "1013": 68196,
+    "1014": 93029,
+    "1015": 75713,
+    "1016": 39526,
+    "1099": 113234
+   },
+   "tet_tags": {
+    "1": 1109736,
+    "2": 4094015,
+    "3": 2299056,
+    "5": 1089718,
+    "6": 5783,
+    "7": 2506231,
+    "8": 699359,
+    "9": 236110,
+    "10": 11137,
+    "13": 202917,
+    "14": 373216,
+    "15": 344563,
+    "16": 186207
+   },
+   "bbox_min": [
+    -84.363397,
+    -92.294741,
+    -128.732097
+   ],
+   "bbox_max": [
+    83.376304,
+    136.491895,
+    99.839603
+   ]
+  }
+ ],
+ "surfaces": [
+  {
+   "path": "m2m_ernie/surfaces/lh.central.gii",
+   "bytes": 8052485,
+   "nodes": 245762,
+   "tris": 491520,
+   "arrays": [
+    {
+     "intent": 1008,
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "index_order": "RowMajorOrder",
+     "dtype": "float32",
+     "shape": [
+      245762,
+      3
+     ],
+     "dataspace": "NIFTI_XFORM_UNKNOWN",
+     "xformspace": "NIFTI_XFORM_SCANNER_ANAT"
+    },
+    {
+     "intent": 1009,
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "index_order": "RowMajorOrder",
+     "dtype": "int32",
+     "shape": [
+      491520,
+      3
+     ],
+     "dataspace": "NIFTI_XFORM_UNKNOWN",
+     "xformspace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bbox_min": [
+    -64.371368,
+    -79.96286,
+    -28.561777
+   ],
+   "bbox_max": [
+    3.572175,
+    100.309242,
+    81.128761
+   ]
+  },
+  {
+   "path": "m2m_ernie/surfaces/lh.pial.gii",
+   "bytes": 7997897,
+   "nodes": 245762,
+   "tris": 491520,
+   "arrays": [
+    {
+     "intent": 1008,
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "index_order": "RowMajorOrder",
+     "dtype": "float32",
+     "shape": [
+      245762,
+      3
+     ],
+     "dataspace": "NIFTI_XFORM_UNKNOWN",
+     "xformspace": "NIFTI_XFORM_SCANNER_ANAT"
+    },
+    {
+     "intent": 1009,
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "index_order": "RowMajorOrder",
+     "dtype": "int32",
+     "shape": [
+      491520,
+      3
+     ],
+     "dataspace": "NIFTI_XFORM_UNKNOWN",
+     "xformspace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bbox_min": [
+    -65.527679,
+    -80.79364,
+    -30.076311
+   ],
+   "bbox_max": [
+    3.62471,
+    101.465622,
+    82.150192
+   ]
+  }
+ ],
+ "annots": [
+  {
+   "path": "m2m_ernie/segmentation/lh.ernie_DK40.annot",
+   "bytes": 1967528,
+   "nodes": 245762,
+   "n_labels": 36,
+   "label_min": -1,
+   "label_max": 35,
+   "colortable_shape": [
+    36,
+    5
+   ]
+  }
+ ]
+}

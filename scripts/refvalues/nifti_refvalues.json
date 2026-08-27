@@ -1,0 +1,471 @@
+{
+ "root": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie",
+ "volumes": [
+  {
+   "path": "m2m_ernie/T1.nii.gz",
+   "bytes": 13109495,
+   "dims": [
+    256,
+    256,
+    208
+   ],
+   "dtype_code": 16,
+   "dtype": "float32",
+   "pixdim": [
+    -1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "qfac": -1,
+   "sform_code": 2,
+   "qform_code": 2,
+   "scl_slope_on_disk": 1.0,
+   "scl_inter_on_disk": 0.0,
+   "intent_code": 0,
+   "affine": [
+    [
+     0.0,
+     0.0,
+     1.0,
+     -99.737457
+    ],
+    [
+     -1.0,
+     0.0,
+     0.0,
+     154.1875
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -143.642273
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "world_of_voxel_000": [
+    -99.737457,
+    154.1875,
+    -143.642273
+   ],
+   "far_voxel": [
+    255,
+    255,
+    207
+   ],
+   "world_of_far_voxel": [
+    107.262543,
+    -100.8125,
+    111.357727
+   ],
+   "qform_equals_sform": true,
+   "qform_max_abs_err": 0.0,
+   "qform_without_qfac_max_abs_err": 2.0,
+   "min": -41.807507,
+   "max": 65535.0
+  },
+  {
+   "path": "m2m_ernie/final_tissues.nii.gz",
+   "bytes": 957678,
+   "dims": [
+    256,
+    256,
+    208,
+    1
+   ],
+   "dtype_code": 512,
+   "dtype": "uint16",
+   "pixdim": [
+    -1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": -1,
+   "sform_code": 2,
+   "qform_code": 2,
+   "scl_slope_on_disk": 1.0,
+   "scl_inter_on_disk": 0.0,
+   "intent_code": 0,
+   "affine": [
+    [
+     0.0,
+     0.0,
+     1.0,
+     -99.737457
+    ],
+    [
+     -1.0,
+     0.0,
+     0.0,
+     154.1875
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -143.642273
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "world_of_voxel_000": [
+    -99.737457,
+    154.1875,
+    -143.642273
+   ],
+   "far_voxel": [
+    255,
+    255,
+    207
+   ],
+   "world_of_far_voxel": [
+    107.262543,
+    -100.8125,
+    111.357727
+   ],
+   "qform_equals_sform": true,
+   "qform_max_abs_err": 0.0,
+   "qform_without_qfac_max_abs_err": 2.0,
+   "min": 0.0,
+   "max": 10.0,
+   "n_unique_raw": 10,
+   "unique_raw": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+   ]
+  },
+  {
+   "path": "m2m_ernie/label_prep/T1_upsampled.nii.gz",
+   "bytes": 76576308,
+   "dims": [
+    512,
+    512,
+    416
+   ],
+   "dtype_code": 4,
+   "dtype": "int16",
+   "pixdim": [
+    -1.0,
+    0.5,
+    0.5,
+    0.5,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": -1,
+   "sform_code": 2,
+   "qform_code": 2,
+   "scl_slope_on_disk": 1.004125,
+   "scl_inter_on_disk": 32903.183594,
+   "intent_code": 0,
+   "affine": [
+    [
+     -0.0,
+     -0.0,
+     0.5,
+     -99.987457
+    ],
+    [
+     -0.5,
+     0.0,
+     -0.0,
+     154.4375
+    ],
+    [
+     0.0,
+     0.5,
+     0.0,
+     -143.892273
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "world_of_voxel_000": [
+    -99.987457,
+    154.4375,
+    -143.892273
+   ],
+   "far_voxel": [
+    511,
+    511,
+    415
+   ],
+   "world_of_far_voxel": [
+    107.512543,
+    -101.0625,
+    111.607727
+   ],
+   "qform_equals_sform": true,
+   "qform_max_abs_err": 0.0,
+   "qform_without_qfac_max_abs_err": 1.0,
+   "min": 0.0,
+   "max": 65805.363062,
+   "n_unique_raw": 52250
+  },
+  {
+   "path": "m2m_ernie/label_prep/tissue_labeling_upsampled.nii.gz",
+   "bytes": 5623698,
+   "dims": [
+    512,
+    512,
+    416
+   ],
+   "dtype_code": 512,
+   "dtype": "uint16",
+   "pixdim": [
+    -1.0,
+    0.5,
+    0.5,
+    0.5,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": -1,
+   "sform_code": 2,
+   "qform_code": 0,
+   "scl_slope_on_disk": 1.0,
+   "scl_inter_on_disk": 0.0,
+   "intent_code": 0,
+   "affine": [
+    [
+     -0.0,
+     -0.0,
+     0.5,
+     -99.987457
+    ],
+    [
+     -0.5,
+     0.0,
+     -0.0,
+     154.4375
+    ],
+    [
+     0.0,
+     0.5,
+     0.0,
+     -143.892273
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "world_of_voxel_000": [
+    -99.987457,
+    154.4375,
+    -143.892273
+   ],
+   "far_voxel": [
+    511,
+    511,
+    415
+   ],
+   "world_of_far_voxel": [
+    107.512543,
+    -101.0625,
+    111.607727
+   ],
+   "qform_equals_sform": true,
+   "qform_max_abs_err": 0.0,
+   "qform_without_qfac_max_abs_err": 1.0,
+   "min": 0.0,
+   "max": 10.0,
+   "n_unique_raw": 10,
+   "unique_raw": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+   ]
+  },
+  {
+   "path": "m2m_ernie/segmentation/labeling.nii.gz",
+   "bytes": 940059,
+   "dims": [
+    256,
+    256,
+    208
+   ],
+   "dtype_code": 16,
+   "dtype": "float32",
+   "pixdim": [
+    -1.0,
+    1.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "qfac": -1,
+   "sform_code": 1,
+   "qform_code": 1,
+   "scl_slope_on_disk": 1.0,
+   "scl_inter_on_disk": 0.0,
+   "intent_code": 0,
+   "affine": [
+    [
+     -0.0,
+     -0.0,
+     1.0,
+     -99.737457
+    ],
+    [
+     -1.0,
+     0.0,
+     -0.0,
+     154.1875
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -143.642273
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "world_of_voxel_000": [
+    -99.737457,
+    154.1875,
+    -143.642273
+   ],
+   "far_voxel": [
+    255,
+    255,
+    207
+   ],
+   "world_of_far_voxel": [
+    107.262543,
+    -100.8125,
+    111.357727
+   ],
+   "qform_equals_sform": true,
+   "qform_max_abs_err": 0.0,
+   "qform_without_qfac_max_abs_err": 2.0,
+   "min": 0.0,
+   "max": 530.0
+  },
+  {
+   "path": "Simulations/Thalamus/TI/niftis/Thalamus_TI_subject_TI_max.nii.gz",
+   "bytes": 17243027,
+   "dims": [
+    256,
+    256,
+    208
+   ],
+   "dtype_code": 16,
+   "dtype": "float32",
+   "pixdim": [
+    -1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": -1,
+   "sform_code": 2,
+   "qform_code": 2,
+   "scl_slope_on_disk": 1.0,
+   "scl_inter_on_disk": 0.0,
+   "intent_code": 0,
+   "affine": [
+    [
+     0.0,
+     0.0,
+     1.0,
+     -99.737457
+    ],
+    [
+     -1.0,
+     0.0,
+     0.0,
+     154.1875
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -143.642273
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "world_of_voxel_000": [
+    -99.737457,
+    154.1875,
+    -143.642273
+   ],
+   "far_voxel": [
+    255,
+    255,
+    207
+   ],
+   "world_of_far_voxel": [
+    107.262543,
+    -100.8125,
+    111.357727
+   ],
+   "qform_equals_sform": true,
+   "qform_max_abs_err": 0.0,
+   "qform_without_qfac_max_abs_err": 2.0,
+   "min": 0.0,
+   "max": 3.152071
+  }
+ ]
+}
