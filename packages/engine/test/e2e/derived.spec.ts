@@ -17,6 +17,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { expectGolden, expectPixel, readCanvasPixels, readCanvasRect } from '../helpers/pixels';
+import { colorbarLayout, overlayMetrics } from '../../src/overlay';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
@@ -695,4 +696,110 @@ test('golden: derived-glyphs-e-field', async ({ page }) => {
   );
   expect(errors).toEqual([]);
   await expectGolden(page, 'derived-glyphs-e-field');
+});
+
+// -------------------------------------------------------------------------------------------
+// derived-mesh-colorbar — the mesh half of §8's colour bars (E-DERIVED's `ColorbarSpec` producer)
+// -------------------------------------------------------------------------------------------
+
+/**
+ * `docs/PHASE2-OWNERSHIP.md` gives E-DERIVED "the **mesh** colour bar: produce a `ColorbarSpec` from
+ * `MeshFieldInfo` (name, `units`, `Scale`, threshold notch) and hand it to E-SLICE's
+ * `overlay/colorbar.ts`", and names the golden `derived-mesh-colorbar`. The producer shipped; the
+ * test and the golden did not — the one golden in the ledger that existed nowhere.
+ *
+ * The claim is the same one `slice-colorbar.spec.ts` makes for a volume, and it is checked the same
+ * way, so the two cannot drift: with `colormap: 'gray'` on a linear scale the ramp's channel at bar
+ * position `p` is `round(255 · (i + 0.5) / 256)` for the texel `i = floor(((p + 0.5)/length) · 256)`
+ * a `NEAREST` fetch selects. The layout comes from `colorbarLayout` / `overlayMetrics` rather than
+ * being re-typed: what is under test is the colour at a position, not the position.
+ *
+ * `showColorbar` is set explicitly — `scene/defaults.ts` gives a mesh layer `false`, because a mesh
+ * opens in `colorMode: 'tag'` and a tag palette is a table, not a ramp.
+ */
+const CB_M = overlayMetrics(PANE, PANE, 1);
+const CB = colorbarLayout(CB_M, 'right');
+/** `drawColorbar`'s right-hand column, in pane pixels (bottom-left origin, as the builder works). */
+const CB_X = PANE - CB_M.pad - 2 * 6 * CB_M.scale - CB.thickness; // 2 characters of gutter, CELL_W 6
+const CB_TOP = PANE - CB_M.pad - 7 * CB_M.scale - CB_M.lineH; // GLYPH_H = 7
+
+function meshBarPixel(p: number): [number, number] {
+  const y0 = CB_TOP - CB.length;
+  return [CB_X + Math.floor(CB.thickness / 2), PANE - 1 - (y0 + p)];
+}
+
+function grayRamp(p: number): number {
+  const i = Math.min(255, Math.floor(((p + 0.5) / CB.length) * 256));
+  return Math.round((255 * (i + 0.5)) / 256);
+}
+
+async function meshWithColorbar(page: Page): Promise<string[]> {
+  const errors = await openScene(page);
+  await page.evaluate(
+    async ([url, opt]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { opt: opt as string },
+      });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
+      engine.setAnnotations({ colorbars: true, crosshair: false, orientationLabels: false });
+      engine.updateLayer(layer.id, {
+        name: 'NODE FIELD',
+        colorMode: 'field',
+        field: { source: 'node', name: 'node_scalar', component: 'mag' },
+        colormap: 'gray',
+        scale: { kind: 'linear', lo: -1.11, hi: 1.11 },
+        showColorbar: true,
+      });
+      engine.resetView('view3d');
+      for (let i = 0; i < 20; i += 1) {
+        await engine.whenSettled();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    },
+    [LATTICE, LATTICE_OPT] as const
+  );
+  return errors;
+}
+
+test('the mesh colour bar paints the LUT the mesh field samples', async ({ page }) => {
+  const errors = await meshWithColorbar(page);
+  const positions = [2, Math.floor(CB.length / 2), CB.length - 3];
+  const pixels = await readCanvasPixels(
+    page,
+    positions.map((p) => meshBarPixel(p))
+  );
+  for (const [i, p] of positions.entries()) {
+    const want = grayRamp(p);
+    const px = pixels[i]!;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[derived-mesh-colorbar] ramp ${p}/${CB.length} expected ${want}, got ${px.join(',')}`
+    );
+    for (let c = 0; c < 3; c += 1) {
+      expect(Math.abs(px[c]! - want), `bar position ${p}, channel ${c}`).toBeLessThanOrEqual(2);
+    }
+  }
+  // …and the bar is the annotation's, not something else that happens to be there: with
+  // `colorbars: false` the same pixels are the scene background again.
+  await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    engine.setAnnotations({ colorbars: false });
+    await engine.whenSettled();
+  });
+  const off = await readCanvasPixels(
+    page,
+    positions.map((p) => meshBarPixel(p))
+  );
+  for (const px of off) expect([...px].slice(0, 3)).toEqual([...BG].slice(0, 3));
+  expect(errors).toEqual([]);
+});
+
+test('golden: derived-mesh-colorbar', async ({ page }) => {
+  const errors = await meshWithColorbar(page);
+  expect(errors).toEqual([]);
+  await expectGolden(page, 'derived-mesh-colorbar');
 });

@@ -27,6 +27,7 @@
 import type { GpuCapsT } from '@tetravox/protocol';
 import type { ComputeClient } from '@tetravox/wasm';
 import type { ProbeRow } from '../api';
+import type { ColorbarSpec } from '../overlay/colorbar';
 import type { CutManager } from '../compute/cut-manager';
 import type {
   CapGeometry,
@@ -267,6 +268,17 @@ export interface LayerRuntime {
 
   /** What this layer contributes to the §7.2.3 pick pass in `view`. */
   pickItems(view: View): PickItem[];
+
+  /**
+   * §8's colour bar for this layer, or `null` — appended for the kinds whose bar cannot be built
+   * from `Layer` and `Dataset` alone.
+   *
+   * A **volume**'s bar is `overlay/colorbar.ts`'s `volumeColorbarSpec(layer, ds, bakedLut)` and the
+   * overlay pass builds it directly; a **mesh**'s needs the runtime, because the range a mesh field
+   * is coloured over lives in `MeshFieldInfo` and in the field table the runtime loaded, not in the
+   * layer. Optional, so a runtime with no bar says nothing rather than returning `null` five times.
+   */
+  colorbarSpec?(position?: 'right' | 'bottom'): ColorbarSpec | null;
 
   /** Release anything this runtime owns that the `GpuStore` does not key by dataset. */
   dispose(): void;

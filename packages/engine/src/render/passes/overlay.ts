@@ -206,6 +206,24 @@ function drawColorbars(
     drawColorbar(b, m, spec, textColor, slot);
     slot += 1;
   }
+  // Appended (shared-file rule): the **non-volume** half of §8's "one bar per visible scalar layer".
+  //
+  // E-DERIVED's item is "the mesh colour bar: produce a `ColorbarSpec` from `MeshFieldInfo` … and
+  // hand it to E-SLICE's `overlay/colorbar.ts`". The producer shipped as `MeshRuntime.colorbarSpec`
+  // and this loop is the hand-off, which did not: the loop above is `layer.kind !== 'volume'` →
+  // `continue`, so a mesh coloured by `TI_max` over [1.09e-12, 10.29] drew no scale at all — and the
+  // golden `derived-mesh-colorbar` could not exist, which is why it did not.
+  //
+  // A second pass rather than a branch inside the first, because a volume's bar is built from the
+  // scene (layer + dataset + baked LUT) and everything else's from its runtime; bars stack volumes
+  // first, then the rest, in layer order within each.
+  for (const layer of input.scene.layers) {
+    if (layer.kind === 'volume' || !visibleIn(layer, view)) continue;
+    const spec = input.runtimes.get(layer.id)?.colorbarSpec?.('right') ?? null;
+    if (spec === null) continue;
+    drawColorbar(b, m, spec, textColor, slot);
+    slot += 1;
+  }
 }
 
 /**
