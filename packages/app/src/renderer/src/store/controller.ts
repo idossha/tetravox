@@ -40,7 +40,8 @@ import {
   sidecarPathsFor,
   subjectToMniAffine,
 } from '@tetravox/engine';
-import type { CoordSpace, DialogKind, RelocateRow, UiStore } from './store';
+import type { CoordSpace, DialogKind, RelocateRow, SettingsTab, UiStore } from './store';
+import type { ScreenshotDefaults } from '../../preload/index';
 import {
   activeLayer,
   collapseAllAction,
@@ -564,11 +565,55 @@ export class ShellController {
     });
     // Directed task 8's other persisted preference, and directed task 13's two, in the same round
     // trip: the recents list the settings dialog mirrors and the reopen-on-launch switch.
-    this.store.setState({
+    const screenshotDefaults = settings.screenshotDefaults;
+    this.store.setState((s) => ({
       freesurferSubjectsDir: settings.freesurferSubjectsDir,
       recentScenes: [...(settings.recentScenes ?? [])],
       reopenLastScene: settings.reopenLastScene ?? false,
-    });
+      screenshotDefaults: screenshotDefaults ?? s.screenshotDefaults,
+      // Merge the persisted defaults into the live options the screenshot dialog edits, so a
+      // background/dpi/autoTrim set once in the settings dialog applies from the very first shot.
+      screenshotOptions:
+        screenshotDefaults === undefined
+          ? s.screenshotOptions
+          : { ...s.screenshotOptions, ...screenshotDefaults },
+    }));
+    void bridge()
+      .configPath()
+      .then((path) => this.store.setState({ configPath: path }));
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // §8's unified settings dialog (directed task: unified settings, 2026-08-28)
+  // ------------------------------------------------------------------------------------------
+
+  /** Open the settings dialog on a given tab; also used by "Defaults…" inside the screenshot dialog. */
+  openSettingsTab(tab: SettingsTab): void {
+    this.store.setState({ settingsTab: tab, dialog: 'settings' });
+  }
+
+  /**
+   * Persist a screenshot-defaults patch and merge it into the live `screenshotOptions` the
+   * screenshot dialog edits, so the Capture tab changes what "Screenshot" and a fresh dialog open
+   * both do immediately, not just what a *future* app launch does.
+   */
+  async setScreenshotDefaults(patch: Partial<ScreenshotDefaults>): Promise<void> {
+    this.store.setState((s) => ({
+      screenshotDefaults: { ...s.screenshotDefaults, ...patch },
+      screenshotOptions: { ...s.screenshotOptions, ...patch },
+    }));
+    try {
+      await bridge().setSettings({
+        screenshotDefaults: { ...this.store.getState().screenshotDefaults, ...patch },
+      });
+    } catch {
+      // An unwritable preference still applies to this session (`main/settings.ts`).
+    }
+  }
+
+  /** The footer's "Reveal" button: show `tetravoxrc` in the OS file manager. */
+  async revealConfigFile(): Promise<void> {
+    await bridge().revealConfigFile();
   }
 
   /** §8's settings dialog: "Reopen last scene on launch" (directed task 13). */

@@ -33,6 +33,7 @@ import type {
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
+import type { ScreenshotDefaults } from '../../preload/index';
 import type { LoadCard } from '../lib/loads';
 import type { Toast } from '../lib/toasts';
 import type { MetricsState } from '../lib/metrics';
@@ -224,6 +225,16 @@ export interface UiState {
   reopenLastScene: boolean;
   /** Which modal is up. One at a time: they are all full-window, so a stack would only hide one. */
   dialog: DialogKind;
+  /**
+   * Which tab the unified settings dialog opens on (directed task: unified settings, 2026-08-28).
+   * Chrome, like `dialog` itself — it is not persisted, and every re-open of the settings dialog
+   * simply resumes whatever tab it was last set to.
+   */
+  settingsTab: SettingsTab;
+  /** The `tetravoxrc` path, mirrored from main so the settings dialog's footer needs no round trip. */
+  configPath: string;
+  /** Persisted §4.7 screenshot defaults, mirrored from `settings.json` (directed task: unified settings). */
+  screenshotDefaults: ScreenshotDefaults;
   /** The relocate dialog's rows, populated by `loadScene` before it raises the dialog. */
   relocate: RelocateRequest | null;
   /** The options the screenshot dialog opens with; edits are kept so a reopen resumes them. */
@@ -265,6 +276,16 @@ export interface SceneFileRecord {
 }
 
 export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard' | 'settings';
+
+/** The unified settings dialog's tabs (directed task: unified settings, 2026-08-28). */
+export type SettingsTab = 'appearance' | 'capture' | 'paths' | 'startup';
+
+/** `main/settings.ts`'s `DEFAULT_SCREENSHOT_DEFAULTS`, duplicated for the same reason as `bridge.ts`. */
+export const DEFAULT_SCREENSHOT_DEFAULTS: ScreenshotDefaults = {
+  background: 'scene',
+  dpi: 144,
+  autoTrim: false,
+};
 
 /** One row of the relocate dialog: the ref, what was tried for it, and what the user picked. */
 export interface RelocateRow {
@@ -344,6 +365,9 @@ export const INITIAL_UI: UiState = {
   recentScenes: [],
   reopenLastScene: false,
   dialog: 'none',
+  settingsTab: 'appearance',
+  configPath: '',
+  screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
   relocate: null,
   screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,
   headerDatasetId: null,
