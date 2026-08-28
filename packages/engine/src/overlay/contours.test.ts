@@ -10,7 +10,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { contourInstanceCount, expandContourSegment } from './contours';
+import {
+  contourInstanceCount,
+  expandContourSegment,
+  nearestContourDistanceSqPx,
+  segmentDistanceSqPx,
+} from './contours';
 import type { mat4, vec2, vec3 } from '../scene/types';
 
 /**
@@ -107,5 +112,66 @@ describe('contourInstanceCount', () => {
     expect(contourInstanceCount(new Float32Array(0))).toBe(0);
     expect(contourInstanceCount(new Float32Array(6))).toBe(1);
     expect(contourInstanceCount(new Float32Array(24))).toBe(4);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// The contour pick (§7.4, directed task 12)
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * The distance test is the *inverse* of the expansion, and it is asserted against the expansion —
+ * not against a hand-computed number — because that is the invariant that has to hold: a point
+ * inside the quad the shader draws must measure less than half the width, and a point outside it
+ * must measure more. If the two ever disagree, a user clicks a line they can see and nothing
+ * happens, which is the bug this pair of functions exists to prevent.
+ */
+describe('segmentDistanceSqPx / nearestContourDistanceSqPx', () => {
+  const a: vec3 = [-20, 0, 0];
+  const b: vec3 = [20, 0, 0];
+  const proj = orthoPane(0.5, 512, 512);
+
+  it('measures zero on the segment and the offset off it, in pane pixels', () => {
+    // The segment runs along y = 0 through the pane centre; at 0.5 mm/px it is 80 px long.
+    expect(segmentDistanceSqPx(a, b, proj, VIEWPORT, 0, 0)).toBeCloseTo(0, 6);
+    expect(Math.sqrt(segmentDistanceSqPx(a, b, proj, VIEWPORT, 0, 7))).toBeCloseTo(7, 6);
+    // Past the end, the distance is to the endpoint, not to the infinite line: 80/2 = 40 px right
+    // of centre is the end, so 50 px right is 10 px away.
+    expect(Math.sqrt(segmentDistanceSqPx(a, b, proj, VIEWPORT, 50, 0))).toBeCloseTo(10, 6);
+  });
+
+  it('agrees with the quad the shader draws: inside is within half the width', () => {
+    const widthPx = 6;
+    const q = expandContourSegment(a, b, proj, VIEWPORT, widthPx);
+    expect(q).not.toBeNull();
+    // The quad's corner at t = 0 is `half` across; a point just inside it must measure less.
+    const half = widthPx / 2;
+    expect(Math.sqrt(segmentDistanceSqPx(a, b, proj, VIEWPORT, 0, half - 0.1))).toBeLessThan(half);
+    expect(Math.sqrt(segmentDistanceSqPx(a, b, proj, VIEWPORT, 0, half + 0.1))).toBeGreaterThan(
+      half
+    );
+  });
+
+  it('is `Infinity` for what the shader refuses to draw', () => {
+    // A zero-length segment has no direction, so the shader emits nothing — and this says so too.
+    expect(segmentDistanceSqPx(a, a, proj, VIEWPORT, 0, 0)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('scans a packed segment array and returns the nearest', () => {
+    // Two segments, 6 floats each (§6.5.1): one through the centre, one 20 mm = 40 px above it.
+    const segments = new Float32Array([-20, 0, 0, 20, 0, 0, -20, 20, 0, 20, 20, 0]);
+    expect(Math.sqrt(nearestContourDistanceSqPx(segments, proj, VIEWPORT, 0, 5))).toBeCloseTo(5, 5);
+    // 30 px up is 5 px from the upper segment, 30 from the lower — the nearer one wins.
+    expect(Math.sqrt(nearestContourDistanceSqPx(segments, proj, VIEWPORT, 0, 35))).toBeCloseTo(
+      5,
+      5
+    );
+    expect(nearestContourDistanceSqPx(new Float32Array(), proj, VIEWPORT, 0, 0)).toBe(
+      Number.POSITIVE_INFINITY
+    );
+  });
+
+  it('counts instances the way the pass does', () => {
+    expect(contourInstanceCount(new Float32Array(12))).toBe(2);
   });
 });

@@ -52,6 +52,9 @@ import { sliceBasis, slicePlane } from '../../view/geometry';
 import type { ComponentSel } from '@tetravox/protocol';
 import type { MeshDataset, MeshLayer, PointsLayer, vec3, vec4 } from '../../scene/types';
 
+/** One pane's uploaded cut, as `DerivedStore.paneCut` hands it back. */
+type PaneGeom = NonNullable<ReturnType<DerivedStore['paneCut']>>;
+
 /** §7.4's contour colour when the layer does not override it: the layer's own edge colour. */
 const DEFAULT_CONTOUR_COLOR: vec4 = [0.05, 0.05, 0.06, 1];
 
@@ -145,6 +148,13 @@ export class DerivedPass implements FramePass {
     this.#state.apply(GL_STATE.blend2d);
     this.#state.clipDistances(0);
 
+    // **Two loops, fills then contours** (directed task 12). Within one layer the order was always
+    // fill-under-contour; across layers it was not, so a surface opened before a tissue mesh had
+    // its outline buried under that mesh's fill. §7.4 puts a contour *above* the volumes and the
+    // mesh fills — a line one and a half pixels wide is unreadable the moment anything is painted
+    // over it — and one layer's two draws are still in the same relative order, so no single-mesh
+    // R4 golden moves.
+    const cuts: { layer: MeshLayer; ds: MeshDataset; geom: PaneGeom }[] = [];
     for (const layer of scene.layers) {
       if (layer.kind !== 'mesh') continue;
       if (!visibleIn(layer, view)) continue;
@@ -159,22 +169,23 @@ export class DerivedPass implements FramePass {
         wantBoundary: layer.contoursIn2D,
       });
       if (geom === null) continue;
-
-      if (layer.fillIn2D && geom.triangleCount > 0) {
-        this.#drawFill(ctx, store, layer, ds, geom);
-      }
-      if (layer.contoursIn2D && geom.contourInstances > 0) {
-        this.#drawContours(
-          viewProj,
-          ds.transform,
-          rect.width,
-          rect.height,
-          geom.contourVao,
-          geom.contourInstances,
-          layer.contourWidthPx * input.uiScale,
-          contourColor(layer)
-        );
-      }
+      cuts.push({ layer, ds, geom });
+    }
+    for (const { layer, ds, geom } of cuts) {
+      if (layer.fillIn2D && geom.triangleCount > 0) this.#drawFill(ctx, store, layer, ds, geom);
+    }
+    for (const { layer, ds, geom } of cuts) {
+      if (!layer.contoursIn2D || geom.contourInstances === 0) continue;
+      this.#drawContours(
+        viewProj,
+        ds.transform,
+        rect.width,
+        rect.height,
+        geom.contourVao,
+        geom.contourInstances,
+        layer.contourWidthPx * input.uiScale,
+        contourColor(layer)
+      );
     }
 
     // Points draw on the plane they intersect, above the cut (§4.4: electrodes over anatomy).
@@ -543,8 +554,18 @@ function normalize(v: vec3): vec3 {
   return l > 0 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 1];
 }
 
-/** A contour takes the layer's edge colour, which is what a user has already set for its wireframe. */
+/**
+ * The colour one layer's 2D contour draws in.
+ *
+ * `MeshLayer.contourColor` wins when it is set, which is how a **surface** gets its own palette
+ * entry (§7.4, directed task 12) — a surface's outline is the only thing it draws in a 2D pane, so
+ * it needs a colour of its own rather than the wireframe's. Absent, the rule is the one that was
+ * always here: a tissue mesh's contours are its tag boundaries and take its edge colour, which is
+ * what the user already styled its wireframe with.
+ */
 function contourColor(layer: MeshLayer): vec4 {
+  const own = layer.contourColor;
+  if (own !== undefined && own[3] > 0) return own;
   const e = layer.edgeColor;
   if (e[3] > 0) return e;
   return DEFAULT_CONTOUR_COLOR;

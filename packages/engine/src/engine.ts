@@ -71,7 +71,7 @@ import type { GlyphInstance } from './derived/glyph-readback';
 import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
 
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
-import { transformPoint } from './view/m4';
+import { multiply4, transformPoint } from './view/m4';
 import {
   coordinateSpaceOptions,
   fromSpace as fromCoordSpace,
@@ -113,11 +113,22 @@ import {
   zoomAbout,
   zoomAboutCentre,
 } from './input';
-import { DEFAULT_OVERLAY_THEME, gizmoHandleAt, resolveOverlayTheme } from './overlay';
+import {
+  CONTOUR_PICK_PX,
+  DEFAULT_OVERLAY_THEME,
+  gizmoHandleAt,
+  nearestContourDistanceSqPx,
+  resolveOverlayTheme,
+} from './overlay';
 import type { GizmoHandle, GizmoSpec, OverlayTheme } from './overlay';
 import type { PaneHit, PointerHost } from './input';
 import { applyAffine, meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
-import { defaultLayerFor, seedMeshLayerFromOpt, VIEW3D_ID } from './scene/defaults';
+import {
+  defaultLayerFor,
+  seedMeshLayerFromOpt,
+  surfaceContourColor,
+  VIEW3D_ID,
+} from './scene/defaults';
 import type { MshOptSeed } from './scene/defaults';
 import { SceneStore, isSliceView } from './scene/store';
 import {
@@ -744,7 +755,15 @@ export class TetravoxEngine implements Engine, PointerHost {
     if (ds === undefined) throw new Error(`no such dataset: ${spec.datasetId}`);
     const id: LayerId = `layer${this.#nextId++}`;
     const base = defaultLayerFor(id, ds as VolumeDataset | MeshDataset, spec.kind);
-    const layer = { ...base, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
+    // §7.4's one colour per surface, in load order (directed task 12). `defaultLayerFor` is a pure
+    // function of the dataset and cannot know how many surfaces the scene already holds, so the
+    // index is applied here — the only place that knows — and only when the caller did not name a
+    // colour itself, so a restored scene keeps the colour it was saved with.
+    const seeded =
+      base.kind === 'mesh' && base.contourColor !== undefined && !('contourColor' in spec)
+        ? { ...base, contourColor: surfaceContourColor(this.#surfaceLayerCount()) }
+        : base;
+    const layer = { ...seeded, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
     this.#store.addLayer(layer);
     // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
     this.#layers.set(id, createLayerRuntime(layer, ds, this.#layerContext));
@@ -752,6 +771,19 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
     return layer;
+  }
+
+  /**
+   * How many **surface** layers the scene already holds — the palette index of the next one.
+   *
+   * A layer counts when it carries a `contourColor`, which `scene/defaults.ts` gives to exactly the
+   * triangle-only meshes. Counting layers rather than datasets is deliberate: two layers over one
+   * `lh.pial.gii` are two outlines a user has to tell apart, and giving them one colour would
+   * defeat the point.
+   */
+  #surfaceLayerCount(): number {
+    return this.#scene.layers.filter((l) => l.kind === 'mesh' && l.contourColor !== undefined)
+      .length;
   }
 
   removeLayer(id: LayerId): void {
@@ -1319,6 +1351,55 @@ export class TetravoxEngine implements Engine, PointerHost {
     // must repaint.
     this.requestRender();
     return hit;
+  }
+
+  /**
+   * §7.4's contour pick (directed task 12): which surface layer's 2D contour is under this pixel.
+   *
+   * **A CPU nearest-segment test, not the pick pass.** §7.2.3's pass draws mesh triangles and slice
+   * quads into an id buffer; a contour is neither — it is an instanced screen-space quad in the
+   * *derived* pass, and adding it to the pick pass would mean a second expansion program whose only
+   * job is to be 1.5 px wide in a buffer nobody looks at. The segments the frame drew are already
+   * in `derived/store.ts`, addressed by the same `(layer, pane)` key, and the arithmetic that put
+   * them on screen is `overlay/contours.ts` — a pure function with its own unit tests. So the honest
+   * implementation is to run that arithmetic backwards over a few thousand segments, which is what
+   * this does.
+   *
+   * `null` for a 3D pane, for a pane that has not drawn, and for a click that is not within
+   * `CONTOUR_PICK_PX` of any contour. Ties go to the **nearest**, and then to the layer drawn last
+   * — the one whose line is on top is the one the click landed on.
+   */
+  contourAtScreen(viewId: ViewId, px: number, py: number): LayerId | null {
+    const view = this.#store.view(viewId);
+    const rect = this.#lastRects.get(viewId);
+    const viewProj = this.#lastViewProj.get(viewId);
+    if (view === undefined || rect === undefined || viewProj === undefined) return null;
+    if (!isSliceView(view)) return null;
+    const dpr = this.#dpr();
+    // Pane pixels with the origin at the centre and **y up** — what `(clip.xy / clip.w) · 0.5 ·
+    // viewport` produces, and therefore the space `segmentDistanceSqPx` measures in.
+    const x = px * dpr - rect.width / 2;
+    const y = rect.height / 2 - py * dpr;
+    const viewport: [number, number] = [rect.width, rect.height];
+    // The pass scales `contourWidthPx` by `DrawInput.uiScale` (§7.0.5), so the pick radius has to
+    // read the same number, from the same expression, or a HiDPI line would be hit-tested at CSS width.
+    const scale = Math.max(1, Math.round(dpr));
+    let best: { id: LayerId; d2: number } | null = null;
+    for (const layer of this.#scene.layers) {
+      if (layer.kind !== 'mesh' || !layer.contoursIn2D || !layer.visible) continue;
+      if (!layer.pickable) continue;
+      const ds = this.#scene.datasets.get(layer.datasetId);
+      if (ds === undefined || ds.kind !== 'mesh') continue;
+      const segments = this.#derived.paneContourSegments(layer.id, viewId);
+      if (segments === null) continue;
+      // The same `uViewProj · uModel` the contour program uses, composed once per layer.
+      const mvp = multiply4(viewProj, ds.transform);
+      const d2 = nearestContourDistanceSqPx(segments, mvp, viewport, x, y);
+      const radius = Math.max(CONTOUR_PICK_PX, (layer.contourWidthPx * scale) / 2);
+      if (d2 > radius * radius) continue;
+      if (best === null || d2 <= best.d2) best = { id: layer.id, d2 };
+    }
+    return best?.id ?? null;
   }
 
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean {
@@ -1933,6 +2014,12 @@ export class TetravoxEngine implements Engine, PointerHost {
   setCursorFromScreen(viewId: ViewId, x: number, y: number): void {
     const world = this.worldAtScreen(viewId, x, y);
     if (world === null) return;
+    // Directed task 12: a click that lands on a surface's contour also selects that surface. It
+    // never *replaces* setting the cursor — R1 makes left-click the cursor gesture and a click on
+    // an outline is still a click at a place — it adds the selection on top, so the layer panel and
+    // every active-layer gesture (window/level, `Shift`+drag opacity) follow the eye.
+    const hit = this.contourAtScreen(viewId, x, y);
+    if (hit !== null && hit !== this.#scene.activeLayerId) this.setActiveLayer(hit);
     this.setCursor(world);
   }
 

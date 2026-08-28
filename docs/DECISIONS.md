@@ -2915,3 +2915,63 @@ vertex shader, so a golden PNG can only say that ink arrived. `Engine.glyphInsta
 `Engine.retainGlyphSources`, which the app never calls) reports the instances out of the same arrays
 the tables were uploaded from. It is the only way §11 rule 0 — "an agent cannot judge a PNG; it can
 judge a number" — reaches this feature at all.
+
+## 2026-08-28 — surfaces in the 2D panes (directed task 12, `feat/surface-contours-2d`)
+
+**The reference is a Freeview screenshot**: `lh.pial.gii` over `T1.nii.gz`, its intersection with
+each plane drawn as a thin yellow outline on the axial, sagittal and coronal panes, the surface
+itself shaded in 3D. Everything below is what that picture costs, and nothing more — the geometry
+(§6.3's `surface_contours`), the op (`contours`), the store path
+(`derived/store.ts#surfaceContourGeometry`) and the screen-space quad expansion (§7.0.6) were all
+already there and are untouched. What was missing was that the picture never appeared by default,
+had no colour of its own, and could not be clicked.
+
+**A default changed, which `scene/defaults.ts` says is a conversation.** A **surface** — a
+triangle-only mesh, `nTets === 0` — now opens with `contoursIn2D: true`, `fillIn2D: **false**`,
+`contourWidthPx: 1.5` and a `contourColor` from `SURFACE_CONTOUR_PALETTE`. `fillIn2D` goes *off*
+because a tet-less mesh has nothing to fill: `paneCut` sends it to the `contours` op, which returns
+lines and no polygons, so the toggle was advertising an operation that could not happen. **A tet
+mesh does not move**: R4's `contoursIn2D: true` / `contourWidthPx: 1` / `fillIn2D: true` are still
+what `ernie.msh` opens with, and no existing golden contains a surface layer in a 2D pane.
+
+**`MeshLayer.contourColor?: vec4`, appended to a §12.3 frozen interface** (§4.4 and §7.4 edited in
+the same commit). `undefined` means "the layer's `edgeColor`", which is exactly what every mesh
+contour drew before, so the field is invisible to every scene that predates it. It exists because a
+surface's contour is the *whole* of that layer's 2D presence and a tissue mesh's contour is its
+wireframe seen edge-on: one wants a colour of its own, the other wants the colour the user already
+picked. The palette is seeded **in `Engine.addLayer`**, not in `defaultMeshLayer`, because the index
+is "how many surfaces this scene already holds" and a pure function of one dataset cannot know it.
+Entry 0 is Freeview's yellow; cyan is absent because Freeview means the white-matter surface by it.
+
+**Fills first, then contours, across layers.** `DerivedPass#run2D` drew each layer's fill and
+contour together, so a surface opened before a tissue mesh had its 1.5 px outline buried under that
+mesh's fill. §7.4 puts contours above the volumes and the fills; the pass now makes two passes over
+the same collected cuts. One layer's two draws keep their relative order, so no single-mesh golden
+moves.
+
+**The contour pick is a CPU nearest-segment test, not the pick pass.** §7.2.3's pass draws mesh
+triangles and slice quads into an id buffer; a contour is neither — it is an instanced screen-space
+quad in the *derived* pass. Adding it there would mean a second expansion program whose only job is
+to be 1.5 px wide in a buffer nobody looks at, and it would have to reproduce the expansion exactly
+or the drawn line and the clickable line would differ. Instead `overlay/contours.ts` — which already
+holds the CPU twin of the vertex shader, for §11 — gains `segmentDistanceSqPx` /
+`nearestContourDistanceSqPx`, and `Engine.contourAtScreen` runs them over the segments the last
+frame drew (`DerivedStore.paneContourSegments`). A pial contour is a few thousand segments and a
+click is one event, so a linear scan needs no acceleration structure. `setCursorFromScreen` calls
+it, so a plain left-click selects the surface **in addition to** setting the cursor — R1's gesture is
+not replaced. The unit test asserts the two functions against `expandContourSegment` rather than
+against hand-computed numbers, because the invariant that matters is that a point inside the drawn
+quad measures less than half the width.
+
+**Verified against numpy.** `scripts/refvalues/contour_refvalues.py` (nibabel + a vectorised
+plane-triangle intersection) writes `contour_refvalues.json` for `lh.pial.gii` at the ernie cursor —
+its bounding-box centre — on all three axis planes;
+`crates/tvx-geom/tests/real_data.rs::surface_contours_match_numpy_on_lh_pial` asserts total contour
+length within 1 % on each and every endpoint within 0.1 mm of a reference segment on the axial one.
+Measured: 3,312 / 2,153 / 4,092 segments and 1075.328 / 711.678 / 1336.458 mm. Only the axial
+plane's geometry is committed — three planes of segments is a megabyte of JSON in the tree — and the
+other two carry the count and the length, which is the whole of the length assertion.
+
+**Visual change, stated.** One new golden, `derived-surface-contours-2x2` (the fixture surface in
+the 2×2 layout: yellow outlines on three panes, the shaded patch in 3D). No existing golden is
+regenerated.

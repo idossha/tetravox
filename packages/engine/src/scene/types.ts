@@ -560,6 +560,16 @@ export interface MeshLayer extends LayerBase {
   contoursIn2D: boolean;
   contourWidthPx: number;
   fillIn2D: boolean;
+  /**
+   * The 2D contour's own colour (§7.4, directed task 12), 0..1.
+   *
+   * `undefined` means "the layer's `edgeColor`", which is what every mesh contour was before this
+   * field existed — so a tet mesh, whose contours are tissue boundaries and belong to the wireframe
+   * the user already styled, is unaffected. A **surface** layer is seeded with one entry of
+   * `SURFACE_CONTOUR_PALETTE` at load, because a surface's contour is the only thing that layer
+   * draws in a 2D pane and Freeview's answer to "which outline is which" is one colour per surface.
+   */
+  contourColor?: vec4;
 }
 
 export interface IsosurfaceLayer extends LayerBase {
