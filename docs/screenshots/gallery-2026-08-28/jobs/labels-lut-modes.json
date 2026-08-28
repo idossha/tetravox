@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/segmentation/labeling.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/segmentation/labeling.nii.gz",
+      "patch": {
+        "opacity": 0.7,
+        "labelMode": "fill"
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        0.0,
+        -18.0,
+        8.0
+      ],
+      "view": "axial",
+      "mmPerPx": 0.35
+    },
+    {
+      "type": "screenshot",
+      "out": "labels-fill-axial",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/segmentation/labeling.nii.gz",
+      "patch": {
+        "labelMode": "outline"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "labels-outline-axial",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/segmentation/labeling.nii.gz",
+      "patch": {
+        "labelMode": "both"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "labels-fill-outline-axial",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.35
+    },
+    {
+      "type": "screenshot",
+      "out": "labels-coronal",
+      "view": "coronal",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/segmentation/labeling.nii.gz",
+      "patch": {
+        "visibleLabels": [
+          2
+        ],
+        "labelMode": "fill",
+        "opacity": 1.0
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "labels-isolate-single-tissue",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/segmentation/labeling.nii.gz",
+      "patch": {
+        "visibleLabels": null,
+        "opacity": 0.7,
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d"
+    },
+    {
+      "type": "screenshot",
+      "out": "labels-show-in-3d-iso",
+      "view": "view3d",
+      "width": 1400
+    }
+  ]
+}

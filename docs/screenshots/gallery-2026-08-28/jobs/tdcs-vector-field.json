@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/Simulations/flex_20260709_021442_285db057_mapped/high_Frequency/mesh/ernie_TDCS_1_scalar.msh"
+    ],
+    "preset": "plain"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "glyphs": {
+          "field": {
+            "source": "elm",
+            "name": "E"
+          },
+          "shape": "arrow",
+          "colorBy": "magnitude",
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "subsample": {
+            "everyNth": 400
+          },
+          "scale": "byMagnitude",
+          "lengthMm": 10.0
+        },
+        "opacity": 0.15
+      }
+    },
+    {
+      "type": "set",
+      "camera": "L",
+      "view": "view3d",
+      "distance": 280
+    },
+    {
+      "type": "screenshot",
+      "out": "tdcs-vector-glyphs-arrows",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "glyphs": {
+          "field": {
+            "source": "elm",
+            "name": "E"
+          },
+          "shape": "line",
+          "colorBy": "magnitude",
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "subsample": {
+            "everyNth": 400
+          },
+          "scale": "byMagnitude",
+          "lengthMm": 10.0
+        }
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "tdcs-vector-glyphs-lines",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d",
+      "distance": 280
+    },
+    {
+      "type": "screenshot",
+      "out": "tdcs-vector-glyphs-anterior",
+      "view": "view3d",
+      "width": 1400
+    }
+  ]
+}

@@ -1,0 +1,207 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "cursor": [
+        0.0,
+        -18.0,
+        8.0
+      ],
+      "view": "axial",
+      "mmPerPx": 0.35
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": 0,
+          "hi": 65535
+        }
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-window-min-max",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": 800,
+          "hi": 3200
+        }
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-window-p2-98",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": 400,
+          "hi": 5200
+        }
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-window-p50-p999",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": 0,
+          "hi": 4000
+        },
+        "colormap": "viridis"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-colormap-viridis",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "colormap": "hot"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-colormap-hot",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "colormap": "bone"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-colormap-bone",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "colormap": "gray",
+        "interpolation": "nearest"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-interp-nearest",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "interpolation": "linear"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-interp-linear",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "radiological": true
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-convention-radiological",
+      "view": "axial",
+      "width": 1400,
+      "include": {
+        "crosshair": true
+      }
+    },
+    {
+      "type": "set",
+      "radiological": false
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-convention-neurological",
+      "view": "axial",
+      "width": 1400,
+      "include": {
+        "crosshair": true
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-crosshair-off",
+      "view": "axial",
+      "width": 1400,
+      "include": {
+        "crosshair": false
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-cursor-readout",
+      "view": "axial",
+      "width": 1400,
+      "include": {
+        "crosshair": true
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-scale-bar",
+      "view": "axial",
+      "width": 1400,
+      "include": {
+        "colorbar": false
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d"
+    },
+    {
+      "type": "screenshot",
+      "out": "t1-orientation-cube",
+      "view": "view3d",
+      "width": 1400
+    }
+  ]
+}

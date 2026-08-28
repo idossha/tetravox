@@ -1,0 +1,63 @@
+{
+  "ok": true,
+  "schemaVersion": 1,
+  "job": "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/docs/screenshots/gallery-2026-08-28/job.json",
+  "outDir": "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/docs/screenshots/gallery-2026-08-28",
+  "outputs": [
+    {
+      "action": 0,
+      "type": "set",
+      "files": [],
+      "ms": 339
+    },
+    {
+      "action": 1,
+      "type": "set",
+      "files": [],
+      "ms": 1
+    },
+    {
+      "action": 2,
+      "type": "screenshot",
+      "files": [
+        "tdcs-vector-glyphs-arrows.png"
+      ],
+      "ms": 79
+    },
+    {
+      "action": 3,
+      "type": "set",
+      "files": [],
+      "ms": 14
+    },
+    {
+      "action": 4,
+      "type": "screenshot",
+      "files": [
+        "tdcs-vector-glyphs-lines.png"
+      ],
+      "ms": 75
+    },
+    {
+      "action": 5,
+      "type": "set",
+      "files": [],
+      "ms": 8
+    },
+    {
+      "action": 6,
+      "type": "screenshot",
+      "files": [
+        "tdcs-vector-glyphs-anterior.png"
+      ],
+      "ms": 69
+    }
+  ],
+  "timings": {
+    "totalMs": 2840,
+    "loadMs": 2026,
+    "actionsMs": 585
+  },
+  "warnings": [],
+  "errors": []
+}

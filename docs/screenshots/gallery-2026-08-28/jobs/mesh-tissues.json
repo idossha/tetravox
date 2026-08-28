@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/ernie.msh"
+    ],
+    "preset": "mesh-tissues-translucent"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d",
+      "distance": 280
+    },
+    {
+      "type": "screenshot",
+      "out": "mesh-tissues-translucent-anterior",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "camera": "L"
+    },
+    {
+      "type": "screenshot",
+      "out": "mesh-tissues-translucent-left",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "camera": "S"
+    },
+    {
+      "type": "screenshot",
+      "out": "mesh-tissues-translucent-superior",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "ernie.msh",
+      "patch": {
+        "tagStyle": {
+          "5": {
+            "visible": false,
+            "opacity": 0.3
+          }
+        }
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A"
+    },
+    {
+      "type": "screenshot",
+      "out": "mesh-per-tissue-visibility-scalp-off",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "ernie.msh",
+      "patch": {
+        "tagStyle": {
+          "5": {
+            "visible": true,
+            "opacity": 0.3
+          }
+        },
+        "clip": {
+          "planes": [
+            {
+              "plane": {
+                "normal": [
+                  1,
+                  0,
+                  0
+                ],
+                "offset": 0
+              },
+              "enabled": true
+            }
+          ],
+          "caps": true
+        }
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "mesh-clip-plane-sagittal",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "ernie.msh",
+      "patch": {
+        "clip": {
+          "planes": [],
+          "caps": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        0.0,
+        -18.0,
+        8.0
+      ],
+      "view": "axial",
+      "mmPerPx": 0.35
+    },
+    {
+      "type": "screenshot",
+      "out": "mesh-cross-section-2d-axial",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "ernie.msh",
+      "patch": {
+        "isolate": {
+          "tags": [
+            1
+          ]
+        }
+      },
+      "camera": "A",
+      "view": "view3d"
+    },
+    {
+      "type": "screenshot",
+      "out": "mesh-isolate-brain-only",
+      "view": "view3d",
+      "width": 1400
+    }
+  ]
+}
