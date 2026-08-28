@@ -195,7 +195,7 @@ describe('scene load (§4.6, §8, audit P2-07)', () => {
     const scenePath = '/scenes/study.tetravox.json';
     fs.savePath = scenePath;
     // Move the cursor and the layout, so the restore has something to prove.
-    controller.setLayout('1x3');
+    controller.setLayout('1+3');
     controller.jumpToCoordinate('-42 18 6');
     await controller.saveSceneAs();
 
@@ -210,8 +210,31 @@ describe('scene load (§4.6, §8, audit P2-07)', () => {
     expect(state.layers.map((l) => l.kind)).toEqual(['volume', 'mesh']);
     expect(state.layers.every((l) => state.datasets.some((d) => d.id === l.datasetId))).toBe(true);
     expect(state.cursor).toEqual([-42, 18, 6]);
-    expect(state.layoutKind).toBe('1x3');
+    expect(state.layoutKind).toBe('1+3');
     expect(state.sceneFile?.path).toBe(scenePath);
+  });
+
+  /**
+   * Directed task 3, 2026-08-28: every layout contains the 3D pane, and a scene saved before that
+   * names one that does not. It has to open — with the nearest catalogue layout — rather than
+   * restoring a 3D-less grid or failing to load, which is what `migrateSpecLayout` is for.
+   */
+  it('migrates a saved scene whose layout has no 3D pane', async () => {
+    const { fs, store, controller } = await loadedScene();
+    const scenePath = '/scenes/old.tetravox.json';
+    fs.savePath = scenePath;
+    // `1x3` was three slice panes and no 3D one — a layout the catalogue no longer offers.
+    controller.setLayout('1x3');
+    await controller.saveSceneAs();
+    expect(store.getState().layoutKind).toBe('1x3');
+
+    const second = harness();
+    await expect(second.controller.openScenePath(scenePath)).resolves.toBe(true);
+    const state = second.store.getState();
+    // Three slices plus the 3D pane, the 3D one leading — `1x3`'s nearest 3D-bearing neighbour.
+    expect(state.layoutKind).toBe('1+3');
+    expect(state.cells).toHaveLength(4);
+    expect(state.cells[0]).toBe(second.engine.scene.view3d.id);
   });
 
   it('resolves a dataset that moved with the scene, without a dialog', async () => {

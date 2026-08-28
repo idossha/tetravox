@@ -27,6 +27,7 @@
  */
 
 import type {
+  Iso3dStatus,
   Annotations,
   Camera3D,
   Capabilities,
@@ -54,6 +55,7 @@ import type {
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
+import { iso3dLabels } from '@tetravox/engine';
 import type { CameraPreset } from '../keyboard/keymap';
 import { PHASES } from '../lib/loads';
 import { encodePng } from '../lib/png';
@@ -236,6 +238,22 @@ export class NoGlEngine implements Engine {
 
   heapBytes(id: DatasetId): number | undefined {
     return this.heap.get(id);
+  }
+
+  /**
+   * §4.4's `iso3d` builds nothing without a worker, so nothing is ever pending — but the *count* is
+   * still honest: it is what the layer's own `iso3d` says it owns, so a UI test can assert that the
+   * switch reaches the model without a GPU (directed task 2, 2026-08-28).
+   */
+  iso3dStatus(layerId: LayerId): Iso3dStatus {
+    const layer = this.state.layers.find((l) => l.id === layerId);
+    if (layer === undefined || layer.kind !== 'volume') return { pending: 0, total: 0 };
+    const spec = layer.iso3d;
+    if (spec === undefined || !spec.enabled) return { pending: 0, total: 0 };
+    const ds = this.state.datasets.get(layer.datasetId);
+    const total =
+      ds !== undefined && ds.kind === 'volume' ? Math.max(1, iso3dLabels(layer, ds).length) : 1;
+    return { pending: 0, total };
   }
 
   // ------------------------------------------------------------------------------------------

@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import type { LayoutKind, SliceView, View3D } from '@tetravox/engine';
-import { LAYOUT_CYCLE, cellIndexAt, layoutCells, layoutGrid, nextLayout } from './layout';
+import {
+  LAYOUT_CYCLE,
+  cellIndexAt,
+  isOfferedLayout,
+  layoutCells,
+  layoutCellStyle,
+  layoutGrid,
+  migrateLayoutKind,
+  migrateSpecLayout,
+  nextLayout,
+} from './layout';
 import { baseName, deriveSidecarCandidates, stripKnownExtension } from './sidecars';
 import {
   EMPTY_METRICS,
@@ -90,6 +100,79 @@ describe('layoutCells', () => {
     expect(layoutGrid('2x2', 4)).toEqual({ columns: 'repeat(2, 1fr)', rows: 'repeat(2, 1fr)' });
     expect(layoutGrid('1x3', 3)).toEqual({ columns: '1fr', rows: 'repeat(3, 1fr)' });
     expect(layoutGrid('3d-only', 1)).toEqual({ columns: '1fr', rows: '1fr' });
+    expect(layoutGrid('3d+1', 2)).toEqual({ columns: 'repeat(2, 1fr)', rows: '1fr' });
+    expect(layoutGrid('1+3', 4)).toEqual({ columns: '2fr 1fr', rows: 'repeat(3, 1fr)' });
+  });
+
+  // -- directed task 3, 2026-08-28: every layout contains the 3D pane ---------------------------
+
+  it('puts the 3D pane first in both 3D-first layouts', () => {
+    expect(layoutCells('1+3', SLICES, VIEW3D)).toEqual(['view3d', 'axial', 'cor', 'sag']);
+    expect(layoutCells('3d+1', SLICES, VIEW3D)).toEqual(['view3d', 'axial']);
+    // The zoomed layout keeps the slice the user was in, exactly as `1x1` used to.
+    expect(layoutCells('3d+1', SLICES, VIEW3D, 'sag')).toEqual(['view3d', 'sag']);
+  });
+
+  it('offers only layouts that contain the 3D pane', () => {
+    for (const kind of LAYOUT_CYCLE) {
+      expect(layoutCells(kind, SLICES, VIEW3D)).toContain('view3d');
+    }
+    expect(isOfferedLayout('1x1')).toBe(false);
+    expect(isOfferedLayout('1x3')).toBe(false);
+    expect(isOfferedLayout('1x3-horizontal')).toBe(false);
+  });
+
+  it('migrates a removed layout to its nearest 3D-bearing neighbour', () => {
+    expect(migrateLayoutKind('1x1')).toBe('3d+1');
+    expect(migrateLayoutKind('1x3')).toBe('1+3');
+    expect(migrateLayoutKind('1x3-horizontal')).toBe('1+3');
+    // Everything already offered is left exactly as it is.
+    for (const kind of LAYOUT_CYCLE) expect(migrateLayoutKind(kind)).toBe(kind);
+  });
+
+  it('cycles out of a removed layout instead of getting stuck in it', () => {
+    // A migrated scene lands on `1+3`; `x` from a *stale* kind must still advance, or the key does
+    // nothing on the one scene that most needs it.
+    expect(nextLayout('1x3')).toBe(nextLayout('1+3'));
+    expect(LAYOUT_CYCLE).toContain(nextLayout('1x1'));
+  });
+
+  it('migrates a saved ViewSpec layout, and touches nothing else', () => {
+    const spec = {
+      version: 1 as const,
+      datasets: [],
+      layers: [],
+      activeLayerId: null,
+      slices: SLICES,
+      view3d: VIEW3D,
+      layout: { kind: '1x3' as LayoutKind, cells: ['axial', 'cor', 'sag'] },
+      cursor: [0, 0, 0] as [number, number, number],
+      radiological: false,
+      background: [0, 0, 0, 1] as [number, number, number, number],
+      lighting: { ambient: 0.2, headlight: true },
+      annotations: {
+        orientationLabels: true,
+        cornerInfo: true,
+        conventionBadge: true as const,
+        scaleBar: true,
+        colorbars: true,
+        crosshair: true,
+      },
+      transparency: { mode: 'twoPhase' as const },
+    };
+    const migrated = migrateSpecLayout(spec);
+    expect(migrated.layout).toEqual({ kind: '1+3', cells: ['view3d', 'axial', 'cor', 'sag'] });
+    expect(migrated.slices).toBe(spec.slices);
+    // An offered layout comes back by identity — the common path allocates nothing.
+    const already = { ...spec, layout: { kind: '2x2' as LayoutKind, cells: [] } };
+    expect(migrateSpecLayout(already)).toBe(already);
+  });
+
+  it('spans the 3D pane down the whole 1+3 grid', () => {
+    expect(layoutCellStyle('1+3', 0)).toEqual({ gridColumn: '1', gridRow: '1 / -1' });
+    expect(layoutCellStyle('1+3', 2)).toEqual({ gridColumn: '2', gridRow: '2' });
+    // Every other layout places itself by auto-flow.
+    expect(layoutCellStyle('2x2', 0)).toBeUndefined();
   });
 });
 
@@ -106,6 +189,16 @@ describe('cellIndexAt', () => {
     expect(cellIndexAt('1x3', 3, rect, 200, 150)).toBe(1);
     expect(cellIndexAt('1x3', 3, rect, 200, 299)).toBe(2);
     expect(cellIndexAt('1x3', 3, rect, 200, 100_000)).toBe(2);
+  });
+  it('splits 3d+1 down the middle and 1+3 at two thirds', () => {
+    expect(cellIndexAt('3d+1', 2, rect, 10, 150)).toBe(0);
+    expect(cellIndexAt('3d+1', 2, rect, 390, 150)).toBe(1);
+    // 400 * 2/3 = 266.7: left of it is the 3D pane, right of it the stacked slice column.
+    expect(cellIndexAt('1+3', 4, rect, 260, 150)).toBe(0);
+    expect(cellIndexAt('1+3', 4, rect, 300, 10)).toBe(1);
+    expect(cellIndexAt('1+3', 4, rect, 300, 150)).toBe(2);
+    expect(cellIndexAt('1+3', 4, rect, 300, 299)).toBe(3);
+    expect(cellIndexAt('1+3', 4, rect, 300, 100_000)).toBe(3);
   });
   it('is 0 for the single-pane layouts and for a zero-sized host', () => {
     expect(cellIndexAt('1x1', 1, rect, 399, 299)).toBe(0);

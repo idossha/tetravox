@@ -122,6 +122,13 @@ export interface UiState {
    * progress state**, not instant checkboxes."
    */
   meshPending: Record<LayerId, string[]>;
+  /**
+   * Per volume layer, its **3D surface** progress (§4.4's `iso3d`, directed task 2, 2026-08-28):
+   * `{pending, total}` straight from `Engine.iso3dStatus`, refreshed by the same `layers`
+   * subscription everything else here is refreshed by. Chrome, like `meshPending`: the engine owns
+   * the fact, this is the last value React saw.
+   */
+  iso3dPending: Record<LayerId, { pending: number; total: number }>;
 
   // -- Phase 2, A-SHELL (appended; §8's scene save/load, dialogs and header panel) ----------------
   /** The scene file this session is attached to, so `Save` can write without asking again (§4.6). */
@@ -208,6 +215,7 @@ export const INITIAL_UI: UiState = {
   regionSelection: {},
   regionStats: {},
   meshPending: {},
+  iso3dPending: {},
   sceneFile: null,
   sceneError: null,
   dialog: 'none',

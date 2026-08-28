@@ -255,6 +255,20 @@ pub fn volume_marching_cubes(
     volume::marching_cubes(handle, vol_index as usize, iso, smooth, &mut p).map_err(err::map)
 }
 
+/// One region of a label volume, isolated at the sample (§6.4, added 2026-08-28 for §4.4's `iso3d`).
+#[wasm_bindgen]
+pub fn volume_marching_cubes_label(
+    handle: u32,
+    vol_index: u32,
+    label: f32,
+    smooth: bool,
+    on_progress: &js_sys::Function,
+) -> Result<JsValue, JsValue> {
+    let mut p = JsProgress::new(on_progress);
+    volume::marching_cubes_label(handle, vol_index as usize, label, smooth, &mut p)
+        .map_err(err::map)
+}
+
 #[wasm_bindgen]
 pub fn mesh_marching_tets(
     handle: u32,

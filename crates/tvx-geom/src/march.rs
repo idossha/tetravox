@@ -271,6 +271,41 @@ pub fn marching_cubes(
     smooth: bool,
     p: &mut dyn ProgressSink,
 ) -> Result<SurfaceBuffers> {
+    marching_cubes_inner(vol, vol_index, iso, smooth, None, p)
+}
+
+/// The surface of **one label** of a label volume (§6.3, added 2026-08-28 for §4.4's `iso3d`).
+///
+/// A label volume's samples are ids, not a field, so the level set `value >= k - 0.5` is the union
+/// of every label `>= k` — nothing like region `k` unless the ids happen to nest, which they do not
+/// (`final_tissues` is 1 WM, 2 GM, 3 CSF, 5 scalp, 7 compact bone … `[DATA]`). Isolating a region
+/// therefore has to happen **at the sample**: the volume is read through
+/// `value == label ? 1 : 0` and marched at `0.5`, which is the region's own boundary and nothing
+/// else's.
+///
+/// A separate function rather than an argument on [`marching_cubes`], because §6's signatures are
+/// frozen and this is additive. `label` is compared in **physical** units (post `scl_slope` /
+/// `scl_inter`, like every other sample this module reads) with a half-unit tolerance, so an id
+/// that survives a float round trip — `labeling.nii.gz` is a float32 label volume `[DATA]` — still
+/// matches exactly one id.
+pub fn marching_cubes_label(
+    vol: &Volume,
+    vol_index: usize,
+    label: f32,
+    smooth: bool,
+    p: &mut dyn ProgressSink,
+) -> Result<SurfaceBuffers> {
+    marching_cubes_inner(vol, vol_index, 0.5, smooth, Some(label), p)
+}
+
+fn marching_cubes_inner(
+    vol: &Volume,
+    vol_index: usize,
+    iso: f32,
+    smooth: bool,
+    label: Option<f32>,
+    p: &mut dyn ProgressSink,
+) -> Result<SurfaceBuffers> {
     let [nx, ny, nz] = vol.dims;
     let voxels = nx * ny * nz;
     if vol_index >= vol.nvols || voxels == 0 {
@@ -287,7 +322,19 @@ pub fn marching_cubes(
     let base = vol_index * voxels;
     let at = |i: usize, j: usize, k: usize| -> f32 {
         let raw = crate::voxel::raw(&vol.data, base + (k * ny + j) * nx + i);
-        raw * vol.scl_slope + vol.scl_inter
+        let v = raw * vol.scl_slope + vol.scl_inter;
+        match label {
+            // Binarised: 1 inside the region, 0 everywhere else, so `iso = 0.5` is that region's
+            // own boundary and no other's.
+            Some(target) => {
+                if (v - target).abs() < 0.5 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            None => v,
+        }
     };
     let a = &vol.affine;
     let world = |i: usize, j: usize, k: usize| -> [f32; 3] {

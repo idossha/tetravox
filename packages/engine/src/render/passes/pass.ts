@@ -33,6 +33,17 @@ export interface DrawInput {
   store: GpuStore;
   /** The §4.4 layer runtimes, keyed by `LayerId` — the only source of per-kind draw decisions. */
   runtimes: ReadonlyMap<LayerId, LayerRuntime>;
+  /**
+   * Runtimes a §4.4 layer **owns** rather than is — today, a volume layer's `iso3d` surfaces
+   * (directed task 2, 2026-08-28; appended, shared-file rule: additive only).
+   *
+   * They are keyed by the **owning** layer's id and draw immediately above it, so §7.2's passes see
+   * them in the same bottom→top order as everything else. They are deliberately *not* in
+   * `scene.layers`: nothing but the volume layer that derived them may edit them, they carry no row
+   * in §8's layer panel, and `collectPickItems` never reaches them (§7.2.3 keeps isosurfaces out of
+   * the pick target anyway).
+   */
+  ownedRuntimes?: ReadonlyMap<LayerId, readonly LayerRuntime[]>;
   /** Device pixels of the whole canvas. */
   canvasWidth: number;
   canvasHeight: number;
@@ -125,8 +136,9 @@ export function collectDrawItems(input: DrawInput, view: View): DrawItem[] {
   const out: DrawItem[] = [];
   for (const layer of input.scene.layers) {
     const runtime = input.runtimes.get(layer.id);
-    if (runtime === undefined) continue;
-    out.push(...runtime.drawItems(view));
+    if (runtime !== undefined) out.push(...runtime.drawItems(view));
+    const owned = input.ownedRuntimes?.get(layer.id);
+    if (owned !== undefined) for (const rt of owned) out.push(...rt.drawItems(view));
   }
   return out;
 }

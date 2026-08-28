@@ -120,6 +120,18 @@ export interface ScreenshotOptions {
   autoTrim: boolean;
 }
 
+/**
+ * §8's progress for a volume layer's **3D surface** (§4.4's `VolumeLayer.iso3d`, directed task 2).
+ *
+ * `total` is how many surfaces the layer owns — one for a scalar volume, one per visible region for
+ * a label volume — and `pending` how many of those are still in marching cubes. `{0, 0}` for a layer
+ * that owns none, so a caller needs no null check.
+ */
+export interface Iso3dStatus {
+  pending: number;
+  total: number;
+}
+
 export interface LoadProgress {
   datasetId: DatasetId;
   phase: LoadPhase;
@@ -211,6 +223,16 @@ export interface Engine {
   setAnnotations(patch: Partial<Annotations>): void;
   /** §8 status bar: wasm `heapBytes` from that dataset's last `Res` (§6.5.2). */
   heapBytes(id: DatasetId): number | undefined;
+  /**
+   * §8's load-card progress for a volume layer's 3D surface (§4.7, added 2026-08-28 — see
+   * `docs/DECISIONS.md`).
+   *
+   * Marching cubes over 256×256×208 is not instant, and a label volume asks for one op per visible
+   * region, so the **3D surface** switch needs the progress state §8 already gives a mesh layer's
+   * async switches. It is a facade member for the same reason `meshLayerLoading` is engine-side: the
+   * app cannot see the worker, and §8 forbids it deriving the answer.
+   */
+  iso3dStatus(layerId: LayerId): Iso3dStatus;
 
   requestRender(viewId?: ViewId): void;
   /** Draw now, synchronously, instead of at the next rAF — §11's readback and the screenshot path. */
@@ -351,6 +373,10 @@ export class MockEngine implements Engine {
   }
   setAnnotations(patch: Partial<Annotations>): void {
     void patch;
+    throw new Error('phase 1');
+  }
+  iso3dStatus(layerId: LayerId): Iso3dStatus {
+    void layerId;
     throw new Error('phase 1');
   }
   heapBytes(id: DatasetId): number | undefined {

@@ -193,6 +193,25 @@ pub fn marching_cubes(
     }
 }
 
+/// One region of a label volume, isolated at the sample (§6.3's `marching_cubes_label`).
+pub fn marching_cubes_label(
+    vol: &Volume,
+    vol_index: usize,
+    label: f32,
+    smooth: bool,
+    p: &mut dyn ProgressSink,
+) -> Result<SurfaceBuffers> {
+    #[cfg(feature = "geom")]
+    {
+        tvx_geom::marching_cubes_label(vol, vol_index, label, smooth, p)
+    }
+    #[cfg(not(feature = "geom"))]
+    {
+        let _ = (vol, vol_index, label, smooth, p);
+        Err(unavailable("marching_cubes_label"))
+    }
+}
+
 pub fn marching_tets(
     mesh: &Mesh,
     node_field: &[f32],

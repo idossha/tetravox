@@ -218,3 +218,20 @@ pub fn marching_cubes(
         Ok(crate::surface::to_js(&s))
     })
 }
+
+/// `volume_marching_cubes_label` (§6.4) → a §6.5.1 `SurfacePayload`.
+///
+/// One **region** of a label volume, isolated at the sample (`tvx_geom::marching_cubes_label`) —
+/// not a level set of the ids, which would be the union of every id above it.
+pub fn marching_cubes_label(
+    handle: u32,
+    vol_index: usize,
+    label: f32,
+    smooth: bool,
+    p: &mut dyn tvx_core::ProgressSink,
+) -> Result<JsValue> {
+    handles::with_volume(handle, |v| {
+        let s = crate::geom::marching_cubes_label(v, vol_index, label, smooth, p)?;
+        Ok(crate::surface::to_js(&s))
+    })
+}

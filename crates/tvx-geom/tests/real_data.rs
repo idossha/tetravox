@@ -14,9 +14,9 @@ use std::path::PathBuf;
 use tvx_core::{BitMask, NoProgress, Plane};
 use tvx_geom::{
     build_point_locator, build_tet_blocks, build_topology, extract_boundary, isolate,
-    label_centroids, locate_point, marching_cubes, marching_tets, morton_reorder, orient_surface,
-    plane_cut, surface_contours, tag_surfaces, tet_centroids, vertex_normals, IsolateCriteria,
-    SurfaceVariant,
+    label_centroids, locate_point, marching_cubes, marching_cubes_label, marching_tets,
+    morton_reorder, orient_surface, plane_cut, surface_contours, tag_surfaces, tet_centroids,
+    vertex_normals, IsolateCriteria, SurfaceVariant,
 };
 use tvx_mesh_io::{read_msh, Mesh};
 
@@ -780,4 +780,98 @@ fn tet_centroids_on_ernie_are_tagged_bounded_and_strideable() {
     let d = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt();
     eprintln!("[tet_centroids] GM mean {a:?} vs 1-in-64 subsample {b:?}: {d:.4} mm apart");
     assert!(d < 0.5, "strided subsample centroid is {d} mm off");
+}
+
+/// `marching_cubes_label` (§6.3) isolates **one** region, where a level of the ids cannot.
+///
+/// This is the bug the op exists for, written as an assertion. `final_tissues.nii.gz` is 0 … 10 with
+/// 10 unique values `[DATA]`, and its ids do not nest: 1 WM, 2 GM, 3 CSF, 5 scalp, 7 compact bone
+/// (4 is absent). So `marching_cubes` at `7 − 0.5` returns the boundary of *every* id ≥ 7 — scalp
+/// excluded but eyes, spongy bone, blood and muscle all in — while `marching_cubes_label(7)` returns
+/// compact bone alone. The reference for each is a **count**, not a contour: one voxel of enclosed
+/// space per voxel carrying the ids in question.
+#[test]
+fn marching_cubes_label_isolates_one_region_where_a_level_cannot() {
+    let Some(root) = root() else {
+        eprintln!("skipping: TETRAVOX_TESTDATA is unset");
+        return;
+    };
+    let p = root.join("m2m_ernie/final_tissues.nii.gz");
+    let Ok(bytes) = std::fs::read(&p) else {
+        eprintln!("skipping: {}", p.display());
+        return;
+    };
+    let vol = tvx_nifti::read_nifti(bytes, &mut NoProgress).expect("final_tissues.nii.gz");
+    let raw = match &vol.data {
+        tvx_nifti::VolumeData::U16(v) => v,
+        other => panic!("AGENTS.md says uint16, got {other:?}"),
+    };
+    const BONE: u16 = 7;
+    let mut exactly_bone = 0u64;
+    let mut at_least_bone = 0u64;
+    for &v in raw.iter() {
+        if v == BONE {
+            exactly_bone += 1;
+        }
+        if v >= BONE {
+            at_least_bone += 1;
+        }
+    }
+    let voxel_mm3 = vol.spacing[0] * vol.spacing[1] * vol.spacing[2];
+
+    let enclosed = |s: &tvx_geom::SurfaceBuffers| -> f64 {
+        let ix = s.indices.as_ref().expect("smooth => Indexed");
+        let mut vol6 = 0.0f64;
+        for t in ix.chunks_exact(3) {
+            let q = |v: u32| {
+                let i = v as usize * 3;
+                [
+                    f64::from(s.positions[i]),
+                    f64::from(s.positions[i + 1]),
+                    f64::from(s.positions[i + 2]),
+                ]
+            };
+            let (a, b, c) = (q(t[0]), q(t[1]), q(t[2]));
+            vol6 += a[0] * (b[1] * c[2] - b[2] * c[1])
+                + a[1] * (b[2] * c[0] - b[0] * c[2])
+                + a[2] * (b[0] * c[1] - b[1] * c[0]);
+        }
+        vol6 / 6.0
+    };
+
+    let isolated =
+        enclosed(&marching_cubes_label(&vol, 0, f32::from(BONE), true, &mut NoProgress).unwrap());
+    let levelled =
+        enclosed(&marching_cubes(&vol, 0, f32::from(BONE) - 0.5, true, &mut NoProgress).unwrap());
+    let want_isolated = exactly_bone as f64 * voxel_mm3;
+    let want_levelled = at_least_bone as f64 * voxel_mm3;
+    eprintln!(
+        "[marching_cubes_label] compact bone: isolated {isolated:.0} mm^3 vs {want_isolated:.0} counted; levelled {levelled:.0} mm^3 vs {want_levelled:.0} counted (ids >= 7)"
+    );
+
+    // The isolated surface encloses compact bone and nothing else. The tolerance is generous in one
+    // direction only: the contour runs half a voxel outside the outermost labelled voxel centre, so
+    // it encloses a little more than the count, exactly as the whole-head test above records.
+    assert!(
+        isolated > 0.9 * want_isolated && isolated < 1.35 * want_isolated,
+        "isolated {isolated:.0} mm^3 is not compact bone ({want_isolated:.0} mm^3)"
+    );
+    // And the level set is a **different** surface, in both directions at once — which is the whole
+    // reason this op exists. Measured 2026-08-28 on `final_tissues.nii.gz`: isolated 601,788 mm³
+    // against 601,300 counted (ratio 1.0008); levelled 674,738 mm³ against 762,314 counted for
+    // ids >= 7 (ratio 0.885).
+    assert!(
+        (levelled - isolated).abs() > 0.05 * want_isolated,
+        "if a level of the ids gave the same surface, this op would not need to exist \
+         (isolated {isolated:.0} mm^3, levelled {levelled:.0} mm^3)"
+    );
+    // It is not even a faithful contour of "every id >= 7": the ids are a nominal scale, so the
+    // crossing between a 3 voxel and a 9 voxel lands wherever linear interpolation puts it. Being
+    // wrong by more than 5 % of a *counted* reference is what marks it as meaningless, not merely
+    // larger — the isolated surface above is within 0.1 % of its own count.
+    assert!(
+        levelled < 0.95 * want_levelled,
+        "levelled {levelled:.0} mm^3 vs {want_levelled:.0} mm^3 counted — if a level of the ids \
+         were a faithful contour of `id >= 7`, the isolation argument would need revisiting"
+    );
 }

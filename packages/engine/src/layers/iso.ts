@@ -38,7 +38,10 @@ import type {
 export function isoKey(layer: IsosurfaceLayer): string {
   const f = layer.source.field;
   const field = f === undefined ? '' : `${f.source}:${f.name}:${String(f.component)}`;
-  return `${layer.datasetId}|iso|${layer.source.volumeIndex ?? 0}|${field}|${layer.iso}|${layer.smooth ? 1 : 0}`;
+  // `label` is part of the key, and `iso` is not read when it is present: two regions of one label
+  // volume differ only by it, and sharing a cache entry would paint the second in the first's shape.
+  const label = layer.source.label === undefined ? '' : `L${layer.source.label}`;
+  return `${layer.datasetId}|iso|${layer.source.volumeIndex ?? 0}|${field}|${label}|${layer.iso}|${layer.smooth ? 1 : 0}`;
 }
 
 export class IsoLayerRuntime implements LayerRuntime {
@@ -62,6 +65,17 @@ export class IsoLayerRuntime implements LayerRuntime {
 
   get layer(): IsosurfaceLayer {
     return this.#layer;
+  }
+
+  /**
+   * True while this surface's `marchingCubes` / `marchingTets` is in flight.
+   *
+   * §8 gives a mesh layer's async switches a progress state (`Engine.meshLayerLoading`); a volume's
+   * **3D surface** (§4.4's `iso3d`) needs the same, because marching cubes over 256×256×208 is not
+   * instant and a switch that does nothing visible for a second reads as broken.
+   */
+  get loading(): boolean {
+    return this.#inFlight !== null;
   }
 
   applyPatch(next: IsosurfaceLayer): void {
@@ -107,14 +121,24 @@ export class IsoLayerRuntime implements LayerRuntime {
     const layer = this.#layer;
     const field = layer.source.field;
     this.#inFlight = key;
+    const label = layer.source.label;
     const promise =
       this.#ds.kind === 'volume'
-        ? client.call(`iso:${layer.id}`, 'marchingCubes', {
-            handle: (this.#ds as VolumeDataset).handle,
-            volumeIndex: layer.source.volumeIndex ?? 0,
-            iso: layer.iso,
-            smooth: layer.smooth,
-          })
+        ? label !== undefined
+          ? // One region of a label volume, isolated at the sample (§6.5.2's `marchingCubesLabel`).
+            // `marchingCubes` at `label - 0.5` would return the union of every id at or above it.
+            client.call(`iso:${layer.id}`, 'marchingCubesLabel', {
+              handle: (this.#ds as VolumeDataset).handle,
+              volumeIndex: layer.source.volumeIndex ?? 0,
+              label,
+              smooth: layer.smooth,
+            })
+          : client.call(`iso:${layer.id}`, 'marchingCubes', {
+              handle: (this.#ds as VolumeDataset).handle,
+              volumeIndex: layer.source.volumeIndex ?? 0,
+              iso: layer.iso,
+              smooth: layer.smooth,
+            })
         : field === undefined
           ? null
           : client.call(`iso:${layer.id}`, 'marchingTets', {

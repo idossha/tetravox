@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { cellIndexAt, layoutGrid } from '../lib/layout';
+import { cellIndexAt, layoutCellStyle, layoutGrid } from '../lib/layout';
 import { isEditableTarget } from '../keyboard/keymap';
 import { useController, useUi } from './context';
 
@@ -103,11 +103,12 @@ export function ViewGrid({ canvas, dpr }: ViewGridProps): React.JSX.Element {
         className="pointer-events-none absolute inset-0 grid gap-px"
         style={{ gridTemplateColumns: grid.columns, gridTemplateRows: grid.rows }}
       >
-        {cells.map((id) => (
+        {cells.map((id, index) => (
           <div
             key={id}
             data-testid={`view-cell-${id}`}
             data-active={id === activeViewId}
+            style={layoutCellStyle(layoutKind, index)}
             className={
               'relative border ' +
               (id === activeViewId ? 'border-tvx-accent' : 'border-tvx-line/60')

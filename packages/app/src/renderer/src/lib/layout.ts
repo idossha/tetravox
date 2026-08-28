@@ -7,10 +7,23 @@
  * only holds if choosing cells never edits the views themselves.
  */
 
-import type { LayoutKind, SliceMode, SliceView, View3D, ViewId } from '@tetravox/engine';
+import type { LayoutKind, SliceMode, SliceView, View3D, ViewId, ViewSpec } from '@tetravox/engine';
 
-/** The four the §8 toolbar exposes, in the order `x` cycles them (§7.5). */
-export const LAYOUT_CYCLE: readonly LayoutKind[] = ['2x2', '1x1', '1x3', '3d-only'] as const;
+/**
+ * **The catalogue: every layout the app offers contains the 3D pane** (directed task 3, 2026-08-28).
+ *
+ * The maintainer's ask was "the 3D viewer is always on — the only option is whether to render the
+ * isosurface". A `1x1` of a slice and a `1x3` of three slices are the two layouts that *cannot*
+ * satisfy it, so they leave the toolbar and the `x` cycle. `'1+3'` (3D large, three slices down a
+ * narrow column) replaces `1x3` as the reading layout and `'3d+1'` replaces `1x1` as the zoomed one;
+ * `2x2` already had a 3D cell and `3d-only` is all 3D.
+ *
+ * The kinds themselves are **not** removed from `LayoutKind`: §11's single-pane pixel harnesses set
+ * `{kind:'1x1', cells:['axial']}` in some thirty specs, and an analytic assertion on one pane is
+ * exactly what a viewer catalogue has no business breaking. This is a catalogue, not a model change
+ * — which is why {@link migrateLayoutKind}, and not a parser error, is what a saved scene meets.
+ */
+export const LAYOUT_CYCLE: readonly LayoutKind[] = ['2x2', '1+3', '3d+1', '3d-only'] as const;
 
 export const LAYOUT_LABEL: Record<LayoutKind, string> = {
   '1x1': '1×1',
@@ -18,10 +31,38 @@ export const LAYOUT_LABEL: Record<LayoutKind, string> = {
   '1x3-horizontal': '1×3 —',
   '2x2': '2×2',
   '3d-only': '3D',
+  '1+3': '1+3',
+  '3d+1': '3D+1',
 };
 
+/**
+ * What a saved scene's layout becomes on load: itself, or the nearest catalogue entry.
+ *
+ * "Nearest" is by **pane count and shape**, not by name: a `1x1` was one big pane, so it becomes
+ * `3d+1` — the smallest catalogue layout, which keeps the zoomed feel and adds the 3D pane the
+ * catalogue now guarantees; a `1x3` or `1x3-horizontal` was three slices, so it becomes `1+3`, which
+ * is those same three slices with the 3D pane beside them. Nothing is dropped and no view is
+ * rebuilt: `Scene.slices` is independent of the layout (§4.5), so the migration is one string.
+ */
+export function migrateLayoutKind(kind: LayoutKind): LayoutKind {
+  switch (kind) {
+    case '1x1':
+      return '3d+1';
+    case '1x3':
+    case '1x3-horizontal':
+      return '1+3';
+    default:
+      return kind;
+  }
+}
+
+/** True for a layout the toolbar and the `x` cycle offer — i.e. one that contains the 3D pane. */
+export function isOfferedLayout(kind: LayoutKind): boolean {
+  return LAYOUT_CYCLE.includes(kind);
+}
+
 export function nextLayout(kind: LayoutKind): LayoutKind {
-  const i = LAYOUT_CYCLE.indexOf(kind);
+  const i = LAYOUT_CYCLE.indexOf(migrateLayoutKind(kind));
   return LAYOUT_CYCLE[(i + 1) % LAYOUT_CYCLE.length] as LayoutKind;
 }
 
@@ -72,6 +113,14 @@ export function layoutCells(
       return ids.slice(0, 3);
     case '2x2':
       return [...ids.slice(0, 3), view3d.id];
+    // The 3D pane leads in both new layouts, so `cells[0]` is the 3D one wherever 3D is the subject
+    // of the layout — which is what `view/layout.ts` lays out and what a `1x1`-style zoom expects.
+    case '3d+1': {
+      const slice = preferred != null && ids.includes(preferred) ? preferred : ids[0];
+      return slice === undefined ? [view3d.id] : [view3d.id, slice];
+    }
+    case '1+3':
+      return [view3d.id, ...ids.slice(0, 3)];
   }
 }
 
@@ -87,7 +136,29 @@ export function layoutGrid(kind: LayoutKind, cells: number): { columns: string; 
       return { columns: `repeat(${Math.max(1, cells)}, 1fr)`, rows: '1fr' };
     case '2x2':
       return { columns: 'repeat(2, 1fr)', rows: 'repeat(2, 1fr)' };
+    case '3d+1':
+      return { columns: 'repeat(2, 1fr)', rows: '1fr' };
+    case '1+3':
+      // `2fr / 1fr` is `view/layout.ts`'s `ONE_PLUS_THREE_MAIN = 2/3`, said in CSS. The three slices
+      // are placed by the overlay's own grid-row spans, so the column is three rows tall.
+      return { columns: '2fr 1fr', rows: `repeat(${Math.max(1, cells - 1)}, 1fr)` };
   }
+}
+
+/**
+ * The CSS grid placement of one cell, when the flow order is not enough.
+ *
+ * Only `'1+3'` needs it: the 3D pane is the first cell and has to span the column's three rows, and
+ * CSS auto-flow would otherwise put it in row 1 and push a slice under it. Everything else places
+ * itself, and gets `undefined` — an explicit "no override" the caller can spread.
+ */
+export function layoutCellStyle(
+  kind: LayoutKind,
+  index: number
+): { gridColumn: string; gridRow: string } | undefined {
+  if (kind !== '1+3') return undefined;
+  if (index === 0) return { gridColumn: '1', gridRow: '1 / -1' };
+  return { gridColumn: '2', gridRow: `${index}` };
 }
 
 /**
@@ -119,5 +190,35 @@ export function cellIndexAt(
       const row = y < rect.height / 2 ? 0 : 1;
       return clamp(row * 2 + col, cellCount - 1);
     }
+    case '3d+1':
+      return x < rect.width / 2 ? 0 : 1;
+    case '1+3': {
+      const split = rect.width * (2 / 3);
+      if (x < split) return 0;
+      const rows = cellCount - 1;
+      if (rows <= 0) return 0;
+      return clamp(1 + Math.floor((y / rect.height) * rows), cellCount - 1);
+    }
   }
+}
+
+/**
+ * A `ViewSpec` as the catalogue accepts it: the same spec, with a removed layout migrated.
+ *
+ * Applied by `controller.loadScene` **before** `Engine.load`, so the engine never sees the old kind
+ * and `resyncFromEngine` reads the migrated one back out of `Scene`. The cells are recomputed rather
+ * than carried, because a migrated layout has a different number of them and a different order (the
+ * 3D pane leads) — and they can be recomputed exactly, since the spec carries its own `slices` and
+ * `view3d` and §4.5 keeps those independent of the layout.
+ *
+ * A spec whose layout is already offered is returned **by identity**, so the common path allocates
+ * nothing and a test can assert that nothing was touched.
+ */
+export function migrateSpecLayout(spec: ViewSpec): ViewSpec {
+  const kind = migrateLayoutKind(spec.layout.kind);
+  if (kind === spec.layout.kind) return spec;
+  return {
+    ...spec,
+    layout: { kind, cells: layoutCells(kind, spec.slices, spec.view3d) },
+  };
 }
