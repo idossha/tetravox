@@ -1,0 +1,1516 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_TESTDATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_TESTDATA}/Simulations/L_Insula/TI/niftis/grey_L_Insula_TI_subject_TI_max.nii.gz",
+      "${TETRAVOX_TESTDATA}/m2m_ernie/segmentation/labeling.nii.gz",
+      "${TETRAVOX_TESTDATA}/Simulations/L_Insula/TI/mesh/L_Insula_TI.msh",
+      "${TETRAVOX_TESTDATA}/Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh",
+      "${TETRAVOX_TESTDATA}/m2m_ernie/eeg_positions/GSN-HydroCel-185.geo"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1920,
+    "height": 1080
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "GSN-HydroCel-185.geo",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "grey_L_Insula_TI_subject_TI_max.nii.gz",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layout": "1x3-horizontal",
+      "cursor": [
+        -33.4,
+        31.2,
+        16.3
+      ],
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "layer": "T1.nii.gz",
+      "patch": {
+        "colormap": "gray",
+        "visible": true
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.62
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.62
+    },
+    {
+      "type": "set",
+      "view": "sagittal",
+      "mmPerPx": 0.62
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "start",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "views": {
+          "axial": {
+            "mmPerPx": 0.3
+          },
+          "coronal": {
+            "mmPerPx": 0.3
+          },
+          "sagittal": {
+            "mmPerPx": 0.3
+          }
+        }
+      },
+      "frames": 75
+    },
+    {
+      "type": "set",
+      "layer": "grey_L_Insula_TI_subject_TI_max.nii.gz",
+      "patch": {
+        "visible": true,
+        "opacity": 0.0,
+        "colormap": "hot",
+        "showColorbar": true,
+        "interpolation": "linear",
+        "scale": {
+          "kind": "heat",
+          "min": 0.0606,
+          "mid": 0.0924,
+          "max": 0.1257,
+          "truncate": false,
+          "inverse": false,
+          "negative": "hide"
+        },
+        "threshold": {
+          "lo": 0.1257,
+          "hi": 1000000000.0,
+          "symmetric": false,
+          "mode": "hide",
+          "softEdge": 0.0
+        }
+      }
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "grey_L_Insula_TI_subject_TI_max.nii.gz",
+            "patch": {
+              "opacity": 0.92
+            }
+          }
+        ]
+      },
+      "frames": 80
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "grey_L_Insula_TI_subject_TI_max.nii.gz",
+            "patch": {
+              "threshold": {
+                "lo": 0.0606
+              }
+            }
+          }
+        ]
+      },
+      "frames": 70
+    },
+    {
+      "type": "set",
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "visible": true,
+        "opacity": 0.0,
+        "labelMode": "both",
+        "outlineWidthPx": 2,
+        "interpolation": "nearest",
+        "visibleLabels": [
+          2,
+          3,
+          4,
+          5,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          24,
+          26,
+          28,
+          29,
+          30,
+          31,
+          41,
+          42,
+          43,
+          44,
+          46,
+          47,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          58,
+          60,
+          62,
+          63,
+          72,
+          77,
+          80,
+          85
+        ],
+        "selectedLabels": [],
+        "labelColors": {}
+      }
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "labeling.nii.gz",
+            "patch": {
+              "opacity": 0.34
+            }
+          }
+        ]
+      },
+      "frames": 70
+    },
+    {
+      "type": "set",
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "visibleLabels": [
+          3,
+          12
+        ],
+        "selectedLabels": [],
+        "labelColors": {
+          "3": [
+            1.0,
+            1.0,
+            1.0,
+            0.8
+          ],
+          "12": [
+            0.0,
+            0.9,
+            1.0,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "labeling.nii.gz",
+            "patch": {
+              "opacity": 0.9,
+              "labelMode": "outline"
+            }
+          }
+        ],
+        "views": {
+          "axial": {
+            "mmPerPx": 0.13,
+            "center": [
+              -37.163,
+              4.512
+            ]
+          },
+          "coronal": {
+            "mmPerPx": 0.13,
+            "center": [
+              -37.163,
+              32.442
+            ]
+          }
+        }
+      },
+      "frames": 75
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "cursor": [
+          -33.4,
+          31.2,
+          34.0
+        ]
+      },
+      "frames": 110
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "cursor": [
+          -33.4,
+          31.2,
+          2.0
+        ]
+      },
+      "frames": 110
+    },
+    {
+      "type": "set",
+      "cursor": [
+        -33.4,
+        12.0,
+        16.3
+      ]
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "views": {
+          "axial": {
+            "mmPerPx": 0.19
+          },
+          "coronal": {
+            "mmPerPx": 0.115
+          }
+        }
+      },
+      "frames": 40
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "cursor": [
+          -33.4,
+          52.0,
+          16.3
+        ]
+      },
+      "frames": 100
+    },
+    {
+      "type": "set",
+      "cursor": [
+        -33.4,
+        31.2,
+        16.3
+      ]
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": true
+      },
+      "to": {
+        "views": {
+          "axial": {
+            "mmPerPx": 0.3,
+            "center": [
+              0,
+              0
+            ]
+          },
+          "coronal": {
+            "mmPerPx": 0.3,
+            "center": [
+              0,
+              0
+            ]
+          },
+          "sagittal": {
+            "mmPerPx": 0.3,
+            "center": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "frames": 60
+    },
+    {
+      "type": "set",
+      "layer": "T1.nii.gz",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "grey_L_Insula_TI_subject_TI_max.nii.gz",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "visible": true,
+        "colorMode": "tag",
+        "tagStyle": {
+          "1005": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1007": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1008": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1003": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1002": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1001": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1006": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1009": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1010": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1099": {
+            "visible": true,
+            "opacity": 1.0
+          }
+        },
+        "faceMode": "cull",
+        "flatShading": false,
+        "edges": {
+          "surface": false,
+          "caps": false
+        },
+        "edgeWidthPx": 1.0,
+        "clip": {
+          "planes": [],
+          "caps": true,
+          "capColorMode": "tag"
+        },
+        "isolate": null,
+        "glyphs": null
+      }
+    },
+    {
+      "type": "set",
+      "layout": "3d-only"
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "camera": "L"
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "distance": 760
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "to": {
+        "distance": 440,
+        "target": [
+          0.0,
+          18.0,
+          4.0
+        ]
+      },
+      "frames": 75
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "orbit": {
+        "degrees": -30,
+        "axis": "z"
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "L_Insula_TI.msh",
+            "patch": {
+              "tagStyle": {
+                "1005": {
+                  "opacity": 0.2
+                },
+                "1007": {
+                  "opacity": 0.42
+                },
+                "1008": {
+                  "opacity": 0.42
+                },
+                "1003": {
+                  "opacity": 0.3
+                },
+                "1010": {
+                  "opacity": 0.25
+                },
+                "1006": {
+                  "opacity": 0.6
+                }
+              }
+            }
+          }
+        ]
+      },
+      "frames": 100
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "clip": {
+          "planes": [
+            {
+              "plane": {
+                "normal": [
+                  0,
+                  0,
+                  1
+                ],
+                "offset": 130.0
+              },
+              "enabled": true
+            }
+          ],
+          "caps": true,
+          "capColorMode": "tag"
+        }
+      }
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "orbit": {
+        "degrees": 44,
+        "axis": "y"
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "L_Insula_TI.msh",
+            "patch": {
+              "clip": {
+                "planes": [
+                  {
+                    "plane": {
+                      "offset": -16.3
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "frames": 100
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "to": {
+        "distance": 205,
+        "target": [
+          0.0,
+          26.0,
+          14.0
+        ]
+      },
+      "frames": 60
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "edges": {
+          "surface": false,
+          "caps": true
+        },
+        "edgeWidthPx": 0.5
+      }
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "L_Insula_TI.msh",
+            "patch": {
+              "edgeWidthPx": 2.4
+            }
+          }
+        ]
+      },
+      "frames": 50
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "to": {
+        "distance": 430,
+        "target": [
+          0.0,
+          18.0,
+          4.0
+        ],
+        "layers": [
+          {
+            "layer": "L_Insula_TI.msh",
+            "patch": {
+              "edgeWidthPx": 0.8
+            }
+          }
+        ]
+      },
+      "frames": 50
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "edges": {
+          "surface": false,
+          "caps": false
+        },
+        "colorMode": "field",
+        "flatShading": true,
+        "showColorbar": true,
+        "field": {
+          "source": "elm",
+          "name": "TI_max",
+          "component": "mag"
+        },
+        "colormap": "jet",
+        "clip": {
+          "planes": [
+            {
+              "plane": {
+                "normal": [
+                  0,
+                  0,
+                  1
+                ],
+                "offset": -16.3
+              },
+              "enabled": true
+            }
+          ],
+          "caps": true,
+          "capColorMode": "inherit"
+        },
+        "scale": {
+          "kind": "linear",
+          "lo": 0.0,
+          "hi": 0.3
+        }
+      }
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "orbit": {
+        "degrees": -26,
+        "axis": "z"
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "L_Insula_TI.msh",
+            "patch": {
+              "tagStyle": {
+                "1005": {
+                  "opacity": 0.06
+                },
+                "1007": {
+                  "opacity": 0.12
+                },
+                "1008": {
+                  "opacity": 0.12
+                },
+                "1003": {
+                  "opacity": 0.1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "frames": 90
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "isolate": {
+          "tags": [
+            2
+          ],
+          "combine": "all",
+          "field": {
+            "source": "elm",
+            "name": "TI_max",
+            "component": "mag",
+            "lo": 0.3,
+            "hi": 10.0
+          }
+        },
+        "tagStyle": {
+          "1005": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1007": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1008": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1003": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1002": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1001": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1006": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1009": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1010": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1099": {
+            "visible": true,
+            "opacity": 1.0
+          }
+        },
+        "clip": {
+          "planes": [],
+          "caps": true,
+          "capColorMode": "inherit"
+        },
+        "scale": {
+          "kind": "linear",
+          "lo": 0.085,
+          "hi": 0.15
+        }
+      }
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "camera": "L"
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "distance": 210
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "orbit": {
+        "degrees": 34,
+        "axis": "z"
+      },
+      "to": {
+        "target": [
+          -10.0,
+          22.0,
+          12.0
+        ],
+        "layers": [
+          {
+            "layer": "L_Insula_TI.msh",
+            "patch": {
+              "isolate": {
+                "field": {
+                  "lo": 0.09
+                }
+              }
+            }
+          }
+        ]
+      },
+      "frames": 100
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "visible": true,
+        "colorMode": "tag",
+        "showColorbar": true,
+        "colormap": "cool",
+        "tagStyle": {
+          "1005": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1007": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1008": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1003": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1002": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1001": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1006": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1009": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1010": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1099": {
+            "visible": false,
+            "opacity": 1.0
+          }
+        },
+        "clip": {
+          "planes": [
+            {
+              "plane": {
+                "normal": [
+                  0,
+                  0,
+                  -1
+                ],
+                "offset": 16.3
+              },
+              "enabled": true
+            }
+          ],
+          "caps": false,
+          "capColorMode": "tag"
+        },
+        "glyphs": {
+          "field": {
+            "source": "elm",
+            "name": "E"
+          },
+          "shape": "arrow",
+          "origins": "volume",
+          "subsample": {
+            "everyNth": 30
+          },
+          "scale": {
+            "mode": "log",
+            "lengthMm": 0.2,
+            "normalizeTo": "p99",
+            "logFloor": 0.05
+          },
+          "lengthMm": 0.2,
+          "colorBy": "magnitude",
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "clipToCutPlane": false,
+          "onCutPlaneOnly": true,
+          "cutSlabMm": 4.0,
+          "headProportion": 0.3
+        }
+      }
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "camera": "S"
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "distance": 255
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "orbit": {
+        "degrees": 24,
+        "axis": "z"
+      },
+      "to": {
+        "target": [
+          0.0,
+          22.0,
+          16.3
+        ],
+        "layers": [
+          {
+            "layer": "ernie_TDCS_1_scalar.msh",
+            "patch": {
+              "glyphs": {
+                "scale": {
+                  "lengthMm": 8.0
+                },
+                "lengthMm": 8.0
+              }
+            }
+          }
+        ]
+      },
+      "frames": 100
+    },
+    {
+      "type": "set",
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "visible": true,
+        "colorMode": "tag",
+        "isolate": null,
+        "flatShading": false,
+        "showColorbar": false,
+        "clip": {
+          "planes": [],
+          "caps": true,
+          "capColorMode": "tag"
+        },
+        "tagStyle": {
+          "1005": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1007": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1008": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1003": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1002": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1001": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1006": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1009": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1010": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1099": {
+            "visible": true,
+            "opacity": 1.0
+          }
+        }
+      }
+    },
+    {
+      "type": "set",
+      "layer": "GSN-HydroCel-185.geo",
+      "patch": {
+        "visible": true,
+        "shape": "sphere",
+        "radiusMm": 0.1,
+        "showLabels": false,
+        "valueMode": "solid"
+      }
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "camera": "L"
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "distance": 440
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "orbit": {
+        "degrees": 26,
+        "axis": "z"
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "GSN-HydroCel-185.geo",
+            "patch": {
+              "radiusMm": 4.0
+            }
+          }
+        ]
+      },
+      "frames": 70
+    },
+    {
+      "type": "set",
+      "layer": "GSN-HydroCel-185.geo",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "visible": true,
+        "opacity": 0.0,
+        "visibleLabels": [
+          515,
+          516
+        ],
+        "selectedLabels": [],
+        "labelColors": {},
+        "iso3d": {
+          "enabled": true,
+          "iso": 0.5,
+          "color": [
+            0.93,
+            0.84,
+            0.59,
+            1.0
+          ],
+          "opacity": 0.0,
+          "smooth": true,
+          "faceMode": "cull"
+        }
+      }
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "orbit": {
+        "degrees": -30,
+        "axis": "z"
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "labeling.nii.gz",
+            "patch": {
+              "iso3d": {
+                "opacity": 1.0
+              }
+            }
+          }
+        ]
+      },
+      "frames": 90
+    },
+    {
+      "type": "set",
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "visible": false,
+        "iso3d": {
+          "enabled": false,
+          "iso": 0.5,
+          "color": [
+            0.93,
+            0.84,
+            0.59,
+            1.0
+          ],
+          "opacity": 1.0,
+          "smooth": true,
+          "faceMode": "cull"
+        }
+      }
+    },
+    {
+      "type": "set",
+      "layer": "L_Insula_TI.msh",
+      "patch": {
+        "visible": true,
+        "tagStyle": {
+          "1005": {
+            "visible": true,
+            "opacity": 0.22
+          },
+          "1007": {
+            "visible": true,
+            "opacity": 0.45
+          },
+          "1008": {
+            "visible": true,
+            "opacity": 0.45
+          },
+          "1003": {
+            "visible": true,
+            "opacity": 0.32
+          }
+        }
+      }
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "camera": "L"
+    },
+    {
+      "type": "set",
+      "view": "view3d",
+      "distance": 470
+    },
+    {
+      "type": "tween",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "continue",
+      "ease": "inOut",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "to": {
+        "target": [
+          0.0,
+          16.0,
+          0.0
+        ]
+      },
+      "frames": 30
+    },
+    {
+      "type": "orbit",
+      "out": "showcase",
+      "fps": 30,
+      "width": 1920,
+      "height": 1080,
+      "gif": false,
+      "sequence": "end",
+      "degrees": 360,
+      "frames": 210,
+      "axis": "z",
+      "include": {
+        "crosshair": false,
+        "colorbar": true,
+        "orientationLabels": true,
+        "cornerInfo": true,
+        "scaleBar": false
+      },
+      "format": "mp4"
+    }
+  ]
+}

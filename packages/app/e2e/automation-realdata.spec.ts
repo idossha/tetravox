@@ -388,6 +388,159 @@ test.describe('automation (--job) on real data', () => {
     );
   });
 
+  test('a tween eases a layer opacity: the fade only moves forward, and the middle moves fastest', async () => {
+    const outcome = await runJob(
+      {
+        scene: { files: [P.t1, P.tiMax], preset: 'ti-field-on-t1' },
+        window: { width: 700, height: 700 },
+        actions: [
+          { type: 'set', layout: '1x1', view: 'axial', cursor: [0, -18, 8], mmPerPx: 0.28 },
+          { type: 'set', layer: P.tiMax, patch: { opacity: 0.0 } },
+          {
+            type: 'tween',
+            out: 'fade',
+            frames: 10,
+            ease: 'inOut',
+            width: 300,
+            include: { crosshair: false },
+            to: {
+              layers: [{ layer: 'Thalamus_TI_subject_TI_max.nii.gz', patch: { opacity: 1.0 } }],
+            },
+          },
+        ],
+      },
+      'tween'
+    );
+    expect(outcome.result.errors).toEqual([]);
+    expect(outcome.result.ok).toBe(true);
+
+    const files = outcome.result.outputs[2]?.files ?? [];
+    const pngs = files.filter((f) => f.endsWith('.png'));
+    expect(pngs).toHaveLength(10);
+    expect(pngs[0]).toBe('fade-0000.png');
+
+    const frames = pngs.map((name) => readImage(outcome.outDir, name));
+    for (const [i, frame] of frames.entries()) {
+      expect(frame.width).toBe(300);
+      expectNotBlank(frame, pngs[i] as string);
+    }
+    // A fade only ever moves away from where it started: the distance from frame 0 never decreases,
+    // and by the last frame it is a visibly different picture.
+    //
+    // Not "every consecutive pair differs", which is the claim a *sweep* can make and an eased fade
+    // cannot: `easeFraction('inOut', 1/9)` is 0.0055, so the opacity between the first two frames
+    // moves by half a percent and lands under the 8-count tolerance. That is the ease working, not
+    // the tween failing.
+    let previous = 0;
+    for (let i = 1; i < frames.length; i += 1) {
+      const travelled = differingFraction(frames[0] as DecodedPng, frames[i] as DecodedPng);
+      expect(
+        travelled,
+        `frame ${i} is closer to the start than frame ${i - 1}`
+      ).toBeGreaterThanOrEqual(previous - 0.001);
+      previous = travelled;
+    }
+    expect(differingFraction(frames[0] as DecodedPng, frames[9] as DecodedPng)).toBeGreaterThan(
+      0.02
+    );
+
+    // Eased, not linear: the middle of an ease-in-out covers more ground per frame than the start,
+    // so the change across the two central frames beats the change across the first two. This is the
+    // assertion that would fail if `ease` were quietly ignored.
+    const early = differingFraction(frames[0] as DecodedPng, frames[1] as DecodedPng);
+    const middle = differingFraction(frames[4] as DecodedPng, frames[5] as DecodedPng);
+    expect(middle).toBeGreaterThan(early);
+  });
+
+  test('a sequence of three actions writes one continuously numbered video, encoded once', async () => {
+    const outcome = await runJob(
+      {
+        scene: { files: [P.t1], preset: 'plain' },
+        window: { width: 500, height: 500 },
+        actions: [
+          { type: 'set', layout: '1x1', view: 'axial', cursor: [0, -18, -10], mmPerPx: 0.4 },
+          {
+            type: 'tween',
+            out: 'story',
+            frames: 4,
+            width: 240,
+            gif: false,
+            sequence: 'start',
+            to: { cursor: [0, -18, 10] },
+          },
+          {
+            type: 'tween',
+            out: 'story',
+            frames: 4,
+            width: 240,
+            gif: false,
+            sequence: 'continue',
+            to: { cursor: [0, -18, 30] },
+          },
+          {
+            type: 'tween',
+            out: 'story',
+            frames: 4,
+            width: 240,
+            gif: false,
+            sequence: 'end',
+            to: { cursor: [0, -18, 50] },
+          },
+        ],
+      },
+      'sequence'
+    );
+    expect(outcome.result.errors).toEqual([]);
+    expect(outcome.result.ok).toBe(true);
+
+    // Numbering runs on across the three actions rather than restarting at 0000 three times.
+    const named = (i: number): string[] =>
+      (outcome.result.outputs[i]?.files ?? []).filter((f) => f.endsWith('.png'));
+    expect(named(1)).toEqual([
+      'story-0000.png',
+      'story-0001.png',
+      'story-0002.png',
+      'story-0003.png',
+    ]);
+    expect(named(2)[0]).toBe('story-0004.png');
+    expect(named(3)[3]).toBe('story-0011.png');
+
+    // `gif: false` means no GIF anywhere, and only the `end` action encodes.
+    const all = outcome.result.outputs.flatMap((o) => o.files);
+    expect(all.filter((f) => f.endsWith('.gif'))).toEqual([]);
+
+    // The twelve frames are one continuous move: the first and the last are different slices.
+    const first = readImage(outcome.outDir, 'story-0000.png');
+    const last = readImage(outcome.outDir, 'story-0011.png');
+    expectNotBlank(first, 'story-0000.png');
+    expectNotBlank(last, 'story-0011.png');
+    expect(differingFraction(first, last)).toBeGreaterThan(0.05);
+  });
+
+  test('a job names its data through ${TETRAVOX_TESTDATA}, and says so when the variable is unset', async () => {
+    const outcome = await runJob(
+      {
+        scene: { files: ['${TETRAVOX_TESTDATA}/m2m_ernie/T1.nii.gz'], preset: 'plain' },
+        window: { width: 400, height: 400 },
+        actions: [{ type: 'screenshot', out: 'expanded.png', width: 200 }],
+      },
+      'env'
+    );
+    expect(outcome.result.errors).toEqual([]);
+    expectNotBlank(readImage(outcome.outDir, 'expanded.png'), 'expanded.png');
+
+    const missing = await runJob(
+      {
+        scene: { files: ['${TETRAVOX_NO_SUCH_VARIABLE}/T1.nii.gz'], preset: 'plain' },
+        window: { width: 400, height: 400 },
+        actions: [{ type: 'screenshot', out: 'nope.png' }],
+      },
+      'env-missing'
+    );
+    expect(missing.code).toBe(1);
+    expect(missing.result.errors.join('\n')).toContain('$TETRAVOX_NO_SUCH_VARIABLE is not set');
+  });
+
   test('a bad job fails before it opens a window, and says what is wrong with it', async () => {
     const outcome = await runJob(
       {

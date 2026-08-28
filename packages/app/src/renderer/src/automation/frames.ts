@@ -164,3 +164,167 @@ export function normalizeQuat(q: quat): quat {
   if (length === 0) return [0, 0, 0, 1];
   return [q[0] / length, q[1] / length, q[2] / length, q[3] / length];
 }
+
+// ------------------------------------------------------------------------------------------------
+// tween
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * The easing curves a `tween` offers (directed task 14, 2026-08-28).
+ *
+ * `inOut` is the default and the only one a camera move should normally use: a 3D shot that starts
+ * and stops abruptly reads as a jump cut even at 30 fps, and the whole reason a showcase tweens a
+ * camera rather than stepping it is that the eye can follow an accelerating move and cannot follow a
+ * teleport. `in` / `out` exist for a shot that has to hand off to another one already in motion, and
+ * `linear` for a caller that wants the frames to mean equal increments of the *parameter* — a slider
+ * being demonstrated, rather than a camera being flown.
+ */
+export type Ease = 'linear' | 'in' | 'out' | 'inOut';
+
+export const EASES: readonly Ease[] = ['linear', 'in', 'out', 'inOut'];
+
+/** The cubic family, on `t ∈ [0, 1]`. Clamped, so a caller's rounding cannot overshoot the end state. */
+export function easeFraction(ease: Ease, t: number): number {
+  const x = t <= 0 ? 0 : t >= 1 ? 1 : t;
+  switch (ease) {
+    case 'linear':
+      return x;
+    case 'in':
+      return x * x * x;
+    case 'out':
+      return 1 - (1 - x) ** 3;
+    default:
+      return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
+  }
+}
+
+/**
+ * The eased fraction for each frame of an `n`-frame tween.
+ *
+ * **Both ends are included** — frame 0 is exactly the start state and the last frame is exactly the
+ * end state — which is the opposite of {@link orbitRotations}' choice and for the opposite reason. An
+ * orbit is a *loop*, so repeating the start at the end is a stutter; a tween is a *move*, and a move
+ * that stops one step short of its destination leaves the scene not quite where the next shot assumes
+ * it is. A one-frame tween is legal and is the end state, which is what makes `frames: 1` a usable
+ * "hold this" beat.
+ */
+export function tweenFractions(frames: number, ease: Ease = 'inOut'): number[] {
+  const n = Math.max(1, Math.min(MAX_FRAMES, Math.round(frames)));
+  if (n === 1) return [1];
+  return Array.from({ length: n }, (_, i) => easeFraction(ease, i / (n - 1)));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Interpolate `from` towards `to` at `t`, over whatever shape `to` has.
+ *
+ * **Only numbers move.** A number is lerped; an array is walked element-wise; an object is walked key
+ * by key over the keys `to` names. Anything else — a string colormap, a boolean `visible`, a null —
+ * takes its `to` value from the very first frame, because there is no halfway between `'jet'` and
+ * `'hot'` and a control that flips at the last frame would look like a glitch rather than a cut.
+ * `to` is therefore also the shape of the result: a key `from` has and `to` does not is not in the
+ * patch at all, so a tween never writes a field the caller did not name.
+ *
+ * A leaf where `to` is a number and `from` is not (the caller gave no start, or the live layer had
+ * nothing at that path) is held at `to` rather than lerped from an invented zero — a fade that starts
+ * from a made-up 0 is a fade the data never had.
+ */
+export function tweenValue(from: unknown, to: unknown, t: number): unknown {
+  if (typeof to === 'number') {
+    if (typeof from !== 'number' || !Number.isFinite(from)) return to;
+    return from + (to - from) * t;
+  }
+  if (Array.isArray(to)) {
+    const source = Array.isArray(from) ? from : [];
+    return to.map((entry, i) => tweenValue(source[i], entry, t));
+  }
+  if (isPlainObject(to)) {
+    const source = isPlainObject(from) ? from : {};
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(to)) out[key] = tweenValue(source[key], value, t);
+    return out;
+  }
+  return to;
+}
+
+/**
+ * Read the paths `shape` names out of a live object, so a tween with no `from` can start from
+ * wherever the scene already is.
+ *
+ * This is what makes `tween { to: { layers: [{ patch: { opacity: 1 } }] } }` mean "fade this up from
+ * whatever it is now" instead of forcing every job to restate the current value — and restating it is
+ * exactly the thing that goes stale when an earlier shot is edited.
+ */
+export function pluckShape(source: unknown, shape: unknown): unknown {
+  if (Array.isArray(shape)) {
+    const from = Array.isArray(source) ? source : [];
+    return shape.map((entry, i) => pluckShape(from[i], entry));
+  }
+  if (isPlainObject(shape)) {
+    const from = isPlainObject(source) ? source : {};
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(shape)) out[key] = pluckShape(from[key], value);
+    return out;
+  }
+  return source;
+}
+
+/**
+ * Turn JSON's `null` into `undefined`, everywhere in a layer patch.
+ *
+ * JSON has no `undefined`, and §4.4 uses **absence** for "this layer has no isolation / no glyphs /
+ * no 3D surface" — `MeshLayer.isolate` and friends are optional fields, and the app clears them by
+ * assigning `undefined`. Without this a job could switch those features on and never off again, so
+ * `{"isolate": null}` is how a job says "remove it", and it is the only sensible reading of a `null`
+ * in a patch: no field of a `Layer` is legitimately null.
+ *
+ * Arrays are walked too, so a `null` inside one is converted rather than silently kept.
+ */
+export function nullsToUndefined<T>(value: T): T {
+  if (value === null) return undefined as T;
+  if (Array.isArray(value)) return value.map((entry) => nullsToUndefined(entry)) as T;
+  if (typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = nullsToUndefined(entry);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/**
+ * Deep-merge `patch` onto a copy of `base`.
+ *
+ * `Engine.updateLayer` merges a patch onto the layer at the **top level only** — that is the right
+ * rule for `set`, where the caller writes out the whole value of the field being changed. A tween
+ * cannot do that: it names *leaves* (`clip.planes[0].plane.offset`, `isolate.field.lo`,
+ * `glyphs.scale.lengthMm`), and a top-level merge would replace the whole `clip` / `isolate` /
+ * `glyphs` object with the sparse skeleton the tween built, silently dropping the plane's normal,
+ * the isolation's tags and the glyphs' subsampling. So a tween merges its interpolated leaves onto
+ * the layer's **current** value first and hands `updateLayer` a complete field.
+ *
+ * Arrays merge element-wise when both sides are arrays — `planes: [{ plane: { offset } }]` updates
+ * plane 0 and leaves plane 1 alone — and a longer patch array wins outright, which is how a tween
+ * could add one. `undefined` in the patch means "the base had nothing here", not "delete".
+ */
+export function mergeOnto(base: unknown, patch: unknown): unknown {
+  if (patch === undefined) return base;
+  if (Array.isArray(patch)) {
+    const from = Array.isArray(base) ? base : [];
+    const length = Math.max(from.length, patch.length);
+    return Array.from({ length }, (_, i) =>
+      i < patch.length ? mergeOnto(from[i], patch[i]) : from[i]
+    );
+  }
+  if (isPlainObject(patch)) {
+    if (!isPlainObject(base)) return patch;
+    const out: Record<string, unknown> = { ...base };
+    for (const [key, value] of Object.entries(patch)) out[key] = mergeOnto(base[key], value);
+    return out;
+  }
+  return patch;
+}

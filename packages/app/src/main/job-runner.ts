@@ -35,7 +35,7 @@ import { encodeGif } from './gif';
 import type { GifFrame } from './gif';
 import { decodePng } from './png';
 import { allowPath } from './paths';
-import { parseJobArgs, validateJob, JOB_SCHEMA_VERSION, jobInputPaths } from './job';
+import { expandEnv, parseJobArgs, validateJob, JOB_SCHEMA_VERSION, jobInputPaths } from './job';
 import type { Job, JobInvocation, JobOutput, JobResult } from './job';
 
 /** What the renderer pulls at startup. */
@@ -61,6 +61,11 @@ export interface JobFramesRequest {
   mp4: boolean;
   /** GIF palette size. */
   colors?: number;
+  /**
+   * The frame number the first of {@link JobFramesRequest.frames} takes — how a `sequence` of
+   * several actions writes into one video (`job.ts`'s `SequenceRole`). Default 0.
+   */
+  startIndex?: number;
   frames: Uint8Array[];
 }
 
@@ -227,7 +232,8 @@ export function registerJobIpc(): void {
 
   ipcMain.handle('tetravox:job-frames', (_event, payload: unknown) => {
     if (request === null) return { ok: false, error: 'not a job run' };
-    const { base, fps, gif, mp4, colors, frames } = payload as JobFramesRequest;
+    const { base, fps, gif, mp4, colors, startIndex, frames } = payload as JobFramesRequest;
+    const first = startIndex ?? 0;
     const files: string[] = [];
     const warnings: string[] = [];
     try {
@@ -237,10 +243,20 @@ export function registerJobIpc(): void {
       // name is also what sorts correctly in a file browser.
       const decoded: GifFrame[] = [];
       for (const [i, bytes] of frames.entries()) {
-        const name = `${base}-${String(i).padStart(4, '0')}.png`;
+        const name = `${base}-${String(first + i).padStart(4, '0')}.png`;
         writeFileSync(resolveOutput(request.outDir, name), Buffer.from(bytes));
         files.push(name);
         if (gif) decoded.push(decodePng(Buffer.from(bytes)));
+      }
+      if (gif && first > 0) {
+        // The sequence began in an earlier action, so the earlier frames are on disk and not in
+        // this payload. Read them back rather than asking the renderer to resend a video's worth
+        // of PNGs it has already handed over once.
+        decoded.length = 0;
+        for (let i = 0; i < first + frames.length; i += 1) {
+          const name = `${base}-${String(i).padStart(4, '0')}.png`;
+          decoded.push(decodePng(readFileSync(resolveOutput(request.outDir, name))));
+        }
       }
       if (gif && decoded.length > 0) {
         const name = `${base}.gif`;
@@ -314,9 +330,22 @@ export function prepareJob(argv: readonly string[], cwd: string): JobInvocation 
 
   // §5 directive A2: the job file naming a path *is* the user naming it. Sidecars are admitted by
   // the renderer's own `requestFromPath`, which asks main for each candidate.
-  const wanted = jobInputPaths(job).map((p) =>
-    isAbsolute(p) ? p : resolve(invocation.jobPath, '..', p)
-  );
+  const expansionErrors: string[] = [];
+  const wanted = jobInputPaths(job).map((raw) => {
+    const expanded = expandEnv(raw, process.env);
+    if (!expanded.ok) {
+      expansionErrors.push(
+        `${raw}: ${expanded.missing.map((n) => `$${n}`).join(', ')} is not set in the environment`
+      );
+      return raw;
+    }
+    const p = expanded.path;
+    return isAbsolute(p) ? p : resolve(invocation.jobPath, '..', p);
+  });
+  if (expansionErrors.length > 0) {
+    fail(invocation, expansionErrors);
+    return null;
+  }
   // `allowPath` returns null for a path that does not resolve, so it doubles as the existence check
   // — the same doubling `open/sources.ts` relies on, rather than a second `statSync` here.
   const admitted: string[] = [];

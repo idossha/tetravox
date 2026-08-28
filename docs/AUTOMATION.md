@@ -72,6 +72,19 @@ figures from six launches would pay for it six times.
 Relative paths in `scene` resolve against the **job file's** directory. Output names resolve against
 `--out` and may not escape it — a leading `/` or a `..` is rejected before anything runs.
 
+A scene path may also name an environment variable as `${NAME}`, which is how a **committed** job can
+point at data that does not live in the repository:
+
+```json
+{ "scene": { "files": ["${TETRAVOX_TESTDATA}/m2m_ernie/T1.nii.gz"], "preset": "ti-field-on-t1" } }
+```
+
+`docs/TESTING.md` already makes `TETRAVOX_TESTDATA` the name of the SimNIBS subject to work against, so
+a job using it runs on anyone's checkout and on none of the alternatives: an absolute path is
+reproducible on exactly one machine, and `../../../../datasets/…` encodes a guess about where the
+checkout sits next to the data. Only `${NAME}` is expanded — a bare `$NAME` is left alone, because a
+`$` in a file name is legal — and an **unset** variable is an error rather than an empty string.
+
 **The window is the render target.** A job's window has no panels: the whole of it is the view grid,
 because a screenshot comes off the engine's canvas and never contains the panels anyway. A bigger
 window is a sharper picture, not a bigger crop.
@@ -119,7 +132,7 @@ never invents a lookalike.
 | `layer` | Which layer `patch` applies to: an index (bottom→top), a name (`"T1.nii.gz"`), a suffix of the dataset's path, or `"active"`. Default `"active"`. |
 | `patch` | A `Partial<Layer>` in the app's own vocabulary ([§4.4](ARCHITECTURE.md)) — `{"colormap": "viridis", "opacity": 0.6}` — passed to `Engine.updateLayer` untouched. |
 | `cursor` | `[x, y, z]` in world RAS millimetres. The slice planes are derived from it (§4.5), so this is how you choose a slice. |
-| `layout` | `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`. |
+| `layout` | `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`, `1+3`, `3d+1`. |
 | `view` | Which view `camera` / `reset` / `mmPerPx` / `center` / `distance` apply to. Default `view3d`. |
 | `camera` | A 3D camera preset: `"1"`–`"6"`, or `A P L R S I`. |
 | `mmPerPx` | 2D zoom for `view`. Smaller is closer; the scene default is 0.5, which covers 350 mm on a 700 px pane. |
@@ -177,8 +190,86 @@ never invents a lookalike.
 The camera is put back where it started afterwards, so a `screenshot` after an orbit photographs the
 scene the job set up.
 
-**Frame limits.** A sweep or an orbit is capped at 720 frames, and the cap is recorded as a warning
-rather than silently applied.
+#### `tween` — N eased frames between two scene states
+
+`sweep` steps a slice and `orbit` turns a camera; each owns the one parameter it varies. A **tween**
+moves anything a number can describe — the cursor, the 3D camera's distance and target, a pane's zoom
+and pan, and any numeric field of any layer: an opacity, a clip-plane offset, a threshold, an iso
+level, a glyph length — over `frames` frames with an ease. It is what a narrated shot needs, and it is
+how `docs/media/showcase.job.json` is written.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `out` | — | Base name, as `sweep`. |
+| `frames` | 30 | Frames, **inclusive of both ends**: frame 0 is the start state and the last frame is exactly `to`. `frames: 1` is therefore a one-frame hold on `to`. |
+| `ease` | `inOut` | `linear`, `in`, `out`, `inOut` — the cubic family. |
+| `from` | the live scene | The start state. Omitted, each value is read off the scene at the moment the action runs, path by path, so a shot says where it is going and not also where it already is. |
+| `to` | — | The end state. |
+| `orbit` | — | `{ degrees, axis }`: an eased camera orbit about a **world** axis, run across the same frames and composed with `to.distance` / `to.target`, so one shot can dolly in while it turns. |
+| `view` | `grid` | The capture target, as `screenshot`. |
+| `fps`, `format`, `colors`, `width`/`height`, `background`, `include`, `sequence`, `gif` | | As `sweep`. |
+
+A **state** — `from` and `to` both — is a subset of:
+
+```jsonc
+{
+  "cursor":   [-33.4, 31.2, 16.3],          // world RAS mm; every 2D pane's slice follows it
+  "distance": 260,                          // 3D camera distance, mm
+  "target":   [0, 18, 4],                   // 3D camera target, world RAS mm
+  "views":    { "axial": { "mmPerPx": 0.13, "center": [-37, 4.5] } },
+  "layers":   [ { "layer": "labeling.nii.gz", "patch": { "opacity": 0.9 } } ]
+}
+```
+
+`layout`, `camera` and `radiological` are deliberately **not** in it: there is no frame that is 40 % of
+the way from a 2×2 layout to a 1×1 one. Change those with a `set` between two tweens.
+
+Three rules make a layer tween behave the way a shot means it:
+
+* **Only numbers are interpolated.** A string (`"colormap": "jet"`), a boolean, a `null` — anything
+  with no halfway — takes its `to` value from the **first** frame, because a control that flips at the
+  last frame reads as a glitch rather than a cut.
+* **A tween's patch is deep-merged onto the layer's current value.** `updateLayer` merges a patch at
+  the top level only, which is right for `set`, where the caller writes out the whole field. A tween
+  names *leaves* — `{"clip": {"planes": [{"plane": {"offset": -16.3}}]}}` — and a top-level merge would
+  throw away the plane's normal, the isolation's tags and the glyphs' subsampling along the way.
+* **A tween leaves the scene where it ended.** An orbit is a capture and puts its camera back; a tween
+  is a move, and the next action starts where this one stopped.
+
+```json
+{ "type": "tween", "out": "shot", "frames": 90, "ease": "inOut",
+  "orbit": { "degrees": -30, "axis": "z" },
+  "to": { "distance": 320,
+          "layers": [{ "layer": "ernie.msh",
+                       "patch": { "tagStyle": { "1005": { "opacity": 0.2 } } } }] } }
+```
+
+`null` in **any** patch — `set`'s as well as a tween's — means *unset the field*. §4.4 uses absence for
+"this layer has no isolation / no glyphs / no 3D surface", and JSON has no `undefined`, so
+`{"isolate": null}` is how a job turns one of those back off.
+
+#### `sequence` — many actions, one video
+
+A minute of video is not one camera move, and a per-action encode cannot express twenty shots that
+have to become one file. Every frame action (`sweep`, `orbit`, `tween`) takes `sequence`:
+
+| value | frame numbering | encodes |
+|---|---|---|
+| absent | from `0000` | yes — the action is a sequence of one, which is what every job written before this did |
+| `"start"` | from `0000` | no |
+| `"continue"` | after the frames already written under this `out` | no |
+| `"end"` | ditto | yes, over the whole sequence |
+
+All the actions share one `out`, and the encode reads the PNG frames back off disk (`<out>-%04d.png`
+is already what ffmpeg's image2 demuxer wants), so a 1,885-frame 1080p video never has to be held in
+memory at once.
+
+`gif: false` on a frame action skips the GIF. The GIF is otherwise unconditional so that a machine with
+no ffmpeg still gets an animation — the PNG frames are written either way, so that reason survives the
+opt-out, and at 1920×1080 over a thousand frames a GIF is neither small nor watchable.
+
+**Frame limits.** A sweep, an orbit or a tween is capped at 720 frames each, and the cap is recorded as
+a warning rather than silently applied. A `sequence` is not capped: it is as long as its actions.
 
 ### 2.4 `job-result.json`
 
@@ -249,6 +340,7 @@ Job(files=[...], preset="plain", window=(1400, 900))   # or Job.from_scene("stud
    .screenshot(...)   # one PNG
    .sweep(...)        # PNG frames + GIF (+ MP4)
    .orbit(...)        # PNG frames + GIF (+ MP4)
+   .tween(...)        # N eased frames between two scene states
    .run(out_dir, app=None) -> JobResult
 ```
 
@@ -259,8 +351,9 @@ to submit to a cluster.
 `JobResult` carries `ok`, `files` (absolute, in order), `files_for(action_index)`, `timings`,
 `warnings`, `errors`, and `raise_for_status()`.
 
-Python's parameter names differ from the JSON in exactly two places, both forced: `sweep(start=, stop=)`
-for `from` / `to` (`from` is a keyword), and `mm_per_px` for `mmPerPx` (snake case).
+Python's parameter names differ from the JSON in exactly three places, all forced: `sweep(start=, stop=)`
+and `tween(start=)` for `from` (a keyword), `sweep(stop=)` for `to`, and `mm_per_px` for `mmPerPx`
+(snake case).
 
 ### Finding the app
 
@@ -330,7 +423,7 @@ path *is* the user naming it.
 |---|---|
 | `packages/app/src/main/job.test.ts` | The schema, as claims about the document and about what a bad job is told. |
 | `packages/app/src/main/gif.test.ts` | The GIF encoder, round-tripped through an independently written reader. |
-| `packages/app/src/renderer/src/automation/frames.test.ts` | Sweep offsets and orbit quaternions, checked by rotating vectors rather than by comparing components. |
+| `packages/app/src/renderer/src/automation/frames.test.ts` | Sweep offsets and orbit quaternions, checked by rotating vectors rather than by comparing components; the tween's easing curves, its numeric interpolation, and the deep merge that keeps a nested layer field intact. |
 | `packages/app/src/renderer/src/automation/presets.test.ts` | The presets, over datasets with known distributions. |
 | `packages/app/e2e/automation-realdata.spec.ts` | The whole thing, offscreen, on ernie: a screenshot job, a 10-frame sweep, a 12-frame orbit and the TI preset — asserting that the images are the requested size, are not blank, and **differ frame to frame**. Skips when `TETRAVOX_TESTDATA` is unset. |
 | `python/tests/test_client.py` | The client's documents, and one example end to end against a dev build. Skips when either is missing. |

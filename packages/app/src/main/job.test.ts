@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_WINDOW,
   JOB_SCHEMA_VERSION,
+  expandEnv,
   frameFormats,
   jobInputPaths,
   parseJobArgs,
@@ -173,7 +174,7 @@ describe('validateJob — what a bad job is told', () => {
 
   it('rejects an unknown action type', () => {
     expect(errorsFor({ ...minimal, actions: [{ type: 'render' }] })).toEqual([
-      'actions[0].type: must be one of set, screenshot, sweep, orbit',
+      'actions[0].type: must be one of set, screenshot, sweep, orbit, tween',
     ]);
   });
 
@@ -268,5 +269,142 @@ describe('jobInputPaths', () => {
     expect(jobInputPaths(validateJob(minimal).job as never)).toEqual(['/data/T1.nii.gz']);
     const saved = validateJob({ ...minimal, scene: { path: '/s.tetravox.json' } }).job as never;
     expect(jobInputPaths(saved)).toEqual(['/s.tetravox.json']);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// tween, sequences and the two layouts task 3 added (directed task 14)
+// ------------------------------------------------------------------------------------------------
+
+/** A minimal valid job carrying one action, so a case only has to state the action. */
+function jobWith(action: Record<string, unknown>): Record<string, unknown> {
+  return { scene: { files: ['T1.nii.gz'], preset: 'plain' }, actions: [action] };
+}
+
+describe('tween', () => {
+  it('accepts a shot that moves the cursor, dollies in and fades a layer up', () => {
+    const result = validateJob(
+      jobWith({
+        type: 'tween',
+        out: 'showcase',
+        frames: 45,
+        ease: 'inOut',
+        to: {
+          cursor: [-33.4, 31.2, 16.3],
+          distance: 260,
+          target: [0, 20, 10],
+          views: { axial: { mmPerPx: 0.32, center: [10, -4] } },
+          layers: [{ layer: 'labeling.nii.gz', patch: { opacity: 0.55 } }],
+        },
+        orbit: { degrees: -35, axis: 'z' },
+      })
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('refuses a tween with nowhere to go, rather than writing N identical frames', () => {
+    const result = validateJob(jobWith({ type: 'tween', out: 'a', frames: 10 }));
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      'actions[0]: a `tween` with no `to` and no `orbit` has nowhere to go'
+    );
+  });
+
+  it('names the bad key inside a state rather than rejecting the state as a whole', () => {
+    const result = validateJob(
+      jobWith({ type: 'tween', out: 'a', to: { cursor: [1, 2], layout: '2x2' } })
+    );
+    expect(result.errors).toContain(
+      'actions[0].to.cursor: must be three finite numbers [x, y, z] in world RAS mm'
+    );
+    expect(result.errors).toContain(
+      'actions[0].to.layout: unknown key (expected cursor, distance, target, views, layers)'
+    );
+  });
+
+  it('rejects a 2D pan/zoom aimed at a view that does not exist', () => {
+    const result = validateJob(
+      jobWith({ type: 'tween', out: 'a', to: { views: { oblique: { mmPerPx: 0.4 } } } })
+    );
+    expect(result.errors).toContain(
+      'actions[0].to.views.oblique: must be one of axial, coronal, sagittal, view3d'
+    );
+  });
+
+  it('rejects an orbit with no angle and one with a zero angle for the same reason', () => {
+    expect(validateJob(jobWith({ type: 'tween', out: 'a', orbit: {} })).errors).toContain(
+      'actions[0].orbit.degrees: is required — an orbit with no angle does nothing'
+    );
+    expect(
+      validateJob(jobWith({ type: 'tween', out: 'a', orbit: { degrees: 0 } })).errors
+    ).toContain('actions[0].orbit.degrees: must not be 0');
+  });
+
+  it('is listed among the action types an unknown `type` is told about', () => {
+    const result = validateJob(jobWith({ type: 'zoom', out: 'a' }));
+    expect(result.errors).toContain(
+      'actions[0].type: must be one of set, screenshot, sweep, orbit, tween'
+    );
+  });
+});
+
+describe('sequence', () => {
+  it('accepts start / continue / end on every frame action', () => {
+    for (const [action, role] of [
+      [{ type: 'sweep', view: 'axial', out: 'v', count: 4 }, 'start'],
+      [{ type: 'orbit', out: 'v', frames: 4 }, 'continue'],
+      [{ type: 'tween', out: 'v', frames: 4, to: { distance: 300 } }, 'end'],
+    ] as const) {
+      const result = validateJob(jobWith({ ...action, sequence: role }));
+      expect(result.errors).toEqual([]);
+    }
+  });
+
+  it('rejects a role that is not one of the three', () => {
+    const result = validateJob(jobWith({ type: 'orbit', out: 'v', sequence: 'append' }));
+    expect(result.errors).toContain('actions[0].sequence: must be one of start, continue, end');
+  });
+
+  it('takes `gif: false`, the opt-out a 1080p sequence needs', () => {
+    expect(validateJob(jobWith({ type: 'orbit', out: 'v', gif: false })).errors).toEqual([]);
+    expect(validateJob(jobWith({ type: 'orbit', out: 'v', gif: 'no' })).errors).toContain(
+      'actions[0].gif: must be true or false'
+    );
+  });
+});
+
+describe('layouts', () => {
+  it('offers the two layouts that contain the 3D pane (directed task 3)', () => {
+    for (const layout of ['1+3', '3d+1']) {
+      expect(validateJob(jobWith({ type: 'set', layout })).errors).toEqual([]);
+    }
+  });
+});
+
+describe('expandEnv', () => {
+  it('expands ${VAR} so a committed job can name data outside the checkout', () => {
+    expect(expandEnv('${DATA}/m2m_ernie/T1.nii.gz', { DATA: '/subjects/ernie' })).toEqual({
+      ok: true,
+      path: '/subjects/ernie/m2m_ernie/T1.nii.gz',
+    });
+  });
+
+  it('reports every unset variable rather than expanding it to nothing', () => {
+    expect(expandEnv('${A}/x/${B}', { A: undefined, B: '' })).toEqual({
+      ok: false,
+      missing: ['A', 'B'],
+    });
+  });
+
+  it('leaves a bare $NAME alone — a dollar in a file name is not a variable', () => {
+    expect(expandEnv('/data/$HOME/a$b.nii.gz', { HOME: '/root' })).toEqual({
+      ok: true,
+      path: '/data/$HOME/a$b.nii.gz',
+    });
+  });
+
+  it('passes a path with no reference through untouched', () => {
+    expect(expandEnv('T1.nii.gz', {})).toEqual({ ok: true, path: 'T1.nii.gz' });
   });
 });

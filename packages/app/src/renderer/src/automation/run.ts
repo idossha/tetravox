@@ -34,10 +34,19 @@ import type { PresetName } from './presets';
 import {
   boundsAlongNormal,
   cursorAtOffset,
+  mergeOnto,
+  normalizeQuat,
+  nullsToUndefined,
   orbitRotations,
+  pluckShape,
+  quatFromAxisAngle,
+  quatMultiply,
   sweepOffsets,
+  tweenFractions,
+  tweenValue,
   MAX_FRAMES,
 } from './frames';
+import type { Ease } from './frames';
 
 const VIEW3D = 'view3d';
 
@@ -115,6 +124,12 @@ export class JobRunner {
   private readonly errors: string[] = [];
   private readonly outputs: Recorded[] = [];
   private loadMs = 0;
+  /**
+   * How many frames each `out` base has already been given, so `sequence: 'continue'` numbers on
+   * from there. Keyed by base name: two different bases are two different videos, and a job that
+   * interleaves them (a long showcase and a short side clip) still gets two correct sequences.
+   */
+  private readonly sequenceLengths = new Map<string, number>();
   private readonly now: () => number;
 
   constructor(
@@ -245,6 +260,9 @@ export class JobRunner {
       case 'orbit':
         await this.runOrbit(index, action, started);
         return;
+      case 'tween':
+        await this.runTween(index, action, started);
+        return;
       default:
         throw new Error(`actions[${index}]: unknown type ${type}`);
     }
@@ -282,7 +300,7 @@ export class JobRunner {
       if (layerId === null) {
         this.warnings.push(`set: no layer matched ${JSON.stringify(action['layer'] ?? 'active')}`);
       } else {
-        engine.updateLayer(layerId, patch as Partial<Layer>);
+        engine.updateLayer(layerId, nullsToUndefined(patch) as Partial<Layer>);
       }
     }
     const cursor = action['cursor'] as vec3 | undefined;
@@ -419,6 +437,149 @@ export class JobRunner {
     await this.writeFrames(index, 'orbit', action, frames, started);
   }
 
+  /**
+   * **`tween` — N eased frames between two scene states** (directed task 14).
+   *
+   * The two things this does that `set` cannot: it interpolates, and it does so over *any* numeric
+   * field of the scene or of a layer. Everything else is the shape `sweep` and `orbit` already have
+   * — set the frame's state, settle, capture — which is deliberate: the three actions must produce
+   * the same kind of frame, or a video assembled out of all three would change character shot to
+   * shot.
+   *
+   * `from` defaults to the live scene, read off the same paths `to` names (`pluckShape`). The end
+   * state is **kept**: an orbit is a capture and puts its camera back, a tween is a move and does
+   * not.
+   */
+  private async runTween(index: number, action: Bag, started: number): Promise<void> {
+    const { engine } = this.env;
+    const to = (action['to'] ?? {}) as Bag;
+    const givenFrom = (action['from'] ?? {}) as Bag;
+    const ease = (action['ease'] as Ease | undefined) ?? 'inOut';
+    const fractions = tweenFractions(
+      typeof action['frames'] === 'number' ? action['frames'] : 30,
+      ease
+    );
+    if (fractions.length >= MAX_FRAMES) {
+      this.warnings.push(`tween ${String(action['out'])}: capped at ${MAX_FRAMES} frames`);
+    }
+
+    // Where each interpolated quantity starts. Read once, before the first frame moves anything:
+    // reading it per frame would make every step relative to the previous one, which turns an
+    // ease-in-out into an exponential decay that never arrives.
+    const view3d = engine.scene.view3d;
+    const startCursor = engine.scene.cursor as unknown as number[];
+    const fromCursor = (givenFrom['cursor'] as number[] | undefined) ?? startCursor;
+    const fromDistance = (givenFrom['distance'] as number | undefined) ?? view3d.camera.distance;
+    const fromTarget =
+      (givenFrom['target'] as number[] | undefined) ??
+      (view3d.camera.target as unknown as number[]);
+    const startRotation = view3d.camera.rotation;
+
+    const toViews = (to['views'] ?? {}) as Record<string, Bag>;
+    const fromViews = (givenFrom['views'] ?? {}) as Record<string, Bag>;
+    const viewStarts = new Map<string, { mmPerPx: number; center: [number, number] }>();
+    for (const id of Object.keys(toViews)) {
+      const slice = engine.views.find((v) => v.id === id) as SliceView | undefined;
+      if (slice === undefined || !('normal' in slice)) {
+        this.warnings.push(`tween: ${id} is not a 2D view, so mmPerPx/center do not apply`);
+        continue;
+      }
+      const given = fromViews[id] ?? {};
+      viewStarts.set(id, {
+        mmPerPx: (given['mmPerPx'] as number | undefined) ?? slice.camera.mmPerPx,
+        center: (given['center'] as [number, number] | undefined) ?? slice.camera.center,
+      });
+    }
+
+    // One entry per layer the tween touches, with its resolved id and its start patch. A selector
+    // that matches nothing is a warning and not a failure, exactly as `set`'s is: a shot that names
+    // a layer a shorter scene does not have should still render the rest of the video.
+    const toLayers = (to['layers'] as { layer?: unknown; patch: Bag }[] | undefined) ?? [];
+    const fromLayers = (givenFrom['layers'] as { layer?: unknown; patch: Bag }[] | undefined) ?? [];
+    const tracks: { layerId: LayerId; from: Bag; to: Bag }[] = [];
+    for (const [i, entry] of toLayers.entries()) {
+      const selector = entry.layer ?? 'active';
+      const layerId = this.resolveLayer(selector);
+      if (layerId === null) {
+        this.warnings.push(`tween: no layer matched ${JSON.stringify(selector)}`);
+        continue;
+      }
+      const explicit =
+        fromLayers.find((c) => (c.layer ?? 'active') === selector)?.patch ?? fromLayers[i]?.patch;
+      const live = engine.scene.layers.find((l: Layer) => l.id === layerId);
+      tracks.push({
+        layerId,
+        from: (explicit ?? (pluckShape(live, entry.patch) as Bag)) as Bag,
+        to: entry.patch,
+      });
+    }
+
+    const orbit = action['orbit'] as { degrees: number; axis?: 'x' | 'y' | 'z' } | undefined;
+    const options = fullScreenshotOptions(action);
+    const frames: Uint8Array[] = [];
+    for (const t of fractions) {
+      if (to['cursor'] !== undefined) {
+        engine.setCursor(tweenValue(fromCursor, to['cursor'], t) as vec3);
+      }
+      if (to['distance'] !== undefined || to['target'] !== undefined || orbit !== undefined) {
+        const camera: Camera3D = { ...engine.scene.view3d.camera };
+        if (to['distance'] !== undefined) {
+          camera.distance = tweenValue(fromDistance, to['distance'], t) as number;
+        }
+        if (to['target'] !== undefined) {
+          camera.target = tweenValue(fromTarget, to['target'], t) as vec3;
+        }
+        if (orbit !== undefined) {
+          const radians = (orbit.degrees * t * Math.PI) / 180;
+          camera.rotation = normalizeQuat(
+            quatMultiply(quatFromAxisAngle(orbit.axis ?? 'z', radians), startRotation)
+          );
+        }
+        engine.setView(view3d.id, { camera });
+      }
+      for (const [id, start] of viewStarts) {
+        const target = toViews[id] ?? {};
+        engine.setView(id as ViewId, {
+          camera: {
+            mmPerPx: tweenValue(start.mmPerPx, target['mmPerPx'] ?? start.mmPerPx, t) as number,
+            center: tweenValue(start.center, target['center'] ?? start.center, t) as [
+              number,
+              number,
+            ],
+          },
+        });
+      }
+      for (const track of tracks) {
+        const live = engine.scene.layers.find((l: Layer) => l.id === track.layerId);
+        const moved = tweenValue(track.from, track.to, t) as Record<string, unknown>;
+        // Deep-merge each named field onto the layer's current value: a tween names leaves, and
+        // `updateLayer` merges only the top level (see `mergeOnto`).
+        const patch: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(moved)) {
+          patch[key] = mergeOnto(
+            (live as unknown as Record<string, unknown> | undefined)?.[key],
+            value
+          );
+        }
+        engine.updateLayer(track.layerId, nullsToUndefined(patch) as Partial<Layer>);
+      }
+      engine.requestRender();
+      await engine.whenSettled();
+      frames.push(await pngBytes(engine, options));
+    }
+    this.log(`tween ${String(action['out'])}: ${frames.length} frames`);
+    await this.writeFrames(index, 'tween', action, frames, started);
+  }
+
+  /**
+   * Hand a shot's frames to main, and say whether this is the end of the video.
+   *
+   * `sequence` is what lets twenty actions write into one `out` (see `job.ts`'s `SequenceRole`).
+   * `startIndex` is the whole of the mechanism on this side: main writes `<base>-<n>.png` from
+   * wherever we say the sequence has got to, and encodes only when told, off the files rather than
+   * off anything held in memory — which is the only version of this that scales to a 1080p video
+   * measured in thousands of frames.
+   */
   private async writeFrames(
     index: number,
     type: string,
@@ -432,15 +593,22 @@ export class JobRunner {
     for (const entry of Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]) {
       formats.add(String(entry));
     }
+    if (action['gif'] === false) formats.delete('gif');
+    const sequence = action['sequence'] as 'start' | 'continue' | 'end' | undefined;
+    const startIndex =
+      sequence === 'continue' || sequence === 'end' ? (this.sequenceLengths.get(base) ?? 0) : 0;
+    const encode = sequence === undefined || sequence === 'end';
     const fps = typeof action['fps'] === 'number' && action['fps'] > 0 ? action['fps'] : 10;
     const result = await bridge().jobFrames({
       base,
       fps,
-      gif: formats.has('gif'),
-      mp4: formats.has('mp4'),
+      startIndex,
+      gif: encode && formats.has('gif'),
+      mp4: encode && formats.has('mp4'),
       ...(typeof action['colors'] === 'number' ? { colors: action['colors'] } : {}),
       frames,
     });
+    this.sequenceLengths.set(base, startIndex + frames.length);
     this.warnings.push(...(result.warnings ?? []));
     if (!result.ok) throw new Error(`writing ${base}: ${result.error ?? 'unknown error'}`);
     this.record(index, type, result.files ?? [], started);
