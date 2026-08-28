@@ -419,3 +419,157 @@ with no change of shape.
 
 The §12.2 gate — *a clean clone with an empty pnpm store reaches `pnpm e2e` green* — is what the cold-cache
 path of this workflow exercises on every first run of a new cache key.
+
+---
+
+## 6. Reference renderer
+
+`expectPixel` (§4) proves one pixel from first principles. It does not scale to a *pane*: nobody
+hand-computes 147,456 of them, and a golden PNG only says "the same as last time", never "right".
+`scripts/reference/` closes that gap — a second, independent implementation of §7.3's slice
+compositing, in pure Python, which a Phase-2b test can point at the **same scene** the engine drew
+and diff against.
+
+```
+python3 scripts/reference/render_slice.py <scene.json> -o /tmp/out [--stats]
+python3 scripts/reference/make_ct.py [--spacing 0.7] [--out testdata/generated]
+python3 -m unittest discover -s scripts/reference/tests        # 108 self-tests
+```
+
+Only numpy, nibabel and scipy — the stack `AGENTS.md` already assumes. No Pillow (the PNG writer is
+60 lines of `zlib`), no pytest (`unittest`), and **no import from `packages/`**.
+
+### What it shares with the engine, and what it does not
+
+**One thing: the colour tables.** `scripts/reference/colormaps.py` parses
+`packages/engine/src/color/colormaps.ts` and lifts `TABLES` / `POSITIONS` out of it verbatim, so a
+stop edited in the TypeScript moves the reference on the next run and a hand-transcribed table
+cannot drift by an 8-bit level — which is the one failure a reference implementation exists to
+catch and the one it could not catch about itself. Everything else — the §3 affine (sform, else
+qform with `qfac` on the third column only), §6.1's raw samples and 65536-bin statistics, §4.2's
+`Scale` and `Threshold`, §7.6's texel-centre bake, §7.3's `tc = (voxel + 0.5)/dims`, the value
+gate, the label palette, the 4-tap outline and the blend — is written from the prose.
+
+It renders **2D slice panes of volume layers only**: no meshes, no 3D pane, no §8 chrome
+(orientation letters, badge, corner info, colour bars, crosshair). A comparison must therefore be
+made against a pane rendered with `setAnnotations` off, or restricted to the chrome-free region.
+
+### The scene JSON
+
+```json
+{
+  "layers": [{
+    "path": "testdata/vol_ramp4.nii", "kind": "volume",
+    "colormap": "gray", "colormapNegative": "blue-cyan",
+    "scale":     { "kind": "linear", "lo": 0, "hi": 3 },
+    "threshold": { "lo": null, "hi": null, "symmetric": false, "mode": "clamp", "softEdge": 0 },
+    "opacity": 1.0, "interpolation": "linear", "volumeIndex": 0,
+    "label": { "lut": "…_LUT.txt", "mode": "outline", "outlineWidthPx": 2,
+               "visibleLabels": [10], "labelOpacity": {"3": 0.5}, "selectedLabels": [] }
+  }],
+  "view": { "mode": "axial", "normal": null, "up": null, "cursor": [0, 0, 0], "mmPerPx": 0.5,
+            "widthPx": 512, "heightPx": 512, "radiological": false, "center": [0, 0] },
+  "background": [0, 0, 0, 1]
+}
+```
+
+Four things a harness has to get right, because the scene file is not a `Scene` and cannot re-derive
+them:
+
+* **`center` is measured from the cursor**, not from §4.5's scene-bounds anchor. A scene JSON has no
+  dataset bounds, so it cannot compute `planeAnchor`. Pass `effectiveSliceView(view, cursor, anchor,
+  radiological).camera.center` — the number `sliceViewProj` and `paneToWorld` already speak. With one
+  dataset opened at its own centre the two coincide and `[0, 0]` is correct.
+* **The window is explicit.** There is no auto-`defaultWindow` here: write `scale.lo/hi` out. For
+  `m2m_ernie/T1.nii.gz` the engine's default is `p2 .. p98` = `-0.782 .. 20353.88` — the numbers on
+  the colour bar of `golden/swiftshader/slice-ernie-2x2.png`, and **not** what `np.percentile` says
+  (`0 .. 20354`), because §6.1 fixes the estimator as a 65536-bin histogram reporting the bin's lower
+  edge. `niftiref.default_window()` reproduces it.
+* **`label` presence selects the label path**, and forces `interpolation: 'nearest'` (§4.4). The
+  reference works in raw ids where the engine works in dense indices; the remap is a bijection, so
+  fill, `visibleLabels`, `labelOpacity` and the outline test all agree.
+* **`threshold.lo/hi: null`** means ±∞, matching `scene/defaults.ts`'s `NO_THRESHOLD`; the finite
+  ±1e30 sentinel is applied internally exactly as `render/passes/slice.ts` sends it.
+
+### Outputs, and the tolerance policy
+
+`render_slice.py` writes three files per scene:
+
+| File | Contents |
+|---|---|
+| `<out>.png` | RGBA8, `round(255 · composite)` — for eyeballing |
+| `<out>.npy` | float32 `(H, W, 4)` in 0..1, the composite **before** 8-bit quantisation |
+| `<out>.mask.npy` | bool `(H, W)`, true where any layer drew — §11's **volume footprint** |
+
+A Phase-2b comparison is: build the scene, screenshot the engine pane, load the `.npy`, and assert
+
+* **mean `|Δ|` ≤ 2/255** over the footprint mask (`mask.npy`), where `Δ = engine/255 − reference`
+  per RGB channel. Two levels absorbs the R16 ladder's 1/65535 quantisation, the LUT's own
+  rounding, and SwiftShader's non-bit-identical JIT, and is far below anything visible;
+* **≤ 1 % of footprint pixels above 8/255** on any channel. The mean alone would forgive a thin,
+  badly wrong edge; this bounds the tail. Anything worse than 8/255 on more than a hundredth of the
+  pane is a rendering disagreement, not a rounding one;
+* **outlines by dilation-tolerant IoU ≥ 0.9.** Compare boolean masks (engine outline pixels `A`,
+  reference `B`) as `min(|A ∩ D(B)|, |B ∩ D(A)|) / |A ∪ B| ≥ 0.9`, where `D` is a one-pixel
+  8-neighbour dilation. A plain IoU on a 2 px band punishes a half-pixel disagreement about where a
+  boundary sits — which is a `dFdx` derivative estimated on a 2×2 quad against one computed
+  analytically, not a defect — while a band drawn at the wrong *width* still fails, because
+  dilation moves a boundary and does not thicken a band by 2×.
+
+Outside the footprint the reference paints `background` exactly; compare it or don't, but don't
+average it in — a pane that is 30 % black would otherwise dilute every tolerance by a third.
+
+### Self-tests
+
+`scripts/reference/tests/` — 108 `unittest` cases, ~9 s, no network, no GPU:
+
+| File | Covers |
+|---|---|
+| `test_colormaps.py` (25) | the tables really came from the TypeScript; §11's `rgb(85,85,85)`; texel centres; `heat`'s two-segment ramp, dead band, `inverse`, `truncate`→`clipMax`, all three `negative` modes; the SimNIBS/FreeSurfer LUT rules and the dense palette |
+| `test_render_slice.py` (50) | §11's worked example end to end; the **three mandatory orientation tests** on `vol_asym.nii` in both conventions; `right = cross(up, normal)` per preset; trilinear vs nearest; the AABB discard at ±0.5 voxel; `scl_slope`/`scl_inter` and the NaN guard; every `Threshold` branch including the `softEdge` ramp value; layer order, opacity and the blend's alpha channel; the label palette, the outline width at three zooms, `fill`/`outline`/`both`, `visibleLabels`, `labelOpacity`, R5's selection rim; §3's `qfac`; the PNG round-trip |
+| `test_make_ct.py` (21) | the HU table, the rotated grid, the contact rasteriser's partial volume, the two encodings, and one coarse end-to-end build on ernie |
+| `test_real_data.py` (12) | `TETRAVOX_TESTDATA`-gated: the float32 T1, the default window against the golden's colour bar, laterality on the two thalami, the overlay-independence property, and §11's label-outline-zoom test |
+
+Real-data cases **skip, never fail**, when `sub-ernie` is absent, and write their PNGs to the
+session scratchpad for eyeballing. The assertions are the test (§11 rule 0).
+
+Two things the real data taught the tests, recorded so they are not rediscovered as bugs:
+`segmentation/labeling_LUT.txt` gives id 517 (`Background`) **alpha 255**, so that atlas legitimately
+paints the air around the head and its `outline` mode draws a box where the labelled field of view
+ends — §7.3's "background is decided by alpha, not by index", in the wild. And
+`Thalamus_TI_subject_TI_max.nii.gz` peaks at 3.152 near the electrodes but reaches only ~0.13 in the
+thalamus it is aimed at, so a heat scale windowed on its global range paints the whole head one
+colour.
+
+### `make_ct.py` — a synthetic CT for `sub-ernie`
+
+The reference dataset has no CT, and three things go untested without one: a volume whose affine
+disagrees with `T1.nii.gz`'s, signed values carried by `scl_inter`, and thin very-bright metal.
+`make_ct.py` builds one from `m2m_ernie/final_tissues.nii.gz` — HU per tissue (air −1000, WM 30,
+GM 37, CSF 15, scalp 40, eyes 20, compact bone 1200, spongy 300, blood 45, muscle 50), σ = 15 HU
+Gaussian noise, two SEEG leads of ten 1.3 mm × 2 mm ~3000 HU contacts each whose entry point is
+found by marching outward until the segmentation reads air (so the skull crossing is geometry, not
+an assumption), resampled to 0.7 mm isotropic on a grid rotated 5° about an oblique axis with a
+sub-voxel origin offset.
+
+It writes **two encodings of the same volume** to `testdata/generated/` (git-ignored, ~40 MB each):
+`ct_hu_uint16.nii.gz` with `scl_slope = 1, scl_inter = −1024` (the scanner convention) and
+`ct_hu_int16.nii.gz` with no scaling. A reader that folds slope/inter, or ignores it, makes the two
+disagree — that is the test. Both carry `descrip = "synthetic CT (HU)"`. The run is deterministic
+(fixed seed, `mtime = 0`): rerunning reproduces every byte. `ct_report.json` beside them records the
+grid, the per-tissue HU means and each lead's tissue sequence, and the same is printed on stdout.
+
+### Two ambiguities the contract left open
+
+* **§7.3's `dFdx`/`dFdy` on a 2D pane.** The formula is written for a GLSL derivative; on an
+  orthographic pane it is exactly `right · mmPerPx` and `up · mmPerPx`, which is what the reference
+  computes. The sign of `dFdy` is irrelevant — the taps are symmetric — and this is *analytically*
+  what a driver's 2×2-quad estimate approximates, so a half-pixel disagreement at a boundary is
+  expected and is why outlines are compared by tolerant IoU rather than by equality.
+* **§11's "Label outline zoom" thickness bound.** A band width is only measurable while the
+  structure is wider than the band. At 5.0 mm/px a 1 mm atlas puts neighbouring boundaries less than
+  a pixel apart, every run merges, and a run-length measure reads 4 px on `labeling.nii.gz` — not a
+  wider outline, an atlas with nothing left between its outlines. The reference asserts §11's
+  [0.8, 2.9] px bound over 0.05 – 1.0 mm/px, and at 5.0 mm/px asserts the property that survives:
+  **100 %** of the fill boundary covered, which it measures at every zoom from 0.05 to 5.0 mm/px and
+  which matches §7.3's "0 of … fill-boundary pixels were uncovered (0.0 % gaps)".

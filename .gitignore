@@ -28,3 +28,10 @@ packages/engine/test/golden/**/*-diff.png
 .DS_Store
 .vscode/
 .idea/
+
+# The reference renderer's generated CT and any other large derived test volumes (scripts/reference).
+testdata/generated/
+
+# Python bytecode (scripts/reference and scripts/*.py).
+__pycache__/
+*.pyc
