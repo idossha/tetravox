@@ -2714,3 +2714,98 @@ to click.
   point-in-tetrahedron search, so a 0-tet `.gii` produced no `ProbeRow` at all. `nearestVertex` runs
   for *every* mesh on its own latest-wins key, so `lh.central.gii` now answers with a vertex index and
   that vertex's own coordinate — which is deliberately **not** the probe point.
+
+
+
+- 2026-08-28 — **Gmsh parsed post-processing views (`.geo` / `.pos`) load through `loadMesh`, not
+  through a nineteenth op.**
+  A parsed view is a literal dump of primitives — `View "" { SP(x,y,z){v}; T3(x,y,z,0){"E001"}; };`,
+  which is how SimNIBS writes `m2m_*/eeg_positions/*.geo` — and its `ST`/`SQ` triangles *are* a
+  surface with a per-corner scalar. Once they are a `Mesh`, every existing op works on them
+  unchanged: `surface`, `field`, `contours`, `cut`, `locate`, the whole §7.4 shader path. A
+  `loadGeoView` op would have duplicated all of that to gain nothing, and §6.5's frozen `OpName`
+  union would have grown for a format, which is the one thing it is frozen against.
+  So `MeshFormatSel` gains `'geo'` and `OpResult['loadMesh']` gains an **optional** `geo` half
+  (§6.5.1 `GeoPayloadT`) carrying the three things a `Mesh` has no room for: points, `T2`/`T3` text
+  labels and `SL` segments. `OP_NAMES` is still eighteen entries and `OP_TO_EXPORT` is unchanged;
+  a `.msh` load sees no difference at all, which `packages/wasm/src/index.test.ts` asserts.
+  The mesh is **de-indexed** — a parsed view has no node table, so `ST(…)` lists three independent
+  corners. Welding them would need a tolerance and a tolerance would silently merge two electrodes
+  of a dense net, so each corner is its own node and the per-corner values land on a node field
+  named `value`. One `tri_tag` per view, so a multi-view file is one dataset whose per-view
+  visibility is the existing `tagStyle` machinery.
+  A `.geo`/`.pos` is routed by **extension**, not by `sniff`: content sniffing recognises a parsed
+  view from its leading `View` token perfectly well, but then a `.geo` that turns out to be a Gmsh
+  *geometry script* falls out of `sniff` as "unrecognised mesh format", burying the one message
+  that says what is actually wrong with the file. `read_geo_view` rejects it as `Unsupported` and
+  names the command — `Point(` — that gave it away.
+
+- 2026-08-28 — **`PointsLayer` grows the parsed view's extras; the mode is `valueMode`, not
+  `colorMode`; labels are drawn in the overlay pass and are NOT occlusion-tested.**
+  §4.4's `PointsLayer` gains `labels` / `labelScale` / `labelColor`, `lineSegments` /
+  `lineWidthPx` / `lineColor`, and `valueMode` + `colormap` + `valueRange` beside a per-point
+  `value`. Every one is optional, and absent reproduces the Phase-2 behaviour exactly, so a scene
+  file that names a points layer loads unchanged and no golden moves.
+  It is `valueMode` and not the obvious `colorMode` because `MeshLayer.colorMode` is a *different*
+  four-value union on the same `Layer` union: TypeScript widens a spread of `Partial<Layer>` to the
+  union of both, and the collision broke every `addLayer({ ...patch })` call site — the app's scene
+  restore is where it surfaced. Two knobs on one union may not share a name and disagree about its
+  values.
+  Per-point colours from `value` are resolved on the **CPU**, in `packPoints`. A dense net is 256
+  instances × 8 floats = 8 KB, so recolouring the whole layer is cheaper than the LUT texture, the
+  extra uniform and the shader variant a GPU colormap would need — and it keeps one testable
+  definition of what a point looks like. The instance-buffer cache therefore keys on the colour
+  inputs as well as on the `points` array's identity.
+  **Labels are screen-projected in §7.2's overlay pass and a label behind the head still draws.**
+  §7.2.3's pick target carries element ids, not depth, and it is rendered after the overlay in the
+  frame it would have to be read from, so occlusion would need a `readPixels` stall per pane per
+  frame or a second depth resolve. What is implemented is the free half: an anchor behind the eye
+  or outside the pane is dropped, and a 2D pane draws only the anchors within one point radius of
+  its plane — a 187-electrode net projected whole onto one axial slice is an unreadable smear of
+  names belonging to slices 80 mm away. `SL` segments draw through the existing contour program, so
+  they keep a constant screen width like a 2D contour; `gl.lineWidth()` is a no-op (§7.0.6).
+  Installer: `.pos` is `rank: Owner`, `.geo` is `rank: Default`. The `.geo` extension is shared with
+  Gmsh's geometry-script language, which this app does not open, so it must not claim to be the
+  system-wide handler for every `.geo` on the machine.
+
+## 2026-08-28 — two themes, and `Engine.setTheme` (directed task 9)
+
+**Decision.** The app ships a **Light** theme (white/light-grey surfaces, near-black text, soft shading from a
+one-step surface ramp and a hairline) and a **Dark** theme (graphite `#16181c`/`#1e2126`, not black), both
+carrying one muted slate-blue accent — `#3b5ba9` on white, `#93aae2` on graphite. The Phase-1 cyan `#6ee7ff` is
+gone, along with every saturated highlight it inspired: the histogram's cyan window handles and amber threshold
+rule, the active-row and load-card bars, the toolbar's accent-coloured pressed state, the modal scrim's flat
+black, and Chromium's own system-blue slider (`accent-color`). A toolbar group switches System / Light / Dark,
+persisted in `settings.json` under `userData` and applied live — no reload, no remount.
+
+**`renderer/src/theme/tokens.ts` is the single source of truth**, for the CSS variables *and* for the engine's
+chrome, and `theme/tokens.test.ts` parses `index.css` and `main/index.ts` so neither can drift from it. Every
+foreground/surface pair is held to WCAG 4.5:1 (text) or 3:1 (a UI boundary); the hairline is declared
+`decorative` **in the table**, with its own visible-but-quiet bound, rather than quietly skipped — a separator
+carries no information and a border you can see from across the room is the neon this task removes.
+
+**§4.7 gains `setTheme`, and it is additive.** §7.2's pass-3 chrome is drawn into the GL framebuffer (§8 calls it
+a laterality-safety requirement, §11 requires it in every golden), so CSS cannot reach it: without this member a
+light theme flips every panel and leaves near-white orientation letters with a black halo. It is the neighbour of
+`setAnnotations` — that says *which* chrome is drawn, this says what colour. A theme is **not** scene state and
+is not serialised; `background` is the single exception and is forwarded to `Scene.background`, which §4.6
+already carries. `OverlayBuilder.setHalo` exists for the one colour that must **invert** rather than shift, set
+once per pane instead of threaded through four `draw*` signatures.
+
+**No golden was regenerated, on purpose.** `DEFAULT_OVERLAY_THEME` is the Phase-1/2 constants verbatim — the
+same near-white text, black halo, amber crosshair, blue active border and cyan gizmo — and `DrawInput.theme` is
+optional, so a `DrawInput` with no theme draws what it always drew. `pointer.spec.ts` still finds the crosshair
+by "bright in R and G, dark in B". The muted palette is what the *app* sends; the engine's own defaults are
+unchanged and moving them stays a conversation, not a patch.
+
+**The view panes stay dark in both themes.** Imaging convention: a light viewport changes what a greyscale T1
+and a heat overlay look like. `ThemeTokens.paneBackground` is the per-theme option, and the overlay palette is
+keyed off **the pane**, never off the theme name — so flipping it inverts the letters and the halo together,
+and leaving it alone keeps a light-theme window's viewport a viewport.
+
+**App settings are main's, not `localStorage`'s.** Every E2E launch gets a fresh `--user-data-dir` so two runs
+cannot collide over the single-instance lock, which also discards anything per-profile — a preference in
+`localStorage` could never be tested across a relaunch without giving that up. `main/settings.ts` owns a small
+JSON file, `e2e/fixtures.ts` gains a `userDataDir` option, and `theme.spec.ts` launches twice against one
+directory. Main also reads the file to choose `BrowserWindow.backgroundColor`, so a light-theme launch does not
+open on a black rectangle.

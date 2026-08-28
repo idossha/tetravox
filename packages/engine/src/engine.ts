@@ -16,7 +16,13 @@
  */
 
 import { ComputeClient } from '@tetravox/wasm';
-import type { GpuCapsT, MeshMeta, SurfacePayload, VolumeMeta } from '@tetravox/protocol';
+import type {
+  GeoPayloadT,
+  GpuCapsT,
+  MeshMeta,
+  SurfacePayload,
+  VolumeMeta,
+} from '@tetravox/protocol';
 import type {
   CoordSpaceOption,
   CoordSpaceRef,
@@ -104,8 +110,8 @@ import {
   zoomAbout,
   zoomAboutCentre,
 } from './input';
-import { gizmoHandleAt } from './overlay';
-import type { GizmoHandle, GizmoSpec } from './overlay';
+import { DEFAULT_OVERLAY_THEME, gizmoHandleAt, resolveOverlayTheme } from './overlay';
+import type { GizmoHandle, GizmoSpec, OverlayTheme } from './overlay';
 import type { PaneHit, PointerHost } from './input';
 import { applyAffine, meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
 import { defaultLayerFor, seedMeshLayerFromOpt, VIEW3D_ID } from './scene/defaults';
@@ -120,7 +126,7 @@ import {
   toViewSpec,
 } from './scene/serialize';
 import type { SidecarPaths } from './scene/serialize';
-import { looksLikeVolume, sourceName, toLoadSource } from './datasets/source';
+import { looksLikeVolume, meshFormatFor, sourceName, toLoadSource } from './datasets/source';
 import type {
   Annotations,
   Dataset,
@@ -192,6 +198,14 @@ export class TetravoxEngine implements Engine, PointerHost {
 
   /** The §4.5 scene. Every mutation goes through it; every event is emitted from here. */
   readonly #store = new SceneStore();
+  /**
+   * The §7.2 pass-3 chrome palette (directed task 9, 2026-08-28).
+   *
+   * On the engine and not in `Scene`: a theme belongs to the window, not to the scene — see
+   * `overlay/theme.ts`. It starts at the Phase-1/2 constants, so an embedder that never calls
+   * {@link TetravoxEngine.setTheme} gets exactly the frames it always got.
+   */
+  #theme: OverlayTheme = DEFAULT_OVERLAY_THEME;
   /** One `LayerRuntime` per layer — all per-kind decisions live there (`layers/`). */
   readonly #layers = new Map<LayerId, LayerRuntime>();
   /**
@@ -489,12 +503,18 @@ export class TetravoxEngine implements Engine, PointerHost {
           path
         );
       }
-      const req = client.start(`load:${id}`, 'loadMesh', { source, format: 'auto' });
+      // `'geo'` rather than `'auto'` for a `.geo`/`.pos`, so a geometry script is rejected by the
+      // parsed-view reader (which names the command that gave it away) instead of falling out of
+      // `sniff` as "unrecognised mesh format" (`datasets/source.ts`).
+      const req = client.start(`load:${id}`, 'loadMesh', {
+        source,
+        format: meshFormatFor(name),
+      });
       runtime.loadId = req.id;
       const res = await this.#track(req.promise);
       runtime.loadId = null;
       if (runtime.cancelled) throw new Error('cancelled');
-      return await this.#adoptMesh(id, res.meta, path);
+      return await this.#adoptMesh(id, res.meta, path, res.geo);
     } catch (err) {
       this.#teardown(id);
       throw err;
@@ -539,8 +559,13 @@ export class TetravoxEngine implements Engine, PointerHost {
     return ds;
   }
 
-  async #adoptMesh(id: DatasetId, meta: MeshMeta, path: string | undefined): Promise<MeshDataset> {
-    const ds = meshDatasetFromMeta(id, meta, { id: this.#nextId }, path);
+  async #adoptMesh(
+    id: DatasetId,
+    meta: MeshMeta,
+    path: string | undefined,
+    geo?: GeoPayloadT
+  ): Promise<MeshDataset> {
+    const ds = meshDatasetFromMeta(id, meta, { id: this.#nextId }, path, geo);
     const rt = this.#workers.get(id);
     if (rt === undefined) throw new Error('dataset worker is gone');
 
@@ -548,14 +573,19 @@ export class TetravoxEngine implements Engine, PointerHost {
     // derived boundary only when it has none (`grey_Thalamus_TI.msh` — 1,340,029 tets, 0 tris).
     // `tag_surfaces` takes no topology and does no geometry work beyond grouping and normals, which
     // is what keeps this off the `build_topology` path entirely.
-    const payload: SurfacePayload = ds.hasTris
-      ? await this.#track(
-          rt.client.call(`surface:${id}`, 'surface', { handle: ds.handle, variant: 'indexed' })
-        )
-      : await this.#track(
-          rt.client.call(`surface:${id}`, 'boundary', { handle: ds.handle, variant: 'indexed' })
-        );
-    this.#gpu.uploadSurface(surfaceKey(id, 'indexed'), payload);
+    // A parsed view can be points and labels only (every SimNIBS electrode net is): 0 nodes, so
+    // there is no surface to extract and nothing to upload. `boundary` on an empty mesh is not a
+    // useful question to ask, and the points layer is what will draw this dataset.
+    if (ds.nNodes > 0) {
+      const payload: SurfacePayload = ds.hasTris
+        ? await this.#track(
+            rt.client.call(`surface:${id}`, 'surface', { handle: ds.handle, variant: 'indexed' })
+          )
+        : await this.#track(
+            rt.client.call(`surface:${id}`, 'boundary', { handle: ds.handle, variant: 'indexed' })
+          );
+      this.#gpu.uploadSurface(surfaceKey(id, 'indexed'), payload);
+    }
     this.#fingerprints.set(id, fingerprintFromMeta(meta));
     this.#store.addDataset(ds);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
@@ -1062,6 +1092,24 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.requestRender();
   }
 
+  /**
+   * §8's theme, as far as the chrome the engine draws is concerned (directed task 9, 2026-08-28).
+   *
+   * `setAnnotations` says *which* chrome is drawn; this says what colour it is drawn in. Both are
+   * needed for a theme switch to be honest: the app can retokenise every panel in CSS and the
+   * orientation letters would still be near-white with a black halo over a white pane.
+   *
+   * A patch, like `setAnnotations`: an embedder that only wants the halo inverted sends the halo.
+   * `background` is forwarded to `Scene.background` — the one theme field the scene owns, because
+   * §4.6 serialises it — and is simply left out by an embedder whose viewport does not follow the
+   * theme. The app leaves it out by default: imaging convention keeps the panes dark in both themes.
+   */
+  setTheme(patch: Partial<OverlayTheme>): void {
+    this.#theme = resolveOverlayTheme(patch, this.#theme);
+    if (patch.background !== undefined) this.#store.setBackground(this.#theme.background);
+    this.requestRender();
+  }
+
   // -----------------------------------------------------------------------------------------
   // R5 — region select / mute / recolour (E-SLICE, Phase 2)
   //
@@ -1335,6 +1383,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       activeViewId: null,
       uiScale: Math.max(1, Math.round(this.#dpr())),
       showChrome: true,
+      theme: this.#theme,
       // §7.5's oblique affordances. `null` whenever no gizmo is shown, which is the default.
       gizmo: this.gizmoSpec(),
       viewFit: this.#viewFit,

@@ -65,3 +65,27 @@ describe('§6.4 wasm export surface', () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Parsed post-processing views ride on `loadMesh` rather than a nineteenth op (task 6,
+ * `docs/DECISIONS.md` 2026-08-28). Two things have to hold for that to be true rather than
+ * intended: the op table must still be exactly the eighteen ops, and `load_mesh` must accept the
+ * new format selector. The first is a type-level claim TypeScript checks; the second is a string
+ * the Rust side switches on, so it is asserted against the built module's own signature.
+ */
+describe('§6.5.2 loadMesh carries the parsed-view format', () => {
+  it('adds no op — a `.geo` is a `loadMesh` with a different format string', () => {
+    // The invariant is that the parsed-view format bought NO new op, not that the op table has
+    // some fixed size: an unrelated feature may legitimately add one, and pinning the count here
+    // made this a tripwire that fires on somebody else's work while saying nothing about this one.
+    expect(OP_TO_EXPORT.loadMesh).toBe('load_mesh');
+    const geoOps = OP_NAMES.filter((op) => /geo|\.pos|parsedview/i.test(op));
+    expect(geoOps, 'a parsed view is loaded through `loadMesh`, never its own op').toEqual([]);
+  });
+
+  it("declares load_mesh's format as a string, which is where 'geo' is accepted", () => {
+    const sig = /export function load_mesh\(([^)]*)\)/.exec(DTS)?.[1] ?? '';
+    expect(sig, 'pkg/tvx_wasm.d.ts must declare load_mesh').not.toBe('');
+    expect(sig).toMatch(/format:\s*string/);
+  });
+});

@@ -277,7 +277,17 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
 
   test('Alt-click solos the ROW, so both of its tags survive (R5)', async () => {
     await record(page);
+    // The gesture must not move the panel under the cursor. `LayerRow` focuses itself on
+    // `pointerdown`, and that `<li>` is the whole layer — taller than `layer-list`'s viewport once
+    // the editor is open — so a focus that is allowed to scroll lands between `pointerdown` and
+    // `click` and the solo arrives on a different row, or on none.
+    const scrollTop = async (): Promise<number> =>
+      page.evaluate(
+        () => (document.querySelector('[data-testid="layer-list"]') as HTMLElement).scrollTop
+      );
+    const before = await scrollTop();
     await page.click(`[data-testid="region-name-${ids.mesh}-2"]`, { modifiers: ['Alt'] });
+    expect(await scrollTop()).toBe(before);
     const solo = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
     expect(
       Object.entries(solo)

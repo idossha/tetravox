@@ -52,7 +52,7 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps): React.JSX.El
       role="dialog"
       aria-modal="true"
       aria-label="Keyboard shortcuts"
-      className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-6"
+      className="absolute inset-0 z-40 grid place-items-center bg-tvx-bg/70 p-6"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}

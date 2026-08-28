@@ -24,6 +24,7 @@ import { useCallback } from 'react';
 import { LAYOUT_LABEL } from '../lib/layout';
 import { KEYMAP_HELP } from '../keyboard/keymap';
 import { useController, useUi } from '../ui/context';
+import { THEME_CHOICES } from '../theme/theme';
 
 export function Toolbar(): React.JSX.Element {
   const controller = useController();
@@ -34,6 +35,8 @@ export function Toolbar(): React.JSX.Element {
   const sceneFile = useUi((s) => s.sceneFile);
   const sceneError = useUi((s) => s.sceneError);
   const dialog = useUi((s) => s.dialog);
+  const themeChoice = useUi((s) => s.themeChoice);
+  const theme = useUi((s) => s.theme);
   const hasContent = useUi((s) => s.layers.length > 0 || s.datasets.length > 0);
   const busy = useUi((s) => s.loads.some((c) => c.state === 'loading' || c.state === 'queued'));
 
@@ -47,7 +50,7 @@ export function Toolbar(): React.JSX.Element {
       data-testid="toolbar"
       className="flex items-center gap-2 border-b border-tvx-line bg-tvx-panel px-3 py-1.5"
     >
-      <span className="mr-1 text-sm font-semibold tracking-wide text-tvx-accent">Tetravox</span>
+      <span className="mr-1 text-sm font-semibold tracking-wide text-tvx-text">Tetravox</span>
 
       <button type="button" data-testid="open-button" className="tvx-btn" onClick={onOpen}>
         Open…
@@ -185,6 +188,37 @@ export function Toolbar(): React.JSX.Element {
         >
           ⚙
         </button>
+      </div>
+
+      {/* §8's theme switch. Three radio-ish buttons rather than a `<select>`: it is the same
+        control shape as the layout and RAD/NEU groups beside it, one click deep instead of two,
+        and `aria-pressed` makes the current one announceable. `data-theme-resolved` is what the
+        E2E reads to tell "System, which is dark right now" from "Dark". */}
+      <div
+        className="flex items-center gap-0.5"
+        role="group"
+        aria-label="Theme"
+        data-testid="theme-group"
+        data-theme-choice={themeChoice}
+        data-theme-resolved={theme}
+      >
+        {THEME_CHOICES.map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            data-testid={`theme-${choice}`}
+            aria-pressed={themeChoice === choice}
+            className={themeChoice === choice ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+            title={
+              choice === 'system'
+                ? 'Follow the operating system’s light/dark setting'
+                : `Always use the ${choice} theme`
+            }
+            onClick={() => controller.setThemeChoice(choice)}
+          >
+            {choice === 'system' ? 'Sys' : choice === 'light' ? 'Light' : 'Dark'}
+          </button>
+        ))}
       </div>
 
       <button

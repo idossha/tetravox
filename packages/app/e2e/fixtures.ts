@@ -111,6 +111,16 @@ export interface LaunchOptions {
   /** Extra environment for the launched app — `TETRAVOX_DOWNLOAD_DIR` for the screenshot leg. */
   env?: Record<string, string>;
   /**
+   * Reuse a specific `--user-data-dir` instead of a fresh one (directed task 9, 2026-08-28).
+   *
+   * The default is a private temp profile per launch, for the single-instance-lock reason below —
+   * which also means `settings.json`, `localStorage` and every other per-profile artefact is
+   * discarded between launches, so **nothing persisted can be tested** without this. `theme.spec.ts`
+   * launches twice against one directory to prove the theme survives a relaunch. Two launches
+   * sharing a profile must not overlap: the second would find the lock held and quit.
+   */
+  userDataDir?: string;
+  /**
    * Record a WebM of the window into this directory (the walk-through recorder's only caller).
    *
    * Playwright writes the video when the app is closed, so a spec that uses it must `app.close()`
@@ -200,7 +210,7 @@ export async function launchApp(
   // `--enable-unsafe-swiftshader` — which `src/main/index.ts` appends unconditionally — is the
   // combination measured in `packages/engine/playwright.config.ts`. macOS keeps its real GPU.
   const linuxArgs = process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [];
-  const profile = [`--user-data-dir=${privateUserDataDir()}`];
+  const profile = [`--user-data-dir=${options.userDataDir ?? privateUserDataDir()}`];
 
   // `env` REPLACES the child's environment when given, so it is always merged onto `process.env`:
   // dropping PATH/HOME from an Electron launch fails in ways that look nothing like the cause.

@@ -54,6 +54,21 @@ fileAssociations:
     mimeType: application/x-gifti
     role: Viewer
     rank: Owner
+  # Gmsh parsed post-processing views. `.geo` is `rank: Default`, not `Owner`: the extension is
+  # shared with Gmsh's geometry-script language, which this app does not open, so it must not
+  # claim to be the system-wide handler for every `.geo` on the machine.
+  - ext: geo
+    name: Gmsh view
+    description: Gmsh parsed post-processing view (electrode positions)
+    mimeType: model/mesh
+    role: Viewer
+    rank: Default
+  - ext: pos
+    name: Gmsh view
+    description: Gmsh parsed post-processing view
+    mimeType: model/mesh
+    role: Viewer
+    rank: Owner
 
 mac:
   category: public.app-category.medical

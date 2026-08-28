@@ -318,6 +318,16 @@ export interface MeshDataset {
    * reachable.
    */
   labelTables?: Record<string, LabelTable>;
+  /**
+   * The non-mesh half of a Gmsh **parsed post-processing view** (`.geo` / `.pos`, §6.2) — points,
+   * text labels and line segments. `undefined` for every other format.
+   *
+   * The view's `ST`/`SQ` triangles are not here: they are this dataset's triangles, with the
+   * per-corner values on the node field named `value`. This is what `defaultLayerFor` seeds a
+   * points layer from, and it is retained on the dataset so the layer can be rebuilt (a colormap
+   * change, a Reset) without re-reading the file.
+   */
+  geo?: GeoData;
   tags: MeshTag[];
   skipped: { elemType: number; count: number }[];
   opt?: MshOptions;
@@ -534,12 +544,80 @@ export interface IsosurfaceLayer extends LayerBase {
 
 export interface PointsLayer extends LayerBase {
   kind: 'points';
-  points: { name?: string; position: vec3; color?: vec4 /* 0..1 */; radiusMm?: number }[];
+  points: {
+    name?: string;
+    position: vec3;
+    color?: vec4 /* 0..1 */;
+    radiusMm?: number;
+    /**
+     * The point's scalar, if it has one — an `SP`'s value, or a `VP`'s magnitude (§6.2). Kept
+     * alongside the colour rather than baked into it so `colorMode: 'value'` can be recomputed
+     * when the colormap or the scale changes, which is what makes the editor's colormap picker
+     * work without reloading the file.
+     */
+    value?: number;
+  }[];
   shape: 'sphere' | 'dot';
   radiusMm: number;
   /** 0..1 */
   color: vec4;
   showLabels: boolean;
+
+  // -------------------------------------------------------------------------------------------
+  // Appended for parsed Gmsh views (`.geo` / `.pos`, directed task 6). Every field is OPTIONAL or
+  // has a default that reproduces the previous behaviour exactly, so a Phase-2 scene that names a
+  // points layer loads unchanged (ARCHITECTURE §4.4, DECISIONS 2026-08-28).
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Free-standing 3D text labels, screen-projected in the overlay pass (§7.2 pass 3).
+   *
+   * Separate from `points[].name` because a parsed view's `T3` anchors are independent of its
+   * `SP`s: SimNIBS puts each label 5 mm above its electrode so the text does not sit inside the
+   * sphere, and a net with more labels than points (or none) is a legal file. When the two counts
+   * match the loader ALSO copies the text onto `points[].name`, so the probe row names the
+   * electrode under the crosshair.
+   */
+  labels?: { position: vec3; text: string }[];
+  /** Multiplier on the overlay font's size for {@link PointsLayer.labels}. Default 1. */
+  labelScale?: number;
+  /** 0..1. Defaults to {@link PointsLayer.color} when absent. */
+  labelColor?: vec4;
+  /**
+   * `SL` line segments, **6 floats per segment** (two world-mm endpoints) — the same packing the
+   * `contours` op returns, so they draw through the §7.0.6 screen-space quad expansion and get a
+   * constant screen width like a 2D contour.
+   */
+  lineSegments?: Float32Array;
+  /** Render-target pixels, like every other `*WidthPx` (§7.0.5). Default 2. */
+  lineWidthPx?: number;
+  /** 0..1. Defaults to {@link PointsLayer.color} when absent. */
+  lineColor?: vec4;
+  /**
+   * `'solid'` (the default, and the Phase-2 behaviour) paints every point {@link PointsLayer.color};
+   * `'value'` runs `points[].value` through {@link PointsLayer.colormap} over
+   * {@link PointsLayer.valueRange}.
+   *
+   * Named `valueMode` and not `colorMode` on purpose. `MeshLayer.colorMode` is a *different*
+   * four-value union on the same `Layer` union, and TypeScript widens a spread of
+   * `Partial<Layer>` to the union of both — which made every `addLayer({ ...patch })` call site
+   * stop compiling (`packages/app`'s scene restore is the one that caught it).
+   */
+  valueMode?: 'solid' | 'value';
+  colormap?: ColormapName | string;
+  /** The value range `colorMode: 'value'` maps across. Absent = the layer's own min..max. */
+  valueRange?: { lo: number; hi: number };
+}
+
+/** A parsed view's points, labels and lines, as they sit on a {@link MeshDataset} (§6.5.1). */
+export interface GeoData {
+  points: { position: vec3; value: number; view: number }[];
+  labels: { position: vec3; text: string }[];
+  /** 6 floats per segment. */
+  lineSegments: Float32Array;
+  viewNames: string[];
+  views: { name: string; points: number; labels: number; lines: number; tris: number }[];
+  bounds: Aabb;
 }
 
 export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;

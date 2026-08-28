@@ -21,12 +21,29 @@ export class OverlayBuilder {
   #data: number[] = [];
   #w = 1;
   #h = 1;
+  #halo: vec4 = [0, 0, 0, 1];
 
   /** Pixel size of the pane being annotated. Pixel coordinates below are origin **bottom-left**. */
   begin(widthPx: number, heightPx: number): void {
     this.#data.length = 0;
     this.#w = Math.max(1, widthPx);
     this.#h = Math.max(1, heightPx);
+    this.#halo = [0, 0, 0, 1];
+  }
+
+  /**
+   * The colour {@link OverlayBuilder.labelWithHalo} outlines text with, until the next
+   * {@link OverlayBuilder.begin} — which resets it to black, so every existing caller and every §11
+   * golden is unaffected (directed task 9, 2026-08-28).
+   *
+   * A builder-level setting rather than a parameter on six call sites: every pass-3 item that draws
+   * a label — letters, corner info, badge, colour-bar ticks and titles — wants the *same* halo, and
+   * it is the one chrome colour that must **invert** with the theme rather than shift with it.
+   * Threading it through `drawEdgeLetters`, `drawCornerLines`, `drawBadge` and `drawColorbar` would
+   * have meant an optional argument on each and four ways to forget it.
+   */
+  setHalo(color: vec4): void {
+    this.#halo = [color[0], color[1], color[2], color[3]];
   }
 
   #vertex(px: number, py: number, u: number, v: number, c: vec4): void {
@@ -102,7 +119,12 @@ export class OverlayBuilder {
     }
   }
 
-  /** Text with a 1 px dark halo, so letters stay legible over bright anatomy. */
+  /**
+   * Text with a 1 px halo, so letters stay legible over bright anatomy.
+   *
+   * The halo colour is {@link OverlayBuilder.setHalo}'s — black until a caller says otherwise. Its
+   * alpha is clamped to the label's own so a translucent label does not gain an opaque outline.
+   */
   labelWithHalo(
     text: string,
     x: number,
@@ -111,7 +133,8 @@ export class OverlayBuilder {
     color: vec4,
     align: 'left' | 'center' | 'right' = 'left'
   ): void {
-    const halo: vec4 = [0, 0, 0, Math.min(1, color[3])];
+    const h = this.#halo;
+    const halo: vec4 = [h[0], h[1], h[2], Math.min(h[3], color[3])];
     for (const [dx, dy] of [
       [-scale, 0],
       [scale, 0],

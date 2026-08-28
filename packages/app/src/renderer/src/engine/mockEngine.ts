@@ -57,8 +57,10 @@ import type {
   ViewId,
   ViewSpec,
   vec3,
+  OverlayTheme,
 } from '@tetravox/engine';
 import {
+  DEFAULT_OVERLAY_THEME,
   coordinateSpaceOptions,
   fromSpace as fromCoordSpace,
   iso3dLabels,
@@ -143,6 +145,12 @@ export class NoGlEngine implements Engine {
   readonly terminations: DatasetId[] = [];
 
   private readonly state: Scene;
+
+  /**
+   * The last theme `setTheme` was handed (directed task 9, 2026-08-28). Readable, and read: the
+   * shell's E2E asserts on it to prove the toolbar's switch reaches §4.7 and not only the CSS.
+   */
+  theme: OverlayTheme = DEFAULT_OVERLAY_THEME;
 
   constructor(options: NoGlEngineOptions = {}) {
     this.stepMs = options.stepMs ?? 60;
@@ -520,6 +528,21 @@ export class NoGlEngine implements Engine {
 
   setAnnotations(patch: Partial<Annotations>): void {
     this.state.annotations = { ...this.state.annotations, ...patch, conventionBadge: true };
+    this.requestRender();
+  }
+
+  /**
+   * §4.7's `setTheme` (directed task 9, 2026-08-28). There is no GL here and therefore no chrome to
+   * colour, but the theme is **kept** rather than discarded: `theme` is what the shell's E2E reads
+   * back to prove the switch reached the engine and not only the CSS, and a stand-in that threw
+   * would make the theme switch crash every `?engine=mock` window.
+   *
+   * `background` is forwarded to the scene like the real engine does, so `serialize()` round-trips
+   * a themed background the same way.
+   */
+  setTheme(patch: Partial<OverlayTheme>): void {
+    this.theme = { ...this.theme, ...patch };
+    if (patch.background !== undefined) this.state.background = patch.background;
     this.requestRender();
   }
 

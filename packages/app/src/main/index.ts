@@ -14,7 +14,7 @@
  * demands.
  */
 
-import { BrowserWindow, app, ipcMain, session } from 'electron';
+import { BrowserWindow, app, ipcMain, nativeTheme, session } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -41,6 +41,18 @@ import {
   writeSceneFile,
 } from './scene-io';
 import { windowMode } from './window';
+import { readSettings, writeSettings } from './settings';
+
+/**
+ * `BrowserWindow.backgroundColor` for this launch: the `bg` token of the theme the renderer will
+ * resolve to. Kept in step with `renderer/src/theme/tokens.ts` by `theme/tokens.test.ts`,
+ * which reads this function's two literals out of this file.
+ */
+function startupBackground(): string {
+  const choice = readSettings().theme;
+  const dark = choice === 'system' ? nativeTheme.shouldUseDarkColors : choice === 'dark';
+  return dark ? '#16181c' : '#ffffff';
+}
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const rendererRoot = join(here, '..', 'renderer');
@@ -152,7 +164,12 @@ function createWindow(): BrowserWindow {
     minWidth: jobWindow === undefined ? 960 : 1,
     minHeight: jobWindow === undefined ? 600 : 1,
     show: false,
-    backgroundColor: '#0b0b0f',
+    // The window's own paint, before the renderer has produced a frame — so it must be the theme
+    // the renderer is *about* to apply, or every launch in the light theme opens on a black
+    // rectangle for a few hundred milliseconds (directed task 9, 2026-08-28). `settings.json` holds
+    // the choice; `system` asks Electron, which is the same signal `prefers-color-scheme` gives the
+    // renderer a moment later.
+    backgroundColor: startupBackground(),
     title: 'Tetravox',
     webPreferences: {
       preload,
@@ -273,6 +290,11 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   ipcMain.handle('tetravox:relocate-dialog', async (_event, missingName: unknown) =>
     showRelocateDialog(getWindow(), missingName)
   );
+  // §8's theme switch (directed task 9, 2026-08-28). Two calls, both small JSON: the renderer asks
+  // for the persisted choice on boot and writes the new one when the user picks. `set` returns the
+  // merged settings, so the renderer never has to guess whether the write landed.
+  ipcMain.handle('tetravox:settings', () => readSettings());
+  ipcMain.handle('tetravox:set-settings', (_event, patch: unknown) => writeSettings(patch));
   ipcMain.handle('tetravox:read-scene', (_event, path: unknown) => readSceneFile(path));
   ipcMain.handle('tetravox:write-scene', (_event, path: unknown, text: unknown) =>
     writeSceneFile(path, text)

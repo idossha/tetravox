@@ -71,3 +71,14 @@ export {
   worldToTkr,
   worldToTkrMatrix,
 } from './view/spaces';
+
+/**
+ * The §7.2 pass-3 chrome palette (directed task 9, 2026-08-28).
+ *
+ * §8's theme switch has to reach the orientation letters, the corner info, the badge, the crosshair,
+ * the colour bar and the gizmo, or half the window flips and the other half stays dark. It reaches
+ * them through {@link Engine.setTheme}; this export is the shape of the patch and the defaults §11's
+ * goldens are captured with.
+ */
+export { DEFAULT_OVERLAY_THEME } from './overlay/theme';
+export type { OverlayTheme } from './overlay/theme';

@@ -21,6 +21,7 @@ import type { GlState } from '../../gl/state';
 import type { FramePass, PassContext } from './pass';
 import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
 import {
+  DEFAULT_OVERLAY_THEME,
   FLOATS_PER_VERTEX,
   OverlayBuilder,
   badgeFor,
@@ -29,32 +30,32 @@ import {
   overlayMetrics,
   volumeColorbarSpec,
 } from '../../overlay';
-import type { ChromeInput, EdgeLetters } from '../../overlay';
+import { drawPointLabels, placePointLabels } from '../../overlay/point-labels';
+import type { ChromeInput, EdgeLetters, OverlayTheme } from '../../overlay';
 import { visibleIn } from '../../layers/runtime';
 import { isSliceView, topVolume } from '../../scene/store';
 import {
   edgeLetters,
   sliceBasis,
   voxelAxisAlong,
+  slicePlane,
   worldToPane3D,
   worldToVoxel,
 } from '../../view/geometry';
 import type { DrawInput } from './pass';
 import type { ViewportRect } from '../../view/layout';
-import type { Scene, SliceView, vec3, vec4, View, VolumeDataset } from '../../scene/types';
+import type { mat4, Scene, SliceView, vec3, vec4, View, VolumeDataset } from '../../scene/types';
 
-const TEXT_COLOR: vec4 = [0.92, 0.94, 0.98, 1];
-const CROSSHAIR_COLOR: vec4 = [1, 0.85, 0.2, 0.9];
-const ACTIVE_BORDER: vec4 = [0.35, 0.62, 1, 1];
 /**
- * The gizmo's two colours (appended by E-SCENE, §7.5's oblique affordances).
+ * Directed task 9 (2026-08-28): these six colours were `const`s here. They are now
+ * {@link OverlayTheme} fields, defaulted to exactly the values that used to live in this file — so
+ * §11's goldens are unmoved — and overridden per theme by the embedder through `Engine.setTheme`.
  *
- * Cyan, deliberately not the crosshair's amber and not the active border's blue: three overlay items
- * that can share a pane need three colours a test can tell apart, and `pointer.spec.ts` already
- * finds the crosshair by "bright in R and G, dark in B".
+ * The defaults, and why the gizmo is not the crosshair's amber: three overlay items that can share a
+ * pane need three colours a test can tell apart, and `pointer.spec.ts` finds the crosshair by
+ * "bright in R and G, dark in B". `DEFAULT_OVERLAY_THEME` in `overlay/theme.ts` carries the values
+ * and that reasoning.
  */
-const GIZMO_COLOR: vec4 = [0.25, 0.85, 0.95, 0.95];
-const GIZMO_HOT_COLOR: vec4 = [0.4, 1, 0.55, 1];
 
 export class OverlayPass implements FramePass {
   readonly name = 'overlay' as const;
@@ -85,7 +86,11 @@ export class OverlayPass implements FramePass {
     const { scene } = input;
     const a = scene.annotations;
     const b = this.#builder;
+    const theme: OverlayTheme = input.theme ?? DEFAULT_OVERLAY_THEME;
     b.begin(rect.width, rect.height);
+    // Every label in this pass gets the theme's halo. `begin` reset it to black one line ago, so a
+    // caller that assembles a `DrawInput` without a theme keeps the Phase-1 behaviour exactly.
+    b.setHalo(theme.halo);
 
     let letters: EdgeLetters | undefined;
     let crosshair: { x: number; y: number } | null = null;
@@ -126,7 +131,7 @@ export class OverlayPass implements FramePass {
         gizmo = {
           spec: input.gizmo,
           viewProj,
-          colors: { ring: GIZMO_COLOR, hot: GIZMO_HOT_COLOR },
+          colors: { ring: theme.gizmo, hot: theme.gizmoHot },
         };
       }
     }
@@ -142,16 +147,24 @@ export class OverlayPass implements FramePass {
       crosshair,
       crosshair3d,
       gizmo,
-      crosshairColor: CROSSHAIR_COLOR,
-      textColor: TEXT_COLOR,
+      crosshairColor: theme.crosshair,
+      textColor: theme.text,
       activeBorder:
-        input.activeViewId === view.id && input.activeViewId !== null ? ACTIVE_BORDER : undefined,
+        input.activeViewId === view.id && input.activeViewId !== null
+          ? theme.activeBorder
+          : undefined,
     });
 
     // Appended by E-SLICE (Phase 2): §8's colour bars, one per visible scalar layer. They go in
     // after `buildChrome` and before the draw, which is the slot `overlay/chrome.ts` reserves for
     // them — between the chrome and the active-pane border.
-    if (a.colorbars) drawColorbars(b, view, rect, input, TEXT_COLOR);
+    if (a.colorbars) drawColorbars(b, view, rect, input, theme.text);
+
+    // Appended for parsed Gmsh views (task 6): a points layer's 3D text labels. They go after the
+    // colour bars and before the draw, in the same reserved slot, and they are pass-3 items for
+    // the reason every other string here is — a DOM overlay is invisible to `readPixel` and to
+    // `screenshot()`, which is the same as not testing it (§11).
+    drawPointLabelsFor(b, view, rect, viewProj, input);
 
     if (b.vertexCount === 0) return;
     const gl = this.#gl;
@@ -172,6 +185,48 @@ export class OverlayPass implements FramePass {
     this.#program.dispose();
     this.#buf.dispose();
     this.#vao.dispose();
+  }
+}
+
+/**
+ * A points layer's 3D text labels (`overlay/point-labels.ts`), in every pane that shows the layer.
+ *
+ * **A 2D pane draws only the labels within one slice step of its plane**, which is what §4.4 means
+ * by electrodes appearing on a slice: a whole 187-electrode net projected onto one axial slice
+ * would be an unreadable smear of names belonging to slices 80 mm away. The slab is
+ * `max(radiusMm, 1 mm)` — the point's own radius, so a marker that is drawn always has its name
+ * next to it, and never less than a millimetre so a zero-radius layer still labels something.
+ *
+ * The lift is the point's radius converted to pixels in a 2D pane (where mm→px is `mmPerPx`) and a
+ * fixed few pixels in a 3D one, so the text clears the sphere instead of sitting inside it.
+ */
+function drawPointLabelsFor(
+  b: OverlayBuilder,
+  view: View,
+  rect: ViewportRect,
+  viewProj: mat4,
+  input: DrawInput
+): void {
+  const m = overlayMetrics(rect.width, rect.height, input.uiScale);
+  for (const layer of input.scene.layers) {
+    if (layer.kind !== 'points' || !visibleIn(layer, view)) continue;
+    if (layer.showLabels !== true) continue;
+    const labels = layer.labels ?? [];
+    if (labels.length === 0) continue;
+
+    const slabMm = Math.max(layer.radiusMm, 1);
+    const place = isSliceView(view)
+      ? {
+          width: rect.width,
+          height: rect.height,
+          slab: { ...slicePlane(view, input.scene.cursor), slabMm },
+          liftPx: (layer.radiusMm / view.camera.mmPerPx) * input.uiScale,
+        }
+      : { width: rect.width, height: rect.height, liftPx: 6 * m.scale };
+
+    const color = layer.labelColor ?? layer.color;
+    const faded: vec4 = [color[0], color[1], color[2], color[3] * layer.opacity];
+    drawPointLabels(b, m, placePointLabels(labels, viewProj, place), layer.labelScale ?? 1, faded);
   }
 }
 

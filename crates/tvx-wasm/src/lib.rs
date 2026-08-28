@@ -51,6 +51,7 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod err;
+pub mod geo;
 pub mod geom;
 pub mod handles;
 pub mod jsv;

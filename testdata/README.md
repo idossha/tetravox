@@ -89,6 +89,8 @@ interior ones — §6.3's surface invariant at a size a human can check by hand.
 | `patch_tri_ascii.ply`, `patch_tri_binary.ply` | both PLY encodings |
 | `patch_quad.obj`, `patch_quad_ascii.ply` | 9 quads — the n-gon path that must emit `tri_edge_mask`. The OBJ is the authoritative one (Gmsh's PLY reader truncates n-gons). |
 | `patch_tri.obj` | the triangle-only OBJ |
+| `view_electrodes.geo` | a parsed Gmsh post-processing view (§6.2, task 6): the SimNIBS `View""{` dialect plus one of every supported primitive — `SP`, `T3`, `SL`, `ST`, `SQ` (fanned), `VP` (magnitude), a skipped `SS`, and a second named view. **Hand-written, not generated**: it exists to pin the dialect, and Gmsh round-tripping it would normalise away the very spellings it pins. |
+| `view_geometry_script.geo` | a Gmsh **geometry script** — the file `read_geo_view` must reject with `Unsupported`, not read as an empty view |
 
 ## What is deliberately absent
 

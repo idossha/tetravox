@@ -75,6 +75,8 @@ import {
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
 import type { SceneCommand } from '../bridge';
 import type { SubjectSpacesReply } from '../../../preload/index';
+import { applyTheme, enginePatch, isThemeChoice, resolveTheme } from '../theme/theme';
+import type { ThemeChoice } from '../theme/theme';
 
 /** A fresh identity `mat4`, for a `TemplateSpace` that carries only a warp (directed task 8). */
 function identityMat4(): Float32Array {
@@ -110,6 +112,8 @@ export class ShellController {
   private ticketSeq = 0;
   private toastSeq = 0;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
+  /** The `prefers-color-scheme` subscription, live only while the choice is `'system'`. */
+  private themeMedia: { query: MediaQueryList; off: () => void } | null = null;
 
   constructor(
     private readonly engine: Engine,
@@ -144,6 +148,12 @@ export class ShellController {
       activeViewId: engine.scene.layout.cells[0] ?? null,
       quality: engine.scene.quality.name,
     });
+    // The theme, before anything is drawn: `setThemeChoice` reaches both the CSS variables and
+    // `Engine.setTheme`, so the first frame carries the right chrome rather than flipping to it.
+    // `loadTheme` then corrects the choice from `settings.json` if the user picked one — a promise,
+    // and harmless to be late for, because main opened the window in that same theme's background.
+    this.setThemeChoice(this.store.getState().themeChoice, { persist: false });
+    void this.loadTheme();
     this.syncLayers();
     this.reprobeCursor();
 
@@ -187,6 +197,8 @@ export class ShellController {
     for (const off of this.unsubscribers.splice(0)) off();
     if (this.tickTimer !== null) clearInterval(this.tickTimer);
     this.tickTimer = null;
+    this.themeMedia?.off();
+    this.themeMedia = null;
   }
 
   private readHeap(datasets: readonly Dataset[]): Record<DatasetId, number> {
@@ -294,10 +306,11 @@ export class ShellController {
         lastLoadMs: { ...s.lastLoadMs, [dataset.id]: elapsed },
       }));
       // §4.7: a dataset is not a layer. Opening a file means both, and both are engine calls.
-      engine.addLayer({
-        datasetId: dataset.id,
-        kind: dataset.kind === 'volume' ? 'volume' : 'mesh',
-      });
+      //
+      // The kind is the **dataset's own**, which `defaultLayerFor` decides: a Gmsh parsed view with
+      // no triangles (every SimNIBS electrode net) is points, not an empty mesh surface. Naming a
+      // kind here would have opened `GSN-HydroCel-185.geo` as a blank layer.
+      for (const kind of layerKindsFor(dataset)) engine.addLayer({ datasetId: dataset.id, kind });
       engine.requestRender();
       // Directed task 8: ask main whether a SimNIBS `toMNI/` governs this volume. Fire-and-forget —
       // a registration that is not there, or a bridge that is not there, must not fail the load.
@@ -478,6 +491,65 @@ export class ShellController {
     this.engine.setRadiological(on);
     this.store.setState({ radiological: on });
     this.engine.requestRender();
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // §8's theme switch (directed task 9, 2026-08-28)
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * Adopt the persisted choice, at attach.
+   *
+   * The value comes from main's `settings.json` over the preload bridge, so it is a promise, so the
+   * first paint happens in whatever `data-theme` the window already carried — which main chose for
+   * `BrowserWindow.backgroundColor` from the same file. The two agree, so the round trip is
+   * invisible; without main's half it would be a flash.
+   */
+  async loadTheme(): Promise<void> {
+    const settings = await bridge().settings();
+    this.setThemeChoice(isThemeChoice(settings.theme) ? settings.theme : 'system', {
+      persist: false,
+    });
+  }
+
+  /**
+   * §8's toolbar switch: System / Light / Dark, applied live and persisted.
+   *
+   * Live means *live*: the CSS variables flip under the running DOM (no reload, no remount) and the
+   * engine's §7.2 chrome flips with them in the same call. Doing only the first is the failure this
+   * method exists to prevent — a white toolbar over near-white orientation letters on a dark pane.
+   */
+  setThemeChoice(choice: ThemeChoice, opts: { persist?: boolean } = {}): void {
+    this.store.setState({ themeChoice: choice });
+    this.watchSystemTheme(choice);
+    this.applyResolvedTheme();
+    if (opts.persist !== false) void bridge().setSettings({ theme: choice });
+  }
+
+  /** Resolve the current choice, stamp it on the document, and hand it to the engine. */
+  private applyResolvedTheme(): void {
+    const name = resolveTheme(this.store.getState().themeChoice);
+    this.store.setState({ theme: name });
+    applyTheme(name);
+    this.engine.setTheme(enginePatch(name));
+    this.engine.requestRender();
+  }
+
+  /**
+   * Follow the OS while — and only while — the choice is `'system'`.
+   *
+   * A listener that stayed attached under an explicit choice would be harmless today (the resolver
+   * ignores the system for one) but would fire a render per OS change forever, and it is the kind of
+   * subscription that outlives the thing it belonged to. `detach()` drops it either way.
+   */
+  private watchSystemTheme(choice: ThemeChoice): void {
+    this.themeMedia?.off();
+    this.themeMedia = null;
+    if (choice !== 'system' || typeof globalThis.matchMedia !== 'function') return;
+    const query = globalThis.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (): void => this.applyResolvedTheme();
+    query.addEventListener('change', onChange);
+    this.themeMedia = { query, off: () => query.removeEventListener('change', onChange) };
   }
 
   toggleCrosshair(): void {
@@ -1418,4 +1490,33 @@ export class ShellController {
 /** A filename-safe ISO timestamp: `:` and `.` are illegal or awkward on at least one platform. */
 function timestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+/**
+ * The layers a freshly opened dataset gets, bottom→top.
+ *
+ * A volume is one volume layer and an ordinary mesh is one mesh layer. A Gmsh **parsed
+ * post-processing view** (`.geo` / `.pos`) is whichever of the two it actually contains, and a file
+ * that contains both gets both:
+ *
+ * * an electrode net — every SimNIBS `eeg_positions/*.geo` — has no triangles at all, so naming
+ *   `'mesh'` unconditionally opened `GSN-HydroCel-185.geo` as a blank surface layer;
+ * * a view with `ST`/`SQ` triangles *and* `SP` points is a field on a surface *plus* the markers
+ *   drawn over it, and dropping either half silently loses data the file carries.
+ *
+ * The surface goes first so the markers draw over it, which is §4.4's bottom→top order and what
+ * §4.4 means by electrodes over anatomy.
+ *
+ * Exported so it is a value a test can check, not a conditional buried in a `try`.
+ */
+export function layerKindsFor(dataset: Dataset): Layer['kind'][] {
+  if (dataset.kind === 'volume') return ['volume'];
+  const geo = dataset.geo;
+  if (geo === undefined) return ['mesh'];
+  const kinds: Layer['kind'][] = [];
+  if (dataset.hasTris) kinds.push('mesh');
+  if (geo.points.length > 0 || geo.labels.length > 0 || geo.lineSegments.length > 0) {
+    kinds.push('points');
+  }
+  return kinds.length > 0 ? kinds : ['mesh'];
 }

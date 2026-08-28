@@ -38,6 +38,8 @@ import type { MetricsState } from '../lib/metrics';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
 import { EMPTY_METRICS } from '../lib/metrics';
 import type { EngineImpl } from '../engine/factory';
+import type { ThemeChoice } from '../theme/theme';
+import type { ThemeName } from '../theme/tokens';
 
 /**
  * §8's coordinate bar space, as a `CoordSpaceRef` (directed task 8, 2026-08-28).
@@ -198,6 +200,20 @@ export interface UiState {
    * start expanded** for free while every other row keeps whatever the user set.
    */
   collapsedLayers: Record<LayerId, boolean>;
+
+  // -- Themes (directed task 9, 2026-08-28) ------------------------------------------------------
+  /**
+   * What the user picked in the toolbar — `'system'`, `'light'` or `'dark'`. Persisted in
+   * `settings.json` by main; this is the last value the renderer read or wrote.
+   */
+  themeChoice: ThemeChoice;
+  /**
+   * What that choice resolves to *now*: `'system'` follows `prefers-color-scheme`, so this changes
+   * under the app when the OS does. It is what `data-theme` is stamped with and what the engine's
+   * chrome palette is derived from — the two must never disagree, which is why one field drives
+   * both.
+   */
+  theme: ThemeName;
 }
 
 /** Where this scene lives on disk, and when it was last written there. */
@@ -279,6 +295,10 @@ export const INITIAL_UI: UiState = {
   screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,
   headerDatasetId: null,
   collapsedLayers: {},
+  themeChoice: 'system',
+  // Dark until the resolver has run, matching `BrowserWindow.backgroundColor`'s own fallback: a
+  // window that guessed light and was wrong would show a white flash, and the reverse would not.
+  theme: 'dark',
 };
 
 export type UiStore = StoreApi<UiState>;

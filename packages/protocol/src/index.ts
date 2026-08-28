@@ -344,7 +344,55 @@ export interface GpuCapsT {
   max3d: number;
 }
 
-export type MeshFormatSel = 'auto' | 'msh' | 'gii' | 'fs' | 'stl' | 'ply' | 'obj';
+export type MeshFormatSel = 'auto' | 'msh' | 'gii' | 'fs' | 'stl' | 'ply' | 'obj' | 'geo';
+
+/**
+ * One `View "name" { … };` block's census, for the layer panel and the info panel.
+ *
+ * `skipped` mirrors `MeshMeta.skipped`: a primitive the reader drops is counted, never fatal.
+ */
+export interface GeoViewCountT {
+  name: string;
+  points: number;
+  labels: number;
+  lines: number;
+  tris: number;
+  /** Values per vertex in the file. Only step 0 is read (§6.2). */
+  timeSteps: number;
+  skipped: { primitive: string; count: number }[];
+}
+
+/**
+ * The additive half of `loadMesh`'s result for `format: 'geo'` — a parsed Gmsh post-processing
+ * view's **points, text labels and line segments** (§6.2, §6.4).
+ *
+ * The view's `ST`/`SQ` triangles are NOT here: they are the `Mesh` the same call loaded, with the
+ * per-corner values on a node field named `value`, so every mesh op works on them unchanged. This
+ * carries only what a `Mesh` has no room for. Every array is de-indexed and in world mm.
+ *
+ * Views are concatenated, so `points` spans all of them and `pointView` says which view each point
+ * came from; the mesh's `tri_tag` is the same 1-based view index.
+ */
+export interface GeoPayloadT {
+  /** 3 floats per point. */
+  points: Float32Array;
+  /** 1 per point — the `SP` value, or a `VP`'s magnitude. */
+  pointValues: Float32Array;
+  /** 1 per point: the 0-based view it came from. */
+  pointView: Uint32Array;
+  /** 3 floats per label — the `T2`/`T3` anchor. */
+  labelPositions: Float32Array;
+  /** 1 per label, aligned with `labelPositions`. */
+  labelTexts: string[];
+  /** 6 floats per `SL` segment (two endpoints). */
+  lineSegments: Float32Array;
+  /** 2 per segment — one value per endpoint. */
+  lineValues: Float32Array;
+  viewNames: string[];
+  views: GeoViewCountT[];
+  /** Over points, label anchors, line endpoints and triangle corners. */
+  bounds: { min: [number, number, number]; max: [number, number, number] };
+}
 
 export interface OpArgs {
   loadVolume: { source: LoadSource; caps: GpuCapsT; wantLinear: boolean };
@@ -429,8 +477,14 @@ export interface OpResult {
     labelIds?: Uint32Array;
     denseIndexOf?: Uint32Array;
   };
-  /** No bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` are built here. */
-  loadMesh: { meta: MeshMeta };
+  /**
+   * No bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` are built here.
+   *
+   * **Except for `format: 'geo'`**, where `geo` is present and carries the parsed view's points,
+   * labels and line segments — the parts of a `.geo`/`.pos` that are not a mesh (§6.2, §6.5.1
+   * `GeoPayloadT`). Absent for every other format, so nothing that loads a `.msh` sees a change.
+   */
+  loadMesh: { meta: MeshMeta; geo?: GeoPayloadT };
   volumeFrame: VolumeFrameT;
   surface: SurfacePayload;
   boundary: SurfacePayload;

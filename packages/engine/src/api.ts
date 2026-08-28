@@ -36,6 +36,8 @@ import type {
   vec3,
 } from './scene/types';
 import type { Capabilities } from './gl/caps';
+// Directed task 9 (2026-08-28): the pass-3 chrome palette `setTheme` carries.
+import type { OverlayTheme } from './overlay/theme';
 import { TetravoxEngine } from './engine';
 
 /** Maps 1:1 onto protocol `LoadSource` (§6.5.1). */
@@ -333,6 +335,22 @@ export interface Engine {
   cameraPreset(viewId: ViewId, preset: CameraPreset): void;
   /** §7.5 `c` and the rest of the §4.5 `Annotations` block; `conventionBadge` stays true (§8). */
   setAnnotations(patch: Partial<Annotations>): void;
+  /**
+   * The colours §7.2's pass-3 chrome is drawn in — orientation letters, corner info, the RAD/NEU
+   * badge, the crosshair, the colour bar's text/ticks/frame, the label halo and the cut-plane gizmo
+   * (§4.7 / §7.2, added 2026-08-28 — see `docs/DECISIONS.md`).
+   *
+   * The neighbour of {@link Engine.setAnnotations}, which says *which* chrome is drawn: this says
+   * what colour it is. §8's theme switch needs both, or the panels flip to a light theme and the
+   * letters stay near-white with a black halo over a white pane — the halo has to **invert**, and
+   * nothing outside the engine can reach it.
+   *
+   * A patch over the current theme. `background` is forwarded to `Scene.background`; leave it out
+   * and the viewport keeps whatever it had, which is what an embedder following imaging convention
+   * (dark panes in every theme) wants. Defaults are `DEFAULT_OVERLAY_THEME` — the constants §11's
+   * goldens were captured with.
+   */
+  setTheme(patch: Partial<OverlayTheme>): void;
   /** §8 status bar: wasm `heapBytes` from that dataset's last `Res` (§6.5.2). */
   heapBytes(id: DatasetId): number | undefined;
   /**
@@ -502,6 +520,10 @@ export class MockEngine implements Engine {
     throw new Error('phase 1');
   }
   setAnnotations(patch: Partial<Annotations>): void {
+    void patch;
+    throw new Error('phase 1');
+  }
+  setTheme(patch: Partial<OverlayTheme>): void {
     void patch;
     throw new Error('phase 1');
   }
