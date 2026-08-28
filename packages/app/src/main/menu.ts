@@ -103,6 +103,11 @@ export function sendSceneCommand(win: BrowserWindow | null, command: SceneComman
   win?.webContents.send('tetravox:scene-command', command);
 }
 
+/** Ask the renderer to open the unified settings dialog (⌘,/Ctrl+,). */
+export function sendOpenSettings(win: BrowserWindow | null): void {
+  win?.webContents.send('tetravox:open-settings');
+}
+
 /**
  * The File ▸ Open Recent submenu (directed task 13).
  *
@@ -188,6 +193,12 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
           label: 'Save Scene As…',
           accelerator: 'CmdOrCtrl+Shift+S',
           click: () => sendSceneCommand(getWindow(), 'saveAs'),
+        },
+        { type: 'separator' },
+        {
+          label: 'Settings…',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => sendOpenSettings(getWindow()),
         },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },

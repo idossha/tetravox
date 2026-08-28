@@ -119,6 +119,12 @@ export interface TetravoxBridge {
   settings(): Promise<AppSettings>;
   /** Merge a patch into the file and get the result back, so a caller knows the write landed. */
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  /** The `tetravoxrc` path (`main/settings.ts#configPath`), for the settings dialog's footer. */
+  configPath(): Promise<string>;
+  /** Reveal the rc file in the OS file manager (`shell.showItemInFolder`); creates it first if absent. */
+  revealConfigFile(): Promise<void>;
+  /** Menu Settings… (⌘,/Ctrl+,), pushed from main. */
+  onOpenSettings(listener: () => void): () => void;
 
   // -- The automation surface (`--job`, `main/job-runner.ts`, `docs/AUTOMATION.md`) ---------------
   // The one place bytes cross this bridge, and they are **not** file bytes: a PNG the renderer just
@@ -189,6 +195,14 @@ export interface JobDonePayload {
   loadMs: number;
 }
 
+/** Mirrors `main/settings.ts`'s `ScreenshotDefaults`; duplicated for the same reason as `AppSettings`. */
+export interface ScreenshotDefaults {
+  background: 'scene' | 'white' | 'transparent';
+  dpi: number;
+  scale?: number;
+  autoTrim: boolean;
+}
+
 /** Mirrors `main/settings.ts`'s `AppSettings`; duplicated because preload must not import main. */
 export interface AppSettings {
   theme: 'system' | 'light' | 'dark';
@@ -198,6 +212,8 @@ export interface AppSettings {
   recentScenes: string[];
   /** "Reopen last scene on launch"; off by default (directed task 13). */
   reopenLastScene: boolean;
+  /** Persisted §4.7 screenshot defaults, merged into `screenshotOptions` on startup. */
+  screenshotDefaults: ScreenshotDefaults;
 }
 
 /** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
@@ -235,6 +251,13 @@ const bridge: TetravoxBridge = {
   writeSceneFile: (path, text) => ipcRenderer.invoke('tetravox:write-scene', path, text),
   settings: () => ipcRenderer.invoke('tetravox:settings'),
   setSettings: (patch) => ipcRenderer.invoke('tetravox:set-settings', patch),
+  configPath: () => ipcRenderer.invoke('tetravox:config-path'),
+  revealConfigFile: () => ipcRenderer.invoke('tetravox:reveal-config-file'),
+  onOpenSettings: (listener) => {
+    const wrapped = (): void => listener();
+    ipcRenderer.on('tetravox:open-settings', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:open-settings', wrapped);
+  },
   jobSpec: () => ipcRenderer.invoke('tetravox:job-spec'),
   jobWrite: (name, bytes) => ipcRenderer.invoke('tetravox:job-write', { name, bytes }),
   jobCapture: (width, height) => ipcRenderer.invoke('tetravox:job-capture', width, height),
