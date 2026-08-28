@@ -73,6 +73,15 @@ export interface PointerHost {
   // §7.5's oblique affordances (appended with the gizmo; same rule as the rest of this interface —
   // every member is one thing §7.5 binds, and every one is public on `TetravoxEngine`).
 
+  /**
+   * A left-click on the 3D pane's orientation cube: snap the camera to that face's preset, and say
+   * whether the click was consumed (directed task 10, 2026-08-28).
+   *
+   * Checked **before** the gizmo and before the orbit, because the cube is chrome drawn on top of
+   * both: a click that lands on a face is a click on the cube, and letting it start an orbit as well
+   * would spin the camera away from the preset it just snapped to.
+   */
+  clickOrientationCube(viewId: string, x: number, y: number): boolean;
   /** Which cut-plane gizmo handle a 3D-pane pixel is over, latching the highlight. */
   gizmoAt(viewId: string, x: number, y: number): 'translate' | 'rotateU' | 'rotateV' | null;
   /** Drag a gizmo handle: translate along the normal, or rotate about an in-plane axis. */
@@ -188,6 +197,18 @@ export class PointerLayer {
       !pane.is3D &&
       this.#host.planeFromPointsPending !== null &&
       this.#host.addPlanePoint(pane.viewId, pane.x, pane.y)
+    ) {
+      e.preventDefault();
+      return;
+    }
+    // The orientation cube is chrome on top of the 3D scene, so it takes the click before
+    // everything below it — before measure mode, before the gizmo, and before the orbit gesture
+    // ever starts. A face of the cube is a camera preset, and a click that landed on one was never
+    // aimed at the anatomy behind it.
+    if (
+      e.button === 0 &&
+      pane.is3D &&
+      this.#host.clickOrientationCube(pane.viewId, pane.x, pane.y)
     ) {
       e.preventDefault();
       return;

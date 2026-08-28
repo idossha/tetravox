@@ -41,7 +41,7 @@ export { defaultIso3d, derivedIsoLayers, iso3dLabels, iso3dLayerId } from './lay
  * before it calls `load`, and it must derive them the same way. One implementation, exported, rather
  * than two that can drift.
  */
-export { sidecarPathsFor } from './scene/serialize';
+export { migrateViewSpec, SCENE_VERSION, sidecarPathsFor } from './scene/serialize';
 export type { SidecarPaths } from './scene/serialize';
 
 /**

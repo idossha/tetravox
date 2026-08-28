@@ -28,6 +28,7 @@ const INCLUDE_ALL: ScreenshotOptions['include'] = {
   crosshair: true,
   cornerInfo: true,
   scaleBar: true,
+  orientationCube: true,
 };
 
 function opts(patch: Partial<ScreenshotOptions> = {}): ScreenshotOptions {
@@ -132,6 +133,7 @@ describe('screenshotAnnotations (§4.7 include)', () => {
       scaleBar: true,
       colorbars: true,
       crosshair: true,
+      orientationCube: true,
     });
     const none = screenshotAnnotations({
       colorbar: false,
@@ -139,6 +141,7 @@ describe('screenshotAnnotations (§4.7 include)', () => {
       crosshair: false,
       cornerInfo: false,
       scaleBar: false,
+      orientationCube: false,
     });
     expect(none).toEqual({
       orientationLabels: false,
@@ -147,6 +150,7 @@ describe('screenshotAnnotations (§4.7 include)', () => {
       scaleBar: false,
       colorbars: false,
       crosshair: false,
+      orientationCube: false,
     });
   });
 });

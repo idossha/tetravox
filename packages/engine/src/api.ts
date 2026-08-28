@@ -226,6 +226,15 @@ export interface ScreenshotOptions {
     crosshair: boolean;
     cornerInfo: boolean;
     scaleBar: boolean;
+    /**
+     * The 3D pane's orientation cube (§4.5's `Annotations.orientationCube`, directed task 10).
+     *
+     * Additive, like every other member of this block: a caller written before the cube existed
+     * omits it, and TypeScript makes that a compile error rather than a silently different picture —
+     * which is what an `include` map is for. `automation/run.ts` defaults it to the annotation's own
+     * default (off).
+     */
+    orientationCube: boolean;
   };
   autoTrim: boolean;
 }
@@ -482,6 +491,17 @@ export interface Engine {
   readPixel(viewId: ViewId, px: number, py: number): Uint8Array;
 
   serialize(): ViewSpec;
+  /**
+   * Where the scene file is about to be written, for §4.6's "paths **relative to the scene file**".
+   *
+   * **Optional on the facade** (appended by directed task 13, 2026-08-28; `docs/DECISIONS.md`).
+   * `serialize()` takes no argument and is frozen, so the one thing the engine cannot derive is told
+   * to it instead — and a host that never calls this still gets a spec whose relative paths are
+   * measured from the datasets' own common directory, plus an `absPath` on every ref. Optional
+   * rather than required because the §11 `MockEngine` has no dataset paths to be relative to and
+   * nothing to do with the answer.
+   */
+  setSceneDir?(dir: string | null): void;
   load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void>;
 
   on<E extends keyof EngineEvents>(e: E, cb: (p: EngineEvents[E]) => void): () => void;

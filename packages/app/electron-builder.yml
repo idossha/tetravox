@@ -63,6 +63,15 @@ fileAssociations:
     mimeType: model/mesh
     role: Viewer
     rank: Default
+  # §4.6's scene file (directed task 13). A compound extension like `.nii.gz`, so the same rules
+  # apply: macOS treats it as its own UTI, Linux as its own MIME type. `rank: Owner` — nothing else
+  # opens a `*.tetravox.json`, and a double-click on one must reach this app.
+  - ext: tetravox.json
+    name: Tetravox scene
+    description: Tetravox scene (ViewSpec)
+    mimeType: application/x-tetravox-scene
+    role: Editor
+    rank: Owner
   - ext: pos
     name: Gmsh view
     description: Gmsh parsed post-processing view

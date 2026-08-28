@@ -748,6 +748,20 @@ export interface Annotations {
   scaleBar: boolean;
   colorbars: boolean;
   crosshair: boolean;
+  /**
+   * The 3D pane's orientation cube (directed task 10, 2026-08-28; ARCHITECTURE §4.5 / §7.2,
+   * `docs/DECISIONS.md`).
+   *
+   * **Additive, and off by default.** A 3D pane's edge letters say which way is up at the edges;
+   * nothing said which way the head is *facing* once the camera left a preset, which is the same
+   * laterality-safety gap §8 opened the 2D chrome for. Default `false` for the reason `scaleBar` and
+   * `colorbars` are: switching it on by default would move every §11 golden that contains a 3D pane,
+   * and that is a `docs/DECISIONS.md` conversation rather than a patch.
+   *
+   * A scene saved before this field existed deserialises with it absent, which reads as off — the
+   * same picture it was saved as.
+   */
+  orientationCube: boolean;
 }
 
 export interface QualityLevel {
@@ -906,7 +920,15 @@ export type SerializableLayer = Omit<Layer, 'visibleLabels'> & {
  * missing dataset opens a "relocate" dialog keyed on `fingerprint`.
  */
 export interface ViewSpec {
-  version: 1;
+  /**
+   * **2** since directed task 13 (2026-08-28). `1` is still readable: {@link migrateViewSpec}
+   * (`scene/serialize.ts`) upgrades one in place. The only differences are that a v1 file predates
+   * the two optional fields below and may name a layout with no 3D pane (directed task 3), so a v1
+   * read that skipped the migration would restore a grid the UI can no longer show. Nothing added
+   * in v2 is required, which is why the migration is a version stamp and two defaults rather than a
+   * rewrite.
+   */
+  version: 1 | 2;
   datasets: DatasetRef[];
   layers: SerializableLayer[];
   activeLayerId: LayerId | null;
@@ -920,9 +942,26 @@ export interface ViewSpec {
   annotations: Annotations;
   transparency: Scene['transparency'];
   /**
-   * §4.5's measurements (directed task 11). **Optional**, and absent means none: every
-   * `*.tetravox.json` written before this field existed still loads, which is the additive rule a
-   * frozen file is changed under (§12.3).
+   * The theme the scene was saved in — v2, optional, and **not** engine state (directed task 13).
+   *
+   * `Scene` has no theme: §8's choice lives in `settings.json` and reaches the engine only as a
+   * chrome palette, so `serialize()` cannot produce this field and does not. The app writes it on
+   * save and applies it on load *when it is there*, which is what lets a scene mailed to a
+   * colleague look the way its author left it without a scene that never mentioned a theme
+   * overriding the reader's preference.
+   */
+  theme?: 'system' | 'light' | 'dark';
+  /**
+   * §4.5's measurements (directed task 11) — v2, optional, and absent means **none**.
+   *
+   * Task 13 reserved this slot as an opaque `unknown[]` so that a scene saved by a build with
+   * measurements survived a round trip through a build without them; task 11 is that build, and
+   * this is the single definition. It is no longer carried opaquely by the app: `serialize()`
+   * writes `Scene.measurements` and `applyViewSpec` restores it, so the app's carry-forward is now
+   * a fallback for a spec the engine never saw rather than the only thing keeping the field alive.
+   *
+   * Optional because a `*.tetravox.json` written before it existed must still load, which is the
+   * additive rule a frozen file is changed under (§12.3).
    */
   measurements?: Measurement[];
 }

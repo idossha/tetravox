@@ -216,14 +216,16 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
         .toBe('ernie.tetravox.json');
       expect(existsSync(scenePath)).toBe(true);
 
-      // §4.6 on disk: version 1, two refs, each with a relative path and an absolute fallback.
+      // §4.6 on disk: the current version, two refs, each with a relative path and an absolute
+      // fallback.
       const spec = JSON.parse(readFileSync(scenePath, 'utf8')) as {
         version: number;
         datasets: { name: string; path: string; absPath?: string; fingerprint: string }[];
         layers: { kind: string }[];
         cursor: number[];
       };
-      expect(spec.version).toBe(1);
+      // §4.6 is version 2 since directed task 13; version 1 files still open (`migrateViewSpec`).
+      expect(spec.version).toBe(2);
       // Verbatim: a `ViewSpec` on disk carries the file's **name**, not its path — the path is
       // `path` / `absPath`, two fields below.
       expect(spec.datasets.map((d) => d.name)).toEqual(['T1.nii.gz', 'ernie.msh']);

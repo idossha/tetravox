@@ -118,6 +118,7 @@ async function axialPane(): Promise<DecodedPng> {
         crosshair: false,
         cornerInfo: false,
         scaleBar: false,
+        orientationCube: false,
       },
       autoTrim: false,
     });

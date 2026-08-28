@@ -64,3 +64,33 @@ export {
   MEASURE_WIDTH_PX,
 } from './measure';
 export type { PlacedMeasurement } from './measure';
+// Directed task 10 (2026-08-28): the 3D pane's orientation cube and the 2D panes' scale bar — the
+// two §7.2 pass-3 items §4.5's `Annotations` names (`orientationCube`, `scaleBar`) but nothing drew.
+export {
+  CUBE_EDGE_SHADE,
+  CUBE_FACES,
+  CUBE_PX,
+  CUBE_SHADE_MAX,
+  CUBE_SHADE_MIN,
+  cameraBasis,
+  cubeFaceAt,
+  cubeFaces,
+  cubeLayout,
+  drawOrientationCube,
+} from './orientation-cube';
+export type {
+  CameraBasis,
+  CubeColors,
+  CubeFace,
+  CubeFaceQuad,
+  CubeLayout,
+} from './orientation-cube';
+export {
+  SCALE_BAR_MAX_PX,
+  SCALE_BAR_MIN_PX,
+  SCALE_BAR_STEPS,
+  drawScaleBar,
+  scaleBarLayout,
+  snapScaleBar,
+} from './scale-bar';
+export type { ScaleBarChoice, ScaleBarLayout } from './scale-bar';

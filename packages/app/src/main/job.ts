@@ -66,6 +66,8 @@ export interface IncludeSpec {
   crosshair?: boolean;
   cornerInfo?: boolean;
   scaleBar?: boolean;
+  /** The 3D pane's orientation cube (§4.5, directed task 10, 2026-08-28). */
+  orientationCube?: boolean;
 }
 
 export interface SetAction {
@@ -310,7 +312,14 @@ class Errors {
       this.push(path, 'must be an object');
       return;
     }
-    const keys = ['colorbar', 'orientationLabels', 'crosshair', 'cornerInfo', 'scaleBar'];
+    const keys = [
+      'colorbar',
+      'orientationLabels',
+      'crosshair',
+      'cornerInfo',
+      'scaleBar',
+      'orientationCube',
+    ];
     for (const [key, v] of Object.entries(value)) {
       if (!keys.includes(key))
         this.push(`${path}.${key}`, `unknown key (expected ${keys.join(', ')})`);

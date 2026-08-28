@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ROUND_TRIP_FIELDS,
+  SCENE_VERSION,
   applyViewSpec,
   candidatePaths,
   commonDirectory,
@@ -85,9 +86,9 @@ describe('toViewSpec / applyViewSpec', () => {
     expect(target.scene.annotations.conventionBadge).toBe(true);
   });
 
-  it('writes version 1 and no datasets for an empty scene', () => {
+  it('writes the current version and no datasets for an empty scene', () => {
     const spec = toViewSpec(new SceneStore().scene);
-    expect(spec.version).toBe(1);
+    expect(spec.version).toBe(SCENE_VERSION);
     expect(spec.datasets).toEqual([]);
     expect(spec.layers).toEqual([]);
     expect(spec.activeLayerId).toBeNull();
@@ -466,11 +467,15 @@ describe('remapLayer — the dataset-id remap a load cannot work without', () =>
     expect(remapLayer(layer, idMap)).toBeNull();
   });
 
-  it('only claims the kinds `scene/defaults.ts` can seed today', () => {
+  it('claims every kind `defaultLayerFor` can seed — all four (directed task 13)', () => {
+    // It used to exclude `iso` and `points` on the grounds that `addLayer` derives a layer's kind
+    // from its dataset. That stopped being true when `defaultLayerFor` gained its `kind` parameter,
+    // and the stale answer silently dropped every isosurface and every electrode-position layer
+    // from a reopened scene.
     expect(isRestorableKind('volume')).toBe(true);
     expect(isRestorableKind('mesh')).toBe(true);
-    expect(isRestorableKind('iso')).toBe(false);
-    expect(isRestorableKind('points')).toBe(false);
+    expect(isRestorableKind('iso')).toBe(true);
+    expect(isRestorableKind('points')).toBe(true);
   });
 });
 

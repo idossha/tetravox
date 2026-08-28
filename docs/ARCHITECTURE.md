@@ -560,7 +560,8 @@ export interface Layout { kind: LayoutKind; cells: ViewId[] }
 export interface Annotations {
   orientationLabels: boolean; cornerInfo: boolean; conventionBadge: true;   // badge is not optional
   scaleBar: boolean; colorbars: boolean; crosshair: boolean;
-}
+  orientationCube: boolean;      // the 3D pane's clickable A/P/L/R/S/I cube (appended 2026-08-28,
+}                                //   directed task 10; default false, like scaleBar and colorbars)
 
 export interface QualityLevel {
   name: 'full' | 'interacting' | 'reduced';
@@ -657,6 +658,17 @@ still the cursor's alone.
 
 ### 4.6 ViewSpec — the persisted form (`*.tetravox.json`)
 
+**`version` is 2 since directed task 13 (2026-08-28).** v2 adds two optional fields — `theme` (§8's choice, so a
+scene reopens looking as its author left it; `serialize()` never writes it, because `Scene` has no theme, and it
+is applied on load only when it is present) and `measurements` (directed task 11's, carried opaquely so a build
+without the tool does not delete them on re-save). `migrateViewSpec` (`scene/serialize.ts`) upgrades a v1 file
+and is the only place a version is decided; a version *above* the current one is refused by the reader rather
+than guessed at.
+
+**JSON has no infinity.** `Threshold.lo` / `.hi` default to `∓Infinity`, and `JSON.stringify` turns those into
+`null` without a word — so every scene written before task 13 read its bounds back as two nulls. They are now
+written as `null` deliberately and read back as the bound the null stands for.
+
 ```ts
 export interface SidecarRef {
   path: string;                     // relative to the DATASET's directory, not to the scene file
@@ -674,7 +686,7 @@ export type SerializableLayer =
                                    outlineWidthPx: number; visibleLabels?: number[] } };
 
 export interface ViewSpec {
-  version: 1;
+  version: 1 | 2;                   // 2 since directed task 13; `migrateViewSpec` upgrades a 1
   datasets: DatasetRef[];
   layers: SerializableLayer[];
   activeLayerId: LayerId | null;
@@ -682,12 +694,18 @@ export interface ViewSpec {
   cursor: vec3; radiological: boolean; background: vec4;
   lighting: Scene['lighting']; annotations: Annotations;
   transparency: Scene['transparency'];
-  measurements?: Measurement[];     // §4.5's measurements. OPTIONAL: absent = none, so a scene file
-                                    //   written before 2026-08-28 still loads (§12.3's additive rule)
+  theme?: 'system' | 'light' | 'dark';   // v2, optional — the app's, not the engine's
+  measurements?: Measurement[];     // §4.5's measurements — v2, optional: absent = none, so a scene
+                                    //   file written before 2026-08-28 still loads (§12.3's rule)
 }
 ```
 
-**`measurements` is plain JSON and is written as-is.** Unlike `visibleLabels` there is no typed array
+**`measurements` is plain JSON and is written as-is.** Task 13 reserved the slot as an opaque
+`unknown[]` so a scene saved by a build that had measurements survived a round trip through one that
+did not; task 11 is that build, and the type above is now the single definition — `serialize()`
+writes it and `applyViewSpec` restores it, so the app's carry-forward is a fallback rather than the
+only thing keeping the field alive.
+ Unlike `visibleLabels` there is no typed array
 in it, and unlike a `LabelTable` there is nothing to re-derive it from — a measurement is the user's
 own datum, not a projection of a file. Absent means **none**, never "keep whatever the live scene
 had", which is the rule `replaceAnnotations` already follows.
@@ -880,7 +898,7 @@ export interface ScreenshotOptions {
   width?: number; height?: number; scale?: number; dpi?: number;   // dpi written to the PNG pHYs chunk
   background: 'scene' | 'white' | 'transparent';
   include: { colorbar: boolean; orientationLabels: boolean; crosshair: boolean;
-             cornerInfo: boolean; scaleBar: boolean };
+             cornerInfo: boolean; scaleBar: boolean; orientationCube: boolean };
   autoTrim: boolean;
 }
 
@@ -2256,6 +2274,17 @@ Rules:
 3. **Overlay** — crosshair, cut-plane gizmo, contours on slices, glyph labels, annotations, orientation letters,
    corner info, RAD/NEU badge, colour bars, scale bar, orientation cube. **All clip distances disabled** in this
    pass, or the gizmo gets clipped by the plane it manipulates.
+   The **scale bar** (`overlay/scale-bar.ts`, 2D panes) and the **orientation cube**
+   (`overlay/orientation-cube.ts`, 3D panes) are the two items §4.5 named and nothing drew until directed task 10
+   (2026-08-28). Both take the pane's **bottom-right** corner — the one nothing else claims, and one they can never
+   contend for, since a cube is a 3D item and a bar a 2D one. The bar's length is snapped to the 1-2-5 ladder
+   `1 / 2 / 5 / 10 / 20 / 50 / 100 mm` so it lands in 60…160 px, and the **drawn length is exactly `mm / mmPerPx`**,
+   which §11 asserts off the framebuffer at two zooms: a bar is a promise about a distance, so it is measured, never
+   eyeballed. The cube is drawn with its **own orthographic projection** of a unit cube — never the pane's
+   view-projection, or it would change size with the dolly and be clipped by the near plane — at `half/√3` per unit,
+   so no rotation can push a corner out of its box. `cubeFaces` produces the picture *and* the hit test, the way
+   `handlePoints` does for the gizmo; a click goes through `Engine.cameraPreset`, so the cube and §7.5's `1..6` keys
+   cannot diverge. Both are `text`/`halo` only, so they follow the theme with no tokens of their own.
    Every colour in this pass comes from `DrawInput.theme` (an `OverlayTheme`, added 2026-08-28), not from a
    constant: the embedder has a theme, and chrome drawn in a fixed near-white with a fixed black halo is
    unreadable the moment that theme is a light one. The **halo inverts** with the theme rather than shifting,
@@ -2655,6 +2684,17 @@ nothing at all while the mode is off and nothing has been placed.
 * Corner annotation: view name, slice index of the active volume layer, world RAS of the plane.
 * A persistent `RAD` / `NEU` badge (`Annotations.conventionBadge` is not optional).
 * All three appear in **every** Playwright golden, so a regression that drops them fails CI (§11).
+* A **scale bar**, bottom-right, snapped to `1 / 2 / 5 / 10 / 20 / 50 / 100 mm` and labelled in millimetres
+  (`Annotations.scaleBar`). Same argument as the letters: `ZOOM 1.42X` is a ratio to a fit the reader of a saved
+  PNG never saw, so without the bar a lesion measured off a screenshot is measured in pixels.
+
+**3D view chrome:** the same edge letters and corner info, plus an **orientation cube** in the bottom-right
+(`Annotations.orientationCube`) — six shaded faces labelled `A/P/L/R/S/I`, turning with the camera, and clicking one
+snaps the camera to that preset. The edge letters say which way is up at the edges; the cube is what says which way
+the head is *facing* once the camera has left a preset.
+
+Toolbar: `Scale` and `Cube` toggle the two. `scene/defaults.ts` keeps both **off** — an engine default may not move
+§11's goldens — and the app turns both on for its own scene at attach, exactly as it does the colour bars.
 
 **Info panel** is split into two blocks with identical row structure:
 * `Cursor` — last click, persistent.
@@ -2731,7 +2771,14 @@ and slice sweeps, and because six figures from six invocations would parse a 184
 `docs/DECISIONS.md` (2026-08-28) has the reasoning; the single-shot case is the one-action job.
 
 **Scene save/load**: `*.tetravox.json` (`ViewSpec`, §4.6). Paths are stored relative to the scene file with an
-absolute fallback; a missing dataset opens a "relocate" dialog.
+absolute fallback; a missing dataset opens a "relocate" dialog. **Directed task 13 (2026-08-28)** made it the
+gesture rather than the format: **⌘S** saves (a sheet the first time, defaulting to
+`<the first dataset's directory>/<name>.tetravox.json`; in place afterwards), **⇧⌘S** is Save As, the title bar
+carries the scene's name and a `•` while it is dirty, **File ▸ Open Recent** lists the last ten from
+`settings.json`, and a scene reaches the app by **every** door a dataset does — a drop on the window, ⌘O, argv,
+`open-file` from a double-click (the installer registers the extension), a second instance — plus an optional
+"reopen last scene on launch", off by default. `main/menu.ts` splits scenes from datasets on the way in, so the
+renderer never sniffs a filename. `docs/USER_GUIDE-scenes.md` is the user-facing half.
 
 **Status bar**: `Capabilities.renderer`; **fps** = frames drawn in the last second (0 when idle is correct under
 render-on-demand); **frame ms** = median CPU frame time over the last 30 rendered frames; **GPU ms** separately

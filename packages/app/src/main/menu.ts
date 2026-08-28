@@ -6,12 +6,20 @@
 
 import { Menu, dialog } from 'electron';
 import type { BrowserWindow } from 'electron';
-import { allowPaths } from './paths';
+import { basename, dirname } from 'node:path';
+import { allowPath, allowPaths } from './paths';
 import { fileUrl } from './protocol';
+import { readSettings, writeSettings } from './settings';
 
 /** §12.3/§8: the formats the viewer opens. Kept in one place so the menu and the installer agree. */
 export const OPEN_FILTERS = [
-  { name: 'Volumes and meshes', extensions: ['nii', 'gz', 'msh', 'gii', 'geo', 'pos'] },
+  // `json` is here so that ⌘O opens a scene as well as data (directed task 13): §8's ask is that a
+  // `*.tetravox.json` behaves "like any other file", and a user who reaches for Open should not
+  // have to know which Open they wanted. `sendOpened` routes on the name, not on the dialog.
+  {
+    name: 'Volumes, meshes and scenes',
+    extensions: ['nii', 'gz', 'msh', 'gii', 'geo', 'pos', 'json'],
+  },
   { name: 'NIfTI volume', extensions: ['nii', 'nii.gz'] },
   { name: 'Gmsh mesh', extensions: ['msh'] },
   { name: 'GIfTI surface', extensions: ['gii'] },
@@ -24,6 +32,24 @@ export const OPEN_FILTERS = [
 export interface OpenedPath {
   path: string;
   url: string;
+}
+
+/**
+ * §4.6's extension, matched the way the app must match it: **on the whole compound suffix**.
+ *
+ * `.json` alone is not a scene — a `_LUT.json` colormap (§7.6) is a `.json` and opening one as a
+ * scene would fail with "no datasets array" instead of loading a colormap.
+ */
+export function isScenePath(path: string): boolean {
+  return /\.tetravox\.json$/i.test(path);
+}
+
+/** Split what the user opened into the data files and the scene files. */
+export function splitScenes(paths: readonly string[]): { data: string[]; scenes: string[] } {
+  const data: string[] = [];
+  const scenes: string[] = [];
+  for (const path of paths) (isScenePath(path) ? scenes : data).push(path);
+  return { data, scenes };
 }
 
 export function toOpened(paths: readonly string[]): OpenedPath[] {
@@ -45,11 +71,28 @@ export async function showOpenDialog(win: BrowserWindow | null): Promise<OpenedP
   return toOpened(result.filePaths);
 }
 
-/** Push opened paths at the renderer, which logs them (Phase 0) and will load them (Phase 1). */
+/**
+ * Push opened paths at the renderer.
+ *
+ * A `*.tetravox.json` among them is **not** a dataset and is split off here (directed task 13), so
+ * that one route — the menu, a drop, argv, `open-file`, a second instance — serves both kinds and
+ * the renderer never has to sniff a filename. Only the **last** scene is opened: two scenes in one
+ * gesture is a user selecting a range in a file picker, and loading them in sequence would show the
+ * first for as long as it took to throw it away.
+ */
 export function sendOpened(win: BrowserWindow | null, opened: readonly OpenedPath[]): void {
   if (opened.length === 0) return;
   for (const item of opened) console.log(`[tetravox] open: ${item.path}`);
-  win?.webContents.send('tetravox:opened', opened);
+  const data = opened.filter((item) => !isScenePath(item.path));
+  const scenes = opened.filter((item) => isScenePath(item.path));
+  if (data.length > 0) win?.webContents.send('tetravox:opened', data);
+  const last = scenes[scenes.length - 1];
+  if (last !== undefined) sendOpenScene(win, last.path);
+}
+
+/** Ask the renderer to open one scene file by path (Open Recent, a drop, argv, `open-file`). */
+export function sendOpenScene(win: BrowserWindow | null, path: string): void {
+  win?.webContents.send('tetravox:open-scene', path);
 }
 
 /** The scene commands the File menu can ask the renderer to run (§4.6, §8). */
@@ -58,6 +101,52 @@ export type SceneCommand = 'new' | 'open' | 'save' | 'saveAs';
 /** Ask the renderer to run a scene command. Main never builds or parses a `ViewSpec` itself. */
 export function sendSceneCommand(win: BrowserWindow | null, command: SceneCommand): void {
   win?.webContents.send('tetravox:scene-command', command);
+}
+
+/**
+ * The File ▸ Open Recent submenu (directed task 13).
+ *
+ * Built from `settings.json` each time {@link buildMenu} runs, which is on launch and after every
+ * scene save or open — an Electron menu is immutable once set, so "the list changed" is "rebuild
+ * the menu", not "mutate the item". A path is allow-listed at **click** time rather than at build
+ * time: allow-listing ten paths on every rebuild would admit files the user has not asked for this
+ * session, and `allowPath` returning null on click doubles as the "it is gone" check.
+ */
+function recentSubmenu(
+  getWindow: () => BrowserWindow | null
+): Electron.MenuItemConstructorOptions[] {
+  const recent = readSettings().recentScenes;
+  if (recent.length === 0) {
+    return [{ label: 'No recent scenes', enabled: false }];
+  }
+  return [
+    ...recent.map((path) => ({
+      label: basename(path),
+      // The full path in the tooltip position a menu has: two scenes called `scene.tetravox.json`
+      // in two directories are otherwise indistinguishable.
+      sublabel: dirname(path),
+      toolTip: path,
+      click: (): void => {
+        const win = getWindow();
+        if (allowPath(path) === null) {
+          console.log(`[tetravox] recent scene is gone: ${path}`);
+          // Drop it and rebuild, so a menu never offers the same dead entry twice.
+          writeSettings({ recentScenes: readSettings().recentScenes.filter((p) => p !== path) });
+          buildMenu(getWindow);
+          return;
+        }
+        sendOpenScene(win, path);
+      },
+    })),
+    { type: 'separator' },
+    {
+      label: 'Clear Menu',
+      click: (): void => {
+        writeSettings({ recentScenes: [] });
+        buildMenu(getWindow);
+      },
+    },
+  ];
 }
 
 export function buildMenu(getWindow: () => BrowserWindow | null): void {
@@ -89,6 +178,7 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => sendSceneCommand(getWindow(), 'open'),
         },
+        { label: 'Open Recent', submenu: recentSubmenu(getWindow) },
         {
           label: 'Save Scene',
           accelerator: 'CmdOrCtrl+S',

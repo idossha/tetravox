@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { OPEN_FILTERS } from './menu';
+import { OPEN_FILTERS, isScenePath, splitScenes } from './menu';
 
 const BUILDER = readFileSync(
   fileURLToPath(new URL('../../electron-builder.yml', import.meta.url)),
@@ -56,5 +56,42 @@ describe('the installer’s file associations', () => {
       BUILDER.slice(BUILDER.indexOf(`- ext: ${ext}\n`), BUILDER.indexOf(`- ext: ${ext}\n`) + 260);
     expect(block('geo')).toContain('rank: Default');
     expect(block('pos')).toContain('rank: Owner');
+  });
+});
+
+/**
+ * Scene files take the **scene** route (directed task 13): `sendOpened` splits them off so that one
+ * set of doors — the menu, a drop, argv, `open-file`, a second instance — serves both kinds, and the
+ * renderer never sniffs a filename to decide which of the two a path is.
+ */
+describe('scene files among the opened paths', () => {
+  it('recognises `*.tetravox.json` and nothing else', () => {
+    expect(isScenePath('/a/b/study.tetravox.json')).toBe(true);
+    expect(isScenePath('study.TETRAVOX.JSON')).toBe(true);
+    expect(isScenePath('C:\\scenes\\study.tetravox.json')).toBe(true);
+    // §7.6's user colormaps are `.json` too. Opening one as a scene would report "no datasets
+    // array" instead of loading a colormap, so the whole compound suffix is what is matched.
+    expect(isScenePath('/luts/hot.json')).toBe(false);
+    expect(isScenePath('/data/tetravox.json.nii.gz')).toBe(false);
+    expect(isScenePath('/data/ernie.msh')).toBe(false);
+  });
+
+  it('splits a mixed selection, keeping each side in order', () => {
+    const { data, scenes } = splitScenes([
+      '/d/T1.nii.gz',
+      '/d/a.tetravox.json',
+      '/d/ernie.msh',
+      '/d/b.tetravox.json',
+    ]);
+    expect(data).toEqual(['/d/T1.nii.gz', '/d/ernie.msh']);
+    expect(scenes).toEqual(['/d/a.tetravox.json', '/d/b.tetravox.json']);
+  });
+
+  it('offers scenes in the Open dialog, so ⌘O opens one like any other file', () => {
+    expect(OFFERED.has('json')).toBe(true);
+  });
+
+  it('is a file association the installer registers', () => {
+    expect(BUILDER).toContain('ext: tetravox.json');
   });
 });

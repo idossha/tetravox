@@ -29,6 +29,8 @@ import {
   badgeFor,
   buildChrome,
   drawColorbar,
+  drawOrientationCube,
+  drawScaleBar,
   overlayMetrics,
   volumeColorbarSpec,
 } from '../../overlay';
@@ -179,6 +181,20 @@ export class OverlayPass implements FramePass {
     // after `buildChrome` and before the draw, which is the slot `overlay/chrome.ts` reserves for
     // them — between the chrome and the active-pane border.
     if (a.colorbars) drawColorbars(b, view, rect, input, theme.text);
+
+    // Directed task 10 (2026-08-28): the two items §4.5 names and §7.2 lists in this pass. Both go in
+    // the pane's **bottom-right** corner, which nothing else claims, and they can never collide — a
+    // cube is a 3D-pane item and a scale bar a 2D one.
+    //
+    // The scale bar is what makes a saved 2D picture dimensionally honest (`ZOOM 1.42X` is a ratio to
+    // a fit the reader never saw); the cube is what says which way the head faces once the camera has
+    // left a preset, which the 3D pane's edge letters do not.
+    const m = overlayMetrics(rect.width, rect.height, input.uiScale);
+    if (isSliceView(view)) {
+      if (a.scaleBar) drawScaleBar(b, m, view.camera.mmPerPx, theme.text, theme.halo);
+    } else if (a.orientationCube) {
+      drawOrientationCube(b, m, view.camera.rotation, { text: theme.text, halo: theme.halo });
+    }
 
     // Appended for parsed Gmsh views (task 6): a points layer's 3D text labels. They go after the
     // colour bars and before the draw, in the same reserved slot, and they are pass-3 items for

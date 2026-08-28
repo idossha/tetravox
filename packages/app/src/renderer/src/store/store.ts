@@ -127,6 +127,17 @@ export interface UiState {
   /** `Scene.measurements` (§4.5), from the `measurements` event — what §8's panel lists. */
   measurements: Measurement[];
   /**
+   * The 2D panes' scale bar and the 3D pane's orientation cube, mirrored from `Scene.annotations`
+   * (directed task 10, 2026-08-28; appended, never renamed).
+   *
+   * Both default **on in the app** while `scene/defaults.ts` keeps them off, exactly as `colorbars`
+   * does and for the same reason: the engine default is what §11's goldens are captured with and may
+   * not move, but a product that ships a millimetre scale nobody can see has not shipped it. The
+   * toolbar's `Scale` and `Cube` buttons are the way back off.
+   */
+  scaleBar: boolean;
+  orientationCube: boolean;
+  /**
    * This window was launched for a `--job` (`automation/run.ts`), so the §8 panels are not drawn.
    *
    * The panels are 18 rem + 20 rem of chrome that no screenshot contains — a job's pictures come off
@@ -196,6 +207,21 @@ export interface UiState {
   sceneFile: SceneFileRecord | null;
   /** The last scene save/load failure, shown next to the toolbar's scene controls. */
   sceneError: string | null;
+  /**
+   * Unsaved changes since the last save or load (directed task 13) — the title bar's `•`.
+   *
+   * Derived from the engine's own events rather than from a diff of `serialize()`: the controller
+   * subscribes to `layers`, `datasets` and `cursor` anyway, and a spec-to-spec comparison on every
+   * pointer move would serialise the scene sixty times a second to answer a question a boolean
+   * already answers. It is deliberately **conservative** — a gesture that ends where it started
+   * still marks the scene dirty, because "possibly changed" and "changed" have the same right
+   * answer for a save prompt, and the opposite mistake loses work.
+   */
+  sceneDirty: boolean;
+  /** The scenes File ▸ Open Recent offers, mirrored from `settings.json` (most recent first). */
+  recentScenes: string[];
+  /** "Reopen last scene on launch", mirrored from `settings.json` so the dialog can render it. */
+  reopenLastScene: boolean;
   /** Which modal is up. One at a time: they are all full-window, so a stack would only hide one. */
   dialog: DialogKind;
   /** The relocate dialog's rows, populated by `loadScene` before it raises the dialog. */
@@ -264,7 +290,11 @@ export const DEFAULT_SCREENSHOT_OPTIONS: ScreenshotOptions = {
     orientationLabels: true,
     crosshair: true,
     cornerInfo: true,
+    // Directed task 10: appended off, like `scaleBar` already was — this constant is "what the
+    // toolbar used before the dialog existed, unchanged", and the dialog's two new checkboxes are
+    // how a picture asks for the scale bar or the cube.
     scaleBar: false,
+    orientationCube: false,
   },
   autoTrim: false,
   dpi: 144,
@@ -285,6 +315,8 @@ export const INITIAL_UI: UiState = {
   colorbars: true,
   measureMode: false,
   measurements: [],
+  scaleBar: true,
+  orientationCube: true,
   jobMode: false,
   cursor: [0, 0, 0],
   cursorProbe: null,
@@ -308,6 +340,9 @@ export const INITIAL_UI: UiState = {
   iso3dPending: {},
   sceneFile: null,
   sceneError: null,
+  sceneDirty: false,
+  recentScenes: [],
+  reopenLastScene: false,
   dialog: 'none',
   relocate: null,
   screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,

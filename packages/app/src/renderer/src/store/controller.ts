@@ -61,7 +61,7 @@ import { formatTriple, parseTriple } from '../lib/coords';
 import { readPngInfo } from '../lib/png';
 import { baseName } from '../lib/sidecars';
 import {
-  defaultSceneName,
+  defaultScenePath,
   dirName,
   layersToRestore,
   parseScene,
@@ -151,13 +151,21 @@ export class ShellController {
     // Before this, `annotations.colorbars` was false and `setAnnotations` was called from exactly
     // one place (`toggleCrosshair`), so a colour bar could not be seen in the product at all: a
     // mesh coloured by `TI_max` over [1.09e-12, 10.29] was a flat blue head with no scale.
-    engine.setAnnotations({ colorbars: store.getState().colorbars });
+    engine.setAnnotations({
+      colorbars: store.getState().colorbars,
+      // Directed task 10: same argument as the colour bars above — the engine default stays off so
+      // §11's goldens do not move, and the app turns both on for its own scene, once, at attach.
+      scaleBar: store.getState().scaleBar,
+      orientationCube: store.getState().orientationCube,
+    });
     store.setState({
       status: 'ready',
       caps: engine.caps,
       radiological: engine.scene.radiological,
       crosshair: engine.scene.annotations.crosshair,
       colorbars: engine.scene.annotations.colorbars,
+      scaleBar: engine.scene.annotations.scaleBar,
+      orientationCube: engine.scene.annotations.orientationCube,
       cursor: engine.scene.cursor,
       layoutKind: engine.scene.layout.kind,
       cells: engine.scene.layout.cells,
@@ -176,10 +184,15 @@ export class ShellController {
     this.unsubscribers.push(
       engine.on('datasets', (datasets: Dataset[]) => {
         store.setState({ datasets: [...datasets], heapBytes: this.readHeap(datasets) });
+        this.markDirty();
       }),
-      engine.on('layers', () => this.syncLayers()),
+      engine.on('layers', () => {
+        this.syncLayers();
+        this.markDirty();
+      }),
       engine.on('cursor', (world: vec3) => {
         store.setState({ cursor: world, cursorProbe: engine.probe(world), coordDraft: null });
+        this.markDirty();
       }),
       // Directed task 8: an async mesh row (`locate`, `nearestVertex`) landed for a point that is
       // still the cursor or the hover. Only the probe is replaced — not the cursor, and not the
@@ -203,6 +216,11 @@ export class ShellController {
           metrics: pushFrame(s.metrics, { at: this.now(), cpuMs: frame.cpuMs, gpuMs: frame.gpuMs }),
           quality: frame.quality,
         }));
+        // §4.5's cameras have no event of their own, and a pan / orbit / dolly is exactly what
+        // draws at `interacting` quality (§7.2). That makes an interacting frame the one signal the
+        // app already receives for "the user is moving a camera", which is a scene change like any
+        // other (directed task 13).
+        if (frame.quality === 'interacting') this.markDirty();
       }),
       engine.on('quality', (quality) => store.setState({ quality: quality.name })),
       // Directed task 11: the measurement list. Its own event, so a click in measure mode does not
@@ -502,6 +520,7 @@ export class ShellController {
   // ------------------------------------------------------------------------------------------
 
   setLayout(kind: LayoutKind): void {
+    this.markDirty();
     const { engine } = this;
     const preferred = this.store.getState().activeViewId;
     const cells = layoutCells(kind, engine.scene.slices, engine.scene.view3d, preferred);
@@ -520,6 +539,7 @@ export class ShellController {
   }
 
   setRadiological(on: boolean): void {
+    this.markDirty();
     this.engine.setRadiological(on);
     this.store.setState({ radiological: on });
     this.engine.requestRender();
@@ -542,8 +562,19 @@ export class ShellController {
     this.setThemeChoice(isThemeChoice(settings.theme) ? settings.theme : 'system', {
       persist: false,
     });
-    // Directed task 8's other persisted preference, read in the same round trip.
-    this.store.setState({ freesurferSubjectsDir: settings.freesurferSubjectsDir });
+    // Directed task 8's other persisted preference, and directed task 13's two, in the same round
+    // trip: the recents list the settings dialog mirrors and the reopen-on-launch switch.
+    this.store.setState({
+      freesurferSubjectsDir: settings.freesurferSubjectsDir,
+      recentScenes: [...(settings.recentScenes ?? [])],
+      reopenLastScene: settings.reopenLastScene ?? false,
+    });
+  }
+
+  /** §8's settings dialog: "Reopen last scene on launch" (directed task 13). */
+  async setReopenLastScene(on: boolean): Promise<void> {
+    this.store.setState({ reopenLastScene: on });
+    await bridge().setSettings({ reopenLastScene: on });
   }
 
   // ------------------------------------------------------------------------------------------
@@ -681,6 +712,7 @@ export class ShellController {
   }
 
   toggleCrosshair(): void {
+    this.markDirty();
     const next = !this.store.getState().crosshair;
     this.engine.setAnnotations({ crosshair: next });
     this.store.setState({ crosshair: next });
@@ -734,13 +766,36 @@ export class ShellController {
   }
 
   toggleColorbars(): void {
+    this.markDirty();
     const next = !this.store.getState().colorbars;
     this.engine.setAnnotations({ colorbars: next });
     this.store.setState({ colorbars: next });
     this.engine.requestRender();
   }
 
+  /**
+   * §4.5's `scaleBar` — the millimetre rule in every 2D pane (directed task 10, 2026-08-28).
+   *
+   * A `ZOOM 1.42X` corner line is a ratio to a fit the reader never saw, so without this a lesion
+   * measured off a screenshot is measured in pixels.
+   */
+  toggleScaleBar(): void {
+    const next = !this.store.getState().scaleBar;
+    this.engine.setAnnotations({ scaleBar: next });
+    this.store.setState({ scaleBar: next });
+    this.engine.requestRender();
+  }
+
+  /** §4.5's `orientationCube` — the 3D pane's clickable A/P/L/R/S/I cube (directed task 10). */
+  toggleOrientationCube(): void {
+    const next = !this.store.getState().orientationCube;
+    this.engine.setAnnotations({ orientationCube: next });
+    this.store.setState({ orientationCube: next });
+    this.engine.requestRender();
+  }
+
   resetActiveView(): void {
+    this.markDirty();
     const viewId = this.store.getState().activeViewId;
     if (viewId === null) return;
     this.engine.resetView(viewId);
@@ -748,11 +803,13 @@ export class ShellController {
   }
 
   cameraPreset(preset: CameraPreset): void {
+    this.markDirty();
     this.engine.cameraPreset(this.engine.scene.view3d.id, preset);
     this.engine.requestRender();
   }
 
   toggleOrthographic(): void {
+    this.markDirty();
     const view3d = this.engine.scene.view3d;
     this.engine.setView(view3d.id, {
       camera: { ...view3d.camera, orthographic: !view3d.camera.orthographic },
@@ -1257,6 +1314,38 @@ export class ShellController {
   // Scene save/load — §4.6, §8, audit P2-07
   // ------------------------------------------------------------------------------------------
 
+  /**
+   * Mark the scene as changed since its last save or load — the title bar's `•`.
+   *
+   * A plain boolean rather than a comparison against the saved `ViewSpec`: `serialize()` walks every
+   * layer and dataset, and this runs on the cursor path. Being *conservative* is the design — a
+   * drag that ends where it began still marks the scene dirty, because an unnecessary save prompt
+   * costs a keystroke and a missed one costs the work.
+   *
+   * A scene with nothing in it is never dirty: opening the app and moving the crosshair over an
+   * empty grid must not offer to save an empty scene.
+   */
+  private markDirty(): void {
+    if (this.store.getState().sceneDirty) return;
+    if (this.engine.scene.datasets.size === 0) return;
+    this.store.setState({ sceneDirty: true });
+    this.syncTitle();
+  }
+
+  /**
+   * The window title: `<scene name> • — Tetravox` (§8, directed task 13).
+   *
+   * `document.title` and not an IPC call: Electron mirrors it onto the `BrowserWindow`, so one
+   * assignment reaches the title bar, the window menu and the macOS window list, and the E2E can
+   * read it from the page it is already driving.
+   */
+  private syncTitle(): void {
+    if (typeof document === 'undefined') return;
+    const { sceneFile, sceneDirty } = this.store.getState();
+    const mark = sceneDirty ? ' •' : '';
+    document.title = sceneFile === null ? `Tetravox${mark}` : `${sceneFile.name}${mark} — Tetravox`;
+  }
+
   /** Close every dataset, which is the only way their wasm heaps come back (§5 rule 1). */
   newScene(): void {
     for (const dataset of [...this.engine.scene.datasets.values()]) {
@@ -1265,10 +1354,17 @@ export class ShellController {
     this.store.setState({
       sceneFile: null,
       sceneError: null,
+      sceneDirty: false,
       relocate: null,
       dialog: 'none',
       loads: [],
     });
+    // "New" is an empty scene, and §4.5's measurements are scene state like everything else here —
+    // removing the datasets drops their layers but says nothing about a measurement, which has no
+    // dataset to be dropped with (directed task 11).
+    for (const m of [...this.store.getState().measurements]) this.engine.removeMeasurement(m.id);
+    this.setMeasureMode(false);
+    this.syncTitle();
     this.engine.requestRender();
     this.syncLayers();
   }
@@ -1280,26 +1376,53 @@ export class ShellController {
     return this.writeScene(attached.path);
   }
 
+  /**
+   * ⇧⌘S. The sheet opens on `<first dataset's directory>/<name>.tetravox.json` (directed task 13),
+   * so the common gesture — save this beside the data I am looking at — is one keystroke and Enter.
+   */
   async saveSceneAs(): Promise<boolean> {
-    const path = await bridge().saveSceneDialog(defaultSceneName(this.engine.serialize()));
+    const path = await bridge().saveSceneDialog(defaultScenePath(this.engine.serialize()));
     if (path === null) return false;
     return this.writeScene(path);
   }
 
   private async writeScene(path: string): Promise<boolean> {
+    // `setSceneDir` is what makes §4.6's `DatasetRef.path` relative to **this** file rather than to
+    // the datasets' common directory, so a scene saved somewhere else still resolves relatively.
+    this.engine.setSceneDir?.(dirName(path));
     const spec = this.engine.serialize();
-    const result = await bridge().writeSceneFile(path, serialiseScene(spec, path));
+    // No `measurements` extra: `Engine.serialize()` writes `Scene.measurements` itself now
+    // (directed task 11), so `spec` already carries the live list — see `SceneExtras`.
+    const text = serialiseScene(spec, path, { theme: this.store.getState().themeChoice });
+    const result = await bridge().writeSceneFile(path, text);
     if (!result.ok) {
       const message = result.error ?? 'could not write the scene file';
       this.store.setState({ sceneError: message });
       this.toast('io', baseName(path), message);
       return false;
     }
+    const saved = result.path ?? path;
     this.store.setState({
-      sceneFile: { path, name: baseName(path), savedAt: this.now() },
+      sceneFile: { path: saved, name: baseName(saved), savedAt: this.now() },
       sceneError: null,
+      sceneDirty: false,
     });
+    this.syncTitle();
+    void this.rememberRecent(saved);
     return true;
+  }
+
+  /**
+   * Push a path to the head of File ▸ Open Recent, and mirror the list back into the store.
+   *
+   * Main owns `settings.json` and the menu, so this is one round trip that both persists the entry
+   * and rebuilds the menu; the reply is the merged settings, which is what the settings dialog
+   * renders. Failure is silent on purpose — a recent-files list that could not be written is not a
+   * reason to fail a save that already landed on disk.
+   */
+  private async rememberRecent(path: string): Promise<void> {
+    const settings = await bridge().rememberScene(path);
+    if (settings !== null) this.store.setState({ recentScenes: [...settings.recentScenes] });
   }
 
   /** File ▸ Open Scene…, and the toolbar's scene-open button. */
@@ -1318,7 +1441,18 @@ export class ShellController {
    * not resolve — which is what keeps the renderer from stat-ing the filesystem itself (§5 rule 9).
    */
   async openScenePath(scenePath: string): Promise<boolean> {
-    const read = await bridge().readSceneFile(scenePath);
+    // A scene that arrives by **drop** has never been through a dialog, so main has not admitted it
+    // to the `tetravox://file/…` allow-list and `readSceneFile` would refuse it (directed task 13).
+    // The call is idempotent, so the dialog and Open Recent routes — which are already admitted —
+    // take the same line, and a path that no longer exists returns null here and is reported as a
+    // missing file rather than as a permissions error.
+    const admitted = await bridge().allowPath(scenePath);
+    if (admitted === null) {
+      const message = 'the scene file could not be found';
+      this.reportSceneError(message, baseName(scenePath));
+      return false;
+    }
+    const read = await bridge().readSceneFile(admitted.path);
     if (!read.ok || read.text === undefined) {
       const message = read.error ?? 'could not read the scene file';
       this.store.setState({ sceneError: message });
@@ -1362,6 +1496,12 @@ export class ShellController {
       return false;
     }
     return this.applyScene(spec, scenePath, resolved);
+  }
+
+  /** Show a scene failure where §8 shows one: the toolbar's scene slot, and a toast. */
+  reportSceneError(message: string, name = 'scene'): void {
+    this.store.setState({ sceneError: message });
+    this.toast('io', name, message);
   }
 
   /** The relocate dialog's answer: one path per missing ref, `null` for the ones to skip. */
@@ -1459,12 +1599,22 @@ export class ShellController {
       this.engine.setActiveLayer((live[specIndex] as Layer).id);
     }
 
+    // §4.6 v2's optional theme: applied when the scene names one, ignored when it does not, so a
+    // scene never silently overrides a preference it said nothing about (directed task 13).
+    if (spec.theme !== undefined) this.setThemeChoice(spec.theme);
+
+    this.engine.setSceneDir?.(dirName(scenePath));
     this.engine.requestRender();
     this.resyncFromEngine();
     this.store.setState({
       sceneFile: { path: scenePath, name: baseName(scenePath), savedAt: null },
       sceneError: null,
+      // A scene that has just been loaded is exactly the file on disk. The loads above emit
+      // `datasets` and `layers`, which mark it dirty, so this must come **after** them.
+      sceneDirty: false,
     });
+    this.syncTitle();
+    void this.rememberRecent(scenePath);
     return true;
   }
 
@@ -1486,6 +1636,8 @@ export class ShellController {
       radiological: engine.scene.radiological,
       crosshair: engine.scene.annotations.crosshair,
       colorbars: engine.scene.annotations.colorbars,
+      scaleBar: engine.scene.annotations.scaleBar,
+      orientationCube: engine.scene.annotations.orientationCube,
       cursor: engine.scene.cursor,
       layoutKind: engine.scene.layout.kind,
       cells: [...engine.scene.layout.cells],

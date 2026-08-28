@@ -11,12 +11,14 @@ import {
   edgeLetters,
   letterFor,
   presetNormal,
+  presetRotation,
   presetUp,
   sliceBasis,
   stepMm,
   voxelAxisAlong,
 } from '../../src/view/geometry';
-import type { SliceMode, vec3 } from '../../src/scene/types';
+import { camera3dMatrices } from '../../src/view/geometry';
+import type { Camera3D, SliceMode, vec3 } from '../../src/scene/types';
 
 const basisOf = (mode: SliceMode, radiological: boolean): ReturnType<typeof sliceBasis> =>
   sliceBasis({ normal: presetNormal(mode), up: presetUp(mode) }, radiological);
@@ -165,5 +167,62 @@ describe('the stepping voxel axis (§7.5 step, §8 corner slice index)', () => {
     const { axis, mm } = voxelAxisAlong(presetNormal('oblique'), T1);
     expect([0, 1, 2]).toContain(axis);
     expect(mm).toBeCloseTo(1 / Math.sqrt(3), 6);
+  });
+});
+
+/**
+ * §7.5's `1..6` camera presets, as **directions** rather than as quaternions.
+ *
+ * The assertion is on what `camera3dMatrices` reads out of the rotation — column 0 is the camera's
+ * world right, column 1 its up, column 2 the axis toward the eye — because that is what decides
+ * which side of the head you are looking at. Reading it back through `camera3dMatrices` rather than
+ * through a hand-rolled quaternion-to-matrix keeps this a test of the pair.
+ *
+ * It exists because the six were not six: composed out of `quat.rotateX` / `quat.rotateY`, which
+ * post-multiply, presets 1–4 all produced the eye axis `(0, 1, 0)` — `A`, `P`, `L` and `R` were one
+ * anterior view in four rolls (directed task 10, 2026-08-28).
+ */
+describe('presetRotation (§7.5)', () => {
+  const CAM: Camera3D = {
+    target: [0, 0, 0],
+    distance: 100,
+    rotation: [0, 0, 0, 1],
+    fovYDeg: 45,
+    orthographic: false,
+    near: 1,
+    far: 800,
+  };
+
+  /** The eye direction and the screen-up direction the preset actually gives. */
+  function axesOf(index: number): { eye: vec3; up: vec3 } {
+    const { eye } = camera3dMatrices({ ...CAM, rotation: presetRotation(index) }, 512, 512);
+    const n = Math.hypot(...eye) || 1;
+    const rot = presetRotation(index);
+    const [x, y, z, w] = rot;
+    return {
+      eye: [eye[0] / n, eye[1] / n, eye[2] / n],
+      up: [2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w)],
+    };
+  }
+
+  // `+ 0` collapses the signed zero a rotation of exactly 90° leaves behind.
+  const round = (v: vec3): number[] => v.map((c) => Math.round(c * 1000) / 1000 + 0);
+
+  it('puts the eye in six different places — one per anatomical direction', () => {
+    expect(round(axesOf(1).eye)).toEqual([0, 1, 0]); // A: in front of the face
+    expect(round(axesOf(2).eye)).toEqual([0, -1, 0]); // P
+    expect(round(axesOf(3).eye)).toEqual([-1, 0, 0]); // L
+    expect(round(axesOf(4).eye)).toEqual([1, 0, 0]); // R
+    expect(round(axesOf(5).eye)).toEqual([0, 0, 1]); // S
+    expect(round(axesOf(6).eye)).toEqual([0, 0, -1]); // I
+  });
+
+  it('is superior-up for the four lateral views and anterior-up for the two axial ones', () => {
+    for (const index of [1, 2, 3, 4]) expect(round(axesOf(index).up)).toEqual([0, 0, 1]);
+    for (const index of [5, 6]) expect(round(axesOf(index).up)).toEqual([0, 1, 0]);
+  });
+
+  it('an unknown index is the superior view, not a broken camera', () => {
+    expect(presetRotation(99)).toEqual(presetRotation(5));
   });
 });

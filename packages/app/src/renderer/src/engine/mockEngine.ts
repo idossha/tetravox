@@ -199,6 +199,7 @@ export class NoGlEngine implements Engine {
         scaleBar: false,
         colorbars: true,
         crosshair: true,
+        orientationCube: false,
       },
       transparency: { mode: 'twoPhase' },
       quality: FULL_QUALITY,

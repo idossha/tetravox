@@ -249,7 +249,7 @@ describe('validateJob — what a bad job is told', () => {
       actions: [{ type: 'screenshot', out: 'a.png', include: { colourbar: true } }],
     });
     expect(errors[0]).toBe(
-      'actions[0].include.colourbar: unknown key (expected colorbar, orientationLabels, crosshair, cornerInfo, scaleBar)'
+      'actions[0].include.colourbar: unknown key (expected colorbar, orientationLabels, crosshair, cornerInfo, scaleBar, orientationCube)'
     );
   });
 });
