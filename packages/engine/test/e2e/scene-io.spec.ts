@@ -234,7 +234,7 @@ test('@angle P2-07: a two-dataset scene round-trips through JSON, with fresh dat
   const spec = await serializeFrom(page, `/@fs${REPO}testdata/scenes`);
 
   // §4.6: relative to the scene file, with an absolute fallback. The fixtures are one level up.
-  expect(spec.version).toBe(1);
+  expect(spec.version).toBe(2); // ViewSpec v2 since the scene-ux work (2026-08-28)
   expect(spec.datasets.map((d) => d.path)).toEqual(['../vol_f32.nii.gz', '../mesh_v2_binary.msh']);
   for (const ref of spec.datasets) expect(ref.absPath).toBe(`/@fs${REPO}testdata/${ref.name}`);
   expect(spec.layers).toHaveLength(2);
