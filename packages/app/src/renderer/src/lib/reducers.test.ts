@@ -60,9 +60,11 @@ const VIEW3D: View3D = {
 };
 
 describe('layoutCells', () => {
-  it('orders the slices sagittal → coronal → axial regardless of scene order', () => {
-    expect(layoutCells('1x3', SLICES, VIEW3D)).toEqual(['sag', 'cor', 'axial']);
-    expect(layoutCells('2x2', SLICES, VIEW3D)).toEqual(['sag', 'cor', 'axial', 'view3d']);
+  // The engine's own boot order (`scene/defaults.ts`: `[axial, coronal, sagittal, view3d]`), so
+  // rebuilding a layout cannot renumber the panes the engine already drew.
+  it('orders the slices axial → coronal → sagittal regardless of scene order', () => {
+    expect(layoutCells('1x3', SLICES, VIEW3D)).toEqual(['axial', 'cor', 'sag']);
+    expect(layoutCells('2x2', SLICES, VIEW3D)).toEqual(['axial', 'cor', 'sag', 'view3d']);
     expect(layoutCells('3d-only', SLICES, VIEW3D)).toEqual(['view3d']);
   });
 
@@ -70,7 +72,7 @@ describe('layoutCells', () => {
     expect(layoutCells('1x1', SLICES, VIEW3D, 'cor')).toEqual(['cor']);
     expect(layoutCells('1x1', SLICES, VIEW3D, 'view3d')).toEqual(['view3d']);
     // An id that is not a view falls back rather than producing an empty grid.
-    expect(layoutCells('1x1', SLICES, VIEW3D, 'nope')).toEqual(['sag']);
+    expect(layoutCells('1x1', SLICES, VIEW3D, 'nope')).toEqual(['axial']);
   });
 
   it('cycles through the four the toolbar offers and returns to the start', () => {

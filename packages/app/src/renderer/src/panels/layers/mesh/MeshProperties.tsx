@@ -19,6 +19,7 @@ import { CrossSection } from './CrossSection';
 import { FieldSection } from './FieldSection';
 import { Glyphs } from './Glyphs';
 import { Isolation } from './Isolation';
+import { RegionPanel } from '../../regions/RegionPanel';
 import { TissueTable } from './TissueTable';
 
 export function meshSummary(dataset: Dataset, layer: Layer): string {
@@ -33,6 +34,13 @@ export function MeshProperties({ layer, dataset }: LayerPropertiesProps): React.
   return (
     <div data-testid={`mesh-properties-${layer.id}`} className="mt-1 flex flex-col">
       <TissueTable dataset={dataset} layer={layer} />
+      {/* R5: "**One** Region panel for every labelled thing … label volumes, mesh tissue tags
+          (`tagStyle`), surface annotations (`.annot` / `.label.gii` via `colorMode:'label'`)."
+          `panels/regions/regions.ts` has served all three since it was written — `regionSourceFor`
+          returns `meshTag` and `annot` sources — and the panel was mounted from exactly one place,
+          the volume editor, so two of the three were unreachable and the tissue table was the only
+          UI a mesh tag had. That is how the two grew different gestures for the same action. */}
+      <RegionPanel layerId={layer.id} />
       <FieldSection dataset={dataset} layer={layer} />
       <CrossSection dataset={dataset} layer={layer} />
       <ClipPlanes dataset={dataset} layer={layer} />

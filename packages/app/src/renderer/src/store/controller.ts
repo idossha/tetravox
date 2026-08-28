@@ -98,11 +98,20 @@ export class ShellController {
   attach(): void {
     const { engine, store } = this;
 
+    // §8 lists colour bars as chrome of the running product, and ROADMAP Phase 2 makes them
+    // "required in screenshots". `scene/defaults.ts` starts them **off** and nothing may change an
+    // existing default there — it would move every golden that layer appears in — so the app turns
+    // them on for its own scene, once, at attach. The toolbar's `Bars` button is the way back off.
+    // Before this, `annotations.colorbars` was false and `setAnnotations` was called from exactly
+    // one place (`toggleCrosshair`), so a colour bar could not be seen in the product at all: a
+    // mesh coloured by `TI_max` over [1.09e-12, 10.29] was a flat blue head with no scale.
+    engine.setAnnotations({ colorbars: store.getState().colorbars });
     store.setState({
       status: 'ready',
       caps: engine.caps,
       radiological: engine.scene.radiological,
       crosshair: engine.scene.annotations.crosshair,
+      colorbars: engine.scene.annotations.colorbars,
       cursor: engine.scene.cursor,
       layoutKind: engine.scene.layout.kind,
       cells: engine.scene.layout.cells,
@@ -431,6 +440,14 @@ export class ShellController {
     const next = !this.store.getState().crosshair;
     this.engine.setAnnotations({ crosshair: next });
     this.store.setState({ crosshair: next });
+    this.engine.requestRender();
+  }
+
+  /** §8's colour bars — one per visible scalar layer, drawn in the overlay pass (§7.2). */
+  toggleColorbars(): void {
+    const next = !this.store.getState().colorbars;
+    this.engine.setAnnotations({ colorbars: next });
+    this.store.setState({ colorbars: next });
     this.engine.requestRender();
   }
 
@@ -1059,6 +1076,7 @@ export class ShellController {
     store.setState({
       radiological: engine.scene.radiological,
       crosshair: engine.scene.annotations.crosshair,
+      colorbars: engine.scene.annotations.colorbars,
       cursor: engine.scene.cursor,
       layoutKind: engine.scene.layout.kind,
       cells: [...engine.scene.layout.cells],

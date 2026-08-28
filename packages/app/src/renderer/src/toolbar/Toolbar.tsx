@@ -30,6 +30,7 @@ export function Toolbar(): React.JSX.Element {
   const layoutKind = useUi((s) => s.layoutKind);
   const radiological = useUi((s) => s.radiological);
   const crosshair = useUi((s) => s.crosshair);
+  const colorbars = useUi((s) => s.colorbars);
   const sceneFile = useUi((s) => s.sceneFile);
   const sceneError = useUi((s) => s.sceneError);
   const dialog = useUi((s) => s.dialog);
@@ -151,6 +152,17 @@ export function Toolbar(): React.JSX.Element {
         onClick={() => controller.toggleCrosshair()}
       >
         Crosshair
+      </button>
+
+      <button
+        type="button"
+        data-testid="colorbars-toggle"
+        aria-pressed={colorbars}
+        className={colorbars ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+        onClick={() => controller.toggleColorbars()}
+        title="Colour bars: one per visible scalar layer, with ticks, units and the threshold notch (§8)"
+      >
+        Bars
       </button>
 
       <div className="flex items-center gap-0.5" role="group" aria-label="Screenshot">

@@ -64,7 +64,12 @@ packages/engine/test/golden/<class>/  the goldens, one directory per renderer cl
 
 `packages/engine/playwright.config.ts` starts Vite over `packages/engine` as the root, so a page can
 import engine source with a plain relative path and get TypeScript transpiled on the way to the browser.
-Pages are at `http://127.0.0.1:5199/test/pages/<name>.html` (`TETRAVOX_TEST_PORT` overrides the port).
+Pages are at `http://127.0.0.1:<port>/test/pages/<name>.html`. The port is **5199 plus a hash of the
+checkout's own path**, not 5199 flat: `reuseExistingServer: !CI` is what makes a second local run fast, and on
+a fixed port it also reuses a Vite belonging to a *different clone* — which served one clean-clone gate run
+another tree's pages and failed the engine leg with `9 passed, 2 skipped, 5 did not run`. Two clones now get
+two ports; one clone gets the same port every time. `TETRAVOX_TEST_PORT` (and `TETRAVOX_WASM_TEST_PORT`)
+still override, for CI and for pinning a run by hand; Playwright prints the URL it is serving.
 
 To poke at a page by hand:
 

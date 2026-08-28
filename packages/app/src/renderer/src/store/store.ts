@@ -78,6 +78,8 @@ export interface UiState {
   cells: ViewId[];
   radiological: boolean;
   crosshair: boolean;
+  /** §8's colour bars, mirrored from `Scene.annotations.colorbars` (appended; never renamed). */
+  colorbars: boolean;
   cursor: vec3;
   cursorProbe: ProbeResult | null;
   hover: vec3 | null;
@@ -187,6 +189,7 @@ export const INITIAL_UI: UiState = {
   cells: [],
   radiological: false,
   crosshair: true,
+  colorbars: true,
   cursor: [0, 0, 0],
   cursorProbe: null,
   hover: null,

@@ -93,8 +93,10 @@ async function ui(page: Page) {
       layers: state.layers.map((l) => ({ id: l.id, name: l.name, kind: l.kind })),
       datasets: state.datasets.map((d) => ({ id: d.id, name: d.name, path: d.path ?? null })),
       cursor: state.cursor,
+      cells: [...state.cells],
       layoutKind: state.layoutKind,
       radiological: state.radiological,
+      colorbars: state.colorbars,
       dialog: state.dialog,
       sceneFile: state.sceneFile,
       sceneError: state.sceneError,
@@ -196,6 +198,60 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     await page.keyboard.press('Escape');
     await expect(sheet).toHaveCount(0);
     expect((await ui(page)).layoutKind).toBe(layout);
+  });
+
+  test('a click in the view grid takes the keyboard back from a text field (§7.5)', async () => {
+    // The defect this pins: the engine's pointer layer `preventDefault()`s `pointerdown` (§7.5
+    // needs it for capture), which suppresses the browser's own focus change, so after typing in
+    // any field the whole §7.5 key map was dead and every shortcut was typed into that field.
+    const search = page.locator('[data-testid="header-search"]');
+    await search.click();
+    await search.fill('scl');
+    expect(
+      await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? null)
+    ).toBe('header-search');
+
+    await page.locator('[data-testid="view-grid"]').click();
+    expect(
+      await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? null),
+      'the click left the field'
+    ).not.toBe('header-search');
+
+    // …and the map is live again: `?` opens the sheet rather than typing into the box.
+    await page.keyboard.press('?');
+    await expect(page.locator('[data-testid="keyboard-help"]')).toBeVisible();
+    await expect(search).toHaveValue('scl');
+    await page.keyboard.press('Escape');
+    await search.fill('');
+  });
+
+  test('the layout buttons rebuild the panes in the engine’s own order', async () => {
+    // Clicking the highlighted 2×2 used to swap axial and sagittal: `scene/defaults.ts` boots
+    // `[axial, coronal, sagittal, view3d]` and `lib/layout.ts` sorted sagittal-first, so the
+    // engine-drawn pane label read AXIAL before the click and SAGITTAL after — and the swapped
+    // order was then written into a saved scene.
+    await page.click('[data-testid="layout-2x2"]');
+    const boot = (await ui(page)).cells;
+    expect(boot).toEqual(['axial', 'coronal', 'sagittal', 'view3d']);
+    await page.click('[data-testid="layout-2x2"]');
+    expect((await ui(page)).cells, 'clicking the highlighted button changes nothing').toEqual(boot);
+    await page.click('[data-testid="layout-3d-only"]');
+    await page.click('[data-testid="layout-2x2"]');
+    expect((await ui(page)).cells, 'and neither does a round trip through 3D').toEqual(boot);
+  });
+
+  test('colour bars are reachable, and on by default (§8)', async () => {
+    // `Scene.annotations.colorbars` defaults to false and `setAnnotations` had exactly one call
+    // site in the whole app (`toggleCrosshair`), so a colour bar could never be seen in the running
+    // product — layers carried `showColorbar: true` that could not draw.
+    const toggle = page.locator('[data-testid="colorbars-toggle"]');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect((await ui(page)).colorbars).toBe(true);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect((await ui(page)).colorbars).toBe(false);
+    await toggle.click();
+    expect((await ui(page)).colorbars).toBe(true);
   });
 
   test('the screenshot dialog edits the whole §4.7 option set, and the preview parses pHYs', async () => {

@@ -306,7 +306,7 @@ describe('views, screenshot and the rest of the toolbar (§8)', () => {
   it('builds the cells for each layout and cycles with `x`', () => {
     const { store, controller } = harness();
     controller.setLayout('1x3');
-    expect(store.getState().cells).toEqual(['sagittal', 'coronal', 'axial']);
+    expect(store.getState().cells).toEqual(['axial', 'coronal', 'sagittal']);
     controller.setLayout('3d-only');
     expect(store.getState().cells).toEqual(['view3d']);
     expect(store.getState().activeViewId).toBe('view3d');

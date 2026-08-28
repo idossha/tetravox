@@ -246,6 +246,31 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     await page.click(`[data-testid="mesh-tissue-showall-${ids.mesh}"]`);
   });
 
+  test('Alt-click solos on the **row** too, the way the Region panel takes it (R5)', async () => {
+    // R5 asks for "one Region panel for every labelled thing", and the two UIs a mesh tag has took
+    // the same gesture on different targets: alt-click soloed on the row in `RegionPanel` and only
+    // on the eye button here, so alt-clicking a tissue row did nothing at all.
+    await record(page);
+    await page.click(`[data-testid="mesh-tag-row-${ids.mesh}-3"]`, { modifiers: ['Alt'] });
+    const solo = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
+    expect(
+      Object.entries(solo)
+        .filter(([, s]) => s.visible)
+        .map(([t]) => t)
+    ).toEqual(['3']);
+    await page.click(`[data-testid="mesh-tissue-showall-${ids.mesh}"]`);
+  });
+
+  test('the Region panel is mounted for a mesh, so R5’s "one panel" is one panel', async () => {
+    // `panels/regions/regions.ts` has always returned a `meshTag` source; `RegionPanel` was
+    // mounted from exactly one place — the volume editor — so two of R5's three kinds had no
+    // Region panel at all.
+    const panel = page.locator(`[data-testid="region-panel-${ids.mesh}"]`);
+    await expect(panel).toBeVisible();
+    await expect(panel).toHaveAttribute('data-kind', 'meshTag');
+    await expect(page.locator(`[data-testid^="region-row-${ids.mesh}-"]`).first()).toBeVisible();
+  });
+
   test('search filters the rows without touching the engine', async () => {
     await record(page);
     await setControl(page, `mesh-tissue-search-${ids.mesh}`, 'grey');

@@ -25,8 +25,17 @@ export function nextLayout(kind: LayoutKind): LayoutKind {
   return LAYOUT_CYCLE[(i + 1) % LAYOUT_CYCLE.length] as LayoutKind;
 }
 
-/** Canonical slice order for the multi-cell layouts (§3's presets, sagittal → coronal → axial). */
-const SLICE_ORDER: readonly SliceMode[] = ['sagittal', 'coronal', 'axial'] as const;
+/**
+ * Canonical slice order for the multi-cell layouts — **the engine's own**.
+ *
+ * `scene/defaults.ts` boots `2x2` as `[axial, coronal, sagittal, view3d]`, and this file used to
+ * sort them `sagittal → coronal → axial`. Nothing in §3 or §7.5 fixes an order, so neither was
+ * wrong; having two was. Clicking the already-highlighted `2×2` button — or going 3D and back —
+ * silently swapped the axial and sagittal panes under the user (the engine-drawn pane label read
+ * AXIAL before the click and SAGITTAL after), and the swapped order was then written into a saved
+ * scene. The app follows the engine, because the engine is what draws the first frame.
+ */
+const SLICE_ORDER: readonly SliceMode[] = ['axial', 'coronal', 'sagittal'] as const;
 
 function orderedSlices(slices: readonly SliceView[]): SliceView[] {
   const rank = (mode: SliceMode): number => {

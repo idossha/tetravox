@@ -115,6 +115,22 @@ export function TissueTable({
               data-visible={row.visible}
               data-recoloured={row.recoloured}
               className="flex items-center gap-1 py-0.5"
+              title="Alt-click to solo this tissue"
+              onClick={(e) => {
+                // R5's solo gesture, on the **row** — the same target the Region panel takes it on
+                // (`RegionPanel.tsx`'s `onRowClick`). It used to live only on the eye button, so
+                // alt-clicking a tissue row did nothing at all while alt-clicking a region row
+                // soloed: one gesture, two answers, for the same action on the same kind of thing.
+                if (!e.altKey) return;
+                e.preventDefault();
+                patch(
+                  soloTag(
+                    layer,
+                    rows.map((r) => r.tag),
+                    row.tag
+                  )
+                );
+              }}
             >
               <button
                 type="button"

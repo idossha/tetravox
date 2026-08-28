@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { cellIndexAt, layoutGrid } from '../lib/layout';
+import { isEditableTarget } from '../keyboard/keymap';
 import { useController, useUi } from './context';
 
 export interface ViewGridProps {
@@ -53,7 +54,26 @@ export function ViewGrid({ canvas, dpr }: ViewGridProps): React.JSX.Element {
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const host = hostRef.current;
-      if (host === null || cells.length === 0) return;
+      if (host === null) return;
+      // **Take the keyboard back.** §7.5's whole key map is suppressed while focus is in a text
+      // field (`resolveKey` bails on `editable`, and so does the `?` handler in `Shell.tsx`), which
+      // is right — a coordinate being typed must not step the slice. What was wrong is that
+      // clicking the panes never *left* the field: the engine's pointer layer calls
+      // `preventDefault()` on `pointerdown` (§7.5 needs it for capture and to stop the browser's
+      // own drag), and that suppresses the default focus change with it. So after any use of the
+      // header search or the coordinate box, every shortcut was silently typed into that box
+      // instead — measured: `ArrowRight` did not move the cursor, `?` did not open the sheet, and
+      // the search value became "scl?".
+      //
+      // Blurring here rather than in the engine because DOM focus is the shell's (§8): the engine
+      // owns the canvas, not the document. `tabIndex={-1}` on the host makes it a legal focus
+      // target, so focus lands somewhere meaningful instead of on `<body>`.
+      const active = document.activeElement;
+      if (isEditableTarget(active)) {
+        (active as HTMLElement).blur();
+        host.focus({ preventScroll: true });
+      }
+      if (cells.length === 0) return;
       const rect = host.getBoundingClientRect();
       const index = cellIndexAt(
         layoutKind,
@@ -75,7 +95,8 @@ export function ViewGrid({ canvas, dpr }: ViewGridProps): React.JSX.Element {
       data-testid="view-grid"
       data-layout={layoutKind}
       ref={hostRef}
-      className="relative min-h-0 min-w-0 flex-1 bg-tvx-bg"
+      tabIndex={-1}
+      className="relative min-h-0 min-w-0 flex-1 bg-tvx-bg outline-none"
       onPointerDownCapture={onPointerDown}
     >
       <div

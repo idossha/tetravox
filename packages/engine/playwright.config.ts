@@ -36,7 +36,33 @@ import { GOLDEN_THRESHOLD, goldenMaxDiffPixelRatio } from './test/helpers/pixels
  */
 const HEADED = process.env.TETRAVOX_E2E_HEADED === '1';
 
-const PORT = Number(process.env.TETRAVOX_TEST_PORT ?? 5199);
+/**
+ * The dev-server port, **scoped to this checkout**.
+ *
+ * `reuseExistingServer: !CI` is what makes a local `pnpm e2e` fast: the second run reuses the Vite
+ * the first one started. On a hard-coded port it also silently reuses a Vite belonging to a
+ * *different clone*, and then the harness serves that tree's pages while the reporter names this
+ * one. It is not hypothetical — a clean-clone gate run failed exactly that way (engine leg
+ * `9 passed, 2 skipped, 5 did not run`) while another checkout held 5199, and §12.2's clean-clone
+ * reproducibility item is not a gate item if another window can break it.
+ *
+ * So the base port is offset by a hash of this file's own absolute path. Two clones get two ports
+ * and never meet; one clone gets the same port every time and keeps the reuse. `TETRAVOX_TEST_PORT`
+ * still wins, for CI and for pinning a run by hand.
+ */
+export function checkoutPort(base: number, override: string | undefined): number {
+  if (override !== undefined && override !== '') return Number(override);
+  const root = fileURLToPath(new URL('.', import.meta.url));
+  let h = 2166136261;
+  for (let i = 0; i < root.length; i += 1) {
+    h ^= root.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // 900 ports above the base, all inside the IANA dynamic range.
+  return base + ((h >>> 0) % 900);
+}
+
+const PORT = checkoutPort(5199, process.env.TETRAVOX_TEST_PORT);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 /** The half of §11's launch args that is about determinism rather than about the renderer. */
