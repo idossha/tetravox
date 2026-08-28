@@ -491,3 +491,45 @@ describe('remapViews — `layerVisibility` is keyed by LayerId too', () => {
     expect('layerVisibility' in (slices[0] ?? {})).toBe(false);
   });
 });
+
+/**
+ * A parsed Gmsh view's dataset-derived extras must not reach a scene file (task 6).
+ *
+ * `lineSegments` is a `Float32Array`, and `JSON.stringify` turns one into `{"0":…}` — a scene that
+ * would restore garbage rather than segments, and be megabytes of it for a real `.pos`.
+ */
+describe('a points layer from a parsed view', () => {
+  const layer = {
+    id: 'l1',
+    datasetId: 'ds1',
+    name: 'net',
+    visible: true,
+    opacity: 1,
+    pickable: false,
+    showColorbar: false,
+    kind: 'points',
+    points: [{ position: [1, 2, 3] as [number, number, number], value: 10, name: 'E001' }],
+    shape: 'sphere',
+    radiusMm: 4,
+    color: [1, 0.85, 0.2, 1] as [number, number, number, number],
+    showLabels: true,
+    labelScale: 2,
+    valueMode: 'value',
+    colormap: 'turbo',
+    labels: [{ position: [1, 2, 8] as [number, number, number], text: 'E001' }],
+    lineSegments: new Float32Array([0, 0, 0, 1, 0, 0]),
+  } as unknown as Layer;
+
+  it('drops the dataset-derived labels and segments, and keeps the user’s knobs', () => {
+    const out = serializableLayer(layer) as Record<string, unknown>;
+    expect(out.lineSegments).toBeUndefined();
+    expect(out.labels).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain('"0":');
+    // What the user actually chose survives, and so do the points a CSV layer has no other home for.
+    expect(out.showLabels).toBe(true);
+    expect(out.labelScale).toBe(2);
+    expect(out.valueMode).toBe('value');
+    expect(out.colormap).toBe('turbo');
+    expect((out.points as unknown[]).length).toBe(1);
+  });
+});

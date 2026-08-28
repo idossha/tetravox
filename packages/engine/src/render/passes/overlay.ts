@@ -29,6 +29,7 @@ import {
   overlayMetrics,
   volumeColorbarSpec,
 } from '../../overlay';
+import { drawPointLabels, placePointLabels } from '../../overlay/point-labels';
 import type { ChromeInput, EdgeLetters } from '../../overlay';
 import { visibleIn } from '../../layers/runtime';
 import { isSliceView, topVolume } from '../../scene/store';
@@ -36,12 +37,13 @@ import {
   edgeLetters,
   sliceBasis,
   voxelAxisAlong,
+  slicePlane,
   worldToPane3D,
   worldToVoxel,
 } from '../../view/geometry';
 import type { DrawInput } from './pass';
 import type { ViewportRect } from '../../view/layout';
-import type { Scene, SliceView, vec3, vec4, View, VolumeDataset } from '../../scene/types';
+import type { mat4, Scene, SliceView, vec3, vec4, View, VolumeDataset } from '../../scene/types';
 
 const TEXT_COLOR: vec4 = [0.92, 0.94, 0.98, 1];
 const CROSSHAIR_COLOR: vec4 = [1, 0.85, 0.2, 0.9];
@@ -153,6 +155,12 @@ export class OverlayPass implements FramePass {
     // them — between the chrome and the active-pane border.
     if (a.colorbars) drawColorbars(b, view, rect, input, TEXT_COLOR);
 
+    // Appended for parsed Gmsh views (task 6): a points layer's 3D text labels. They go after the
+    // colour bars and before the draw, in the same reserved slot, and they are pass-3 items for
+    // the reason every other string here is — a DOM overlay is invisible to `readPixel` and to
+    // `screenshot()`, which is the same as not testing it (§11).
+    drawPointLabelsFor(b, view, rect, viewProj, input);
+
     if (b.vertexCount === 0) return;
     const gl = this.#gl;
     // §7.2 pass 3: all clip distances disabled, no depth.
@@ -172,6 +180,48 @@ export class OverlayPass implements FramePass {
     this.#program.dispose();
     this.#buf.dispose();
     this.#vao.dispose();
+  }
+}
+
+/**
+ * A points layer's 3D text labels (`overlay/point-labels.ts`), in every pane that shows the layer.
+ *
+ * **A 2D pane draws only the labels within one slice step of its plane**, which is what §4.4 means
+ * by electrodes appearing on a slice: a whole 187-electrode net projected onto one axial slice
+ * would be an unreadable smear of names belonging to slices 80 mm away. The slab is
+ * `max(radiusMm, 1 mm)` — the point's own radius, so a marker that is drawn always has its name
+ * next to it, and never less than a millimetre so a zero-radius layer still labels something.
+ *
+ * The lift is the point's radius converted to pixels in a 2D pane (where mm→px is `mmPerPx`) and a
+ * fixed few pixels in a 3D one, so the text clears the sphere instead of sitting inside it.
+ */
+function drawPointLabelsFor(
+  b: OverlayBuilder,
+  view: View,
+  rect: ViewportRect,
+  viewProj: mat4,
+  input: DrawInput
+): void {
+  const m = overlayMetrics(rect.width, rect.height, input.uiScale);
+  for (const layer of input.scene.layers) {
+    if (layer.kind !== 'points' || !visibleIn(layer, view)) continue;
+    if (layer.showLabels !== true) continue;
+    const labels = layer.labels ?? [];
+    if (labels.length === 0) continue;
+
+    const slabMm = Math.max(layer.radiusMm, 1);
+    const place = isSliceView(view)
+      ? {
+          width: rect.width,
+          height: rect.height,
+          slab: { ...slicePlane(view, input.scene.cursor), slabMm },
+          liftPx: (layer.radiusMm / view.camera.mmPerPx) * input.uiScale,
+        }
+      : { width: rect.width, height: rect.height, liftPx: 6 * m.scale };
+
+    const color = layer.labelColor ?? layer.color;
+    const faded: vec4 = [color[0], color[1], color[2], color[3] * layer.opacity];
+    drawPointLabels(b, m, placePointLabels(labels, viewProj, place), layer.labelScale ?? 1, faded);
   }
 }
 

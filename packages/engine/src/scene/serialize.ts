@@ -276,6 +276,15 @@ export function serializableLayer(layer: Layer): SerializableLayer {
   if ('visibleLabels' in layer && layer.visibleLabels !== undefined) {
     out.visibleLabels = [...layer.visibleLabels];
   }
+  if (layer.kind === 'points') {
+    // A parsed Gmsh view's labels and `SL` segments are **dataset**-derived (`MeshDataset.geo`), so
+    // they are re-seeded by `defaultLayerFor` on restore, exactly as a `.label.gii`'s `LabelTable`
+    // is. Dropping them here is not a loss and is the only correct answer for `lineSegments`: it is
+    // a `Float32Array`, and `JSON.stringify` turns one into `{"0":…}` — a scene file that would
+    // restore garbage, silently, and be megabytes of it.
+    delete out.lineSegments;
+    delete out.labels;
+  }
   if (layer.kind === 'mesh' && layer.label !== undefined) {
     const { name, mode, outlineWidthPx, visibleLabels } = layer.label;
     out.label = {

@@ -15,7 +15,9 @@
 use std::path::{Path, PathBuf};
 
 use tvx_core::{NoProgress, Phase, ProgressSink};
-use tvx_mesh_io::{read_fs_annot, read_fs_surface, read_gifti, read_msh, read_msh_opt, Mesh};
+use tvx_mesh_io::{
+    read_fs_annot, read_fs_surface, read_geo_view, read_gifti, read_msh, read_msh_opt, Mesh,
+};
 
 /// `None` ⇒ the whole test skips (§11 rule 2 / TESTING.md).
 fn root() -> Option<PathBuf> {
@@ -536,4 +538,89 @@ fn a_freesurfer_binary_surface_loads_big_endian() {
         m.tri_edge_mask.is_none(),
         "a triangle file, not a quad file"
     );
+}
+
+// -------------------------------------------------------------------------------------------
+// Parsed post-processing views — `m2m_ernie/eeg_positions/*.geo` (§6.2, directed task 6)
+// -------------------------------------------------------------------------------------------
+
+/// `GSN-HydroCel-185.geo` — SimNIBS's EEG net as a parsed view: 187 `SP` + 187 `T3`.
+///
+/// The counts and the first/last coordinates were read out of the file with
+/// `grep -c 'SP(' … ` and a five-line Python regex, never from this reader. The bounding box was
+/// measured with numpy over the same regex's captures.
+#[test]
+fn gsn_hydrocel_185_is_187_points_and_187_labels() {
+    let root = testdata!();
+    let p = root.join("m2m_ernie/eeg_positions/GSN-HydroCel-185.geo");
+    let views = read_geo_view(bytes(&p)).unwrap();
+
+    assert_eq!(views.len(), 1, "SimNIBS writes one view per net");
+    let v = &views[0];
+    assert_eq!(v.name, "", "`View\"\"` — empty and unspaced");
+    assert_eq!(v.points.len(), 187);
+    assert_eq!(v.labels.len(), 187);
+    assert!(v.lines.is_empty(), "an electrode net has no SL");
+    assert!(v.tris.is_empty(), "and no ST");
+    assert!(v.skipped.is_empty(), "every primitive in it is supported");
+
+    // First and last records, exact: the f32 narrowing of the f64 the file spells out.
+    assert_eq!(
+        v.points[0],
+        [
+            71.115_927_093_976_99_f64 as f32,
+            76.046_244_409_456_6_f64 as f32,
+            1.235_366_124_277_992_f64 as f32,
+        ]
+    );
+    assert_eq!(
+        v.point_values[0], 0.0,
+        "SimNIBS writes a zero value per electrode"
+    );
+    assert_eq!(v.labels[0].1, "E001");
+    assert_eq!(
+        v.labels[0].0,
+        [
+            71.115_927_093_976_99_f64 as f32,
+            76.046_244_409_456_6_f64 as f32,
+            // The label anchor sits 5 mm above its electrode — the offset SimNIBS bakes in.
+            6.235_366_124_277_992_f64 as f32,
+        ]
+    );
+
+    assert_eq!(
+        v.points[186],
+        [
+            -77.242_827_542_615_8_f64 as f32,
+            8.438_809_514_325_781_f64 as f32,
+            -31.999_574_948_695_294_f64 as f32,
+        ]
+    );
+    assert_eq!(
+        v.labels[186].1, "RPA",
+        "the net ends with the three fiducials"
+    );
+    assert!(
+        v.point_values.iter().all(|x| *x == 0.0),
+        "every SP value in the net is 0"
+    );
+
+    // Bounding box, measured with numpy over the same file's SP coordinates in float32 — with
+    // `z_max` 5 mm higher, because the box covers the `T3` label anchors too and SimNIBS puts
+    // each of them 5 mm above its electrode.
+    assert_eq!(v.bounds.min, [-79.231_14, -91.479_06, -33.041_55]);
+    assert_eq!(v.bounds.max, [82.969_21, 118.489_944, 98.937_95 + 5.0]);
+
+    // Every other net in the directory parses too, and each SP has exactly one T3.
+    for name in [
+        "GSN-HydroCel-256.geo",
+        "EEG10-10_UI_Jurak_2007.geo",
+        "easycap_BC_TMS64_X21.geo",
+        "Fiducials.geo",
+    ] {
+        let vs = read_geo_view(bytes(&root.join("m2m_ernie/eeg_positions").join(name))).unwrap();
+        let v = &vs[0];
+        assert_eq!(v.points.len(), v.labels.len(), "{name}");
+        assert!(!v.points.is_empty(), "{name}");
+    }
 }

@@ -16,7 +16,13 @@
  */
 
 import { ComputeClient } from '@tetravox/wasm';
-import type { GpuCapsT, MeshMeta, SurfacePayload, VolumeMeta } from '@tetravox/protocol';
+import type {
+  GeoPayloadT,
+  GpuCapsT,
+  MeshMeta,
+  SurfacePayload,
+  VolumeMeta,
+} from '@tetravox/protocol';
 import type {
   DatasetSource,
   Engine,
@@ -112,7 +118,7 @@ import {
   toViewSpec,
 } from './scene/serialize';
 import type { SidecarPaths } from './scene/serialize';
-import { looksLikeVolume, sourceName, toLoadSource } from './datasets/source';
+import { looksLikeVolume, meshFormatFor, sourceName, toLoadSource } from './datasets/source';
 import type {
   Annotations,
   Dataset,
@@ -475,12 +481,18 @@ export class TetravoxEngine implements Engine, PointerHost {
           path
         );
       }
-      const req = client.start(`load:${id}`, 'loadMesh', { source, format: 'auto' });
+      // `'geo'` rather than `'auto'` for a `.geo`/`.pos`, so a geometry script is rejected by the
+      // parsed-view reader (which names the command that gave it away) instead of falling out of
+      // `sniff` as "unrecognised mesh format" (`datasets/source.ts`).
+      const req = client.start(`load:${id}`, 'loadMesh', {
+        source,
+        format: meshFormatFor(name),
+      });
       runtime.loadId = req.id;
       const res = await this.#track(req.promise);
       runtime.loadId = null;
       if (runtime.cancelled) throw new Error('cancelled');
-      return await this.#adoptMesh(id, res.meta, path);
+      return await this.#adoptMesh(id, res.meta, path, res.geo);
     } catch (err) {
       this.#teardown(id);
       throw err;
@@ -525,8 +537,13 @@ export class TetravoxEngine implements Engine, PointerHost {
     return ds;
   }
 
-  async #adoptMesh(id: DatasetId, meta: MeshMeta, path: string | undefined): Promise<MeshDataset> {
-    const ds = meshDatasetFromMeta(id, meta, { id: this.#nextId }, path);
+  async #adoptMesh(
+    id: DatasetId,
+    meta: MeshMeta,
+    path: string | undefined,
+    geo?: GeoPayloadT
+  ): Promise<MeshDataset> {
+    const ds = meshDatasetFromMeta(id, meta, { id: this.#nextId }, path, geo);
     const rt = this.#workers.get(id);
     if (rt === undefined) throw new Error('dataset worker is gone');
 
@@ -534,14 +551,19 @@ export class TetravoxEngine implements Engine, PointerHost {
     // derived boundary only when it has none (`grey_Thalamus_TI.msh` — 1,340,029 tets, 0 tris).
     // `tag_surfaces` takes no topology and does no geometry work beyond grouping and normals, which
     // is what keeps this off the `build_topology` path entirely.
-    const payload: SurfacePayload = ds.hasTris
-      ? await this.#track(
-          rt.client.call(`surface:${id}`, 'surface', { handle: ds.handle, variant: 'indexed' })
-        )
-      : await this.#track(
-          rt.client.call(`surface:${id}`, 'boundary', { handle: ds.handle, variant: 'indexed' })
-        );
-    this.#gpu.uploadSurface(surfaceKey(id, 'indexed'), payload);
+    // A parsed view can be points and labels only (every SimNIBS electrode net is): 0 nodes, so
+    // there is no surface to extract and nothing to upload. `boundary` on an empty mesh is not a
+    // useful question to ask, and the points layer is what will draw this dataset.
+    if (ds.nNodes > 0) {
+      const payload: SurfacePayload = ds.hasTris
+        ? await this.#track(
+            rt.client.call(`surface:${id}`, 'surface', { handle: ds.handle, variant: 'indexed' })
+          )
+        : await this.#track(
+            rt.client.call(`surface:${id}`, 'boundary', { handle: ds.handle, variant: 'indexed' })
+          );
+      this.#gpu.uploadSurface(surfaceKey(id, 'indexed'), payload);
+    }
     this.#fingerprints.set(id, fingerprintFromMeta(meta));
     this.#store.addDataset(ds);
     this.#emit('datasets', [...this.#scene.datasets.values()]);

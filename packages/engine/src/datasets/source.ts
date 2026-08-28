@@ -7,12 +7,31 @@
  * tests and for a caller that already holds bytes — it is not the drop path (§8).
  */
 
-import type { LoadSource } from '@tetravox/protocol';
+import type { LoadSource, MeshFormatSel } from '@tetravox/protocol';
 import type { DatasetSource } from '../api';
 
 /** `.nii` / `.nii.gz` is a volume; everything else goes to the mesh loader (§6.2's `sniff`). */
 export function looksLikeVolume(name: string): boolean {
   return /\.nii(\.gz)?$/i.test(name);
+}
+
+/**
+ * `.geo` / `.pos` — a Gmsh **parsed post-processing** view (§6.2), which loads through `loadMesh`
+ * with an explicit `format: 'geo'` rather than `'auto'`.
+ *
+ * Explicit on purpose. `sniff` would recognise a parsed view from its leading `View` token anyway,
+ * but a `.geo` that turns out to be a *geometry script* would then fall out of `sniff` as
+ * "unrecognised mesh format", burying the one message that tells the user what is actually wrong
+ * with their file. Naming the format routes it to `read_geo_view`, whose rejection names the
+ * command that gave the script away.
+ */
+export function looksLikeGeoView(name: string): boolean {
+  return /\.(geo|pos)$/i.test(name);
+}
+
+/** The `loadMesh` format for a file name: explicit for a parsed view, `'auto'` for everything else. */
+export function meshFormatFor(name: string): MeshFormatSel {
+  return looksLikeGeoView(name) ? 'geo' : 'auto';
 }
 
 export function sourceName(src: DatasetSource): string {

@@ -11,10 +11,13 @@ import { fileUrl } from './protocol';
 
 /** §12.3/§8: the formats the viewer opens. Kept in one place so the menu and the installer agree. */
 export const OPEN_FILTERS = [
-  { name: 'Volumes and meshes', extensions: ['nii', 'gz', 'msh', 'gii'] },
+  { name: 'Volumes and meshes', extensions: ['nii', 'gz', 'msh', 'gii', 'geo', 'pos'] },
   { name: 'NIfTI volume', extensions: ['nii', 'nii.gz'] },
   { name: 'Gmsh mesh', extensions: ['msh'] },
   { name: 'GIfTI surface', extensions: ['gii'] },
+  // Gmsh **parsed post-processing views** — SimNIBS's `eeg_positions/*.geo`, and the `.pos` a
+  // Gmsh "Save As" writes. Not the geometry-script `.geo`, which the reader rejects by name.
+  { name: 'Gmsh view (electrode positions)', extensions: ['geo', 'pos'] },
   { name: 'All files', extensions: ['*'] },
 ];
 

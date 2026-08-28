@@ -269,10 +269,11 @@ export class ShellController {
         lastLoadMs: { ...s.lastLoadMs, [dataset.id]: elapsed },
       }));
       // §4.7: a dataset is not a layer. Opening a file means both, and both are engine calls.
-      engine.addLayer({
-        datasetId: dataset.id,
-        kind: dataset.kind === 'volume' ? 'volume' : 'mesh',
-      });
+      //
+      // The kind is the **dataset's own**, which `defaultLayerFor` decides: a Gmsh parsed view with
+      // no triangles (every SimNIBS electrode net) is points, not an empty mesh surface. Naming a
+      // kind here would have opened `GSN-HydroCel-185.geo` as a blank layer.
+      for (const kind of layerKindsFor(dataset)) engine.addLayer({ datasetId: dataset.id, kind });
       engine.requestRender();
     } catch (error: unknown) {
       const code = errorCode(error);
@@ -1290,4 +1291,33 @@ export class ShellController {
 /** A filename-safe ISO timestamp: `:` and `.` are illegal or awkward on at least one platform. */
 function timestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+/**
+ * The layers a freshly opened dataset gets, bottom→top.
+ *
+ * A volume is one volume layer and an ordinary mesh is one mesh layer. A Gmsh **parsed
+ * post-processing view** (`.geo` / `.pos`) is whichever of the two it actually contains, and a file
+ * that contains both gets both:
+ *
+ * * an electrode net — every SimNIBS `eeg_positions/*.geo` — has no triangles at all, so naming
+ *   `'mesh'` unconditionally opened `GSN-HydroCel-185.geo` as a blank surface layer;
+ * * a view with `ST`/`SQ` triangles *and* `SP` points is a field on a surface *plus* the markers
+ *   drawn over it, and dropping either half silently loses data the file carries.
+ *
+ * The surface goes first so the markers draw over it, which is §4.4's bottom→top order and what
+ * §4.4 means by electrodes over anatomy.
+ *
+ * Exported so it is a value a test can check, not a conditional buried in a `try`.
+ */
+export function layerKindsFor(dataset: Dataset): Layer['kind'][] {
+  if (dataset.kind === 'volume') return ['volume'];
+  const geo = dataset.geo;
+  if (geo === undefined) return ['mesh'];
+  const kinds: Layer['kind'][] = [];
+  if (dataset.hasTris) kinds.push('mesh');
+  if (geo.points.length > 0 || geo.labels.length > 0 || geo.lineSegments.length > 0) {
+    kinds.push('points');
+  }
+  return kinds.length > 0 ? kinds : ['mesh'];
 }
