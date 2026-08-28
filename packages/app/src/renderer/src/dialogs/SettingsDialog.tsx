@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from 'react';
 import type { ScreenshotOptions } from '@tetravox/engine';
-import type { ScreenshotDefaults } from '../../preload/index';
+import type { ScreenshotDefaults } from '../../../preload/index';
 import type { SettingsTab } from '../store/store';
 import type { ThemeChoice } from '../theme/theme';
 import { THEME_CHOICES } from '../theme/theme';
@@ -128,7 +128,11 @@ export function SettingsDialog({
       </div>
 
       {tab === 'appearance' && (
-        <div className="flex flex-col gap-1.5" role="tabpanel" data-testid="settings-panel-appearance">
+        <div
+          className="flex flex-col gap-1.5"
+          role="tabpanel"
+          data-testid="settings-panel-appearance"
+        >
           <span className="text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
             Theme
           </span>
@@ -253,12 +257,10 @@ export function SettingsDialog({
           </div>
           <p className="text-[10px] leading-relaxed text-tvx-dim">
             Used for the <span className="font-mono">fsaverage</span> vertex in the info panel: a
-            pick on a subject surface is mapped through its <span className="font-mono">
-              sphere.reg
-            </span>{' '}
-            to the nearest vertex of <span className="font-mono">fsaverage/surf/lh.sphere</span>.
-            Nothing is bundled — point this at a FreeSurfer{' '}
-            <span className="font-mono">subjects</span> directory that contains{' '}
+            pick on a subject surface is mapped through its{' '}
+            <span className="font-mono">sphere.reg</span> to the nearest vertex of{' '}
+            <span className="font-mono">fsaverage/surf/lh.sphere</span>. Nothing is bundled — point
+            this at a FreeSurfer <span className="font-mono">subjects</span> directory that contains{' '}
             <span className="font-mono">fsaverage</span>. Leave it empty and the row is simply
             absent.
           </p>

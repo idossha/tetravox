@@ -42,7 +42,13 @@ import {
   writeSceneFile,
 } from './scene-io';
 import { windowMode } from './window';
-import { configPath, ensureRcFile, readSettings, rememberRecentScene, writeSettings } from './settings';
+import {
+  configPath,
+  ensureRcFile,
+  readSettings,
+  rememberRecentScene,
+  writeSettings,
+} from './settings';
 
 /**
  * `BrowserWindow.backgroundColor` for this launch: the `bg` token of the theme the renderer will

@@ -41,7 +41,7 @@ import {
   subjectToMniAffine,
 } from '@tetravox/engine';
 import type { CoordSpace, DialogKind, RelocateRow, SettingsTab, UiStore } from './store';
-import type { ScreenshotDefaults } from '../../preload/index';
+import type { ScreenshotDefaults } from '../../../preload/index';
 import {
   activeLayer,
   collapseAllAction,

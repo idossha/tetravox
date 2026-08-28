@@ -174,9 +174,9 @@ describe('screenshotDefaults coercion', () => {
     expect(coercePatch({ screenshotDefaults: { scale: 2 } })).toEqual({
       screenshotDefaults: { ...DEFAULT_SCREENSHOT_DEFAULTS, scale: 2 },
     });
-    expect(
-      coercePatch({ screenshotDefaults: { background: 'white', scale: -1 } })
-    ).toEqual({ screenshotDefaults: { ...DEFAULT_SCREENSHOT_DEFAULTS, background: 'white' } });
+    expect(coercePatch({ screenshotDefaults: { background: 'white', scale: -1 } })).toEqual({
+      screenshotDefaults: { ...DEFAULT_SCREENSHOT_DEFAULTS, background: 'white' },
+    });
   });
 
   it('is the field `DEFAULT_SETTINGS` carries', () => {

@@ -33,7 +33,7 @@ import type {
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
-import type { ScreenshotDefaults } from '../../preload/index';
+import type { ScreenshotDefaults } from '../../../preload/index';
 import type { LoadCard } from '../lib/loads';
 import type { Toast } from '../lib/toasts';
 import type { MetricsState } from '../lib/metrics';
