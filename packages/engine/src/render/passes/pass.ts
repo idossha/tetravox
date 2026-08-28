@@ -26,6 +26,7 @@ import { pickableIn } from '../../layers/runtime';
 import type { LayerId, mat4, Scene, vec3, View, ViewId } from '../../scene/types';
 import type { ViewportRect } from '../../view/layout';
 import type { GizmoSpec } from '../../overlay/gizmo';
+import type { OverlayTheme } from '../../overlay/theme';
 
 /** Everything a frame needs that is not per-pane. Assembled once per frame by the engine. */
 export interface DrawInput {
@@ -52,6 +53,19 @@ export interface DrawInput {
   uiScale: number;
   /** Chrome is skipped entirely when `annotations` says so; the badge is never optional (§8). */
   showChrome: boolean;
+  /**
+   * The §7.2 pass-3 chrome palette (directed task 9, 2026-08-28; appended, shared-file rule:
+   * additive only).
+   *
+   * Optional, and absent means `DEFAULT_OVERLAY_THEME` — the exact colours the overlay pass held as
+   * `const`s through Phase 1 and 2 — so a `DrawInput` assembled by a test or by the no-GL engine
+   * draws what it always drew and §11's goldens do not move.
+   *
+   * It rides on the frame rather than on `Scene` because a theme belongs to the window looking at
+   * the scene, not to the scene: §4.6 would otherwise serialise one embedder's palette into a
+   * `*.tetravox.json` that another opens.
+   */
+  theme?: OverlayTheme;
   /**
    * The cut-plane gizmo to draw in the 3D pane, or `null` — §7.5's oblique affordances (appended by
    * E-SCENE; shared-file rule: additive only).

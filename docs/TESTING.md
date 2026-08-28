@@ -62,6 +62,22 @@ packages/engine/test/golden/<class>/  the goldens, one directory per renderer cl
 
 `*.test.ts` is vitest; `*.spec.ts` is Playwright. Nothing collects both.
 
+### Testing something that persists
+
+`e2e/fixtures.ts` gives every launch a **fresh** `--user-data-dir`, so two runs cannot collide over the
+single-instance lock (see the comment there) — which also means `settings.json`, `localStorage` and every other
+per-profile artefact is thrown away between launches. Anything that has to survive a relaunch is therefore
+tested by launching twice against **one** directory:
+
+```ts
+const profile = mkdtempSync(join(tmpdir(), 'tetravox-e2e-theme-'));
+const first = await launchApp(target, { userDataDir: profile });   // set it, wait for main to answer, close
+const second = await launchApp(target, { userDataDir: profile });  // assert it came back
+```
+
+The two launches must not overlap: the second would find the lock held and quit. `e2e/theme.spec.ts` is the
+worked example (the §8 theme choice, `main/settings.ts`).
+
 ### The test page server
 
 `packages/engine/playwright.config.ts` starts Vite over `packages/engine` as the root, so a page can

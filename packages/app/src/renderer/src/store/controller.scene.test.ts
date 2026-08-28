@@ -48,6 +48,9 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
     bridge: {} as TetravoxBridge,
   };
   fs.bridge = {
+    // Settings: this stub keeps no preferences, which is what a test wants.
+    settings: async () => ({ theme: 'system' as const }),
+    setSettings: async () => ({ theme: 'system' as const }),
     // The `--job` half of the bridge: this window was not launched for one.
     jobSpec: async () => null,
     jobWrite: async () => ({ ok: false, error: 'not a job run' }),

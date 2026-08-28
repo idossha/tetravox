@@ -4,6 +4,7 @@
  */
 
 import type {
+  AppSettings,
   JobDonePayload,
   JobFramesPayload,
   JobFramesResult,
@@ -31,6 +32,11 @@ const ABSENT: TetravoxBridge = {
   readSceneFile: async () => ({ ok: false, error: 'no preload bridge' }),
   writeSceneFile: async () => ({ ok: false, error: 'no preload bridge' }),
   onSceneCommand: () => () => {},
+  // No bridge means no `settings.json`, so the preference is the default and a write is a no-op
+  // that still answers with what the caller will see. That is what keeps the theme switch working
+  // in a browser tab and under vitest: it applies, it just does not survive a reload.
+  settings: async () => ({ theme: 'system' }),
+  setSettings: async (patch) => ({ theme: 'system', ...patch }),
   // No bridge means no filesystem and no launch argv, so there is no job to run — which is exactly
   // what a vitest run and a plain browser tab should see.
   jobSpec: async () => null,
@@ -49,6 +55,7 @@ export function hasBridge(): boolean {
 }
 
 export type {
+  AppSettings,
   JobDonePayload,
   JobFramesPayload,
   JobFramesResult,

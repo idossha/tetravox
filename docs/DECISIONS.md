@@ -2636,3 +2636,45 @@ what a saved scene meets.
 **Visual change, stated.** `packages/app/e2e/catalogue.spec.ts`'s `14-oblique-slice.png` was a `1x1` oblique
 pane and is now `3d+1`: the same zoomed oblique slice, with the 3D pane beside it. `1x1` is no longer a button
 to click.
+
+## 2026-08-28 — two themes, and `Engine.setTheme` (directed task 9)
+
+**Decision.** The app ships a **Light** theme (white/light-grey surfaces, near-black text, soft shading from a
+one-step surface ramp and a hairline) and a **Dark** theme (graphite `#16181c`/`#1e2126`, not black), both
+carrying one muted slate-blue accent — `#3b5ba9` on white, `#93aae2` on graphite. The Phase-1 cyan `#6ee7ff` is
+gone, along with every saturated highlight it inspired: the histogram's cyan window handles and amber threshold
+rule, the active-row and load-card bars, the toolbar's accent-coloured pressed state, the modal scrim's flat
+black, and Chromium's own system-blue slider (`accent-color`). A toolbar group switches System / Light / Dark,
+persisted in `settings.json` under `userData` and applied live — no reload, no remount.
+
+**`renderer/src/theme/tokens.ts` is the single source of truth**, for the CSS variables *and* for the engine's
+chrome, and `theme/tokens.test.ts` parses `index.css` and `main/index.ts` so neither can drift from it. Every
+foreground/surface pair is held to WCAG 4.5:1 (text) or 3:1 (a UI boundary); the hairline is declared
+`decorative` **in the table**, with its own visible-but-quiet bound, rather than quietly skipped — a separator
+carries no information and a border you can see from across the room is the neon this task removes.
+
+**§4.7 gains `setTheme`, and it is additive.** §7.2's pass-3 chrome is drawn into the GL framebuffer (§8 calls it
+a laterality-safety requirement, §11 requires it in every golden), so CSS cannot reach it: without this member a
+light theme flips every panel and leaves near-white orientation letters with a black halo. It is the neighbour of
+`setAnnotations` — that says *which* chrome is drawn, this says what colour. A theme is **not** scene state and
+is not serialised; `background` is the single exception and is forwarded to `Scene.background`, which §4.6
+already carries. `OverlayBuilder.setHalo` exists for the one colour that must **invert** rather than shift, set
+once per pane instead of threaded through four `draw*` signatures.
+
+**No golden was regenerated, on purpose.** `DEFAULT_OVERLAY_THEME` is the Phase-1/2 constants verbatim — the
+same near-white text, black halo, amber crosshair, blue active border and cyan gizmo — and `DrawInput.theme` is
+optional, so a `DrawInput` with no theme draws what it always drew. `pointer.spec.ts` still finds the crosshair
+by "bright in R and G, dark in B". The muted palette is what the *app* sends; the engine's own defaults are
+unchanged and moving them stays a conversation, not a patch.
+
+**The view panes stay dark in both themes.** Imaging convention: a light viewport changes what a greyscale T1
+and a heat overlay look like. `ThemeTokens.paneBackground` is the per-theme option, and the overlay palette is
+keyed off **the pane**, never off the theme name — so flipping it inverts the letters and the halo together,
+and leaving it alone keeps a light-theme window's viewport a viewport.
+
+**App settings are main's, not `localStorage`'s.** Every E2E launch gets a fresh `--user-data-dir` so two runs
+cannot collide over the single-instance lock, which also discards anything per-profile — a preference in
+`localStorage` could never be tested across a relaunch without giving that up. `main/settings.ts` owns a small
+JSON file, `e2e/fixtures.ts` gains a `userDataDir` option, and `theme.spec.ts` launches twice against one
+directory. Main also reads the file to choose `BrowserWindow.backgroundColor`, so a light-theme launch does not
+open on a black rectangle.

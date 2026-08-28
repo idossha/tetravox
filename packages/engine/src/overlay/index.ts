@@ -44,3 +44,7 @@ export type { EdgeLetters } from './letters';
 // E-DERIVED: the contour item's pure screen-space expansion, the CPU twin of `shaders/contour.ts`.
 export { contourInstanceCount, expandContourSegment } from './contours';
 export type { ContourQuad } from './contours';
+// Directed task 9 (2026-08-28): the pass-3 chrome palette, so `setAnnotations`'s neighbour
+// `setTheme` has something to carry and the halo flips with the embedder's theme.
+export { DEFAULT_OVERLAY_THEME, resolveOverlayTheme } from './theme';
+export type { OverlayTheme } from './theme';
