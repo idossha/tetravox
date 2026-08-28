@@ -1,5 +1,5 @@
 /**
- * The layer panel's disclosure state (docs/PLAN-2026-08-28-directed.md #1).
+ * The layer panel's disclosure state.
  *
  * Two properties matter and neither is a pixel: the state is **chrome** — it never reaches the
  * engine and never reaches a `ViewSpec` — and it survives everything the scene does to a layer

@@ -11,7 +11,7 @@
  * * Every mutation replaces the array or object it touches rather than mutating it in place, because
  *   the app's store diffs by identity (`store/controller.ts`'s `syncLayers`).
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Append new query helpers and
+ * **Shared-file rule: additive only.** Append new query helpers and
  * new mutations; never reorder or repurpose the existing ones.
  */
 

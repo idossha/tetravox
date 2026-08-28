@@ -1,5 +1,5 @@
 /**
- * The layer-panel disclosure (docs/PLAN-2026-08-28-directed.md #1), end to end.
+ * The layer-panel disclosure, end to end.
  *
  * Two halves, and the split is the same one `shell.spec.ts` and `props-realdata.spec.ts` make:
  *

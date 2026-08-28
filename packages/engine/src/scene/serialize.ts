@@ -10,8 +10,8 @@
  *   that moves house still resolves; {@link candidatePaths} is the resolution order a host should
  *   use before it opens a relocate dialog.
  * * **Fingerprints.** Computing one needs the file bytes, which the UI thread never sees (§5 rule 3),
- *   so it is the loader's — a `fingerprint` on `VolumeMeta` / `MeshMeta`, filed with W-WASM as gap 1
- *   of `docs/PHASE2-OWNERSHIP.md`. {@link fingerprintFromMeta} reads it **when it is there** and
+ *   so it is the loader's — a `fingerprint` on `VolumeMeta` / `MeshMeta`, still a known gap.
+ *   {@link fingerprintFromMeta} reads it **when it is there** and
  *   yields `''` until then, so the field lights up the day that lands, with no change here.
  * * **The dataset-id remap.** A load re-adds datasets and they get fresh ids (`ds1`, `ds2`, …) that
  *   do not match the spec's, which is why Phase 1 could not restore `spec.layers` at all — the
@@ -248,7 +248,7 @@ export function datasetRefs(scene: Scene, opts: SerializeOptions = {}): DatasetR
  *
  * §4.6 defines it as `"<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>"`, and §5 rule 3 puts
  * the only place it can be computed — over the input bytes — inside the dataset's worker. That is
- * gap 1 of `docs/PHASE2-OWNERSHIP.md`, owned by **W-WASM**: `VolumeMeta` and `MeshMeta` do not carry
+ * a known gap: `VolumeMeta` and `MeshMeta` do not carry
  * the field yet. Reading it defensively rather than declaring it is deliberate — the declaration
  * lives in a **frozen** file (`packages/protocol/src/index.ts`) that E-SCENE may not touch, and a
  * cast that *asserted* the field would be a lie about the wire. This accepts only a string and

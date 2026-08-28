@@ -1,10 +1,10 @@
 /**
  * The rows of the §7.5 keyboard help sheet, **derived from `keymap.ts` rather than retyped**.
  *
- * `docs/PHASE2-OWNERSHIP.md`, A-SHELL: "Keyboard help (`keyboard/KeyboardHelp.tsx`) — rows generated
- * from `keymap.ts`, so a sheet can never list a binding the resolver does not implement."
+ * Keyboard help (`keyboard/KeyboardHelp.tsx`) — rows generated
+ * from `keymap.ts`, so a sheet can never list a binding the resolver does not implement.
  *
- * `keymap.ts` is **E-SCENE's file** and exports a *resolver*, not a table — so this module generates
+ * `keymap.ts` exports a *resolver*, not a table — so this module generates
  * the table by **asking the resolver**: it runs `resolveKey` over every candidate key and modifier
  * combination §7.5 mentions and keeps the ones that produce a `Command`. That is a stronger property
  * than a hand-written table beside a hand-written switch, in both directions:

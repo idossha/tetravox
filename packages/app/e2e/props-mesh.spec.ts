@@ -2,7 +2,7 @@
  * The §8 property editors for the `mesh`, `iso` and `points` layer kinds (A-PROPS, half 2).
  *
  * §8: "everything the UI can do must be reachable from the `Engine` API alone. No logic in React."
- * `docs/PHASE2-OWNERSHIP.md` turns that into this file's whole assertion: **every control is one
+ * That rule turns into this file's whole assertion: **every control is one
  * §4.7 call, and this asserts the call and its arguments** — `Engine.updateLayer` is wrapped in the
  * page, the control is driven the way a user drives it, and the recorded patch is compared with what
  * the reducer promised. No pixels: the layer panel is DOM, and §11's rule 0 cuts the other way here.

@@ -18,7 +18,7 @@
  *   it owns (§5 rule 6), and always through {@link LayerRuntimeContext.track} so `whenSettled()`
  *   waits for it (§7.2).
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Every layer owner reads
+ * **Shared-file rule: additive only.** Every layer owner reads
  * these types and one of them appends to them. Append a `DrawItem` / `PickItem` variant or a
  * runtime member; never narrow an existing field, because the pass that reads it belongs to
  * someone else.

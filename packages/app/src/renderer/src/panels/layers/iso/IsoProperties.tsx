@@ -5,7 +5,7 @@
  * `faceMode`. The engine half is `layers/iso.ts` (E-DERIVED); the `tvx-geom` half — `marching_cubes`
  * / `marching_tets`, with the analytic-sphere test — landed in Phase 1.
  *
- * The controls come from `../mesh/controls`: `docs/PHASE2-OWNERSHIP.md` splits A-PROPS in two and
+ * The controls come from `../mesh/controls`: the properties editors are split in two and
  * `panels/layers/` itself is shared, so this half keeps its primitives inside its own directories
  * rather than adding a file at the shared root.
  */

@@ -331,7 +331,7 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
     expect(bench.dpr2.w).toBe(bench.dpr1.w * 2);
     expect(bench.dpr1.frames).toBeGreaterThan(50);
     // Not a §9 assertion — §9.1's rows are Phase 3's to sign off. This only guarantees the number
-    // recorded in docs/benchmarks/phase1.md came from a real frame loop.
+    // recorded in docs/BENCHMARKS.md came from a real frame loop.
     expect(bench.dpr2.cpuMedian).toBeGreaterThan(0);
 
     test.info().annotations.push({ type: 'bench', description: JSON.stringify(bench) });

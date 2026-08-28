@@ -6,7 +6,7 @@
  * what lets §11 test chrome placement without a GL context, and what keeps four Phase-2 additions —
  * colour bars, the gizmo, contours and glyph labels — out of each other's files.
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Append an export for your
+ * **Shared-file rule: additive only.** Append an export for your
  * item; never reorder or rename an existing one.
  */
 

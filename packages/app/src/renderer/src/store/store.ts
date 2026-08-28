@@ -144,7 +144,7 @@ export interface UiState {
    * the engine's canvas, not off the DOM — and on a 700 px window they left the view grid about
    * 100 px wide, so a "300 px" sweep frame was a 300x1500 sliver with a thumbnail of a brain in it.
    * Giving the whole window to the view grid is what makes a job's requested size the size of the
-   * picture. Appended, never renamed (`docs/PHASE2-OWNERSHIP.md`).
+   * picture. Appended, never renamed.
    */
   jobMode: boolean;
   cursor: vec3;
@@ -185,8 +185,8 @@ export interface UiState {
    */
   regionStats: Record<LayerId, RegionStat[]>;
 
-  // -- A-PROPS (§8's property editors) — appended, per the shared-file rule in
-  //    docs/PHASE2-OWNERSHIP.md. Both are chrome: the engine has no opinion about either.
+  // -- §8's property editors — appended, per the shared-file rule.
+  //    Both are chrome: the engine has no opinion about either.
   /**
    * Per layer, the §7.4 switches whose geometry is being built in a worker right now — `'edges'`,
    * `'elmField'`, `'label'`. §7.4: "the first toggle of `edges.surface`, the first switch to an
@@ -231,7 +231,7 @@ export interface UiState {
   /** The dataset whose raw header the info panel's header block is showing; null = the active one. */
   headerDatasetId: DatasetId | null;
 
-  // -- A-COLLAPSE (appended; the per-row disclosure of docs/PLAN-2026-08-28-directed.md #1) --------
+  // -- Appended; the per-row disclosure state for the layer panel --------------------------------
   /**
    * Which layer rows are **collapsed** in the panel, keyed by `LayerId`.
    *

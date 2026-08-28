@@ -2,8 +2,8 @@
  * The E-DERIVED ↔ E-MESH seam: the real `CutManager` **is** the `CutSource` `derived/store.ts`
  * consumes, and it honours the four guarantees R4's 2D cuts are built on.
  *
- * E-DERIVED's branch asserted these against `PaneCutSource`, the stand-in it shipped because Phase
- * 2's integration order lands E-MESH one stage earlier than E-DERIVED (`docs/PHASE2-OWNERSHIP.md`).
+ * This branch asserted these against `PaneCutSource`, the stand-in it shipped because Phase
+ * 2's integration order lands the mesh work one stage earlier than the derived work.
  * The stand-in is gone; this file is what stops the swap from being a claim. It deliberately
  * asserts *through the narrow interface*, never through `CutManager` directly — a widening on
  * E-MESH's side is theirs to test, a narrowing of these four is a broken seam.

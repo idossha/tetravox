@@ -32,7 +32,7 @@ fn morton30(x: u32, y: u32, z: u32) -> u32 {
 /// on both the read *and* the write and needs a `visited` array, and measured slower. The transient
 /// copy is the largest single allocation here — 208 MB on `ernie_seeg.msh` — but it is taken and
 /// released well after the parse, whose own peak is far higher, so it does not move the §9.2
-/// high-water mark (see `docs/benchmarks/phase1.md`).
+/// high-water mark (see `docs/BENCHMARKS.md`).
 fn gather<T: Copy + Default>(v: &mut Vec<T>, order: &[u32]) {
     let mut out = vec![T::default(); v.len()];
     for (o, &src) in out.iter_mut().zip(order) {

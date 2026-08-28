@@ -1082,7 +1082,7 @@ export class ShellController {
 
   // ------------------------------------------------------------------------------------------
   // §8 property editors, histogram and region panel (A-PROPS) — appended, per the shared-file rule
-  // in docs/PHASE2-OWNERSHIP.md. Nothing above this line changed.
+  // per the shared-file rule. Nothing above this line changed.
   // ------------------------------------------------------------------------------------------
 
   /**
@@ -1233,7 +1233,7 @@ export class ShellController {
     );
   }
   // ============================================================================================
-  // Phase 2 — A-SHELL. Appended per `docs/PHASE2-OWNERSHIP.md`'s shared-file rule: new methods at
+  // Phase 2. Appended per the shared-file rule: new methods at
   // the end of the class, no existing signature changed.
   // ============================================================================================
 

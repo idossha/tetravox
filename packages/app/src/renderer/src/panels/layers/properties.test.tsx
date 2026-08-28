@@ -79,7 +79,7 @@ describe('layerSummary', () => {
   });
 
   // A-PROPS (half 2), Phase 2: the `iso` and `points` editors have landed, so their summaries are
-  // no longer the bare kind. `docs/PHASE2-OWNERSHIP.md`: "properties.test.tsx stays exhaustive over
+  // no longer the bare kind. properties.test.tsx stays exhaustive over
   // §4.4's four kinds as each editor lands."
   it('describes an isosurface by its level and its source', () => {
     expect(layerSummary(volume(), layer('iso', { iso: 0.5 }))).toBe('iso 0.5000 · T1.nii.gz');

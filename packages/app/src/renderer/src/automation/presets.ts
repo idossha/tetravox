@@ -1,5 +1,5 @@
 /**
- * The four job presets (`docs/AUTOMATION.md`, `docs/PLAN-2026-08-28-directed.md` task 4).
+ * The four job presets (`docs/AUTOMATION.md`).
  *
  * A preset is "auto-configure the visualisation" — the maintainer's ask (4) — and it is expressed
  * here as **pure functions from what is loaded to a list of `Engine.updateLayer` patches**. Nothing

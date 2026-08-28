@@ -2,7 +2,7 @@
  * The controller surface A-PROPS appended (`patchLayer`, `patchLayerAsync`, `setCursorWorld`,
  * `setClipFollowsCursor`), driven against the stand-in engine.
  *
- * It lives here rather than in `store/controller.test.ts` because `docs/PHASE2-OWNERSHIP.md` says
+ * It lives here rather than in `store/controller.test.ts` because
  * tests live under their owner's directories — and the assertions are about this editor's contract
  * with the engine: **one control, one §4.7 call, with exactly those arguments**.
  */

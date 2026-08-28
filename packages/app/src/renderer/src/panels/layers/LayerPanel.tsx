@@ -64,7 +64,7 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
         }
       }}
       onKeyDown={(e) => {
-        // §PLAN-2026-08-28 #1: ←/→ collapse and expand *the active row*. Handled on the row rather
+        // ←/→ collapse and expand *the active row*. Handled on the row rather
         // than in `keymap.ts` because those two keys are already §7.5's in-plane cursor nudge: the
         // binding is scoped to a focused row, and `stopPropagation` keeps the native event from
         // reaching the window listener in `ui/Shell.tsx` so the cursor does not move as well.

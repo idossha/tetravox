@@ -3,8 +3,8 @@
  *
  * §7.6, last bullet: "`<mesh>.msh.opt` seeds tag colours/visibility, field range, colormap and
  * colorbar on open, with a 'defaults from X.msh.opt' chip and a one-click Reset."
- * `docs/PHASE2-OWNERSHIP.md` splits that in two — E-SCENE seeds from `MeshMeta.opt` in
- * `scene/fromMeta.ts`, **A-SHELL owns the chip and Reset** — and this is A-SHELL's half.
+ * This is split in two: the scene seeds from `MeshMeta.opt` in
+ * `scene/fromMeta.ts`, **A-SHELL owns the chip and Reset** — and this is the chip/Reset half.
  *
  * **Why it lives in `ui/` and not in the mesh property editor.** `panels/layers/mesh/` is A-PROPS's
  * directory (ownership map: `panels/` is split by subdirectory), so the chip is a self-contained

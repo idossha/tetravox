@@ -10,7 +10,7 @@
  * | `interaction.ts` | §7.2's `interacting` flag and the adaptive-quality hook | vitest, injected clock |
  * | `pointer.ts` | the DOM bindings, and nothing else | Playwright, `test/e2e/pointer.spec.ts` |
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Append an export; never
+ * **Shared-file rule: additive only.** Append an export; never
  * reorder or repurpose an existing one.
  */
 

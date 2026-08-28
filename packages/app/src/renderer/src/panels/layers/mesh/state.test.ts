@@ -1,8 +1,8 @@
 /**
  * The mesh editor's reducers.
  *
- * `docs/PHASE2-OWNERSHIP.md` gives A-PROPS no goldens — "this is DOM, and §11's rule 0 cuts the other
- * way here: assert **state**, not pixels" — and every control in this editor is a pure function from
+ * This editor has no goldens: it is DOM, and §11's rule 0 cuts the other way here — assert
+ * **state**, not pixels — and every control in this editor is a pure function from
  * the layer to a `Partial<MeshLayer>`. So this file is the editor's real test surface: the patch is
  * the product, and the E2E only has to prove that the control emits it.
  *

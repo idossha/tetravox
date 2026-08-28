@@ -1,7 +1,7 @@
 /**
  * `CutSource` — the narrow contract E-DERIVED consumes a cut through.
  *
- * **The contract (agreed with E-MESH, `docs/PHASE2-OWNERSHIP.md` R4).** A cut is asked for by
+ * **The contract (requirement R4).** A cut is asked for by
  * `(datasetId, key)`, latest-wins **per key**, so the three 2D panes and the 3D clip planes never
  * starve each other:
  *

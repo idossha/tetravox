@@ -3,8 +3,8 @@
  *
  * WebGL state is **global and survives `useProgram`**, so a pass that only sets the bits it cares
  * about inherits the rest from whichever pass ran before it. §7.2 fixes the pass *order* but not the
- * state each pass enters with, and `docs/PHASE2-OWNERSHIP.md` makes `render/renderer.ts` an
- * append-only file — a fifth and sixth pass (E-DERIVED's contours, E-SCENE's gizmo items) get
+ * state each pass enters with, and `render/renderer.ts` is an
+ * append-only file — a fifth and sixth pass (the derived work's contours, the scene work's gizmo items) get
  * appended to the sequence and would silently inherit whatever the fourth left enabled.
  *
  * The rule this file enforces: **a pass never issues a raw depth / blend / cull call, and every
@@ -23,7 +23,7 @@
  * `Renderer.renderView` applies a block before clearing rather than trusting the previous pane's
  * last pass to have restored it.
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Append a block to
+ * **Shared-file rule: additive only.** Append a block to
  * {@link GL_STATE}; never change what an existing block means, because a block is read by passes
  * two owners apart.
  */

@@ -1109,7 +1109,7 @@ export class TetravoxEngine implements Engine, PointerHost {
 
   /**
    * §7.5's "**arrows nudge the cursor**" — ±1 step **in the view plane**, along the pane's `right`
-   * and `up` (P2-09, and the one `api.ts` carve-out in `docs/PHASE2-OWNERSHIP.md`).
+   * and `up` (P2-09, and the one `api.ts` carve-out from the shared-file rule).
    *
    * §7.5 lists the arrows and PgUp/PgDn as two different bindings and Phase 1 gave both to
    * `stepCursor`, so all four arrows walked the cursor along the plane **normal**: pressing → in the
