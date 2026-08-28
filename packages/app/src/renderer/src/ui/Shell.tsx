@@ -33,6 +33,7 @@ import { CoordinateBar } from '../panels/coordinate/CoordinateBar';
 import { HeaderPanel } from '../panels/info/HeaderPanel';
 import { InfoPanel } from '../panels/info/InfoPanel';
 import { LayerPanel } from '../panels/layers/LayerPanel';
+import { MeasurePanel } from '../panels/measure/MeasurePanel';
 import { MshOptChip } from './MshOptChip';
 import { ShellDialogs } from './ShellDialogs';
 import { StatusBar } from './StatusBar';
@@ -258,6 +259,10 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                     is A-PROPS's directory. It renders nothing unless the active layer is a mesh
                     that had a `.msh.opt` beside it — see `MshOptChip.tsx`. */}
                   <MshOptChip />
+                  {/* Directed task 11: the measurement list, above the info panel — it is about
+                    the picture rather than about the layer under the cursor, and it renders
+                    nothing at all while the mode is off and nothing has been placed. */}
+                  <MeasurePanel />
                   <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                     <InfoPanel />
                     <div className="border-t border-tvx-line" />

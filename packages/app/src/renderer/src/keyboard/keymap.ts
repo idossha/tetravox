@@ -42,7 +42,23 @@ export type Command =
    * `dx` is along the pane's `right` and `dy` along its `up`, both in ±1 steps; the engine owns the
    * basis (`Engine.nudgeCursor`), because §8 forbids the app computing it.
    */
-  | { kind: 'nudgeCursor'; dx: -1 | 0 | 1; dy: -1 | 0 | 1 };
+  | { kind: 'nudgeCursor'; dx: -1 | 0 | 1; dy: -1 | 0 | 1 }
+  /**
+   * `m` — §7.5's measure mode (directed task 11, 2026-08-28).
+   *
+   * A toolbar mode with a key, like `c` and `x` beside it. The *clicks* it changes the meaning of
+   * are the engine's (`Engine.setMeasureMode`), because only the engine can turn a pane pixel into
+   * a world point; this key is only the switch.
+   */
+  | { kind: 'toggleMeasure' }
+  /**
+   * `Esc` — abandon the measurement being placed.
+   *
+   * Bound here **as well as** in the engine's pointer layer, and idempotent in both: the pointer
+   * layer only sees `Escape` when the canvas has not swallowed it first, and a user who has just
+   * clicked in a panel still expects `Esc` to drop the half-placed segment.
+   */
+  | { kind: 'cancelMeasurement' };
 
 /** `1..6` → the §7.5 3D camera presets, in A/P/L/R/S/I order. */
 export const PRESET_KEYS: Record<string, CameraPreset> = {
@@ -109,6 +125,11 @@ export function resolveKey(event: KeyEventLike): Command | null {
     case 'v':
     case 'V':
       return { kind: 'toggleActiveLayerVisible' };
+    case 'm':
+    case 'M':
+      return { kind: 'toggleMeasure' };
+    case 'Escape':
+      return { kind: 'cancelMeasurement' };
     case ',':
       return { kind: 'stepVolumeIndex', delta: -1 };
     case '.':
@@ -135,7 +156,8 @@ export function resolveKey(event: KeyEventLike): Command | null {
 
 /** One-line help, shown in the toolbar's title attribute so the map is discoverable. */
 export const KEYMAP_HELP =
-  '[ / ] active layer · v visibility · Ctrl+↑/↓ reorder · x layout · c crosshair · ' +
+  '[ / ] active layer · v visibility · Ctrl+↑/↓ reorder · x layout · c crosshair · m measure · ' +
+  'Esc cancel a measurement · ' +
   'r reset · 1–6 A/P/L/R/S/I · o orthographic · , / . 4D index · ' +
   '↑↓←→ nudge the cursor in-plane · PgUp/PgDn slice';
 

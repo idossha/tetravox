@@ -71,6 +71,19 @@ const CANDIDATES: readonly {
     description: 'Toggle the 3D camera between perspective and orthographic',
   },
   { key: 'c', label: 'c', section: 'View', description: 'Toggle the crosshair' },
+  // Measurements (directed task 11)
+  {
+    key: 'm',
+    label: 'm',
+    section: 'Measure',
+    description: 'Measure mode: two clicks in a pane give a length in mm, a third an angle',
+  },
+  {
+    key: 'Escape',
+    label: 'Esc',
+    section: 'Measure',
+    description: 'Cancel the measurement being placed',
+  },
   // Camera presets, one row per §7.5 `1..6`
   ...Object.entries(PRESET_KEYS).map(([key, preset]) => ({
     key,

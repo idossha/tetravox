@@ -64,6 +64,16 @@ export interface ChromeReadOptions {
   pane: PaneRect;
   /** Bitmap magnification; `Math.max(1, Math.round(dpr))` in the engine, so 1 in every golden. */
   scale?: number;
+  /**
+   * What counts as ink (appended for directed task 11; shared-file rule: additive only).
+   *
+   * The default below is right for the chrome text, which is near-white — and wrong for anything
+   * drawn in a colour of its own. A measurement's label is `OverlayTheme.measure`, magenta, whose
+   * green channel is 115: the default predicate reads every one of its glyphs as blank. A caller
+   * that knows what colour its text is passes the test for that colour; every existing caller keeps
+   * the near-white default.
+   */
+  ink?: (r: number, g: number, b: number) => boolean;
 }
 
 /**
@@ -101,6 +111,7 @@ export async function readChromeText(
   // Pane-local bottom-left -> canvas top-left.
   const yCanvas = opts.canvasHeight - (opts.pane.y + opts.yLocal + h);
   const px = await readCanvasRect(target, xCanvas, yCanvas, w, h);
+  const ink = opts.ink ?? isInk;
 
   let text = '';
   for (let i = 0; i < opts.length; i += 1) {
@@ -111,7 +122,7 @@ export async function readChromeText(
         const x = i * CELL_W * s + col * s;
         const y = row * s;
         const o = (y * w + x) * 4;
-        mask.push(isInk(px[o] ?? 0, px[o + 1] ?? 0, px[o + 2] ?? 0));
+        mask.push(ink(px[o] ?? 0, px[o + 1] ?? 0, px[o + 2] ?? 0));
       }
     }
     text += decodeCell(mask).ch;

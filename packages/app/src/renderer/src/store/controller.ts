@@ -34,7 +34,12 @@ import type {
   VolumeLayer,
   vec3,
 } from '@tetravox/engine';
-import { parseTextAffine, sidecarPathsFor, subjectToMniAffine } from '@tetravox/engine';
+import {
+  measurementFocus,
+  parseTextAffine,
+  sidecarPathsFor,
+  subjectToMniAffine,
+} from '@tetravox/engine';
 import type { CoordSpace, DialogKind, RelocateRow, UiStore } from './store';
 import {
   activeLayer,
@@ -200,6 +205,9 @@ export class ShellController {
         }));
       }),
       engine.on('quality', (quality) => store.setState({ quality: quality.name })),
+      // Directed task 11: the measurement list. Its own event, so a click in measure mode does not
+      // rebuild the layer panel (see `EngineEvents.measurements`).
+      engine.on('measurements', (measurements) => store.setState({ measurements })),
       engine.on('error', (error) => this.onEngineError(error))
     );
 
@@ -680,6 +688,51 @@ export class ShellController {
   }
 
   /** §8's colour bars — one per visible scalar layer, drawn in the overlay pass (§7.2). */
+  // -- measurements (directed task 11, 2026-08-28) ----------------------------------------------
+
+  /**
+   * §7.5's `m`, and the toolbar's Measure button — the same call from both.
+   *
+   * The mode lives in the engine; the store's copy is a projection kept in step here rather than by
+   * an event, because the engine has no `measureMode` event and does not need one: nothing but this
+   * method and the key that routes to it can change it.
+   */
+  toggleMeasureMode(): void {
+    this.setMeasureMode(!this.store.getState().measureMode);
+  }
+
+  setMeasureMode(on: boolean): void {
+    this.engine.setMeasureMode(on);
+    this.store.setState({ measureMode: on });
+    this.engine.requestRender();
+  }
+
+  /** `Esc`. Nothing already placed is touched. */
+  cancelMeasurement(): void {
+    this.engine.cancelMeasurement();
+  }
+
+  /** §8's panel row delete button. */
+  removeMeasurement(id: string): void {
+    this.engine.removeMeasurement(id);
+  }
+
+  /**
+   * §8's panel row jump-to: put the cursor on the measurement, so every pane slices through it.
+   *
+   * The midpoint for a segment and the **vertex** for an angle (`measurementFocus`) — the point the
+   * measurement is about in each case. Setting the cursor is all it takes: §4.5 derives every 2D
+   * pane's plane from the cursor, so all three panes arrive at the measurement together.
+   */
+  jumpToMeasurement(id: string): void {
+    const measurement = this.store.getState().measurements.find((m) => m.id === id);
+    if (measurement === undefined) return;
+    const focus = measurementFocus(measurement);
+    if (focus === null) return;
+    this.engine.setCursor(focus);
+    this.engine.requestRender();
+  }
+
   toggleColorbars(): void {
     const next = !this.store.getState().colorbars;
     this.engine.setAnnotations({ colorbars: next });
@@ -958,6 +1011,10 @@ export class ShellController {
         return this.stepCursor(command.steps);
       case 'nudgeCursor':
         return this.nudgeCursor(command.dx, command.dy);
+      case 'toggleMeasure':
+        return this.toggleMeasureMode();
+      case 'cancelMeasurement':
+        return this.cancelMeasurement();
     }
   }
 

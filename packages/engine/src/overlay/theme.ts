@@ -35,6 +35,15 @@ export interface OverlayTheme {
   gizmo: vec4;
   gizmoHot: vec4;
   /**
+   * §7.5's measurements — the segment, its endpoints and its label (directed task 11, 2026-08-28).
+   *
+   * Its own token rather than the crosshair's amber or the gizmo's cyan for the reason the gizmo
+   * has one: three overlay items that share a pane need three colours a test can tell apart, and a
+   * measurement drawn in the crosshair's colour would be indistinguishable from the crosshair in
+   * exactly the pane where both are drawn.
+   */
+  measure: vec4;
+  /**
    * The pane clear colour, forwarded to `Scene.background`.
    *
    * Imaging convention keeps this dark in **both** of the app's themes; it is a theme field rather
@@ -58,6 +67,9 @@ export const DEFAULT_OVERLAY_THEME: OverlayTheme = {
   activeBorder: [0.35, 0.62, 1, 1],
   gizmo: [0.25, 0.85, 0.95, 0.95],
   gizmoHot: [0.4, 1, 0.55, 1],
+  // Magenta: far from the crosshair's amber, the gizmo's cyan and the active border's blue in every
+  // channel, so `expectPixel` can name it without a tolerance that would also match its neighbours.
+  measure: [1, 0.45, 0.85, 1],
   background: [0.04, 0.05, 0.07, 1],
 };
 
@@ -77,6 +89,7 @@ export function resolveOverlayTheme(
     activeBorder: pick('activeBorder'),
     gizmo: pick('gizmo'),
     gizmoHot: pick('gizmoHot'),
+    measure: pick('measure'),
     background: pick('background'),
   };
 }

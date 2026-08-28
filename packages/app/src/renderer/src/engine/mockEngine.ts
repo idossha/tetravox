@@ -45,7 +45,9 @@ import type {
   Layer,
   LayerId,
   Layout,
+  Measurement,
   NewLayer,
+  NewMeasurement,
   PickResult,
   ProbeResult,
   ProbeRow,
@@ -65,6 +67,7 @@ import {
   coordinateSpaceOptions,
   fromSpace as fromCoordSpace,
   iso3dLabels,
+  nextMeasurementName,
   probeSpaces,
   toSpace as toCoordSpace,
 } from '@tetravox/engine';
@@ -199,6 +202,9 @@ export class NoGlEngine implements Engine {
       },
       transparency: { mode: 'twoPhase' },
       quality: FULL_QUALITY,
+      // Directed task 11: the stand-in holds measurements for real, because §8's panel is developed
+      // against it and a stand-in that could not hold one would make the panel untestable.
+      measurements: [],
     };
   }
 
@@ -565,6 +571,51 @@ export class NoGlEngine implements Engine {
     };
   }
 
+  // ------------------------------------------------------------------------------------------
+  // Measurements (directed task 11, 2026-08-28)
+  // ------------------------------------------------------------------------------------------
+
+  private measureModeOn = false;
+  private measureSeq = 0;
+
+  setMeasureMode(on: boolean): void {
+    this.measureModeOn = on;
+    this.requestRender();
+  }
+
+  measureMode(): boolean {
+    return this.measureModeOn;
+  }
+
+  addMeasurement(spec: NewMeasurement): Measurement {
+    this.measureSeq += 1;
+    const measurement: Measurement = {
+      id: `meas${this.measureSeq}`,
+      kind: spec.kind,
+      name: spec.name ?? nextMeasurementName(this.state.measurements),
+      points: spec.points.map((p) => [p[0], p[1], p[2]] as vec3),
+      ...(spec.color !== undefined ? { color: spec.color } : {}),
+      ...(spec.viewId !== undefined ? { viewId: spec.viewId } : {}),
+    };
+    this.state.measurements = [...this.state.measurements, measurement];
+    this.emit('measurements', [...this.state.measurements]);
+    this.requestRender();
+    return measurement;
+  }
+
+  removeMeasurement(id: string): void {
+    const next = this.state.measurements.filter((m) => m.id !== id);
+    if (next.length === this.state.measurements.length) return;
+    this.state.measurements = next;
+    this.emit('measurements', [...this.state.measurements]);
+    this.requestRender();
+  }
+
+  /** Nothing is ever half-placed here — the stand-in has no pointer — so this is a no-op by design. */
+  cancelMeasurement(): void {
+    this.requestRender();
+  }
+
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean {
     const hit = this.pick(viewId, px, py);
     if (hit === null) return false;
@@ -792,6 +843,10 @@ export class NoGlEngine implements Engine {
       lighting: this.state.lighting,
       annotations: this.state.annotations,
       transparency: this.state.transparency,
+      measurements: this.state.measurements.map((m) => ({
+        ...m,
+        points: m.points.map((p) => [...p] as vec3),
+      })),
     };
   }
 
@@ -820,6 +875,11 @@ export class NoGlEngine implements Engine {
     this.state.lighting = spec.lighting;
     this.state.annotations = spec.annotations;
     this.state.transparency = spec.transparency;
+    this.state.measurements = (spec.measurements ?? []).map((m) => ({
+      ...m,
+      points: m.points.map((p) => [...p] as vec3),
+    }));
+    this.emit('measurements', [...this.state.measurements]);
     this.emit('cursor', this.state.cursor);
     this.requestRender();
   }

@@ -32,6 +32,7 @@ export function Toolbar(): React.JSX.Element {
   const radiological = useUi((s) => s.radiological);
   const crosshair = useUi((s) => s.crosshair);
   const colorbars = useUi((s) => s.colorbars);
+  const measureMode = useUi((s) => s.measureMode);
   const sceneFile = useUi((s) => s.sceneFile);
   const sceneError = useUi((s) => s.sceneError);
   const dialog = useUi((s) => s.dialog);
@@ -166,6 +167,19 @@ export function Toolbar(): React.JSX.Element {
         title="Colour bars: one per visible scalar layer, with ticks, units and the threshold notch (§8)"
       >
         Bars
+      </button>
+
+      {/* §7.5's measure mode (directed task 11). A toolbar mode with a key, beside the two other
+        toggles it behaves like. `aria-pressed` is the projection of `Engine.measureMode()`. */}
+      <button
+        type="button"
+        data-testid="measure-toggle"
+        aria-pressed={measureMode}
+        className={measureMode ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+        onClick={() => controller.toggleMeasureMode()}
+        title="Measure (m): two clicks in a pane give a length in mm, a third an angle. Esc cancels."
+      >
+        Measure
       </button>
 
       <div className="flex items-center gap-0.5" role="group" aria-label="Screenshot">

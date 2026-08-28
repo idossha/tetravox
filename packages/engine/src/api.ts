@@ -25,6 +25,8 @@ import type {
   LayerId,
   Layout,
   LoadPhase,
+  Measurement,
+  MeasurementId,
   QualityLevel,
   Scene,
   SliceView,
@@ -240,6 +242,21 @@ export interface Iso3dStatus {
   total: number;
 }
 
+/**
+ * A measurement to place — {@link Engine.addMeasurement}'s argument (directed task 11).
+ *
+ * `id` and `name` are the engine's to assign (`M1`, `M2`, … — the first name not taken), so a host
+ * that adds one programmatically writes exactly the two things a measurement *is*: what kind it is
+ * and where its points are.
+ */
+export interface NewMeasurement {
+  kind: Measurement['kind'];
+  points: vec3[];
+  name?: string;
+  color?: Measurement['color'];
+  viewId?: ViewId;
+}
+
 export interface LoadProgress {
   datasetId: DatasetId;
   phase: LoadPhase;
@@ -267,6 +284,15 @@ export interface EngineEvents {
   probe: { world: vec3; result: ProbeResult };
   layers: Layer[];
   datasets: Dataset[];
+  /**
+   * `Scene.measurements` changed (directed task 11) — one was placed, deleted, promoted to an
+   * angle, or replaced wholesale by a scene load.
+   *
+   * Its own event rather than a flag on `layers`, for the reason `probe` is its own event: §8's
+   * measurement panel is the only thing that re-renders on it, and folding it into `layers` would
+   * rebuild the layer panel every time a click lands in measure mode.
+   */
+  measurements: Measurement[];
   progress: LoadProgress;
   frame: { viewId: ViewId; cpuMs: number; gpuMs?: number; quality: QualityLevel['name'] };
   quality: QualityLevel;
@@ -322,6 +348,32 @@ export interface Engine {
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
+
+  // -- measurements (directed task 11; §4.5, §7.5, §8; `docs/DECISIONS.md` 2026-08-28) ----------
+  /**
+   * §7.5's measure mode: while it is on, a left-click in any pane places a measurement point
+   * instead of setting the cursor.
+   *
+   * The mode is the engine's, not the app's, and that is forced by where the click has to be turned
+   * into a **world** point: in a 2D pane it is the pointer ray ∩ that view's derived plane, in a 3D
+   * pane it is `pick`. §8's "no logic in React" and §5's worker rules both put that here — the app
+   * owns the toolbar button and nothing else. Turning it off abandons any half-placed measurement,
+   * so a mode toggle can never leave a dangling point behind.
+   */
+  setMeasureMode(on: boolean): void;
+  /** Whether measure mode is on, for §8's `aria-pressed`. */
+  measureMode(): boolean;
+  /**
+   * Place a measurement from world points — the programmatic twin of the clicks, and what §11's
+   * analytic test asserts the click path against.
+   *
+   * Returns the measurement as stored, with the id and the name the engine assigned.
+   */
+  addMeasurement(spec: NewMeasurement): Measurement;
+  /** Delete one — §8's panel row delete button. A no-op for an id nothing answers to. */
+  removeMeasurement(id: MeasurementId): void;
+  /** `Esc`: abandon the measurement being placed. Nothing already placed is touched. */
+  cancelMeasurement(): void;
 
   // -- coordinate spaces (directed task 8; §3, §8; `docs/DECISIONS.md` 2026-08-28) --------------
   /**
@@ -541,6 +593,24 @@ export class MockEngine implements Engine {
   }
   probe(world: vec3): ProbeResult {
     void world;
+    throw new Error('phase 1');
+  }
+  setMeasureMode(on: boolean): void {
+    void on;
+    throw new Error('phase 1');
+  }
+  measureMode(): boolean {
+    throw new Error('phase 1');
+  }
+  addMeasurement(spec: NewMeasurement): Measurement {
+    void spec;
+    throw new Error('phase 1');
+  }
+  removeMeasurement(id: MeasurementId): void {
+    void id;
+    throw new Error('phase 1');
+  }
+  cancelMeasurement(): void {
     throw new Error('phase 1');
   }
   coordinateSpaces(): CoordSpaceOption[] {

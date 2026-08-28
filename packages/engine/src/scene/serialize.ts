@@ -37,6 +37,7 @@ import type {
   SerializableLayer,
   SidecarRef,
   SliceView,
+  vec3,
   View3D,
   ViewSpec,
 } from './types';
@@ -402,6 +403,13 @@ export function toViewSpec(scene: Scene, opts: SerializeOptions = {}): ViewSpec 
     lighting: scene.lighting,
     annotations: scene.annotations,
     transparency: scene.transparency,
+    // Directed task 11: measurements are scene state (§4.5), so they persist. They are plain JSON —
+    // world triples, a kind, a name — so unlike `visibleLabels` they need no `SerializableLayer`
+    // treatment, and unlike a `LabelTable` there is nothing to re-derive them from.
+    measurements: scene.measurements.map((m) => ({
+      ...m,
+      points: m.points.map((p) => [...p] as vec3),
+    })),
   };
 }
 
@@ -432,4 +440,9 @@ export function applyViewSpec(
   store.setLighting(spec.lighting);
   store.replaceAnnotations(spec.annotations);
   store.setTransparency(spec.transparency);
+  // A spec written before task 11 carries no `measurements`, and absent means none — never "leave
+  // whatever the live scene had", which is the same rule `replaceAnnotations` follows.
+  store.setMeasurements(
+    (spec.measurements ?? []).map((m) => ({ ...m, points: m.points.map((p) => [...p] as vec3) }))
+  );
 }

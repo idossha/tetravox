@@ -25,6 +25,7 @@ import type {
   Layer,
   LayerId,
   LayoutKind,
+  Measurement,
   ProbeResult,
   QualityLevel,
   ScreenshotOptions,
@@ -116,6 +117,15 @@ export interface UiState {
   crosshair: boolean;
   /** §8's colour bars, mirrored from `Scene.annotations.colorbars` (appended; never renamed). */
   colorbars: boolean;
+  /**
+   * §7.5's measure mode, mirrored from the engine (directed task 11, 2026-08-28).
+   *
+   * A projection, not the truth: the engine owns the mode because it owns the click→world
+   * conversion, and this is the last value the toolbar's `aria-pressed` saw.
+   */
+  measureMode: boolean;
+  /** `Scene.measurements` (§4.5), from the `measurements` event — what §8's panel lists. */
+  measurements: Measurement[];
   /**
    * This window was launched for a `--job` (`automation/run.ts`), so the §8 panels are not drawn.
    *
@@ -273,6 +283,8 @@ export const INITIAL_UI: UiState = {
   radiological: false,
   crosshair: true,
   colorbars: true,
+  measureMode: false,
+  measurements: [],
   jobMode: false,
   cursor: [0, 0, 0],
   cursorProbe: null,

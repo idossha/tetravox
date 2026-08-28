@@ -99,6 +99,9 @@ export function defaultScene(): Scene {
     },
     transparency: { mode: 'twoPhase' },
     quality: { name: 'full', dprScale: 1, msaa: 4, capDecimation: 1, oit: false },
+    // Directed task 11: a new scene has no measurements. Never `undefined` — every consumer reads
+    // `scene.measurements.length`, and an optional field would push a guard into each of them.
+    measurements: [],
   };
 }
 

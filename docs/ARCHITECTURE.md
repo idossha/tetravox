@@ -571,6 +571,20 @@ export interface QualityLevel {
   oit: boolean;
 }
 
+/**
+ * A distance or an angle the user placed (directed task 11, 2026-08-28). World RAS millimetres —
+ * never pane pixels, so it is the same length at every zoom, in either convention, and read off the
+ * 3D pane. `points` is 2 for `'distance'` and 3 for `'angle'`, whose vertex is `points[1]`.
+ */
+export interface Measurement {
+  id: MeasurementId;
+  kind: 'distance' | 'angle';
+  name: string;                                     // `M1`, `M2`, … unless renamed
+  points: vec3[];
+  color?: vec4;                                     // 0..1; absent = OverlayTheme.measure
+  viewId?: ViewId;                                  // the pane the points were placed in
+}
+
 export interface Scene {
   version: 1;
   datasets: Map<DatasetId, Dataset>;
@@ -587,8 +601,21 @@ export interface Scene {
   annotations: Annotations;
   transparency: { mode: 'twoPhase' | 'sorted' | 'peel'; peelLayers?: number };
   quality: QualityLevel;
+  measurements: Measurement[];                      // §7.5's measure tool — additive, 2026-08-28
 }
 ```
+
+**`Scene.measurements` — a measurement is scene state** (directed task 11, 2026-08-28; see
+`docs/DECISIONS.md`). Not a layer: it has no dataset, nothing colours it, and nothing about it
+belongs in the layer panel's stacking order. Not host chrome either — R5's "edits persist in the
+scene" is exactly what a measurement is, and one that vanished on save/load would be a note taken in
+disappearing ink. So it is a field on `Scene`, serialised by §4.6, drawn by §7.2's pass 3 in **every
+pane that contains its points**, and listed in §8's measurement panel.
+
+The points are **world RAS millimetres**, and that is the whole design. A 2D click becomes one
+through `paneToWorld` (the pointer ray ∩ that pane's derived plane); a 3D click through the existing
+§7.2.3 `pick`. A screen-space measurement scaled by `mmPerPx` would be right only for a point that
+happens to lie on the plane it was clicked in, and silently wrong for every 3D pick.
 
 `Scene` is the **runtime** graph: it holds TypedArrays, GPU handles and worker handles, and is *not*
 JSON-serialisable. GL objects live in an engine-private map keyed by `DatasetId`, declared in
@@ -655,8 +682,15 @@ export interface ViewSpec {
   cursor: vec3; radiological: boolean; background: vec4;
   lighting: Scene['lighting']; annotations: Annotations;
   transparency: Scene['transparency'];
+  measurements?: Measurement[];     // §4.5's measurements. OPTIONAL: absent = none, so a scene file
+                                    //   written before 2026-08-28 still loads (§12.3's additive rule)
 }
 ```
+
+**`measurements` is plain JSON and is written as-is.** Unlike `visibleLabels` there is no typed array
+in it, and unlike a `LabelTable` there is nothing to re-derive it from — a measurement is the user's
+own datum, not a projection of a file. Absent means **none**, never "keep whatever the live scene
+had", which is the rule `replaceAnnotations` already follows.
 
 A points layer's `labels` and `lineSegments` are **not** serialised either, for the same reason and one
 more: they are re-derived from `MeshDataset.geo` (§6.2's parsed views) exactly as a `LabelTable` is, and
@@ -858,6 +892,10 @@ export interface EngineEvents {
   pick: PickResult | null;
   layers: Layer[];
   datasets: Dataset[];
+  measurements: Measurement[];      // §4.5's list changed — placed, deleted, promoted, or reloaded.
+                                    //   Its own event, not a flag on `layers`: only §8's measurement
+                                    //   panel is downstream of it, and folding it in would rebuild
+                                    //   the layer panel on every click in measure mode.
   progress: LoadProgress;
   frame: { viewId: ViewId; cpuMs: number; gpuMs?: number; quality: QualityLevel['name'] };
   quality: QualityLevel;
@@ -897,6 +935,19 @@ export interface Engine {
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
+
+  // §7.5's measure tool (directed task 11, 2026-08-28 — see docs/DECISIONS.md).
+  setMeasureMode(on: boolean): void;            // while on, a left-click PLACES A POINT in any pane
+                                                //   instead of setting the cursor. The mode is the
+                                                //   engine's because only the engine can turn a pane
+                                                //   pixel into a world point (§8: no logic in React).
+                                                //   Turning it off abandons a half-placed measurement.
+  measureMode(): boolean;                       // for §8's aria-pressed
+  addMeasurement(spec: NewMeasurement): Measurement;   // the programmatic twin of the clicks; the
+                                                //   engine assigns the id and the `M<n>` name
+  removeMeasurement(id: MeasurementId): void;   // §8's panel row delete
+  cancelMeasurement(): void;                    // Esc — drops the gesture, keeps what is placed
+
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]>;      // §6.5.2's op — R5's row count
                                                                    //   and double-click target
   resetView(viewId: ViewId): void;              // §7.5 `r`: refit to the scene bounds
@@ -2174,8 +2225,23 @@ Rules:
    *Invariant:* a cap must exist wherever the clip discards geometry, or the phase split shows the shell interior
    through the cut.
 3. **Overlay** — crosshair, cut-plane gizmo, contours on slices, glyph labels, **a points layer's 3D text
-   labels**, annotations, orientation letters, corner info, RAD/NEU badge, colour bars, scale bar, orientation
-   cube. **All clip distances disabled** in this pass, or the gizmo gets clipped by the plane it manipulates.
+   labels**, **measurements**, annotations, orientation letters, corner info, RAD/NEU badge, colour bars, scale
+   bar, orientation cube. **All clip distances disabled** in this pass, or the gizmo gets clipped by the plane
+   it manipulates.
+
+   **Measurements** (§4.5, directed task 11) are drawn in **every pane that contains their points**, and
+   "contains" differs by pane kind: a 3D pane contains any point in front of its eye, a 2D pane only points
+   within `MEASURE_SLAB_MM` (0.5 mm — under the finest voxel in the reference dataset) of its plane. Drawing a
+   segment whose far end is 40 mm away would put a line across an image it has nothing to do with and print a
+   length nothing in the picture is that long. Both kinds project through the pane's **own** view-projection,
+   which is exact for the orthographic 2D case, so one derivation serves both. The segment is screen-space quad
+   expansion at a constant width (§7.0.6 — `gl.lineWidth()` is a no-op), every endpoint carries a marker so the
+   user can see which pixel the click landed on, and the label is the mm/degree value in the pass-3 bitmap font
+   — hence `MM` and `DEG`, the only spellings its `A-Z 0-9 .,:-+/()` alphabet has. A segment's label is lifted
+   off its midpoint; an **angle's** is pushed out along the **bisector**, the direction furthest from both arms,
+   because a label lifted straight up from a vertex whose arm also goes straight up is drawn over that arm —
+   which §11 caught, decoding a right angle as `90.0LDEG`. The colour is `OverlayTheme.measure`, so a
+   measurement saved in one theme and reopened in the other is legible in both.
 
    `PointsLayer.labels` (§4.4) are *text at a world position* — a Gmsh `T3`, `E001` above the electrode it names.
    There is no 3D-text geometry: the anchor is projected through the pane's own view-projection and the string is
@@ -2520,7 +2586,18 @@ Input (Freeview-like):
   notch is a factor of 1.2, and the keys act on the pane **under the pointer**, which is what makes them per-pane.
 * The pane a drag belongs to is **latched at `pointerdown`** and held by a pointer capture, so a drag that leaves
   the pane — or the window — keeps driving the pane it started in.
-* Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic,
+* **Measure mode** (`m`, and §8's toolbar button; directed task 11, 2026-08-28). While it is on, a left-click
+  **places a measurement point** instead of setting the cursor — in a 2D pane the pointer ray ∩ that pane's
+  derived plane, in the 3D pane the §7.2.3 `pick`, so a click on nothing in 3D places nothing rather than
+  inventing a point on the near plane. The grammar is three clicks: the first starts the gesture and draws a lone
+  marker, the second completes a `'distance'` (the user has their number without a third click), and the third
+  **extends that same measurement into an `'angle'`** whose vertex is the shared endpoint the second click
+  placed. It stays one measurement throughout, so §8's row changes from millimetres to degrees rather than a
+  stray segment being left behind; a fourth click starts a new gesture. `Esc` — and leaving the mode — drops
+  whatever is pending and touches nothing already placed. The mode is engine state and the half-placed gesture
+  rides on `DrawInput`, never on `Scene`: a `*.tetravox.json` must not carry one.
+* Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic, `m` measure,
+  `Esc` cancel a measurement,
   `[`/`]` cycle the active layer, `v` toggle the active layer's visibility, `Shift+drag` its opacity,
   `Ctrl+↑/↓` reorder it, `,`/`.` step the active volume layer's 4D index (each step is a `volumeFrame` op —
   §6.5.2 — so the readout, the colour bar and the histogram all follow the new volume's `Stats`).
@@ -2561,7 +2638,16 @@ shader path from Phase 1 and gets its **affordances** (gizmo, rotate handles, pl
 **Regions.** Dark theme. **Left**: layer panel (ordered list, eye, opacity slider, per-kind property editor,
 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed + Cancel).
 **Centre**: view grid (coloured border on the active view pane). **Right/bottom**: info panel.
-**Top**: toolbar (Open, layout, radiological toggle, screenshot, save/load scene). **Status bar**.
+**Top**: toolbar (Open, layout, radiological toggle, **measure mode**, screenshot, save/load scene).
+**Status bar**.
+
+**Measurements panel** (right column, above the info panel; directed task 11, 2026-08-28): one row per
+`Scene.measurement` — name, value, a **jump-to** and a **delete**. A strip rather than an editor, because a
+measurement is a note, not a layer. Jump-to puts the cursor on the segment's midpoint (an angle's **vertex**),
+which is all it takes for every 2D pane to arrive at it together — §4.5 derives each plane from the cursor. The
+value is formatted by the **engine**'s `formatMeasurementHtml`, the same arithmetic the overlay label comes
+from: two answers to "how long is it" is the one failure a measurement tool cannot have. The panel renders
+nothing at all while the mode is off and nothing has been placed.
 
 **2D view chrome (Phase 1 — this is a laterality-safety requirement, not decoration):**
 * Orientation letters `L/R/A/P/S/I` on all four edges of every 2D view, **derived from the affine and the
