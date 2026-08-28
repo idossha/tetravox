@@ -717,27 +717,29 @@ async function tagById(
   expect(found, `no ${kind} tag ${id}`).not.toBeNull();
   return found as { id: number; name: string; count: number };
 }
-
-/** A tag id by name and element kind, off the loaded dataset (`ernie.msh.opt` named them). */
-async function tagId(
-  page: Page,
-  layerId: string,
-  name: RegExp | string,
-  kind: 'tri' | 'tet'
-): Promise<number> {
+/**
+ * The **row** id of a tissue in the Region panel.
+ *
+ * A `.msh` carries every tissue twice — a volume tag `t` over its tets and a surface tag `t + 1000`
+ * over its tris, both named the same by `.msh.opt` — and the panel pairs them into one row keyed by
+ * the volume tag. So the row for Scalp is `5`, and its `Surf` toggle is the one that moves 1005.
+ */
+async function tissueRow(page: Page, layerId: string, name: RegExp | string): Promise<number> {
   const found = await page.evaluate(
-    ([id, pattern, want]: [string, string, string]) => {
+    ([id, pattern]: [string, string]) => {
       const state = window.__tetravox?.store.getState();
       const layer = state?.layers.find((l) => l.id === id);
       const ds = state?.datasets.find((d) => d.id === layer?.datasetId);
       if (ds === undefined || ds.kind !== 'mesh') throw new Error('no mesh dataset');
       const re = new RegExp(pattern, 'i');
-      return ds.tags.find((t) => t.kind === want && re.test(t.name ?? ''))?.id ?? null;
+      const match = ds.tags.filter((t) => re.test(t.name ?? ''));
+      const tet = match.find((t) => t.kind === 'tet');
+      return (tet ?? match[0])?.id ?? null;
     },
-    [layerId, typeof name === 'string' ? name : name.source, kind] as [string, string, string]
+    [layerId, typeof name === 'string' ? name : name.source] as [string, string]
   );
-  expect(found, `no ${kind} tag matching ${String(name)}`).not.toBeNull();
-  return found as number;
+  if (found === null) throw new Error(`no tissue row matching ${String(name)}`);
+  return found;
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1263,7 +1265,7 @@ test.describe('visualisation scenario catalogue', () => {
       const centre = await boundsCentre(page, mesh);
       await jumpTo(page, centre);
       await activate(page, mesh);
-      await reveal(page, `mesh-tissue-list-${mesh}`);
+      await reveal(page, `region-list-${mesh}`);
       await frame3d(page);
       await shoot(page, '04-mesh-tissue-surfaces.png');
       await shootPane(page, 'coronal', '04-mesh-tissue-surfaces-closeup.png');
@@ -1276,8 +1278,9 @@ test.describe('visualisation scenario catalogue', () => {
           'tissue surfaces in the colours the .msh.opt sidecar gives them; the three 2D panes draw ' +
           'the mesh’s own cross-section at the cursor — filled per-element polygons with tissue ' +
           'contours on top — and those sweep with the crosshair exactly as a volume’s slices do. ' +
-          'The left panel shows the tissue table: every tag with its name from the sidecar, a ' +
-          'colour swatch, an eye and an opacity slider.',
+          'The left panel shows the tissue list: one row per tissue, named from the sidecar, with a ' +
+          'colour swatch, an eye, an opacity slider and a Vol / Surf pair of toggles for the ' +
+          'tissue’s tetrahedra and its surface triangles.',
         data_files: ['m2m_ernie/ernie.msh', 'm2m_ernie/ernie.msh.opt (found beside it)'],
         layers: [
           {
@@ -1296,7 +1299,7 @@ test.describe('visualisation scenario catalogue', () => {
         controls_used: [
           'Open… → ernie.msh. The .msh.opt beside it is picked up without being named, which is ' +
             'the only source of the tissue names — the mesh itself has no $PhysicalNames.',
-          'Tissue table: the eye hides a tissue, the swatch recolours it, the slider fades it; ' +
+          'Tissue list: the eye hides a tissue, the swatch recolours it, the slider fades it; ' +
             'Show all / Hide all / Invert and a search box act on the whole table.',
           '2D cross-section section: the fill and contours toggles, the contour width slider, and ' +
             'a “cut colour” selector (tissue tag, a solid colour, or any field the mesh carries).',
@@ -1309,12 +1312,13 @@ test.describe('visualisation scenario catalogue', () => {
       });
 
       // ---- 6 · transparency ----------------------------------------------------------------
-      const scalpTri = await tagId(page, mesh, /scalp/, 'tri');
-      const compactTri = await tagId(page, mesh, /compact_bone/, 'tri');
-      const spongyTri = await tagId(page, mesh, /spongy_bone/, 'tri');
-      await setControl(page, `mesh-tag-opacity-${mesh}-${scalpTri}`, '0.3');
-      await setControl(page, `mesh-tag-opacity-${mesh}-${compactTri}`, '0.5');
-      await setControl(page, `mesh-tag-opacity-${mesh}-${spongyTri}`, '0.5');
+      const scalpRow = await tissueRow(page, mesh, /scalp/);
+      const compactRow = await tissueRow(page, mesh, /compact_bone/);
+      const spongyRow = await tissueRow(page, mesh, /spongy_bone/);
+      // One slider per **tissue**: it fades that tissue's tets and its tris together.
+      await setControl(page, `region-opacity-${mesh}-${scalpRow}`, '0.3');
+      await setControl(page, `region-opacity-${mesh}-${compactRow}`, '0.5');
+      await setControl(page, `region-opacity-${mesh}-${spongyRow}`, '0.5');
       await page.click('[data-testid="layout-3d-only"]');
       await frame3d(page, '1', 55, -25);
       await shoot(page, '06-transparency.png');
@@ -1344,7 +1348,7 @@ test.describe('visualisation scenario catalogue', () => {
           },
         ],
         controls_used: [
-          'Tissue table → the opacity slider on the Scalp row, then on Compact_bone and ' +
+          'Tissue list → the opacity slider on the Scalp row, then on Compact_bone and ' +
             'Spongy_bone.',
           'Toolbar → the 3D-only layout, to give the head the whole window.',
           'In the 3D pane: left-drag orbits, right-drag pans, the wheel dollies, r refits, and ' +
@@ -1353,8 +1357,8 @@ test.describe('visualisation scenario catalogue', () => {
         notes: [],
       });
       // Back to opaque for the cut.
-      for (const tag of [scalpTri, compactTri, spongyTri]) {
-        await setControl(page, `mesh-tag-opacity-${mesh}-${tag}`, '1');
+      for (const row of [scalpRow, compactRow, spongyRow]) {
+        await setControl(page, `region-opacity-${mesh}-${row}`, '1');
       }
 
       // ---- 7 · cutting -----------------------------------------------------------------------
@@ -1458,7 +1462,7 @@ test.describe('visualisation scenario catalogue', () => {
       await activate(page, mesh);
       // Hide the scalp so the slice planes inside the head are visible in 3D, and take the mesh
       // down to 45 % so the anatomy shows through its 2D fill instead of being painted over.
-      await page.click(`[data-testid="mesh-tag-eye-${mesh}-${scalpTri}"]`);
+      await page.click(`[data-testid="region-eye-${mesh}-${scalpRow}"]`);
       // Contours only for the window shot: an opaque tissue fill hides the anatomy it is being
       // compared against, which is the whole point of putting the two in one pane.
       await openSection(page, `mesh-cut2d-${mesh}`);
@@ -1504,7 +1508,7 @@ test.describe('visualisation scenario catalogue', () => {
         controls_used: [
           'Open… → add the T1 to the scene the mesh is already in.',
           'Volume editor → “show in 3D” draws that volume’s three slice planes in the 3D pane.',
-          'Tissue table → the eye on the Scalp row.',
+          'Tissue list → the eye on the Scalp row.',
           '2D cross-section section → the fill toggle off (contours only) and the contour width; ' +
             'the layer row’s opacity slider → 45 % for the translucent fill in the close-up.',
         ],
@@ -1513,7 +1517,7 @@ test.describe('visualisation scenario catalogue', () => {
             'Ctrl+↑/↓) change it.',
         ],
       });
-      await page.click(`[data-testid="mesh-tag-eye-${mesh}-${scalpTri}"]`);
+      await page.click(`[data-testid="region-eye-${mesh}-${scalpRow}"]`);
       await setControl(page, `layer-opacity-${mesh}`, '1');
 
       // ---- 12 · electrodes -------------------------------------------------------------------
@@ -2099,8 +2103,8 @@ test.describe('visualisation scenario catalogue', () => {
       // Every tissue back on: this file's own `.msh.opt` hides all but grey matter (SimNIBS
       // writes it so Gmsh opens on the GM surface with the field painted on it), and §7.6 honours
       // that on open. A head with a cut through it is the picture this scenario is about.
-      await reveal(page, `mesh-tissue-list-${layer}`);
-      await page.click(`[data-testid="mesh-tissue-showall-${layer}"]`);
+      await reveal(page, `region-list-${layer}`);
+      await page.click(`[data-testid="region-showAll-${layer}"]`);
 
       // A cut plane first, so the glyphs have one to be restricted to. Flipped, so the kept half
       // is the lower one and the cut face is what the superior camera looks down at — arrows on a
@@ -2146,17 +2150,18 @@ test.describe('visualisation scenario catalogue', () => {
       // leaving the **volume** tags (1…) visible, and the volume tags are what the glyph origins
       // are filtered by — "Hide all" would take those too and the glyphs with them. The caps go
       // off for the same reason: they are drawn at the plane, in front of everything near it.
-      const triTags = await page.evaluate((id: string) => {
-        const state = window.__tetravox?.store.getState();
-        const l = state?.layers.find((x) => x.id === id);
-        const ds = state?.datasets.find((d) => d.id === l?.datasetId);
-        if (ds === undefined || ds.kind !== 'mesh') throw new Error('no mesh');
-        return ds.tags.filter((t) => t.kind === 'tri').map((t) => t.id);
-      }, layer);
-      expect(triTags.length).toBeGreaterThan(0);
-      await reveal(page, `mesh-tissue-list-${layer}`);
-      for (const tag of triTags) {
-        await page.click(`[data-testid="mesh-tag-eye-${layer}-${tag}"]`);
+      // This is the one gesture that addresses a single tag rather than a whole tissue, which is
+      // why the paired row keeps two toggles: "Surf" is the tri half, "Vol" the tet half.
+      const rows = await page
+        .locator(`[data-testid^="region-row-${layer}-"]`)
+        .evaluateAll((els) =>
+          els.map((el) => Number((el.getAttribute('data-testid') ?? '').split('-').pop()))
+        );
+      expect(rows.length).toBeGreaterThan(0);
+      await reveal(page, `region-list-${layer}`);
+      for (const row of rows) {
+        const surf = page.locator(`[data-testid="region-surf-${layer}-${row}"]`);
+        if (await surf.isEnabled()) await surf.click();
       }
       await openSection(page, `mesh-clip-${layer}`);
       await page.click(`[data-testid="mesh-clip-caps-${layer}"]`);

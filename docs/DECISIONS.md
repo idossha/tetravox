@@ -2500,3 +2500,25 @@ Each entry below names the problem, the fix, and the evidence.
   can render a mesh, Phase 3's transparency decision stands on §7.2's measured depth complexity
   (4–6 median / 8–10 p90, ROADMAP Phase 3) rather than on a diff. Recorded as the one Phase-2 gate
   item that does not close, with its owner, rather than satisfied by a weaker test wearing its name.
+
+
+- 2026-08-28 — **The mesh editor has ONE tissue list, and a row is a tissue rather than a tag.**
+  The editor mounted two lists of the same thing: `panels/layers/mesh/TissueTable.tsx` and, under
+  it, `panels/regions/RegionPanel` on the same `meshTag` source. Both listed the same tags, and both
+  listed every tissue **twice** on top of that, because a SimNIBS `.msh` carries each tissue as a
+  volume tag `t` over its tets (`1`…`10`) and a surface tag `t + 1000` over its tris (`1001`…), and
+  `.msh.opt` gives the two the *same* name. `ernie.msh` therefore rendered as 19 rows, in two
+  places, for ten tissues.
+  `TissueTable` is deleted. The Region panel is the survivor because it had the behaviours the
+  table never grew — click-select, ⇧/⌘ multi-select and R5's "clicking a tissue in a pane selects
+  its row" — and it already served label volumes and annots, which are unchanged. `regions.ts` now
+  pairs `t` with `t + 1000` (partner must be the other element kind) into one row keyed by the
+  **volume** tag, with the two tag ids and element counts in `RegionRow.parts`. A row is a colour
+  swatch, a name, a "Vol" and a "Surf" toggle with independent eye states, a count and an opacity
+  slider; solo, show/hide/invert, search, recolour and opacity all move **both** tags, and the two
+  toggles are the only gesture that addresses one tag.
+  This is **presentation only**. Every patch still writes per-tag `MeshLayer.tagStyle`, nothing new
+  is persisted, and a scene file means exactly what it meant. The editor's "Solid colour" control
+  moved from the bottom of the old table into `FieldSection`, beside the colour-source selector it
+  actually feeds.
+

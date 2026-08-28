@@ -30,6 +30,7 @@ import {
   filterRows,
   fromHex,
   opacityPatch,
+  partVisibilityPatch,
   probedRegionId,
   regionSourceFor,
   selectOnClick,
@@ -84,11 +85,22 @@ function meshDataset(): MeshDataset {
     id: 'ds2',
     name: 'ernie.msh',
     // Tag 4 is absent from ernie `[DATA]`, and 1002 is the tri tag of the same tissue as tet tag 2.
+    // §6.2 delivers the tri block before the tet block, like the file — the pairing has to survive
+    // that order. Tag 4 is absent from ernie `[DATA]`; 1099 has no volume half at all; 1 has no
+    // surface half in this fixture, so both lone shapes are covered.
     tags: [
+      { id: 1002, name: 'GM', color: [0.55, 0.55, 0.6, 1], kind: 'tri', count: 335_930 },
+      { id: 1005, name: 'Scalp', color: [0.95, 0.75, 0.6, 1], kind: 'tri', count: 77_032 },
+      {
+        id: 1099,
+        name: 'Internal_air_surface',
+        color: [0.3, 0.3, 0.3, 1],
+        kind: 'tri',
+        count: 51_582,
+      },
       { id: 1, name: 'WM', color: [0.9, 0.9, 0.85, 1], kind: 'tet', count: 517_144 },
       { id: 2, name: 'GM', color: [0.55, 0.55, 0.6, 1], kind: 'tet', count: 1_340_029 },
       { id: 5, name: 'Scalp', color: [0.95, 0.75, 0.6, 1], kind: 'tet', count: 567_089 },
-      { id: 1002, name: 'GM surface', color: [0.55, 0.55, 0.6, 1], kind: 'tri', count: 335_930 },
     ],
   } as unknown as MeshDataset;
 }
@@ -104,6 +116,8 @@ function meshLayer(over: Partial<MeshLayer> = {}): MeshLayer {
       2: { visible: true, opacity: 1 },
       5: { visible: true, opacity: 1 },
       1002: { visible: true, opacity: 1 },
+      1005: { visible: true, opacity: 1 },
+      1099: { visible: true, opacity: 1 },
     },
     ...over,
   } as unknown as MeshLayer;
@@ -171,16 +185,53 @@ describe('one panel, three sources (R5)', () => {
     expect(rows.find((r) => r.id === 1)?.count).toBeNull();
   });
 
-  it('reads a mesh’s counts straight off MeshTag, which already carries them', () => {
+  it('pairs a tissue’s volume tag with its surface tag into ONE row (6 tags → 4 rows)', () => {
     const source = regionSourceFor(meshLayer(), meshDataset());
     expect(source?.kind).toBe('meshTag');
     expect(source?.hasCounts).toBe(true);
-    expect(source?.rows.map((r) => [r.id, r.count, r.elementKind])).toEqual([
-      [1, 517_144, 'tet'],
-      [2, 1_340_029, 'tet'],
-      [5, 567_089, 'tet'],
-      [1002, 335_930, 'tri'],
+    // A `.msh` stores every tissue as tag `t` over its tets and `t + 1000` over its tris, both
+    // named the same by `.msh.opt` — so listing the tags lists every tissue twice.
+    expect(source?.rows.map((r) => [r.id, r.name, r.tags])).toEqual([
+      [1, 'WM', [1]],
+      [2, 'GM', [2, 1002]],
+      [5, 'Scalp', [5, 1005]],
+      [1099, 'Internal_air_surface', [1099]],
     ]);
+    // The count column is tets + tris.
+    expect(source?.rows.find((r) => r.id === 2)?.count).toBe(1_340_029 + 335_930);
+    expect(source?.rows.find((r) => r.id === 1099)?.count).toBe(51_582);
+  });
+
+  it('gives each half its own eye state, and a lone tag only the half it has', () => {
+    const rows = regionSourceFor(meshLayer(), meshDataset())?.rows ?? [];
+    expect(rows.find((r) => r.id === 5)?.parts).toEqual({
+      vol: { tag: 5, kind: 'tet', count: 567_089, visible: true },
+      surf: { tag: 1005, kind: 'tri', count: 77_032, visible: true },
+    });
+    expect(rows.find((r) => r.id === 1099)?.parts).toEqual({
+      surf: { tag: 1099, kind: 'tri', count: 51_582, visible: true },
+    });
+    expect(rows.find((r) => r.id === 1)?.parts?.surf).toBeUndefined();
+  });
+
+  it('is visible while EITHER half is, so a surface-only hide does not read as hidden', () => {
+    const layer = meshLayer({
+      tagStyle: {
+        5: { visible: true, opacity: 1 },
+        1005: { visible: false, opacity: 1 },
+      },
+    });
+    const row = regionSourceFor(layer, meshDataset())?.rows.find((r) => r.id === 5);
+    expect(row?.visible).toBe(true);
+    expect(row?.parts?.surf?.visible).toBe(false);
+  });
+
+  it('counts the header per row — "Tissues (4, 1 hidden)", not per tag', () => {
+    expect(regionSourceFor(meshLayer(), meshDataset())?.title).toBe('Tissues (4)');
+    const layer = meshLayer({
+      tagStyle: { 5: { visible: false, opacity: 1 }, 1005: { visible: false, opacity: 1 } },
+    });
+    expect(regionSourceFor(layer, meshDataset())?.title).toBe('Tissues (4, 1 hidden)');
   });
 
   it('shows an annot’s table when the mesh has one — that is what colorMode:"label" displays', () => {
@@ -279,7 +330,9 @@ describe('a click in a pane selects the row (R5’s Freeview behaviour)', () => 
       world: [0, 0, 0],
       rows: [{ layerId: 'ly2', layerName: 'ernie', kind: 'mesh', tag: 1002, elementId: 7 }],
     };
-    expect(probedRegionId(source, probe)).toBe(1002);
+    // The probe carries the **tag**; the panel's rows are tissues, so the surface tag of GM
+    // selects the GM row rather than a row that no longer exists.
+    expect(probedRegionId(source, probe)).toBe(2);
   });
 
   it('selects nothing when the probe never reached this layer', () => {
@@ -345,13 +398,33 @@ describe('visibility patches', () => {
         2: { visible: true, opacity: 1 },
         5: { visible: true, opacity: 1 },
         1002: { visible: true, opacity: 1 },
+        1005: { visible: true, opacity: 1 },
+        1099: { visible: true, opacity: 1 },
       },
     });
     const source = sourceOf(layer, meshDataset());
-    const patch = visibilityPatch(source, layer, [1, 5, 1002]) as Partial<MeshLayer>;
-    expect(patch.tagStyle?.[2]).toEqual({ visible: false, opacity: 1 });
+    // Row ids, not tag ids: soloing Scalp is tet 5 **and** tri 1005.
+    const patch = visibilityPatch(source, layer, [5]) as Partial<MeshLayer>;
+    expect(patch.tagStyle?.[5]?.visible).toBe(true);
+    expect(patch.tagStyle?.[1005]?.visible).toBe(true);
+    expect(patch.tagStyle?.[2]?.visible).toBe(false);
+    expect(patch.tagStyle?.[1002]?.visible).toBe(false);
+    expect(patch.tagStyle?.[1099]?.visible).toBe(false);
     // Solo must not throw away the colour and opacity the user had already set on tag 1.
-    expect(patch.tagStyle?.[1]).toEqual({ visible: true, opacity: 0.5, color: [1, 0, 0, 1] });
+    expect(patch.tagStyle?.[1]).toEqual({ visible: false, opacity: 0.5, color: [1, 0, 0, 1] });
+  });
+
+  it('the Vol / Surf toggle is the one gesture that moves a single tag', () => {
+    const layer = meshLayer();
+    const source = sourceOf(layer, meshDataset());
+    const patch = partVisibilityPatch(source, layer, 1005, false) as Partial<MeshLayer>;
+    expect(patch.tagStyle?.[1005]).toEqual({ visible: false, opacity: 1 });
+    expect(patch.tagStyle?.[5]).toEqual({ visible: true, opacity: 1 });
+  });
+
+  it('has no per-half toggle for anything that is not a mesh tag', () => {
+    const layer = volumeLayer();
+    expect(partVisibilityPatch(sourceOf(layer, labelVolume()), layer, 1, false)).toBeNull();
   });
 
   it('writes an annot’s visibility inside `label`, not on the layer root', () => {
@@ -376,7 +449,9 @@ describe('opacity patches', () => {
     const layer = meshLayer();
     const source = sourceOf(layer, meshDataset());
     const patch = opacityPatch(source, layer, 2, 1.4) as Partial<MeshLayer>;
+    // One slider, both halves — §7.2's per-tag sub-draws still get one value each.
     expect(patch.tagStyle?.[2]).toEqual({ visible: true, opacity: 1 });
+    expect(patch.tagStyle?.[1002]).toEqual({ visible: true, opacity: 1 });
   });
 
   it('has nowhere to go for an annot, and says so instead of silently doing nothing', () => {
@@ -392,8 +467,27 @@ describe('colour patches', () => {
     const layer = meshLayer();
     const source = sourceOf(layer, meshDataset());
     const patch = colorPatch(source, layer, 2, [1, 0, 0, 1]) as Partial<MeshLayer>;
+    // One swatch recolours the tissue, which is both of its tags.
     expect(patch.tagStyle?.[2]?.color).toEqual([1, 0, 0, 1]);
+    expect(patch.tagStyle?.[1002]?.color).toEqual([1, 0, 0, 1]);
     expect(patch.tagStyle?.[1]?.color).toBeUndefined();
+  });
+
+  it('`null` is the mesh row’s Reset: the override goes, `.msh.opt`’s colour comes back', () => {
+    const layer = meshLayer({
+      tagStyle: {
+        2: { visible: true, opacity: 1, color: [1, 0, 0, 1] },
+        1002: { visible: true, opacity: 1, color: [1, 0, 0, 1] },
+      },
+    });
+    const source = sourceOf(layer, meshDataset());
+    expect(source.rows.find((r) => r.id === 2)?.overridden).toBe(true);
+    const patch = colorPatch(source, layer, 2, null) as Partial<MeshLayer>;
+    expect(patch.tagStyle?.[2]).toEqual({ visible: true, opacity: 1 });
+    expect(patch.tagStyle?.[1002]).toEqual({ visible: true, opacity: 1 });
+    const after = sourceOf({ ...layer, ...patch } as Layer, meshDataset());
+    expect(after.rows.find((r) => r.id === 2)?.color).toEqual([0.55, 0.55, 0.6, 1]);
+    expect(after.rows.find((r) => r.id === 2)?.overridden).toBe(false);
   });
 
   it('recolours an annot entry inside the layer’s own LabelTable, byId included', () => {
@@ -433,9 +527,7 @@ describe('colour patches', () => {
     expect(source.rows.find((r) => r.id === 1)?.color).toEqual([1, 0, 0, 1]);
   });
 
-  it('`null` is meaningless for the two kinds that edit their table in place', () => {
-    const mesh = meshLayer();
-    expect(colorPatch(sourceOf(mesh, meshDataset()), mesh, 2, null)).toBeNull();
+  it('`null` is meaningless for an annot, which edits its table in place', () => {
     const annot = annotLayer();
     expect(colorPatch(sourceOf(annot, meshDataset()), annot, 1, null)).toBeNull();
   });

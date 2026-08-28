@@ -67,8 +67,13 @@ export function hexToVec4(hex: string, alpha = 1): vec4 {
 }
 
 // ------------------------------------------------------------------------------------------------
-// The tissue table (§8: "a tissue table … not a list of checkboxes", backed by `tagStyle`)
+// `tagStyle` — what the Region panel's tissue rows write (§8, R5)
 // ------------------------------------------------------------------------------------------------
+//
+// The mesh editor's own tissue table is gone: it listed the same tissues the Region panel lists, and
+// both listed every tissue twice because a `.msh` carries a volume tag and a surface tag per
+// tissue. `panels/regions/regions.ts` is the one list now, and it owns the row model. What stays
+// here are the two per-tag primitives the rest of the editor still needs.
 
 export interface TagStyleEntry {
   visible: boolean;
@@ -76,55 +81,10 @@ export interface TagStyleEntry {
   color?: vec4;
 }
 
-export interface TissueRow {
-  tag: number;
-  /** `$PhysicalNames`, else the `.msh.opt` sidecar, else `tag <id>` — never blank. */
-  name: string;
-  kind: 'tri' | 'tet';
-  count: number;
-  visible: boolean;
-  opacity: number;
-  /** What the pane actually paints: the `tagStyle` override, else the dataset's own tag colour. */
-  color: vec4;
-  /** True when the colour came from `tagStyle[tag].color` — i.e. the user recoloured it (R5). */
-  recoloured: boolean;
-}
-
 const DEFAULT_STYLE: TagStyleEntry = { visible: true, opacity: 1 };
 
 export function styleOf(layer: MeshLayer, tag: number): TagStyleEntry {
   return layer.tagStyle[tag] ?? DEFAULT_STYLE;
-}
-
-/**
- * One row per tag, in the dataset's own order (§6.2 delivers them tri-block-then-tet like the file).
- * `ernie.msh` has no `$PhysicalNames` at all — the `.msh.opt` sidecar is the only name source, and
- * `fromMeta` has already folded it into `MeshTag.name`, so a missing name here means the file really
- * carried none.
- */
-export function tissueRows(dataset: MeshDataset, layer: MeshLayer): TissueRow[] {
-  return dataset.tags.map((t) => {
-    const style = styleOf(layer, t.id);
-    return {
-      tag: t.id,
-      name: t.name ?? `tag ${t.id}`,
-      kind: t.kind,
-      count: t.count,
-      visible: style.visible,
-      opacity: style.opacity,
-      color: style.color ?? t.color,
-      recoloured: style.color !== undefined,
-    };
-  });
-}
-
-/** Search-as-you-type over name and id (R5). Case-insensitive; an id match is a prefix match. */
-export function filterRows(rows: readonly TissueRow[], query: string): TissueRow[] {
-  const q = query.trim().toLowerCase();
-  if (q === '') return [...rows];
-  return rows.filter(
-    (r) => r.name.toLowerCase().includes(q) || String(r.tag).startsWith(q.replace(/^#/, ''))
-  );
 }
 
 function withStyle(
@@ -141,20 +101,6 @@ export function setTagVisible(layer: MeshLayer, tag: number, visible: boolean): 
   return withStyle(layer, [tag], (s) => ({ ...s, visible }));
 }
 
-/** Bulk show / hide (R5's "Show all / Hide all"), over whatever rows the search left on screen. */
-export function setTagsVisible(
-  layer: MeshLayer,
-  tags: readonly number[],
-  visible: boolean
-): Partial<MeshLayer> {
-  return withStyle(layer, tags, (s) => ({ ...s, visible }));
-}
-
-/** R5's Invert, over the given tags. */
-export function invertTagVisibility(layer: MeshLayer, tags: readonly number[]): Partial<MeshLayer> {
-  return withStyle(layer, tags, (s) => ({ ...s, visible: !s.visible }));
-}
-
 /** R5's Alt-click solo: exactly one tag left visible, every other tag in `tags` hidden. */
 export function soloTag(
   layer: MeshLayer,
@@ -163,23 +109,6 @@ export function soloTag(
 ): Partial<MeshLayer> {
   const next: MeshLayer['tagStyle'] = { ...layer.tagStyle };
   for (const t of tags) next[t] = { ...styleOf(layer, t), visible: t === tag };
-  return { tagStyle: next };
-}
-
-export function setTagOpacity(layer: MeshLayer, tag: number, opacity: number): Partial<MeshLayer> {
-  return withStyle(layer, [tag], (s) => ({ ...s, opacity: clamp01(opacity) }));
-}
-
-/** R5's recolour. The edit lives in the layer, so it round-trips through `serialize()`/`load()`. */
-export function setTagColor(layer: MeshLayer, tag: number, color: vec4): Partial<MeshLayer> {
-  return withStyle(layer, [tag], (s) => ({ ...s, color }));
-}
-
-/** Drop the override and fall back to the dataset's own tag colour (`.msh.opt` / §7.6 palette). */
-export function resetTagColor(layer: MeshLayer, tag: number): Partial<MeshLayer> {
-  const current = styleOf(layer, tag);
-  const next: MeshLayer['tagStyle'] = { ...layer.tagStyle };
-  next[tag] = { visible: current.visible, opacity: current.opacity };
   return { tagStyle: next };
 }
 

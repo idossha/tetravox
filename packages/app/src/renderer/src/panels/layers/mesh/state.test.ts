@@ -21,16 +21,13 @@ import {
   cutColorSource,
   defaultGlyphs,
   disableGlyphs,
-  filterRows,
   flipClipPlane,
   hexToVec4,
-  invertTagVisibility,
   isolateIsEmpty,
   offsetThrough,
   patchThreshold,
   planesThroughCursor,
   setClipFollowsCursor,
-  resetTagColor,
   selectField,
   setClipNormal,
   setContoursIn2D,
@@ -44,12 +41,9 @@ import {
   setIsolateBox,
   setIsolateSphere,
   setScaleKind,
-  setTagColor,
-  setTagOpacity,
   setTagVisible,
-  setTagsVisible,
   soloTag,
-  tissueRows,
+  styleOf,
   toggleIsolateTag,
   vec4ToHex,
 } from './state';
@@ -75,8 +69,6 @@ function stats(min: number, max: number): Stats {
     histogramHi: max,
   };
 }
-
-const WHITE: vec4 = [1, 1, 1, 1];
 
 function dataset(over: Partial<MeshDataset> = {}): MeshDataset {
   return {
@@ -184,30 +176,7 @@ describe('colour round trip', () => {
   });
 });
 
-describe('the tissue table', () => {
-  it('is one row per tag, with the dataset colour until the layer overrides it', () => {
-    const rows = tissueRows(dataset(), meshLayer());
-    expect(rows.map((r) => r.tag)).toEqual(ALL_TAGS);
-    expect(rows[0]?.name).toBe('White matter');
-    expect(rows[2]?.color).toEqual([0.95, 0.75, 0.6, 1]);
-    expect(rows.every((r) => !r.recoloured)).toBe(true);
-    // §7.6: the ten tissue tags are not contiguous — tag 4 is absent from ernie.
-    expect(rows.map((r) => r.tag)).not.toContain(4);
-  });
-
-  it('shows a tag the layer has no style for as visible at full opacity', () => {
-    const rows = tissueRows(dataset(), meshLayer({ tagStyle: {} }));
-    expect(rows.every((r) => r.visible && r.opacity === 1)).toBe(true);
-  });
-
-  it('searches by name and by id', () => {
-    const rows = tissueRows(dataset(), meshLayer());
-    expect(filterRows(rows, 'grey').map((r) => r.tag)).toEqual([2, 1002]);
-    expect(filterRows(rows, '100').map((r) => r.tag)).toEqual([1002]);
-    expect(filterRows(rows, '').length).toBe(4);
-    expect(filterRows(rows, 'nope')).toEqual([]);
-  });
-
+describe('the `tagStyle` primitives the Region panel writes through', () => {
   it('hides one tag without touching the others (R5)', () => {
     const layer = meshLayer();
     const patch = setTagVisible(layer, 5, false);
@@ -216,38 +185,13 @@ describe('the tissue table', () => {
     expect(Object.keys(patch)).toEqual(['tagStyle']);
   });
 
-  it('shows all / hides all / inverts over the rows on screen', () => {
-    const layer = meshLayer();
-    expect(setTagsVisible(layer, [1, 2], false).tagStyle?.[1]?.visible).toBe(false);
-    const inverted = invertTagVisibility(
-      meshLayer({
-        tagStyle: { 1: { visible: false, opacity: 1 }, 2: { visible: true, opacity: 1 } },
-      }),
-      [1, 2]
-    );
-    expect(inverted.tagStyle?.[1]?.visible).toBe(true);
-    expect(inverted.tagStyle?.[2]?.visible).toBe(false);
-  });
-
   it('solos exactly one tag and mutes the rest', () => {
     const patch = soloTag(meshLayer(), ALL_TAGS, 2);
     expect(ALL_TAGS.map((t) => patch.tagStyle?.[t]?.visible)).toEqual([false, true, false, false]);
   });
 
-  it('clamps opacity into 0..1', () => {
-    expect(setTagOpacity(meshLayer(), 1, 2).tagStyle?.[1]?.opacity).toBe(1);
-    expect(setTagOpacity(meshLayer(), 1, -1).tagStyle?.[1]?.opacity).toBe(0);
-    expect(setTagOpacity(meshLayer(), 1, 0.35).tagStyle?.[1]?.opacity).toBe(0.35);
-  });
-
-  it('recolours a tag, and resets back to the file colour', () => {
-    const recoloured = setTagColor(meshLayer(), 5, WHITE);
-    expect(recoloured.tagStyle?.[5]?.color).toEqual(WHITE);
-    const layer = meshLayer({ tagStyle: { 5: { visible: false, opacity: 0.5, color: WHITE } } });
-    const reset = resetTagColor(layer, 5);
-    expect(reset.tagStyle?.[5]).toEqual({ visible: false, opacity: 0.5 });
-    // The row falls back to the dataset's own colour, which is where `.msh.opt` landed.
-    expect(tissueRows(dataset(), { ...layer, ...reset })[2]?.color).toEqual([0.95, 0.75, 0.6, 1]);
+  it('reads a tag the layer has no style for as visible at full opacity', () => {
+    expect(styleOf(meshLayer({ tagStyle: {} }), 1)).toEqual({ visible: true, opacity: 1 });
   });
 });
 

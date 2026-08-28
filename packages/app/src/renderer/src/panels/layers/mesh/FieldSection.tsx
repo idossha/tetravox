@@ -110,6 +110,31 @@ export function FieldSection({
         ) : null}
       </Row>
 
+      {/* The solid colour lived on the bottom of the old `TissueTable`; it belongs beside the
+          colour-source selector it feeds, not under a list of tissues it has nothing to do with. */}
+      <Row label="Solid colour">
+        <Swatch
+          testId={`mesh-solid-color-${layer.id}`}
+          hex={vec4ToHex(layer.solidColor)}
+          title="The colour used by colorMode 'solid' and by any tag the file left uncoloured"
+          onChange={(hex) => patch({ solidColor: hexToVec4(hex, layer.solidColor[3]) })}
+        />
+        <span className="flex-1" />
+        <span className="shrink-0 text-[10px] text-tvx-dim">alpha</span>
+        <NumberField
+          testId={`mesh-solid-alpha-${layer.id}`}
+          value={layer.solidColor[3]}
+          step={0.05}
+          min={0}
+          max={1}
+          onCommit={(a) =>
+            patch({
+              solidColor: [layer.solidColor[0], layer.solidColor[1], layer.solidColor[2], a],
+            })
+          }
+        />
+      </Row>
+
       {dataset.fields.length === 0 ? (
         <p className="text-[10px] text-tvx-dim">
           This mesh carries no fields — <code>ernie.msh</code> is the reference case.

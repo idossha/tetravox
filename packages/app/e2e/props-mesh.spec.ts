@@ -190,120 +190,164 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     await app?.close();
   });
 
-  // ---- the tissue table (§8, R5) ---------------------------------------------------------------
+  // ---- the tissue rows, in the ONE Region panel (§8, R5) ---------------------------------------
+  //
+  // The mesh editor used to mount two lists of the same thing: its own `TissueTable` and, under it,
+  // a `RegionPanel` on the same `meshTag` source. Both listed every tissue twice over, because a
+  // `.msh` carries a volume tag `t` (tets) and a surface tag `t + 1000` (tris) per tissue. There is
+  // one list now, one row per tissue, and the two tags are the row's "Vol" / "Surf" toggles.
 
-  test('the tissue table is a table of tags, not a list of checkboxes', async () => {
-    const rows = page.locator(`[data-testid^="mesh-tag-row-${ids.mesh}-"]`);
-    // The stand-in's mesh carries ernie-shaped tags, including a `tri` tag and an electrode tag.
-    await expect(rows).toHaveCount(6);
-    const first = page.locator(`[data-testid="mesh-tag-row-${ids.mesh}-1"]`);
-    await expect(first).toHaveAttribute('data-visible', 'true');
-    await expect(page.locator(`[data-testid="mesh-tag-name-${ids.mesh}-1"]`)).toHaveText(
-      'White matter'
-    );
-    // Every row has the four §8 / R5 controls: eye, colour, name+id+count, opacity.
-    await expect(page.locator(`[data-testid="mesh-tag-eye-${ids.mesh}-1"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="mesh-tag-color-${ids.mesh}-1"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="mesh-tag-opacity-${ids.mesh}-1"]`)).toBeVisible();
-  });
+  test('ONE list, one row per tissue: the paired tags collapse (7 tags → 5 rows)', async () => {
+    // The old `TissueTable` is gone, not hidden.
+    await expect(page.locator(`[data-testid="mesh-tissue-list-${ids.mesh}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid^="mesh-tag-row-${ids.mesh}-"]`)).toHaveCount(0);
 
-  test('the eye emits one tagStyle patch and the scene reports the tag hidden', async () => {
-    await record(page);
-    await page.click(`[data-testid="mesh-tag-eye-${ids.mesh}-5"]`);
-    const patch = await onePatch(page);
-    expect(Object.keys(patch)).toEqual(['tagStyle']);
-    const tagStyle = patch.tagStyle as Record<string, { visible: boolean; opacity: number }>;
-    expect(tagStyle['5']?.visible).toBe(false);
-    expect(tagStyle['2']?.visible).toBe(true);
-    await expect(page.locator(`[data-testid="mesh-tag-row-${ids.mesh}-5"]`)).toHaveAttribute(
-      'data-visible',
-      'false'
-    );
-    // Back on, so the rest of the file starts from a fully visible mesh.
-    await page.click(`[data-testid="mesh-tag-eye-${ids.mesh}-5"]`);
-  });
-
-  test('Alt-click solos, and show-all / hide-all / invert are one call each (R5)', async () => {
-    await record(page);
-    await page.click(`[data-testid="mesh-tag-eye-${ids.mesh}-2"]`, { modifiers: ['Alt'] });
-    const solo = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
-    expect(
-      Object.entries(solo)
-        .filter(([, s]) => s.visible)
-        .map(([t]) => t)
-    ).toEqual(['2']);
-
-    await record(page);
-    await page.click(`[data-testid="mesh-tissue-showall-${ids.mesh}"]`);
-    const all = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
-    expect(Object.values(all).every((s) => s.visible)).toBe(true);
-
-    await record(page);
-    await page.click(`[data-testid="mesh-tissue-invert-${ids.mesh}"]`);
-    const inverted = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
-    expect(Object.values(inverted).every((s) => !s.visible)).toBe(true);
-
-    await page.click(`[data-testid="mesh-tissue-showall-${ids.mesh}"]`);
-  });
-
-  test('Alt-click solos on the **row** too, the way the Region panel takes it (R5)', async () => {
-    // R5 asks for "one Region panel for every labelled thing", and the two UIs a mesh tag has took
-    // the same gesture on different targets: alt-click soloed on the row in `RegionPanel` and only
-    // on the eye button here, so alt-clicking a tissue row did nothing at all.
-    await record(page);
-    await page.click(`[data-testid="mesh-tag-row-${ids.mesh}-3"]`, { modifiers: ['Alt'] });
-    const solo = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
-    expect(
-      Object.entries(solo)
-        .filter(([, s]) => s.visible)
-        .map(([t]) => t)
-    ).toEqual(['3']);
-    await page.click(`[data-testid="mesh-tissue-showall-${ids.mesh}"]`);
-  });
-
-  test('the Region panel is mounted for a mesh, so R5’s "one panel" is one panel', async () => {
-    // `panels/regions/regions.ts` has always returned a `meshTag` source; `RegionPanel` was
-    // mounted from exactly one place — the volume editor — so two of R5's three kinds had no
-    // Region panel at all.
     const panel = page.locator(`[data-testid="region-panel-${ids.mesh}"]`);
     await expect(panel).toBeVisible();
     await expect(panel).toHaveAttribute('data-kind', 'meshTag');
-    await expect(page.locator(`[data-testid^="region-row-${ids.mesh}-"]`).first()).toBeVisible();
+
+    const tags = await page.evaluate((layerId: string) => {
+      const state = window.__tetravox?.store.getState();
+      const layer = state?.layers.find((l) => l.id === layerId);
+      const ds = state?.datasets.find((d) => d.id === layer?.datasetId);
+      if (ds?.kind !== 'mesh') throw new Error('no mesh dataset');
+      return ds.tags.map((t) => t.id);
+    }, ids.mesh);
+    expect(tags).toEqual([1, 2, 3, 5, 101, 1002, 1101]);
+
+    await expect(page.locator(`[data-testid="region-list-${ids.mesh}"]`)).toHaveAttribute(
+      'data-rows',
+      '5'
+    );
+    // Grey matter's two tags are one row, named once, and the row is the **volume** tag's id.
+    await expect(page.locator(`[data-testid="region-row-${ids.mesh}-1002"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="region-name-${ids.mesh}-2"]`)).toHaveText(
+      'Grey matter'
+    );
+    // Every row has R5's controls: colour, name, count — plus the two per-half toggles.
+    await expect(page.locator(`[data-testid="region-color-${ids.mesh}-1"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="region-opacity-${ids.mesh}-1"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="region-vol-${ids.mesh}-2"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="region-surf-${ids.mesh}-2"]`)).toBeVisible();
+  });
+
+  test('the header counts tissues, not tags', async () => {
+    const header = page.locator(`[data-testid="region-panel-${ids.mesh}"] >> text=Tissues`);
+    await expect(header).toHaveText('Tissues (5)');
+  });
+
+  test('a tag with no partner renders with only the toggle it has', async () => {
+    // White matter is tet-only in the stand-in, so "Surf" is there and disabled rather than absent —
+    // §8 forbids a control that silently does nothing, and an absent one would shift the columns.
+    const surf = page.locator(`[data-testid="region-surf-${ids.mesh}-1"]`);
+    await expect(surf).toBeDisabled();
+    await expect(surf).toHaveAttribute('title', /no surface \(tri\) tag/);
+    await expect(page.locator(`[data-testid="region-vol-${ids.mesh}-1"]`)).toBeEnabled();
+  });
+
+  test('the "Surf" toggle hides EXACTLY its own tag, and "Vol" the other', async () => {
+    await record(page);
+    await page.click(`[data-testid="region-surf-${ids.mesh}-2"]`);
+    const patch = await onePatch(page);
+    expect(Object.keys(patch)).toEqual(['tagStyle']);
+    const tagStyle = patch.tagStyle as Record<string, { visible: boolean }>;
+    expect(tagStyle['1002']?.visible).toBe(false);
+    expect(tagStyle['2']?.visible).toBe(true);
+    // The row still reads visible — half of the tissue is still on screen.
+    await expect(page.locator(`[data-testid="region-row-${ids.mesh}-2"]`)).toHaveAttribute(
+      'data-visible',
+      'true'
+    );
+    await expect(page.locator(`[data-testid="region-surf-${ids.mesh}-2"]`)).toHaveAttribute(
+      'data-visible',
+      'false'
+    );
+    await page.click(`[data-testid="region-surf-${ids.mesh}-2"]`);
+  });
+
+  test('the row eye moves BOTH tags of the tissue', async () => {
+    await record(page);
+    await page.click(`[data-testid="region-eye-${ids.mesh}-2"]`);
+    const tagStyle = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
+    expect(tagStyle['2']?.visible).toBe(false);
+    expect(tagStyle['1002']?.visible).toBe(false);
+    expect(tagStyle['1']?.visible).toBe(true);
+    await page.click(`[data-testid="region-eye-${ids.mesh}-2"]`);
+  });
+
+  test('Alt-click solos the ROW, so both of its tags survive (R5)', async () => {
+    await record(page);
+    await page.click(`[data-testid="region-name-${ids.mesh}-2"]`, { modifiers: ['Alt'] });
+    const solo = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
+    expect(
+      Object.entries(solo)
+        .filter(([, v]) => v.visible)
+        .map(([t]) => Number(t))
+        .sort((a, b) => a - b)
+    ).toEqual([2, 1002]);
+    await expect(page.locator(`[data-testid="region-row-${ids.mesh}-2"]`)).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    await page.click(`[data-testid="region-showAll-${ids.mesh}"]`);
+  });
+
+  test('Show all / Hide all / Invert act on rows and reach every tag (R5)', async () => {
+    await record(page);
+    await page.click(`[data-testid="region-hideAll-${ids.mesh}"]`);
+    const none = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
+    expect(Object.keys(none).length).toBe(7);
+    expect(Object.values(none).every((v) => !v.visible)).toBe(true);
+
+    await record(page);
+    await page.click(`[data-testid="region-invert-${ids.mesh}"]`);
+    const inverted = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
+    expect(Object.values(inverted).every((v) => v.visible)).toBe(true);
+
+    await record(page);
+    await page.click(`[data-testid="region-showAll-${ids.mesh}"]`);
+    const all = (await onePatch(page)).tagStyle as Record<string, { visible: boolean }>;
+    expect(Object.values(all).every((v) => v.visible)).toBe(true);
   });
 
   test('search filters the rows without touching the engine', async () => {
     await record(page);
-    await setControl(page, `mesh-tissue-search-${ids.mesh}`, 'grey');
-    await expect(page.locator(`[data-testid^="mesh-tag-row-${ids.mesh}-"]`)).toHaveCount(2);
-    expect(await patches(page)).toHaveLength(0);
-    await setControl(page, `mesh-tissue-search-${ids.mesh}`, '');
-    await expect(page.locator(`[data-testid^="mesh-tag-row-${ids.mesh}-"]`)).toHaveCount(6);
-  });
-
-  test('the colour picker recolours exactly one tag, and the reset drops the override (R5)', async () => {
-    await record(page);
-    await setControl(page, `mesh-tag-color-${ids.mesh}-5`, '#ff8000');
-    const patch = await onePatch(page);
-    const tagStyle = patch.tagStyle as Record<string, { color?: number[] }>;
-    // §4.1: 0..1 floats in the engine, exact 8-bit values through the picker.
-    expect(tagStyle['5']?.color).toEqual([1, 128 / 255, 0, 1]);
-    expect(tagStyle['2']?.color).toBeUndefined();
-    await expect(page.locator(`[data-testid="mesh-tag-row-${ids.mesh}-5"]`)).toHaveAttribute(
-      'data-recoloured',
-      'true'
+    await page.locator(`[data-testid="region-search-${ids.mesh}"]`).fill('grey');
+    await expect(page.locator(`[data-testid="region-list-${ids.mesh}"]`)).toHaveAttribute(
+      'data-rows',
+      '1'
     );
-
-    await record(page);
-    await page.click(`[data-testid="mesh-tag-color-reset-${ids.mesh}-5"]`);
-    const reset = (await onePatch(page)).tagStyle as Record<string, { color?: number[] }>;
-    expect(reset['5']?.color).toBeUndefined();
+    expect(await patches(page)).toHaveLength(0);
+    await page.locator(`[data-testid="region-search-${ids.mesh}"]`).fill('');
+    await expect(page.locator(`[data-testid="region-list-${ids.mesh}"]`)).toHaveAttribute(
+      'data-rows',
+      '5'
+    );
   });
 
-  test('the per-tag opacity slider is one call with the slider’s value', async () => {
+  test('one swatch recolours BOTH tags of the tissue, and the reset drops both (R5)', async () => {
     await record(page);
-    await setControl(page, `mesh-tag-opacity-${ids.mesh}-1002`, '0.35');
+    await setControl(page, `region-color-${ids.mesh}-2`, '#ff8000');
+    const tagStyle = (await onePatch(page)).tagStyle as Record<string, { color?: number[] }>;
+    // §4.1: 0..1 floats in the engine, exact 8-bit values through the picker.
+    expect(tagStyle['2']?.color).toEqual([1, 128 / 255, 0, 1]);
+    expect(tagStyle['1002']?.color).toEqual([1, 128 / 255, 0, 1]);
+    expect(tagStyle['1']?.color).toBeUndefined();
+
+    await record(page);
+    await page.click(`[data-testid="region-color-reset-${ids.mesh}-2"]`);
+    const reset = (await onePatch(page)).tagStyle as Record<string, { color?: number[] }>;
+    expect(reset['2']?.color).toBeUndefined();
+    expect(reset['1002']?.color).toBeUndefined();
+  });
+
+  test('the opacity slider fades both halves of the tissue at once', async () => {
+    await record(page);
+    await setControl(page, `region-opacity-${ids.mesh}-2`, '0.35');
     const tagStyle = (await onePatch(page)).tagStyle as Record<string, { opacity: number }>;
+    expect(tagStyle['2']?.opacity).toBeCloseTo(0.35, 6);
     expect(tagStyle['1002']?.opacity).toBeCloseTo(0.35, 6);
+    await setControl(page, `region-opacity-${ids.mesh}-2`, '1');
   });
 
   // ---- the field selector ----------------------------------------------------------------------

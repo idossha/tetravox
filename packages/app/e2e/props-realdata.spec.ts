@@ -1,5 +1,5 @@
 /**
- * The tissue table against the **real** engine and the **real** mesh (A-PROPS, half 2).
+ * The tissue rows against the **real** engine and the **real** mesh (A-PROPS, half 2).
  *
  * `docs/PHASE2-OWNERSHIP.md`'s real-data gate items for this owner:
  *
@@ -50,7 +50,7 @@ interface Sample {
   rgba: number[];
 }
 
-test.describe('the tissue table on ernie.msh (real data)', () => {
+test.describe('the tissue rows on ernie.msh (real data)', () => {
   let app: ElectronApplication;
   let page: Page;
   let layerId: string;
@@ -118,23 +118,150 @@ test.describe('the tissue table on ernie.msh (real data)', () => {
     await app?.close();
   });
 
-  test('shows every tissue name from ernie.msh.opt — the file has no $PhysicalNames', async () => {
-    const names = await page.locator(`[data-testid^="mesh-tag-name-${layerId}-"]`).allInnerTexts();
-    // The sidecar names the ten tissues; the mesh carries them as both tri (1001…) and tet (1…)
-    // tags, so a name may appear twice — what matters is that none of them is a bare "tag 1005".
-    for (const tissue of TISSUES) {
-      expect(names, `${tissue} is missing from the tissue table`).toContain(tissue);
-    }
-    expect(names.some((n) => /^tag \d+$/.test(n))).toBe(false);
-    // §7.6 / AGENTS.md: tag 4 does not exist in ernie, so a table built from `1..10` is wrong.
+  test('19 tags become 10 rows: one per tissue, named from ernie.msh.opt', async () => {
+    // AGENTS.md's per-tag census: tri 1001–1010 + 1099, tet 1–10 with **no tag 4** — 19 tags for
+    // ten tissues, because a `.msh` carries each tissue as a volume tag and a surface tag with the
+    // same `.msh.opt` name. The editor used to list all 19, twice over (its own tissue table *and*
+    // a Region panel under it). One list, one row per tissue, is what this pins.
+    const tags = await page.evaluate((id: string) => {
+      const state = window.__tetravox?.store.getState();
+      const layer = state?.layers.find((l) => l.id === id);
+      const ds = state?.datasets.find((d) => d.id === layer?.datasetId);
+      if (ds?.kind !== 'mesh') throw new Error('no mesh dataset');
+      return ds.tags.map((t) => ({ id: t.id, kind: t.kind }));
+    }, layerId);
+    expect(tags).toHaveLength(19);
+
+    await expect(page.getByTestId(`region-panel-${layerId}`)).toHaveAttribute(
+      'data-kind',
+      'meshTag'
+    );
+    await expect(page.getByTestId(`region-list-${layerId}`)).toHaveAttribute('data-rows', '10');
+    // The old second list is gone entirely, not merely collapsed.
+    await expect(page.locator(`[data-testid="mesh-tissue-list-${layerId}"]`)).toHaveCount(0);
+
+    // The rows are the **volume** tag ids plus the one tri tag with no volume half.
     const ids = await page
-      .locator(`[data-testid^="mesh-tag-row-${layerId}-"]`)
+      .locator(`[data-testid^="region-row-${layerId}-"]`)
       .evaluateAll((els) =>
         els.map((el) => Number((el.getAttribute('data-testid') ?? '').split('-').pop()))
       );
+    expect(ids).toEqual([1, 2, 3, 5, 6, 7, 8, 9, 10, 1099]);
+    // §7.6 / AGENTS.md: tag 4 does not exist in ernie, so a table built from `1..10` is wrong.
     expect(ids).not.toContain(4);
-    expect(ids).toContain(5);
-    console.log(`[props] ernie.msh tissue table: ${ids.length} rows, ids ${ids.join(', ')}`);
+
+    const names = await page.locator(`[data-testid^="region-name-${layerId}-"]`).allInnerTexts();
+    for (const tissue of TISSUES) {
+      expect(names, `${tissue} is missing from the tissue rows`).toContain(tissue);
+    }
+    // Each name appears **once** now — that was the whole complaint.
+    for (const tissue of TISSUES) {
+      expect(names.filter((n) => n === tissue)).toHaveLength(1);
+    }
+    expect(names.some((n) => /^Tag \d+$/.test(n))).toBe(false);
+
+    // Scalp's row carries both halves, with AGENTS.md's exact element counts on the hovers.
+    await expect(page.getByTestId(`region-vol-${layerId}-5`)).toHaveAttribute(
+      'title',
+      '5 · 567,089 tets'
+    );
+    await expect(page.getByTestId(`region-surf-${layerId}-5`)).toHaveAttribute(
+      'title',
+      '1005 · 77,032 tris'
+    );
+    // …and the count column is their sum, compact enough for a 300 px panel, with the exact
+    // figures on the hover rather than pushed off the row.
+    await expect(page.getByTestId(`region-tally-${layerId}-5`)).toHaveText(
+      new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(
+        567_089 + 77_032
+      )
+    );
+
+    // `1099 Internal_air_surface` has no volume half — the row renders with only "Surf" live.
+    await expect(page.getByTestId(`region-surf-${layerId}-1099`)).toBeEnabled();
+    await expect(page.getByTestId(`region-vol-${layerId}-1099`)).toBeDisabled();
+    console.log(`[props] ernie.msh: ${tags.length} tags → ${ids.length} tissue rows`);
+  });
+
+  test('the "Surf" toggle on the Scalp row hides EXACTLY tag 1005', async () => {
+    await page.getByTestId(`region-surf-${layerId}-5`).click();
+    const style = await page.evaluate((id: string) => {
+      const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
+      if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
+      const out: Record<number, boolean> = {};
+      for (const tag of [1, 2, 3, 5, 1002, 1005, 1099]) {
+        out[tag] = layer.tagStyle[tag]?.visible ?? true;
+      }
+      return out;
+    }, layerId);
+    // The surface tag alone. The tets of the same tissue, and every other tissue, are untouched.
+    expect(style[1005]).toBe(false);
+    expect(style[5]).toBe(true);
+    expect(style[1002]).toBe(true);
+    expect(style[1099]).toBe(true);
+    // The row is still "visible": half the tissue is still drawn.
+    await expect(page.getByTestId(`region-row-${layerId}-5`)).toHaveAttribute(
+      'data-visible',
+      'true'
+    );
+    await page.getByTestId(`region-surf-${layerId}-5`).click();
+  });
+
+  test('Alt-click solo leaves BOTH tags of one tissue visible, and nothing else', async () => {
+    await page.getByTestId(`region-name-${layerId}-5`).click({ modifiers: ['Alt'] });
+    const visible = await page.evaluate((id: string) => {
+      const state = window.__tetravox?.store.getState();
+      const layer = state?.layers.find((l) => l.id === id);
+      const ds = state?.datasets.find((d) => d.id === layer?.datasetId);
+      if (layer?.kind !== 'mesh' || ds?.kind !== 'mesh') throw new Error('no mesh');
+      return ds.tags.filter((t) => layer.tagStyle[t.id]?.visible ?? true).map((t) => t.id);
+    }, layerId);
+    expect([...visible].sort((a, b) => a - b)).toEqual([5, 1005]);
+    await page.getByTestId(`region-showAll-${layerId}`).click();
+  });
+
+  test('one swatch recolours BOTH of a tissue’s tags', async () => {
+    const setSwatch = async (hex: string): Promise<void> =>
+      page.evaluate(
+        ([id, value]: [string, string]) => {
+          const el = document.querySelector(`[data-testid="region-color-${id}-5"]`);
+          if (el === null) throw new Error('no colour swatch');
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+          setter?.call(el, value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        },
+        [layerId, hex] as [string, string]
+      );
+
+    const colors = async (): Promise<{ vol: number[] | null; surf: number[] | null }> =>
+      page.evaluate((id: string) => {
+        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
+        if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
+        return {
+          vol: layer.tagStyle[5]?.color ?? null,
+          surf: layer.tagStyle[1005]?.color ?? null,
+        };
+      }, layerId);
+
+    expect(await colors()).toEqual({ vol: null, surf: null });
+    await setSwatch('#ff00ff');
+    // §4.1: the picker's exact 8-bit value arrives as 0..1 floats, on **both** tags at once.
+    expect(await colors()).toEqual({ vol: [1, 0, 1, 1], surf: [1, 0, 1, 1] });
+
+    // …and the row's Reset drops both overrides, so `ernie.msh.opt`'s own colour comes back.
+    // The sidecar paints Scalp 255,166,133 (AGENTS.md), which is what the dataset still holds.
+    const file = await page.evaluate((id: string) => {
+      const state = window.__tetravox?.store.getState();
+      const layer = state?.layers.find((l) => l.id === id);
+      const ds = state?.datasets.find((d) => d.id === layer?.datasetId);
+      if (ds?.kind !== 'mesh') throw new Error('no mesh dataset');
+      return ds.tags.find((t) => t.id === 5)?.color ?? null;
+    }, layerId);
+    expect(file?.map((c) => Math.round(c * 255))).toEqual([255, 166, 133, 255]);
+
+    await page.getByTestId(`region-color-reset-${layerId}-5`).click();
+    expect(await colors()).toEqual({ vol: null, surf: null });
   });
 
   test('hiding Scalp in the table changes the 3D pane, and showing it back restores it exactly', async () => {
@@ -186,14 +313,13 @@ test.describe('the tissue table on ernie.msh (real data)', () => {
     // this and the assertion below would be measuring the background.
     expect(covered.length / before.length).toBeGreaterThan(0.2);
 
-    // Hide Scalp **through the table**, one click per tag, exactly as a user would.
-    for (const tag of scalpTags) {
-      await page.click(`[data-testid="mesh-tag-eye-${layerId}-${tag}"]`);
-      await expect(page.locator(`[data-testid="mesh-tag-row-${layerId}-${tag}"]`)).toHaveAttribute(
-        'data-visible',
-        'false'
-      );
-    }
+    // Hide Scalp **through the panel**, with the row's eye — which is one click for the tissue now,
+    // not one per tag, because the row is the tissue and carries both of its tags.
+    await page.getByTestId(`region-eye-${layerId}-5`).click();
+    await expect(page.getByTestId(`region-row-${layerId}-5`)).toHaveAttribute(
+      'data-visible',
+      'false'
+    );
 
     // The scene — not the panel — reports the tags hidden: the click reached `Engine.updateLayer`.
     const hidden = await page.evaluate(
@@ -227,10 +353,8 @@ test.describe('the tissue table on ernie.msh (real data)', () => {
     // Scalp is what the camera sees first, so most covered samples must move.
     expect(changed).toBeGreaterThan(covered.length * 0.5);
 
-    // Showing it back restores the frame **byte for byte** — the table's state is the whole state.
-    for (const tag of scalpTags) {
-      await page.click(`[data-testid="mesh-tag-eye-${layerId}-${tag}"]`);
-    }
+    // Showing it back restores the frame **byte for byte** — the row's state is the whole state.
+    await page.getByTestId(`region-eye-${layerId}-5`).click();
     await page.evaluate(async () => {
       await window.__tetravox?.engine?.whenSettled();
     });
@@ -240,101 +364,26 @@ test.describe('the tissue table on ernie.msh (real data)', () => {
     }
   });
 
-  test('a per-tag opacity and a recolour reach the scene as `tagStyle`', async () => {
-    const gm = await page.evaluate((id: string) => {
-      const tv = window.__tetravox;
-      const state = tv?.store.getState();
-      const layer = state?.layers.find((l) => l.id === id);
-      const dataset = state?.datasets.find((d) => d.id === layer?.datasetId);
-      if (dataset?.kind !== 'mesh') throw new Error('no mesh dataset');
-      // The GM *surface* tag (1002 on ernie), which is what the 3D pane draws.
-      const tag = dataset.tags.find((t) => t.kind === 'tri' && /^GM$/i.test(t.name ?? ''));
-      return tag?.id ?? null;
+  test('the row’s opacity slider reaches the scene as `tagStyle` on both halves', async () => {
+    // GM is tet 2 + tri 1002 on ernie; the 3D pane draws the tri half, §7.2's per-tag sub-draws
+    // give each half its own opacity, and one slider is meant to set them together.
+    await page.evaluate((id: string) => {
+      const el = document.querySelector(`[data-testid="region-opacity-${id}-2"]`);
+      if (el === null) throw new Error('no opacity slider');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(el, '0.35');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
     }, layerId);
-    expect(gm).not.toBeNull();
 
-    await page.evaluate(
-      ([id, tag]: [string, number]) => {
-        const el = document.querySelector(`[data-testid="mesh-tag-opacity-${id}-${tag}"]`);
-        if (el === null) throw new Error('no opacity slider');
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-        setter?.call(el, '0.35');
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      },
-      [layerId, gm as number] as [string, number]
-    );
-
-    const style = await page.evaluate(
-      ([id, tag]: [string, number]) => {
-        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
-        if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
-        return layer.tagStyle[tag];
-      },
-      [layerId, gm as number] as [string, number]
-    );
-    // §7.2: per-tag sub-draws mean per-tag opacity, and this is where it comes from.
-    expect(style?.opacity).toBeCloseTo(0.35, 5);
-    expect(style?.visible).toBe(true);
-
-    // R5's recolour, on a real tag: the picker's 8-bit value arrives as §4.1's 0..1 floats,
-    // **exactly** — `k / 255` round trips, which is what keeps §11's "the pixel is exactly the tag
-    // colour" true after a user edit. The edit lives in the layer, so it is what `serialize()`
-    // writes; the reset drops it and the file's own `.msh.opt` colour comes back.
-    const scalp = 1005;
-    const before = await page.evaluate(
-      ([id, tag]: [string, number]) => {
-        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
-        const dataset = window.__tetravox?.store
-          .getState()
-          .datasets.find((d) => d.id === (layer?.datasetId ?? ''));
-        if (layer?.kind !== 'mesh' || dataset?.kind !== 'mesh') throw new Error('no mesh');
-        return {
-          override: layer.tagStyle[tag]?.color ?? null,
-          file: dataset.tags.find((t) => t.id === tag)?.color ?? null,
-        };
-      },
-      [layerId, scalp] as [string, number]
-    );
-    expect(before.override).toBeNull();
-    // `ernie.msh.opt` paints Scalp 255,166,133 — the wire value, exactly (§4.1).
-    expect(before.file?.map((c) => Math.round(c * 255))).toEqual([255, 166, 133, 255]);
-
-    await page.evaluate(
-      ([id, tag]: [string, number]) => {
-        const el = document.querySelector(`[data-testid="mesh-tag-color-${id}-${tag}"]`);
-        if (el === null) throw new Error('no colour swatch');
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-        setter?.call(el, '#ff00ff');
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      },
-      [layerId, scalp] as [string, number]
-    );
-
-    const recoloured = await page.evaluate(
-      ([id, tag]: [string, number]) => {
-        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
-        if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
-        return layer.tagStyle[tag]?.color ?? null;
-      },
-      [layerId, scalp] as [string, number]
-    );
-    expect(recoloured).toEqual([1, 0, 1, 1]);
-    await expect(page.locator(`[data-testid="mesh-tag-row-${layerId}-${scalp}"]`)).toHaveAttribute(
-      'data-recoloured',
-      'true'
-    );
-
-    await page.click(`[data-testid="mesh-tag-color-reset-${layerId}-${scalp}"]`);
-    const reset = await page.evaluate(
-      ([id, tag]: [string, number]) => {
-        const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
-        if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
-        return layer.tagStyle[tag]?.color ?? null;
-      },
-      [layerId, scalp] as [string, number]
-    );
-    expect(reset).toBeNull();
+    const style = await page.evaluate((id: string) => {
+      const layer = window.__tetravox?.store.getState().layers.find((l) => l.id === id);
+      if (layer?.kind !== 'mesh') throw new Error('no mesh layer');
+      return { vol: layer.tagStyle[2], surf: layer.tagStyle[1002] };
+    }, layerId);
+    expect(style.vol?.opacity).toBeCloseTo(0.35, 5);
+    expect(style.surf?.opacity).toBeCloseTo(0.35, 5);
+    expect(style.vol?.visible).toBe(true);
+    expect(style.surf?.visible).toBe(true);
   });
 });

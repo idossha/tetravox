@@ -157,7 +157,7 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
       // takes the §8 path a user takes: `open/sources.ts` derives the §6.5.1 sidecars beside each
       // file, and §7.6 seeds the tissue names and colours from `ernie.msh.opt`. Building the
       // requests by hand here — which is what this step used to do — skipped that, and filmed a
-      // tissue table reading `tag 1` … `tag 1099` on a dataset whose names the product does show.
+      // tissue list reading `Tag 1` … `Tag 1099` on a dataset whose names the product does show.
       for (const dataset of DATASETS) {
         await app.evaluate(async ({ dialog }, path) => {
           dialog.showOpenDialog = (async () => ({

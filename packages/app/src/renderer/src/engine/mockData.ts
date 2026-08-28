@@ -237,13 +237,21 @@ export function makeVolume(
   };
 }
 
-/** Non-contiguous tags on purpose: §7.6 "tag 4 is absent from ernie". */
+/**
+ * Non-contiguous tags on purpose: §7.6 "tag 4 is absent from ernie".
+ *
+ * Also **paired** on purpose, the way a real `.msh` is: a tissue is a volume tag `t` over its tets
+ * and a surface tag `t + 1000` over its tris, sharing one `.msh.opt` name. Grey matter and the
+ * electrode carry both halves; White matter, CSF and Scalp carry only the volume half here, so the
+ * Region panel's lone-tag row has a fixture too.
+ */
 const MESH_TAGS: readonly Omit<MeshTag, 'color'>[] = [
   { id: 1, name: 'White matter', kind: 'tet', count: 517_144 },
   { id: 2, name: 'Grey matter', kind: 'tet', count: 1_340_029 },
   { id: 3, name: 'CSF', kind: 'tet', count: 874_602 },
   { id: 5, name: 'Scalp', kind: 'tet', count: 567_089 },
-  { id: 1002, name: 'Grey matter surface', kind: 'tri', count: 335_930 },
+  { id: 101, name: 'Electrode', kind: 'tet', count: 84 },
+  { id: 1002, name: 'Grey matter', kind: 'tri', count: 335_930 },
   { id: 1101, name: 'Electrode', kind: 'tri', count: 28 },
 ];
 
@@ -254,6 +262,7 @@ const TAG_COLORS: readonly [number, number, number, number][] = [
   [0.95, 0.76, 0.62, 1],
   [0.6, 0.6, 0.68, 1],
   [0.98, 0.85, 0.2, 1],
+  [0.9, 0.4, 0.4, 1],
 ];
 
 /**

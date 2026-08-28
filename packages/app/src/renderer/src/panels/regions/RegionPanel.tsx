@@ -32,6 +32,7 @@ import {
   filterRows,
   fromHex,
   opacityPatch,
+  partVisibilityPatch,
   probedRegionId,
   regionSourceFor,
   selectOnClick,
@@ -40,7 +41,16 @@ import {
   toggledVisible,
   visibilityPatch,
 } from './regions';
-import type { BulkOp, RegionRow, RegionSource } from './regions';
+import type { BulkOp, RegionRow, RegionSource, TissuePart } from './regions';
+
+/** Compact enough for a 300 px panel: 766,389 → "766.4K". The exact figure is in the hover. */
+const COMPACT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+
+/** "1 · 517,144 tets" — what the hover on a Vol / Surf toggle says. */
+function partTitle(part: TissuePart): string {
+  const unit = part.kind === 'tet' ? 'tets' : 'tris';
+  return `${part.tag} · ${part.count.toLocaleString('en-US')} ${unit}`;
+}
 
 export interface RegionPanelProps {
   /** The label volume, mesh or `.annot` layer whose table is being browsed. */
@@ -185,15 +195,21 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
             data-selected={selected.has(row.id)}
             data-recolorable={source.recolorable}
             className={
-              'flex items-center gap-1 rounded px-1 py-0.5 ' +
+              'flex items-center rounded px-1 py-0.5 ' +
+              (source.kind === 'meshTag' ? 'gap-[3px] ' : 'gap-1 ') +
               (selected.has(row.id) ? 'bg-tvx-accent/15 ring-1 ring-tvx-accent' : '')
             }
             onClick={(e) => onRowClick(row, e)}
             onDoubleClick={() => onRowDoubleClick(row)}
             title={
-              row.centroid === null
-                ? 'No centroid for this region — double-click has nowhere to jump'
-                : 'Double-click to jump the cursor to this region’s centroid'
+              row.parts !== undefined
+                ? [row.parts.vol, row.parts.surf]
+                    .filter((x): x is TissuePart => x !== undefined)
+                    .map(partTitle)
+                    .join(' / ') + ' · Alt-click to solo'
+                : row.centroid === null
+                  ? 'No centroid for this region — double-click has nowhere to jump'
+                  : 'Double-click to jump the cursor to this region’s centroid'
             }
           >
             <button
@@ -245,20 +261,109 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
               />
             )}
 
+            {source.recolorable && row.color !== null && row.overridden === true ? (
+              <button
+                type="button"
+                data-testid={`region-color-reset-${layerId}-${row.id}`}
+                aria-label={`Reset the colour of ${row.name}`}
+                title="Back to the file's own colour (.msh.opt / LUT / §7.6 palette)"
+                className="tvx-btn tvx-btn-sm shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const p = colorPatch(source, layer, row.id, null);
+                  if (p !== null) controller.patchLayer(layerId, p);
+                }}
+              >
+                ↺
+              </button>
+            ) : null}
+
             <span
               data-testid={`region-name-${layerId}-${row.id}`}
-              className="truncate text-[11px]"
+              className="min-w-0 flex-1 truncate text-[11px]"
               title={row.name}
             >
               {row.name}
             </span>
 
-            <span className="ml-auto shrink-0 font-mono text-[10px] text-tvx-dim">
-              <span data-testid={`region-id-${layerId}-${row.id}`}>{row.id}</span>
-              {row.elementKind === undefined ? '' : ` ${row.elementKind}`}
-              {' · '}
+            {/* One tissue, two geometries. `.msh` stores every tissue as a volume tag over its tets
+                and a surface tag 1000 higher over its tris, both named the same by `.msh.opt`, so a
+                list of tags shows every tissue twice. The row is the tissue; these two toggles are
+                the halves, each with its own eye state and its own `tagStyle` entry — the pairing
+                is presentation only and nothing new is persisted. */}
+            {row.parts === undefined
+              ? null
+              : (['vol', 'surf'] as const).map((half) => {
+                  const part = row.parts?.[half];
+                  const label = half === 'vol' ? 'Vol' : 'Surf';
+                  return (
+                    <button
+                      key={half}
+                      type="button"
+                      data-testid={`region-${half}-${layerId}-${row.id}`}
+                      data-tag={part?.tag}
+                      data-visible={part?.visible ?? false}
+                      disabled={part === undefined}
+                      aria-pressed={part?.visible ?? false}
+                      aria-label={
+                        part === undefined
+                          ? `${row.name} has no ${label.toLowerCase()} tag`
+                          : `${part.visible ? 'Hide' : 'Show'} the ${label.toLowerCase()} tag of ${row.name}`
+                      }
+                      title={
+                        part === undefined
+                          ? `${row.name} has no ${half === 'vol' ? 'volume (tet)' : 'surface (tri)'} tag`
+                          : partTitle(part)
+                      }
+                      className={
+                        'tvx-btn tvx-btn-sm shrink-0 px-1 font-mono text-[9px] ' +
+                        (part === undefined
+                          ? 'opacity-30'
+                          : part.visible
+                            ? 'text-tvx-text'
+                            : 'text-tvx-dim line-through')
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (part === undefined) return;
+                        const p = partVisibilityPatch(source, layer, part.tag, !part.visible);
+                        if (p !== null) controller.patchLayer(layerId, p);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+
+            {/* A tissue row has no room for the id as well: the two tag ids are already on the
+                Vol / Surf hovers, and the count is compact with the exact figures in the title. A
+                label or annot row keeps `id · count`, which is what R5 asks for and what fits. */}
+            <span
+              className={
+                'shrink-0 font-mono text-[10px] text-tvx-dim ' +
+                (row.parts === undefined ? 'ml-auto' : '')
+              }
+              title={
+                row.parts === undefined
+                  ? undefined
+                  : [row.parts.vol, row.parts.surf]
+                      .filter((x): x is TissuePart => x !== undefined)
+                      .map(partTitle)
+                      .join(' / ')
+              }
+            >
+              {row.parts === undefined ? (
+                <>
+                  <span data-testid={`region-id-${layerId}-${row.id}`}>{row.id}</span>
+                  {' · '}
+                </>
+              ) : null}
               <span data-testid={`region-tally-${layerId}-${row.id}`}>
-                {row.count === null ? '—' : row.count.toLocaleString('en-US')}
+                {row.count === null
+                  ? '—'
+                  : row.parts === undefined
+                    ? row.count.toLocaleString('en-US')
+                    : COMPACT.format(row.count)}
               </span>
             </span>
 
@@ -276,7 +381,9 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
                   const p = opacityPatch(source, layer, row.id, Number(e.currentTarget.value));
                   if (p !== null) controller.patchLayer(layerId, p);
                 }}
-                className="h-1 w-10 shrink-0 accent-tvx-accent"
+                className={
+                  'h-1 shrink-0 accent-tvx-accent ' + (source.kind === 'meshTag' ? 'w-8' : 'w-10')
+                }
               />
             )}
           </div>

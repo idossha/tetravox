@@ -20,7 +20,6 @@ import { FieldSection } from './FieldSection';
 import { Glyphs } from './Glyphs';
 import { Isolation } from './Isolation';
 import { RegionPanel } from '../../regions/RegionPanel';
-import { TissueTable } from './TissueTable';
 
 export function meshSummary(dataset: Dataset, layer: Layer): string {
   if (dataset.kind !== 'mesh') return layer.kind;
@@ -33,13 +32,13 @@ export function MeshProperties({ layer, dataset }: LayerPropertiesProps): React.
   if (layer.kind !== 'mesh' || dataset.kind !== 'mesh') return null;
   return (
     <div data-testid={`mesh-properties-${layer.id}`} className="mt-1 flex flex-col">
-      <TissueTable dataset={dataset} layer={layer} />
       {/* R5: "**One** Region panel for every labelled thing … label volumes, mesh tissue tags
           (`tagStyle`), surface annotations (`.annot` / `.label.gii` via `colorMode:'label'`)."
-          `panels/regions/regions.ts` has served all three since it was written — `regionSourceFor`
-          returns `meshTag` and `annot` sources — and the panel was mounted from exactly one place,
-          the volume editor, so two of the three were unreachable and the tissue table was the only
-          UI a mesh tag had. That is how the two grew different gestures for the same action. */}
+          It is **one** panel here too. The mesh editor used to mount both this and a `TissueTable`
+          of its own, so every tissue was listed twice over — and, because a `.msh` carries a volume
+          tag and a surface tag per tissue, twice again inside each list. `TissueTable` is gone; the
+          Region panel keeps the behaviours it had that the table never grew (click-select, ⇧/⌘
+          multi-select, pane-click selection) and pairs the two tags into one row. */}
       <RegionPanel layerId={layer.id} />
       <FieldSection dataset={dataset} layer={layer} />
       <CrossSection dataset={dataset} layer={layer} />
