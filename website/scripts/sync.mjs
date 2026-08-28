@@ -107,6 +107,9 @@ function rewriteLinks(body) {
   out = out.replaceAll('{{ site.baseurl }}/TESTING.html', '/developers/testing');
   out = out.replaceAll('docs/AUTOMATION.md', '/automation');
   out = out.replaceAll('docs/TESTING.md', '/developers/testing');
+  // USER_GUIDE.md cross-links to its own other sections, once split into
+  // one page per topic under /guide/ (see splitGuide() below).
+  out = out.replace(/\{\{ site\.baseurl \}\}\/guide\/([a-z0-9-]+)\.html/g, '/guide/$1');
   // Repo-relative links the site does not ship as pages.
   for (const [repoPath, kind] of Object.entries(REPO_LINKS)) {
     const url = (kind === 'tree' ? GITHUB_TREE : GITHUB_BLOB) + repoPath.replace(/^\.\.\//, '');
@@ -156,7 +159,6 @@ const DOC_PAGES = [
   // screenshot figures - keep them. Every other doc has no real HTML in it
   // at all (verified: only Rust/TS generics and placeholder text look like
   // tags), so those get every `<...>` escaped, not just the disallowed ones.
-  { src: 'USER_GUIDE.md', out: 'viewing-data.md', title: 'Viewing data', allowRealTags: true },
   { src: 'AUTOMATION.md', out: 'automation.md', title: 'Automation & Python', allowRealTags: true },
   { src: 'ARCHITECTURE.md', out: 'developers/architecture.md', title: 'Architecture' },
   { src: 'DECISIONS.md', out: 'developers/decisions.md', title: 'Decisions' },
@@ -170,8 +172,83 @@ for (const page of DOC_PAGES) {
     srcPath: join(DOCS, page.src),
     outPath: join(SRC_OUT, page.out),
     title: page.title,
+    allowRealTags: page.allowRealTags,
   });
 }
+
+// ------------------------------------------------------------- guide (split)
+// docs/USER_GUIDE.md is the single source of truth for guide content, but the
+// site gives each ## section its own sidebar page (16 short, scannable pages
+// beat one long one). Split on top-level `## ` headings; the intro prose
+// before the first heading becomes the "Opening data & formats" page's lead
+// paragraph is NOT dropped here - it stays with the doc's own H1, which this
+// script does not carry into any split page (each split page gets its own
+// title from GUIDE_PAGES instead, matching the site's existing convention).
+const GUIDE_PAGES = [
+  { heading: 'Opening data & formats', slug: 'opening-data' },
+  { heading: 'The panes', slug: 'panes' },
+  { heading: 'Volume layers', slug: 'volume-layers' },
+  { heading: 'Atlases & regions', slug: 'atlases-regions' },
+  { heading: 'Meshes', slug: 'meshes' },
+  { heading: 'Surfaces & annotations', slug: 'surfaces-annotations' },
+  { heading: 'Isosurfaces', slug: 'isosurfaces' },
+  { heading: 'Vector fields', slug: 'vector-fields' },
+  { heading: 'Points & electrodes', slug: 'points-electrodes' },
+  { heading: 'Measurements', slug: 'measurements' },
+  { heading: 'Coordinates', slug: 'coordinates' },
+  { heading: 'Themes & settings', slug: 'themes-settings' },
+  { heading: 'Scenes', slug: 'scenes' },
+  { heading: 'Screenshots & video', slug: 'screenshots-video' },
+  { heading: 'Keyboard shortcuts', slug: 'keyboard-shortcuts' },
+  { heading: 'Troubleshooting', slug: 'troubleshooting' },
+];
+
+function splitGuide() {
+  const raw = readFileSync(join(DOCS, 'USER_GUIDE.md'), 'utf8');
+  const body = stripFrontmatter(raw);
+  // The doc opens with an `# H1` and an intro (kept only on the first split
+  // page, "Opening data & formats", so a reader who lands there still gets
+  // the one-paragraph "what is this" instead of jumping straight into
+  // format details).
+  const firstHeadingIdx = body.indexOf('\n## Opening data & formats');
+  const intro = body
+    .slice(0, firstHeadingIdx)
+    .replace(/^# .*\n/, '')
+    .trim();
+
+  const sections = body.split(/\n(?=## )/g).filter((s) => s.startsWith('## '));
+  const bySlug = new Map();
+  for (const section of sections) {
+    const heading = section.slice(3, section.indexOf('\n')).trim();
+    const page = GUIDE_PAGES.find((p) => p.heading === heading);
+    if (!page) {
+      throw new Error(
+        `sync.mjs: USER_GUIDE.md has an unmapped section "${heading}" - add it to GUIDE_PAGES`
+      );
+    }
+    // Drop the `## Heading` line itself - the page's own title (frontmatter)
+    // already says it, and VitePress' outline shows H2s within the page.
+    const content = section.slice(section.indexOf('\n') + 1).trim();
+    bySlug.set(page.slug, content);
+  }
+  for (const page of GUIDE_PAGES) {
+    if (!bySlug.has(page.slug)) {
+      throw new Error(`sync.mjs: USER_GUIDE.md is missing its "${page.heading}" section`);
+    }
+  }
+
+  for (const page of GUIDE_PAGES) {
+    const raw =
+      page.slug === 'opening-data' ? intro + '\n\n' + bySlug.get(page.slug) : bySlug.get(page.slug);
+    const body = sanitizeAngles(rewriteLinks(raw), true);
+    const frontmatter = '---\ntitle: ' + page.heading + '\n---\n\n';
+    const outPath = join(SRC_OUT, 'guide', page.slug + '.md');
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, frontmatter + '# ' + page.heading + '\n\n' + body);
+  }
+}
+
+splitGuide();
 
 // AGENTS.md lives at the repo root, not under docs/, but is the source of
 // truth for the Developers "Contributing" page (commands, test data, rules).

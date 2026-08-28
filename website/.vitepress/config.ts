@@ -27,7 +27,7 @@ export default defineConfig({
   // URL depth — visitors never see the source/generated split.
   srcDir: '.',
   rewrites: {
-    'src/viewing-data.md': 'viewing-data.md',
+    'src/guide/:page.md': 'guide/:page.md',
     'src/automation.md': 'automation.md',
     'src/gallery.md': 'gallery.md',
     'src/developers/architecture.md': 'developers/architecture.md',
@@ -66,7 +66,7 @@ export default defineConfig({
       {
         text: 'Guide',
         link: '/',
-        activeMatch: '^/(get-started|viewing-data|automation|gallery|showcase)',
+        activeMatch: '^/(get-started|guide|automation|gallery|showcase)',
       },
       {
         text: 'Developers',
@@ -97,7 +97,28 @@ export default defineConfig({
           items: [
             { text: 'Home', link: '/' },
             { text: 'Get started', link: '/get-started' },
-            { text: 'Viewing data', link: '/viewing-data' },
+            {
+              text: 'The wiki',
+              collapsed: false,
+              items: [
+                { text: 'Opening data & formats', link: '/guide/opening-data' },
+                { text: 'The panes', link: '/guide/panes' },
+                { text: 'Volume layers', link: '/guide/volume-layers' },
+                { text: 'Atlases & regions', link: '/guide/atlases-regions' },
+                { text: 'Meshes', link: '/guide/meshes' },
+                { text: 'Surfaces & annotations', link: '/guide/surfaces-annotations' },
+                { text: 'Isosurfaces', link: '/guide/isosurfaces' },
+                { text: 'Vector fields', link: '/guide/vector-fields' },
+                { text: 'Points & electrodes', link: '/guide/points-electrodes' },
+                { text: 'Measurements', link: '/guide/measurements' },
+                { text: 'Coordinates', link: '/guide/coordinates' },
+                { text: 'Themes & settings', link: '/guide/themes-settings' },
+                { text: 'Scenes', link: '/guide/scenes' },
+                { text: 'Screenshots & video', link: '/guide/screenshots-video' },
+                { text: 'Keyboard shortcuts', link: '/guide/keyboard-shortcuts' },
+                { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+              ],
+            },
             { text: 'Automation & Python', link: '/automation' },
             { text: 'Gallery', link: '/gallery' },
             { text: 'Showcase', link: '/showcase' },
