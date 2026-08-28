@@ -128,6 +128,13 @@ export class ShellController {
   private readonly helperLoads = new Map<string, Promise<DatasetId | null>>();
   private ticketSeq = 0;
   private toastSeq = 0;
+  /**
+   * Guards `loadTheme`'s screenshot-defaults merge (directed task: unified settings, 2026-08-28)
+   * against a race with a caller that edits `screenshotOptions` before that `settings()` round trip
+   * resolves — `setScreenshotOptions`/`setScreenshotDefaults` flip this, and a merge that has
+   * already lost the race for the user's edit must not clobber it back to the persisted default.
+   */
+  private screenshotOptionsTouched = false;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   /** The `prefers-color-scheme` subscription, live only while the choice is `'system'`. */
   private themeMedia: { query: MediaQueryList; off: () => void } | null = null;
@@ -572,9 +579,11 @@ export class ShellController {
       reopenLastScene: settings.reopenLastScene ?? false,
       screenshotDefaults: screenshotDefaults ?? s.screenshotDefaults,
       // Merge the persisted defaults into the live options the screenshot dialog edits, so a
-      // background/dpi/autoTrim set once in the settings dialog applies from the very first shot.
+      // background/dpi/autoTrim set once in the settings dialog applies from the very first shot —
+      // unless the caller already edited `screenshotOptions` while this round trip was in flight,
+      // in which case that edit has the stronger claim (see `screenshotOptionsTouched`).
       screenshotOptions:
-        screenshotDefaults === undefined
+        screenshotDefaults === undefined || this.screenshotOptionsTouched
           ? s.screenshotOptions
           : { ...s.screenshotOptions, ...screenshotDefaults },
     }));
@@ -598,6 +607,7 @@ export class ShellController {
    * both do immediately, not just what a *future* app launch does.
    */
   async setScreenshotDefaults(patch: Partial<ScreenshotDefaults>): Promise<void> {
+    this.screenshotOptionsTouched = true;
     this.store.setState((s) => ({
       screenshotDefaults: { ...s.screenshotDefaults, ...patch },
       screenshotOptions: { ...s.screenshotOptions, ...patch },
@@ -1308,6 +1318,7 @@ export class ShellController {
   // ------------------------------------------------------------------------------------------
 
   setScreenshotOptions(options: ScreenshotOptions): void {
+    this.screenshotOptionsTouched = true;
     this.store.setState({ screenshotOptions: options });
   }
 
@@ -1322,6 +1333,7 @@ export class ShellController {
    * `lastScreenshot`, so a `dpi` the engine silently dropped is visible in the product.
    */
   async saveScreenshot(options: ScreenshotOptions): Promise<boolean> {
+    this.screenshotOptionsTouched = true;
     this.store.setState({ screenshotOptions: options, dialog: 'none' });
     const blob = await this.engine.screenshot(options);
     // Reading back a blob this process just produced is not "raw file bytes on the UI thread"

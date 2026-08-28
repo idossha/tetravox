@@ -54,13 +54,18 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
       freesurferSubjectsDir: '',
       recentScenes: [],
       reopenLastScene: false,
+      screenshotDefaults: { background: 'scene' as const, dpi: 144, autoTrim: false },
     }),
     setSettings: async () => ({
       theme: 'system' as const,
       freesurferSubjectsDir: '',
       recentScenes: [],
       reopenLastScene: false,
+      screenshotDefaults: { background: 'scene' as const, dpi: 144, autoTrim: false },
     }),
+    configPath: async () => '/tvx-test/tetravoxrc',
+    revealConfigFile: async () => {},
+    onOpenSettings: () => () => {},
     // The `--job` half of the bridge: this window was not launched for one.
     jobSpec: async () => null,
     jobWrite: async () => ({ ok: false, error: 'not a job run' }),
