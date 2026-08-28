@@ -1,9 +1,10 @@
 # Tetravox CI — docs/ARCHITECTURE.md §12.
 #
-# `test` runs on ubuntu-24.04 (the §11/§12.1 **golden authority**) and macos-latest. The `package` legs of
-# the §12.1 matrix are carried here from day one, as docs/ROADMAP.md Phase 0 requires, but they are
-# Phase 3's to make green and only run on demand — Phase 0 proves `pnpm package` on the host platform
-# only, via the macOS `.dmg` step inside `test`.
+# `test` runs on ubuntu-24.04 (the §11/§12.1 **golden authority**) on every event, and on macos-latest
+# for push-to-main and workflow_dispatch only — macOS minutes bill 10x on a private repo (§12.1).
+# The `package` legs of the §12.1 matrix are carried here from day one, as docs/ROADMAP.md Phase 0
+# requires, but they are Phase 3's to make green and only run on demand — Phase 0 proves
+# `pnpm package` on the host platform only, via the macOS `.dmg` step inside `test`.
 name: CI
 
 on:
@@ -26,10 +27,30 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A green `test` leg is ~8 min on ubuntu and ~5 min on macOS (measured, run 33125834965). The cap
+    # is not for the happy path; it is for the one where the engine cannot start. Playwright's
+    # per-test timeout is 30 s and the engine suite is ~120 tests over two projects, so a page that
+    # never publishes `window.__tvxEngine` does not hang — it fails once per test, one timeout at a
+    # time, and bills every second of it. That is what run 33116778462 did on `main`: **3 h 14 m on a
+    # macOS runner, at the 10x rate**, for a failure that was fully diagnosable from its first
+    # minute. 45 min is five times a green run and still cuts that worst case by 4x.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        # COST POLICY (DECISIONS 2026-08-27, §12.1): macOS runners bill 10x the minutes of Linux on a
+        # private repo, so the macOS leg runs on push-to-main and workflow_dispatch only, NOT on
+        # pull_request. ubuntu-24.04 is the golden authority (§11) and runs on every event, so a PR
+        # is still gated on the runner whose goldens are authoritative; macOS is a pre-merge check
+        # on main.
+        #
+        # This is the matrix and not a job-level `if:` because **the `matrix` context does not exist
+        # in `jobs.<id>.if`** — only `github`, `needs`, `vars` and `inputs` do. A job `if` reading
+        # `matrix.os` is not a false condition, it is an invalid workflow: the run fails in 0s with
+        # "This run likely failed because of a workflow file issue" and no jobs at all (measured,
+        # run 33122604659). `matrix` itself, by contrast, is evaluated early enough to read
+        # `github.event_name`, so the leg is dropped from the matrix rather than skipped inside it.
+        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-24.04", "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}
     steps:
       - uses: actions/checkout@v5
 
@@ -115,16 +136,49 @@ jobs:
       # after this one; on macOS nothing is needed.
       - name: Start Xvfb (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb x11-utils
           Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
-          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          # Xvfb backgrounds immediately and is not listening yet; a step that exports DISPLAY and
+          # walks away hands the next step a display that may not answer. Wait for it, and fail here
+          # rather than as an unexplained Electron crash later.
+          for _ in $(seq 1 30); do
+            if xdpyinfo -display :99 >/dev/null 2>&1; then
+              echo "Xvfb is answering on :99"
+              echo "DISPLAY=:99" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Xvfb never came up on :99" >&2
+          exit 1
 
       # §12.2, explicitly: a failed electron download must be its own red step, not a mysterious e2e
       # failure. On a cold cache this is where the ~100 MB binary is fetched.
+      #
+      # `--no-sandbox` on Linux, and it is not optional. Chromium's SUID sandbox helper ships inside
+      # the npm tarball as a plain user-owned file, and Chromium refuses to run rather than drop the
+      # sandbox silently:
+      #   FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary
+      #   was found, but is not configured correctly. ... chrome-sandbox is owned by root and has
+      #   mode 4755.
+      # It aborts with SIGTRAP before printing the version, so even `--version` fails. The packaged
+      # AppImage has the same problem, which is why §12.2 already says Linux needs `--no-sandbox` and
+      # why `packages/app/e2e/fixtures.ts` passes it on every Linux launch. `chown root` + `chmod
+      # 4755` on the binary would be the other fix; it is rejected here because it would make this
+      # step the only place in the project that runs Electron sandboxed, so a sandbox regression
+      # would still not be caught, at the cost of a sudo write into node_modules.
       - name: Warm up the electron binary
-        run: pnpm exec electron --version
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            pnpm exec electron --no-sandbox --version
+          else
+            pnpm exec electron --version
+          fi
 
       - name: Install the pinned Chromium
         run: pnpm exec playwright install --with-deps chromium
@@ -183,6 +237,11 @@ jobs:
           TETRAVOX_ALLOW_SOFTWARE_ANGLE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: pnpm e2e
 
+      # Both suites `pnpm e2e` runs, not just the engine's: the app's dev-leg report was uploaded on
+      # no runner at all (the `packaged` step below collects packages/app, but only on macOS), so an
+      # app E2E failure on Linux left its screenshots and traces on the runner and nothing to look at
+      # here. That is the leg that is hardest to reproduce locally, so it is the one that most needs
+      # its artefacts.
       - name: Upload the Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -191,6 +250,8 @@ jobs:
           path: |
             packages/engine/playwright-report
             packages/engine/test-results
+            packages/app/playwright-report
+            packages/app/test-results
           retention-days: 7
           if-no-files-found: ignore
 

@@ -1415,6 +1415,86 @@ Each entry below names the problem, the fix, and the evidence.
   whole "missing (Phase 2)" column, not one feature, so its six contents are mapped in a table), and
   "element info" is split *produce* (E-SCENE) from *render* (A-SHELL) instead of appearing twice.
 
+- 2026-08-27 — **The macOS `test` leg runs on push-to-`main` and `workflow_dispatch`, never on
+  `pull_request`; ubuntu-24.04 runs on everything.** GitHub bills macOS runner minutes at **10x** the
+  Linux rate on a private repo, and the first CI runs showed a full `test` leg is minutes, not seconds,
+  so every PR iteration was costing ten Linux runs' worth of budget for a second opinion on a matrix
+  whose *authority* is the other leg: §11 makes `ubuntu-24.04` the golden authority, and §11's own rule
+  is that a golden passing on macOS and failing on ubuntu must be regenerated on ubuntu. Implemented in
+  the **matrix**, `os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') ||
+  fromJSON('["ubuntu-24.04", "macos-latest"]') }}`, so the job list, the steps, every cache and the
+  packaged-`.dmg` e2e stay exactly as they were on the events that do run macOS. A job-level
+  `if: matrix.os != 'macos-latest' || …` was tried first and is **not a valid workflow**: the `matrix`
+  context does not exist in `jobs.<id>.if` (only `github`, `needs`, `vars`, `inputs` do), and the run
+  dies in 0 s with "This run likely failed because of a workflow file issue" and zero jobs — measured,
+  run 33122604659. `matrix` is evaluated early enough to read `github.event_name`, so dropping the leg
+  from the matrix is the mechanism that actually exists. The consequence is accepted and named: a PR green on ubuntu can still turn
+  `main` red on a macOS-only failure — the `.dmg` package step and the packaged E2E (ROADMAP Phase-0
+  gate 2) exist on no other leg — so macOS is a pre-merge gate on `main` rather than a per-PR one, and
+  the fix for such a break is a follow-up PR whose merge to `main` re-runs it. Deleting the macOS leg
+  outright — rejected: it is the only place the `.dmg` and its packaged e2e are built, and §12.1
+  requires them. Making it `workflow_dispatch`-only — rejected: nothing would then run it by default
+  and it would rot. Keeping it on `pull_request` and relying on `paths-ignore` — rejected: this
+  repository's PRs touch engine and app code, which is exactly what the leg tests, so it would almost
+  never skip.
+
+- 2026-08-27 — **The `chromium-angle` Playwright project is not registered on Linux.** §11's second
+  renderer class exists to reach a *platform GPU* — it is the only place `EXT_texture_norm16`, and so
+  the R16 branch of the §6.1 ladder, can execute. A GitHub `ubuntu-24.04` runner has no GPU, so the
+  project's own fallback assumption ("it still falls back to software and the R16 test skips — the leg
+  is then honestly empty") does not hold there: headed Chromium under Xvfb with no GPU intermittently
+  hands the page a WebGL2 context that is already gone, and the first shader compile in a fresh page
+  fails with an **empty** info log (`vertex shader failed to compile: (no log)`, from
+  `src/gl/program.ts`) — the signature of a lost context, never of a GLSL error. Measured on two
+  consecutive runs of the same commit (run 33122955835, attempts 1 and 2): attempt 1 failed the first
+  `@angle` test, attempt 2 the first two, and the later ones passed in both. Not a product defect and
+  not a shader defect: `chromium-swiftshader`, headless, compiles the identical shader and passes every
+  one of those same tests on the same runner in the same run, goldens included. So on Linux the leg
+  adds no assertion that is not already made — every `@angle` test also runs on the SwiftShader project
+  — and adds a flake; `ANGLE_LEG` in `packages/engine/playwright.config.ts` drops it, and
+  `TETRAVOX_ANGLE_LEG=1` restores it for a Linux workstation with a real GPU. macOS, where §11 puts the
+  leg and where it actually reaches ANGLE/Metal, is untouched. Retrying the flaky tests — rejected:
+  `retries: 0` is deliberate in a pixel harness, and a retry would hide a real context loss as easily
+  as this one. Forcing the leg to SwiftShader with `--use-gl=angle --use-angle=swiftshader` — rejected:
+  it would make the project a duplicate of `chromium-swiftshader` by construction, which is exactly the
+  thing §11 says the second renderer class must not be.
+
+- 2026-08-27 — **The app E2E launches Electron with `--disable-gpu` on Linux, alongside the
+  `--no-sandbox` §12.2 already required.** On a GPU-less `ubuntu-24.04` runner under Xvfb, WebGL is
+  *not* the problem — the renderer string is `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device
+  (Subzero)))`, `tvx_ping` round-trips through wasm, and `readPixels` returns `#e5d634` exactly, so
+  `phase0.spec.ts`'s drawing-buffer assertions pass. The *display compositor* is: `page.screenshot()`
+  comes back with the whole 800×600 canvas box painted **white**, with Chromium's broken-image glyph
+  in its corner, while every other pixel of the app — header, footer, the capability table — renders
+  correctly (measured on run 33125161134; the artefact is `phase0-dev.png`, and the macOS
+  `phase0-packaged.png` in the same run is the correct picture). `--disable-gpu` puts compositing in
+  software, where SwiftShader already is, so the frame the test reads back is the frame the page drew;
+  WebGL2 survives because `src/main/index.ts` appends `--enable-unsafe-swiftshader` unconditionally,
+  and that pair is the combination already measured in `packages/engine/playwright.config.ts`. It is a
+  **test-harness** launch arg, in `packages/app/e2e/fixtures.ts`, not a shipped one: a Linux desktop
+  with a working GPU composites the canvas normally, and the app already reports `caps.isSoftware` in
+  its status bar for the machine that has none. Asserting the canvas only through `readPixels` and
+  dropping the screenshot leg — rejected: §11's whole point is that the screenshot and the drawing
+  buffer must agree, and on macOS they do.
+
+- 2026-08-27 — **The `test` job is capped at `timeout-minutes: 45`.** A green leg is ~8 min on ubuntu
+  and ~5 min on macOS (run `33125834965`), so the cap cannot fire on a working build. It exists for the
+  failure mode this suite actually has, which is not a hang: when the engine page never publishes
+  `window.__tvxEngine`, every Playwright test still *starts*, waits out its own 30 s timeout and fails,
+  ~120 of them per project — the job stays "in progress", billing, for hours while producing the same
+  one-line diagnosis over and over. Run `33116778462` spent **3 h 14 m of macOS runner time, at the 10x
+  private-repo rate**, on a defect that was fully visible in its first minute, and run `33126921336`
+  was heading the same way on ubuntu when it was cancelled by hand. 45 min is five times a green run.
+  Lowering Playwright's per-test timeout instead — rejected: 30 s is a *test* budget tuned to the
+  slowest legitimate golden, and shrinking it to bound the *job* would trade real coverage for a
+  billing property. A shorter step-level cap on `pnpm e2e` alone — rejected as strictly weaker: the
+  cache, install and packaging steps can wedge too, and one job-level cap covers all of them.
+- 2026-08-28 — macOS CI leg is **workflow_dispatch only** (was: push-to-main + dispatch) — the first push's macOS run took
+  3 h 14 m at the private-repo 10× rate and exhausted the account's Actions spending limit; the maintainer's Mac runs the
+  full macOS suite locally on every phase, so automatic macOS CI buys nothing; ubuntu-24.04 (the golden authority) stays
+  automatic on push and PR. Alternatives rejected: keeping macOS on push (cost), dropping macOS entirely (still useful for
+  a manual pre-release check).
+
 - 2026-08-27 — **`DatasetRef.fingerprint` has a producer: `tvxfp1`, in `tvx-core`, called by both loaders
   before the bytes are freed** (W-WASM Phase-2 gap 1). §4.6 required the field, §8 keys the relocate dialog
   on it, and nothing computed it: `VolumeMeta` and `MeshMeta` had no such member and `scene/serialize.ts`

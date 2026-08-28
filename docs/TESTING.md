@@ -26,6 +26,8 @@ fine.
 | `pnpm lint` | `eslint .` + `prettier --check .` |
 | `pnpm e2e` | every package's `e2e` script — today the engine's Playwright suite |
 | `pnpm --filter @tetravox/engine run e2e` | the engine suite alone — **two projects**: `chromium-swiftshader` (everything) and `chromium-angle` (`@angle` only, on the real GPU) |
+| `pnpm --filter @tetravox/engine exec playwright test --project=chromium-angle` | just the ANGLE leg — where the R16 branch of the §6.1 ladder executes (on Linux, prefix `TETRAVOX_ANGLE_LEG=1`) |
+
 | `pnpm --filter @tetravox/engine exec playwright test --project=chromium-angle` | just the ANGLE leg — where the R16 branch of the §6.1 ladder executes |
 | `pnpm --filter @tetravox/app run e2e` | the Playwright-Electron suite — **two projects**: `dev` and `packaged` |
 | `TETRAVOX_E2E_HEADED=1 pnpm e2e` | the same runs with **visible windows**, for debugging (§2.1) |
@@ -281,6 +283,23 @@ running there would demand a capture rather than a comparison.
 | `chromium-swiftshader` | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device …))` | everything, goldens included | false ⇒ the R16 test **skips with its reason** |
 | `chromium-angle` | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)` | `@angle` only | true ⇒ the R16 test **runs** (0.6 s) |
 
+On a machine with a GPU but no `EXT_texture_norm16` the project falls back to software, `caps.norm16` is
+false and the R16 test skips there too — the leg is then honestly empty rather than silently missing.
+Phase 1 shipped the test without the project, so the R16 branch executed in **no** environment at all
+while the gate table recorded it as covered; that is the hole this project closes.
+
+**On Linux the project is not registered at all** (`ANGLE_LEG` in `playwright.config.ts`), and the reason
+is measured. A GitHub `ubuntu-24.04` runner has no GPU, and headed Chromium under Xvfb there
+intermittently hands the page a WebGL2 context that is already gone: the first shader compile in a fresh
+page fails with an **empty** info log — `vertex shader failed to compile: (no log)` out of
+`src/gl/program.ts` — which is what a lost context looks like and what a real GLSL error never does. Two
+consecutive runs of the same commit (run `33122955835`, attempts 1 and 2) failed *different* subsets: the
+first `@angle` test, then the first two, with the later ones passing both times. The shader is fine —
+`chromium-swiftshader`, headless, compiles it and passes every one of those same tests on the same runner
+in the same run. Since the leg exists to reach a **platform GPU**, and a GPU-less runner cannot give it
+one, on Linux CI it would only be SwiftShader a second time plus the flake. `TETRAVOX_ANGLE_LEG=1` turns
+it back on for a Linux workstation that really does have a GPU.
+
 Phase 1 shipped the R16 test without the project, so that branch executed in **no** environment at all
 while the gate table recorded it as covered; that is the hole this project closes.
 
@@ -403,17 +422,27 @@ with no change of shape.
 
 `.github/workflows/ci.yml`.
 
-* **`test`** on `ubuntu-24.04` (**golden authority**) and `macos-latest`: pinned Rust toolchain from
+* **`test`** on `ubuntu-24.04` (**golden authority**, every event) and `macos-latest` (**push to `main`
+  and `workflow_dispatch` only** — macOS bills 10x on a private repo, §12.1): pinned Rust toolchain from
   `rust-toolchain.toml` → `cargo fmt` / `clippy -D warnings` / `cargo test` → `pnpm wasm` → `pnpm
   typecheck` / `pnpm lint` / `pnpm test` → `pnpm e2e`. Caches: cargo (registry, git, `~/.cargo/bin`,
   `target`), the pnpm store, `~/.cache/electron`, `~/.cache/ms-playwright`. `ELECTRON_CACHE` and
   `PLAYWRIGHT_BROWSERS_PATH` are pinned to those paths on both runners, because macOS would otherwise use
   `~/Library/Caches` and the cache keys would not match.
 * **`pnpm exec electron --version` is its own step**, before the e2e, exactly as §12.2 requires: a failed
-  ~100 MB download is then a red step with an obvious name, not a mysterious e2e failure.
+  ~100 MB download is then a red step with an obvious name, not a mysterious e2e failure. **On Linux it
+  is `electron --no-sandbox --version`**: the `chrome-sandbox` helper in the npm tarball is not
+  root-owned setuid, and Chromium aborts (`SIGTRAP`) rather than run unsandboxed — even for `--version`.
+  Same reason `packages/app/e2e/fixtures.ts` passes `--no-sandbox` on every Linux launch (§12.2).
 * **`TETRAVOX_TESTDATA` is unset**, and a step asserts it — real-data tests skip in CI by design.
+* The job carries **`timeout-minutes: 45`**. A green leg is ~8 min on ubuntu and ~5 min on macOS, so the
+  cap only ever fires on the failure mode this suite actually has: an engine that cannot start does not
+  hang, it times out once per test — ~120 tests × 30 s, twice over on a two-project run — and bills all
+  of it. Run `33116778462` spent **3 h 14 m of macOS runner time at the 10x rate** that way.
 * An **Xvfb** is started on the Linux runner and exported as `DISPLAY`, because Electron needs an X server
-  and the Phase-1 app E2E will run there.
+  and the app E2E runs there. The step waits on `xdpyinfo` before exporting `DISPLAY`, so a display that
+  never came up is a red Xvfb step rather than an unexplained Electron crash three steps later. The
+  headed `chromium-angle` engine project does **not** run on Linux — see §3.
 * **Packaging in Phase 0 is the macOS `.dmg` step only**, inside the `test` job, without
   `continue-on-error`: `pnpm package` builds this platform's artefacts only (§12.1), and Linux artefacts
   are never built on macOS. Until `packages/app` has a `package` script the step is a documented no-op;

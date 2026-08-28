@@ -2451,11 +2451,29 @@ to prove the `.msh.opt` parses. Reference values for the *real* dataset come fro
 | Job | Runner | Does | Notes |
 |---|---|---|---|
 | `test` | `ubuntu-24.04` | `cargo test --workspace`, `cargo clippy -- -D warnings`, `pnpm wasm`, `pnpm test`, `pnpm e2e` | **Golden authority** (§11) |
-| `test` | `macos-latest` (macOS 26 arm64) | same | goldens compared with a looser ratio |
+| `test` | `macos-latest` (macOS 26 arm64) | same | goldens compared with a looser ratio; **`workflow_dispatch` only** (the maintainer's Mac runs this suite locally on every phase) |
 | `package` | `macos-latest` | `.dmg` arm64 | |
 | `package` | `macos-26-intel` | `.dmg` x64 | `macos-latest` is arm64 only |
 | `package` | `ubuntu-24.04` | `.AppImage` + `.deb` x64 | **Linux artefacts are never built on macOS** |
 | `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | |
+
+**When each `test` leg runs.** `ubuntu-24.04` runs on `push`, `pull_request` and `workflow_dispatch`;
+`macos-latest` is gated to `workflow_dispatch` by the **matrix itself** —
+`os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[…, "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}`.
+Not by a job-level `if:`: the `matrix` context does not exist in `jobs.<id>.if` (only `github`, `needs`, `vars`,
+`inputs` do), so an `if:` reading `matrix.os` is an **invalid workflow**, not a false condition — the run fails
+in 0 s with no jobs at all. GitHub bills macOS
+minutes at **10x** the Linux rate on a private repo, and the golden authority is ubuntu (§11), so a pull request
+is already gated on the runner whose pixels decide. macOS remains a hard gate on `main` — including the packaged
+`.dmg` e2e, which exists nowhere else — so a PR that is green on ubuntu can still turn `main` red; that is the
+accepted cost of the policy, and it is why the macOS leg is not merely deleted.
+
+The `test` job also carries **`timeout-minutes: 45`**, and it is part of the same policy. A green leg is ~8 min
+on ubuntu and ~5 min on macOS, so the cap never touches a working build; it exists because this suite's
+characteristic failure is not a hang but a **slow-motion pile of timeouts** — an engine page that never
+publishes `window.__tvxEngine` fails ~120 Playwright tests at 30 s each, on each project, and bills every
+second. Run `33116778462` did exactly that for **3 h 14 m on a macOS runner at the 10x rate**, for a defect
+visible in its first minute.
 
 `pnpm package` on a developer machine produces that platform's artefacts only. Linux artefacts come from CI or
 `docker run electronuserland/builder`.
