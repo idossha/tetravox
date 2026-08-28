@@ -383,8 +383,21 @@ export interface IsosurfaceLayer extends LayerBase {
 
 export interface PointsLayer extends LayerBase {
   kind: 'points';
-  points: { name?: string; position: vec3; color?: vec4 /* 0..1 */; radiusMm?: number }[];
+  points: { name?: string; position: vec3; color?: vec4 /* 0..1 */; radiusMm?: number;
+            value?: number }[];
   shape: 'sphere' | 'dot'; radiusMm: number; color: vec4 /* 0..1 */; showLabels: boolean;
+
+  // A Gmsh parsed view's extras (§6.2). EVERY field below is optional and absent reproduces the
+  // Phase-2 behaviour exactly, so an existing scene loads unchanged (DECISIONS, 2026-08-28).
+  labels?: { position: vec3; text: string }[];   // free-standing 3D text, drawn in §7.2's overlay
+  labelScale?: number; labelColor?: vec4;        // default 1; default `color`
+  lineSegments?: Float32Array;                   // 6/segment — `SL`, drawn like a §7.0.6 contour
+  lineWidthPx?: number; lineColor?: vec4;        // default 2 render-target px; default `color`
+  // `valueMode`, NOT `colorMode`: `MeshLayer.colorMode` is a different union on the same `Layer`
+  // union, and a spread of `Partial<Layer>` widens to both. Resolved on the CPU in `packPoints`.
+  valueMode?: 'solid' | 'value';
+  colormap?: ColormapName | string;
+  valueRange?: { lo: number; hi: number };       // absent = the layer's own min..max
 }
 
 export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
@@ -1023,8 +1036,21 @@ pub fn read_fs_annot(bytes: &[u8]) -> Result<(Field, LabelTable)>;   // Field = 
 pub fn read_stl(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_ply(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_obj(bytes: Vec<u8>) -> Result<Mesh>;
+pub fn read_geo_view(bytes: Vec<u8>) -> Result<Vec<GeoView>>;   // Gmsh parsed views: `.geo` / `.pos`
 pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format>;
-pub enum Format { Msh, Gifti, FsSurface, Stl, Ply, Obj }
+pub enum Format { Msh, Gifti, FsSurface, Stl, Ply, Obj, Geo }
+
+/// One `View "name" { … };` block. De-indexed: a parsed view has no node table.
+pub struct GeoView {
+    pub name: String,
+    pub points: Vec<[f32; 3]>,   pub point_values: Vec<f32>,       // 1 per point
+    pub labels: Vec<([f32; 3], String)>,                            // T2/T3 anchors + strings
+    pub lines: Vec<[[f32; 3]; 2]>, pub line_values: Vec<f32>,       // 2 per segment
+    pub tris: Vec<[[f32; 3]; 3]>,  pub tri_values: Vec<f32>,        // 3 per triangle
+    pub skipped: Vec<(String, u64)>,                                // primitives we drop
+    pub time_steps: usize,
+    pub bounds: Aabb,
+}
 
 // Exact FieldStats over field values (§6.0's "no sampling" rule). Named here because tvx-geom's
 // elm_to_node / node_to_elm build a Field / ElmField and every such struct carries `stats`;
@@ -1078,6 +1104,33 @@ entry points are gone.
   → deterministic glasbey-like palette. Rule: **surface tag `1xxx` inherits the colour of volume tag `1xxx − 1000`**.
 * Gmsh 4.1 ascii+binary is supported; there is no local reference implementation (SimNIBS refuses v4), so its
   fixtures must be generated with `~/Applications/SimNIBS-4.6/bin/gmsh` (recorded in DECISIONS).
+
+**Gmsh parsed post-processing views (`.geo` / `.pos`) — normative.** This is *not* the Gmsh
+scripting language. A parsed view is a literal dump of primitives, which is how SimNIBS writes
+`m2m_*/eeg_positions/*.geo` (`View""{ SP(x,y,z){v}; T3(x,y,z,style){"E001"}; … };` — an **empty,
+unspaced** view name, 187 `SP` + 187 `T3` for `GSN-HydroCel-185.geo` `[DATA]`).
+
+* **Coordinates are component-major, not interleaved.** A primitive with `n` vertices lists
+  `x1..xn, y1..yn, z1..zn`, and only then, inside the braces, one value per vertex per time step.
+  This is silent for `n = 1`, so an `SP`-only fixture cannot catch it; `testdata/view_electrodes.geo`
+  carries an `ST` whose three corners are distinguishable.
+* Primitives read: `SP`/`VP` (points), `SL`/`VL` (segments), `ST`/`VT` (triangles), `SQ`/`VQ`
+  (quads, fanned `(0,1,2)+(0,2,3)`), `T2`/`T3` (text, with the style int read and discarded).
+  Everything else — `SS`/`SH`, `TIME`, `INTERPOLATION_SCHEME` — is **counted into `skipped`, not an
+  error**, exactly as `read_msh` counts unsupported element types.
+* **Vector primitives reduce to their magnitude.** `point_values` / `line_values` / `tri_values` are
+  one scalar per vertex; the display path is a scalar colormap (§4.4) and a stride that depended on
+  the producing primitive would be worse than a documented reduction.
+* **Only time step 0 is read**, and `time_steps` reports how many the file had — the same line §6.2
+  takes on a multi-step `$NodeData`, one rung softer.
+* Gmsh **option statements** trail the view in every SimNIBS net but the smallest
+  (`myView = PostProcessing.NbViews-1;`, `View[myView].PointSize=6;`). They are Gmsh-GUI display
+  hints, not data, and are skipped to their `;`.
+* A `.geo` carrying **geometry commands** (`Point(`, `Line(`, `Surface(`, …) is
+  `Error::Unsupported` **naming the command**. It is CAD input, not data; returning an empty view
+  would look like a corrupt file. `sniff` recognises a parsed view by its leading `View` token, and
+  falls back to the `geo`/`pos` extension — but the loader routes `.geo`/`.pos` by extension anyway,
+  so that this message is the one the user sees (`docs/DECISIONS.md`, 2026-08-28).
 
 **GIfTI:** XML via `quick-xml`. `Encoding` ∈ {`ASCII`, `Base64Binary`, `GZipBase64Binary`}; `ExternalFileBinary`
 ⇒ `Error::Unsupported` (the byte-slice signature has no sibling-file access). **`GZipBase64Binary` is a zlib
@@ -1326,6 +1379,12 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 #[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, lut_bytes: Option<Vec<u8>>,
                                    float_linear: bool, norm16: bool, max_3d: u32, want_linear: bool,
                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
+// `format` is §6.5's `MeshFormatSel`. `"geo"` is the Gmsh parsed-view path: `read_geo_view`, then
+// the views' triangles folded into ONE de-indexed `Mesh` (a `tri_tag` per view, per-corner values
+// on a node field named `value`), and the points / labels / `SL` segments returned as the additive
+// `geo` half of the result (§6.5.1 `GeoPayloadT`). No new op and no new export — a parsed view's
+// triangles are a surface, so `surface` / `field` / `contours` / `cut` / `locate` work unchanged
+// (`docs/DECISIONS.md`, 2026-08-28). An electrode net legitimately yields 0 nodes and 0 triangles.
 #[wasm_bindgen] pub fn load_mesh(bytes: Vec<u8>, format: &str, opt_bytes: Option<Vec<u8>>,
                                  lut_bytes: Option<Vec<u8>>,
                                  on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
@@ -1590,6 +1649,24 @@ export interface IsolateCriteriaT {
 }
 // Sidecars are keyed BY ROLE, never positional: the worker must be able to tell a `_LUT.txt` from a `.msh.opt`
 // without sniffing. `lut` -> `load_volume`/`load_mesh`'s `lut_bytes`; `opt` -> `load_mesh`'s `opt_bytes`.
+// Gmsh parsed post-processing views (§6.2). `loadMesh`'s `format` gains `'geo'` and its result
+// gains this OPTIONAL half — absent for every other format, so nothing that loads a `.msh` changes.
+// The view's ST/SQ triangles are NOT here: they are the `Mesh` the same call loaded, with the
+// per-corner values on the node field named `value`. Every array below is de-indexed, world mm.
+export interface GeoPayloadT {
+  points: Float32Array;            // 3/point
+  pointValues: Float32Array;       // 1/point — the SP value, or a VP's magnitude
+  pointView: Uint32Array;          // 1/point — the 0-based view it came from (= tri_tag - 1)
+  labelPositions: Float32Array;    // 3/label — the T2/T3 anchor
+  labelTexts: string[];            // 1/label
+  lineSegments: Float32Array;      // 6/segment — same packing as `contours`, so §7.0.6 draws them
+  lineValues: Float32Array;        // 2/segment
+  viewNames: string[];
+  views: { name: string; points: number; labels: number; lines: number; tris: number;
+           timeSteps: number; skipped: { primitive: string; count: number }[] }[];
+  bounds: { min: [number,number,number]; max: [number,number,number] };
+}
+
 export type LoadSource =
   | { kind: 'url';   url: string;   sidecars?: { lut?: string; opt?: string } }      // tetravox://file/…
   | { kind: 'file';  file: File;    sidecars?: { lut?: File; opt?: File } }
@@ -1636,7 +1713,7 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | op | args | result | notes |
 |---|---|---|---|
 | `loadVolume` | `{ source: LoadSource; caps: { floatLinear: boolean; norm16: boolean; max3d: number }; wantLinear: boolean }` | `{ meta: VolumeMeta; data: ArrayBuffer; gpuBytes: ArrayBuffer; labelIds?: Uint32Array; denseIndexOf?: Uint32Array }` | `data` = raw samples for probes; `gpuBytes` = the `gpu_payload` texture bytes |
-| `loadMesh` | `{ source: LoadSource; format: 'auto'\|'msh'\|'gii'\|'fs'\|'stl'\|'ply'\|'obj' }` | `{ meta: MeshMeta }` | no bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` are built here |
+| `loadMesh` | `{ source: LoadSource; format: 'auto'\|'msh'\|'gii'\|'fs'\|'stl'\|'ply'\|'obj'\|'geo' }` | `{ meta: MeshMeta; geo?: GeoPayloadT }` | no bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` are built here. `geo` is present **only** for `'geo'` — a Gmsh parsed view's points, labels and `SL` segments (§6.2, §6.5.1); its triangles are the `Mesh` |
 | `volumeFrame` | `{ handle: number; volumeIndex: number; caps: { floatLinear: boolean; norm16: boolean; max3d: number }; wantLinear: boolean }` | `VolumeFrameT` | the **only** way to display a 4D index ≠ 0 (§7.5 `,`/`.`, the Phase-2 spinner). `VolumeMeta.stats`/`gpu` are volume 0's; this returns the rest |
 | `surface` | `{ handle: number; variant: SurfaceVariant; maskId?: number }` | `SurfacePayload` | `tag_surfaces` when `hasTris`, else `extract_boundary` |
 | `boundary` | `{ handle: number; maskId?: number; variant: SurfaceVariant }` | `SurfacePayload` | always `extract_boundary`; used after isolation/clip |
@@ -1832,9 +1909,19 @@ Rules:
    pass a cap is a single sheet — `CULL_FACE` disabled, sorted by the clip plane's depth at the object centre.
    *Invariant:* a cap must exist wherever the clip discards geometry, or the phase split shows the shell interior
    through the cut.
-3. **Overlay** — crosshair, cut-plane gizmo, contours on slices, glyph labels, annotations, orientation letters,
-   corner info, RAD/NEU badge, colour bars, scale bar, orientation cube. **All clip distances disabled** in this
-   pass, or the gizmo gets clipped by the plane it manipulates.
+3. **Overlay** — crosshair, cut-plane gizmo, contours on slices, glyph labels, **a points layer's 3D text
+   labels**, annotations, orientation letters, corner info, RAD/NEU badge, colour bars, scale bar, orientation
+   cube. **All clip distances disabled** in this pass, or the gizmo gets clipped by the plane it manipulates.
+
+   `PointsLayer.labels` (§4.4) are *text at a world position* — a Gmsh `T3`, `E001` above the electrode it names.
+   There is no 3D-text geometry: the anchor is projected through the pane's own view-projection and the string is
+   drawn as flat overlay glyphs with the standard halo, so it is legible over bright scalp and the same size at
+   every zoom. **They are NOT occlusion-tested** — a label behind the head still draws. §7.2.3's pick target
+   carries element ids, not depth, and is rendered *after* this pass, so hiding one would need a `readPixels`
+   stall per pane per frame or a second depth resolve. What is dropped is what is free: an anchor behind the eye
+   or outside the pane, and — in a 2D pane — every anchor further than one point radius from the slice, because a
+   187-electrode net projected whole onto one axial slice is a smear of names belonging to slices 80 mm away.
+   `SL` segments are pass-1 items and draw through the §7.0.6 contour program, at a constant screen width.
 4. **Pick (on demand)** — §7.2.3.
 
 **Frame pump:**

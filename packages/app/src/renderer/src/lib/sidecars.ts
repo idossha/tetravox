@@ -12,7 +12,19 @@
 
 /** Strip the extensions a NIfTI/Gmsh/GIfTI name can carry, longest compound suffix first. */
 export function stripKnownExtension(path: string): string {
-  for (const ext of ['.nii.gz', '.mgz', '.mgh', '.nii', '.msh', '.gii', '.stl', '.ply', '.obj']) {
+  for (const ext of [
+    '.nii.gz',
+    '.mgz',
+    '.mgh',
+    '.nii',
+    '.msh',
+    '.gii',
+    '.stl',
+    '.ply',
+    '.obj',
+    '.geo',
+    '.pos',
+  ]) {
     if (path.toLowerCase().endsWith(ext)) return path.slice(0, path.length - ext.length);
   }
   const dot = path.lastIndexOf('.');

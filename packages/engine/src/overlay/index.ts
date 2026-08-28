@@ -44,3 +44,6 @@ export type { EdgeLetters } from './letters';
 // E-DERIVED: the contour item's pure screen-space expansion, the CPU twin of `shaders/contour.ts`.
 export { contourInstanceCount, expandContourSegment } from './contours';
 export type { ContourQuad } from './contours';
+// Appended for parsed Gmsh views (task 6): a points layer's screen-projected 3D text labels.
+export { drawPointLabels, labelHeightPx, placePointLabels } from './point-labels';
+export type { LabelPlacement, PlacedLabel } from './point-labels';

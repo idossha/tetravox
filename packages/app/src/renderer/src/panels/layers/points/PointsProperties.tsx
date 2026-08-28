@@ -27,7 +27,29 @@ import {
   setPointsRadius,
   setPointsShape,
   setShowLabels,
+  // Appended for parsed Gmsh views (task 6).
+  hasPointValues,
+  setLabelScale,
+  setPointsColormap,
+  setValueMode,
 } from './state';
+
+/** §4.1's `ColormapName`, as a value — the same list the mesh field editor offers. */
+const POINT_COLORMAPS = [
+  'gray',
+  'viridis',
+  'plasma',
+  'inferno',
+  'magma',
+  'cividis',
+  'turbo',
+  'jet',
+  'hot',
+  'cool',
+  'bone',
+  'coolwarm',
+  'bwr',
+].map((c) => ({ value: c, label: c }));
 
 export function pointsSummary(_dataset: Dataset, layer: Layer): string {
   if (layer.kind !== 'points') return layer.kind;
@@ -116,6 +138,45 @@ function PointsEditor({
             onChange={(opacity) => patch({ opacity })}
           />
         </Row>
+
+        {/*
+          A parsed Gmsh view's two extra knobs (task 6). `labels` above is the on/off; this is the
+          size, shown only when the layer actually has labels to size — a CSV of ROI centres has
+          none, and an inert slider is worse than no slider.
+        */}
+        {(points.labels ?? []).length > 0 && (
+          <Row label="Label size">
+            <Slider
+              testId={`points-label-scale-${points.id}`}
+              value={points.labelScale ?? 1}
+              min={0.5}
+              max={4}
+              step={0.25}
+              format={(v) => `${v.toFixed(2)}x`}
+              onChange={(v) => patch(setLabelScale(points, v))}
+            />
+          </Row>
+        )}
+
+        {hasPointValues(points) && (
+          <Row label="Colour by">
+            <Select
+              testId={`points-value-mode-${points.id}`}
+              value={points.valueMode ?? 'solid'}
+              options={[
+                { value: 'solid', label: 'solid' },
+                { value: 'value', label: 'value' },
+              ]}
+              onChange={(v) => patch(setValueMode(points, v as 'solid' | 'value'))}
+            />
+            <Select
+              testId={`points-colormap-${points.id}`}
+              value={points.colormap ?? 'viridis'}
+              options={POINT_COLORMAPS}
+              onChange={(v) => patch(setPointsColormap(points, v))}
+            />
+          </Row>
+        )}
 
         {rows.length === 0 ? (
           <p data-testid={`points-empty-${points.id}`} className="text-[10px] text-tvx-dim">

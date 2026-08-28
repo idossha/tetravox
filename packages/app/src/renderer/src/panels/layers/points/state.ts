@@ -64,6 +64,45 @@ export function setShowLabels(_layer: PointsLayer, showLabels: boolean): Partial
   return { showLabels };
 }
 
+// -----------------------------------------------------------------------------------------------
+// Parsed Gmsh views (`.geo` / `.pos`, directed task 6). Additive: every knob below is optional on
+// the layer and absent means the Phase-2 behaviour.
+// -----------------------------------------------------------------------------------------------
+
+/** Label text size, as a multiple of the pane's own font size. Clamped to a legible range. */
+export function setLabelScale(_layer: PointsLayer, labelScale: number): Partial<PointsLayer> {
+  return { labelScale: Math.min(4, Math.max(0.5, labelScale)) };
+}
+
+/**
+ * Solid colour vs. the per-point value through a colormap.
+ *
+ * Switching to `'value'` seeds the range from the points themselves when the layer has none, so
+ * the first click shows a spread rather than one flat colour — and a layer whose values are all
+ * equal (every SimNIBS net writes `{0}`) gets a degenerate range, which `packPoints` maps to the
+ * colormap's midpoint rather than dividing by zero.
+ */
+export function setValueMode(
+  layer: PointsLayer,
+  valueMode: NonNullable<PointsLayer['valueMode']>
+): Partial<PointsLayer> {
+  if (valueMode !== 'value' || layer.valueRange !== undefined) return { valueMode };
+  const values = (layer.points ?? [])
+    .map((p) => p.value)
+    .filter((v): v is number => v !== undefined);
+  if (values.length === 0) return { valueMode };
+  return { valueMode, valueRange: { lo: Math.min(...values), hi: Math.max(...values) } };
+}
+
+export function setPointsColormap(_layer: PointsLayer, colormap: string): Partial<PointsLayer> {
+  return { colormap };
+}
+
+/** Does this layer carry per-point values at all? Only then is the value/colormap row useful. */
+export function hasPointValues(layer: PointsLayer): boolean {
+  return (layer.points ?? []).some((p) => p.value !== undefined);
+}
+
 function patchPoint(
   layer: PointsLayer,
   index: number,

@@ -2522,3 +2522,55 @@ Each entry below names the problem, the fix, and the evidence.
   moved from the bottom of the old table into `FieldSection`, beside the colour-source selector it
   actually feeds.
 
+
+
+- 2026-08-28 — **Gmsh parsed post-processing views (`.geo` / `.pos`) load through `loadMesh`, not
+  through a nineteenth op.**
+  A parsed view is a literal dump of primitives — `View "" { SP(x,y,z){v}; T3(x,y,z,0){"E001"}; };`,
+  which is how SimNIBS writes `m2m_*/eeg_positions/*.geo` — and its `ST`/`SQ` triangles *are* a
+  surface with a per-corner scalar. Once they are a `Mesh`, every existing op works on them
+  unchanged: `surface`, `field`, `contours`, `cut`, `locate`, the whole §7.4 shader path. A
+  `loadGeoView` op would have duplicated all of that to gain nothing, and §6.5's frozen `OpName`
+  union would have grown for a format, which is the one thing it is frozen against.
+  So `MeshFormatSel` gains `'geo'` and `OpResult['loadMesh']` gains an **optional** `geo` half
+  (§6.5.1 `GeoPayloadT`) carrying the three things a `Mesh` has no room for: points, `T2`/`T3` text
+  labels and `SL` segments. `OP_NAMES` is still eighteen entries and `OP_TO_EXPORT` is unchanged;
+  a `.msh` load sees no difference at all, which `packages/wasm/src/index.test.ts` asserts.
+  The mesh is **de-indexed** — a parsed view has no node table, so `ST(…)` lists three independent
+  corners. Welding them would need a tolerance and a tolerance would silently merge two electrodes
+  of a dense net, so each corner is its own node and the per-corner values land on a node field
+  named `value`. One `tri_tag` per view, so a multi-view file is one dataset whose per-view
+  visibility is the existing `tagStyle` machinery.
+  A `.geo`/`.pos` is routed by **extension**, not by `sniff`: content sniffing recognises a parsed
+  view from its leading `View` token perfectly well, but then a `.geo` that turns out to be a Gmsh
+  *geometry script* falls out of `sniff` as "unrecognised mesh format", burying the one message
+  that says what is actually wrong with the file. `read_geo_view` rejects it as `Unsupported` and
+  names the command — `Point(` — that gave it away.
+
+- 2026-08-28 — **`PointsLayer` grows the parsed view's extras; the mode is `valueMode`, not
+  `colorMode`; labels are drawn in the overlay pass and are NOT occlusion-tested.**
+  §4.4's `PointsLayer` gains `labels` / `labelScale` / `labelColor`, `lineSegments` /
+  `lineWidthPx` / `lineColor`, and `valueMode` + `colormap` + `valueRange` beside a per-point
+  `value`. Every one is optional, and absent reproduces the Phase-2 behaviour exactly, so a scene
+  file that names a points layer loads unchanged and no golden moves.
+  It is `valueMode` and not the obvious `colorMode` because `MeshLayer.colorMode` is a *different*
+  four-value union on the same `Layer` union: TypeScript widens a spread of `Partial<Layer>` to the
+  union of both, and the collision broke every `addLayer({ ...patch })` call site — the app's scene
+  restore is where it surfaced. Two knobs on one union may not share a name and disagree about its
+  values.
+  Per-point colours from `value` are resolved on the **CPU**, in `packPoints`. A dense net is 256
+  instances × 8 floats = 8 KB, so recolouring the whole layer is cheaper than the LUT texture, the
+  extra uniform and the shader variant a GPU colormap would need — and it keeps one testable
+  definition of what a point looks like. The instance-buffer cache therefore keys on the colour
+  inputs as well as on the `points` array's identity.
+  **Labels are screen-projected in §7.2's overlay pass and a label behind the head still draws.**
+  §7.2.3's pick target carries element ids, not depth, and it is rendered after the overlay in the
+  frame it would have to be read from, so occlusion would need a `readPixels` stall per pane per
+  frame or a second depth resolve. What is implemented is the free half: an anchor behind the eye
+  or outside the pane is dropped, and a 2D pane draws only the anchors within one point radius of
+  its plane — a 187-electrode net projected whole onto one axial slice is an unreadable smear of
+  names belonging to slices 80 mm away. `SL` segments draw through the existing contour program, so
+  they keep a constant screen width like a 2D contour; `gl.lineWidth()` is a no-op (§7.0.6).
+  Installer: `.pos` is `rank: Owner`, `.geo` is `rank: Default`. The `.geo` extension is shared with
+  Gmsh's geometry-script language, which this app does not open, so it must not claim to be the
+  system-wide handler for every `.geo` on the machine.
