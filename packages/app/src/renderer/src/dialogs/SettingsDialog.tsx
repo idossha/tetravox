@@ -20,6 +20,7 @@ import type { SettingsTab } from '../store/store';
 import type { ThemeChoice } from '../theme/theme';
 import { THEME_CHOICES } from '../theme/theme';
 import type { ThemeName } from '../theme/tokens';
+import { Tabs } from '../ui/Tabs';
 import { DialogFrame, Field } from './dialog';
 
 export interface SettingsDialogProps {
@@ -115,21 +116,13 @@ export function SettingsDialog({
         </>
       }
     >
-      <div className="mb-3 flex items-center gap-0.5 border-b border-tvx-line pb-2" role="tablist">
-        {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            data-testid={`settings-tab-${id}`}
-            className={tab === id ? 'tvx-btn tvx-btn-sm tvx-btn-on' : 'tvx-btn tvx-btn-sm'}
-            onClick={() => onTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={TABS}
+        active={tab}
+        onChange={onTab}
+        testIdPrefix="settings-tab"
+        aria-label="Settings"
+      />
 
       {tab === 'appearance' && (
         <div
