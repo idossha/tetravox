@@ -326,12 +326,76 @@ class Job:
         )
         return self
 
+    def tween(
+        self,
+        out: str,
+        *,
+        to: Optional[Dict[str, Any]] = None,
+        start: Optional[Dict[str, Any]] = None,
+        frames: Optional[int] = None,
+        ease: Optional[str] = None,
+        orbit: Optional[Dict[str, Any]] = None,
+        view: Optional[str] = None,
+        fps: Optional[int] = None,
+        format: Optional[Union[str, Sequence[str]]] = None,
+        colors: Optional[int] = None,
+        sequence: Optional[str] = None,
+        gif: Optional[bool] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        background: Optional[str] = None,
+    ) -> "Job":
+        """N eased frames between two scene states.
+
+        `sweep` steps a slice and `orbit` turns a camera; a tween moves anything a number can
+        describe — the cursor, the 3D camera's distance and target, a pane's zoom, and any numeric
+        field of any layer (an opacity, a clip offset, a threshold, an iso level).
+
+        `start` is the JSON document's `from`, renamed because `from` is a Python keyword — the same
+        forced rename `sweep(start=, stop=)` already carries. Omit it and the tween begins wherever
+        the scene already is. Unlike `orbit`, a tween leaves the scene where it ended.
+
+        `sequence` is `start` / `continue` / `end`: several actions writing into one `out`, encoded
+        once at the end. That is how a long video is made of many shots.
+        """
+        if ease is not None and ease not in ("linear", "in", "out", "inOut"):
+            raise JobError(f"unknown ease {ease!r}; expected linear, in, out or inOut")
+        if sequence is not None and sequence not in ("start", "continue", "end"):
+            raise JobError(f"unknown sequence {sequence!r}; expected start, continue or end")
+        if to is None and orbit is None:
+            raise JobError("a tween with no `to` and no `orbit` has nowhere to go")
+        self._actions.append(
+            _drop_none(
+                {
+                    "type": "tween",
+                    "out": out,
+                    "frames": frames,
+                    "ease": ease,
+                    "from": start,
+                    "to": to,
+                    "orbit": orbit,
+                    "view": view,
+                    "fps": fps,
+                    "format": _formats(format),
+                    "colors": colors,
+                    "sequence": sequence,
+                    "gif": gif,
+                    "width": width,
+                    "height": height,
+                    "background": background,
+                }
+            )
+        )
+        return self
+
     # -- output ------------------------------------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:
         """The job document, exactly as it will be written."""
         if not self._actions:
-            raise JobError("a job with no actions renders nothing; add a screenshot, sweep or orbit")
+            raise JobError(
+                "a job with no actions renders nothing; add a screenshot, sweep, orbit or tween"
+            )
         job: Dict[str, Any] = {"version": 1, "scene": self._scene}
         if self._window is not None:
             job["window"] = {"width": self._window[0], "height": self._window[1]}

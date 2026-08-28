@@ -37,8 +37,17 @@ export type JobScene = { path: string } | { files: string[]; preset: PresetName 
 export type ViewName = 'axial' | 'coronal' | 'sagittal' | 'view3d';
 export const VIEWS: readonly ViewName[] = ['axial', 'coronal', 'sagittal', 'view3d'];
 
-export type LayoutName = '1x1' | '1x3' | '1x3-horizontal' | '2x2' | '3d-only';
-export const LAYOUTS: readonly LayoutName[] = ['1x1', '1x3', '1x3-horizontal', '2x2', '3d-only'];
+export type LayoutName = '1x1' | '1x3' | '1x3-horizontal' | '2x2' | '3d-only' | '1+3' | '3d+1';
+export const LAYOUTS: readonly LayoutName[] = [
+  '1x1',
+  '1x3',
+  '1x3-horizontal',
+  '2x2',
+  '3d-only',
+  // The two layouts directed task 3 added, so a job can ask for the ones the toolbar actually offers.
+  '1+3',
+  '3d+1',
+];
 
 /** §4.7's `CameraPreset`, as it is spelled in JSON. */
 export const CAMERA_PRESETS = ['1', '2', '3', '4', '5', '6', 'A', 'P', 'L', 'R', 'S', 'I'] as const;
@@ -46,6 +55,30 @@ export type CameraPresetName = (typeof CAMERA_PRESETS)[number];
 
 export type FrameFormat = 'png' | 'gif' | 'mp4';
 export const FRAME_FORMATS: readonly FrameFormat[] = ['png', 'gif', 'mp4'];
+
+export type EaseName = 'linear' | 'in' | 'out' | 'inOut';
+export const EASES: readonly EaseName[] = ['linear', 'in', 'out', 'inOut'];
+
+/**
+ * Where a frame action sits in a longer sequence (directed task 14, 2026-08-28).
+ *
+ * Absent — the default, and everything written before this existed — means "a sequence of one
+ * action": frames are numbered from `0000` and the GIF/MP4 are encoded when the action finishes.
+ * The other three let several actions write into **one** `out`, which is what a minute-long video
+ * made of twenty different shots needs and what a per-action encode cannot express:
+ *
+ * | value | numbering | encodes |
+ * |---|---|---|
+ * | absent | from 0 | yes |
+ * | `start` | from 0 | no |
+ * | `continue` | after the frames already written under this `out` | no |
+ * | `end` | ditto | yes — over the whole sequence |
+ *
+ * The encode reads the PNG frames back off disk (`<out>-%04d.png` is already what ffmpeg's image2
+ * demuxer wants), so a 2,700-frame 1080p sequence never has to be held in memory at once.
+ */
+export type SequenceRole = 'start' | 'continue' | 'end';
+export const SEQUENCE_ROLES: readonly SequenceRole[] = ['start', 'continue', 'end'];
 
 export type BackgroundName = 'scene' | 'white' | 'transparent';
 export const BACKGROUNDS: readonly BackgroundName[] = ['scene', 'white', 'transparent'];
@@ -134,6 +167,17 @@ export interface SweepAction {
   format?: FrameFormat | FrameFormat[];
   /** GIF palette size, 2..256 (default 256). Fewer colours is a much smaller file. */
   colors?: number;
+  /** {@link SequenceRole}. Absent = this action is a sequence of its own. */
+  sequence?: SequenceRole;
+  /**
+   * `false` skips the GIF.
+   *
+   * The GIF is otherwise unconditional, and the reason is worth keeping: without ffmpeg a run would
+   * produce no animation at all. The PNG frames are written either way, so that reason survives the
+   * opt-out — and at 1920×1080 over hundreds of frames a GIF is neither small nor watchable, which
+   * is the case this exists for.
+   */
+  gif?: boolean;
   width?: number;
   height?: number;
   background?: BackgroundName;
@@ -155,13 +199,85 @@ export interface OrbitAction {
   format?: FrameFormat | FrameFormat[];
   /** GIF palette size, 2..256 (default 256). Fewer colours is a much smaller file. */
   colors?: number;
+  /** {@link SequenceRole}. Absent = this action is a sequence of its own. */
+  sequence?: SequenceRole;
+  /** `false` skips the GIF. See {@link SweepAction.gif}. */
+  gif?: boolean;
   width?: number;
   height?: number;
   background?: BackgroundName;
   include?: IncludeSpec;
 }
 
-export type JobAction = SetAction | ScreenshotAction | SweepAction | OrbitAction;
+/**
+ * One end of a {@link TweenAction} — the same scene vocabulary a `set` speaks, minus everything that
+ * has no halfway.
+ *
+ * `layout`, `camera` and `radiological` are deliberately **not** here: there is no frame that is 40 %
+ * of the way from a 2×2 layout to a 1×1 one, and pretending otherwise would give a tween a jump cut
+ * with a ramp in front of it. Change those with a `set` before or after.
+ */
+export interface TweenState {
+  /** World RAS mm. Every 2D pane's slice follows it (§4.5). */
+  cursor?: [number, number, number];
+  /** 3D camera distance from its target, mm. */
+  distance?: number;
+  /** 3D camera target, world RAS mm — a dolly that also moves what the camera looks at. */
+  target?: [number, number, number];
+  /** Per-2D-view pan and zoom, keyed by view id. */
+  views?: Record<string, { mmPerPx?: number; center?: [number, number] }>;
+  /**
+   * Layer patches, each in the same `Partial<Layer>` vocabulary a `set` uses (§4.4). Numbers in the
+   * patch are interpolated; everything else is applied from the first frame.
+   */
+  layers?: { layer?: LayerSelector; patch: Record<string, unknown> }[];
+}
+
+/**
+ * **`tween` — N frames of eased interpolation between two scene states** (directed task 14).
+ *
+ * `sweep` steps a slice and `orbit` turns a camera; a tween moves *anything a number can describe*
+ * — the cursor, the camera's distance and target, a pane's zoom, and any numeric field of any layer:
+ * an opacity, a clip-plane offset, a threshold, an iso level, a glyph length. That is what a
+ * narrated shot needs and what neither of the other two can do, because both of them own the one
+ * parameter they vary.
+ *
+ * `from` is optional and defaults to **the live scene**, read path by path off the same shape `to`
+ * names, so a shot says where it is going and not also where it already is.
+ *
+ * Unlike `orbit`, a tween **leaves the scene where it ended**. A tween is a move in the story, not a
+ * capture of a scene that is put back afterwards; the next action starts where this one stopped.
+ */
+export interface TweenAction {
+  type: 'tween';
+  out: string;
+  /** Frames, inclusive of both ends. Default 30. `1` is a legal one-frame hold on `to`. */
+  frames?: number;
+  /** Default `inOut`. */
+  ease?: EaseName;
+  from?: TweenState;
+  to?: TweenState;
+  /**
+   * An eased camera orbit run across the same frames, in degrees about a **world** axis — composed
+   * with whatever `to.distance` / `to.target` do, so one shot can dolly in while it turns.
+   */
+  orbit?: { degrees: number; axis?: 'x' | 'y' | 'z' };
+  /** The capture target, as `screenshot`: a view id, or `'grid'` (the default) for the whole grid. */
+  view?: ViewName | 'grid';
+  fps?: number;
+  format?: FrameFormat | FrameFormat[];
+  colors?: number;
+  /** {@link SequenceRole}. Absent = this action is a sequence of its own. */
+  sequence?: SequenceRole;
+  /** `false` skips the GIF. See {@link SweepAction.gif}. */
+  gif?: boolean;
+  width?: number;
+  height?: number;
+  background?: BackgroundName;
+  include?: IncludeSpec;
+}
+
+export type JobAction = SetAction | ScreenshotAction | SweepAction | OrbitAction | TweenAction;
 
 export interface Job {
   /** Optional; validated against {@link JOB_SCHEMA_VERSION} when present. */
@@ -334,6 +450,84 @@ class Errors {
       this.enum(at, entry, FRAME_FORMATS);
     }
   }
+  /** `n` finite numbers, or nothing. */
+  numbers(path: string, value: unknown, n: number, what: string): void {
+    if (value === undefined) return;
+    if (
+      !Array.isArray(value) ||
+      value.length !== n ||
+      value.some((v) => typeof v !== 'number' || !Number.isFinite(v))
+    ) {
+      this.push(path, `must be ${what}`);
+    }
+  }
+  /** One end of a `tween` (§`TweenState`). */
+  tweenState(path: string, value: unknown): void {
+    if (value === undefined) return;
+    if (!isBag(value)) {
+      this.push(path, 'must be an object of scene properties to interpolate');
+      return;
+    }
+    const known = ['cursor', 'distance', 'target', 'views', 'layers'];
+    for (const key of Object.keys(value)) {
+      if (!known.includes(key))
+        this.push(`${path}.${key}`, `unknown key (expected ${known.join(', ')})`);
+    }
+    this.numbers(
+      `${path}.cursor`,
+      value['cursor'],
+      3,
+      'three finite numbers [x, y, z] in world RAS mm'
+    );
+    this.numbers(
+      `${path}.target`,
+      value['target'],
+      3,
+      'three finite numbers [x, y, z] in world RAS mm'
+    );
+    this.number(`${path}.distance`, value['distance'], { positive: true });
+    const views = value['views'];
+    if (views !== undefined) {
+      if (!isBag(views)) this.push(`${path}.views`, 'must be an object keyed by view id');
+      else {
+        for (const [id, entry] of Object.entries(views)) {
+          this.enum(`${path}.views.${id}`, id, VIEWS);
+          if (!isBag(entry)) {
+            this.push(`${path}.views.${id}`, 'must be { mmPerPx, center }');
+            continue;
+          }
+          this.number(`${path}.views.${id}.mmPerPx`, entry['mmPerPx'], { positive: true });
+          this.numbers(
+            `${path}.views.${id}.center`,
+            entry['center'],
+            2,
+            'two finite numbers [x, y] in millimetres'
+          );
+        }
+      }
+    }
+    const layers = value['layers'];
+    if (layers !== undefined) {
+      if (!Array.isArray(layers)) {
+        this.push(`${path}.layers`, 'must be an array of { layer, patch }');
+        return;
+      }
+      for (const [i, entry] of layers.entries()) {
+        const at = `${path}.layers[${i}]`;
+        if (!isBag(entry)) {
+          this.push(at, 'must be { layer, patch }');
+          continue;
+        }
+        const layer = entry['layer'];
+        if (layer !== undefined && typeof layer !== 'number' && typeof layer !== 'string') {
+          this.push(`${at}.layer`, 'must be a layer index, a layer name, or "active"');
+        }
+        if (!isBag(entry['patch'])) {
+          this.push(`${at}.patch`, 'must be an object of layer properties (§4.4)');
+        }
+      }
+    }
+  }
   /** A non-empty output name that cannot climb out of `--out`. */
   outName(path: string, value: unknown): void {
     if (typeof value !== 'string' || value === '') {
@@ -471,6 +665,8 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       errors.number(`${path}.fps`, action['fps'], { positive: true });
       errors.formats(`${path}.format`, action['format']);
       errors.number(`${path}.colors`, action['colors'], { positive: true });
+      errors.enum(`${path}.sequence`, action['sequence'], SEQUENCE_ROLES);
+      errors.boolean(`${path}.gif`, action['gif']);
       errors.number(`${path}.width`, action['width'], { positive: true });
       errors.number(`${path}.height`, action['height'], { positive: true });
       errors.enum(`${path}.background`, action['background'], BACKGROUNDS);
@@ -486,6 +682,44 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       errors.number(`${path}.fps`, action['fps'], { positive: true });
       errors.formats(`${path}.format`, action['format']);
       errors.number(`${path}.colors`, action['colors'], { positive: true });
+      errors.enum(`${path}.sequence`, action['sequence'], SEQUENCE_ROLES);
+      errors.boolean(`${path}.gif`, action['gif']);
+      errors.number(`${path}.width`, action['width'], { positive: true });
+      errors.number(`${path}.height`, action['height'], { positive: true });
+      errors.enum(`${path}.background`, action['background'], BACKGROUNDS);
+      errors.include(`${path}.include`, action['include']);
+      return;
+    }
+    case 'tween': {
+      errors.outName(`${path}.out`, action['out']);
+      errors.number(`${path}.frames`, action['frames'], { positive: true });
+      errors.enum(`${path}.ease`, action['ease'], EASES);
+      errors.enum(`${path}.view`, action['view'], [...VIEWS, 'grid']);
+      errors.tweenState(`${path}.from`, action['from']);
+      errors.tweenState(`${path}.to`, action['to']);
+      const orbit = action['orbit'];
+      if (orbit !== undefined) {
+        if (!isBag(orbit)) {
+          errors.push(`${path}.orbit`, 'must be { degrees, axis }');
+        } else {
+          if (orbit['degrees'] === undefined) {
+            errors.push(
+              `${path}.orbit.degrees`,
+              'is required — an orbit with no angle does nothing'
+            );
+          }
+          errors.number(`${path}.orbit.degrees`, orbit['degrees'], { nonZero: true });
+          errors.enum(`${path}.orbit.axis`, orbit['axis'], ['x', 'y', 'z']);
+        }
+      }
+      if (action['to'] === undefined && orbit === undefined) {
+        errors.push(path, 'a `tween` with no `to` and no `orbit` has nowhere to go');
+      }
+      errors.number(`${path}.fps`, action['fps'], { positive: true });
+      errors.formats(`${path}.format`, action['format']);
+      errors.number(`${path}.colors`, action['colors'], { positive: true });
+      errors.enum(`${path}.sequence`, action['sequence'], SEQUENCE_ROLES);
+      errors.boolean(`${path}.gif`, action['gif']);
       errors.number(`${path}.width`, action['width'], { positive: true });
       errors.number(`${path}.height`, action['height'], { positive: true });
       errors.enum(`${path}.background`, action['background'], BACKGROUNDS);
@@ -493,7 +727,7 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       return;
     }
     default:
-      errors.push(`${path}.type`, 'must be one of set, screenshot, sweep, orbit');
+      errors.push(`${path}.type`, 'must be one of set, screenshot, sweep, orbit, tween');
   }
 }
 
@@ -548,6 +782,36 @@ export function frameFormats(format: FrameFormat | FrameFormat[] | undefined): S
   if (format === undefined) return out;
   for (const entry of Array.isArray(format) ? format : [format]) out.add(entry);
   return out;
+}
+
+/**
+ * Expand `${VAR}` references in a path against `env`.
+ *
+ * A committed job has to name files that live outside the repository, and neither available answer
+ * is good on its own: an absolute path is reproducible on exactly one machine, and a relative one
+ * (`../../../../datasets/…`) encodes a guess about where the checkout sits next to the data. The
+ * repository already has a name for "the SimNIBS subject to test against" — `TETRAVOX_TESTDATA`,
+ * which `docs/TESTING.md` makes every real-data test read — so a job can use the same one.
+ *
+ * Only `${NAME}` is expanded, not bare `$NAME`: a `$` in a file name is legal and must not become a
+ * variable lookup. An unset variable is an **error**, never an empty string, because expanding it
+ * away would turn `${TETRAVOX_TESTDATA}/m2m_ernie/T1.nii.gz` into an absolute path at the filesystem
+ * root and report "file not found" for a mistake that is really "you did not set the variable".
+ */
+export function expandEnv(
+  path: string,
+  env: Record<string, string | undefined>
+): { ok: true; path: string } | { ok: false; missing: string[] } {
+  const missing: string[] = [];
+  const expanded = path.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
+    const value = env[name];
+    if (value === undefined || value === '') {
+      missing.push(name);
+      return '';
+    }
+    return value;
+  });
+  return missing.length > 0 ? { ok: false, missing } : { ok: true, path: expanded };
 }
 
 /** Every input path a job names, so main can allow-list them before the renderer asks (§5 A2). */

@@ -163,6 +163,8 @@ export interface JobFramesPayload {
   gif: boolean;
   mp4: boolean;
   colors?: number;
+  /** The frame number the first entry of `frames` takes; how a multi-action `sequence` numbers on. */
+  startIndex?: number;
   frames: Uint8Array[];
 }
 
