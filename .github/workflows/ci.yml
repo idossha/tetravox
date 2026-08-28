@@ -225,11 +225,16 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         run: pnpm run test:coverage
 
+      # `lcov.info`, NOT `coverage-summary.json`: Codecov parses lcov/cobertura/clover and istanbul's
+      # `coverage-final.json`, and a `json-summary` file is none of those — it uploads, is rejected as
+      # an unusable report, and the shields badge stays "unknown" forever with nothing red to explain
+      # why. `vitest.config.ts` emits both reporters; the summary is what the badge fallback below
+      # reads, lcov is what Codecov reads.
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-24.04'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
-          files: ./coverage/coverage-summary.json
+          files: ./coverage/lcov.info
           fail_ci_if_error: false
 
       # Engine Playwright (§11 goldens + analytic pixels) and, once packages/app has an `e2e` script,
@@ -465,8 +470,17 @@ jobs:
 
       # §12.1: "launch the packaged binary with a CLI arg pointing at a fixture and assert it exits 0
       # after rendering one frame." That is `scripts/smoke-artefact.mjs`.
+      # `TETRAVOX_SOFTWARE_GL=1`: hosted runners have no GPU, and the packaged app's GPU process dies
+      # on them — Linux under Xvfb exits it "due to errors during initialization" and the hosted Intel
+      # macOS image fails `GLDisplayEGL::Initialize`, after which every shader returns
+      # "failed to compile: (no log)" and the job writes no frame. `src/main/index.ts` reads this
+      # variable and adds `--disable-gpu`, the same thing `e2e/fixtures.ts` already does on Linux, so
+      # the render happens in SwiftShader in-process. What the leg proves is unchanged: the packaged
+      # binary starts, loads the fixtures and writes a real PNG.
       - name: Artefact smoke test
         shell: bash
+        env:
+          TETRAVOX_SOFTWARE_GL: '1'
         run: |
           if [ "${{ matrix.smoke }}" = "version" ]; then
             node scripts/smoke-artefact.mjs --version-only

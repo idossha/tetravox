@@ -15,7 +15,7 @@
  */
 
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, session, shell } from 'electron';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
@@ -74,6 +74,46 @@ registerScheme();
 // a live path for the §8 status bar's GPU-ms readout.
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 app.commandLine.appendSwitch('enable-webgl-developer-extensions');
+
+/**
+ * `TETRAVOX_SOFTWARE_GL=1` — render entirely in SwiftShader, in-process, with no GPU process.
+ *
+ * On a hosted CI runner there is no GPU: the GPU process starts, fails to initialise a display
+ * (`Exiting GPU process due to errors during initialization` on Linux under Xvfb,
+ * `GLDisplayEGL::Initialize failed` on a hosted Intel macOS runner) and every shader the renderer
+ * hands it comes back as `vertex shader failed to compile: (no log)` — a frame is never produced,
+ * even though `enable-unsafe-swiftshader` above is set, because that switch is the *fallback* for a
+ * blocklisted driver and not a way past a GPU process that is already dead. `--disable-gpu` skips
+ * that process entirely and is exactly what `e2e/fixtures.ts` passes on Linux for the same reason.
+ *
+ * Opt-in by environment rather than always-on: a Linux or macOS user running a `--job` render on a
+ * real GPU should keep it. CI sets the variable for its packaged-artefact smoke test.
+ */
+if (process.env['TETRAVOX_SOFTWARE_GL'] === '1') {
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+}
+
+/**
+ * `Tetravox --version` — print the version and exit 0, before anything opens a window.
+ *
+ * Electron's own `--version` handling lives in the `electron` **CLI wrapper**, not in the runtime, so
+ * a packaged binary given `--version` does not print anything: it launches the app and sits there
+ * until something kills it (the Windows `package` leg died exactly that way, killed at its 180 s
+ * smoke timeout). The launch-and-exit smoke check §12.1 asks of the optional Windows leg needs this
+ * to exist in the app itself.
+ *
+ * `writeSync(1, …)` and not `console.log`: `app.exit()` terminates immediately and does not drain an
+ * async pipe write, so a buffered line would be lost on the way out.
+ */
+if (process.argv.slice(1).some((arg) => arg === '--version' || arg === '-v')) {
+  try {
+    writeSync(1, `Tetravox ${app.getVersion()} (electron ${process.versions.electron})\n`);
+  } catch {
+    // No stdout to write to (a detached GUI launch). Exiting 0 is still the right answer.
+  }
+  app.exit(0);
+}
 
 /**
  * `'offscreen'` under `TETRAVOX_E2E_OFFSCREEN=1` (what `e2e/fixtures.ts` sets by default on macOS):

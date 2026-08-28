@@ -1,17 +1,32 @@
 <p align="center">
-  <img src="docs/media/logo.png" alt="Tetravox" width="360">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/media/logo.png">
+    <img src="docs/media/logo.png" alt="Tetravox" width="360">
+  </picture>
 </p>
 
 <p align="center"><b>A fast desktop viewer for brain volumes and meshes.</b></p>
 
+<!--
+  Six badges, short labels, `style=flat` on all of them: any more and GitHub wraps the row onto a
+  second line at README width. The CI badge covers the release workflow too — release.yml builds the
+  same matrix as ci.yml's `package` legs, so a separate "release workflow" badge said the same thing
+  twice and cost a line break.
+
+  The release badge reads the newest **tag**, not the newest release, because shields' `github/v/release`
+  ignores DRAFT releases and renders "no releases or repo not found" until one is published. Once
+  v0.2.0 (or any later tag) is published rather than left as a draft, switch the URL back to:
+      https://img.shields.io/github/v/release/idossha/tetravox?style=flat
+  which then also tracks pre-release/latest properly.
+-->
 <p align="center">
-  <a href="https://github.com/idossha/tetravox/releases/latest"><img src="https://img.shields.io/github/v/release/idossha/tetravox" alt="Latest release"></a>
-  <a href="https://github.com/idossha/tetravox/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/idossha/tetravox/ci.yml?branch=main&label=CI" alt="CI status"></a>
-  <a href="https://github.com/idossha/tetravox/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/idossha/tetravox/release.yml?label=release" alt="Release status"></a>
-  <a href="https://codecov.io/gh/idossha/tetravox"><img src="https://img.shields.io/codecov/c/github/idossha/tetravox" alt="Coverage"></a>
-  <a href="https://idossha.github.io/tetravox/"><img src="https://img.shields.io/badge/docs-website-blue" alt="Documentation"></a>
-  <img src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux-lightgrey" alt="Platforms: macOS, Linux">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+  <a href="https://github.com/idossha/tetravox/releases"><img src="https://img.shields.io/github/v/tag/idossha/tetravox?label=release&sort=semver&style=flat" alt="Latest release"></a>
+  <a href="https://github.com/idossha/tetravox/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/idossha/tetravox/ci.yml?branch=main&label=CI&style=flat" alt="CI status"></a>
+  <a href="https://codecov.io/gh/idossha/tetravox"><img src="https://img.shields.io/codecov/c/github/idossha/tetravox?style=flat" alt="Coverage"></a>
+  <a href="https://idossha.github.io/tetravox/"><img src="https://img.shields.io/badge/docs-website-blue?style=flat" alt="Documentation"></a>
+  <img src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux-lightgrey?style=flat" alt="Platforms: macOS, Linux">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat" alt="License: MIT"></a>
 </p>
 
 ---
