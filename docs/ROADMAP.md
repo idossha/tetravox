@@ -1,3 +1,10 @@
+---
+layout: page
+title: Roadmap
+permalink: /ROADMAP.html
+nav_order: 9
+---
+
 # Roadmap
 
 What Tetravox does today, and what is still open. The contract is `docs/ARCHITECTURE.md`; every decision

@@ -1,0 +1,640 @@
+[
+ {
+  "file": "01-t1-orthogonal-2x2.png",
+  "closeup": "01-t1-orthogonal-2x2-closeup.png",
+  "title": "A T1 in the three canonical planes",
+  "what_it_shows": "One NIfTI in the 2\u00d72 layout: axial, coronal and sagittal panes plus the 3D pane. Each 2D pane carries the \u00a78 chrome \u2014 orientation letters on the four edges, the crosshair at the cursor, the corner block with the world RAS coordinate, the voxel index and the slice number, and the NEU badge that says the convention is neurological (left is left). The window is the file\u2019s own 2nd\u201398th percentile, which is what a T1 whose physical maximum is exactly 65535 needs to look like anything at all.",
+  "data_files": [
+   "m2m_ernie/T1.nii.gz"
+  ],
+  "layers": [
+   {
+    "kind": "volume",
+    "name": "T1.nii.gz",
+    "settings": {
+     "colormap": "gray",
+     "scale.kind": "linear",
+     "scale.lo/hi": "stats.percentiles[\"2\"] \u2026 [\"98\"] (the default window)",
+     "interpolation": "linear",
+     "threshold": "none"
+    }
+   }
+  ],
+  "controls_used": [
+   "Open\u2026 \u2192 pick T1.nii.gz (or drop it on the window, or pass it on the command line).",
+   "The 2\u00d72 layout button in the toolbar (it is the default).",
+   "Type a coordinate in the coordinate bar and press Enter to move the crosshair; a left-click or drag in any pane does the same thing.",
+   "Crosshair toggles the crosshair; c does the same from the keyboard."
+  ],
+  "notes": [
+   "The 2nd\u201398th percentile window is the default for every scalar volume \u2014 no control was touched to get it.",
+   "The 3D pane is empty here: a volume only appears in 3D when its \u201cshow in 3D\u201d slice planes are switched on (scenario 05)."
+  ]
+ },
+ {
+  "file": "02-ti-max-heat-overlay.png",
+  "closeup": "02-ti-max-heat-overlay-closeup.png",
+  "closeups": [
+   "02-ti-max-heat-overlay-closeup.png",
+   "02-ti-max-heat-overlay-closeup-radiological.png"
+  ],
+  "title": "A TI field as a thresholded heat overlay",
+  "what_it_shows": "The simulated TI_max field composited over the anatomy: the T1 underneath in grey, the field above it on a heat scale with min/mid/max, and everything below 0.1 V/m hidden rather than painted, so the anatomy shows through where there is no field. The colour bar down the side of the pane carries the ticks, the units and the threshold notch. The two close-ups are the same axial slice in neurological (NEU) and radiological (RAD) convention \u2014 the badge changes, the left/right letters swap, and the data does not move.",
+  "data_files": [
+   "m2m_ernie/T1.nii.gz",
+   "Simulations/Thalamus/TI/niftis/Thalamus_TI_subject_TI_max.nii.gz"
+  ],
+  "layers": [
+   {
+    "kind": "volume",
+    "name": "T1.nii.gz",
+    "settings": {
+     "colormap": "gray",
+     "order": "bottom"
+    }
+   },
+   {
+    "kind": "volume",
+    "name": "Thalamus_TI_subject_TI_max.nii.gz",
+    "settings": {
+     "colormap": "hot",
+     "scale.kind": "heat",
+     "scale.min/mid/max": "0.1 / 0.6 / 1.6",
+     "threshold.lo": 0.1,
+     "threshold.mode": "hide",
+     "showColorbar": true,
+     "order": "top"
+    }
+   }
+  ],
+  "controls_used": [
+   "Open\u2026 \u2192 select the T1 and the TI NIfTI together; layers stack bottom\u2192top in open order, and the layer panel\u2019s \u25b2\u25bc (or Ctrl+\u2191/\u2193) reorders them.",
+   "Click the overlay\u2019s name in the layer panel to make it active and open its editor.",
+   "Colormap \u2192 hot. Scale \u2192 heat, then type min / mid / max.",
+   "Threshold low \u2192 0.1 with mode \u201chide\u201d; the histogram above it has draggable window and threshold handles for the same two numbers.",
+   "Toolbar \u2192 Bars keeps the colour bars on (they are on by default).",
+   "Toolbar \u2192 RAD/NEU flips the convention.",
+   "The layer row\u2019s own opacity slider blends the overlay into the anatomy."
+  ],
+  "notes": [
+   "The crosshair sits on a mid-brain axial slice. The field\u2019s own maximum in this simulation is at the anterior skull base, not at the thalamic target \u2014 which is what a thresholded overlay is for: the bright rim at the scalp and the weaker distribution through the brain are the same number on the same scale.",
+   "RAD mirrors the in-plane right axis only \u2014 never the data, and never the 3D view."
+  ]
+ },
+ {
+  "file": "03-atlas-labels.png",
+  "closeup": "03-atlas-labels-closeup-fill.png",
+  "closeups": [
+   "03-atlas-labels-closeup-fill.png",
+   "03-atlas-labels-closeup-outline.png",
+   "03-atlas-labels-closeup-solo.png"
+  ],
+  "title": "An atlas over the anatomy, and the Region panel",
+  "what_it_shows": "The SimNIBS labelling over the T1, with its LUT sidecar found automatically so every region has its own name and colour. The three close-ups are the same atlas drawn three ways: filled at half opacity, as outlines two pixels wide over the anatomy, and with one region soloed so every other region is muted. The window capture has the Region panel open and filtered to \u201cthalamus\u201d: rows with an eye, a colour swatch, an opacity slider, the name, the id and the voxel count \u2014 the left thalamus hidden, the right one recoloured cyan.",
+  "data_files": [
+   "m2m_ernie/T1.nii.gz",
+   "m2m_ernie/segmentation/labeling.nii.gz",
+   "m2m_ernie/segmentation/labeling_LUT.txt (found beside it)"
+  ],
+  "layers": [
+   {
+    "kind": "volume",
+    "name": "T1.nii.gz",
+    "settings": {
+     "colormap": "gray",
+     "order": "bottom"
+    }
+   },
+   {
+    "kind": "volume",
+    "name": "labeling.nii.gz",
+    "settings": {
+     "isLabel": true,
+     "interpolation": "nearest (forced for a label volume)",
+     "labelMode": "fill \u2192 outline \u2192 both",
+     "outlineWidthPx": 2,
+     "opacity": "0.5 / 1.0 / 0.6",
+     "visibleLabels": "left thalamus removed",
+     "labelColors": "right thalamus \u2192 #00e5ff",
+     "selectedLabels": "right thalamus (Alt-click solo)"
+    }
+   }
+  ],
+  "controls_used": [
+   "Open\u2026 \u2192 the T1 and labeling.nii.gz together. The LUT beside the volume is picked up without being named.",
+   "Labels \u2192 fill / outline / both in the volume editor; the Outline slider sets its width in pixels.",
+   "The layer row\u2019s opacity slider blends the atlas into the anatomy.",
+   "Region panel: type in the search box to narrow the rows; click the eye to hide a region; click its swatch to recolour it; drag its opacity slider; Show all / Hide all / Invert act on every row at once.",
+   "Click a row to select it, \u21e7/\u2318-click to multi-select, Alt-click to solo it, double-click to jump the cursor to its centroid. Clicking a labelled voxel in a pane selects the row it belongs to."
+  ],
+  "notes": [
+   "labeling.nii.gz is a float32 volume with 57 integral values and is still recognised as a label volume, which is what makes the whole panel work on it.",
+   "A recolour and a hide live on the layer, not on the file\u2019s table, so they survive a scene save/load and a per-row Reset puts the file\u2019s own colour back.",
+   "BUG \u2014 double-click-to-centroid jumps to the wrong place. The centroid a row carries is transformed by the volume\u2019s affine twice: once in the Rust op that computes it and again in the engine method that returns it. On this atlas the left thalamus comes back as (-81.9, 162.8, -136.1) instead of (-8.6, 7.5, 17.8), which is outside the volume, so the double-click lands on an empty slice. The row counts beside it are correct. The crosshair in this capture was placed by computing the centroid independently, so the picture is of the panel and not of the bug."
+  ]
+ },
+ {
+  "file": "04-mesh-tissue-surfaces.png",
+  "closeup": "04-mesh-tissue-surfaces-closeup.png",
+  "title": "A head mesh alone \u2014 3D tissue surfaces and 2D cross-sections",
+  "what_it_shows": "The SimNIBS head mesh with no NIfTI in the scene at all. The 3D pane draws its tagged tissue surfaces in the colours the .msh.opt sidecar gives them; the three 2D panes draw the mesh\u2019s own cross-section at the cursor \u2014 filled per-element polygons with tissue contours on top \u2014 and those sweep with the crosshair exactly as a volume\u2019s slices do. The left panel shows the tissue table: every tag with its name from the sidecar, a colour swatch, an eye and an opacity slider.",
+  "data_files": [
+   "m2m_ernie/ernie.msh",
+   "m2m_ernie/ernie.msh.opt (found beside it)"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "ernie.msh",
+    "settings": {
+     "colorMode": "tag",
+     "tagStyle colours": "seeded from ernie.msh.opt",
+     "fillIn2D": true,
+     "contoursIn2D": true,
+     "contourWidthPx": 1,
+     "clip.caps": true
+    }
+   }
+  ],
+  "controls_used": [
+   "Open\u2026 \u2192 ernie.msh. The .msh.opt beside it is picked up without being named, which is the only source of the tissue names \u2014 the mesh itself has no $PhysicalNames.",
+   "Tissue table: the eye hides a tissue, the swatch recolours it, the slider fades it; Show all / Hide all / Invert and a search box act on the whole table.",
+   "2D cross-section section: the fill and contours toggles, the contour width slider, and a \u201ccut colour\u201d selector (tissue tag, a solid colour, or any field the mesh carries).",
+   "Move the crosshair and the cross-section follows it."
+  ],
+  "notes": [
+   "Cross-sections in the 2D panes are on by default when a mesh is opened; no volume is needed for them."
+  ]
+ },
+ {
+  "file": "05-mesh-over-t1.png",
+  "closeup": "05-mesh-over-t1-closeup.png",
+  "title": "Mesh and volume in one scene",
+  "what_it_shows": "The head mesh and the T1 together, one depth buffer, no compositing tricks. The 2D panes show the T1 with the mesh\u2019s tissue contours over it \u2014 and, in the close-up, with the tissue fill at 45 % as well \u2014 so a segmentation can be checked against the anatomy it came from. The 3D pane shows the tissue surfaces with the T1\u2019s three slice planes drawn inside them \u2014 the volume layer\u2019s \u201cshow in 3D\u201d. The scalp is hidden so the planes inside the head can be seen.",
+  "data_files": [
+   "m2m_ernie/ernie.msh",
+   "m2m_ernie/T1.nii.gz"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "ernie.msh",
+    "settings": {
+     "colorMode": "tag",
+     "contoursIn2D": true,
+     "contourWidthPx": 1.5,
+     "fillIn2D": "off in the window shot, on at 45 % opacity in the close-up",
+     "tagStyle[Scalp].visible": false
+    }
+   },
+   {
+    "kind": "volume",
+    "name": "T1.nii.gz",
+    "settings": {
+     "colormap": "gray",
+     "showIn3D": true
+    }
+   }
+  ],
+  "controls_used": [
+   "Open\u2026 \u2192 add the T1 to the scene the mesh is already in.",
+   "Volume editor \u2192 \u201cshow in 3D\u201d draws that volume\u2019s three slice planes in the 3D pane.",
+   "Tissue table \u2192 the eye on the Scalp row.",
+   "2D cross-section section \u2192 the fill toggle off (contours only) and the contour width; the layer row\u2019s opacity slider \u2192 45 % for the translucent fill in the close-up."
+  ],
+  "notes": [
+   "Layer order decides what is on top in the 2D panes; the \u25b2\u25bc buttons on a layer row (or Ctrl+\u2191/\u2193) change it."
+  ]
+ },
+ {
+  "file": "06-transparency.png",
+  "closeup": "06-transparency-closeup.png",
+  "title": "Seeing through the head \u2014 per-tissue transparency",
+  "what_it_shows": "Scalp at 30 % and both bone layers at 50 %, drawn over opaque grey and white matter. Transparency is per tissue tag, not per layer, so one mesh can be part solid and part glass. The renderer draws the opaque tissues first and then the transparent ones, so each transparent sheet is blended exactly once and the brain underneath keeps its colour instead of being tinted twice by the skin in front of it.",
+  "data_files": [
+   "m2m_ernie/ernie.msh",
+   "m2m_ernie/ernie.msh.opt"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "ernie.msh",
+    "settings": {
+     "colorMode": "tag",
+     "tagStyle[Scalp].opacity": 0.3,
+     "tagStyle[Compact_bone].opacity": 0.5,
+     "tagStyle[Spongy_bone].opacity": 0.5,
+     "transparency.mode": "twoPhase"
+    }
+   }
+  ],
+  "controls_used": [
+   "Tissue table \u2192 the opacity slider on the Scalp row, then on Compact_bone and Spongy_bone.",
+   "Toolbar \u2192 the 3D-only layout, to give the head the whole window.",
+   "In the 3D pane: left-drag orbits, right-drag pans, the wheel dollies, r refits, and 1\u20136 are the anterior / posterior / left / right / superior / inferior presets."
+  ],
+  "notes": []
+ },
+ {
+  "file": "07-clip-caps.png",
+  "closeup": "07-clip-caps-closeup.png",
+  "closeups": [
+   "07-clip-caps-closeup.png",
+   "07-clip-caps-closeup-edges.png",
+   "07-clip-caps-closeup-two-planes.png"
+  ],
+  "title": "Cutting the head open \u2014 clip planes with exact caps",
+  "what_it_shows": "An axial clip plane through the cursor. The cut is not a hole: every clipped element contributes an exact cap polygon, so the plane is closed and coloured by the tissue it passes through. The second close-up is dollied in with element edges on, so the tetrahedra the cap is made of are visible one by one. The third adds a sagittal plane \u2014 up to six are allowed, and each one clips the others\u2019 caps, so the corner where they meet is a real corner.",
+  "data_files": [
+   "m2m_ernie/ernie.msh",
+   "m2m_ernie/ernie.msh.opt"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "ernie.msh",
+    "settings": {
+     "clip.planes[0]": "normal (0,0,1) through the cursor",
+     "clip.planes[1]": "normal (1,0,0) through the cursor (second close-up)",
+     "clip.caps": true,
+     "clip.capColorMode": "tag",
+     "edges.caps": true,
+     "edgeWidthPx": 1
+    }
+   }
+  ],
+  "controls_used": [
+   "Clip planes section \u2192 \u201c+ plane\u201d adds one through the cursor; per plane there is an enable toggle, axial / coronal / sagittal preset buttons, three free normal fields, an offset slider that scrubs across the scene, flip (keep the other side), \u201cto cursor\u201d and a \u201cfollow cursor\u201d toggle that keeps the plane on the crosshair as it moves.",
+   "Caps row \u2192 \u201cexact caps\u201d on/off and the cap colour source (inherit or by tag).",
+   "Field & appearance \u2192 the \u201ccaps\u201d edge toggle and the edge width slider."
+  ],
+  "notes": [
+   "Six planes is the ceiling; the section title carries the count.",
+   "A clip plane belongs to the mesh layer. Isosurface and points layers are not clipped by it (see scenario 10).",
+   "Element edges on the cap are only legible zoomed in: this mesh has 4.7 million tetrahedra, so at a whole-head framing several cap polygons share a pixel and a 1 px edge fills the disc solid. The dollied close-up is the one with edges on; the wide shots have them off."
+  ]
+ },
+ {
+  "file": "08-element-isolation.png",
+  "closeup": "08-element-isolation-closeup.png",
+  "title": "Isolating the elements that matter",
+  "what_it_shows": "Only the grey-matter tetrahedra whose TI_max is in the top 5 % of the grey-matter distribution (0.130 \u2026 0.545 V/m), extracted from a 4.7-million-element head mesh and drawn on its own in 3D with an axial clip plane through it \u2014 5 % of 1.34 million grey-matter tetrahedra, which is a diffuse cloud rather than a tidy focus, because that is what a TI field in grey matter is. The isolation is a mask over the elements, not a new file: everything else about the layer \u2014 the field colouring, the caps, the cross-sections \u2014 keeps working on what is left.",
+  "data_files": [
+   "Simulations/Thalamus/TI/mesh/Thalamus_TI.msh"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "Thalamus_TI.msh",
+    "settings": {
+     "colorMode": "field",
+     "field": "TI_max (element field)",
+     "colormap": "jet",
+     "flatShading": true,
+     "isolate.tags": [
+      "2 (tag 2) \u2014 1,340,029 tets"
+     ],
+     "isolate.field": "TI_max 0.1298 \u2026 0.5451",
+     "isolate.combine": "all (both clauses must hold)",
+     "scale": "linear 0.1298 \u2026 0.5451 \u2014 the range of what is left, not of the whole field",
+     "clip.planes[0]": "axial, through the cursor",
+     "clip.caps": true
+    }
+   }
+  ],
+  "controls_used": [
+   "Isolation section: one button per tissue tag; a field selector with a low/high pair; \u201cat cursor\u201d builds a sphere of a given radius around the crosshair; \u201cset\u201d builds a box around it and \u201cbbox\u201d takes the whole mesh; a label-volume clause picks regions from any atlas open in the scene. \u201cCombine\u201d is all (\u2229) or any (\u222a), and \u201cclear\u201d drops the lot.",
+   "Clip planes section \u2192 \u201c+ plane\u201d, the axial preset, \u201cto cursor\u201d.",
+   "Field & appearance \u2192 the scale\u2019s lo / hi, re-ranged over what the isolation left, so the colour map spends its whole ramp on it."
+  ],
+  "notes": [
+   "The threshold is the 95th percentile of TI_max **over grey matter**, read off grey_Thalamus_TI.msh, which is the same field restricted to the same elements. The 95th percentile of the field over the whole head is 0.474 V/m \u2014 the loud end of a TI field is at the electrodes \u2014 and isolating grey matter on that number leaves an empty pane. 95 rather than 90 because 95 is a percentile the statistics block carries; the low/high fields take any number typed into them.",
+   "This mesh\u2019s tissue tags have no names: a SimNIBS *simulation* mesh\u2019s .msh.opt carries the Gmsh view block and the tag colours but no Physical Volume lines, so the isolation panel and the tissue table label them \u201ctag 1\u201d \u2026 \u201ctag 1099\u201d. Tag 2 is grey matter in the SimNIBS numbering. The head mesh (m2m_ernie/ernie.msh.opt) does carry the names \u2014 scenario 04."
+  ]
+ },
+ {
+  "file": "09-field-colouring-grey-only.png",
+  "title": "The same field on a grey-matter-only mesh",
+  "what_it_shows": "grey_Thalamus_TI.msh carries 1.34 million tetrahedra and **no triangles at all** \u2014 it ships no surface of its own. The viewer extracts the boundary of the tet block and draws that, so the same TI_max field appears on a mesh that a renderer expecting a surface would show as an empty view.",
+  "data_files": [
+   "Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "grey_Thalamus_TI.msh",
+    "settings": {
+     "colorMode": "field",
+     "field": "TI_max (element field)",
+     "colormap": "jet",
+     "nTris in the file": 0,
+     "surface": "extracted from the tet boundary at load"
+    }
+   }
+  ],
+  "controls_used": [
+   "Open\u2026 \u2192 grey_Thalamus_TI.msh. Nothing else: the boundary extraction is automatic.",
+   "Field & appearance \u2192 colour by field, TI_max, jet."
+  ],
+  "notes": []
+ },
+ {
+  "file": "09-field-colouring.png",
+  "closeup": "09-field-colouring-closeup.png",
+  "closeups": [
+   "09-field-colouring-closeup.png",
+   "09-field-colouring-closeup-2d.png"
+  ],
+  "title": "Colouring a mesh by a simulated field",
+  "what_it_shows": "The same head mesh coloured by its TI_max element field instead of by tissue: the surface, the exact cap polygons of a coronal clip plane, and the 2D cross-sections in all three panes, all reading the same field through the same colour map and the same range, with one colour bar for the layer. Flat shading is on, so each element is a flat facet of its own value rather than a smoothed interpolation of its neighbours.",
+  "data_files": [
+   "Simulations/Thalamus/TI/mesh/Thalamus_TI.msh",
+   "Simulations/Thalamus/TI/mesh/Thalamus_TI.msh.opt (found beside it)"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "Thalamus_TI.msh",
+    "settings": {
+     "colorMode": "field",
+     "field": "TI_max (element field, magnitude)",
+     "colormap": "jet",
+     "scale": "linear 0 \u2026 1.0589 (the field's 99th percentile; its own min\u2026max is 1.09e-12 \u2026 10.29)",
+     "flatShading": true,
+     "cut colour": "TI_max",
+     "clip.capColorMode": "inherit (so the caps carry the field)",
+     "showColorbar": true
+    }
+   }
+  ],
+  "controls_used": [
+   "Field & appearance section: \u201ccolour by\u201d (tissue tag / field / solid / label), the field selector, the component selector for a vector field, the colour map, a linear or heat scale with its bounds, a min\u2013max button, the threshold pair with a |v| toggle and a soft-edge slider, flat/smooth shading, two-sided or back-face culling, and the surface/caps edge toggles with a width and colour.",
+   "2D cross-section section \u2192 \u201ccut colour\u201d set to the same field, so the slices are coloured by it too.",
+   "Toolbar \u2192 Bars shows the colour bar; it carries the units and the threshold notch."
+  ],
+  "notes": [
+   "Switching to an element field is a one-off load, not an instant toggle: the worker builds a de-indexed copy of the geometry the first time, with a pending badge beside the selector, and every later switch is free."
+  ]
+ },
+ {
+  "file": "10-isosurfaces.png",
+  "closeup": "10-isosurfaces-closeup-field.png",
+  "closeups": [
+   "10-isosurfaces-closeup-field.png",
+   "10-isosurfaces-closeup-bone.png"
+  ],
+  "title": "Isosurfaces \u2014 from a mesh field and from a volume",
+  "what_it_shows": "Two isosurfaces, one per extractor. The window and the first close-up are the TI_max = 0.130 V/m surface pulled out of the grey-matter mesh's element field by **marching tetrahedra**, sitting inside the grey-matter mesh with a sagittal clip plane through it: the mesh is cut and the isosurface is not, because a clip plane belongs to a mesh layer. The second close-up is the bone surface pulled out of final_tissues.nii.gz by **marching cubes**. Both are real geometry in the same depth buffer as the mesh, so they occlude and are occluded correctly \u2014 which is also why they are photographed one at a time: the skull encloses everything else.",
+  "data_files": [
+   "Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh",
+   "m2m_ernie/final_tissues.nii.gz"
+  ],
+  "layers": [
+   {
+    "kind": "iso",
+    "name": "TI_max = 0.130",
+    "settings": {
+     "source": "grey_Thalamus_TI.msh, elm field TI_max (marching tets)",
+     "iso": 0.12975484132766724,
+     "smooth": true,
+     "faceMode": "cull"
+    }
+   },
+   {
+    "kind": "iso",
+    "name": "final_tissues \u2265 6.5",
+    "settings": {
+     "source": "final_tissues.nii.gz, volume 0 (marching cubes)",
+     "iso": 6.5,
+     "smooth": false,
+     "faceMode": "cull",
+     "visible": "off for the window shot and the first close-up, on for the second"
+    }
+   },
+   {
+    "kind": "mesh",
+    "name": "grey_Thalamus_TI.msh",
+    "settings": {
+     "colorMode": "field",
+     "clip.planes[0]": "sagittal, through the cursor"
+    }
+   }
+  ],
+  "controls_used": [
+   "Isosurface editor: the isovalue field with the source field\u2019s range beside it, the colour swatch, a smooth/flat toggle and the face-culling toggle, plus the layer row\u2019s own eye and opacity."
+  ],
+  "notes": [
+   "LIMITATION \u2014 no shipped UI creates an isosurface layer. The editor for one exists and so do both extractors, but nothing in the toolbar or the layer panel adds an \u201ciso\u201d layer, so these two were created through the engine facade. The isovalue seeds from the source\u2019s own 98th percentile (0.5 for a label volume) when one is created.",
+   "LIMITATION \u2014 an isosurface is not clipped. Clip planes belong to a mesh layer; the sagittal plane in this capture cuts the grey-matter mesh and leaves the isosurface whole. That is visible in the picture and is not a rendering error.",
+   "LIMITATION \u2014 an isosurface layer\u2019s opacity does nothing. Isosurfaces are drawn in the opaque 3D pass with blending off, so the layer row\u2019s opacity slider is stored and never reaches the frame. Setting the skull to 30 % to show the field surface inside it changes nothing, which is why the two are captured separately."
+  ]
+ },
+ {
+  "file": "11-vector-glyphs.png",
+  "closeup": "11-vector-glyphs-closeup.png",
+  "closeups": [
+   "11-vector-glyphs-closeup.png",
+   "11-vector-glyphs-closeup-caps.png"
+  ],
+  "title": "The electric field as arrows",
+  "what_it_shows": "The E vector field of a tDCS simulation drawn as arrows: one arrow per tetrahedron, subsampled to every 600th, 6 mm long, coloured by magnitude. The first close-up is the axial cut with every tissue on \u2014 the exact caps coloured by tissue, which is the context the arrows sit in and also the reason no arrow can be seen in it. The second is the same scene with the tissue **surfaces** hidden and the caps off, which is what it takes to see inside. The panel reports the stride as \u201cevery 600\u201d.",
+  "data_files": [
+   "Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh (E, 3 components, over all 5,900,498 elements)"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "ernie_TDCS_1_scalar.msh",
+    "settings": {
+     "colorMode": "tag",
+     "clip.planes[0]": "axial, through the cursor",
+     "clip.capColorMode": "tag",
+     "glyphs.field": "E (element field, 3 components)",
+     "glyphs.shape": "arrow",
+     "glyphs.origins": "volume \u2014 one per tet",
+     "glyphs.subsample": "every 600th",
+     "glyphs.scale": "fixed",
+     "glyphs.lengthMm": 6,
+     "glyphs.colorBy": "magnitude (over 0 \u2026 the field\u2019s own max, 57.79 V/m)",
+     "colormap": "cool \u2014 its low end is bright, which is where this field lives",
+     "glyphs.clipToCutPlane": true
+    }
+   }
+  ],
+  "controls_used": [
+   "Clip planes section \u2192 \u201c+ plane\u201d, the axial preset, \u201cto cursor\u201d.",
+   "Glyphs section \u2192 the on/off toggle in its header (greyed out on a mesh with no vector field), then the field, shape (arrow or line), origins (one per surface triangle or one per tetrahedron), the stride mode with its number, fixed or magnitude scaling, the length in millimetres, colouring by magnitude or a solid colour, and \u201cto cut plane\u201d.",
+   "Tissue table \u2192 \u201cShow all\u201d, then the eye on each surface tag, so the arrows inside the head are not behind it."
+  ],
+  "notes": [
+   "Only vector fields appear in the glyph selector \u2014 a scalar has no direction, and the section says so instead of offering a control that would draw nothing.",
+   "Volume origins are one per tetrahedron: the only way the interior of a 4.7-million-tet mesh gets arrows at all. The stride is what keeps that from shipping millions of origins.",
+   "This file\u2019s own .msh.opt hides every tissue but grey matter (SimNIBS writes it so Gmsh opens on the GM surface), and the viewer honours it on open. \u201cShow all\u201d in the tissue table is what puts the head back.",
+   "The glyph origins are filtered by the **volume** tags, so \u201cHide all\u201d in the tissue table takes the arrows with it. Hiding only the surface tags (1001\u2026) empties the pane of geometry and leaves the arrows \u2014 which is what the second close-up does.",
+   "BUG \u2014 \u201cRestrict to cut plane\u201d does nothing. `GlyphSpec.clipToCutPlane` is on the layer, the toggle writes it and the shader\u2019s own documentation quotes the requirement, but no code path reads it: the arrows in these captures fill the whole volume rather than the elements the plane intersects.",
+   "Glyph colouring takes no range of its own: it is baked over 0 \u2026 the field\u2019s maximum, so the layer\u2019s own scale lo/hi does not move it. On a field whose maximum is 1000\u00d7 its typical interior value, that puts every interior arrow in the bottom of the ramp \u2014 hence the colour map chosen for its bright low end.",
+   "A magnitude-scaled arrow is invisible here. `scale: \"byMagnitude\"` measures against the field\u2019s maximum \u2014 57.8 V/m under an electrode \u2014 so a 0.05 V/m arrow in the brain is 0.007 mm long. The scenario uses fixed length and puts the magnitude in the colour."
+  ]
+ },
+ {
+  "file": "12-electrodes.png",
+  "closeup": "12-electrodes-closeup.png",
+  "title": "An EEG net on the scalp",
+  "what_it_shows": "All 183 electrodes of a SimNIBS EEG net as spheres on the head surface, over the tissue mesh in 3D. The points editor on the left lists every electrode with a colour swatch, its world coordinate, a per-point radius and a \u2192 button that jumps the crosshair to it, with a search box for finding one by name in a 185-row net.",
+  "data_files": [
+   "m2m_ernie/ernie.msh",
+   "m2m_ernie/eeg_positions/GSN-HydroCel-185.csv"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "ernie.msh",
+    "settings": {
+     "colorMode": "tag"
+    }
+   },
+   {
+    "kind": "points",
+    "name": "GSN-HydroCel-185.csv",
+    "settings": {
+     "points": 183,
+     "shape": "sphere",
+     "radiusMm": 4,
+     "color": "amber (the default for things drawn over anatomy)",
+     "showLabels": false
+    }
+   }
+  ],
+  "controls_used": [
+   "Points editor: shape (sphere or dot), a labels toggle, the radius slider, the layer colour and opacity, a search box, and per row a swatch, a radius and a \u2192 that moves the cursor to that electrode."
+  ],
+  "notes": [
+   "LIMITATION \u2014 no shipped UI opens an electrode file. The engine parses SimNIBS eeg_positions CSV, generic x,y,z[,name] CSV and JSON point lists, but the Open path only ever builds a volume or a mesh layer, so nothing calls that parser. This capture parsed the CSV in the test and created the layer through the engine facade.",
+   "Points are billboarded spheres and are not clipped by a mesh layer\u2019s clip planes."
+  ]
+ },
+ {
+  "file": "13-cortical-surface.png",
+  "closeup": "13-cortical-surface-closeup.png",
+  "closeups": [
+   "13-cortical-surface-closeup.png",
+   "13-cortical-surface-closeup-contour.png"
+  ],
+  "title": "A cortical surface, and its outline on the slices",
+  "what_it_shows": "The left pial surface from a GIfTI file in the 3D pane, and its intersection with each 2D plane drawn as a contour over the T1 \u2014 the same cross-section machinery the head mesh uses, on a surface with no volume elements at all.",
+  "data_files": [
+   "m2m_ernie/surfaces/lh.pial.gii",
+   "m2m_ernie/T1.nii.gz",
+   "m2m_ernie/segmentation/lh.ernie_DK40.annot (NOT loaded \u2014 see notes)"
+  ],
+  "layers": [
+   {
+    "kind": "mesh",
+    "name": "lh.pial.gii",
+    "settings": {
+     "colorMode": "tag",
+     "contoursIn2D": true,
+     "fillIn2D": true,
+     "label.table": "absent"
+    }
+   },
+   {
+    "kind": "volume",
+    "name": "T1.nii.gz",
+    "settings": {
+     "colormap": "gray"
+    }
+   }
+  ],
+  "controls_used": [
+   "Open\u2026 \u2192 lh.pial.gii.",
+   "The layer row\u2019s eye hides the head mesh and the electrode net, so the surface is what the 3D pane shows.",
+   "2D cross-section section \u2192 fill and contours are both on by default; a surface has no volume elements to fill, so what a 2D pane gets from it is the contour."
+  ],
+  "notes": [
+   "LIMITATION \u2014 the DK40 annotation could not be attached. A .annot carries a colortable and one label per vertex, and the mesh reader in the Rust crate parses that format; but the loader entry point the app calls takes only a mesh file, a .msh.opt and a LUT, and it fills a surface\u2019s label table from a .label.gii\u2019s own <LabelTable> only. There is no path \u2014 dialog, sidecar or engine call \u2014 that hands lh.ernie_DK40.annot to lh.pial.gii, so \u201ccolour by label\u201d has no table to use here and the surface is drawn in its tag colour instead. The colour-by-label mode itself works: it is proved on a .label.gii in the engine\u2019s own golden tests.",
+   "Consequently there is no outline-mode close-up for the annotation either; outline mode is a label-colouring option and needs the table."
+  ]
+ },
+ {
+  "file": "14-oblique-slice.png",
+  "closeup": "14-oblique-slice-closeup.png",
+  "title": "An oblique slice, and its gizmo",
+  "what_it_shows": "The axial pane re-pointed onto an oblique plane with normal \u2248 (1,1,1)/\u221a3, filling the 1\u00d71 layout. The plane is derived from the cursor, so it sweeps with the crosshair exactly as a canonical plane does, and the corner block and orientation letters follow the new basis. The close-up is the 3D pane in the 2\u00d72 layout, where the cut-plane gizmo is drawn: a ring with rotate handles and a stem along the normal.",
+  "data_files": [
+   "m2m_ernie/T1.nii.gz"
+  ],
+  "layers": [
+   {
+    "kind": "volume",
+    "name": "T1.nii.gz",
+    "settings": {
+     "colormap": "gray"
+    }
+   }
+  ],
+  "controls_used": [
+   "Engine call: setView(\"axial\", { mode: \"oblique\", normal, up }) and showGizmo(\"axial\").",
+   "Once the gizmo is up, the shipped pointer gestures apply: drag its ring handles to rotate the plane, drag the stem to slide it along the normal, and a camera preset puts the pane back on axial / coronal / sagittal.",
+   "1\u00d71 layout button; 2\u00d72 to see the gizmo beside the slice."
+  ],
+  "notes": [
+   "LIMITATION \u2014 no shipped UI reaches an oblique plane. The model, the shader path, the gizmo, its drag handles and plane-from-3-points are all implemented in the engine (\u00a77.5), but nothing in the toolbar, the panels or the key map calls setView with mode:\"oblique\" or showGizmo. This capture drove those two engine methods directly.",
+   "The gizmo is deliberately drawn in the 3D pane, not in the oblique pane \u2014 a gizmo inside the plane it rotates would be seen edge-on. So the 1\u00d71 oblique capture has no gizmo in it by design, and the close-up is the 3D pane.",
+   "showGizmo is present on the concrete engine and was called."
+  ]
+ },
+ {
+  "file": "15-screenshot-dialog.png",
+  "closeup": "15-scene-saved.png",
+  "title": "Publication screenshots, and a scene that travels",
+  "what_it_shows": "The screenshot dialog with a live preview: target (one pane or the whole grid), pixel size, scale, DPI written into the PNG\u2019s pHYs chunk, background (scene / white / transparent), which chrome to include (colour bar, orientation letters, crosshair, corner info, scale bar) and auto-trim. The second capture is the toolbar after Save as\u2026: the scene\u2019s name is shown beside the buttons, and scene-example.tetravox.json \u2014 written beside these images \u2014 holds the whole ViewSpec: every dataset with its relative path, absolute fallback, content fingerprint and the sidecars it was opened with, plus every layer, view, the cursor, the convention and the annotations.",
+  "data_files": [
+   "m2m_ernie/T1.nii.gz",
+   "scene-example.tetravox.json (written by this capture)"
+  ],
+  "layers": [
+   {
+    "kind": "volume",
+    "name": "T1.nii.gz",
+    "settings": {
+     "colormap": "gray"
+    }
+   }
+  ],
+  "controls_used": [
+   "Toolbar \u2192 \u2699 beside Screenshot opens the dialog; the Screenshot button beside it shoots straight away with whatever the dialog last left.",
+   "Set Width 1200 and DPI 300, then Preview.",
+   "Toolbar \u2192 Save as\u2026 writes a *.tetravox.json; Open scene\u2026 reads one back, with a relocate dialog keyed on the fingerprint when a file has moved."
+  ],
+  "notes": [
+   "The DPI is written into the PNG itself (pHYs), so a journal\u2019s figure-resolution check reads it off the file.",
+   "Dataset paths in the scene file are relative to the scene file, with an absolute fallback, so a scene copied beside its data opens elsewhere."
+  ]
+ },
+ {
+  "file": "16-empty-state.png",
+  "title": "First run \u2014 the empty window",
+  "what_it_shows": "The shell before anything is open: the toolbar (Open, scene New/Open/Save, the four layouts, RAD/NEU, Crosshair, Bars, Screenshot, ?), an empty layer panel on the left, the 2\u00d72 view grid with its four named cells, the coordinate/info/header panel on the right, and the status bar reporting the renderer, the WASM build and the origin.",
+  "data_files": [],
+  "layers": [],
+  "controls_used": [
+   "Launch the app. Nothing is clicked."
+  ],
+  "notes": [
+   "The four view cells are labelled axial / coronal / sagittal / view3d; the active one carries the accent border."
+  ]
+ },
+ {
+  "file": "17-keyboard-help.png",
+  "title": "The keyboard and pointer sheet",
+  "what_it_shows": "Every shortcut the viewer has, generated from the key map itself so it cannot go stale: the keyboard commands (layer cycling, visibility, reorder, layout, crosshair, reset, the 1\u20136 camera presets, orthographic, the 4D index, in-plane nudge and slice stepping), the pointer gestures for 2D and 3D panes, and the oblique affordances.",
+  "data_files": [],
+  "layers": [],
+  "controls_used": [
+   "Press ? (or F1) with focus outside a text field, or click the ? button in the toolbar.",
+   "Escape closes it."
+  ],
+  "notes": []
+ }
+]

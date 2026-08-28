@@ -1,3 +1,10 @@
+---
+layout: page
+title: User Guide
+permalink: /USER_GUIDE.html
+nav_order: 3
+---
+
 # Tetravox — user guide
 
 A viewer for **voxel volumes** (NIfTI) and **finite-element / surface meshes** (Gmsh `.msh`, GIfTI,
@@ -198,7 +205,7 @@ the background is the scene's, white, or transparent.
 
 For a batch of figures, or a video, drive the app from a script instead: it runs with no window and never
 takes the focus, so a sweep through 200 slices can render while you work. See
-[`docs/AUTOMATION.md`](AUTOMATION.md) and the Python client in [`python/`](../python).
+[`docs/AUTOMATION.md`]({{ site.baseurl }}/AUTOMATION.html) and the Python client in [`python/`](../python).
 
 ## Settings
 

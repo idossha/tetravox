@@ -1,3 +1,10 @@
+---
+layout: page
+title: Testing
+permalink: /TESTING.html
+nav_order: 6
+---
+
 # Testing Tetravox
 
 The contract is `docs/ARCHITECTURE.md` §11 (rendering verification) and §12 (CI). This is the operator's

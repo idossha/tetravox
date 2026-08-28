@@ -1,3 +1,10 @@
+---
+layout: page
+title: Automation & Python
+permalink: /AUTOMATION.html
+nav_order: 4
+---
+
 # Automation — `--job`, the job schema, and the Python client
 
 Tetravox can be driven from a script: load data, auto-configure a visualisation, and capture
@@ -100,7 +107,7 @@ shows every layer the scene loaded, so a tour usually wants a **small** scene of
 ### 2.1 `scene`
 
 Either a saved scene, which restores everything it carries — layers, colormaps, thresholds, the camera
-([ARCHITECTURE §4.6](ARCHITECTURE.md)):
+([ARCHITECTURE §4.6]({{ site.baseurl }}/ARCHITECTURE.html)):
 
 ```json
 { "scene": { "path": "study.tetravox.json" } }
@@ -138,7 +145,7 @@ never invents a lookalike.
 | Key | Meaning |
 |---|---|
 | `layer` | Which layer `patch` applies to: an index (bottom→top), a name (`"T1.nii.gz"`), a suffix of the dataset's path, or `"active"`. Default `"active"`. |
-| `patch` | A `Partial<Layer>` in the app's own vocabulary ([§4.4](ARCHITECTURE.md)) — `{"colormap": "viridis", "opacity": 0.6}` — passed to `Engine.updateLayer` untouched. |
+| `patch` | A `Partial<Layer>` in the app's own vocabulary ([§4.4]({{ site.baseurl }}/ARCHITECTURE.html)) — `{"colormap": "viridis", "opacity": 0.6}` — passed to `Engine.updateLayer` untouched. |
 | `active` | Make a layer the **active** one, the same selector as `layer`. It is what clicking a row in the layer panel does, and it is invisible to an engine screenshot — it decides which controls a `view: "window"` capture has on screen. |
 | `cursor` | `[x, y, z]` in world RAS millimetres. The slice planes are derived from it (§4.5), so this is how you choose a slice. |
 | `layout` | `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`, `1+3`, `3d+1`. |
