@@ -313,6 +313,14 @@ needs them at all before writing the shader; "surface and cut-plane only" closes
 **Goldens:** `derived-contours-oblique`, `derived-fill2d`, `derived-glyphs-e-field`,
 `derived-iso-sphere`, `derived-points-electrodes`, `derived-mesh-colorbar`.
 
+**As built (2026-08-28).** `derived-points-electrodes` was captured under the name
+`derived-points-and-iso` — one scene, the lattice with a points layer over it. The other two are
+where the gate found them missing and are captured now: `derived-iso-sphere` beside the analytic
+sphere measurement that already existed, and `derived-mesh-colorbar` together with the fix that made
+a mesh colour bar draw at all (`render/passes/overlay.ts`'s `drawColorbars` began
+`if (layer.kind !== 'volume') continue`, so `MeshRuntime.colorbarSpec` was a producer with no
+consumer). See ROADMAP's Phase-2 gate table.
+
 **Named §11 test that does not exist yet and is yours:**
 
 * **Oblique slice + mesh contours (Phase 2)** — Phase 1's `gate4-t1-oblique` view with a `MeshLayer`

@@ -270,11 +270,23 @@ test('a points layer lands on the pixel the projection names, and only on its ow
  * reference image. The camera is orthographic so the silhouette's extent is `2r / mmPerPx` with no
  * perspective term.
  */
-test('an isosurface of an analytic sphere has the silhouette its radius implies', async ({
-  page,
-}) => {
-  const errors = await openScene(page);
-  const info = await page.evaluate(async () => {
+/**
+ * The analytic sphere scene, shared by the measurement and the golden `derived-iso-sphere`.
+ *
+ * `docs/PHASE2-OWNERSHIP.md` names both `derived-iso-sphere` and `derived-points-electrodes`;
+ * E-DERIVED captured one golden, `derived-points-and-iso`, whose scene has the points and **not**
+ * an isosurface. The measurement below was already §11's analytic half; this is the regression image
+ * the ledger asks for beside it, and building it from the same function is what keeps the two
+ * about the same picture.
+ */
+async function isoSphereScene(page: Page): Promise<{
+  kind: string;
+  iso: number;
+  expectedPx: number;
+  ops: string[];
+  errors: string[];
+}> {
+  return page.evaluate(async () => {
     const engine = window.__tvxEngine!;
     const N = 48;
     const R = 12;
@@ -328,6 +340,13 @@ test('an isosurface of an analytic sphere has the silhouette its radius implies'
       errors: window.__tvxErrors ?? [],
     };
   });
+}
+
+test('an isosurface of an analytic sphere has the silhouette its radius implies', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const info = await isoSphereScene(page);
 
   expect(errors).toEqual([]);
   expect(info.errors).toEqual([]);
@@ -352,6 +371,14 @@ test('an isosurface of an analytic sphere has the silhouette its radius implies'
   // voxel of screen extent rather than one pixel of an exact primitive.
   const voxelPx = info.expectedPx / (2 * info.iso);
   expect(Math.abs(measured - info.expectedPx)).toBeLessThanOrEqual(voxelPx + 1);
+});
+
+test('golden: derived-iso-sphere', async ({ page }) => {
+  const errors = await openScene(page);
+  const info = await isoSphereScene(page);
+  expect(errors).toEqual([]);
+  expect(info.errors).toEqual([]);
+  await expectGolden(page, 'derived-iso-sphere');
 });
 
 // -------------------------------------------------------------------------------------------
