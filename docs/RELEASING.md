@@ -207,6 +207,12 @@ packaging path goes through it — `pnpm package`, ci.yml's package legs, releas
 | set | signed with the Developer ID, hardened, notarised, stapled |
 | empty | `CSC_IDENTITY_AUTO_DISCOVERY=false`, plus `--config.mac.hardenedRuntime=false --config.mac.notarize=false` — an ordinary unsigned build, no error |
 
+The script **unsets** the five variables on that path rather than leaving them empty. A workflow
+writes `CSC_LINK: ${{ secrets.CSC_LINK }}` unconditionally, so on a runner without the secret the
+variable exists and is `""` — and electron-builder tests it for *defined*, not for non-empty. It then
+resolves `""` as a certificate path and dies with `⨯ /…/packages/app not a file`, an error that names
+neither signing nor the empty variable (release run 33220659986).
+
 The unsigned fallback is not politeness towards forks, it is a correctness rule: electron-builder
 ad-hoc-signs the arm64 slice whether or not you have a certificate, and an ad-hoc signature plus
 `hardenedRuntime: true` is an app the kernel kills at launch. Turning auto-discovery off also keeps

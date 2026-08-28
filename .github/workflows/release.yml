@@ -263,21 +263,43 @@ jobs:
           APPLE_TEAM_ID: 3BMY24SA43
         run: bash scripts/electron-builder.sh ${{ matrix.builder }}
 
-      # What the signature actually says, on the runner that made it. `|| true` on each: this step
-      # reports, it does not gate — an unsigned build is a legitimate outcome here (see above), and
-      # the thing that must not be silent is a build that *claims* to be signed and is not.
+      # What the signature actually says, on the runner that made it — and a GATE when there was a
+      # certificate to sign with. With no `CSC_LINK` the build is legitimately unsigned (a fork, or
+      # this repository before the secrets existed) and the checks only report; with one, an app that
+      # is not accepted by Gatekeeper as a notarised Developer ID build, or a `.dmg` with no stapled
+      # ticket, fails the leg here rather than on a user's machine. Both slices, since only one of
+      # them would otherwise be looked at.
       - name: Signature, Gatekeeper and staple
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
         run: |
-          app="packages/app/release/mac-arm64/Tetravox.app"
-          [ -d "$app" ] || app="packages/app/release/mac/Tetravox.app"
-          echo "=== codesign"
-          codesign -dv --verbose=4 "$app" 2>&1 || true
-          echo "=== spctl (Gatekeeper)"
-          spctl -a -vvv -t install "$app" 2>&1 || true
-          echo "=== stapler"
-          xcrun stapler validate "$app" 2>&1 || true
+          set -uo pipefail
+          signed=1
+          [ -n "${CSC_LINK:-}" ] || signed=0
+          [ "$signed" = "1" ] || echo "no CSC_LINK: this build is unsigned, reporting only"
+          rc=0
+          for app in packages/app/release/mac-arm64/Tetravox.app packages/app/release/mac/Tetravox.app; do
+            [ -d "$app" ] || continue
+            echo "=== $app"
+            codesign -dv --verbose=4 "$app" 2>&1 || rc=$((rc + signed))
+            codesign --verify --deep --strict --verbose=2 "$app" 2>&1 || rc=$((rc + signed))
+            # "accepted" plus "source=Notarized Developer ID" is the whole claim; `spctl` exits 0 for
+            # an accepted-but-not-notarised app too, so the source line is checked, not just the code.
+            out="$(spctl -a -vv -t install "$app" 2>&1)" || rc=$((rc + signed))
+            echo "$out"
+            if [ "$signed" = "1" ] && ! echo "$out" | grep -q 'Notarized Developer ID'; then
+              echo "spctl did not report a Notarized Developer ID" >&2
+              rc=$((rc + 1))
+            fi
+          done
+          for dmg in packages/app/release/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "=== stapler $dmg"
+            xcrun stapler validate "$dmg" 2>&1 || rc=$((rc + signed))
+          done
+          exit "$rc"
 
       # §12.1: "launch the packaged binary with a CLI arg pointing at a fixture and assert it exits 0
       # after rendering one frame." macOS and Linux do exactly that; Windows asserts launch-and-exit,

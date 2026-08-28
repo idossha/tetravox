@@ -31,6 +31,11 @@ cd "$ROOT/packages/app"
 extra=()
 if [ "$(uname -s)" = "Darwin" ] && [ -z "${CSC_LINK:-}" ]; then
   echo "==> no CSC_LINK: building UNSIGNED (no hardened runtime, no notarisation)"
+  # UNSET, not merely empty. A workflow writes `CSC_LINK: ${{ secrets.CSC_LINK }}` unconditionally, so
+  # on a runner with no secret the variable exists and is the empty string — and electron-builder
+  # tests these for *defined*, not for non-empty. It then resolves "" as a certificate path and dies
+  # with `⨯ /path/to/packages/app not a file`, which names neither signing nor the empty variable.
+  unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
   export CSC_IDENTITY_AUTO_DISCOVERY=false
   extra=(--config.mac.hardenedRuntime=false --config.mac.notarize=false)
 elif [ "$(uname -s)" = "Darwin" ]; then
