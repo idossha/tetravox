@@ -1850,19 +1850,23 @@ Rules:
   exceeded ~6 ms.
 * **`interacting` state** lives on the engine (not in React): entered on pointerdown / wheel / key-repeat / gizmo
   drag, left `settleMs` (default 120 ms) after the last input. While interacting, the `interacting` `QualityLevel`
-  applies: `dprScale 1`, `msaa 0`, `edges false`, `capDecimation` per §9. Leaving it triggers exactly one
-  full-quality re-render.
+  applies: `dprScale 1`, `msaa 0`, `capDecimation` per §9. Leaving it triggers exactly one full-quality re-render.
   **Forbidden in the fallback set: any knob that changes displayed *values* rather than displayed *resolution*.**
-  `interpolation` (nearest vs linear) is a reading, not a rendering setting, and must never be degraded.
+  `interpolation` (nearest vs linear) is a reading, not a rendering setting, and must never be degraded. **Nor is a
+  display feature the user switched on** — element edges are the worked example, and `QualityLevel` has no `edges`
+  field for exactly the reason it has no `interpolation` one (DECISIONS, 2026-08-28).
   **Which knobs are live, as of Phase 2** — because a level nothing reads is a status bar announcing a degradation
-  that never happened, which inverts the rule below rather than satisfying it:
+  that never happened, which inverts the rule above rather than satisfying it:
 
   | Knob | State | Where |
   |---|---|---|
   | `dprScale` | live, and 1 at **every** level, so it never changes anything | the host owns `canvas.width/height` (§8); no level asks for less |
-  | `edges` | **live** — `TVX_EDGES` is dropped for `MeshLayer.edges.surface` / `.caps` | `render/passes/mesh.ts`'s `qualityEdges` |
+  | `edges` | **removed from `QualityLevel`** — `TVX_EDGES` follows `MeshLayer.edges.surface` / `.caps` and nothing else, at every level | `render/passes/mesh.ts`'s `variantOf` / `capVariantOf` |
   | `msaa` | Phase 3 | `antialias` is a *context* attribute (`gl/context.ts`); changing it per frame needs an MSAA resolve target, which is §7.0.7's accumulation buffer |
   | `capDecimation` | Phase 3 | needs `plane_cut` to emit fewer cap triangles; §9 row 11's lever, measured in `docs/benchmarks/phase2-mesh.md` |
+
+  No knob is live today, so `interacting` is currently a *gesture in flight* and not a degradation, and §8's status
+  bar says so in those words. When `msaa` or `capDecimation` lands, it announces a degradation again.
 
   A level may **never** change `MeshLayer.label` emphasis (`TVX_EMPHASIS`): which region is selected is a reading in
   exactly the sense `interpolation` is. Nor may it change the *geometry variant* a layer requested — a drag that

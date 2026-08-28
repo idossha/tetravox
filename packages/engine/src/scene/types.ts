@@ -526,8 +526,14 @@ export interface QualityLevel {
   /** 1 = one device pixel per CSS px. */
   dprScale: number;
   msaa: 0 | 2 | 4;
-  edges: boolean;
-  /** 1 = exact. */
+  /**
+   * 1 = exact.
+   *
+   * There is deliberately **no `edges` field**. §7.2's fallback set may change displayed
+   * *resolution*, never what is displayed: element edges are a feature the user switched on, so
+   * they stay on through orbit / pan / dolly. Same enforcement as `interpolation`'s — the knob has
+   * no field, so no level can name it.
+   */
   capDecimation: number;
   oit: boolean;
 }

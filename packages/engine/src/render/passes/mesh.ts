@@ -311,14 +311,15 @@ export function clipVariant(
 /** The §7.1 variant one sub-draw compiles to. */
 export function variantOf(
   d: SubDraw,
-  input: { clipDistance?: boolean; forceDiscardClip?: boolean; edges?: boolean } = {}
+  input: { clipDistance?: boolean; forceDiscardClip?: boolean } = {}
 ): MeshVariant {
   const { layer, geom, style } = d.item;
   const colorSource = effectiveColorSource(style, geom);
   // Edges need the de-indexed variant's `corner` attribute — §7.4's masked barycentric mechanism is
   // the only one, for surfaces and caps alike, so an indexed draw simply has no edges yet.
-  // `input.edges === false` is §7.2's `interacting` level; emphasis is not gated (see qualityEdges).
-  const surfaceEdges = layer.edges.surface && input.edges !== false;
+  // `MeshLayer.edges.surface` is the ONLY input: §7.2's quality ladder has no `edges` knob, because
+  // a user-enabled display feature is never dropped mid-gesture.
+  const surfaceEdges = layer.edges.surface;
   const wantEdges = (surfaceEdges || d.emphasised) && geom.hasCorner;
   return {
     TVX_COLOR_SOURCE: colorSource,
@@ -356,13 +357,13 @@ export function effectiveCapColorSource(item: MeshDrawItem): 0 | 1 | 2 | 4 {
 /** The §7.1 variant one cap draw compiles to. */
 export function capVariantOf(
   c: CapDraw,
-  input: { clipDistance?: boolean; forceDiscardClip?: boolean; edges?: boolean } = {}
+  input: { clipDistance?: boolean; forceDiscardClip?: boolean } = {}
 ): MeshVariant {
   const layer = c.item.layer;
   const colorSource = effectiveCapColorSource(c.item);
   // §7.4: "Cap edges use the same shader", and `Cut.edge_mask` always exists — a 1-3 split is 0b111,
   // a 2-2 split is 0b101 / 0b011, which is what suppresses the quad diagonal.
-  const wantEdges = layer.edges.caps && input.edges !== false;
+  const wantEdges = layer.edges.caps;
   return {
     TVX_COLOR_SOURCE: colorSource,
     TVX_EDGES: wantEdges ? 1 : 0,
@@ -410,29 +411,6 @@ interface FrameUniforms {
   clipDistance: boolean;
   /** §11's clip-path axis (`EngineOptions.forceDiscardClip`). */
   forceDiscardClip: boolean;
-  /** `Scene.quality.edges` — §7.2's `interacting` fallback set. See {@link qualityEdges}. */
-  edges: boolean;
-}
-
-/**
- * §7.2's `edges` knob, read off the scene's current `QualityLevel`.
- *
- * §7.2: "While interacting, the `interacting` `QualityLevel` applies: `dprScale 1`, `msaa 0`,
- * **`edges false`**, `capDecimation` per §9." This is the one place the flag is consumed, and it is
- * consumed here because a barycentric edge is a *shader variant* (`TVX_EDGES`), so switching it off
- * costs a program bind rather than a re-upload — nothing about the geometry, the cut or the field
- * tables changes, which is what makes it safe to flip inside a drag.
- *
- * **Label emphasis is deliberately not gated.** `TVX_EMPHASIS` draws R5's selected-region outline,
- * and §7.2's own rule for the fallback set is "any knob that changes displayed *values* rather than
- * displayed *resolution*" is forbidden. Which region is selected is a value the user is reading, in
- * exactly the sense `interpolation` is; dropping it mid-drag would make a selection blink out while
- * the user drags to inspect it. `edges.surface` / `edges.caps` are wireframe, which is resolution.
- *
- * A missing `quality` (a hand-built `DrawInput` in a unit test, or the no-GL engine) means full.
- */
-export function qualityEdges(input: { scene?: { quality?: { edges?: boolean } } }): boolean {
-  return input.scene?.quality?.edges !== false;
 }
 
 export class MeshPass implements FramePass {
@@ -474,7 +452,6 @@ export class MeshPass implements FramePass {
       store: input.store,
       clipDistance: input.clipDistance === true,
       forceDiscardClip: input.forceDiscardClip === true,
-      edges: qualityEdges(input),
     };
     this.#bound = null;
     this.#clip = null;

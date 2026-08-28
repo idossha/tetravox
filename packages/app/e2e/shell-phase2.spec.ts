@@ -353,7 +353,6 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
         name: 'interacting',
         dprScale: 1,
         msaa: 0,
-        edges: false,
         capDecimation: 4,
         oit: false,
       })
@@ -366,7 +365,6 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
         name: 'reduced',
         dprScale: 0.5,
         msaa: 0,
-        edges: false,
         capDecimation: 8,
         oit: false,
       })

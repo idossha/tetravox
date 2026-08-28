@@ -2522,3 +2522,34 @@ Each entry below names the problem, the fix, and the evidence.
   moved from the bottom of the old table into `FieldSection`, beside the colour-source selector it
   actually feeds.
 
+
+- 2026-08-28 — **A user-enabled display feature is never dropped mid-gesture: `edges` leaves the
+  quality ladder.**
+  §7.2's `interacting` `QualityLevel` named `edges false`, and `render/passes/mesh.ts` honoured it in
+  `variantOf` / `capVariantOf` via a `qualityEdges` helper. The visible result, reported by the
+  maintainer: with element edges enabled on a mesh layer, the edge lines vanish for the whole of
+  every orbit / pan / dolly and reappear `settleMs` (120 ms) after the hand stops. On ernie that is
+  every gesture, on both the tag surfaces and the cut caps.
+  It was §7.2's own rule being broken by the level that wrote it. "Forbidden in the fallback set: any
+  knob that changes displayed *values* rather than displayed *resolution*" was read as covering only
+  readings like `interpolation`; a wireframe was filed under resolution. It is not. A feature the user
+  reached over and switched on is *what is displayed* — the same category as which region is
+  emphasised (`TVX_EMPHASIS`, never gated for exactly this reason). Cheapness of the flip was the
+  argument for gating it (a program bind, no re-upload), and cheapness is not a licence.
+  So the knob is **gone from the type**, not merely set to `true` in every level — the same
+  enforcement `interpolation` has always had, and the reason `scene/types.ts`'s `QualityLevel` (a
+  §12.3 frozen interface, edited here in the same commit as §7.2) now carries a comment saying so.
+  `qualityEdges`, `FrameUniforms.edges` and the `edges?:` parameter on `variantOf` / `capVariantOf`
+  are deleted; `TVX_EDGES` follows `MeshLayer.edges.surface` / `.caps` and nothing else.
+  **What remains in the ladder is unchanged and still Phase 3**: `dprScale` (1 at every level, so it
+  changes nothing), `msaa` and `capDecimation` — both pure resolution, neither with a consumer yet.
+  A consequence worth stating: `edges` was the only live knob, so `interacting` now degrades
+  *nothing*. §8's status bar keeps the indicator — a gesture in flight is worth showing — but its
+  tooltips no longer claim a degradation the renderer does not perform, which is the same honesty
+  §7.2 demands in the other direction.
+  §11's E-SCENE obligation ("assert a pixel that the `interacting` level would have changed") is
+  **inverted rather than deleted**: `pointer.spec.ts` now asserts the edge pixel is present at full
+  quality *and* mid-gesture — byte for byte under a stationary press, and by an exact-edge-colour
+  pixel count sampled in the middle of a synthetic orbit drag, against a transparent-edge control
+  that counts zero. `mesh-real.spec.ts` runs the same shape on ernie's surface and cap edges under a
+  mid-axial clip. `input/interaction.test.ts` pins that no level names the knob.

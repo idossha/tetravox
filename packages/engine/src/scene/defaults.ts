@@ -98,7 +98,7 @@ export function defaultScene(): Scene {
       crosshair: true,
     },
     transparency: { mode: 'twoPhase' },
-    quality: { name: 'full', dprScale: 1, msaa: 4, edges: true, capDecimation: 1, oit: false },
+    quality: { name: 'full', dprScale: 1, msaa: 4, capDecimation: 1, oit: false },
   };
 }
 
