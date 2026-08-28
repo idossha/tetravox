@@ -136,6 +136,17 @@ export interface UiState {
   screenshotOptions: ScreenshotOptions;
   /** The dataset whose raw header the info panel's header block is showing; null = the active one. */
   headerDatasetId: DatasetId | null;
+
+  // -- A-COLLAPSE (appended; the per-row disclosure of docs/PLAN-2026-08-28-directed.md #1) --------
+  /**
+   * Which layer rows are **collapsed** in the panel, keyed by `LayerId`.
+   *
+   * Chrome, and deliberately nothing else: a disclosure is a property of this window, not of the
+   * scene, so it is never serialised into a `ViewSpec` and a saved scene reopens with every row
+   * expanded. A layer absent from the map is expanded, which is what makes a **newly added layer
+   * start expanded** for free while every other row keeps whatever the user set.
+   */
+  collapsedLayers: Record<LayerId, boolean>;
 }
 
 /** Where this scene lives on disk, and when it was last written there. */
@@ -214,6 +225,7 @@ export const INITIAL_UI: UiState = {
   relocate: null,
   screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,
   headerDatasetId: null,
+  collapsedLayers: {},
 };
 
 export type UiStore = StoreApi<UiState>;
@@ -295,4 +307,41 @@ export function headerDataset(state: UiState): Dataset | null {
 export function activeMeshDataset(state: UiState): Extract<Dataset, { kind: 'mesh' }> | null {
   const dataset = datasetOf(state, activeLayer(state));
   return dataset?.kind === 'mesh' ? dataset : null;
+}
+
+// -- A-COLLAPSE (appended) -----------------------------------------------------------------------
+
+/** Is this row collapsed? Absent from the map means expanded (§ new layers start expanded). */
+export function isLayerCollapsed(state: UiState, id: LayerId): boolean {
+  return state.collapsedLayers[id] === true;
+}
+
+/**
+ * What the panel-header control should do next: collapse everything while any row is still
+ * expanded, expand everything once they are all shut. With no layers at all there is nothing to
+ * shut, so it offers `'collapse'` and does nothing — the button is disabled in that state anyway.
+ */
+export function collapseAllAction(state: UiState): 'collapse' | 'expand' {
+  const anyExpanded = state.layers.some((l) => state.collapsedLayers[l.id] !== true);
+  return anyExpanded ? 'collapse' : 'expand';
+}
+
+/**
+ * The map with every entry for a layer that no longer exists dropped, or the map itself when there
+ * is nothing to drop.
+ *
+ * Returning the **same object** when nothing changed is load-bearing: this runs on every `layers`
+ * event, selectors are compared with `Object.is`, and a fresh `{}` each time would re-render the
+ * whole panel on every cursor probe.
+ */
+export function pruneCollapsed(
+  collapsed: Record<LayerId, boolean>,
+  layers: readonly Layer[]
+): Record<LayerId, boolean> {
+  const live = new Set(layers.map((l) => l.id));
+  const keys = Object.keys(collapsed) as LayerId[];
+  if (keys.every((id) => live.has(id))) return collapsed;
+  const out: Record<LayerId, boolean> = {};
+  for (const id of keys) if (live.has(id)) out[id] = collapsed[id] as boolean;
+  return out;
 }

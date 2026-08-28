@@ -32,7 +32,7 @@ import type {
 } from '@tetravox/engine';
 import { sidecarPathsFor } from '@tetravox/engine';
 import type { CoordSpace, DialogKind, RelocateRow, UiStore } from './store';
-import { activeLayer, datasetOf, templateSource } from './store';
+import { activeLayer, collapseAllAction, datasetOf, pruneCollapsed, templateSource } from './store';
 import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import type { Command } from '../keyboard/keymap';
@@ -175,11 +175,16 @@ export class ShellController {
 
   private syncLayers(): void {
     const { engine, store } = this;
-    store.setState({
-      layers: [...engine.scene.layers],
+    const layers = [...engine.scene.layers];
+    store.setState((s) => ({
+      layers,
       activeLayerId: engine.scene.activeLayerId,
       datasets: [...engine.scene.datasets.values()],
-    });
+      // A-COLLAPSE: forget the disclosure of a layer that is gone, so closing and reopening a
+      // dataset does not resurrect a collapsed row. `pruneCollapsed` returns the same object when
+      // there is nothing to drop, which keeps the panel from re-rendering on every layers event.
+      collapsedLayers: pruneCollapsed(s.collapsedLayers, layers),
+    }));
     this.reprobeCursor();
   }
 
@@ -1232,6 +1237,40 @@ export class ShellController {
 
   setHeaderDataset(id: DatasetId | null): void {
     this.store.setState({ headerDatasetId: id });
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // A-COLLAPSE (appended): the layer panel's disclosures. Chrome only — no §4.7 call belongs
+  // here, because whether a row is shut is not something the engine has an opinion about.
+  // ------------------------------------------------------------------------------------------
+
+  setLayerCollapsed(id: LayerId, collapsed: boolean): void {
+    this.store.setState((s) => {
+      if ((s.collapsedLayers[id] === true) === collapsed) return {};
+      const next = { ...s.collapsedLayers };
+      if (collapsed) next[id] = true;
+      else delete next[id];
+      return { collapsedLayers: next };
+    });
+  }
+
+  toggleLayerCollapsed(id: LayerId): void {
+    this.setLayerCollapsed(id, this.store.getState().collapsedLayers[id] !== true);
+  }
+
+  /** The panel-header control: shut every row while any is open, otherwise open them all. */
+  setAllLayersCollapsed(collapsed: boolean): void {
+    this.store.setState((s) => {
+      if (!collapsed)
+        return Object.keys(s.collapsedLayers).length === 0 ? {} : { collapsedLayers: {} };
+      const next: Record<LayerId, boolean> = {};
+      for (const layer of s.layers) next[layer.id] = true;
+      return { collapsedLayers: next };
+    });
+  }
+
+  toggleAllLayersCollapsed(): void {
+    this.setAllLayersCollapsed(collapseAllAction(this.store.getState()) === 'collapse');
   }
 }
 
