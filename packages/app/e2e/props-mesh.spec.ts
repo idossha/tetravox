@@ -582,11 +582,13 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     const enabled = (await onePatch(page)).glyphs as {
       field: { name: string };
       subsample: { everyNth: number };
-      scale: string;
+      scale: { mode: string; lengthMm: number; normalizeTo: string };
     };
     // Only a vector field can drive a glyph; the stand-in's `E` is the ncomp-3 one.
     expect(enabled.field.name).toBe('E');
-    expect(enabled.scale).toBe('byMagnitude');
+    // Directed task 7's defaults: linear, normalised to the field's p99, 6 mm. `docs/DECISIONS.md`
+    // 2026-08-28 has the measurement that rules out normalising to the maximum.
+    expect(enabled.scale).toMatchObject({ mode: 'linear', normalizeTo: 'p99', lengthMm: 6 });
 
     await record(page);
     await setControl(page, `mesh-glyph-stride-${ids.mesh}`, '25');
@@ -604,21 +606,47 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     await setControl(page, `mesh-glyph-origins-${ids.mesh}`, 'volume');
     expect((await onePatch(page)).glyphs).toMatchObject({ origins: 'volume' });
 
+    // The four modes, and the reference they are measured against, are two controls (§4.4's
+    // `GlyphScaling`). Changing one must leave the other alone.
     await record(page);
-    await setControl(page, `mesh-glyph-scale-${ids.mesh}`, 'fixed');
-    expect((await onePatch(page)).glyphs).toMatchObject({ scale: 'fixed' });
+    await setControl(page, `mesh-glyph-scale-${ids.mesh}`, 'log');
+    expect((await onePatch(page)).glyphs).toMatchObject({
+      scale: { mode: 'log', normalizeTo: 'p99', lengthMm: 6 },
+    });
 
     await record(page);
+    await setControl(page, `mesh-glyph-normalize-${ids.mesh}`, 'max');
+    expect((await onePatch(page)).glyphs).toMatchObject({
+      scale: { mode: 'log', normalizeTo: 'max' },
+    });
+
+    // `log` has no zero, so its floor is its own control — and it only exists in `log`.
+    await record(page);
+    await setControl(page, `mesh-glyph-logfloor-${ids.mesh}`, '0.25');
+    expect((await onePatch(page)).glyphs).toMatchObject({ scale: { logFloor: 0.25 } });
+
+    // The length is written in **both** places: `scale.lengthMm` is what the renderer reads, and the
+    // top-level `lengthMm` is what a scene saved before 2026-08-28 carries.
+    await record(page);
     await setControl(page, `mesh-glyph-length-${ids.mesh}`, '7.5');
-    expect((await onePatch(page)).glyphs).toMatchObject({ lengthMm: 7.5 });
+    expect((await onePatch(page)).glyphs).toMatchObject({
+      lengthMm: 7.5,
+      scale: { lengthMm: 7.5 },
+    });
+
+    await record(page);
+    await setControl(page, `mesh-glyph-head-${ids.mesh}`, '0.5');
+    expect((await onePatch(page)).glyphs).toMatchObject({ headProportion: 0.5 });
 
     await record(page);
     await setControl(page, `mesh-glyph-color-${ids.mesh}`, '#00ff00');
     expect((await onePatch(page)).glyphs).toMatchObject({ color: [0, 1, 0, 1] });
 
-    await record(page);
-    await page.click(`[data-testid="mesh-glyph-cliptocut-${ids.mesh}"]`);
-    expect((await onePatch(page)).glyphs).toMatchObject({ clipToCutPlane: true });
+    // "To cut plane" restricts the origins to a slab about the layer's **first enabled clip plane**,
+    // and with none enabled there is no plane to restrict to — so the control is disabled with the
+    // reason attached rather than writing a state whose only rendering is the same picture (§8, the
+    // same treatment `origins` gets on a mesh with no tets).
+    await expect(page.locator(`[data-testid="mesh-glyph-cliptocut-${ids.mesh}"]`)).toBeDisabled();
 
     await record(page);
     await page.click(`[data-testid="mesh-glyphs-enabled-${ids.mesh}"]`);

@@ -20,6 +20,8 @@ import { GL_STATE } from '../../gl/state';
 import type { GlState } from '../../gl/state';
 import type { FramePass, PassContext } from './pass';
 import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
+import { glyphColorbarSpec } from '../../derived/mesh-colorbar';
+import { glyphLegendLine } from '../../derived/glyph-scale';
 import {
   DEFAULT_OVERLAY_THEME,
   FLOATS_PER_VERTEX,
@@ -117,7 +119,13 @@ export class OverlayPass implements FramePass {
         const up: vec3 = [viewProj[1] ?? 0, viewProj[5] ?? 1, viewProj[9] ?? 0];
         letters = edgeLetters({ right, up, normal: [0, 0, 1] });
       }
-      if (a.cornerInfo) cornerLines.push('3D');
+      if (a.cornerInfo) {
+        cornerLines.push('3D');
+        // §8's glyph legend: "arrow length ~ log10|E|, 1 mm = …". A length encodes a number, and a
+        // length with no key on the picture is the one annotation §8 calls a safety item rather
+        // than decoration — the reader cannot otherwise tell a 6 mm arrow from a 6 V/m one.
+        cornerLines.push(...glyphLegendLines(input, view));
+      }
       // R1: "the 3D crosshair moves". The cursor projected through the pane's own view-projection,
       // in the pane's pixels, with a bottom-left origin like every other overlay item.
       if (a.crosshair) {
@@ -261,6 +269,20 @@ function drawColorbars(
     drawColorbar(b, m, spec, textColor, slot);
     slot += 1;
   }
+  // Appended (shared-file rule, 2026-08-28): the glyph magnitude bar, which is a *third* producer —
+  // a mesh layer can show a field bar and a glyph bar at once, because they describe two different
+  // quantities (the surface's scalar and the arrows' magnitude) and stacking them is what §8's "one
+  // per visible scalar layer" means when a layer carries two.
+  for (const layer of input.scene.layers) {
+    if (layer.kind !== 'mesh' || !visibleIn(layer, view)) continue;
+    const ds = input.scene.datasets.get(layer.datasetId);
+    if (ds === undefined || ds.kind !== 'mesh') continue;
+    const spec = glyphColorbarSpec(layer, ds);
+    if (spec === null) continue;
+    drawColorbar(b, m, spec, textColor, slot);
+    slot += 1;
+  }
+
   // Appended (shared-file rule): the **non-volume** half of §8's "one bar per visible scalar layer".
   //
   // E-DERIVED's item is "the mesh colour bar: produce a `ColorbarSpec` from `MeshFieldInfo` … and
@@ -328,4 +350,25 @@ function fmt(v: number): string {
  */
 function sliceIndex(view: SliceView, ds: VolumeDataset, voxel: vec3): number {
   return voxel[voxelAxisAlong(view.normal, ds.affine).axis];
+}
+
+/**
+ * One legend line per visible mesh layer whose glyphs are on — `derived/glyph-scale.ts` writes the
+ * sentence, this only decides which layers get one and in what order.
+ */
+function glyphLegendLines(input: DrawInput, view: View): string[] {
+  const out: string[] = [];
+  for (const layer of input.scene.layers) {
+    if (layer.kind !== 'mesh' || layer.glyphs === undefined || !visibleIn(layer, view)) continue;
+    const ds = input.scene.datasets.get(layer.datasetId);
+    if (ds === undefined || ds.kind !== 'mesh') continue;
+    const spec = layer.glyphs;
+    out.push(
+      glyphLegendLine(
+        spec,
+        ds.fields.find((f) => f.name === spec.field.name && f.source === spec.field.source)
+      )
+    );
+  }
+  return out;
 }

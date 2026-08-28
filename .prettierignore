@@ -18,3 +18,8 @@ scripts/refvalues/
 # fixed 1-space indent and sorted keys, so it stays diffable across regenerations. A
 # reflow would make every rerun look like a content change.
 testdata/
+
+# Generated ground truth, as above: `scripts/reference/glyphs.py` writes this with SimNIBS + numpy
+# and it is compared element by element, never read by a human. Reflowing 1,397 elements of f64
+# would make every regeneration a whole-file diff.
+packages/engine/test/fixtures/

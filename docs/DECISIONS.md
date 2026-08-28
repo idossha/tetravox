@@ -2854,3 +2854,64 @@ open on a black rectangle.
   surface as-is when no companion volume is named, and tkr-RAS is the space `mris_info` and
   `nibabel.freesurfer.read_geometry` report — so the number in the panel is the number a FreeSurfer
   user expects, and the label says which space it is rather than leaving them to guess.
+
+## 2026-08-28 — vector glyphs: verified against numpy, and a scaling model (directed task 7)
+
+**What the verification found.** `scripts/reference/glyphs.py` (SimNIBS + numpy) and
+`packages/engine/test/e2e/glyphs-real.spec.ts` compare the engine's own glyph instances against the
+reference on `ernie_TDCS_1_scalar.msh`: every grey-matter tet whose centroid is within 0.05 mm of
+`z = 40`, 1,397 of them. **Set equality on the element numbers, worst origin error 1.13e-5 mm, worst
+direction error 2.83e-6°** `[DATA]`. Placement, the `ownerTet − 1` field indexing and the direction
+were correct; three things around them were not.
+
+* **`shape: 'line'` was ignored.** `render/passes/derived.ts` built `buildArrow(true)` once in its
+  constructor, so a §4.4 value documented since the type was written drew a head anyway. There is now
+  one template per `(shape, headProportion)`, built on first use — 24 triangles of constant data, a
+  handful of keys per session, so still nothing like per-element geometry (AGENTS rule 7).
+* **`clipToCutPlane` was inert.** §7.4 has always said "when a cut plane is active and
+  `clipToCutPlane`, [restrict] to elements the plane intersects"; the renderer read the field
+  nowhere. It is implemented as a slab test in the vertex shader — `onCutPlaneOnly` is the new
+  spelling, `clipToCutPlane` still honoured — about the layer's **first enabled clip plane**, which is
+  the only cut plane a 3D pane has. With no enabled plane the switch is inert *and the app's control
+  says so*, rather than silently blanking the layer.
+* **`scale: 'byMagnitude'` normalised to the field maximum**, which is the defect that made the
+  feature unusable rather than merely incomplete. `E`'s maximum on the reference mesh is
+  57.7899 V/m; its 99th percentile is 3.8458 `[DATA]`. The maximum is electrode gel. A grey-matter
+  magnitude of 0.0182 V/m therefore drew 0.0019 mm of arrow at a 6 mm setting — 15× shorter than the
+  same value against p99, sub-pixel at any zoom, and indistinguishable from a broken field lookup.
+
+**Decision — `GlyphScaling`, additive on `GlyphSpec.scale`.** `scale` becomes
+`'fixed' | 'byMagnitude' | GlyphScaling`, so every scene saved before today round-trips and reads
+exactly as it did (`'byMagnitude'` = linear against `max`), while a new spec carries
+`{ mode, lengthMm, normalizeTo, logFloor }`. The three decisions that were tangled in one word are
+now three fields: the **shape** of the map (`fixed` / `linear` / `sqrt` / `log`), the **reference**
+magnitude that maps to `lengthMm` (`p99` / `max` / a number / `null` for "per unit"), and where
+`log` **bottoms out**. `GlyphSpec` also gains `onCutPlaneOnly`, `cutSlabMm` and `headProportion`, all
+optional, all defaulting to today's picture. App defaults: **linear, p99, 6 mm**.
+
+**Why a floor is not a nicety.** `E`'s minimum magnitude is 8.56e-13 `[DATA]` — thirteen decades
+below its p99. Unfloored, `log` spends twelve of them on numerical noise. The floor defaults to the
+field's 5th percentile, and at or below it the instance is dropped rather than drawn at a length the
+scale cannot justify.
+
+**One model, four consumers.** `derived/glyph-scale.ts` is the only implementation of the length
+function, the legend sentence and the scaling word; the vertex shader carries the same arithmetic
+term for term because it has to run per instance, and `glyphs.spec.ts` measures a **drawn** arrow in
+pane pixels against it so the two cannot drift silently. The renderer and the §11 readback also share
+`derived/glyph-plan.ts`, so a test cannot pass by asserting a different plan than the one drawn.
+
+**A legend and a colour bar, because a length encodes a number.** The overlay's corner lines gain one
+line per glyph layer, and §8's bars gain a third producer (`glyphColorbarSpec`) for the magnitude
+ramp, titled with the scaling. Both are written in the alphabet `render/font.ts` actually has —
+`A-Z 0-9 space . , : - + / ( )`, with **no `|`, `~` or `=`** — because a missing glyph decodes as a
+space and `LENGTH ~ |E| = 6 MM` would reach the picture as `LENGTH   E    6 MM`.
+
+**Visual change, stated.** The new golden is `derived-glyphs-log`. `derived-glyphs-e-field` is
+regenerated: `Annotations.cornerInfo` defaults to `true`, so it gains the legend line at the bottom
+left. Nothing else in it moves.
+
+**A test-only readback, and why the engine carries one.** Everything a glyph *is* happens in the
+vertex shader, so a golden PNG can only say that ink arrived. `Engine.glyphInstances` (gated on
+`Engine.retainGlyphSources`, which the app never calls) reports the instances out of the same arrays
+the tables were uploaded from. It is the only way §11 rule 0 — "an agent cannot judge a PNG; it can
+judge a number" — reaches this feature at all.

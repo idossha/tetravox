@@ -82,3 +82,18 @@ export {
  */
 export { DEFAULT_OVERLAY_THEME } from './overlay/theme';
 export type { OverlayTheme } from './overlay/theme';
+
+/**
+ * The glyph scaling model (§4.4's `GlyphScaling`) — exported because the app editor states the same
+ * sentence in its panel that the overlay legend states on the picture, and one of them being a
+ * re-implementation is how they end up disagreeing.
+ */
+export {
+  DEFAULT_GLYPH_LENGTH_MM,
+  glyphLegendLine,
+  glyphLengthMm,
+  glyphScaling,
+  glyphScalingWord,
+  referenceMagnitude,
+} from './derived/glyph-scale';
+export type { GlyphInstance } from './derived/glyph-readback';

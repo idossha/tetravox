@@ -18,18 +18,22 @@
 import type { MeshDataset, MeshLayer } from '@tetravox/engine';
 import { useController } from '../../../ui/context';
 import { NumberField, Row, Section, Select, Slider, Swatch, Toggle } from './controls';
+import { glyphLegendLine, glyphScaling, referenceMagnitude } from '@tetravox/engine';
+import type { GlyphScaling } from '@tetravox/engine';
 import {
   disableGlyphs,
   enableGlyphs,
   fieldKey,
   glyphOrigins,
   glyphOriginsAvailable,
+  glyphNormalizeKey,
   glyphStrideText,
   hexToVec4,
   patchGlyphs,
   setGlyphField,
   setGlyphMaxCount,
   setGlyphOrigins,
+  setGlyphScaling,
   setGlyphStride,
   vec4ToHex,
   vectorFields,
@@ -46,6 +50,14 @@ export function Glyphs({
   const patch = (p: Partial<MeshLayer>): void => controller.patchLayer(layer.id, p);
   const vectors = vectorFields(dataset);
   const spec = layer.glyphs;
+  // The panel states the same sentence the overlay legend does, from the same function: two
+  // spellings of one scaling model is how a picture and its key end up disagreeing.
+  const scaling = spec === undefined ? null : glyphScaling(spec);
+  const info =
+    spec === undefined
+      ? undefined
+      : dataset.fields.find((f) => f.name === spec.field.name && f.source === spec.field.source);
+  const hasCutPlane = layer.clip.planes.some((p) => p.enabled);
 
   return (
     <Section
@@ -71,7 +83,7 @@ export function Glyphs({
           No vector field. <code>ernie_TDCS_1_scalar.msh</code>’s <code>E</code> is the reference
           case.
         </p>
-      ) : spec === undefined ? (
+      ) : spec === undefined || scaling === null ? (
         <p className="text-[10px] text-tvx-dim">Off.</p>
       ) : (
         <>
@@ -153,23 +165,91 @@ export function Glyphs({
           <Row label="Scale">
             <Select
               testId={`mesh-glyph-scale-${layer.id}`}
-              value={spec.scale}
+              value={scaling.mode}
               options={[
                 { value: 'fixed', label: 'fixed' },
-                { value: 'byMagnitude', label: 'by magnitude' },
+                { value: 'linear', label: 'linear' },
+                { value: 'sqrt', label: 'sqrt' },
+                { value: 'log', label: 'log10' },
               ]}
-              onChange={(scale) => patch(patchGlyphs(layer, { scale }))}
+              onChange={(mode) =>
+                patch(setGlyphScaling(layer, { mode: mode as GlyphScaling['mode'] }))
+              }
+            />
+            <Select
+              testId={`mesh-glyph-normalize-${layer.id}`}
+              value={glyphNormalizeKey(spec)}
+              disabled={scaling.mode === 'fixed'}
+              options={[
+                { value: 'p99', label: 'to p99' },
+                { value: 'max', label: 'to max' },
+                { value: 'value', label: 'to value' },
+                { value: 'none', label: 'per unit' },
+              ]}
+              onChange={(key) =>
+                patch(
+                  setGlyphScaling(layer, {
+                    normalizeTo:
+                      key === 'none'
+                        ? null
+                        : key === 'value'
+                          ? referenceMagnitude(scaling, info?.stats)
+                          : (key as 'p99' | 'max'),
+                  })
+                )
+              }
             />
           </Row>
+          {glyphNormalizeKey(spec) === 'value' && (
+            <Row label="Reference">
+              <NumberField
+                testId={`mesh-glyph-normalize-value-${layer.id}`}
+                value={referenceMagnitude(scaling, info?.stats)}
+                step={0.1}
+                min={0}
+                width="w-24"
+                onCommit={(normalizeTo) => patch(setGlyphScaling(layer, { normalizeTo }))}
+              />
+              <span className="ml-auto shrink-0 text-[9px] text-tvx-dim">
+                {info === undefined ? '' : `field max ${info.stats.max.toPrecision(4)}`}
+              </span>
+            </Row>
+          )}
+          {scaling.mode === 'log' && (
+            <Row label="Log floor">
+              <NumberField
+                testId={`mesh-glyph-logfloor-${layer.id}`}
+                value={scaling.logFloor}
+                step={0.01}
+                min={0}
+                width="w-24"
+                onCommit={(logFloor) => patch(setGlyphScaling(layer, { logFloor }))}
+              />
+              <span className="ml-auto shrink-0 text-[9px] text-tvx-dim">
+                below this an arrow has no length
+              </span>
+            </Row>
+          )}
           <Row label="Length mm">
             <Slider
               testId={`mesh-glyph-length-${layer.id}`}
-              value={spec.lengthMm}
+              value={scaling.lengthMm}
               min={0.5}
               max={30}
               step={0.5}
               format={(v) => `${v.toFixed(1)}`}
-              onChange={(lengthMm) => patch(patchGlyphs(layer, { lengthMm }))}
+              onChange={(lengthMm) => patch(setGlyphScaling(layer, { lengthMm }))}
+            />
+          </Row>
+          <Row label="Head">
+            <Slider
+              testId={`mesh-glyph-head-${layer.id}`}
+              value={spec.headProportion ?? 0.3}
+              min={0}
+              max={0.9}
+              step={0.05}
+              format={(v) => (spec.shape === 'arrow' ? `${Math.round(v * 100)}%` : 'none')}
+              onChange={(headProportion) => patch(patchGlyphs(layer, { headProportion }))}
             />
           </Row>
           <Row label="Colour">
@@ -195,9 +275,24 @@ export function Glyphs({
             <Toggle
               testId={`mesh-glyph-cliptocut-${layer.id}`}
               label="to cut plane"
-              on={spec.clipToCutPlane}
-              title="Only elements the active cut plane intersects (§7.4)"
-              onChange={(clipToCutPlane) => patch(patchGlyphs(layer, { clipToCutPlane }))}
+              on={spec.onCutPlaneOnly === true || spec.clipToCutPlane}
+              disabled={!hasCutPlane}
+              title={
+                hasCutPlane
+                  ? 'Only origins within the slab about the first enabled clip plane (§7.4)'
+                  : 'Enable a clip plane first: there is no other cut plane in a 3D pane'
+              }
+              onChange={(on) =>
+                patch(patchGlyphs(layer, { onCutPlaneOnly: on, clipToCutPlane: on }))
+              }
+            />
+            <NumberField
+              testId={`mesh-glyph-slab-${layer.id}`}
+              value={spec.cutSlabMm ?? 1}
+              step={0.5}
+              min={0.1}
+              width="w-16"
+              onCommit={(cutSlabMm) => patch(patchGlyphs(layer, { cutSlabMm }))}
             />
             <span
               data-testid={`mesh-glyph-summary-${layer.id}`}
@@ -206,6 +301,12 @@ export function Glyphs({
               {glyphStrideText(spec)}
             </span>
           </Row>
+          <p
+            data-testid={`mesh-glyph-legend-${layer.id}`}
+            className="font-mono text-[9px] leading-tight text-tvx-dim"
+          >
+            {glyphLegendLine(spec, info)}
+          </p>
         </>
       )}
     </Section>
