@@ -54,3 +54,5 @@ docs/benchmarks/
 
 # Other Claude sessions check out agent worktrees here; never tracked, never touched.
 .claude/
+
+/coverage/
