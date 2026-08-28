@@ -1,7 +1,7 @@
 /**
  * The four E-MESH §11 obligations that reached the Phase-2 gate with **no test and no golden**.
  *
- * `docs/PHASE2-OWNERSHIP.md` names eight E-MESH goldens. Four shipped (`mesh-clip-caps`,
+ * §11 names eight mesh goldens. Four shipped (`mesh-clip-caps`,
  * `mesh-clip-caps-ernie`, `mesh-isolate-tags`, `mesh-isolate-field-ernie`); four did not —
  * `mesh-tagstyle-tissue`, `mesh-field-node`, `mesh-field-elm`, `mesh-edges-masked` — and
  * `mesh-transparency-twophase` had neither a golden nor the analytic assertion §7.2's two-phase

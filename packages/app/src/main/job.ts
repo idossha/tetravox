@@ -1,6 +1,5 @@
 /**
- * The **job file** — the automation surface's only input format (`docs/AUTOMATION.md`,
- * `docs/PLAN-2026-08-28-directed.md` task 4).
+ * The **job file** — the automation surface's only input format (`docs/AUTOMATION.md`).
  *
  * Everything in this file is pure: argv in, a parsed invocation out; JSON in, a validated `Job` or a
  * list of reasons out. The Electron side (`job-runner.ts`) does the IO and the window; the renderer

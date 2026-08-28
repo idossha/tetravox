@@ -7,7 +7,7 @@
  * still holds the datasets could restore a scene by doing nothing at all, which is exactly the bug
  * this is meant to catch.
  *
- * `docs/PHASE2-OWNERSHIP.md`, E-SCENE's real-data list, also asks for "a scene saved with
+ * The real-data gate also asks for "a scene saved with
  * `ernie.msh` + `T1.nii.gz`, reopened from a **moved** directory, resolving through the relocate
  * dialog (A-SHELL's half) and reproducing the same three slice indices". The second test here is
  * that one, with the scene file moved rather than the 184 MB mesh — moving the scene is the same

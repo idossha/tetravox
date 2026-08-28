@@ -3,7 +3,7 @@
  *
  * `docs/requirements/2026-08-27-maintainer.md` R5: a region row's "colour swatch (colour picker;
  * edits persist in the scene **and can be saved as a LUT file**)". A-PROPS owns the picker and the
- * row; this is the export, and it is A-SHELL's per `docs/PHASE2-OWNERSHIP.md`'s R5 row.
+ * row; this is the export, per requirement R5.
  *
  * Two formats, both of which §7.6 already names as *parsers*, so a file written here reopens in the
  * same viewer — the round trip is the point of the feature, and a third format nothing reads would

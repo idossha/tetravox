@@ -21,7 +21,7 @@
  *    under 1.5 s.** The file exists to prove that a mesh which ships no surface is not an empty 3D
  *    view.
  *
- * Items 2 and 4 write their measurements into `docs/benchmarks/phase2-mesh.md`, one delimited
+ * Items 2 and 4 write their measurements into `docs/BENCHMARKS.md`, one delimited
  * section per renderer, so running either leg refreshes its own numbers and leaves the other's
  * alone.
  */
@@ -65,7 +65,7 @@ const DRAG_MS = 2000;
 /**
  * A **regression** bound on the `cut` round trip, not a target.
  *
- * The measured median is ~150–300 ms for ernie's 4.7 M tets (see `docs/benchmarks/phase2-mesh.md`);
+ * The measured median is ~150–300 ms for ernie's 4.7 M tets (see `docs/BENCHMARKS.md`);
  * latest-wins means it sets how often a *new* cross-section lands during a drag, not the frame
  * rate. The bound is deliberately loose — it exists to catch a multiple-fold regression, and the
  * real number is published either way.
@@ -521,7 +521,7 @@ test('@angle §7.4 ernie.msh: dragging the clip plane stays interactive', async 
   // rather than being noticed in a drag six months from now.
   expect(
     drag.cutMedian,
-    `the cut round trip is ${drag.cutMedian.toFixed(0)} ms — see docs/benchmarks/phase2-mesh.md`
+    `the cut round trip is ${drag.cutMedian.toFixed(0)} ms — see docs/BENCHMARKS.md`
   ).toBeLessThan(CUT_REGRESSION_MS);
 });
 

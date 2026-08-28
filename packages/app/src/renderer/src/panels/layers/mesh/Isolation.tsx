@@ -2,11 +2,11 @@
  * §4.4's `IsolateSpec`, as a panel: tags, a field range, a sphere taken **from the cursor**, a box,
  * and a label-volume selection — combined with `all` (∩) or `any` (∪).
  *
- * The field range is a pair of numbers rather than a histogram: `docs/PHASE2-OWNERSHIP.md` gives the
- * histogram widget to the other half of A-PROPS and tells this half to use it "if half 1's widget
- * exists on main, else a simple range input". On `main`, `panels/histogram/Histogram.tsx` returns
- * `null`, so this is the range input — and it is a two-line change to swap it later, because the
- * value the widget would produce is exactly the `(lo, hi)` these two fields commit.
+ * The field range is a pair of numbers rather than a histogram: the histogram widget lives in a
+ * separate module, used here if that widget exists, else a simple range input. On `main`,
+ * `panels/histogram/Histogram.tsx` returns `null`, so this is the range input — and it is a
+ * two-line change to swap it later, because the value the widget would produce is exactly the
+ * `(lo, hi)` these two fields commit.
  *
  * The label-volume clause reads the label volumes already open in the scene (§4.3's `labelTable`),
  * which is the same selection §8 says wires into `MeshLayer.isolate.labelVolume.labels`.

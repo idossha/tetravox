@@ -176,7 +176,7 @@ interface CapEntry extends CapGeometry {
  * 5.95 MB — the per-**vertex** total, to three digits. So the broadcast is what the contract sized
  * for. It builds no geometry: no de-indexing (the cut arrives de-indexed), no normals (a uniform),
  * no new vertices — three integer writes per existing vertex, measured in
- * `docs/benchmarks/phase2-mesh.md`.
+ * `docs/BENCHMARKS.md`.
  */
 function expandCapAttributes(
   snap: {

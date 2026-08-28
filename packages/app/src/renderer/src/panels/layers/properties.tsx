@@ -5,7 +5,7 @@
  * means four editors, and `Record<Layer['kind'], …>` means a fifth kind added to the frozen
  * `scene/types.ts` fails to compile here until someone writes its editor.
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Append a registration; never
+ * **Shared-file rule: additive only.** Append a registration; never
  * reorder or repoint an existing one. The editors themselves live in `volume/`, `mesh/`, `iso/` and
  * `points/`, which is what lets A-PROPS build four of them without four merge conflicts.
  */

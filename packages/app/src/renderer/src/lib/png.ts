@@ -128,8 +128,8 @@ export function encodePng({ width, height, pixels, dpi }: EncodePngOptions): Uin
 }
 
 // ------------------------------------------------------------------------------------------------
-// Reading a PNG back — the screenshot dialog's own assertion. `docs/PHASE2-OWNERSHIP.md`: "`lib/png.ts`
-// is yours, and it is where the screenshot dialog's **pHYs** parse/assert lives."
+// Reading a PNG back — the screenshot dialog's own assertion. `lib/png.ts`
+// is where the screenshot dialog's **pHYs** parse/assert lives.
 // ------------------------------------------------------------------------------------------------
 
 export interface PngInfo {

@@ -1,7 +1,7 @@
 /**
  * The tissue rows against the **real** engine and the **real** mesh (A-PROPS, half 2).
  *
- * `docs/PHASE2-OWNERSHIP.md`'s real-data gate items for this owner:
+ * The real-data gate items for this area:
  *
  * > The tissue table on `ernie.msh` shows all ten tissue names from `ernie.msh.opt` (the file has
  * > **no** `$PhysicalNames`; the sidecar is the only source).

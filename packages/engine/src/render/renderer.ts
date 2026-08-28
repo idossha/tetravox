@@ -15,7 +15,7 @@
  * pane rectangle, and deliberately nothing else: §7.2's order is a contract, and a file that also
  * drew would let a feature change it by accident.
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** A new pass is appended to the
+ * **Shared-file rule: additive only.** A new pass is appended to the
  * sequence in {@link Renderer.renderView}; existing entries are never reordered.
  */
 

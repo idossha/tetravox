@@ -1,5 +1,5 @@
 /**
- * The two themes (docs/PLAN-2026-08-28-directed.md #9), end to end.
+ * The two themes, end to end.
  *
  * Three halves, and each one is a way a theme switch is usually only half-done:
  *

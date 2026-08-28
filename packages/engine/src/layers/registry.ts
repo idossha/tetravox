@@ -5,7 +5,7 @@
  * fifth kind added to the frozen `scene/types.ts` fails to compile here until someone writes its
  * runtime, which is the property the six scattered `if (layer.kind === …)` branches never had.
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** Append a registration; never
+ * **Shared-file rule: additive only.** Append a registration; never
  * reorder or repoint an existing one.
  */
 

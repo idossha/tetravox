@@ -55,7 +55,7 @@ fn main() {
         hit.map(|h| (h.gmsh_elm, h.tag))
     );
 
-    // The three rows `docs/benchmarks/phase1.md` attributes to this command but that it did not
+    // The three rows `docs/BENCHMARKS.md` attributes to this command but that it did not
     // produce until now. Without them the doc's own promise — "every number here can be traced to
     // the command that produced it" — was false for a third of the table.
     let t = Instant::now();

@@ -1,5 +1,5 @@
 /**
- * The orientation cube and the scale bar in the product (`docs/PLAN-2026-08-28-directed.md` #10).
+ * The orientation cube and the scale bar in the product (see `docs/ROADMAP.md`).
  *
  * The engine's own suite proves the two items are *correct* — the bar's drawn length is
  * `mm / mmPerPx` and a click on the `A` face gives the anterior camera, both asserted off the

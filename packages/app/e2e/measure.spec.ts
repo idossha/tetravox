@@ -1,5 +1,5 @@
 /**
- * The measurement tool in the app (docs/PLAN-2026-08-28-directed.md #11), end to end.
+ * The measurement tool in the app, end to end.
  *
  * Two halves, the split `layer-collapse.spec.ts` and `props-realdata.spec.ts` already make:
  *

@@ -5,7 +5,7 @@
  * captured from a scene built by these functions, and a non-deterministic default would make every
  * golden racy.
  *
- * **Shared-file rule (see `docs/PHASE2-OWNERSHIP.md`): additive only.** E-SCENE owns this file;
+ * **Shared-file rule: additive only.** E-SCENE owns this file;
  * E-SLICE and E-MESH both append to it. Append a layer kind's defaults at the end of its section
  * — and **never change an existing default**, which would move every golden that layer appears in
  * and is a `docs/DECISIONS.md` conversation, not a patch.

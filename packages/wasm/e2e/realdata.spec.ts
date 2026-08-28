@@ -306,7 +306,7 @@ test('ernie_seeg.msh: the declared worst case, against the ≤ 1.0 GB load-path 
 
 /**
  * §9.2's **`buildTopology` path** bar on the declared worst case — the Phase-2 gate item Phase 1
- * deferred ("nothing in Phase 1 clips or isolates"; `docs/PHASE2-OWNERSHIP.md` assigns it to E-MESH).
+ * deferred ("nothing in Phase 1 clips or isolates").
  *
  * It is a **different arena** from the test above, which is why §9.2 has two rows rather than one
  * "< 2 ×" rule: the load path is `input bytes + retained Mesh`, the topology path is

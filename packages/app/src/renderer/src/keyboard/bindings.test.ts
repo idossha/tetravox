@@ -1,7 +1,7 @@
 /**
  * The help sheet cannot lie about the key map, in either direction.
  *
- * `docs/PHASE2-OWNERSHIP.md`, A-SHELL: rows are "generated from `keymap.ts`, so a sheet can never
+ * Rows are "generated from `keymap.ts`, so a sheet can never
  * list a binding the resolver does not implement". `bindings.ts` gets that by construction — it
  * *asks* `resolveKey` — so the interesting failures are the two this file pins:
  *

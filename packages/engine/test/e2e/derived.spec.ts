@@ -273,8 +273,8 @@ test('a points layer lands on the pixel the projection names, and only on its ow
 /**
  * The analytic sphere scene, shared by the measurement and the golden `derived-iso-sphere`.
  *
- * `docs/PHASE2-OWNERSHIP.md` names both `derived-iso-sphere` and `derived-points-electrodes`;
- * E-DERIVED captured one golden, `derived-points-and-iso`, whose scene has the points and **not**
+ * §11 names both `derived-iso-sphere` and `derived-points-electrodes`; the derived work
+ * captured one golden, `derived-points-and-iso`, whose scene has the points and **not**
  * an isosurface. The measurement below was already §11's analytic half; this is the regression image
  * the ledger asks for beside it, and building it from the same function is what keeps the two
  * about the same picture.
@@ -730,8 +730,8 @@ test('golden: derived-glyphs-e-field', async ({ page }) => {
 // -------------------------------------------------------------------------------------------
 
 /**
- * `docs/PHASE2-OWNERSHIP.md` gives E-DERIVED "the **mesh** colour bar: produce a `ColorbarSpec` from
- * `MeshFieldInfo` (name, `units`, `Scale`, threshold notch) and hand it to E-SLICE's
+ * The derived work owns the **mesh** colour bar: produce a `ColorbarSpec` from
+ * `MeshFieldInfo` (name, `units`, `Scale`, threshold notch) and hand it to the slice view's
  * `overlay/colorbar.ts`", and names the golden `derived-mesh-colorbar`. The producer shipped; the
  * test and the golden did not — the one golden in the ledger that existed nowhere.
  *

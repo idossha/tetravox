@@ -6,7 +6,7 @@
  * every edit goes out as one `Engine.updateLayer` (§8: no logic in React).
  *
  * These live under `mesh/` rather than at the top of `panels/layers/`, which is a shared directory:
- * `docs/PHASE2-OWNERSHIP.md` splits A-PROPS's editors between two agents, and a new file at the root
+ * The properties editors are split across files, and a new file at the root
  * of `layers/` would be a collision waiting to happen. `iso/` and `points/` import from here.
  */
 

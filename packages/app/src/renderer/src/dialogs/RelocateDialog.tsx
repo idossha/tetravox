@@ -8,8 +8,8 @@
  * it, and a scene that moved alone opens it with the reason on screen.
  *
  * **What the fingerprint column can and cannot say today.** §4.6 defines `fingerprint` as
- * `"<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>"`, and `docs/PHASE2-OWNERSHIP.md` records
- * that it has **no producer** — it is W-WASM's Gap 1, because §5 rule 3 forbids digesting file bytes
+ * `"<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>"`, and it has **no producer** today — a
+ * known gap, because §5 rule 3 forbids digesting file bytes
  * on the UI thread and neither `VolumeMeta` nor `MeshMeta` carries the field. So this column shows
  * the fingerprint the scene *recorded* and says plainly that it cannot be checked yet, rather than
  * showing a green tick that means nothing. When W-WASM lands it, the comparison is one string

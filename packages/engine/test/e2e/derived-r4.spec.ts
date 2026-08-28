@@ -375,7 +375,7 @@ test('R4: TI_max colours the cut, and the pixel is the colormap value `locate` i
  * `plane_cut` on ernie at 12.9 ms in wasm and 16.9 ms round trip). Gating on SwiftShader would be
  * asserting that software rendering is fast. Same reasoning, same shape, as E-MESH's clip-plane
  * drag in `mesh-real.spec.ts`: both numbers are reported and written to
- * `docs/benchmarks/phase2-derived.md`, one section per renderer, and the bar applies to the GPU.
+ * `docs/BENCHMARKS.md`, one section per renderer, and the bar applies to the GPU.
  */
 test('@angle R4: a 20-step axial sweep of ernie.msh runs at ≥ 30 fps end to end', async ({
   page,

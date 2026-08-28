@@ -11,7 +11,7 @@
  * runs the dataset worker on, and the same yardstick the Phase-1 verification used. The **worker
  * round trip** (this, plus posting the result arrays across a thread boundary) is measured in
  * `packages/wasm/e2e/realdata.spec.ts`, in a browser; the two numbers are different on purpose and
- * `docs/benchmarks/phase1.md` records both.
+ * `docs/BENCHMARKS.md` records both.
  *
  * Requires `pnpm wasm` first.
  */

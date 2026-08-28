@@ -1,7 +1,7 @@
 /**
  * The state tracker's two jobs, checked without a GL context: **a block is complete** (entering it
  * from any prior state ends in the same pipeline state) and **a no-op costs nothing** (re-entering
- * a block issues no call). The first is the merge boundary `docs/PHASE2-OWNERSHIP.md` needs — an
+ * a block issues no call). The first is the merge boundary an append-only pass sequence needs — an
  * appended pass cannot inherit what the previous one left enabled — and the second is why
  * completeness is affordable per frame.
  */
