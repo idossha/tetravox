@@ -46,6 +46,13 @@ export interface ScreenshotDialogProps {
   capture(opts: ScreenshotOptions): Promise<Blob>;
   onConfirm(opts: ScreenshotOptions): void;
   onCancel(): void;
+  /**
+   * Opens the unified settings dialog's Capture tab (directed task: unified settings,
+   * 2026-08-28). This dialog keeps its own gear button — see the "screenshot gear" comment in
+   * `toolbar/Toolbar.tsx` for why it was not folded into the settings dialog directly — but
+   * "Defaults…" is the one click from here to where the *standing* background/dpi/autoTrim live.
+   */
+  onOpenDefaults(): void;
 }
 
 /** §4.7's `include` toggles, with the §8 name each one is called in the chrome. */
@@ -73,6 +80,7 @@ export function ScreenshotDialog({
   capture,
   onConfirm,
   onCancel,
+  onOpenDefaults,
 }: ScreenshotDialogProps): React.JSX.Element {
   const [opts, setOpts] = useState<ScreenshotOptions>(initial);
   const [widthText, setWidthText] = useState(initial.width?.toString() ?? '');
@@ -170,6 +178,15 @@ export function ScreenshotDialog({
               {error}
             </span>
           )}
+          <button
+            type="button"
+            data-testid="screenshot-defaults"
+            className="tvx-btn tvx-btn-sm"
+            title="Standing defaults for background, DPI and auto-trim (§8's settings dialog)"
+            onClick={onOpenDefaults}
+          >
+            Defaults…
+          </button>
           <button
             type="button"
             data-testid="screenshot-cancel"

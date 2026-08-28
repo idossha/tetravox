@@ -168,6 +168,12 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     return bridge().onSceneCommand((command) => void controller.runSceneCommand(command));
   }, [controller]);
 
+  // ---- Menu ▸ Settings… (⌘,/Ctrl+,), pushed from main (directed task: unified settings) --------
+  useEffect(() => {
+    if (controller === null) return;
+    return bridge().onOpenSettings(() => controller.openSettingsTab('appearance'));
+  }, [controller]);
+
   // ---- §7.5 keyboard map -----------------------------------------------------------------------
   useEffect(() => {
     if (controller === null) return;

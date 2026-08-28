@@ -26,6 +26,10 @@ export function ShellDialogs(): React.JSX.Element | null {
   const screenshotOptions = useUi((s) => s.screenshotOptions);
   const subjectsDir = useUi((s) => s.freesurferSubjectsDir);
   const reopenLastScene = useUi((s) => s.reopenLastScene);
+  const settingsTab = useUi((s) => s.settingsTab);
+  const themeChoice = useUi((s) => s.themeChoice);
+  const screenshotDefaults = useUi((s) => s.screenshotDefaults);
+  const configPath = useUi((s) => s.configPath);
 
   const capture = useCallback(
     (opts: ScreenshotOptions) => controller.captureScreenshot(opts),
@@ -39,11 +43,19 @@ export function ShellDialogs(): React.JSX.Element | null {
   if (dialog === 'settings') {
     return (
       <SettingsDialog
+        tab={settingsTab}
+        onTab={(tab) => controller.openSettingsTab(tab)}
+        themeChoice={themeChoice}
+        onThemeChoice={(choice) => controller.setThemeChoice(choice)}
+        screenshotDefaults={screenshotDefaults}
+        onScreenshotDefaults={(patch) => void controller.setScreenshotDefaults(patch)}
         subjectsDir={subjectsDir}
         onSubjectsDir={(dir) => void controller.setFreesurferSubjectsDir(dir)}
         onBrowse={() => void controller.browseFreesurferSubjectsDir()}
         reopenLastScene={reopenLastScene}
         onReopenLastScene={(on) => void controller.setReopenLastScene(on)}
+        configPath={configPath}
+        onRevealConfigFile={() => void controller.revealConfigFile()}
         onClose={close}
       />
     );
@@ -57,6 +69,7 @@ export function ShellDialogs(): React.JSX.Element | null {
         capture={capture}
         onConfirm={(opts) => void controller.saveScreenshot(opts)}
         onCancel={close}
+        onOpenDefaults={() => controller.openSettingsTab('capture')}
       />
     );
   }
