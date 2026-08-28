@@ -84,6 +84,7 @@ const INCLUDE_ALL: ScreenshotOptions['include'] = {
   crosshair: true,
   cornerInfo: true,
   scaleBar: true,
+  orientationCube: true,
 };
 const INCLUDE_NONE: ScreenshotOptions['include'] = {
   colorbar: false,
@@ -91,6 +92,7 @@ const INCLUDE_NONE: ScreenshotOptions['include'] = {
   crosshair: false,
   cornerInfo: false,
   scaleBar: false,
+  orientationCube: false,
 };
 
 /** Take one screenshot through the frozen §4.7 entry point and decode it here, in Node. */

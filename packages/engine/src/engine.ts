@@ -113,8 +113,15 @@ import {
   zoomAbout,
   zoomAboutCentre,
 } from './input';
-import { DEFAULT_OVERLAY_THEME, gizmoHandleAt, resolveOverlayTheme } from './overlay';
-import type { GizmoHandle, GizmoSpec, OverlayTheme } from './overlay';
+import {
+  DEFAULT_OVERLAY_THEME,
+  cubeFaceAt,
+  cubeLayout,
+  gizmoHandleAt,
+  overlayMetrics,
+  resolveOverlayTheme,
+} from './overlay';
+import type { CubeFace, GizmoHandle, GizmoSpec, OverlayTheme } from './overlay';
 import type { PaneHit, PointerHost } from './input';
 import { applyAffine, meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
 import { defaultLayerFor, seedMeshLayerFromOpt, VIEW3D_ID } from './scene/defaults';
@@ -2133,6 +2140,42 @@ export class TetravoxEngine implements Engine, PointerHost {
    * the same three points (`overlay/gizmo.ts`), and a handle that highlights is how a user learns
    * there is something to grab.
    */
+  /**
+   * Which orientation-cube face a point in the 3D pane is over — device pixels, pane-local,
+   * **top-left origin**, like every other pointer entry point (directed task 10, 2026-08-28).
+   *
+   * `null` when the cube is switched off, when the pane is not the 3D one, or when the point misses
+   * the cube's silhouette — which is what lets the pointer layer fall through to an orbit.
+   *
+   * The layout and the hit test are `overlay/orientation-cube.ts`'s, the same functions that drew
+   * the picture, for the reason `gizmoAt` shares `handlePoints` with `drawGizmo`: a face you can see
+   * and a face you can click have to be the same four corners.
+   */
+  orientationCubeAt(viewId: ViewId, x: number, y: number): CubeFace | null {
+    if (!this.#scene.annotations.orientationCube) return null;
+    const rect = this.paneRect(viewId);
+    const view = this.#store.view(viewId);
+    if (rect === null || view === undefined || isSliceView(view)) return null;
+    const m = overlayMetrics(rect.width, rect.height, Math.max(1, Math.round(this.#dpr())));
+    // Overlay items are laid out bottom-left origin; the pointer speaks top-left.
+    return cubeFaceAt(cubeLayout(m), view.camera.rotation, x, rect.height - y);
+  }
+
+  /**
+   * {@link PointerHost}: a click on the cube snaps the camera to that face's preset.
+   *
+   * Returns whether the click was consumed, so the pointer layer can hand an unconsumed one to the
+   * orbit gesture. It goes **through `cameraPreset`** rather than writing a rotation of its own:
+   * §7.5's `1..6` keys and the cube must be the same six views, or the picture the cube shows and
+   * the picture `A` gives are two different anteriors.
+   */
+  clickOrientationCube(viewId: ViewId, x: number, y: number): boolean {
+    const face = this.orientationCubeAt(viewId, x, y);
+    if (face === null) return false;
+    this.cameraPreset(viewId, face);
+    return true;
+  }
+
   gizmoAt(viewId: ViewId, x: number, y: number): GizmoHandle | null {
     const spec = this.gizmoSpec();
     const rect = this.paneRect(viewId);

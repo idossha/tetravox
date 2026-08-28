@@ -748,6 +748,20 @@ export interface Annotations {
   scaleBar: boolean;
   colorbars: boolean;
   crosshair: boolean;
+  /**
+   * The 3D pane's orientation cube (directed task 10, 2026-08-28; ARCHITECTURE §4.5 / §7.2,
+   * `docs/DECISIONS.md`).
+   *
+   * **Additive, and off by default.** A 3D pane's edge letters say which way is up at the edges;
+   * nothing said which way the head is *facing* once the camera left a preset, which is the same
+   * laterality-safety gap §8 opened the 2D chrome for. Default `false` for the reason `scaleBar` and
+   * `colorbars` are: switching it on by default would move every §11 golden that contains a 3D pane,
+   * and that is a `docs/DECISIONS.md` conversation rather than a patch.
+   *
+   * A scene saved before this field existed deserialises with it absent, which reads as off — the
+   * same picture it was saved as.
+   */
+  orientationCube: boolean;
 }
 
 export interface QualityLevel {

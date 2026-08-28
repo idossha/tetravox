@@ -273,36 +273,63 @@ export function fitCamera(cam: Camera3D, bounds: Aabb, fovYDeg = cam.fovYDeg): C
   };
 }
 
-/** The `1..6` preset rotations (§7.5) — anterior, posterior, left, right, superior, inferior. */
+/**
+ * The `1..6` preset rotations (§7.5) — anterior, posterior, left, right, superior, inferior.
+ *
+ * `Camera3D.rotation` is read column-wise by {@link camera3dMatrices}: column 0 is the camera's
+ * world-space **right**, column 1 its **up**, column 2 the axis from the target toward the **eye**.
+ * So a preset is fully described by naming those three vectors, and that is what the table below
+ * does — the quaternion is derived from them rather than composed out of axis rotations.
+ *
+ * **This replaced a composition of `quat.rotateX` / `quat.rotateY` that was wrong for four of the
+ * six** (directed task 10, 2026-08-28; `docs/DECISIONS.md`). `quat.rotateX(out, a, rad)`
+ * post-multiplies — it rotates in the quaternion's *local* frame — so `rotateY(q, id, -90)` followed
+ * by `rotateX(q, q, -90)` applies the X rotation **first** in world terms. Measured on the shipped
+ * code, presets 1–4 all produced the same eye axis `(0, 1, 0)`: `A`, `P`, `L` and `R` were one
+ * anterior view in four different rolls, and `A` itself was upside down (`up = (0, 0, −1)`). It went
+ * unnoticed because nothing pictured the camera's direction — which is exactly what the orientation
+ * cube now does, and why a cube built on the old table would have shown `A` for a click on `L`.
+ *
+ * `up` is superior for the four lateral views and anterior for the two axial ones, and `right` is
+ * `up × back`, which is what makes each one the view a radiologist would call by that name: the
+ * inferior view is the axial view mirrored left-for-right, not rolled 180°.
+ */
 export function presetRotation(index: number): [number, number, number, number] {
+  const table: Record<number, { up: gvec3Tuple; back: gvec3Tuple }> = {
+    1: { up: [0, 0, 1], back: [0, 1, 0] }, // A — eye anterior, superior up
+    2: { up: [0, 0, 1], back: [0, -1, 0] }, // P
+    3: { up: [0, 0, 1], back: [-1, 0, 0] }, // L — eye on -X, nose to screen-left
+    4: { up: [0, 0, 1], back: [1, 0, 0] }, // R
+    5: { up: [0, 1, 0], back: [0, 0, 1] }, // S — eye above, anterior up (the identity)
+    6: { up: [0, 1, 0], back: [0, 0, -1] }, // I — the axial view mirrored, not rolled
+  };
+  const preset = table[index] ?? table[5]!;
+  const { up, back } = preset;
+  const right: gvec3Tuple = [
+    up[1] * back[2] - up[2] * back[1],
+    up[2] * back[0] - up[0] * back[2],
+    up[0] * back[1] - up[1] * back[0],
+  ];
+  // Column-major 3x3 `[right | up | back]`, the three columns `camera3dMatrices` reads back out.
+  const m = [
+    right[0],
+    right[1],
+    right[2],
+    up[0],
+    up[1],
+    up[2],
+    back[0],
+    back[1],
+    back[2],
+  ] as unknown as Parameters<typeof quat.fromMat3>[1];
   const q = quat.create();
-  switch (index) {
-    case 1: // A — camera in front, looking back along -Y
-      quat.rotateX(q, quat.create(), -Math.PI / 2);
-      break;
-    case 2: // P
-      quat.rotateX(q, quat.create(), Math.PI / 2);
-      quat.rotateY(q, q, Math.PI);
-      break;
-    case 3: // L — camera on -X
-      quat.rotateY(q, quat.create(), -Math.PI / 2);
-      quat.rotateX(q, q, -Math.PI / 2);
-      break;
-    case 4: // R — camera on +X
-      quat.rotateY(q, quat.create(), Math.PI / 2);
-      quat.rotateX(q, q, -Math.PI / 2);
-      break;
-    case 5: // S — camera above, +Z toward viewer (identity)
-      quat.identity(q);
-      break;
-    case 6: // I
-      quat.rotateX(q, quat.create(), Math.PI);
-      break;
-    default:
-      quat.identity(q);
-  }
+  quat.fromMat3(q, m);
+  quat.normalize(q, q);
   return [q[0], q[1], q[2], q[3]];
 }
+
+/** A plain triple, so the preset table above is data rather than gl-matrix objects. */
+type gvec3Tuple = [number, number, number];
 
 /**
  * Which **voxel** axis of `affine` a plane with this world normal steps along, and how far.

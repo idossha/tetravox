@@ -560,7 +560,8 @@ export interface Layout { kind: LayoutKind; cells: ViewId[] }
 export interface Annotations {
   orientationLabels: boolean; cornerInfo: boolean; conventionBadge: true;   // badge is not optional
   scaleBar: boolean; colorbars: boolean; crosshair: boolean;
-}
+  orientationCube: boolean;      // the 3D pane's clickable A/P/L/R/S/I cube (appended 2026-08-28,
+}                                //   directed task 10; default false, like scaleBar and colorbars)
 
 export interface QualityLevel {
   name: 'full' | 'interacting' | 'reduced';
@@ -846,7 +847,7 @@ export interface ScreenshotOptions {
   width?: number; height?: number; scale?: number; dpi?: number;   // dpi written to the PNG pHYs chunk
   background: 'scene' | 'white' | 'transparent';
   include: { colorbar: boolean; orientationLabels: boolean; crosshair: boolean;
-             cornerInfo: boolean; scaleBar: boolean };
+             cornerInfo: boolean; scaleBar: boolean; orientationCube: boolean };
   autoTrim: boolean;
 }
 
@@ -2190,6 +2191,17 @@ Rules:
 3. **Overlay** — crosshair, cut-plane gizmo, contours on slices, glyph labels, annotations, orientation letters,
    corner info, RAD/NEU badge, colour bars, scale bar, orientation cube. **All clip distances disabled** in this
    pass, or the gizmo gets clipped by the plane it manipulates.
+   The **scale bar** (`overlay/scale-bar.ts`, 2D panes) and the **orientation cube**
+   (`overlay/orientation-cube.ts`, 3D panes) are the two items §4.5 named and nothing drew until directed task 10
+   (2026-08-28). Both take the pane's **bottom-right** corner — the one nothing else claims, and one they can never
+   contend for, since a cube is a 3D item and a bar a 2D one. The bar's length is snapped to the 1-2-5 ladder
+   `1 / 2 / 5 / 10 / 20 / 50 / 100 mm` so it lands in 60…160 px, and the **drawn length is exactly `mm / mmPerPx`**,
+   which §11 asserts off the framebuffer at two zooms: a bar is a promise about a distance, so it is measured, never
+   eyeballed. The cube is drawn with its **own orthographic projection** of a unit cube — never the pane's
+   view-projection, or it would change size with the dolly and be clipped by the near plane — at `half/√3` per unit,
+   so no rotation can push a corner out of its box. `cubeFaces` produces the picture *and* the hit test, the way
+   `handlePoints` does for the gizmo; a click goes through `Engine.cameraPreset`, so the cube and §7.5's `1..6` keys
+   cannot diverge. Both are `text`/`halo` only, so they follow the theme with no tokens of their own.
    Every colour in this pass comes from `DrawInput.theme` (an `OverlayTheme`, added 2026-08-28), not from a
    constant: the embedder has a theme, and chrome drawn in a fixed near-white with a fixed black halo is
    unreadable the moment that theme is a light one. The **halo inverts** with the theme rather than shifting,
@@ -2569,6 +2581,17 @@ shader path from Phase 1 and gets its **affordances** (gizmo, rotate handles, pl
 * Corner annotation: view name, slice index of the active volume layer, world RAS of the plane.
 * A persistent `RAD` / `NEU` badge (`Annotations.conventionBadge` is not optional).
 * All three appear in **every** Playwright golden, so a regression that drops them fails CI (§11).
+* A **scale bar**, bottom-right, snapped to `1 / 2 / 5 / 10 / 20 / 50 / 100 mm` and labelled in millimetres
+  (`Annotations.scaleBar`). Same argument as the letters: `ZOOM 1.42X` is a ratio to a fit the reader of a saved
+  PNG never saw, so without the bar a lesion measured off a screenshot is measured in pixels.
+
+**3D view chrome:** the same edge letters and corner info, plus an **orientation cube** in the bottom-right
+(`Annotations.orientationCube`) — six shaded faces labelled `A/P/L/R/S/I`, turning with the camera, and clicking one
+snaps the camera to that preset. The edge letters say which way is up at the edges; the cube is what says which way
+the head is *facing* once the camera has left a preset.
+
+Toolbar: `Scale` and `Cube` toggle the two. `scene/defaults.ts` keeps both **off** — an engine default may not move
+§11's goldens — and the app turns both on for its own scene at attach, exactly as it does the colour bars.
 
 **Info panel** is split into two blocks with identical row structure:
 * `Cursor` — last click, persistent.

@@ -48,13 +48,14 @@ export interface ScreenshotDialogProps {
   onCancel(): void;
 }
 
-/** §4.7's five `include` toggles, with the §8 name each one is called in the chrome. */
+/** §4.7's `include` toggles, with the §8 name each one is called in the chrome. */
 const INCLUDES: readonly { key: keyof ScreenshotOptions['include']; label: string }[] = [
   { key: 'colorbar', label: 'Colour bars' },
   { key: 'orientationLabels', label: 'Orientation letters' },
   { key: 'crosshair', label: 'Crosshair' },
   { key: 'cornerInfo', label: 'Corner info' },
   { key: 'scaleBar', label: 'Scale bar' },
+  { key: 'orientationCube', label: 'Orientation cube' },
 ];
 
 const BACKGROUNDS: readonly ScreenshotOptions['background'][] = ['scene', 'white', 'transparent'];

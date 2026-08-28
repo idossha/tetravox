@@ -146,13 +146,21 @@ export class ShellController {
     // Before this, `annotations.colorbars` was false and `setAnnotations` was called from exactly
     // one place (`toggleCrosshair`), so a colour bar could not be seen in the product at all: a
     // mesh coloured by `TI_max` over [1.09e-12, 10.29] was a flat blue head with no scale.
-    engine.setAnnotations({ colorbars: store.getState().colorbars });
+    engine.setAnnotations({
+      colorbars: store.getState().colorbars,
+      // Directed task 10: same argument as the colour bars above — the engine default stays off so
+      // §11's goldens do not move, and the app turns both on for its own scene, once, at attach.
+      scaleBar: store.getState().scaleBar,
+      orientationCube: store.getState().orientationCube,
+    });
     store.setState({
       status: 'ready',
       caps: engine.caps,
       radiological: engine.scene.radiological,
       crosshair: engine.scene.annotations.crosshair,
       colorbars: engine.scene.annotations.colorbars,
+      scaleBar: engine.scene.annotations.scaleBar,
+      orientationCube: engine.scene.annotations.orientationCube,
       cursor: engine.scene.cursor,
       layoutKind: engine.scene.layout.kind,
       cells: engine.scene.layout.cells,
@@ -684,6 +692,27 @@ export class ShellController {
     const next = !this.store.getState().colorbars;
     this.engine.setAnnotations({ colorbars: next });
     this.store.setState({ colorbars: next });
+    this.engine.requestRender();
+  }
+
+  /**
+   * §4.5's `scaleBar` — the millimetre rule in every 2D pane (directed task 10, 2026-08-28).
+   *
+   * A `ZOOM 1.42X` corner line is a ratio to a fit the reader never saw, so without this a lesion
+   * measured off a screenshot is measured in pixels.
+   */
+  toggleScaleBar(): void {
+    const next = !this.store.getState().scaleBar;
+    this.engine.setAnnotations({ scaleBar: next });
+    this.store.setState({ scaleBar: next });
+    this.engine.requestRender();
+  }
+
+  /** §4.5's `orientationCube` — the 3D pane's clickable A/P/L/R/S/I cube (directed task 10). */
+  toggleOrientationCube(): void {
+    const next = !this.store.getState().orientationCube;
+    this.engine.setAnnotations({ orientationCube: next });
+    this.store.setState({ orientationCube: next });
     this.engine.requestRender();
   }
 
@@ -1429,6 +1458,8 @@ export class ShellController {
       radiological: engine.scene.radiological,
       crosshair: engine.scene.annotations.crosshair,
       colorbars: engine.scene.annotations.colorbars,
+      scaleBar: engine.scene.annotations.scaleBar,
+      orientationCube: engine.scene.annotations.orientationCube,
       cursor: engine.scene.cursor,
       layoutKind: engine.scene.layout.kind,
       cells: [...engine.scene.layout.cells],
