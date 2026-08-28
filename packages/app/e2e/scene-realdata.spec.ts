@@ -31,7 +31,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { launchApp, packagedUnavailable } from './fixtures';
+import { clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const ROOT = process.env.TETRAVOX_TESTDATA ?? '';
@@ -210,7 +210,7 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       expect(before.radiological).toBe(true);
       expect(before.layoutKind).toBe('1+3');
 
-      await page.click('[data-testid="scene-save-as"]');
+      await clickAppMenu(page, 'save-as');
       await expect
         .poll(async () => (await sceneState(page)).sceneFile?.name, { timeout: 20_000 })
         .toBe('ernie.tetravox.json');
@@ -262,7 +262,7 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       expect(empty.layers).toHaveLength(0);
 
       await stubDialogs(app, { open: scenePath });
-      await page.click('[data-testid="scene-open"]');
+      await clickAppMenu(page, 'open-scene');
       await waitForLayers(page, 2);
 
       const after = await sceneState(page);
@@ -331,7 +331,7 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
     const { app, page } = await boot(target);
     try {
       await stubDialogs(app, { open: moved });
-      await page.click('[data-testid="scene-open"]');
+      await clickAppMenu(page, 'open-scene');
 
       await expect(page.locator('[data-testid="relocate-dialog"]')).toBeVisible({
         timeout: 60_000,

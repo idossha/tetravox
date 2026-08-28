@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchOptions, LaunchTarget } from './fixtures';
 import { decodePng, readPngDpi } from './png';
 
@@ -164,12 +164,14 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     await app?.close();
   });
 
-  test('the toolbar carries the four scene verbs the audit found absent', async () => {
-    for (const id of ['scene-new', 'scene-open', 'scene-save', 'scene-save-as']) {
+  test('the app menu carries the four scene verbs the audit found absent', async () => {
+    await page.click('[data-testid="app-menu"]');
+    for (const id of ['app-menu-new', 'app-menu-open-scene', 'app-menu-save', 'app-menu-save-as']) {
       await expect(page.locator(`[data-testid="${id}"]`)).toBeVisible();
     }
     // With a layer open they are live; the emptiness case is asserted after New, below.
-    await expect(page.locator('[data-testid="scene-save"]')).toBeEnabled();
+    await expect(page.locator('[data-testid="app-menu-save"]')).toBeEnabled();
+    await page.keyboard.press('Escape');
   });
 
   test('the keyboard sheet is generated, and `?` opens it', async () => {
@@ -255,7 +257,7 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
   });
 
   test('the screenshot dialog edits the whole §4.7 option set, and the preview parses pHYs', async () => {
-    await page.click('[data-testid="screenshot-options"]');
+    await page.click('[data-testid="screenshot-menu"]');
     const dialog = page.locator('[data-testid="screenshot-dialog"]');
     await expect(dialog).toBeVisible();
 
@@ -400,7 +402,7 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     expect(tagStyle?.[1]?.visible).toBe(true);
 
     // Back to a volume-only scene for the tests that follow.
-    await page.click('[data-testid="scene-new"]');
+    await clickAppMenu(page, 'new');
     await expect(page.locator('[data-testid="mshopt-chip"]')).toHaveCount(0);
   });
 
@@ -409,8 +411,10 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     expect(state.datasets).toHaveLength(0);
     expect(state.layers).toHaveLength(0);
     expect(state.sceneFile).toBeNull();
-    await expect(page.locator('[data-testid="scene-save"]')).toBeDisabled();
-    await expect(page.locator('[data-testid="scene-new"]')).toBeDisabled();
+    await page.click('[data-testid="app-menu"]');
+    await expect(page.locator('[data-testid="app-menu-save"]')).toBeDisabled();
+    await expect(page.locator('[data-testid="app-menu-new"]')).toBeDisabled();
+    await page.keyboard.press('Escape');
     // Empty states, not blank boxes.
     await expect(page.locator('[data-testid="header-panel-empty"]')).toBeVisible();
     await expect(page.locator('[data-testid="info-cursor-empty"]')).toBeVisible();
@@ -447,7 +451,7 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
       await input.fill('-42 18 6');
       await input.press('Enter');
 
-      await page.click('[data-testid="scene-save-as"]');
+      await clickAppMenu(page, 'save-as');
       await expect.poll(async () => (await ui(page)).sceneFile?.name).toBe('study.tetravox.json');
       expect(existsSync(scenePath)).toBe(true);
 
@@ -463,10 +467,10 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
       expect(spec.layers).toHaveLength(1);
 
       // Reopen it in the same window, from an empty scene.
-      await page.click('[data-testid="scene-new"]');
+      await clickAppMenu(page, 'new');
       expect((await ui(page)).layers).toHaveLength(0);
       await stubDialogs(app, { open: scenePath });
-      await page.click('[data-testid="scene-open"]');
+      await clickAppMenu(page, 'open-scene');
       await waitForLayers(page, 1);
 
       const restored = await ui(page);
@@ -508,16 +512,16 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
     try {
       await waitForLayers(page, 1);
       await stubDialogs(app, { save: scenePath });
-      await page.click('[data-testid="scene-save-as"]');
+      await clickAppMenu(page, 'save-as');
       await expect.poll(async () => (await ui(page)).sceneFile?.name).toBe('study.tetravox.json');
 
       // The data moves and the scene does not: neither `data/vol_u8.nii.gz` relative to the scene
       // nor the recorded absolute path resolves any more. That is what the dialog is for.
       renameSync(originalFile, moved);
 
-      await page.click('[data-testid="scene-new"]');
+      await clickAppMenu(page, 'new');
       await stubDialogs(app, { open: scenePath });
-      await page.click('[data-testid="scene-open"]');
+      await clickAppMenu(page, 'open-scene');
 
       const dialog = page.locator('[data-testid="relocate-dialog"]');
       await expect(dialog).toBeVisible();
@@ -560,7 +564,7 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
     try {
       await waitForLayers(page, 1);
       await stubDialogs(app, { save: scenePath });
-      await page.click('[data-testid="scene-save-as"]');
+      await clickAppMenu(page, 'save-as');
       await expect.poll(async () => (await ui(page)).sceneFile?.name).toBe('study.tetravox.json');
 
       writeFileSync(
@@ -569,9 +573,9 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
         'utf8'
       );
 
-      await page.click('[data-testid="scene-new"]');
+      await clickAppMenu(page, 'new');
       await stubDialogs(app, { open: scenePath });
-      await page.click('[data-testid="scene-open"]');
+      await clickAppMenu(page, 'open-scene');
       await expect(page.locator('[data-testid="relocate-dialog"]')).toBeVisible();
       await page.click('[data-testid="relocate-skip-all"]');
 
@@ -596,7 +600,7 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
       // The volume itself is gzip, not JSON. It is on the allow-list (argv opened it), so this
       // reaches the parse rather than the allow-list.
       await stubDialogs(app, { open: VOLUME });
-      await page.click('[data-testid="scene-open"]');
+      await clickAppMenu(page, 'open-scene');
       await expect(page.locator('[data-testid="scene-error"]')).toBeVisible();
       await expect(page.locator('[data-testid="toasts"] [role="alert"]')).toHaveCount(1);
       // The scene that was open is untouched.
@@ -620,7 +624,7 @@ test.describe('the screenshot dialog writes the PNG it promised (§4.7, §11)', 
     });
     try {
       await waitForLayers(page, 1);
-      await page.click('[data-testid="screenshot-options"]');
+      await page.click('[data-testid="screenshot-menu"]');
       await page.fill('[data-testid="screenshot-width"]', '120');
       await page.fill('[data-testid="screenshot-height"]', '90');
       await page.fill('[data-testid="screenshot-dpi"]', '600');

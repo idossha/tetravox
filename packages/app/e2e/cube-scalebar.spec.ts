@@ -99,7 +99,7 @@ test.describe('the scale bar and orientation cube toggles', () => {
   }
 
   test('the screenshot dialog can ask for either of them', async () => {
-    await page.click('[data-testid="screenshot-options"]');
+    await page.click('[data-testid="screenshot-menu"]');
     for (const key of ['scaleBar', 'orientationCube']) {
       const box = page.locator(`[data-testid="screenshot-include-${key}"]`);
       await expect(box).toHaveCount(1);

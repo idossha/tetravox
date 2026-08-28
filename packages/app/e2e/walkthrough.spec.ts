@@ -33,7 +33,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const ENABLED = process.env['TETRAVOX_WALKTHROUGH'] === '1';
@@ -165,7 +165,7 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
             filePaths: [path],
           })) as typeof dialog.showOpenDialog;
         }, dataset);
-        await page.click('[data-testid="open-button"]');
+        await clickAppMenu(page, 'open');
       }
 
       await page.waitForFunction(
@@ -281,7 +281,7 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
       }
 
       // 7 — Screenshot, with the whole option set.
-      await page.click('[data-testid="screenshot-options"]');
+      await page.click('[data-testid="screenshot-menu"]');
       await page.fill('[data-testid="screenshot-width"]', '1200');
       await page.fill('[data-testid="screenshot-dpi"]', '300');
       await page.click('[data-testid="screenshot-preview"]');
@@ -305,7 +305,7 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
         },
         join(OUT, 'walkthrough.tetravox.json')
       );
-      await page.click('[data-testid="scene-save-as"]');
+      await clickAppMenu(page, 'save-as');
       await expect(page.locator('[data-testid="scene-file"]')).toBeVisible({ timeout: 30_000 });
       await shoot(
         'save',

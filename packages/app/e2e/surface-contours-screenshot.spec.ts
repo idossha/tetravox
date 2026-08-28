@@ -25,7 +25,7 @@ import { existsSync, readFileSync, mkdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp } from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 import { decodePng } from './png';
 
@@ -89,7 +89,7 @@ async function openFile(path: string): Promise<void> {
     },
     [path]
   );
-  await page.click('[data-testid="open-button"]');
+  await clickAppMenu(page, 'open');
   await page.waitForFunction(
     (want: number) => (window.__tetravox?.store.getState().layers.length ?? 0) >= want,
     before + 1,
