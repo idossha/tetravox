@@ -23,6 +23,10 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { expectGolden, readCanvasPixels } from '../helpers/pixels';
 import { readCornerInfo } from '../helpers/chrome';
+// E-MESH's fixture geometry, reused rather than re-derived: §11's "assert a pixel the `interacting`
+// level would have changed" needs a fragment whose edge factor is known in closed form, and the
+// 3×3×3 lattice under this camera is where that pixel is already worked out (`mesh-support.ts`).
+import { FRONT_FACE_CAMERA, PANE } from './mesh-support';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
@@ -859,6 +863,105 @@ test('@angle P2-02: `interacting` is entered on input, cleared after the settle,
   expect(after.quality).toBe('full');
   // Announced, never silent (§7.2).
   expect(after.events).toEqual(['interacting', 'full']);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * §11's named E-SCENE obligation, in full: *"`whenSettled()` after a synthetic drag resolves only
+ * after `interacting` clears; the frame drawn then is full quality (**assert a pixel that the
+ * `interacting` level would have changed**)."*
+ *
+ * The test above asserts the flag and the two `quality` events. That is the state half, and on its
+ * own it is satisfied by a `QualityLevel` nothing reads — which is what `Scene.quality` was until
+ * `render/passes/mesh.ts` started consuming `edges`. This is the pixel half, and it is the one that
+ * cannot pass unless the level really applies.
+ *
+ * The subject is §7.2's `edges false`. On the committed 3×3×3 lattice under `FRONT_FACE_CAMERA` the
+ * pane's vertical centre line is the `y = 0` triangle edge shared by the front face's four quads, so
+ * a pixel 0.5 px from it has `1 − smoothstep(w − 0.5, w + 0.5, 0.5) = 1` at `w = 4.25` and is
+ * therefore **exactly** the edge colour — `mix(rgb, uEdgeColor.rgb, 1 · 1)`. With `edges` off there
+ * is no `TVX_EDGES` branch at all and the same fragment is the lit tag colour. Two colours that
+ * differ by construction, at a pixel named by the projection rather than found by looking.
+ */
+test('@angle P2-02 §11: the frame `whenSettled()` leaves is full quality, at a pixel `interacting` changes', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  await load(page, fixture('mesh_v2_binary.msh'), 'mesh', ['view3d']);
+
+  /** 200 px below the pane centre on the `y = 0` grid line — `mesh-gate.spec.ts`'s own probe. */
+  const EDGE_PIXEL: [number, number] = [PANE / 2, PANE / 2 + 200];
+  const EDGE_RED: [number, number, number] = [255, 0, 0];
+
+  const patch = async (p: Record<string, unknown>): Promise<void> => {
+    await page.evaluate(async (q) => {
+      const engine = window.__tvxEngine!;
+      engine.updateLayer(engine.scene.layers[0]!.id, q as never);
+      for (let i = 0; i < 40; i += 1) {
+        await engine.whenSettled();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await engine.whenSettled();
+    }, p);
+  };
+
+  await page.evaluate(async (camera) => {
+    const engine = window.__tvxEngine!;
+    engine.setView('view3d', { camera: camera as never });
+    engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+    await engine.whenSettled();
+  }, FRONT_FACE_CAMERA);
+
+  // The control: the same fragment with the edge contributing nothing.
+  //
+  // `edges: { surface: false }` would be the wrong control, and the difference is the point of
+  // §7.2's rule that a fallback level may change *resolution* and not *content*. `layers/mesh.ts`
+  // picks the geometry variant from the **layer's** settings, not from the quality level, so a drag
+  // does not swap the de-indexed surface out from under itself — no re-upload, no reflow, and the
+  // normals stay flat. Turning the layer's own `edges.surface` off *does* swap it (back to the
+  // indexed variant, whose averaged corner normals shade the same fragment differently: measured
+  // 82,200,97 against 58,169,71 here), which is a different picture for a reason that has nothing to
+  // do with the edge. A transparent edge colour keeps the variant and removes only the edge.
+  await patch({
+    edges: { surface: true, caps: false },
+    edgeColor: [1, 0, 0, 0],
+    edgeWidthPx: 4.25,
+  });
+  const [noEdges] = await readCanvasPixels(page, [EDGE_PIXEL]);
+
+  await patch({ edges: { surface: true, caps: false }, edgeColor: [1, 0, 0, 1], edgeWidthPx: 4.25 });
+  const [full] = await readCanvasPixels(page, [EDGE_PIXEL]);
+  for (let c = 0; c < 3; c += 1) {
+    expect(full![c], `full quality: the edge pixel is the edge colour, channel ${c}`).toBe(
+      EDGE_RED[c]
+    );
+  }
+  expect(
+    [...noEdges!].slice(0, 3),
+    'the two levels must differ at this pixel, or the assertion proves nothing'
+  ).not.toEqual([...full!].slice(0, 3));
+
+  // Hold the pointer down: §7.2 enters `interacting` on pointerdown. No movement, so the camera and
+  // the geometry are exactly what they were — only the `QualityLevel` moved.
+  await page.mouse.move(200, 200);
+  await page.mouse.down();
+  const during = await page.evaluate(() => window.__tvxEngine!.scene.quality);
+  expect(during.name).toBe('interacting');
+  expect(during.edges, '§7.2: the interacting level names `edges false`').toBe(false);
+  const [dragging] = await readCanvasPixels(page, [EDGE_PIXEL]);
+  expect(
+    [...dragging!],
+    '`edges false` really applies: the edge pixel is the un-edged frame, byte for byte'
+  ).toEqual([...noEdges!]);
+
+  await page.mouse.up();
+  await settle(page);
+  const [settled] = await readCanvasPixels(page, [EDGE_PIXEL]);
+  expect(
+    [...settled!],
+    'the frame `whenSettled()` leaves behind is full quality, byte for byte'
+  ).toEqual([...full!]);
   expect(errors).toEqual([]);
 });
 

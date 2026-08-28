@@ -1311,6 +1311,20 @@ export class TetravoxEngine implements Engine, PointerHost {
         drew = true;
         continue;
       }
+      // §7.2, verbatim: "Every golden screenshot and every `screenshot()` call awaits this and
+      // renders at full quality **regardless of the current `QualityLevel`**. Without this the
+      // adaptive pump makes every golden test racy."
+      //
+      // Leaving `interacting` already restores the level the gesture interrupted, so the only case
+      // left is the *adaptive* one: 30 slow frames put the scene in `reduced`, which now really does
+      // drop `edges` (§7.2's fallback set), and a golden captured there would differ from the same
+      // golden on a faster machine. Raising it back to full and drawing once is the sentence above;
+      // the pump re-derives the level from the next 30 frames if the machine still warrants it.
+      if (this.#scene.quality.name !== 'full') {
+        this.#restQuality = 'full';
+        this.#applyQuality('full');
+        this.renderNow();
+      }
       return;
     }
   }

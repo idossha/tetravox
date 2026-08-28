@@ -2285,3 +2285,33 @@ Each entry below names the problem, the fix, and the evidence.
   (`scene-realdata.spec.ts`) re-derived the basename itself, with a comment recording the bug as
   though it were the contract. Decode first, then take the last `/` **or** `\`. The test now asserts
   `'T1.nii.gz'` verbatim, which is the only form that can fail if this regresses.
+
+
+- 2026-08-28 — **`Scene.quality` was computed, stored, emitted and read by nothing, so the
+  `interacting` `QualityLevel` was inert and the status bar announced a degradation that never
+  happened.** §7.2's "never degrade silently" inverts when the bar is the only thing that changes:
+  the reader is told the picture got cheaper while every fragment was drawn exactly as before, and
+  §9.1 row 11's "≥ 30 fps sustained **at interacting quality**" was in fact a measurement of full
+  quality. §11's named E-SCENE obligation — *"the frame drawn then is full quality (assert a pixel
+  that the `interacting` level would have changed)"* — was unmeetable for the same reason, and was
+  not attempted.
+  `edges` is now consumed: `render/passes/mesh.ts` drops the `TVX_EDGES` branch for
+  `MeshLayer.edges.surface` / `.caps` while the level says so. It is the right one of the four to
+  make real first because it is a *shader variant*, so switching it costs a program bind and nothing
+  else — no re-upload, no cut, no field table — which is what makes it safe to flip inside a drag.
+  Deliberately **not** gated: `TVX_EMPHASIS` (R5's selected-region outline is a reading, like
+  `interpolation`) and the geometry variant a layer requested (swapping the de-indexed surface for
+  the indexed one mid-drag re-shades every fragment — a different picture, not a cheaper one;
+  measured on the 3×3×3 lattice, 82,200,97 against 58,169,71 at the same fragment).
+  The other three knobs are recorded in §7.2 as what they are rather than left to read as live:
+  `dprScale` is 1 at every level and has nothing to do; `msaa` is a **context** attribute
+  (`gl/context.ts`'s `antialias`) and cannot be changed per frame without an MSAA resolve target,
+  which is Phase 3's §7.0.7 accumulation buffer; `capDecimation` needs `plane_cut` to emit fewer cap
+  triangles and is Phase 3's §9 performance pass. `docs/benchmarks/phase2-mesh.md` already said so
+  in prose ("that is E-SCENE's P2-02 and does not exist yet"); it is now in the contract.
+  Two consequences worth naming. `whenSettled()` now raises the level to `full` before its last
+  frame, which §7.2 already required in words — *"every golden screenshot and every `screenshot()`
+  call awaits this and renders at full quality regardless of the current `QualityLevel`"* — and which
+  became load-bearing the moment `reduced` really dropped edges: without it a golden captured on a
+  slow machine would differ from the same golden on a fast one. And the status-bar tooltips now name
+  the one knob that moves rather than reciting the list.

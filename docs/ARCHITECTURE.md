@@ -1829,6 +1829,20 @@ Rules:
   full-quality re-render.
   **Forbidden in the fallback set: any knob that changes displayed *values* rather than displayed *resolution*.**
   `interpolation` (nearest vs linear) is a reading, not a rendering setting, and must never be degraded.
+  **Which knobs are live, as of Phase 2** — because a level nothing reads is a status bar announcing a degradation
+  that never happened, which inverts the rule below rather than satisfying it:
+
+  | Knob | State | Where |
+  |---|---|---|
+  | `dprScale` | live, and 1 at **every** level, so it never changes anything | the host owns `canvas.width/height` (§8); no level asks for less |
+  | `edges` | **live** — `TVX_EDGES` is dropped for `MeshLayer.edges.surface` / `.caps` | `render/passes/mesh.ts`'s `qualityEdges` |
+  | `msaa` | Phase 3 | `antialias` is a *context* attribute (`gl/context.ts`); changing it per frame needs an MSAA resolve target, which is §7.0.7's accumulation buffer |
+  | `capDecimation` | Phase 3 | needs `plane_cut` to emit fewer cap triangles; §9 row 11's lever, measured in `docs/benchmarks/phase2-mesh.md` |
+
+  A level may **never** change `MeshLayer.label` emphasis (`TVX_EMPHASIS`): which region is selected is a reading in
+  exactly the sense `interpolation` is. Nor may it change the *geometry variant* a layer requested — a drag that
+  swapped the de-indexed surface for the indexed one would re-upload mid-gesture and re-shade every fragment, which
+  is a different picture rather than a cheaper one.
 * **Automatic degradation:** when the median full-quality frame over the last 30 frames exceeds the budget, drop
   one `QualityLevel` (DPR → 1, then edges/wireframe off, then decimate tag surfaces) and **surface it in the
   status bar**. Never degrade silently.
