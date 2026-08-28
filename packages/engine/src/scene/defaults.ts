@@ -281,7 +281,53 @@ export function defaultPointsLayer(id: string, ds: VolumeDataset | MeshDataset):
     radiusMm: 4,
     color: DEFAULT_POINT_COLOR,
     showLabels: false,
+    ...geoSeed(ds),
   };
+}
+
+/**
+ * The parsed-view half of a points layer's defaults (`.geo` / `.pos`, task 6).
+ *
+ * `{}` for every other dataset, which is what keeps `defaultPointsLayer` byte-identical for the
+ * Phase-2 callers and their goldens.
+ *
+ * **Labels default ON here and only here.** A `.geo` electrode net is 187 spheres that are
+ * indistinguishable without their names — the file exists to say which electrode is which — while
+ * a points layer built from a CSV of ROI centres has no names at all. So the default follows the
+ * data: on when the view brought text, off otherwise.
+ *
+ * When the counts match, each label's text is also copied onto its point. SimNIBS writes one `T3`
+ * per `SP`, in order, 5 mm above it (`AGENTS.md` real-data numbers), so index pairing is exact —
+ * and a nearest-anchor match would be the thing that silently mislabels a dense net. When they do
+ * not match the labels still draw, from their own anchors; only the probe row goes unnamed.
+ */
+function geoSeed(ds: VolumeDataset | MeshDataset): Partial<PointsLayer> {
+  if (ds.kind !== 'mesh' || ds.geo === undefined) return {};
+  const geo = ds.geo;
+  const paired = geo.labels.length === geo.points.length;
+  const values = geo.points.map((p) => p.value);
+  const lo = values.length > 0 ? Math.min(...values) : 0;
+  const hi = values.length > 0 ? Math.max(...values) : 0;
+  const seed: Partial<PointsLayer> = {
+    name: geo.viewNames[0] ?? 'Points',
+    points: geo.points.map((p, i) => {
+      const text = paired ? geo.labels[i]?.text : undefined;
+      return text === undefined
+        ? { position: p.position, value: p.value }
+        : { position: p.position, value: p.value, name: text };
+    }),
+    showLabels: geo.labels.length > 0,
+    labelScale: 1,
+    valueMode: 'solid',
+    colormap: 'viridis',
+    valueRange: { lo, hi },
+    lineWidthPx: 2,
+    // A parsed view's radius is not in the file (Gmsh's `PointSize` is a screen size, not a world
+    // one), so it is the layer default — 4 mm, about an EEG electrode.
+  };
+  if (geo.labels.length > 0) seed.labels = geo.labels;
+  if (geo.lineSegments.length > 0) seed.lineSegments = geo.lineSegments;
+  return seed;
 }
 
 /**
@@ -297,7 +343,11 @@ export function defaultLayerFor(
   ds: VolumeDataset | MeshDataset,
   kind?: Layer['kind']
 ): Layer {
-  const want = kind ?? (ds.kind === 'volume' ? 'volume' : 'mesh');
+  // A parsed view with no triangles (every SimNIBS electrode net) is points, not a mesh: its
+  // default mesh layer would be an empty surface and the file would look like it failed to open.
+  const own =
+    ds.kind === 'volume' ? 'volume' : ds.geo !== undefined && !ds.hasTris ? 'points' : 'mesh';
+  const want = kind ?? own;
   switch (want) {
     case 'volume':
       return ds.kind === 'volume' ? defaultVolumeLayer(id, ds) : seededMeshLayer(id, ds);

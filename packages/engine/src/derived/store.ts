@@ -79,6 +79,25 @@ interface FieldEntry {
   pending: boolean;
 }
 
+/**
+ * Everything `packPoints` reads besides the `points` array itself — the cache key for the instance
+ * buffer's colours. Cheap to build (five scalars) and compared once per layer per frame.
+ */
+function pointColorKey(layer: PointsLayer): string {
+  const c = layer.color;
+  return [
+    layer.valueMode ?? 'solid',
+    layer.colormap ?? '',
+    layer.valueRange?.lo ?? '',
+    layer.valueRange?.hi ?? '',
+    layer.radiusMm,
+    c[0],
+    c[1],
+    c[2],
+    c[3],
+  ].join('|');
+}
+
 /** One points layer's instanced draw: the shared quad plus its per-instance buffer (§7.4). */
 export interface PointInstances {
   vao: VertexArray;
@@ -92,6 +111,23 @@ interface PointEntry {
   count: number;
   /** The `points` array on the GPU, so an unchanged layer is never re-uploaded. */
   source: PointsLayer['points'] | null;
+  /**
+   * The colour inputs that were baked into the instance buffer.
+   *
+   * `source` alone is not enough any more: `valueMode: 'value'` resolves each point's colour on
+   * the CPU (`layers/points.ts`), so flipping the colormap changes the buffer while leaving the
+   * `points` array identical — and the layer would have kept drawing in the old colours.
+   */
+  colorKey: string;
+}
+
+/** One points layer's `SL` segments: the shared strip plus the segment buffer (§7.0.6). */
+interface LineEntry {
+  vao: VertexArray;
+  strip: Buffer;
+  segments: Buffer;
+  count: number;
+  source: Float32Array | null;
 }
 
 interface SurfaceTables {
@@ -144,6 +180,7 @@ export class DerivedStore {
   readonly #tagLuts = new Map<LayerId, TagLutEntry>();
   readonly #fields = new Map<string, FieldEntry>();
   readonly #points = new Map<LayerId, PointEntry>();
+  readonly #lines = new Map<LayerId, LineEntry>();
   readonly #surfaces = new Map<DatasetId, SurfaceTables>();
   readonly #surfacePending = new Set<DatasetId>();
   /** Volumetric glyph origins, keyed `(datasetId, stride, visible tet tags)`. */
@@ -380,13 +417,51 @@ export class DerivedStore {
       gl.vertexAttribDivisor(2, 1);
       gl.vertexAttribDivisor(3, 1);
       VertexArray.unbind(gl);
-      e = { vao, quad, instances, count: 0, source: null };
+      e = { vao, quad, instances, count: 0, source: null, colorKey: '' };
       this.#points.set(layer.id, e);
     }
-    if (e.source !== layer.points) {
+    const colorKey = pointColorKey(layer);
+    if (e.source !== layer.points || e.colorKey !== colorKey) {
       e.instances.update(packPoints(layer));
       e.count = layer.points.length;
       e.source = layer.points;
+      e.colorKey = colorKey;
+    }
+    return e.count > 0 ? { vao: e.vao, count: e.count } : null;
+  }
+
+  /**
+   * The `SL` segments of a points layer, as a contour-shaped instanced VAO (task 6).
+   *
+   * Same packing and the same two-views-of-one-buffer trick as a cut's `boundarySegments` — 6
+   * floats per segment, attributes 1 and 2 at offsets 0 and 12 with divisor 1 — so the segments
+   * draw through the §7.0.6 screen-space quad expansion and get a **constant screen width** at
+   * every zoom, exactly like a 2D contour. `gl.lineWidth()` is a no-op (`[1,1]` `[M2Max]`).
+   */
+  lineSegments(layer: PointsLayer): PointInstances | null {
+    const gl = this.#gl;
+    const source = layer.lineSegments;
+    if (source === undefined || source.length < 6) return null;
+    let e = this.#lines.get(layer.id);
+    if (e === undefined) {
+      const vao = new VertexArray(gl);
+      const strip = new Buffer(gl, gl.ARRAY_BUFFER);
+      strip.set(CONTOUR_STRIP);
+      const segments = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+      vao.attrib(0, strip, 2, gl.FLOAT);
+      vao.attrib(1, segments, 3, gl.FLOAT, false, 24, 0);
+      vao.attrib(2, segments, 3, gl.FLOAT, false, 24, 12);
+      gl.bindVertexArray(vao.vao);
+      gl.vertexAttribDivisor(1, 1);
+      gl.vertexAttribDivisor(2, 1);
+      VertexArray.unbind(gl);
+      e = { vao, strip, segments, count: 0, source: null };
+      this.#lines.set(layer.id, e);
+    }
+    if (e.source !== source) {
+      e.segments.update(source);
+      e.count = Math.floor(source.length / 6);
+      e.source = source;
     }
     return e.count > 0 ? { vao: e.vao, count: e.count } : null;
   }
@@ -565,6 +640,13 @@ export class DerivedStore {
       pts.instances.dispose();
       this.#points.delete(id);
     }
+    const lines = this.#lines.get(id);
+    if (lines !== undefined) {
+      lines.vao.dispose();
+      lines.strip.dispose();
+      lines.segments.dispose();
+      this.#lines.delete(id);
+    }
   }
 
   dropDataset(id: DatasetId): void {
@@ -610,6 +692,12 @@ export class DerivedStore {
       e.instances.dispose();
     }
     this.#points.clear();
+    for (const e of this.#lines.values()) {
+      e.vao.dispose();
+      e.strip.dispose();
+      e.segments.dispose();
+    }
+    this.#lines.clear();
     for (const f of this.#fields.values())
       if (f.table !== null) this.#gl.deleteTexture(f.table.texture);
     this.#fields.clear();

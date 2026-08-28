@@ -12,10 +12,11 @@
 
 import { asGl, identity4 } from '../view/m4';
 import { mat4 as glMat4 } from 'gl-matrix';
-import type { LabelEntryT, MeshMeta, StatsT, VolumeMeta } from '@tetravox/protocol';
+import type { GeoPayloadT, LabelEntryT, MeshMeta, StatsT, VolumeMeta } from '@tetravox/protocol';
 import type {
   Aabb,
   DatasetId,
+  GeoData,
   LabelTable,
   MeshDataset,
   MeshFieldInfo,
@@ -227,11 +228,52 @@ export function labelTablesFromWire(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * `GeoPayloadT` → {@link GeoData} (§6.5.1).
+ *
+ * The typed arrays arrived transferred, so they are read here into the small object arrays the
+ * scene model uses — 187 electrodes is 187 objects, four orders of magnitude away from the sizes
+ * §5 rule 3 exists for. `lineSegments` stays a `Float32Array`: it feeds a vertex buffer verbatim.
+ */
+export function geoFromWire(geo: GeoPayloadT): GeoData {
+  const points: GeoData['points'] = [];
+  for (let i = 0; i < geo.pointValues.length; i += 1) {
+    points.push({
+      position: [geo.points[i * 3] ?? 0, geo.points[i * 3 + 1] ?? 0, geo.points[i * 3 + 2] ?? 0],
+      value: geo.pointValues[i] ?? 0,
+      view: geo.pointView[i] ?? 0,
+    });
+  }
+  const labels: GeoData['labels'] = geo.labelTexts.map((text, i) => ({
+    position: [
+      geo.labelPositions[i * 3] ?? 0,
+      geo.labelPositions[i * 3 + 1] ?? 0,
+      geo.labelPositions[i * 3 + 2] ?? 0,
+    ] as vec3,
+    text,
+  }));
+  return {
+    points,
+    labels,
+    lineSegments: geo.lineSegments,
+    viewNames: geo.viewNames,
+    views: geo.views.map((v) => ({
+      name: v.name,
+      points: v.points,
+      labels: v.labels,
+      lines: v.lines,
+      tris: v.tris,
+    })),
+    bounds: { min: geo.bounds.min, max: geo.bounds.max },
+  };
+}
+
 export function meshDatasetFromMeta(
   id: DatasetId,
   meta: MeshMeta,
   worker: WorkerRef,
-  path: string | undefined
+  path: string | undefined,
+  geo?: GeoPayloadT
 ): MeshDataset {
   const tags: MeshTag[] = meta.tags.map((t) => ({
     id: t.id,
@@ -256,6 +298,7 @@ export function meshDatasetFromMeta(
     hasTris: meta.hasTris,
     fields: meta.fields.map(fieldFromWire),
     labelTables: labelTablesFromWire(meta.labelTables),
+    geo: geo === undefined ? undefined : geoFromWire(geo),
     tags,
     skipped: meta.skipped,
     opt: meta.opt !== undefined ? optFromWire(meta.opt) : undefined,

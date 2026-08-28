@@ -49,7 +49,7 @@ import { visibleIn } from '../../layers/runtime';
 import { isSliceView } from '../../scene/store';
 import { sliceBasis, slicePlane } from '../../view/geometry';
 import type { ComponentSel } from '@tetravox/protocol';
-import type { MeshDataset, MeshLayer, vec3, vec4 } from '../../scene/types';
+import type { MeshDataset, MeshLayer, PointsLayer, vec3, vec4 } from '../../scene/types';
 
 /** §7.4's contour colour when the layer does not override it: the layer's own edge colour. */
 const DEFAULT_CONTOUR_COLOR: vec4 = [0.05, 0.05, 0.06, 1];
@@ -162,8 +162,10 @@ export class DerivedPass implements FramePass {
     }
 
     // Points draw on the plane they intersect, above the cut (§4.4: electrodes over anatomy).
+    // A parsed view's `SL` segments go under them, like a montage's wires under its electrodes.
     for (const item of collectDrawItems(input, view)) {
       if (item.kind !== 'points') continue;
+      this.#drawPointLines(ctx, item.layer, store);
       const inst = store.pointInstances(item.layer);
       if (inst !== null) this.#drawPoints2D(ctx, item, inst, plane);
     }
@@ -266,6 +268,30 @@ export class DerivedPass implements FramePass {
     VertexArray.unbind(gl);
   }
 
+  /**
+   * A points layer's `SL` segments (task 6), through the contour program.
+   *
+   * The same screen-space quad expansion the 2D contours use, so the segments keep a **constant
+   * screen width** at every zoom — `gl.lineWidth()` is a no-op (§7.0.6). They are drawn with the
+   * layer's model matrix set to identity because a parsed view's coordinates are already world mm
+   * (§6.2) and a points layer has no dataset transform of its own.
+   */
+  #drawPointLines(ctx: PassContext, layer: PointsLayer, store: DerivedStore): void {
+    const seg = store.lineSegments(layer);
+    if (seg === null) return;
+    const color = layer.lineColor ?? layer.color;
+    this.#drawContours(
+      ctx.viewProj,
+      IDENTITY,
+      ctx.rect.width,
+      ctx.rect.height,
+      seg.vao,
+      seg.count,
+      (layer.lineWidthPx ?? 2) * ctx.input.uiScale,
+      [color[0], color[1], color[2], color[3] * layer.opacity]
+    );
+  }
+
   #drawPoints2D(
     ctx: PassContext,
     item: PointsDrawItem,
@@ -335,6 +361,11 @@ export class DerivedPass implements FramePass {
       const ds = input.scene.datasets.get(layer.datasetId);
       if (ds === undefined || ds.kind !== 'mesh') continue;
       this.#drawGlyphs(ctx, store, layer, ds);
+    }
+
+    // A parsed view's `SL` segments, under the spheres.
+    for (const d of items) {
+      if (d.kind === 'points') this.#drawPointLines(ctx, d.layer, store);
     }
 
     // Points — billboards with an analytic hemisphere (§7.4's "no new geometry from WASM").

@@ -22,8 +22,9 @@ import type {
   PickItem,
   PointsDrawItem,
 } from './runtime';
+import { isColormapName, sampleColormap } from '../color/colormaps';
 import type { ProbeRow } from '../api';
-import type { Dataset, DatasetId, LayerId, PointsLayer, vec3, View } from '../scene/types';
+import type { Dataset, DatasetId, LayerId, PointsLayer, vec3, vec4, View } from '../scene/types';
 
 /** Floats per instance: `centre.xyz`, `colour.rgba`, `radiusMm`. */
 export const POINT_INSTANCE_FLOATS = 8;
@@ -38,7 +39,7 @@ export function packPoints(layer: PointsLayer): Float32Array {
   const points = layer.points ?? [];
   const out = new Float32Array(points.length * POINT_INSTANCE_FLOATS);
   points.forEach((p, i) => {
-    const c = p.color ?? layer.color;
+    const c = p.color ?? valueColor(layer, p.value) ?? layer.color;
     const o = i * POINT_INSTANCE_FLOATS;
     out[o] = p.position[0];
     out[o + 1] = p.position[1];
@@ -50,6 +51,29 @@ export function packPoints(layer: PointsLayer): Float32Array {
     out[o + 7] = p.radiusMm ?? layer.radiusMm;
   });
   return out;
+}
+
+/**
+ * `colorMode: 'value'` — the point's scalar through the layer's colormap (§7.6), or `null` when
+ * the layer is in its default solid mode or the point has no value.
+ *
+ * On the CPU rather than in the shader on purpose. A points layer's instance buffer is eight
+ * floats per point and a dense electrode net is 256 of them, so recolouring the whole layer is a
+ * 8 KB upload — cheaper than the LUT texture, the extra uniform and the shader variant a GPU
+ * colormap would need, and it keeps `packPoints` the single, testable definition of what a point
+ * looks like.
+ */
+export function valueColor(layer: PointsLayer, value: number | undefined): vec4 | null {
+  if (layer.valueMode !== 'value' || value === undefined) return null;
+  const name = layer.colormap ?? 'viridis';
+  if (!isColormapName(name)) return null;
+  const lo = layer.valueRange?.lo ?? 0;
+  const hi = layer.valueRange?.hi ?? 1;
+  // A flat field (every SimNIBS net writes `{0}` for every electrode) has no gradient to show, so
+  // it maps to the colormap's midpoint rather than dividing by zero.
+  const t = hi > lo ? Math.min(1, Math.max(0, (value - lo) / (hi - lo))) : 0.5;
+  const [r, g, b] = sampleColormap(name, t);
+  return [r, g, b, layer.color[3]];
 }
 
 export interface NearestPoint {
