@@ -51,8 +51,16 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
         // Take the focus so the ←/→ binding below is reachable without a Tab — but only when the
         // press was on the row itself. A press on the eye, the slider or anything inside the editor
         // is on its way to that control's own focus, and stealing it would break its keyboard.
+        //
+        // `preventScroll` is not a nicety. This `<li>` is the *whole* layer — header, summary and
+        // the expanded editor with its Region panel — so it is routinely taller than `layer-list`'s
+        // viewport, and a plain `focus()` asks the browser to scroll that whole element into view.
+        // The scroll lands between `pointerdown` and `click`, which yanks the list out from under
+        // the finger: an Alt-click meant to solo a tissue row several hundred pixels down the panel
+        // arrives on whatever slid under the cursor, and the solo never happens. Focus is for the
+        // keyboard; the viewport is the user's.
         if (!(e.target as HTMLElement).closest('input,button,select,textarea,[contenteditable]')) {
-          e.currentTarget.focus();
+          e.currentTarget.focus({ preventScroll: true });
         }
       }}
       onKeyDown={(e) => {
