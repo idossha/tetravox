@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Tetravox">
+  <title>Tetravox</title>
+  <polygon points="128.000,14.000 29.273,71.000 72.713,96.080 183.287,96.080 226.727,71.000" fill="#15181d" fill-opacity="0.27" stroke="#ffffff" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="29.273,71.000 29.273,185.000 128.000,242.000 128.000,191.840 72.713,96.080" fill="#15181d" fill-opacity="0.19" stroke="#ffffff" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="226.727,71.000 183.287,96.080 128.000,191.840 128.000,242.000 226.727,185.000" fill="#15181d" fill-opacity="0.16" stroke="#ffffff" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="183.287,96.080 72.713,96.080 128.000,191.840" fill="#15181d" fill-opacity="0.40" stroke="#ffffff" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="194.344,38.396 61.656,38.396 128.000,76.700" fill="#15181d" fill-opacity="0.99" stroke="#ffffff" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="61.656,38.396 128.000,153.308 128.000,76.700" fill="#15181d" fill-opacity="0.80" stroke="#ffffff" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="128.000,153.308 194.344,38.396 128.000,76.700" fill="#15181d" fill-opacity="0.75" stroke="#ffffff" stroke-width="1.600" stroke-linejoin="round"/>
+</svg>
