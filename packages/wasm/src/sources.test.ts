@@ -6,9 +6,9 @@
  * into `DecompressionStream('gzip')` fails on perfectly good data.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { readStream, sourceName } from './sources';
+import { loadSource, readStream, sourceName } from './sources';
 
 function stream(bytes: Uint8Array, chunk = 7): ReadableStream<Uint8Array> {
   let at = 0;
@@ -90,9 +90,78 @@ describe('sourceName (§6.5.1)', () => {
     );
   });
 
+  it('takes the basename of a **percent-encoded** path, which is what the app actually sends', () => {
+    // `datasets/source.ts`'s `fileUrl` is `tetravox://file/${encodeURIComponent(path)}`, so every
+    // separator is `%2F` and the last literal `/` is the one after `file`. Splitting before
+    // decoding returned the whole absolute path as the file's name.
+    const abs = '/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz';
+    expect(sourceName({ kind: 'url', url: `tetravox://file/${encodeURIComponent(abs)}` })).toBe(
+      'T1.nii.gz'
+    );
+    // …and it is still a `.gz` afterwards, which is what the sniff downstream keys on.
+    expect(
+      sourceName({
+        kind: 'url',
+        url: `tetravox://file/${encodeURIComponent('/a b/c d/ernie.msh')}`,
+      })
+    ).toBe('ernie.msh');
+  });
+
+  it('treats a backslash as a separator, for a Windows path that reached a URL', () => {
+    expect(
+      sourceName({ kind: 'url', url: `tetravox://file/${encodeURIComponent('C:\\data\\T1.nii')}` })
+    ).toBe('T1.nii');
+  });
+
   it('uses the declared name for bytes sources', () => {
     expect(sourceName({ kind: 'bytes', name: 'ernie.msh', bytes: new ArrayBuffer(0) })).toBe(
       'ernie.msh'
     );
+  });
+});
+
+describe('loadSource sidecars (§6.5.1)', () => {
+  const bytes = (text: string): ArrayBuffer => new TextEncoder().encode(text).buffer as ArrayBuffer;
+
+  it('reads a sidecar that is there', async () => {
+    const out = await loadSource({
+      kind: 'bytes',
+      name: 'ernie.msh',
+      bytes: bytes('mesh'),
+      sidecars: { opt: bytes('opt'), lut: bytes('lut') },
+    });
+    expect(new TextDecoder().decode(out.opt)).toBe('opt');
+    expect(new TextDecoder().decode(out.lut)).toBe('lut');
+  });
+
+  it('treats a sidecar that will not read as a **missing** sidecar, not a failed load', async () => {
+    // The regression: a scene reopened from a moved directory names its `.msh.opt` relative to
+    // wherever the dataset resolved to, and if the pair did not travel together that URL 404s.
+    // Refusing the whole load there would mean a relocated scene cannot be opened at all, while
+    // everything downstream already has an answer for "no sidecar" — §7.6's deterministic palette
+    // and `Label <id>`.
+    const MESH = 'https://example.invalid/ernie.msh';
+    const OPT = 'https://example.invalid/ernie.msh.opt';
+    vi.stubGlobal('fetch', async (url: string) =>
+      url === MESH ? new Response('mesh') : new Response(null, { status: 404 })
+    );
+    try {
+      const out = await loadSource({ kind: 'url', url: MESH, sidecars: { opt: OPT } });
+      expect(new TextDecoder().decode(out.bytes)).toBe('mesh');
+      expect(out.opt, 'the sidecar is absent, and the mesh still loaded').toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('…while the **dataset**’s own failure is still fatal', async () => {
+    vi.stubGlobal('fetch', async () => new Response(null, { status: 404 }));
+    try {
+      await expect(
+        loadSource({ kind: 'url', url: 'https://example.invalid/gone.msh' })
+      ).rejects.toThrow(/404/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

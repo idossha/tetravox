@@ -21,6 +21,7 @@ use crate::Mesh;
 
 const INTENT_POINTSET: &str = "NIFTI_INTENT_POINTSET";
 const INTENT_TRIANGLE: &str = "NIFTI_INTENT_TRIANGLE";
+const INTENT_LABEL: &str = "NIFTI_INTENT_LABEL";
 const SCANNER_ANAT: &str = "NIFTI_XFORM_SCANNER_ANAT";
 
 #[derive(Default, Clone)]
@@ -464,7 +465,35 @@ pub fn read(bytes: &[u8], p: &mut dyn ProgressSink) -> Result<Mesh> {
             }
             _ => {
                 let ncomp = a.head.cols();
-                let data: Vec<f32> = a.values.iter().map(|x| *x as f32).collect();
+                // §6.2's dense remap, the same one `read_fs_annot` performs and for the same
+                // reason: the renderer's label palette is an `N x 2` texture indexed by position in
+                // `LabelTable.entries`, and a `<LabelTable>` key is an arbitrary sparse integer
+                // (`surf.label.gii`'s are 0/3/7/11; FreeSurfer's are packed RGB). Handing the raw
+                // key to a 4-entry palette clamps every key above 3 to the last entry, which paints
+                // a whole cortex in one region's colour and looks plausible.
+                //
+                // Only a `NIFTI_INTENT_LABEL` array is remapped, and only when the file carried a
+                // table: a `.func` / `.shape` array is a continuous scalar and must keep its values.
+                // The original key stays in `LabelEntry::id`, which is what the region panel, a
+                // saved scene and a probe row speak.
+                let label = a.head.intent == INTENT_LABEL && !doc.labels.entries.is_empty();
+                let data: Vec<f32> = if label {
+                    let dense: std::collections::HashMap<i64, f32> = doc
+                        .labels
+                        .entries
+                        .iter()
+                        .enumerate()
+                        .map(|(k, e)| (i64::from(e.id), k as f32))
+                        .collect();
+                    // A value the table does not name maps to dense 0, exactly as an unassigned
+                    // `.annot` vertex does.
+                    a.values
+                        .iter()
+                        .map(|x| *dense.get(&(x.round() as i64)).unwrap_or(&0.0))
+                        .collect()
+                } else {
+                    a.values.iter().map(|x| *x as f32).collect()
+                };
                 let stats = field_stats(&data, ncomp);
                 node_fields.push(Field {
                     name: a

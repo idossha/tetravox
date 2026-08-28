@@ -332,16 +332,30 @@ export function voxelAxisAlong(
 }
 
 /**
+ * The slice step of a scene with **no volume in it** — R4's "else 1 mm (configurable)".
+ *
+ * A mesh-only scene has no voxel grid to step through, and R4 requires the wheel, PgUp/PgDn and the
+ * arrows to sweep the mesh anyway.
+ */
+export const MESH_ONLY_STEP_MM = 1;
+
+/**
  * §7.5's slice step, defined once so it needs no rewrite for oblique:
  * `step_mm = max over voxel axes a of |dot(normal, A[:,a])|`, where `A` is the 3×3 of the topmost
  * visible volume layer's affine. Falls back to `min(spacing)` of any volume, else
- * `bboxDiagonal / 256` for mesh-only scenes.
+ * {@link MESH_ONLY_STEP_MM} for mesh-only scenes.
+ *
+ * **The mesh-only fallback is 1 mm, not §7.5's `bboxDiagonal / 256`** (maintainer requirement R4,
+ * 2026-08-27). The diagonal rule made one wheel notch mean a different distance per file — 1.32 mm
+ * on `ernie.msh`, 0.53 mm on `lh.central.gii` — for a gesture whose whole job is to sweep a mesh at
+ * a predictable rate. `meshOnlyMm` is the "(configurable)" R4 asks for.
  */
 export function stepMm(
   normal: vec3,
   affine: Float32Array | null,
   spacing: vec3 | null,
-  bounds: Aabb | null
+  bounds: Aabb | null,
+  meshOnlyMm: number = MESH_ONLY_STEP_MM
 ): number {
   if (affine !== null) {
     const best = voxelAxisAlong(normal, affine).mm;
@@ -357,9 +371,9 @@ export function stepMm(
       bounds.max[1] - bounds.min[1],
       bounds.max[2] - bounds.min[2]
     );
-    if (diag > 1e-6) return diag / 256;
+    if (diag > 1e-6) return meshOnlyMm;
   }
-  return 1;
+  return meshOnlyMm;
 }
 
 /**
@@ -376,4 +390,261 @@ export function worldToVoxel(ds: VolumeDataset, w: vec3): vec3 {
     (m[1] ?? 0) * w[0] + (m[5] ?? 0) * w[1] + (m[9] ?? 0) * w[2] + (m[13] ?? 0),
     (m[2] ?? 0) * w[0] + (m[6] ?? 0) * w[1] + (m[10] ?? 0) * w[2] + (m[14] ?? 0),
   ];
+}
+
+/**
+ * Slide `world` along `dir` until the voxel index that direction steps along is an **integer**.
+ *
+ * §7.5's anti-drift rule — "snap the cursor's along-normal component to the nearest voxel plane" —
+ * read literally, and shared by both keyboard steps: `stepCursor` snaps along the plane normal
+ * (PgUp/PgDn and the wheel), `nudgeCursor` along the pane's `right` and `up` (the arrows, P2-09).
+ *
+ * "Along `dir`" is the whole point. Rounding all three voxel indices instead — which Phase 1 did —
+ * also drags the cursor sideways to the nearest voxel *centre*, so one step moves it in a direction
+ * the user did not ask for. Solving for the distance along `dir` that puts the stepping index
+ * (`voxelAxisAlong`, the same derivation §8's corner readout uses) on an integer cannot touch the
+ * other two axes, and is correct for an oblique plane as well as a canonical one.
+ *
+ * The rate is non-zero by construction: `axis` is the argmax of exactly this projection.
+ */
+export function snapAlong(ds: VolumeDataset, world: vec3, dir: vec3): vec3 {
+  const { axis } = voxelAxisAlong(dir, ds.affine);
+  const v = worldToVoxel(ds, world);
+  const m = ds.inverseAffine;
+  const rate = (m[axis] ?? 0) * dir[0] + (m[4 + axis] ?? 0) * dir[1] + (m[8 + axis] ?? 0) * dir[2];
+  if (!(Math.abs(rate) > 1e-9)) return world;
+  const t = (Math.round(v[axis] ?? 0) - (v[axis] ?? 0)) / rate;
+  return [world[0] + dir[0] * t, world[1] + dir[1] * t, world[2] + dir[2] * t];
+}
+
+// -------------------------------------------------------------------------------------------
+// Oblique affordances — §7.5's gizmo, rotate handles and plane-from-3-points
+// -------------------------------------------------------------------------------------------
+
+/**
+ * The plane through three world points, as a `{ normal, up }` a `SliceView` can adopt.
+ *
+ * §7.5's third oblique affordance. `normal = normalize((b − a) × (c − a))`, and `up` is the
+ * in-plane direction closest to the world superior axis — with the world **anterior** axis as the
+ * fallback for a plane that is itself axial, where "superior" has no in-plane component at all. That
+ * rule is what keeps the resulting pane readable rather than rolled to an arbitrary angle: the same
+ * choice §3's presets make (`presetUp` is `+Z` for coronal and sagittal, `+Y` for axial).
+ *
+ * Returns `null` for three collinear (or coincident) points, where no plane exists — a clicked
+ * third point on the line through the first two must fail visibly, not produce a NaN normal.
+ */
+export function planeFromPoints(
+  a: vec3,
+  b: vec3,
+  c: vec3,
+  minArea = 1e-6
+): { normal: vec3; up: vec3 } | null {
+  const ab: vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ac: vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const n = cross(ab, ac);
+  // |ab × ac| is twice the triangle's area: zero exactly when the three points are collinear.
+  if (Math.hypot(n[0], n[1], n[2]) <= minArea) return null;
+  const normal = norm(n);
+  const superior: vec3 = [0, 0, 1];
+  let up = reject(superior, normal);
+  if (Math.hypot(up[0], up[1], up[2]) < 1e-4) up = reject([0, 1, 0], normal);
+  return { normal, up: norm(up) };
+}
+
+/** `v` with its component along the unit vector `n` removed. */
+function reject(v: vec3, n: vec3): vec3 {
+  const d = dot3(v, n);
+  return [v[0] - d * n[0], v[1] - d * n[1], v[2] - d * n[2]];
+}
+
+/**
+ * Rotate a plane's `{ normal, up }` by `angle` radians about an **in-plane** axis.
+ *
+ * The gizmo's two rotate handles, and the only correct way to write them: rotating the normal alone
+ * would leave `up` pointing out of the new plane, and `sliceBasis` would then re-orthogonalise it to
+ * whatever fell out — the pane would roll by an amount nobody asked for. Rodrigues on both vectors
+ * keeps the frame rigid, so a rotate handle rotates the view and does not also spin it.
+ */
+export function rotatePlane(
+  normal: vec3,
+  up: vec3,
+  axis: vec3,
+  angle: number
+): { normal: vec3; up: vec3 } {
+  const k = norm(axis);
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const rodrigues = (v: vec3): vec3 => {
+    const kv = cross(k, v);
+    const kd = dot3(k, v) * (1 - cosA);
+    return [
+      v[0] * cosA + kv[0] * sinA + k[0] * kd,
+      v[1] * cosA + kv[1] * sinA + k[1] * kd,
+      v[2] * cosA + kv[2] * sinA + k[2] * kd,
+    ];
+  };
+  const n = norm(rodrigues(normal));
+  return { normal: n, up: norm(reject(rodrigues(up), n)) };
+}
+
+// -------------------------------------------------------------------------------------------
+// The pane's in-plane origin — §7.5 / maintainer requirement R3
+// -------------------------------------------------------------------------------------------
+
+/**
+ * The `mmPerPx` that fits `bounds` into a square pane of `px` pixels — §7.5's `r`, in one place.
+ *
+ * `0.62` of the bounding-box **diagonal** rather than of an axis: a slice plane can cut a volume at
+ * any angle, so the widest thing a pane may have to show is the diagonal, and fitting to an axis
+ * leaves an oblique cut clipped. The `0.05` floor is R2's clamp, applied here so a fit is never a
+ * value the zoom would refuse.
+ *
+ * Shared by `resetView`, the auto-fit on the first dataset, and §8's corner `ZOOM` readout — three
+ * places that each had (or would have grown) a copy, and where a disagreement means `r` produces a
+ * pane the readout then calls 0.98x.
+ */
+export function fitMmPerPx(bounds: Aabb, px: number): number {
+  const diag = Math.hypot(
+    bounds.max[0] - bounds.min[0],
+    bounds.max[1] - bounds.min[1],
+    bounds.max[2] - bounds.min[2]
+  );
+  return Math.max(0.05, (diag * 0.62) / Math.max(1, px));
+}
+
+/**
+ * The world point a 2D pane's in-plane coordinates are measured from.
+ *
+ * **This is the change R3 asks for**, and it is worth stating plainly because §4.5's inline comment
+ * on `SliceView.camera.center` still reads "relative to the cursor's projection". It was, and that
+ * is exactly the defect R3 names: with the cursor as the in-plane origin, moving the cursor moves
+ * the *image* under a crosshair pinned to the pane — "move the scan, not the crosshair". Freeview
+ * does the opposite, and so does every viewer a user of this one has used.
+ *
+ * So the in-plane origin is the **scene bounding-box centre**, which no interaction moves, and
+ * `camera.center` is the pan offset from it. Consequences, all of them intended:
+ *
+ * * a left-drag moves the cursor and leaves every non-crosshair pixel byte-identical (R3's gate);
+ * * `resetView` (`center = [0,0]`) frames the *data*, not wherever the cursor happens to be;
+ * * the first dataset still opens exactly as it did, because `#onFirstDataset` puts the cursor on
+ *   the bbox centre — anchor and cursor coincide there, so no Phase-1 golden moves.
+ *
+ * The **along-normal** component is still the cursor's, and the plane is still derived from the
+ * cursor alone (§4.5) — only the in-plane origin changed.
+ */
+export function planeAnchor(bounds: Aabb): vec3 {
+  return [
+    ((bounds.min[0] ?? 0) + (bounds.max[0] ?? 0)) / 2,
+    ((bounds.min[1] ?? 0) + (bounds.max[1] ?? 0)) / 2,
+    ((bounds.min[2] ?? 0) + (bounds.max[2] ?? 0)) / 2,
+  ];
+}
+
+/**
+ * The view a pane is actually **rendered** with: `camera.center` re-expressed in the cursor-relative
+ * frame that {@link sliceViewProj} (and the slice quad, and the crosshair) already speak.
+ *
+ * The alternative was to teach `sliceViewProj`, `SlicePass.quadHalfFor`, `SlicePass.#writeQuad` and
+ * `OverlayPass`'s crosshair placement about the anchor — four call sites in three files, two of them
+ * owned by other Phase-2 agents. Folding the anchor into one number instead leaves every one of them
+ * literally unchanged and still correct:
+ *
+ * * `sliceViewProj` centres the ortho box on `center`, so the pane centres on `anchor + center`;
+ * * `quadHalfFor`'s `paneHalf + |center|` is the distance from the quad's centre (the cursor) to the
+ *   pane's far corner — which is what it was always meant to be, and only becomes true once
+ *   `center` is measured from the cursor;
+ * * `OverlayPass` draws the crosshair at `rect/2 − center/mmPerPx`, i.e. at the cursor, which is now
+ *   a point that moves on screen instead of a fixed one.
+ */
+export function effectiveSliceView(
+  view: SliceView,
+  cursor: vec3,
+  anchor: vec3,
+  radiological: boolean
+): SliceView {
+  const { right, up } = sliceBasis(view, radiological);
+  const d: vec3 = [anchor[0] - cursor[0], anchor[1] - cursor[1], anchor[2] - cursor[2]];
+  return {
+    ...view,
+    camera: {
+      ...view.camera,
+      center: [view.camera.center[0] + dot3(d, right), view.camera.center[1] + dot3(d, up)],
+    },
+  };
+}
+
+/** A pane rectangle, in device pixels — `ViewportRect` without the import cycle. */
+export interface PaneSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Pane-local pixel (**top-left origin**, the convention `readPixel` and every pointer event use)
+ * → the world point on that pane's slice plane.
+ *
+ * The sample point is the pixel *centre*, `p + 0.5`, which is the convention §11's orientation tests
+ * already assert against ("pixel `p` samples `(p + 0.5 − PANE/2)·mmPerPx`"). Inverse of
+ * {@link worldToPane} to floating-point exactness.
+ */
+export function paneToWorld(
+  view: SliceView,
+  cursor: vec3,
+  anchor: vec3,
+  radiological: boolean,
+  rect: PaneSize,
+  xLocal: number,
+  yLocal: number
+): vec3 {
+  const basis = sliceBasis(view, radiological);
+  const eff = effectiveSliceView(view, cursor, anchor, radiological);
+  const mm = eff.camera.mmPerPx;
+  const u = eff.camera.center[0] + (xLocal + 0.5 - rect.width / 2) * mm;
+  const v = eff.camera.center[1] + (rect.height / 2 - yLocal - 0.5) * mm;
+  return [
+    cursor[0] + basis.right[0] * u + basis.up[0] * v,
+    cursor[1] + basis.right[1] * u + basis.up[1] * v,
+    cursor[2] + basis.right[2] * u + basis.up[2] * v,
+  ];
+}
+
+/** World → pane-local pixel, **top-left origin**. Exact inverse of {@link paneToWorld}. */
+export function worldToPane(
+  view: SliceView,
+  cursor: vec3,
+  anchor: vec3,
+  radiological: boolean,
+  rect: PaneSize,
+  world: vec3
+): [number, number] {
+  const basis = sliceBasis(view, radiological);
+  const eff = effectiveSliceView(view, cursor, anchor, radiological);
+  const mm = eff.camera.mmPerPx;
+  const d: vec3 = [world[0] - cursor[0], world[1] - cursor[1], world[2] - cursor[2]];
+  const u = dot3(d, basis.right);
+  const v = dot3(d, basis.up);
+  return [
+    (u - eff.camera.center[0]) / mm + rect.width / 2 - 0.5,
+    rect.height / 2 - (v - eff.camera.center[1]) / mm - 0.5,
+  ];
+}
+
+/**
+ * Project a world point into a 3D pane, **top-left origin**, or `null` when it is behind the eye.
+ *
+ * The 3D crosshair (R1: "the 3D crosshair moves") is the only caller today; it is here rather than
+ * in the overlay pass because it is camera geometry and the pass owns no maths.
+ */
+export function worldToPane3D(
+  viewProj: mat4,
+  rect: PaneSize,
+  world: vec3
+): [number, number] | null {
+  const m = viewProj;
+  const x = (m[0] ?? 0) * world[0] + (m[4] ?? 0) * world[1] + (m[8] ?? 0) * world[2] + (m[12] ?? 0);
+  const y = (m[1] ?? 0) * world[0] + (m[5] ?? 0) * world[1] + (m[9] ?? 0) * world[2] + (m[13] ?? 0);
+  const w =
+    (m[3] ?? 0) * world[0] + (m[7] ?? 0) * world[1] + (m[11] ?? 0) * world[2] + (m[15] ?? 1);
+  if (!(Math.abs(w) > 1e-9) || w < 0) return null;
+  return [((x / w) * 0.5 + 0.5) * rect.width - 0.5, (0.5 - (y / w) * 0.5) * rect.height - 0.5];
 }

@@ -25,17 +25,30 @@ export interface LoadedBytes {
   opt?: Uint8Array;
 }
 
-/** The file name a `LoadSource` implies — what `.gz` sniffing and `MeshMeta.name` both key on. */
+/**
+ * The file name a `LoadSource` implies — what `.gz` sniffing and `MeshMeta.name` both key on.
+ *
+ * **Decode first, then take the last segment.** `tetravox://file/…` (§5 directive A2) is built with
+ * `encodeURIComponent(path)`, so every separator in a real app URL is `%2F` and the last *literal*
+ * `/` is the one after `file`. Splitting before decoding therefore returned the whole absolute path
+ * — `/Users/…/m2m_ernie/T1.nii.gz` as the "file name" — which is what §8's layer panel, the info
+ * panel, a colour bar's title and a scene's default file name all read. It went unseen because the
+ * §11 harness serves the reference dataset over Vite's `/@fs/<abs path>`, whose separators are
+ * literal and which therefore takes the basename correctly either way.
+ *
+ * A backslash counts as a separator too, for a Windows path that reached a URL.
+ */
 export function sourceName(source: LoadSource): string {
   if (source.kind === 'file') return source.file.name;
   if (source.kind === 'bytes') return source.name;
-  const path = source.url.replace(/[?#].*$/, '');
-  const last = path.slice(path.lastIndexOf('/') + 1);
+  const url = source.url.replace(/[?#].*$/, '');
+  let path: string;
   try {
-    return decodeURIComponent(last);
+    path = decodeURIComponent(url);
   } catch {
-    return last;
+    path = url;
   }
+  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
 }
 
 function concat(chunks: Uint8Array[], total: number): Uint8Array {
@@ -162,19 +175,35 @@ async function fileBytes(file: File, onProgress?: ReadProgress): Promise<Uint8Ar
   return readStream(file.name, file.stream(), file.size, onProgress);
 }
 
+/**
+ * One role-keyed sidecar's bytes, or `undefined`.
+ *
+ * **A sidecar that will not read is a missing sidecar, not a failed load.** §6.5.1 makes them
+ * optional and role-keyed, and everything downstream already has an answer for absent: a mesh with
+ * no `.msh.opt` gets §7.6's deterministic palette, a label volume with no LUT gets `Label <id>`.
+ * The path they arrive by is a *guess* in both hosts that produce one — the app's
+ * `lib/sidecars.ts` derives candidates from the dataset's name, and `Engine.load` re-derives a
+ * saved `SidecarRef` against wherever the dataset relocated to — so a 404 here means "not beside
+ * this copy of the file", which is exactly the case the fallbacks exist for. Failing the whole
+ * load instead would mean a scene whose data moved without its `.msh.opt` refuses to open at all.
+ */
 async function sidecar(source: LoadSource, role: 'lut' | 'opt'): Promise<Uint8Array | undefined> {
   const cars = source.sidecars;
   if (cars === undefined) return undefined;
-  if (source.kind === 'url') {
-    const url = (cars as { lut?: string; opt?: string })[role];
-    return url === undefined ? undefined : fetchBytes(url);
+  try {
+    if (source.kind === 'url') {
+      const url = (cars as { lut?: string; opt?: string })[role];
+      return url === undefined ? undefined : await fetchBytes(url);
+    }
+    if (source.kind === 'file') {
+      const f = (cars as { lut?: File; opt?: File })[role];
+      return f === undefined ? undefined : await fileBytes(f);
+    }
+    const b = (cars as { lut?: ArrayBuffer; opt?: ArrayBuffer })[role];
+    return b === undefined ? undefined : new Uint8Array(b);
+  } catch {
+    return undefined;
   }
-  if (source.kind === 'file') {
-    const f = (cars as { lut?: File; opt?: File })[role];
-    return f === undefined ? undefined : fileBytes(f);
-  }
-  const b = (cars as { lut?: ArrayBuffer; opt?: ArrayBuffer })[role];
-  return b === undefined ? undefined : new Uint8Array(b);
 }
 
 /**

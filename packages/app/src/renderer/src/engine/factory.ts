@@ -38,6 +38,9 @@ export function mockOptions(search = globalThis.location?.search ?? ''): NoGlEng
   return {
     stepMs: Number.isFinite(stepMs) && stepMs > 0 ? stepMs : 40,
     parseFailSubstring: params.get('mockParseFail'),
+    // Phase 2: `?mockTemplate=1` gives loaded volumes a `toTemplate`, which is what turns the §8
+    // coordinate bar's MNI column on. Absent by default — see `NoGlEngineOptions`.
+    toTemplate: params.get('mockTemplate') === '1',
   };
 }
 

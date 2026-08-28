@@ -21,16 +21,19 @@
 
 import { Framebuffer } from '../../gl/framebuffer';
 import { VertexArray } from '../../gl/buffer';
-import { Program } from '../../gl/program';
+import { ProgramVariants } from '../../gl/program';
+import type { ShaderDefines } from '../../gl/program';
 import { GL_STATE } from '../../gl/state';
 import type { GlState } from '../../gl/state';
+import { activeClipPlanes, capDraws, clipVariant, culls, packClipPlanes } from './mesh';
 import { collectPickItems } from './pass';
 import type { DrawInput, Pass, PassContext } from './pass';
+import { bindSliceSampling } from './slice';
 import type { SliceQuad } from './slice';
-import { MESH_PICK_VS, PICK_FS, SLICE_PICK_FS, SLICE_PICK_VS } from '../../shaders';
+import { MESH_PICK_VS, PICK_FS, SLICE_PICK_GATED_FS, SLICE_PICK_VS } from '../../shaders';
 import { invert4, transformPoint } from '../../view/m4';
 import { sliceBasis } from '../../view/geometry';
-import type { mat4, vec3, View, ViewId } from '../../scene/types';
+import type { mat4, SliceView, View } from '../../scene/types';
 import type { ViewportRect } from '../../view/layout';
 import type { PickResult } from '../../api';
 
@@ -67,8 +70,22 @@ export class PickPass implements Pass {
 
   readonly #gl: WebGL2RenderingContext;
   readonly #state: GlState;
-  readonly #mesh: Program;
-  readonly #slice: Program;
+  /**
+   * §7.1's variant cache, because §7.2.3 makes this pass reproduce the main pass's clip: the same
+   * `TVX_CLIP_PLANES` / `TVX_CLIP_DISCARD` keys, plus `TVX_CAP` for a cut cap. The all-zero variant
+   * is Phase 1's program, character for character.
+   */
+  readonly #mesh: ProgramVariants;
+  /**
+   * **E-SLICE (Phase 2): two variants, and the *gated* fragment shader.**
+   *
+   * `IS_LABEL` has to be a compile-time branch here for the same reason it is in the frame
+   * (`usampler3D` vs `sampler3D`), and the program is built from `SLICE_PICK_GATED_FS`, which shares
+   * its whole body with `SLICE_FS` — so §7.2.3's "the pick pass reproduces **every** discard of the
+   * main pass" is structural rather than a promise. Phase 1's `SLICE_PICK_FS` reproduced only the
+   * AABB discard, which was all Phase 1 drew.
+   */
+  readonly #slice: ProgramVariants;
   #fbo: Framebuffer | null = null;
   #readFormat: GLenum;
   #readType: GLenum;
@@ -76,8 +93,8 @@ export class PickPass implements Pass {
   constructor(gl: WebGL2RenderingContext, state: GlState) {
     this.#gl = gl;
     this.#state = state;
-    this.#mesh = new Program(gl, MESH_PICK_VS, PICK_FS);
-    this.#slice = new Program(gl, SLICE_PICK_VS, SLICE_PICK_FS);
+    this.#mesh = new ProgramVariants(gl, MESH_PICK_VS, PICK_FS);
+    this.#slice = new ProgramVariants(gl, SLICE_PICK_VS, SLICE_PICK_GATED_FS);
     // §7.2.3: "read the enum, do not hardcode". The implementation-defined pair is
     // RED_INTEGER/UNSIGNED_INT on ANGLE/Metal *and* SwiftShader, but the spec-guaranteed fallback is
     // RGBA_INTEGER/UNSIGNED_INT, which also works on an R32UI target.
@@ -134,9 +151,14 @@ export class PickPass implements Pass {
     gl.clearBufferfi(gl.DEPTH_STENCIL, 0, 1, 0);
 
     for (const { item, layerIndex } of collectPickItems(input, view)) {
-      if (item.kind === 'mesh') this.#drawMesh(item, layerIndex, viewProj);
-      else this.#drawSliceQuad(item, layerIndex, view, viewProj, input, quad, quadHalf);
+      if (item.kind === 'mesh') {
+        this.#drawMesh(item, layerIndex, viewProj, input);
+        this.#drawMeshCaps(item, layerIndex, viewProj, input);
+      } else this.#drawSliceQuad(item, layerIndex, view, viewProj, input, quad, quadHalf);
     }
+    // The enable set is global and survives this FBO: leaving it on would clip the next frame's
+    // slice quad, which draws in pass 1 before any mesh pass runs (§7.4, "reset per pass").
+    this.#state.clipDistances(0);
 
     const ids = new Uint32Array(
       PICK_RECT * PICK_RECT * (this.#readFormat === gl.RGBA_INTEGER ? 4 : 1)
@@ -200,12 +222,16 @@ export class PickPass implements Pass {
   #drawMesh(
     item: Extract<ReturnType<typeof collectPickItems>[number]['item'], { kind: 'mesh' }>,
     layerIndex: number,
-    viewProj: mat4
+    viewProj: mat4,
+    input: DrawInput
   ): void {
     const gl = this.#gl;
     const { layer, ds, geom } = item;
     if (geom.ownerTexture === null) return;
-    const prog = this.#mesh;
+    const clip = clipVariant(layer, input);
+    const planes = activeClipPlanes(layer);
+    const hardware = input.clipDistance === true && input.forceDiscardClip !== true;
+    const prog = this.#mesh.get({ ...clip, TVX_CAP: 0 } as unknown as ShaderDefines);
     prog.use();
     prog.mat4('uViewProj', viewProj);
     prog.mat4('uModel', ds.transform);
@@ -213,6 +239,15 @@ export class PickPass implements Pass {
     gl.bindTexture(gl.TEXTURE_2D, geom.ownerTexture);
     prog.int('uOwnerTex', 0);
     prog.int('uOwnerWidth', geom.ownerWidth);
+    // §7.2.3: "the up-to-6 clip planes (same enable set)". Nothing about the pick target changes
+    // that — a clipped-away triangle must not answer a double-click.
+    if (planes.length > 0) {
+      prog.vec4('uClipPlanes', packClipPlanes(planes));
+      if (!hardware) prog.int('uClipSkip', -1);
+    }
+    this.#state.clipDistances(hardware ? planes.length : 0);
+    // …and "face culling", which the main pass applies per layer.
+    this.#state.cull(culls(layer, ds) ? 'back' : 'none');
     const bits = packId(layerIndex, 0, 0);
     const loc = prog.loc('uLayerBits');
     if (loc !== null) gl.uniform1ui(loc, bits >>> 0);
@@ -221,6 +256,44 @@ export class PickPass implements Pass {
       const style = layer.tagStyle[range.tag];
       if (style !== undefined && !style.visible) continue;
       gl.drawArrays(gl.TRIANGLES, range.first, range.count);
+    }
+    VertexArray.unbind(gl);
+  }
+
+  /**
+   * A cut cap, with §7.2.3's `kindBit` 1 — "0 for a triangle and 1 for a tet (cut caps)".
+   *
+   * The cap rule applies here too: plane *i*'s own cap is drawn with `CLIP_DISTANCE(i)` off (or
+   * `uClipSkip = i`), or the pick target would have a hole exactly where the visible cap is and a
+   * double-click on a cross-section would fall through to whatever is behind it.
+   */
+  #drawMeshCaps(
+    item: Extract<ReturnType<typeof collectPickItems>[number]['item'], { kind: 'mesh' }>,
+    layerIndex: number,
+    viewProj: mat4,
+    input: DrawInput
+  ): void {
+    if (item.caps === undefined) return;
+    const gl = this.#gl;
+    const clip = clipVariant(item.layer, input);
+    const planes = activeClipPlanes(item.layer);
+    const hardware = input.clipDistance === true && input.forceDiscardClip !== true;
+    const prog = this.#mesh.get({ ...clip, TVX_CAP: 1 } as unknown as ShaderDefines);
+    prog.use();
+    prog.mat4('uViewProj', viewProj);
+    prog.mat4('uModel', item.ds.transform);
+    const bits = packId(layerIndex, 1, 0);
+    const loc = prog.loc('uLayerBits');
+    if (loc !== null) gl.uniform1ui(loc, bits >>> 0);
+    this.#state.cull('none');
+    item.caps.vao.bind();
+    for (const c of capDraws({ ...item, kind: 'mesh', geom: item.geom }, [0, 0, 0])) {
+      if (planes.length > 0) {
+        prog.vec4('uClipPlanes', packClipPlanes(planes));
+        if (!hardware) prog.int('uClipSkip', c.plane);
+      }
+      this.#state.clipDistances(hardware ? planes.length : 0, hardware ? c.plane : undefined);
+      gl.drawArrays(gl.TRIANGLES, c.first, c.count);
     }
     VertexArray.unbind(gl);
   }
@@ -239,15 +312,21 @@ export class PickPass implements Pass {
     quadHalf: number
   ): void {
     const gl = this.#gl;
-    const { ds } = item;
-    const basis = sliceBasis(view as never, input.scene.radiological);
+    // E-SLICE (Phase 2): the quad's plane is the pane's own view in 2D and `item.plane` in a 3D
+    // pane, where `showIn3D` puts every slice plane in the frame (§7.2 pass 1).
+    const plane = item.plane ?? (view as SliceView);
+    const basis = sliceBasis(plane, input.scene.radiological);
     quad.write(input.scene.cursor, basis.right, basis.up, quadHalf);
-    const prog = this.#slice;
+    // Without the GPU handles the layer runtime could not tell us what it drew, so there is nothing
+    // to reproduce and the safe thing is to leave the quad unpickable rather than pick a fragment
+    // the frame discarded.
+    if (item.gpu === undefined) return;
+    const prog = this.#slice.get({ IS_LABEL: item.gpu.integer ? 1 : 0 });
     prog.use();
     prog.mat4('uViewProj', viewProj);
-    prog.mat4('uInvAffine', ds.inverseAffine);
-    prog.vec3('uDims', ds.dims as vec3);
-    const planeIndex = input.scene.slices.findIndex((s) => s.id === (view as { id: ViewId }).id);
+    // The same threshold, `truncate` clip, palette alpha and 4-tap outline test the frame applied.
+    bindSliceSampling(gl, prog, { ...item, gpu: item.gpu }, input);
+    const planeIndex = input.scene.slices.findIndex((s) => s.id === plane.id);
     const loc = prog.loc('uId');
     if (loc !== null) gl.uniform1ui(loc, packId(layerIndex, 0, Math.max(0, planeIndex)) >>> 0);
     quad.vao.bind();

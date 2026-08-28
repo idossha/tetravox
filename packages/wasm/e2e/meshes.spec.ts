@@ -259,9 +259,15 @@ test('a .label.gii brings its <LabelTable> as MeshMeta.labelTables (§6.5.1)', a
     expect(table[i]?.color, `entry ${i}`).toEqual(e.rgba255);
   }
 
-  // The array itself is a node field, and `field` reads it back.
+  // The array itself is a node field, and `field` reads it back — **as dense indices**, not as the
+  // file's own keys. §6.2's remap: the renderer's label palette is indexed by position in
+  // `LabelTable.entries`, so a `.label.gii` is remapped at parse time exactly as a `.annot` is, and
+  // the original key is kept in `LabelEntry.id` (asserted above). The fixture's keys are 0/3/7/11
+  // cycling over 16 vertices, so the field runs 0..3 where the manifest's *array* stats — which
+  // nibabel took off the raw file — say 0..11.
   const array = (want.arrays as Array<Record<string, unknown>>)[0]!;
   const stats = array.stats as Record<string, number>;
+  expect(stats.max, 'the file itself holds the sparse key').toBe(11);
   const values = await must(page, 'field', {
     handle: meta.handle as number,
     source: 'node',
@@ -270,8 +276,8 @@ test('a .label.gii brings its <LabelTable> as MeshMeta.labelTables (§6.5.1)', a
   });
   const v = values.result?.values as { length: number; min: number; max: number };
   expect(v.length).toBe((array.dims as number[])[0]);
-  expect(v.min).toBeCloseTo(stats.min!, 4);
-  expect(v.max).toBeCloseTo(stats.max!, 4);
+  expect(v.min).toBe(0);
+  expect(v.max, 'remapped to a dense 0..N-1 index').toBe(expected.length - 1);
 });
 
 test('a .func.gii is a node field, not a surface', async ({ page }) => {

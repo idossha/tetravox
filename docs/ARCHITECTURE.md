@@ -267,6 +267,7 @@ export interface MeshDataset {
   transformedSpace?: string;
   bounds: Aabb;                       // of the delivered (world-mm) node coordinates, before `transform`
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
+  identityElementNumbers: boolean;    // §6.2's identity rule holds ⇒ `gmsh - 1` is a valid element row
   fields: MeshFieldInfo[];
   tags: MeshTag[];
   skipped: { elemType: number; count: number }[];
@@ -309,11 +310,28 @@ export interface VolumeLayer extends LayerBase {
   outlineWidthPx: number;                               // render-target px (§7.0.5)
   visibleLabels?: Uint32Array;                          // undefined = all
   labelOpacity?: Record<number, number>;
+  labelColors?: Record<number, vec4>;                   // R5's colour picker: per-label override,
+                                                        //   beating the dataset's LabelTable (see below)
+  selectedLabels?: number[];                            // R5's selection: the outline-emphasis set
   showIn3D: boolean;
   precision: 'auto' | 'f32';                            // 'f32' forces R32F, guarded by caps.floatLinear
 }
 
-export interface ClipPlane { plane: Plane; enabled: boolean }
+export interface ClipPlane { plane: Plane; enabled: boolean; followCursor?: boolean }
+// followCursor: the plane's `offset` tracks the cursor. On the layer, not in the host's UI state, so
+// a saved scene reopens still following (§4.6 serialises layers).
+
+// **R5's four per-region edits are all layer state, and that is what makes them persist.** §4.6 does
+// not serialise a `LabelTable` — it is re-derived from the dataset and its LUT on load — so an edited
+// label colour written into the table would be lost on the next open, which R5 forbids ("edits
+// persist in the scene"). `labelColors` is therefore an *override* on the layer: the file's own
+// colours stay readable underneath it, a per-row Reset is deleting a key, and "Save LUT…" (§7.6)
+// writes the override merged over the table. The mesh side already worked this way
+// (`tagStyle[t].color`, `MeshLayer.label.table`); this is the volume side catching up.
+//
+// `selectedLabels` is a plain `number[]`, unlike `visibleLabels`' `Uint32Array`: a selection is a
+// handful of ids a panel edits click by click, not a filter over up to 65535 of them, and keeping it
+// JSON keeps `SerializableLayer` a straight `Omit` of one field rather than three.
 
 export interface IsolateSpec {
   tags?: number[];
@@ -332,6 +350,8 @@ export interface GlyphSpec {
   lengthMm: number;
   colorBy: 'magnitude' | 'solid'; color: vec4 /* 0..1 */;
   clipToCutPlane: boolean;
+  /** Where the origins come from (§7.4). Absent = 'surface'. */
+  origins?: 'surface' | 'volume';
 }
 
 export interface MeshLayer extends LayerBase {
@@ -384,7 +404,8 @@ export interface SliceView {
   up: vec3;                                      // unit, in-plane, screen up.
                                                  // Re-orthogonalised on load: up ← normalize(up − (up·n)n);
                                                  // rejected if |up × n| < 1e-4.
-  camera: { center: vec2; mmPerPx: number };     // in-plane pan/zoom, relative to the cursor's projection
+  camera: { center: vec2; mmPerPx: number };     // in-plane pan/zoom, relative to the SCENE BOUNDS
+                                                 //   centre — not the cursor's projection (R3; see below)
   layerVisibility?: Record<LayerId, boolean>;
 }
 // The plane is DERIVED, never stored: plane = { normal, offset: -dot(normal, scene.cursor) }.
@@ -453,14 +474,39 @@ export interface MeshGeometry { vao: WebGLVertexArrayObject; buffers: WebGLBuffe
                                                     `generation` per §6.5.2's lifecycle rules */ }
 ```
 
+**`SliceView.camera.center` is measured from the scene bounding-box centre, not from the cursor**
+(maintainer requirement R3, 2026-08-27 — where a requirement and this contract disagree, the
+requirement wins). The block above and `scene/types.ts` both say so; the stale Phase-0 comment
+("relative to the cursor's projection") was corrected in the frozen file by the Phase-2 integrator,
+so there is now one statement rather than two that must be read together.
+
+The reason is R3 itself — *move the crosshair, not the scan*. With the cursor as the in-plane origin,
+setting the cursor moves the **image** under a crosshair pinned to the pane centre, which is the
+behaviour R3 forbids and which made a left-click-to-set-cursor gesture impossible to write: the point
+the user clicked slid away from the pointer as the click landed. With a cursor-independent anchor,
+`center` is a pure pan, the crosshair is drawn where the cursor projects, and a left-drag leaves every
+non-crosshair pixel of that pane byte-identical.
+
+The anchor is **derived, never stored** — the same discipline the slice plane already follows. It is
+the centre of `Scene`'s dataset bounds, so it changes only when a dataset is added or removed, and it
+coincides with the cursor at load (§4.7's first-dataset auto-centre puts the cursor there), which is
+why adopting it moved no Phase-1 golden. `resetView` sets `center = [0, 0]`, which now frames the
+**data** rather than wherever the cursor happens to be. The along-normal component of the plane is
+still the cursor's alone.
+
 ### 4.6 ViewSpec — the persisted form (`*.tetravox.json`)
 
 ```ts
+export interface SidecarRef {
+  path: string;                     // relative to the DATASET's directory, not to the scene file
+  absPath?: string;                 // fallback when the relative path misses
+}
 export interface DatasetRef {
   id: DatasetId; kind: 'volume' | 'mesh'; name: string;
   path: string;                     // relative to the scene file
   absPath?: string;                 // fallback when the relative path misses
-  fingerprint: string;              // "<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>", 16 hex each
+  fingerprint: string;              // `tvxfp1-<len:16hex>-<hash:16hex>` — see below
+  sidecars?: { lut?: SidecarRef; opt?: SidecarRef };   // §6.5.1's role-keyed sidecars — see below
 }
 export type SerializableLayer =
   Omit<Layer, 'visibleLabels'> & { visibleLabels?: number[]; label?: { name: string; mode: string;
@@ -481,9 +527,67 @@ export interface ViewSpec {
 `LabelTable`s are **not** serialised; they are re-derived from the dataset and its LUT on load. A missing dataset
 opens a "relocate" dialog keyed on `fingerprint`.
 
+**`sidecars` — because "re-derived from the dataset and its LUT" needs the LUT.** §6.5.1's sidecars are *load-time
+inputs*, not layer state: `ernie.msh` carries no `$PhysicalNames` at all, so `ernie.msh.opt` is the only source of
+"WM"/"GM"/"CSF" and of the tag colours the head is drawn in, and a label volume's names and colours come from its
+`_LUT.txt`. None of that lives in `Layer`, so a `DatasetRef` that recorded only `path` reopened the same file as a
+different-looking dataset — every tissue `tag <id>`, the head in §7.6's deterministic fallback palette, a cursor
+readout that said `515 · Bone-Cortical` reduced to `515 · —`. R5's "persists through scene save/load" was true of
+the *edits* and false of the table they are edits against.
+`SidecarRef.path` is relative to **the dataset**, not to the scene file, because a sidecar travels with the file it
+describes: relocate the dataset and the sidecar comes with it, which is the case the relocate dialog exists for.
+`Engine.load` derives the paths from wherever each dataset resolved to (`scene/serialize.ts`'s `sidecarPathsFor`,
+exported so a host that owns the filesystem — Electron's §5 directive A2 allow-list — can admit exactly the same
+paths rather than a second derivation of them). **Reading a sidecar is best-effort in the loader**: one that is not
+beside this copy of the file is a missing table, never a failed load, which is the same answer the no-sidecar case
+has always had.
+
+**`fingerprint` — `tvxfp1`, normative.** The producer is `tvx_core::fingerprint` (§6.0), called by
+`load_volume` / `load_mesh` over the bytes the loader was handed and **before** the parser frees them (§5 rule 5).
+§5 rule 3 forbids the UI thread from ever seeing those bytes, so it cannot be computed anywhere else; it reaches
+the scene as `VolumeMeta.fingerprint` / `MeshMeta.fingerprint` (§6.5.1).
+
+```text
+fingerprint(bytes) = "tvxfp1-" ++ hex16(len) ++ "-" ++ hex16(h)
+```
+
+* `len` is `bytes.len()` as a u64, 16 lower-case hex digits.
+* `h` is **FNV-1a-64** (offset basis `0xcbf29ce484222325`, prime `0x100000001b3`) over a canonical stream,
+  finished with MurmurHash3's `fmix64` avalanche, formatted the same way.
+* The canonical stream is the 8 bytes of `len` **little-endian**, then the sampled chunks in ascending offset
+  order.
+* The chunks are the whole slice when `len ≤ 8 MiB`; otherwise exactly three 1 MiB windows — at `0`, at
+  `len/2 − 512 KiB`, and at `len − 1 MiB`. Above 8 MiB those never overlap, so any file is digested over 3 MiB.
+
+Cost, measured native on `m2m_ernie/ernie.msh` (184,207,351 B): **8.9 ms** `[M2Max]`, i.e. 0.6 % of §9.1
+row 3's 1.5 s parse budget, because only 3 MiB of any file is ever hashed.
+
+This **identifies** a file; it does not authenticate one. A cryptographic digest would mean a new workspace
+dependency (frozen, §12.3) and ~180 MB of SHA-256 on the load path for `ernie.msh`. The algorithm is written out
+rather than delegated to a hasher's default because the string is persisted in a `*.tetravox.json` and has to
+mean the same thing on every platform and in every future build; it uses only `^`, `*` and shifts on u64, so it
+is identical on wasm32 and native — the same portability argument §6.3's determinism rule makes for geometry.
+Two files of different length always differ, because `len` is both a field of the string and the prefix of the
+hashed stream. An edit to a file larger than 8 MiB that touches none of the three windows is **not** detected;
+that is the accepted price of not reading 180 MB twice for a dialog that asks "is this the file you moved?".
+The digest is of the bytes the loader was handed, i.e. **after** `.gz` inflation (§5 rule 4 inflates in the
+worker), so a `.nii` and a `.nii.gz` of one volume share a fingerprint — the dialog is matching the dataset, not
+the container. A mesh's sidecars (`.msh.opt`, `_LUT.txt`) are **not** digested: recolouring a tissue must not
+make the file look like a different one.
+
 ### 4.7 Engine facade
 
-`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. `MockEngine` implements it
+`packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. **Two members were added in
+Phase 2**, each with this section and a `docs/DECISIONS.md` line in its own commit: `nudgeCursor`
+(2026-08-27, E-SCENE, under the single carve-out named in `docs/PHASE2-OWNERSHIP.md`) and
+`labelCentroids` (2026-08-27, the integrator, from A-PROPS's filing — §6.5.2's op had existed since
+Phase 1 with no producer on the facade, so §8's region panel could show neither a region's voxel
+count nor jump to its centroid, and §4.3 forbids the app scanning `VolumeDataset.data` to get them
+itself). §7.5 lists "arrows nudge the cursor" and
+"PgUp/PgDn slice" as two bindings, and the facade had only `stepCursor` — "±1 voxel along the view
+normal" — so all six keys stepped the slice and the in-plane nudge existed nowhere. The app cannot
+supply it: the step is along `sliceBasis(view, radiological).right` / `.up`, which is engine geometry,
+and §8 forbids the UI computing it. `MockEngine` implements it
 with no GL — a *compile-time* proof that the facade is implementable without a context; the behavioural no-GL
 engine the app is developed against is `packages/app`'s `NoGlEngine`, which implements the same interface.
 
@@ -523,6 +627,8 @@ export interface ProbeRow {
   fields?: { name: string; value: number | number[] }[];
 }
 export interface ProbeResult { world: vec3; mni?: vec3; rows: ProbeRow[] }
+
+export interface LabelCentroid { id: number; centroid: vec3; count: number }   // §6.5.2's op, in world RAS
 
 export interface ScreenshotOptions {
   target: 'view' | 'grid'; viewId?: ViewId;
@@ -572,6 +678,7 @@ export interface Engine {
 
   setCursor(world: vec3): void;
   stepCursor(viewId: ViewId, steps: number): void;   // ±1 voxel along the view normal (§7.5)
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void;  // ±1 step IN THE PLANE (§7.5 arrows)
   setLayout(layout: Layout): void;
   setView(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void;
   setRadiological(on: boolean): void;
@@ -579,7 +686,8 @@ export interface Engine {
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
-
+  labelCentroids(layerId: LayerId): Promise<LabelCentroid[]>;      // §6.5.2's op — R5's row count
+                                                                   //   and double-click target
   resetView(viewId: ViewId): void;              // §7.5 `r`: refit to the scene bounds
   cameraPreset(viewId: ViewId, preset: CameraPreset): void;        // §7.5 `1..6`
   setAnnotations(patch: Partial<Annotations>): void;               // §7.5 `c` + the §4.5 block
@@ -750,6 +858,11 @@ impl LabelTable {
 
 pub struct Aabb { pub min: [f32; 3], pub max: [f32; 3] }
 
+/// §4.6 `DatasetRef.fingerprint`: `tvxfp1-<len:16hex>-<hash:16hex>`. Lives here, not in a loader, so every
+/// loader produces the same string by construction. The algorithm is normative and written out in §4.6;
+/// `fingerprint::{TAG, FULL_LIMIT, CHUNK, sample_ranges}` expose its constants for tests.
+pub fn fingerprint(bytes: &[u8]) -> String;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("parse: {0}")]        Parse(String),
@@ -861,6 +974,9 @@ Rules:
   `want_linear` is false when the layer is a label or `interpolation === 'nearest'`.
 * Volumes whose `max(dims) > caps.max_3d` (2048 `[M2Max]`, spec floor 256) fail loudly at load with a downsample
   offer — never a silently incomplete texture at draw time.
+* `read_nifti` **takes ownership of the byte vector and frees it before returning**, so §4.6's `fingerprint` is
+  taken by the caller (`tvx_wasm::volume::load`) over `&bytes` on the line above the call — never afterwards,
+  and never on the UI thread (§5 rule 3).
 
 ### 6.2 `tvx-mesh-io`
 
@@ -955,6 +1071,8 @@ entry points are gone.
   the largest reference file, reaches 15,787,627 `[DATA]`.)
 * Only element types 2 (tri3) and 4 (tet4) are kept in v1; everything else is counted into `skipped`, not an error.
 * `read_msh` **takes ownership of the byte vector and frees it (and any inflate output) before returning.**
+  §4.6's `fingerprint` is therefore taken by the caller (`tvx_wasm::mesh::load`) before the call, over the mesh
+  bytes alone — the `.msh.opt` / `_LUT.txt` sidecars are not part of it.
 * Tag names and colours, in order: `$PhysicalNames` → sibling `<mesh>_LUT.txt` (SimNIBS
   `#No.\tLabel Name:\tR G B A`) → sibling `<mesh>.msh.opt` (`Physical Volume(" GM",2)` + `Mesh.Color.<Ordinal>`)
   → deterministic glasbey-like palette. Rule: **surface tag `1xxx` inherits the colour of volume tag `1xxx − 1000`**.
@@ -966,7 +1084,12 @@ entry points are gone.
 stream, not gzip — use `ZlibDecoder`, not `GzDecoder`.** Honour `Endian` and `ArrayIndexingOrder`
 (Row/ColumnMajorOrder); apply `CoordinateSystemTransformMatrix` when
 `TransformedSpace == NIFTI_XFORM_SCANNER_ANAT`, and record `DataSpace`/`TransformedSpace` in the dataset.
-`.func/.shape/.label.gii` become node `Field`s keyed by `Intent`; `<LabelTable>` becomes a `LabelTable`.
+`.func/.shape/.label.gii` become node `Field`s keyed by `Intent`; `<LabelTable>` becomes a `LabelTable`, and a
+`NIFTI_INTENT_LABEL` array is **remapped to dense 0..N−1 through that table at parse time**, exactly as
+`read_fs_annot` does below and for the same reason — the renderer's label palette is an `N × 2` texture indexed by
+position in `LabelTable.entries`, and a `<LabelTable>` key is an arbitrary sparse integer (the reference fixture's
+are 0/3/7/11). The original key stays in `LabelEntry.id`. A value the table does not name maps to dense 0. A
+`.func`/`.shape` array is a continuous scalar and is never remapped.
 Reference files use `GZipBase64Binary` / `LittleEndian` / `RowMajorOrder`, `DataSpace = NIFTI_XFORM_UNKNOWN`,
 `TransformedSpace = NIFTI_XFORM_SCANNER_ANAT` `[DATA]`.
 
@@ -1079,6 +1202,10 @@ pub struct ProbeHit {
 
 pub struct LabelCentroid { pub id: u32, pub centroid: [f32; 3], pub count: u64 }
 
+/// Glyph origins for a VOLUMETRIC `GlyphSpec` (§7.4). Points, not geometry: no triangles, no normals.
+pub struct Centroids { pub positions: Vec<f32>,   // 3 per origin
+                       pub owner_tet: Vec<u32> }  // 1 per origin: Gmsh element number
+
 // --- load-time (called inside loadMesh, not exported individually — see §6.4)
 pub fn morton_reorder(mesh: &mut Mesh) -> Vec<u32>;                   // returns tet_perm; < 250 ms WASM on ernie
 pub fn build_tet_blocks(mesh: &Mesh, blk: usize /* default 64 */) -> TetBlocks;   // < 500 ms WASM on ernie
@@ -1106,6 +1233,8 @@ pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&Bi
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
 pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
 pub fn label_centroids(vol: &Volume, vol_index: usize) -> Result<Vec<LabelCentroid>>;
+pub fn tet_centroids(mesh: &Mesh, mask: Option<&BitMask>, stride: usize,
+                     tags: Option<&[i32]>) -> Result<Centroids>;
 ```
 
 Rules:
@@ -1152,6 +1281,25 @@ Rules:
 * `isolate` evaluates `label_volume` by sampling the cloned label volume (§5 rule 2) at tet centroids through
   `world_to_voxel` (nearest). The bytes arrive as `mesh_isolate`'s separate `label_volume` argument and are
   reinterpreted per `LabelVolumeCriteria.dtype`; a `dtype`/`dims`/byte-length mismatch is `Error::Parse`.
+* **`tet_centroids` is the origin source for a volumetric `GlyphSpec`** (§7.4). Surface glyphs read
+  `SurfaceBuffers.positions` + `owner_elm` and cut-plane glyphs read `Cut.positions` + `owner_tet`; interior
+  glyphs with no cut plane had neither, and §7.4 forbids new geometry from WASM, so this returns one **point**
+  per tet and nothing else. The centroid is the arithmetic mean of the four node positions (`+` and `÷` only, so
+  it is portable like every other §6.3 output); output is in **Morton order**, which is what makes a strided
+  subsample spatially spread rather than clustered by physical tag — the mean of a 1-in-64 sample of ernie's GM
+  is **0.0156 mm** from the mean of all 1,340,029 of them `[M2Max]`, so the region panel's jump-to-centroid can
+  use it for a mesh tissue tag. `mask` and `tags` filter **first** and `stride` then keeps every `stride`-th
+  survivor, so the count is `ceil(surviving / stride)` and a rare tag still gets glyphs; `stride = 0` is
+  `Error::Parse` and an unused tag is an empty result, not an error. Cost on `ernie.msh` native `[M2Max]`:
+  **39 ms** for all 4,722,625 origins (56 MB), **7.3 ms** at stride 64 (73,792 origins), **12.3 ms** at stride 64
+  restricted to tag 2 (20,938) — one O(N) pass either way, against §9.1 row 7b's "same class as #6".
+* **`locate_point` rejects a candidate by its AABB before evaluating barycentric coordinates.** The locator's
+  cells must be at least as large as the largest tet (that is what makes the 3×3×3 scan exhaustive), so on
+  `ernie.msh` a candidate can be ~60 mm from the probe point — and an f32 barycentric test on a **sliver** tet
+  (6·V ≈ 1e-8 mm³, of which ernie has many) is pure cancellation at that distance: measured 2026-08-27, it
+  returns four positive weights and claims the hit for 2 of 48 sampled tet centroids, answering with a scalp
+  sliver at (49.3, 16.2, −71.9) `[DATA]`. The AABB test is exact — a point inside a tet is inside its AABB — so
+  it can only remove wrong answers.
 * **`locate_point` returns the whole probe, not an index.** The one round trip §8 budgets at ≤ 50 ms gathers the
   tag and every node/element field value at the point; splitting the gather across a second op would double the
   latency and leave the field data on the wrong side of the boundary. `ProbeHit.gmsh_elm` is what the wire
@@ -1172,6 +1320,9 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 // from `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2), and flattening keeps the
 // wasm-bindgen surface free of a shared type. `load_volume` produces volume 0's payload; `volume_frame`
 // produces any other index's. Both run §6.1's `stats` / `label_index` / `gpu_payload` for that index.
+// Both loaders call `tvx_core::fingerprint(&bytes)` **before** handing the vector to the parser, and put the
+// result on `VolumeMeta.fingerprint` / `MeshMeta.fingerprint` (§4.6, §6.5.1). It is the only field of either
+// meta that cannot be recovered from the parsed dataset, because the bytes are gone by then (§5 rule 5).
 #[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, lut_bytes: Option<Vec<u8>>,
                                    float_linear: bool, norm16: bool, max_3d: u32, want_linear: bool,
                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
@@ -1203,6 +1354,8 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 #[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>)
                                     -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_centroids(handle: u32, mask_id: Option<u32>, stride: u32,
+                                      tags: Option<Vec<i32>>) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn free(handle: u32);
 #[wasm_bindgen] pub fn free_mask(handle: u32, mask_id: u32);
 #[wasm_bindgen] pub fn wasm_heap_bytes() -> u32;      // stamped onto every Res (§6.5), backs the §9 memory bar
@@ -1301,7 +1454,7 @@ export interface WorkerError { code: ErrorCode; message: string }
 export type OpName =
   | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
   | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingTets' | 'contours'
-  | 'labelCentroids' | 'free' | 'freeMask';       // 17 ops
+  | 'labelCentroids' | 'meshCentroids' | 'free' | 'freeMask';       // 18 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -1344,6 +1497,7 @@ export interface ProbeHitT {                         // `locate` result; mirrors
 
 export interface VolumeMeta {
   handle: number; name: string;
+  fingerprint: string;                // §4.6 `tvxfp1-<len:16hex>-<hash:16hex>`, digested in the worker
   dims: [number, number, number]; nvols: number;
   affine: Mat4x4; spacing: [number, number, number];
   dtype: 'u8'|'i8'|'u16'|'i16'|'u32'|'i32'|'f32'|'f64'|'rgb24'|'rgba32';
@@ -1368,6 +1522,7 @@ export interface MeshFieldMeta {
 }
 export interface MeshMeta {
   handle: number; name: string;
+  fingerprint: string;                // §4.6, over the mesh bytes alone — sidecars are not digested
   nNodes: number; nTris: number; nTets: number; hasTris: boolean;
   appliedTransform: Mat4x4;           // baked into the node coordinates by the loader; identity when none (§4.3)
   dataSpace?: string;                 // GIfTI CoordinateSystem strings, verbatim (§6.2)
@@ -1488,13 +1643,14 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `buildTopology` | `{ handle: number }` | `{ faces: number; boundaryFaces: number }` | explicit, awaitable, progress-reporting |
 | `cut` | `{ handle: number; planes: PlaneT[] /* ≤6 */; maskId?: number; recycle?: boolean }` | `CutResult` | one `Cut` per plane, each clipped by the others. `recycle: true` ⇒ the worker passes its `CutOut` pool and the result is the `'recycled'` variant; otherwise `'buffers'` (§6.4) |
 | `isolate` | `{ handle: number; criteria: IsolateCriteriaT; labelVolume?: ArrayBuffer }` | `{ maskId: number; visibleTets: number; generation: number }` | client owns `maskId` and must `freeMask`. `labelVolume` is required iff `criteria.labelVolume` is set, is **cloned not transferred** (§5 rule 2), and is the only bulk argument any op takes |
-| `field` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel }` | `{ values: Float32Array; stats: StatsT; n: number; partial: boolean }` | |
-| `elmToNode` | `{ handle: number; direction: 'elmToNode' \| 'nodeToElm'; name: string }` | `{ name: string; values: Float32Array; stats: StatsT }` | both directions of §6.3's pair |
+| `field` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel }` | `{ values: Float32Array; stats: StatsT; n: number; partial: boolean }` | **ordering is part of the contract.** `node` ⇒ one value per INTERNAL node index (what `SurfacePayload.nodeIndex` and `CutPayload.interpNodes` carry). `elm` ⇒ `[tris…, tets…]` in the **file's element order**, so row `i` is the file's `i`-th element and, when `MeshMeta.identityElementNumbers`, its Gmsh number is `i + 1` — which is what makes `ownerElm` / `ownerTet` a usable lookup key. The tet block is **un-permuted** on the way out: §6.3 stores it in Morton order |
+| `elmToNode` | `{ handle: number; direction: 'elmToNode' \| 'nodeToElm'; name: string }` | `{ name: string; values: Float32Array; stats: StatsT }` | both directions of §6.3's pair; `nodeToElm` uses `field`'s element order |
 | `locate` | `{ handle: number; world: [number,number,number] }` | `{ hit: ProbeHitT \| null }` | one round trip: §6.3 `locate_point` returns the whole `ProbeHit`. `elementId` is always a Gmsh element number. Latest-wins on its own key |
 | `marchingCubes` | `{ handle: number; volumeIndex: number; iso: number; smooth: boolean }` | `SurfacePayload` | |
 | `marchingTets` | `{ handle: number; source: FieldSource; name: string; component: ComponentSel; iso: number; maskId?: number }` | `SurfacePayload` | |
-| `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment |
+| `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment. **Stored triangles only.** A tri-less tet mesh (`grey_Thalamus_TI.msh`: 1,340,029 tets, 0 tris `[DATA]`) answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
 | `labelCentroids` | `{ handle: number; volumeIndex: number }` | `{ centroids: { id: number; centroid: [number,number,number]; count: number }[] }` | |
+| `meshCentroids` | `{ handle: number; maskId?: number; stride: number; tags?: number[] }` | `{ positions: Float32Array; ownerTet: Uint32Array }` | glyph origins for a **volumetric** `GlyphSpec` (§7.4): 3 floats and one Gmsh element number per origin, Morton order, no geometry. `maskId`/`tags` filter first, then every `stride`-th survivor; `stride: 0` is `Error::Parse`. Also serves the region panel's jump-to-centroid for a **mesh tissue tag** — the mean of a strided sample is 0.0156 mm off the true one on ernie's GM `[M2Max]` |
 | `free` | `{ handle: number }` | `{}` | the client then calls `worker.terminate()` |
 | `freeMask` | `{ handle: number; maskId: number }` | `{}` | masks are also dropped when the mesh handle is freed |
 
@@ -1502,8 +1658,8 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 `Req<'cut'>` and `Res<'cut'>` are fully typed:
 
 ```ts
-export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; volumeFrame: {…}; /* …all 17… */ }
-export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: VolumeFrameT; /* …all 17… */ }
+export interface OpArgs   { loadVolume: {…}; loadMesh: {…}; volumeFrame: {…}; /* …all 18… */ }
+export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: VolumeFrameT; /* …all 18… */ }
 ```
 
 **Op → wasm export (§6.4), one-to-one and exhaustive:**
@@ -1512,7 +1668,8 @@ export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: Vol
 `buildTopology`→`mesh_build_topology` · `cut`→`mesh_cut` · `isolate`→`mesh_isolate` · `field`→`mesh_field` ·
 `elmToNode`→`mesh_convert_field` · `locate`→`mesh_locate` · `marchingCubes`→`volume_marching_cubes` ·
 `marchingTets`→`mesh_marching_tets` · `contours`→`mesh_contours` ·
-`labelCentroids`→`volume_label_centroids` · `free`→`free` · `freeMask`→`free_mask`.
+`labelCentroids`→`volume_label_centroids` · `meshCentroids`→`mesh_centroids` · `free`→`free` ·
+`freeMask`→`free_mask`.
 `wasm_heap_bytes()` is the only export without an op; it is read after every call and stamped onto `Res`.
 This table and the `OpName` order above are the two things `packages/protocol/src/index.ts` also carries as
 runtime data — `OP_TO_EXPORT` and `OP_NAMES` (§6.5 preamble). They are declarations, not logic, and they are
@@ -1697,6 +1854,20 @@ Rules:
   full-quality re-render.
   **Forbidden in the fallback set: any knob that changes displayed *values* rather than displayed *resolution*.**
   `interpolation` (nearest vs linear) is a reading, not a rendering setting, and must never be degraded.
+  **Which knobs are live, as of Phase 2** — because a level nothing reads is a status bar announcing a degradation
+  that never happened, which inverts the rule below rather than satisfying it:
+
+  | Knob | State | Where |
+  |---|---|---|
+  | `dprScale` | live, and 1 at **every** level, so it never changes anything | the host owns `canvas.width/height` (§8); no level asks for less |
+  | `edges` | **live** — `TVX_EDGES` is dropped for `MeshLayer.edges.surface` / `.caps` | `render/passes/mesh.ts`'s `qualityEdges` |
+  | `msaa` | Phase 3 | `antialias` is a *context* attribute (`gl/context.ts`); changing it per frame needs an MSAA resolve target, which is §7.0.7's accumulation buffer |
+  | `capDecimation` | Phase 3 | needs `plane_cut` to emit fewer cap triangles; §9 row 11's lever, measured in `docs/benchmarks/phase2-mesh.md` |
+
+  A level may **never** change `MeshLayer.label` emphasis (`TVX_EMPHASIS`): which region is selected is a reading in
+  exactly the sense `interpolation` is. Nor may it change the *geometry variant* a layer requested — a drag that
+  swapped the de-indexed surface for the indexed one would re-upload mid-gesture and re-shade every fragment, which
+  is a different picture rather than a cheaper one.
 * **Automatic degradation:** when the median full-quality frame over the last 30 frames exceeds the budget, drop
   one `QualityLevel` (DPR → 1, then edges/wireframe off, then decimate tag surfaces) and **surface it in the
   status bar**. Never degrade silently.
@@ -1900,6 +2071,22 @@ declare `invariant gl_Position;`.
 * **Glyphs** (`GlyphSpec`): one instanced draw of a shared cone+shaft VAO with per-instance origin/direction/
   magnitude, in the opaque pass. No new geometry from WASM. Origins restricted to visible tags and, when a cut
   plane is active and `clipToCutPlane`, to elements the plane intersects.
+  **`GlyphSpec.origins` names which of the two origin tables the instance reads, and it is a compile-time
+  variant (`TVX_GLYPH_VOLUME` ∈ 0..1), never a uniform** — the two tables are indexed differently, so a runtime
+  branch would cost a texture fetch per instance to decide something constant for the draw.
+  * `'surface'` (the default, and what an absent field means) reads the layer's de-indexed `SurfacePayload`:
+    instance *g* takes triangle `first + g·stride`, averages its three vertices, and reads `ownerElm` for the
+    field row. The **restriction to visible tags is per-instance**, off the same tag-LUT alpha R5's hide edits,
+    so a hidden tissue's arrows vanish with its surface.
+  * `'volume'` reads §6.5.2's `meshCentroids`: one origin per **tet**, so the interior of a mesh gets glyphs at
+    all — the case an `E` field over all 5,900,498 elements of `ernie_TDCS_1_scalar.msh` invites and no surface
+    can serve. Points, not geometry, so "no new geometry from WASM" holds. Here the **restriction to visible
+    tags is per-request**: the op's `tags` argument carries the visible **tet** tags (tri tags are excluded —
+    `tags` is an allow-list over tet tags, so a tri tag is dead weight at best and, where a mesh numbers a tri
+    tag the same as a tet tag, re-admits a tissue the user hid), and `subsample` becomes the op's own `stride`,
+    which is what keeps a 4.7 M-element mesh from shipping 4.7 M origins over the wire. Every tet tag hidden is
+    an **empty request the engine does not make**: an absent `tags` means "no filter" to the op, so the draw is
+    skipped instead.
 
 ### 7.5 Views & interaction
 
@@ -1912,15 +2099,39 @@ would be a second source of truth). 3D camera: orbit (arcball) / pan / dolly, `f
 **Slice stepping, defined once so it needs no rewrite for oblique:**
 `step_mm = max over voxel axes a of |dot(normal, A[:,a])|`, where `A` is the 3×3 of the topmost visible volume
 layer's affine (this reduces to voxel spacing for canonical views on an axis-aligned volume). Fall back to
-`min(spacing)` of any volume, else `bboxDiagonal / 256` for mesh-only scenes. Wheel / PgUp / PgDn / arrows do
+`min(spacing)` of any volume, else **1 mm (configurable)** for mesh-only scenes. Wheel / PgUp / PgDn / arrows do
 `cursor += normal · step · k`, then **snap the cursor's along-normal component to the nearest voxel plane** of that
-layer to stop drift over repeated steps.
+layer to stop drift over repeated steps. Stepping never requires a volume: with a mesh alone the scene bounds come
+from the meshes and the wheel sweeps the mesh's cross-section (R4).
+
+*(The mesh-only fallback was `bboxDiagonal / 256` until R4, 2026-08-27. It made one wheel notch mean a different
+distance per file — 1.32 mm on `ernie.msh`, 0.53 mm on `lh.central.gii` — for a gesture whose whole purpose is to
+sweep at a predictable rate.)*
+
+**The arrows and PgUp/PgDn are two different steps, and the snap is per direction** (P2-09, 2026-08-27). PgUp /
+PgDn and the wheel step along the plane **normal**, as above. The **arrows nudge the cursor in the plane**:
+`cursor += right · step_right · dx + up · step_up · dy`, where `right` / `up` are
+`sliceBasis(view, radiological)` — so pressing → moves the crosshair toward screen-right in either convention, and
+one press lands exactly where a one-`step_mm` drag to the right lands. Each axis takes `step_mm` computed for its
+own direction by the rule above, and each is snapped onto the voxel grid **along that direction alone**, never by
+rounding all three voxel indices: rounding drags the cursor sideways to the nearest voxel centre, which is a
+movement the user did not ask for. This is `Engine.nudgeCursor` (§4.7); it is a facade member because the basis is
+engine geometry and §8 forbids the app deriving it.
 
 Input (Freeview-like):
 * **2D** — left-click/drag sets the cursor; wheel = slice ±1 (⌘/Ctrl+wheel = zoom); right-drag = window/level on
   the **active** layer, falling back to the topmost non-label volume layer; middle/space-drag = pan; arrows nudge
   the cursor; PgUp/PgDn slice.
 * **3D** — left orbit, right pan, wheel dolly, double-click = `setCursorFromPick`.
+* **`Shift`+drag is the active layer's opacity in every pane** — it is a layer gesture, not a camera one.
+* **Left-drag never pans** (R3). Pan is middle-drag, `space`+left-drag, or a two-finger trackpad drag — which
+  arrives as a `wheel` event with a non-zero `deltaX`, the one honest discriminator between it and a mouse wheel.
+* **Zoom is per pane, about the pointer** (R2): `⌘/Ctrl+wheel` — and a trackpad pinch, which Chromium delivers as
+  a `wheel` with `ctrlKey: true` — hold the world point under the pointer fixed; `+` / `-` do the same about the
+  pane centre; `r`, and `Alt`+double-click on a 2D pane, reset to fit. `mmPerPx` is clamped to **[0.05, 20]**, one
+  notch is a factor of 1.2, and the keys act on the pane **under the pointer**, which is what makes them per-pane.
+* The pane a drag belongs to is **latched at `pointerdown`** and held by a pointer capture, so a drag that leaves
+  the pane — or the window — keeps driving the pane it started in.
 * Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic,
   `[`/`]` cycle the active layer, `v` toggle the active layer's visibility, `Shift+drag` its opacity,
   `Ctrl+↑/↓` reorder it, `,`/`.` step the active volume layer's 4D index (each step is a `volumeFrame` op —
@@ -2090,16 +2301,28 @@ every row it headed.
 | — `ernie_TDCS_1_scalar.msh` (420.2 MB) | ≤ 800 MB | 664 MB (`Mesh` 149.1 + `E` 70.8 + `magnE` 23.6) → 1.58 × |
 | — `flex_*_TI.msh` (396.6 MB) | ≤ 760 MB | same class as the row above |
 | — `ernie_seeg.msh` (492.1 MB) / `ernie-seeg.msh` (496.6 MB) | ≤ 1.0 GB | 893 MB / 901 MB → 1.81 × |
-| **`buildTopology` path**, per dataset worker | **< 3.2 × file size** | every reference mesh lands at 1.6–3.2 × |
-| — `ernie.msh` | ≤ 600 MB | 566 MB = `Mesh` 149.1 + transient 226.7 + `TetTopology` 190.2 → 3.07 × |
-| — `ernie_TDCS_1_scalar.msh` | ≤ 720 MB | 661 MB → 1.57 × (the fields dominate, not the topology) |
-| — `ernie_seeg.msh` / `ernie-seeg.msh` | ≤ **1.6 GB** | 1,548 MB / 1,564 MB → 3.15 × |
+| **`buildTopology` path**, per dataset worker | **< 3.2 × file size** *live*; see the resident rule below | every reference mesh lands at 1.6–3.2 × |
+| — `ernie.msh` | ≤ 600 MB live · ≤ 960 MB resident | 566 MB = `Mesh` 149.1 + transient 226.7 + `TetTopology` 190.2 → 3.07 ×; **846.1 MB resident** `[M2Max]` |
+| — `ernie_TDCS_1_scalar.msh` | ≤ 720 MB live | 661 MB → 1.57 × (the fields dominate, not the topology) |
+| — `ernie_seeg.msh` / `ernie-seeg.msh` | ≤ **1.6 GB** live · ≤ **2.1 GB** resident | 1,548 MB / 1,564 MB → 3.15 ×; **1,893.1 MB resident** `[M2Max]` |
+
+**Live bytes and resident bytes are two different numbers, and `wasm_heap_bytes()` reports the second.** The
+`[MODEL]` column above is *live* bytes — what the arena holds at its peak — and it is accurate: measured on
+`ernie_seeg.msh`, the growth over the load path is 981 MB against a 1,096 MB model of `TetTopology` (26,167,586
+faces × 20 B = 499 MB) plus the counting-sort transient (4 × 13,033,527 × 12 B = 597 MB) `[M2Max]`. What the model
+cannot include is the rule two paragraphs above: **linear memory grows and never shrinks**, so when the topology
+path allocates, the load path's freed input block — 492 MB for `ernie_seeg.msh`, 184 MB for `ernie.msh` — is still
+mapped, and dlmalloc reuses only part of it. The observable peak is therefore the load path's resident total plus
+the topology arena, not the larger of the two: 912.4 → 1,893.1 MB for `ernie_seeg.msh` and 341.8 → 846.1 MB for
+`ernie.msh` `[M2Max]`, both measured in `packages/wasm/e2e/realdata.spec.ts`. Both stay far inside the 4,032 MiB
+ceiling (47 % and 21 %), which is what the bar is ultimately about; the resident columns above are the numbers a
+regression would move, and they are the ones asserted.
 | Renderer JS heap (ernie scene) | ≤ 400 MB; **no single ArrayBuffer > 1 GB** | |
 | GPU (ernie scene) | ≤ 500 MB | |
 
-The SEEG worst case is therefore **≈ 900 MB on the load path and ≈ 1.56 GB once the user clips or isolates** —
-comfortably inside the 4032 MiB ceiling, but *not* inside a flat 1.5 GB bar, which is why the bar is scoped by
-path. `buildTopology` is not refused on any reference file. What keeps 1.56 GB from being the 2.8 GB the v1
+The SEEG worst case is therefore **≈ 900 MB on the load path and ≈ 1.9 GB resident once the user clips or
+isolates** (912.4 → 1,893.1 MB measured `[M2Max]`; 1.56 GB of that is live) — comfortably inside the 4032 MiB
+ceiling, but *not* inside a flat 1.5 GB bar, which is why the bar is scoped by path. `buildTopology` is not refused on any reference file. What keeps 1.56 GB from being the 2.8 GB the v1
 review measured is exactly the three v2 mitigations: lazy topology, counting-sort face extraction (transient
 1,251 → 632 MB), and `TetTopology` without `tet_faces` (730 → 528 MB).
 

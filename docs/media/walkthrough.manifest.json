@@ -1,0 +1,155 @@
+{
+  "recordedAt": "2026-08-28T02:25:45.053Z",
+  "datasets": [
+    "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+    "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/ernie.msh"
+  ],
+  "realData": true,
+  "frames": 24,
+  "steps": [
+    {
+      "index": 0,
+      "name": "empty",
+      "caption": "Tetravox opens on an empty scene: layers left, views centre, info right.",
+      "file": "frame-000.png"
+    },
+    {
+      "index": 1,
+      "name": "loading",
+      "caption": "A load card shows the phase, the percentage and the elapsed time.",
+      "file": "frame-001.png"
+    },
+    {
+      "index": 2,
+      "name": "loaded",
+      "caption": "T1 and the head mesh, in the 2×2 layout.",
+      "file": "frame-002.png"
+    },
+    {
+      "index": 3,
+      "name": "loaded",
+      "caption": "T1 and the head mesh, in the 2×2 layout.",
+      "file": "frame-003.png"
+    },
+    {
+      "index": 4,
+      "name": "layout",
+      "caption": "Layouts are one click: 2×2, 1×3, 1×1, 3D only.",
+      "file": "frame-004.png"
+    },
+    {
+      "index": 5,
+      "name": "radiological",
+      "caption": "RAD/NEU mirrors the in-plane right axis only — never the data.",
+      "file": "frame-005.png"
+    },
+    {
+      "index": 6,
+      "name": "probe",
+      "caption": "The info panel answers per layer: voxel, value, element, tag, fields.",
+      "file": "frame-006.png"
+    },
+    {
+      "index": 7,
+      "name": "probe",
+      "caption": "The info panel answers per layer: voxel, value, element, tag, fields.",
+      "file": "frame-007.png"
+    },
+    {
+      "index": 8,
+      "name": "header",
+      "caption": "The header panel is the file’s own header, not a summary of it.",
+      "file": "frame-008.png"
+    },
+    {
+      "index": 9,
+      "name": "header",
+      "caption": "The header panel is the file’s own header, not a summary of it.",
+      "file": "frame-009.png"
+    },
+    {
+      "index": 10,
+      "name": "keyboard",
+      "caption": "Every shortcut, generated from the key map so it cannot go stale.",
+      "file": "frame-010.png"
+    },
+    {
+      "index": 11,
+      "name": "keyboard",
+      "caption": "Every shortcut, generated from the key map so it cannot go stale.",
+      "file": "frame-011.png"
+    },
+    {
+      "index": 12,
+      "name": "orbit",
+      "caption": "Drag to orbit the 3D view; the crosshair follows.",
+      "file": "frame-012.png"
+    },
+    {
+      "index": 13,
+      "name": "orbit",
+      "caption": "Drag to orbit the 3D view; the crosshair follows.",
+      "file": "frame-013.png"
+    },
+    {
+      "index": 14,
+      "name": "cut",
+      "caption": "A clip plane through the head, with exact caps.",
+      "file": "frame-014.png"
+    },
+    {
+      "index": 15,
+      "name": "cut",
+      "caption": "A clip plane through the head, with exact caps.",
+      "file": "frame-015.png"
+    },
+    {
+      "index": 16,
+      "name": "isolate",
+      "caption": "Isolate one tissue and everything else steps back.",
+      "file": "frame-016.png"
+    },
+    {
+      "index": 17,
+      "name": "isolate",
+      "caption": "Isolate one tissue and everything else steps back.",
+      "file": "frame-017.png"
+    },
+    {
+      "index": 18,
+      "name": "screenshot",
+      "caption": "Publication screenshots: size, DPI in the PNG, chrome on or off.",
+      "file": "frame-018.png"
+    },
+    {
+      "index": 19,
+      "name": "screenshot",
+      "caption": "Publication screenshots: size, DPI in the PNG, chrome on or off.",
+      "file": "frame-019.png"
+    },
+    {
+      "index": 20,
+      "name": "screenshot",
+      "caption": "Publication screenshots: size, DPI in the PNG, chrome on or off.",
+      "file": "frame-020.png"
+    },
+    {
+      "index": 21,
+      "name": "save",
+      "caption": "Save the scene: paths relative to the file, so it travels with the data.",
+      "file": "frame-021.png"
+    },
+    {
+      "index": 22,
+      "name": "save",
+      "caption": "Save the scene: paths relative to the file, so it travels with the data.",
+      "file": "frame-022.png"
+    },
+    {
+      "index": 23,
+      "name": "save",
+      "caption": "Save the scene: paths relative to the file, so it travels with the data.",
+      "file": "frame-023.png"
+    }
+  ]
+}

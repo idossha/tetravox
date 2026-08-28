@@ -167,6 +167,22 @@ export function sampleColormap(name: ColormapName, t: number): [number, number, 
  * `heat` (§4.2: min/mid/max, `truncate`, `inverse`) is a two-segment ramp: `min..mid` fades in over
  * the lower half of the colormap and `mid..max` covers the upper half, which is what makes a
  * FreeSurfer-style heat overlay reach full saturation at `mid` rather than at `max`.
+ *
+ * **The two flags, defined once (`docs/DECISIONS.md`, 2026-08-27).** §4.2 gives `heat` three
+ * independent knobs beyond the ramp — `negative`, `inverse`, `truncate` — and FreeSurfer's own
+ * meanings for the last two ("hide the negative tail", "flip the data's sign") both collapse into
+ * `negative`, which would leave two fields with no job. So each is given the one job `negative` does
+ * not cover:
+ *
+ * * **`inverse` reverses the colour ramp**: position `t` becomes `1 − t`. Cold at `max`, hot at
+ *   `min`. It is a property of the colours, not of the data, so it applies to both branches and to
+ *   the negative colormap.
+ * * **`truncate` clips instead of saturating**: `|v| > max` is **not drawn**, where the default
+ *   (`truncate: false`) keeps the `max` colour. This is exactly the pair Gmsh spells
+ *   `View.SaturateValues` — 1 saturates to the custom range, 0 clips outside it — which §4.3's
+ *   `MshOptions.views[].saturateValues` already parses, so the two sidecars agree on one model.
+ *   The clip is a *discard*, which the bake cannot express (a LUT is only defined over its own
+ *   range), so it travels beside the LUT as {@link BakedLut.clipMax} and the shader discards on it.
  */
 export function scalePosition(scale: Scale, v: number): number {
   if (scale.kind === 'linear') {
@@ -179,7 +195,9 @@ export function scalePosition(scale: Scale, v: number): number {
   if (a <= min) t = 0;
   else if (a <= mid) t = mid > min ? (0.5 * (a - min)) / (mid - min) : 0.5;
   else if (a <= max) t = max > mid ? 0.5 + (0.5 * (a - mid)) / (max - mid) : 1;
-  else t = scale.truncate ? 1 : 1;
+  // Above `max` the ramp is already at its end. Whether the fragment is *drawn* is
+  // `truncate`'s business, and it is a discard, not a colour (see the header).
+  else t = 1;
   return inverse ? 1 - t : t;
 }
 
@@ -192,6 +210,37 @@ export interface BakedLut {
   hi: number;
   /** True for a 512-wide signed LUT (`negative: 'separate'`). */
   signed: boolean;
+  /**
+   * `|v| > clipMax` is discarded — `heat` with `truncate: true`. `Infinity` when nothing is clipped.
+   *
+   * A LUT cannot carry this: it is defined only over `[lo, hi]`, and a sampler clamps rather than
+   * discarding. So it rides beside the LUT and the shader compares against it (`uClipMax`).
+   */
+  clipMax: number;
+}
+
+/**
+ * The texel a value lands in, given a baked LUT — the **shader's** arithmetic, on the CPU.
+ *
+ * `texture(uLut, vec2(clamp(t, 0, 1), 0.5))` with `NEAREST` on a `width × 1` texture selects texel
+ * `min(width − 1, floor(t · width))`. Exported because the colour bar has to place its ticks on the
+ * same grid the slice is painted from, and because §11's analytic tests assert `LUT(value)`.
+ */
+export function lutTexelOf(baked: Pick<BakedLut, 'width' | 'lo' | 'hi'>, v: number): number {
+  const t = (v - baked.lo) / Math.max(1e-20, baked.hi - baked.lo);
+  const c = t <= 0 ? 0 : t >= 1 ? 1 : t;
+  return Math.min(baked.width - 1, Math.floor(c * baked.width));
+}
+
+/** The RGBA a baked LUT paints for `v`, before layer opacity — the CPU side of §11's assertions. */
+export function lutSample(baked: BakedLut, v: number): [number, number, number, number] {
+  const i = lutTexelOf(baked, v) * 4;
+  return [
+    baked.rgba[i] ?? 0,
+    baked.rgba[i + 1] ?? 0,
+    baked.rgba[i + 2] ?? 0,
+    baked.rgba[i + 3] ?? 0,
+  ];
 }
 
 /**
@@ -199,6 +248,13 @@ export interface BakedLut {
  *
  * The shader's job is then exactly `texture(lut, vec2((v - lo) / (hi - lo), 0.5))` — one divide and
  * one fetch, with every branch of §4.2's display model already resolved on the CPU.
+ *
+ * **Texel centres, not endpoints.** Texel `i` holds the colour of the value at `(i + 0.5) / width`
+ * of the range, because that is the value a `NEAREST` fetch at that texel actually represents:
+ * sampling at `t` selects `floor(t · width)`, whose centre is `(i + 0.5) / width`. Baking at
+ * `i / (width − 1)` instead — as Phase 1 did — offsets every texel by up to half a texel, which is
+ * invisible in a picture and makes an analytic assertion argue with the driver about rounding
+ * instead of about the rendering. The largest displayed change is one 8-bit level.
  */
 export function bakeScale(
   scale: Scale,
@@ -213,7 +269,7 @@ export function bakeScale(
   const hi = scale.kind === 'linear' ? scale.hi : scale.max;
 
   for (let i = 0; i < width; i += 1) {
-    const u = i / (width - 1);
+    const u = (i + 0.5) / width;
     const v = lo + u * (hi - lo);
     let rgb: [number, number, number];
     let alpha = 255;
@@ -237,7 +293,9 @@ export function bakeScale(
       } else {
         rgb = sampleColormap(colormap, t);
       }
-      // Below `min` a heat scale contributes nothing — that is what makes it an overlay.
+      // Below `min` a heat scale contributes nothing — that is what makes it an overlay. This is
+      // also §7.6's "dead band around zero" for the 512-wide `separate` LUT; it is the same rule for
+      // all three negative modes, so there is one place it can be wrong.
       if (Math.abs(v) < scale.min) alpha = 0;
     }
     rgba[i * 4] = rgb[0];
@@ -245,5 +303,6 @@ export function bakeScale(
     rgba[i * 4 + 2] = rgb[2];
     rgba[i * 4 + 3] = alpha;
   }
-  return { rgba, width: width as 256 | 512, lo, hi, signed: separate };
+  const clipMax = scale.kind === 'heat' && scale.truncate ? scale.max : Number.POSITIVE_INFINITY;
+  return { rgba, width: width as 256 | 512, lo, hi, signed: separate, clipMax };
 }

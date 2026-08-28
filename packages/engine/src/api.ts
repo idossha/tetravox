@@ -87,6 +87,20 @@ export interface ProbeResult {
   rows: ProbeRow[];
 }
 
+/**
+ * One row of the `labelCentroids` op (§6.5.2), as §8's region panel reads it.
+ *
+ * `count` is the region's voxel count and `centroid` its centre of mass in world RAS — R5's row
+ * count and its double-click target. Both are computed in the dataset's worker: §4.3 keeps
+ * `VolumeDataset.data` on the UI thread "for probes only", and a scan of 256×256×208 voxels is not
+ * a probe.
+ */
+export interface LabelCentroid {
+  id: number;
+  centroid: vec3;
+  count: number;
+}
+
 export interface ScreenshotOptions {
   target: 'view' | 'grid';
   viewId?: ViewId;
@@ -157,6 +171,16 @@ export interface Engine {
   setCursor(world: vec3): void;
   /** ±1 voxel along the view normal (§7.5). */
   stepCursor(viewId: ViewId, steps: number): void;
+  /**
+   * §7.5's "arrows nudge the cursor": ±1 step **in the view plane**, along that pane's `right` and
+   * `up`, radiological flag included (§4.7 / §7.5, added 2026-08-27 — see `docs/DECISIONS.md`).
+   *
+   * Distinct from {@link Engine.stepCursor}, which steps along the plane **normal** (PgUp / PgDn and
+   * the wheel). §7.5 lists the two bindings separately; giving both to `stepCursor` made all four
+   * arrows change the slice. The app may not compute the basis itself (§8: no logic in React), so
+   * the in-plane step has to be an engine member.
+   */
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void;
   setLayout(layout: Layout): void;
   setView(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void;
   setRadiological(on: boolean): void;
@@ -164,6 +188,20 @@ export interface Engine {
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
+  /**
+   * §8's region panel: every label of a label-volume layer, with its voxel count and world centroid
+   * (§4.7 / §6.5.2's `labelCentroids`, added 2026-08-27 — see `docs/DECISIONS.md`).
+   *
+   * R5 asks each row for a count and makes a double-click jump to the region's centroid. The op has
+   * existed since Phase 1 and had no producer on this facade, so the panel could only render `—`.
+   * It is a member rather than something the app computes because §4.3 forbids the app from
+   * scanning `VolumeDataset.data` and §8 forbids the logic being in React either way.
+   *
+   * Resolves to `[]` for a layer that is not a label volume, or whose dataset is gone. The result is
+   * cached per `(dataset, volumeIndex)`: the op costs one pass over the volume and a label map does
+   * not change under a layer.
+   */
+  labelCentroids(layerId: LayerId): Promise<LabelCentroid[]>;
 
   /** §7.5 `r`: refit a view to the scene bounds. Engine maths, not the embedder's (§8). */
   resetView(viewId: ViewId): void;
@@ -261,6 +299,12 @@ export class MockEngine implements Engine {
     void steps;
     throw new Error('phase 1');
   }
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void {
+    void viewId;
+    void dx;
+    void dy;
+    throw new Error('phase 1');
+  }
   setLayout(layout: Layout): void {
     void layout;
     throw new Error('phase 1');
@@ -289,6 +333,10 @@ export class MockEngine implements Engine {
   }
   probe(world: vec3): ProbeResult {
     void world;
+    throw new Error('phase 1');
+  }
+  labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {
+    void layerId;
     throw new Error('phase 1');
   }
 

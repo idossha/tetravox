@@ -9,6 +9,9 @@
  *    back-to-front by the depth of the sheet that phase draws.
  * 3. **Overlay** — crosshair, gizmo, contours, glyph labels, annotations, orientation letters,
  *    corner info, RAD/NEU badge, colour bars, scale bar. **All clip distances disabled.**
+ *    E-DERIVED's `derived` pass runs between 2 and 3 and carries the items §7.2 puts in pass 1 that
+ *    a mesh only implies — `fillIn2D`, glyphs, isosurfaces, points — plus the contour lines pass 3
+ *    names, which must be under the crosshair (R4).
  * 4. **Pick** — on demand, §7.2.3. Not a frame pass: it renders to its own FBO and returns a value,
  *    so it implements {@link Pass} without {@link FramePass}.
  *
@@ -16,11 +19,13 @@
  * its buffers and its GL state. Nothing outside a pass calls `gl.draw*`.
  */
 
+import type { DerivedStore } from '../../derived/store';
 import type { GpuStore } from '../gpu';
 import type { DrawItem, LayerRuntime, PickItem } from '../../layers/runtime';
 import { pickableIn } from '../../layers/runtime';
 import type { LayerId, mat4, Scene, vec3, View, ViewId } from '../../scene/types';
 import type { ViewportRect } from '../../view/layout';
+import type { GizmoSpec } from '../../overlay/gizmo';
 
 /** Everything a frame needs that is not per-pane. Assembled once per frame by the engine. */
 export interface DrawInput {
@@ -36,6 +41,54 @@ export interface DrawInput {
   uiScale: number;
   /** Chrome is skipped entirely when `annotations` says so; the badge is never optional (§8). */
   showChrome: boolean;
+  /**
+   * The cut-plane gizmo to draw in the 3D pane, or `null` — §7.5's oblique affordances (appended by
+   * E-SCENE; shared-file rule: additive only).
+   *
+   * It lives here rather than in `Scene` because §4.5 is frozen **and** because a gizmo is transient
+   * UI state, not scene state: which plane is being manipulated and which handle is hot are things a
+   * pointer knows for the length of a drag, and a saved `ViewSpec` should never carry them.
+   */
+  gizmo?: GizmoSpec | null;
+  /**
+   * The `mmPerPx` each 2D pane was last **fitted** at, for R2's corner `×zoom` readout (appended by
+   * E-SCENE; shared-file rule: additive only).
+   *
+   * Remembered rather than recomputed per frame, and this is the whole difference between a readout
+   * that means something and one that does not: recomputing the fit for the pane's *current* size
+   * makes every pane claim to be zoomed the moment the layout changes, though the user did nothing.
+   * "Zoom" is measured against the fit the user last asked for (`resetView`, or the auto-fit on the
+   * first dataset), which is what `r` returns them to.
+   */
+  viewFit?: ReadonlyMap<ViewId, number>;
+  /**
+   * `caps.clipDistance` — whether `WEBGL_clip_cull_distance` was **requested and granted** (§7.1).
+   *
+   * A pass reads it here rather than off the engine's `Capabilities` so that `EngineOptions.forceCaps`
+   * (which may only ever *remove* a capability) is already applied. Absent means the `discard` clip
+   * path, which is the safe direction: `gl.enable(0x3000)` on a context without the extension is an
+   * `INVALID_ENUM`.
+   */
+  clipDistance?: boolean;
+  /**
+   * §7.4 / §11's clip-path axis: force the `vec4`-uniform + `discard` fallback even where the
+   * hardware path exists, so **both** paths run under the same goldens.
+   */
+  forceDiscardClip?: boolean;
+  /**
+   * What the **derived** pass needs and no other pass does (E-DERIVED): the GPU resources it draws
+   * from and the cut source behind them.
+   *
+   * Optional because a `DrawInput` is also assembled by tests and by the no-GL engine, and a pass
+   * that has nothing to draw from must be a no-op rather than a crash — the same shape as
+   * `activeViewId: null`.
+   */
+  derived?: DerivedInput;
+}
+
+/** The derived pass's half of a frame. See `src/derived/store.ts`. */
+export interface DerivedInput {
+  store: DerivedStore;
 }
 
 /** One pane, mid-frame. */
@@ -50,7 +103,7 @@ export interface PassContext {
   input: DrawInput;
 }
 
-export type PassName = 'slice' | 'mesh' | 'overlay' | 'pick';
+export type PassName = 'slice' | 'mesh' | 'overlay' | 'pick' | 'derived';
 
 export interface Pass {
   readonly name: PassName;

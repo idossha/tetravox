@@ -21,6 +21,7 @@
 
 import type { Capabilities } from '../gl/caps';
 import { GL_STATE, GlState } from '../gl/state';
+import { DerivedPass } from './passes/derived';
 import { MeshPass } from './passes/mesh';
 import { OverlayPass } from './passes/overlay';
 import { PickPass } from './passes/pick';
@@ -40,6 +41,13 @@ export class Renderer {
   readonly #state: GlState;
   readonly #slice: SlicePass;
   readonly #mesh: MeshPass;
+  /**
+   * E-DERIVED's pass. §7.2 puts `fillIn2D`, points and isosurfaces in pass 1 and contours in pass 3,
+   * so it runs **after** `mesh` and **before** `overlay`: the mesh fill sits over the base volume and
+   * under the crosshair (R4). Appending it at the end of the sequence would draw it over the chrome,
+   * which §7.2 forbids. No existing entry moves.
+   */
+  readonly #derived: DerivedPass;
   readonly #overlay: OverlayPass;
   readonly #pick: PickPass;
 
@@ -49,6 +57,7 @@ export class Renderer {
     this.#state = new GlState(gl);
     this.#slice = new SlicePass(gl, this.#state);
     this.#mesh = new MeshPass(gl, this.#state);
+    this.#derived = new DerivedPass(gl, this.#state);
     this.#overlay = new OverlayPass(gl, this.#state);
     this.#pick = new PickPass(gl, this.#state);
   }
@@ -87,6 +96,7 @@ export class Renderer {
     // §7.2's order. Each pass is a no-op in the pane kind it does not apply to.
     this.#slice.run(ctx);
     this.#mesh.run(ctx);
+    this.#derived.run(ctx);
     this.#overlay.run(ctx);
 
     gl.disable(gl.SCISSOR_TEST);
@@ -136,6 +146,7 @@ export class Renderer {
   dispose(): void {
     this.#slice.dispose();
     this.#mesh.dispose();
+    this.#derived.dispose();
     this.#overlay.dispose();
     this.#pick.dispose();
   }

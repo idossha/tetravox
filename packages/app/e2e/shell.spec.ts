@@ -325,7 +325,9 @@ test.describe('the §8 shell', () => {
   test('the layout switcher and the radiological toggle (§8 toolbar)', async () => {
     await page.click('[data-testid="layout-1x3"]');
     await expect(page.locator('[data-testid^="view-cell-"]')).toHaveCount(3);
-    expect((await ui(page)).cells).toEqual(['sagittal', 'coronal', 'axial']);
+    // The engine's own boot order (`scene/defaults.ts`), which `lib/layout.ts` now follows so
+    // that rebuilding a layout cannot renumber the panes the engine already drew.
+    expect((await ui(page)).cells).toEqual(['axial', 'coronal', 'sagittal']);
     await page.click('[data-testid="layout-2x2"]');
     await expect(page.locator('[data-testid^="view-cell-"]')).toHaveCount(4);
 
@@ -348,7 +350,8 @@ test.describe('the §8 shell', () => {
       'true'
     );
     await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.25);
-    await expect(page.locator('[data-testid="view-cell-sagittal"]')).toHaveAttribute(
+    // Top-left of a 2×2 is cell 0, and the cells are the engine's own order — axial first.
+    await expect(page.locator('[data-testid="view-cell-axial"]')).toHaveAttribute(
       'data-active',
       'true'
     );

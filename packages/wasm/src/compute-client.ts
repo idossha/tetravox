@@ -208,7 +208,7 @@ export class ComputeClient {
   }
 
   // -------------------------------------------------------------------------------------------
-  // The 17 ops (§6.5.2), one typed method each. Every one is `call` with the op name filled in.
+  // The 18 ops (§6.5.2), one typed method each. Every one is `call` with the op name filled in.
   // -------------------------------------------------------------------------------------------
 
   loadVolume(key: string, a: OpArgs['loadVolume']): Promise<OpResult['loadVolume']> {
@@ -255,6 +255,9 @@ export class ComputeClient {
   }
   labelCentroids(key: string, a: OpArgs['labelCentroids']): Promise<OpResult['labelCentroids']> {
     return this.call(key, 'labelCentroids', a);
+  }
+  meshCentroids(key: string, a: OpArgs['meshCentroids']): Promise<OpResult['meshCentroids']> {
+    return this.call(key, 'meshCentroids', a);
   }
   free(key: string, a: OpArgs['free']): Promise<OpResult['free']> {
     return this.call(key, 'free', a);

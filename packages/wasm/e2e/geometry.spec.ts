@@ -80,6 +80,7 @@ test('while tvx-geom is a stub, every geometry op says so and the module survive
       'contours',
       () => call(page, 'contours', { handle, plane: { normal: [0, 0, 1], offset: -5 } }),
     ],
+    ['meshCentroids', () => call(page, 'meshCentroids', { handle, stride: 1 })],
   ];
   for (const [name, run] of meshOps) {
     const out = await run();

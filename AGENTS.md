@@ -15,6 +15,8 @@ in flight. `docs/DECISIONS.md` is append-only.
   cold machine.
 - `pnpm package` builds **this platform's** artefacts only. Linux artefacts come from CI (§12.1) or
   `docker run electronuserland/builder`.
+- **E2E is windowless on macOS** (rule 9). `TETRAVOX_E2E_HEADED=1 pnpm e2e` puts the windows back for
+  debugging; `scripts/e2e-quiet-check.sh` proves a run took neither the screen nor the focus.
 
 ## Test data
 
@@ -214,3 +216,16 @@ Both take an optional testdata root, default `$TETRAVOX_TESTDATA`, and print JSO
    expansion count as geometry: they happen in the dataset's worker and arrive as transferables. The engine never
    builds a vertex buffer element-by-element, and raw file bytes never touch the UI thread or IPC (§5).
 8. **No `rayon`, no wasm threads, no nightly Rust.** Parallelism is worker-per-dataset.
+9. **A test run may not hijack the monitor.** On macOS every E2E leg is windowless by default and the
+   default must stay that way: the engine's `chromium-angle` project runs the full Chromium
+   (`channel: 'chromium'`) **headless**, and `packages/app`'s Electron launches set
+   `TETRAVOX_E2E_OFFSCREEN=1`, which builds the `BrowserWindow` and never shows it. Neither costs any
+   GPU coverage — both still report `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)` with
+   `EXT_texture_norm16` and the timer query, and the R16 branch of the §6.1 ladder still executes
+   (`docs/TESTING.md` §2.1 has every measurement). `TETRAVOX_E2E_HEADED=1` is the debugging opt-in and
+   outranks everything; a user launch sets neither variable and is untouched. Do not "fix" a flaky
+   test by making its window visible again, and do not add a Playwright project with
+   `headless: false` — prove it with `scripts/e2e-quiet-check.sh` instead (export
+   `TETRAVOX_TESTDATA` first: that script proves what a run *showed*, never what it *covered*). The
+   window used to be the only visible sign that `chromium-angle` was really on the GPU; a tagged caps
+   test asserts it now, so a fallback to software fails that leg instead of quietly emptying it.

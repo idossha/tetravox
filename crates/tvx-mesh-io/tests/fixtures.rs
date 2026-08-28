@@ -84,6 +84,7 @@ fn manifest_and_fixtures_are_present() {
         "surf_ascii.surf.gii",
         "surf.func.gii",
         "surf.label.gii",
+        "surf_labelled.surf.gii",
     ] {
         assert!(
             fx::section("gifti").contains_key(required),
@@ -532,6 +533,54 @@ fn func_and_label_gifti_become_node_fields() {
         .as_array()
         .unwrap();
     assert_eq!(want.len(), 4);
+    let table = l.label_table.as_ref().expect("a .label.gii carries its table");
+    assert_eq!(table.entries.len(), 4);
+    // §6.2's dense remap: the FIELD holds 0..N-1 and the TABLE holds the original keys. The
+    // fixture cycles the keys 0, 3, 7, 11 over its 16 vertices, so the remapped field is
+    // 0, 1, 2, 3 repeating — and its maximum is 3, not 11.
+    assert_eq!(
+        table.entries.iter().map(|e| e.id).collect::<Vec<_>>(),
+        vec![0, 3, 7, 11],
+        "the table keeps the file's own keys"
+    );
+    let dense: Vec<i32> = l.node_fields[0].data.iter().map(|v| *v as i32).collect();
+    assert_eq!(&dense[..8], &[0, 1, 2, 3, 0, 1, 2, 3]);
+    assert_eq!(dense.iter().copied().max(), Some(3));
+}
+
+/// The one fixture that carries geometry **and** a `<LabelTable>` — `colorMode:'label'`'s subject.
+///
+/// Without the dense remap above, the renderer's `N x 2` palette (four entries here) is indexed by
+/// the raw key and `clamp(11, 0, 3)` paints the whole patch in the last entry's colour, which is
+/// what shipped until this fixture existed to show it.
+#[test]
+fn a_labelled_surface_gifti_carries_geometry_and_a_dense_label_field() {
+    let m = read_gifti(fx::bytes("surf_labelled.surf.gii"), &mut NoProgress).unwrap();
+    let rec = &fx::section("gifti")["surf_labelled.surf.gii"];
+    assert_eq!(m.nodes.len(), 16);
+    assert_eq!(m.tris.len(), 18);
+    assert_eq!(m.node_fields.len(), 1);
+    assert_eq!(m.node_fields[0].name, "label");
+
+    let table = m.label_table.as_ref().expect("the <LabelTable>");
+    let want = rec["labelTable"].as_array().unwrap();
+    assert_eq!(table.entries.len(), want.len());
+    for (e, w) in table.entries.iter().zip(want) {
+        assert_eq!(i64::from(e.id), w["key"].as_i64().unwrap());
+        assert_eq!(e.name, w["name"].as_str().unwrap());
+    }
+
+    // The writer labels vertices {0, 1, 5} Beta (key 7 -> dense 2) and {10, 14, 15} Gamma
+    // (key 11 -> dense 3); every other vertex is Alpha (key 3 -> dense 1).
+    let dense: Vec<i32> = m.node_fields[0].data.iter().map(|v| *v as i32).collect();
+    let mut expected = vec![1i32; 16];
+    for v in [0usize, 1, 5] {
+        expected[v] = 2;
+    }
+    for v in [10usize, 14, 15] {
+        expected[v] = 3;
+    }
+    assert_eq!(dense, expected);
 }
 
 #[test]

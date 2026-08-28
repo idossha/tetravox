@@ -256,6 +256,17 @@ export interface MeshDataset {
   nTets: number;
   hasTris: boolean;
   fields: MeshFieldInfo[];
+  /**
+   * `MeshMeta.labelTables` (§6.5.1), keyed by **node-field name** — the `<LabelTable>` of a
+   * `.label.gii` or the colortable of a `.annot`.
+   *
+   * Without this the `.label.gii`'s table stopped at the wire: `MeshLayer.colorMode:'label'` and
+   * `MeshLayer.label.table` were implemented in the shader and in `layers/mesh.ts`, and nothing
+   * could fill them from a file the user opened. R5's "one Region panel for every labelled thing"
+   * names surface annotations as one of its three, so this is the field that makes the third
+   * reachable.
+   */
+  labelTables?: Record<string, LabelTable>;
   tags: MeshTag[];
   skipped: { elemType: number; count: number }[];
   opt?: MshOptions;
@@ -302,6 +313,25 @@ export interface VolumeLayer extends LayerBase {
   /** `undefined` = all. */
   visibleLabels?: Uint32Array;
   labelOpacity?: Record<number, number>;
+  /**
+   * R5's colour picker: per-label colour overrides, id → 0..1 RGBA, beating the dataset's
+   * `LabelTable` (added 2026-08-27 by the Phase-2 integrator — see `docs/DECISIONS.md`).
+   *
+   * It is on the **layer** and not on the table because §4.6 does not serialise a `LabelTable` (it
+   * is re-derived from the LUT on load), and R5 requires that "edits persist in the scene". A plain
+   * `Record<number, vec4>` rather than a patched table for the same reason: this is the whole of the
+   * edit, it is JSON as it stands, and the file's own colours stay readable underneath it, which is
+   * what makes a per-row Reset possible at all.
+   */
+  labelColors?: Record<number, vec4>;
+  /**
+   * R5's selection: the labels drawn with the outline emphasis (added 2026-08-27, as above).
+   *
+   * A plain array, unlike `visibleLabels`' `Uint32Array`: a selection is a handful of ids that a
+   * panel edits click by click, not a filter over up to 65535 of them, and keeping it JSON keeps
+   * `SerializableLayer` a straight `Omit` of one field rather than two.
+   */
+  selectedLabels?: number[];
   showIn3D: boolean;
   /** `'f32'` forces R32F, guarded by `caps.floatLinear`. */
   precision: 'auto' | 'f32';
@@ -310,6 +340,16 @@ export interface VolumeLayer extends LayerBase {
 export interface ClipPlane {
   plane: Plane;
   enabled: boolean;
+  /**
+   * The plane's `offset` tracks the cursor (added 2026-08-27 by the Phase-2 integrator — see
+   * `docs/DECISIONS.md`).
+   *
+   * On the layer rather than in the app's UI store because a saved scene that reopens with the
+   * plane where it was but no longer following is a scene that did not round-trip. The arithmetic
+   * stays outside React either way (`panels/layers/mesh/state.ts`'s `planesThroughCursor`); this
+   * field is what makes the answer survive `serialize()` / `load()`.
+   */
+  followCursor?: boolean;
 }
 
 export interface IsolateSpec {
@@ -337,6 +377,21 @@ export interface GlyphSpec {
   /** 0..1 */
   color: vec4;
   clipToCutPlane: boolean;
+  /**
+   * Where the origins come from (§7.4; added 2026-08-27 — see `docs/DECISIONS.md`).
+   *
+   * `'surface'` — the default, and what an absent field means — reads them off the de-indexed
+   * `SurfacePayload` the layer already has: one origin per surface triangle, with its element number
+   * from the same `ownerElm` table §7.2.3 uses. `'volume'` reads them from §6.5.2's `meshCentroids`:
+   * **one origin per interior tet**, which is the case a field over all 5,900,498 elements of
+   * `ernie_TDCS_1_scalar.msh` invites and which no surface can serve.
+   *
+   * Both stay inside §7.4's "**No new geometry from WASM**" — `meshCentroids` returns *points*, one
+   * per tet, and the renderer binds them as an origin table exactly as it binds the surface's
+   * positions. {@link GlyphSpec.subsample} is the density knob in both: for `'volume'` it becomes
+   * the op's own `stride`, so a 4.7 M-element mesh never ships 4.7 M origins over the wire.
+   */
+  origins?: 'surface' | 'volume';
 }
 
 export interface MeshLayer extends LayerBase {
@@ -417,7 +472,13 @@ export interface SliceView {
    * `|up × n| < 1e-4`.
    */
   up: vec3;
-  /** In-plane pan/zoom, relative to the cursor's projection. */
+  /**
+   * In-plane pan/zoom, relative to the **scene bounds centre** — not to the cursor's projection.
+   *
+   * R3 (*move the crosshair, not the scan*) is why: a pane whose world-to-screen map is a function
+   * of `scene.cursor` slides the image whenever the cursor moves, which makes click-to-set-cursor
+   * unwritable. See §4.5 and `docs/DECISIONS.md`, 2026-08-27.
+   */
   camera: { center: vec2; mmPerPx: number };
   layerVisibility?: Record<LayerId, boolean>;
 }
@@ -501,6 +562,21 @@ export interface Scene {
 // §4.6 ViewSpec — the persisted form (`*.tetravox.json`)
 // ---------------------------------------------------------------------------------------------
 
+/** One role-keyed sidecar of a `DatasetRef` (§6.5.1's `lut` / `opt`). */
+export interface SidecarRef {
+  /**
+   * Relative to the **dataset's own directory**, not to the scene file.
+   *
+   * A sidecar lives beside the file it describes — `ernie.msh.opt` beside `ernie.msh`,
+   * `labeling_LUT.txt` beside `labeling.nii.gz` — so anchoring it to the dataset is what makes a
+   * relocated dataset bring its sidecars with it. Anchoring it to the scene file instead would
+   * resolve to the old directory the moment the data moved, which is the case relocation exists for.
+   */
+  path: string;
+  /** Fallback when the dataset-relative path misses, exactly as `DatasetRef.absPath` is. */
+  absPath?: string;
+}
+
 export interface DatasetRef {
   id: DatasetId;
   kind: 'volume' | 'mesh';
@@ -509,10 +585,27 @@ export interface DatasetRef {
   path: string;
   /** Fallback when the relative path misses. */
   absPath?: string;
-  /** `"<size>-<sha256 of first 1 MiB>-<sha256 of last 1 MiB>"`, 16 hex each. */
+  /** `tvxfp1-<len:16hex>-<hash:16hex>` — see §4.6; produced by `tvx_core::fingerprint`. */
   fingerprint: string;
+  /**
+   * The §6.5.1 sidecars this dataset was opened with — the `.msh.opt` and the label LUT.
+   *
+   * §7.6 makes them load-time inputs, not layer state: tissue **names** come from a `.msh.opt`
+   * (`ernie.msh` has no `$PhysicalNames` at all), tag colours and visibility are seeded from it, and
+   * a label volume's names and colours come from its `_LUT.txt`. None of that is in `Layer`, so a
+   * spec that recorded only `path` reopened the same file as a different-looking dataset: the tissue
+   * table read `tag 1` … `tag 1099`, the head rendered in the deterministic fallback palette, and a
+   * cursor readout that said `515 · Bone-Cortical` said `515 · —`. R5's "persists through scene
+   * save/load" was true of the *edits* and false of the table they are edits against.
+   */
+  sidecars?: { lut?: SidecarRef; opt?: SidecarRef };
 }
 
+/**
+ * `visibleLabels` is the one field that is not JSON as it stands (`Uint32Array`), so it is the one
+ * field this type replaces. `labelColors` and `selectedLabels` were deliberately given JSON shapes
+ * on `VolumeLayer` itself so they need no entry here — see their doc comments.
+ */
 export type SerializableLayer = Omit<Layer, 'visibleLabels'> & {
   visibleLabels?: number[];
   label?: {

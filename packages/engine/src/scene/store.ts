@@ -234,6 +234,23 @@ export class SceneStore {
   setAnnotations(patch: Partial<Annotations>): void {
     this.#scene.annotations = { ...this.#scene.annotations, ...patch, conventionBadge: true };
   }
+
+  // -------------------------------------------------------------------------------------------
+  // Appended by E-SCENE (P2-01 / P2-02). Shared-file rule: additive only.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * §4.5's `Scene.hover` — the live pointer position, distinct from the cursor (§8's two blocks:
+   * `Cursor` is "last click, persistent", `Mouse` is "live … blank when the pointer leaves a view").
+   */
+  setHover(world: vec3 | null): void {
+    this.#scene.hover = world;
+  }
+
+  /** §7.2's `QualityLevel`, set by the `interacting` state and by automatic degradation (P2-02). */
+  setQuality(quality: Scene['quality']): void {
+    this.#scene.quality = quality;
+  }
 }
 
 /**

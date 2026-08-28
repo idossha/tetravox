@@ -3,12 +3,21 @@
  * `Voxel (active layer)` | `MNI`), Enter jumps the cursor, a copy button yields `-42.0 18.0 6.0`,
  * paste accepts comma- or space-separated triples."
  *
- * The MNI column "appears when the dataset has `toTemplate`" — Phase 2 populates `toTemplate`, so the
- * option is offered only when a dataset actually carries one, which today is never. The parsing and
- * formatting are in `lib/coords.ts`, tested without a DOM.
+ * **The MNI column is Phase 2's** (audit P2-10): §8 says it "appears when the dataset has
+ * `toTemplate`", and E-SCENE derives that field in `scene/fromMeta.ts` from the NIfTI header
+ * (`sform_code`/`qform_code` = 4 is MNI152). Absent is the *common* case on subject data — a SimNIBS
+ * `m2m` T1 is `sform_code = 2` — so the option is rendered **greyed, with the reason on it**, rather
+ * than hidden: a column that silently disappears reads as a bug, while one that says "not in a
+ * template space" is telling the user something true about their data.
+ *
+ * A live read-out in the template's space sits under the field whenever a `toTemplate` exists, so
+ * the value is visible without switching space to see it.
  */
 
 import { useCallback, useState } from 'react';
+import { formatTriple, worldToTemplate } from '../../lib/coords';
+import type { CoordSpace } from '../../store/store';
+import { templateSource } from '../../store/store';
 import { useController, useUi } from '../../ui/context';
 
 export function CoordinateBar(): React.JSX.Element {
@@ -22,11 +31,11 @@ export function CoordinateBar(): React.JSX.Element {
     if (layer === undefined) return false;
     return s.datasets.find((d) => d.id === layer.datasetId)?.kind === 'volume';
   });
+  const template = useUi(templateSource);
   const [rejected, setRejected] = useState(false);
 
   // `cursor` and `activeLayerId` are read so the field re-renders when either moves; the text itself
-  // comes from the controller, which owns the voxel conversion.
-  void cursor;
+  // comes from the controller, which owns every space conversion (§8: no logic in React).
   void activeLayerId;
   const text = controller.coordText();
 
@@ -42,18 +51,31 @@ export function CoordinateBar(): React.JSX.Element {
   return (
     <div
       data-testid="coord-bar"
-      className="flex items-center gap-1.5 border-b border-tvx-line bg-tvx-panel/60 px-3 py-1.5"
+      data-has-template={template !== null}
+      className="flex flex-wrap items-center gap-1.5 border-b border-tvx-line bg-tvx-panel/60 px-3 py-1.5"
     >
       <select
         data-testid="coord-space"
         aria-label="Coordinate space"
         value={space}
-        onChange={(e) => controller.setCoordSpace(e.currentTarget.value as 'ras' | 'voxel')}
+        onChange={(e) => controller.setCoordSpace(e.currentTarget.value as CoordSpace)}
         className="tvx-input w-[8.5rem] text-[11px]"
       >
         <option value="ras">World RAS</option>
         <option value="voxel" disabled={!hasVoxelSpace}>
           Voxel (active)
+        </option>
+        <option
+          value="mni"
+          data-testid="coord-space-mni"
+          disabled={template === null}
+          title={
+            template === null
+              ? 'No loaded volume carries a toTemplate (§4.3) — nothing here is in a template space'
+              : `${template.toTemplate.name} via ${template.name}`
+          }
+        >
+          {template === null ? 'MNI (none)' : template.toTemplate.name}
         </option>
       </select>
 
@@ -81,7 +103,8 @@ export function CoordinateBar(): React.JSX.Element {
           setRejected(false);
         }}
         className={
-          'tvx-input flex-1 font-mono text-[11px] ' + (rejected ? 'border-tvx-danger' : '')
+          'tvx-input min-w-[9rem] flex-1 font-mono text-[11px] ' +
+          (rejected ? 'border-tvx-danger' : '')
         }
       />
 
@@ -111,6 +134,25 @@ export function CoordinateBar(): React.JSX.Element {
           ⏎ to jump
         </span>
       )}
+
+      <div className="flex w-full items-baseline gap-1.5">
+        <span className="text-[10px] uppercase tracking-wider text-tvx-dim">
+          {template === null ? 'MNI' : template.toTemplate.name}
+        </span>
+        {template === null ? (
+          <span
+            data-testid="coord-mni-absent"
+            className="font-mono text-[11px] text-tvx-dim/60"
+            title="No loaded volume carries a toTemplate (§4.3, audit P2-10)"
+          >
+            — not in a template space
+          </span>
+        ) : (
+          <span data-testid="coord-mni" className="font-mono text-[11px] text-tvx-text">
+            {formatTriple(worldToTemplate(template.toTemplate.matrix, cursor))}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

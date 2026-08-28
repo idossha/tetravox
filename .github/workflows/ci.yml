@@ -223,11 +223,18 @@ jobs:
       # the Playwright-Electron app E2E — `pnpm e2e` is `pnpm -r --if-present run e2e`, so the app leg
       # joins this step by existing. Dev build only; packaging is separate.
       # Two engine Playwright projects (§11): `chromium-swiftshader` captures the goldens, and
-      # `chromium-angle` runs the `@angle`-tagged analytic tests HEADED so they reach the platform
-      # GPU — the only place the R16 branch of the §6.1 ladder can execute, since SwiftShader has no
-      # EXT_texture_norm16. On a runner without a GPU that leg falls back to software and the R16
-      # test skips with its reason; the Xvfb started above is what lets it launch headed on Linux.
+      # `chromium-angle` runs the `@angle`-tagged analytic tests on the full Chromium so they reach
+      # the platform GPU — the only place the R16 branch of the §6.1 ladder can execute, since
+      # SwiftShader has no EXT_texture_norm16. Both legs are HEADLESS (docs/TESTING.md §2.1 measures
+      # that headless costs the ANGLE leg no capability); the Xvfb above still serves Electron.
+      #
+      # `chromium-angle` now FAILS if it lands on a software renderer, because such a leg is empty —
+      # every @angle test then self-skips or passes vacuously — and an empty leg must not be green.
+      # The Linux runner has no GPU, so it opts out by name; macOS stays strict, and a hosted macOS
+      # runner that cannot reach Metal is a red leg naming this variable rather than a silent hole.
       - name: pnpm e2e
+        env:
+          TETRAVOX_ALLOW_SOFTWARE_ANGLE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: pnpm e2e
 
       # Both suites `pnpm e2e` runs, not just the engine's: the app's dev-leg report was uploaded on

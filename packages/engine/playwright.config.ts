@@ -29,7 +29,40 @@ import { defineConfig, type PlaywrightTestProject } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { GOLDEN_THRESHOLD, goldenMaxDiffPixelRatio } from './test/helpers/pixels';
 
-const PORT = Number(process.env.TETRAVOX_TEST_PORT ?? 5199);
+/**
+ * `TETRAVOX_E2E_HEADED=1` opts back in to visible browser windows, for debugging. Every leg of the
+ * suite is windowless by default; see the `chromium-angle` project below and `packages/app`'s
+ * `src/main/window.ts` for what each leg does with that.
+ */
+const HEADED = process.env.TETRAVOX_E2E_HEADED === '1';
+
+/**
+ * The dev-server port, **scoped to this checkout**.
+ *
+ * `reuseExistingServer: !CI` is what makes a local `pnpm e2e` fast: the second run reuses the Vite
+ * the first one started. On a hard-coded port it also silently reuses a Vite belonging to a
+ * *different clone*, and then the harness serves that tree's pages while the reporter names this
+ * one. It is not hypothetical — a clean-clone gate run failed exactly that way (engine leg
+ * `9 passed, 2 skipped, 5 did not run`) while another checkout held 5199, and §12.2's clean-clone
+ * reproducibility item is not a gate item if another window can break it.
+ *
+ * So the base port is offset by a hash of this file's own absolute path. Two clones get two ports
+ * and never meet; one clone gets the same port every time and keeps the reuse. `TETRAVOX_TEST_PORT`
+ * still wins, for CI and for pinning a run by hand.
+ */
+export function checkoutPort(base: number, override: string | undefined): number {
+  if (override !== undefined && override !== '') return Number(override);
+  const root = fileURLToPath(new URL('.', import.meta.url));
+  let h = 2166136261;
+  for (let i = 0; i < root.length; i += 1) {
+    h ^= root.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // 900 ports above the base, all inside the IANA dynamic range.
+  return base + ((h >>> 0) % 900);
+}
+
+const PORT = checkoutPort(5199, process.env.TETRAVOX_TEST_PORT);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 /** The half of §11's launch args that is about determinism rather than about the renderer. */
@@ -82,7 +115,7 @@ const angleProject: PlaywrightTestProject = {
   // implemented the test and not the leg, so the R16 half self-skipped in every environment
   // that existed — on a format that is the primary path for real data.
   //
-  // `headless: false` + `channel: 'chromium'` is what selects the full browser and lets it
+  // `channel: 'chromium'` is what selects the full browser (headless or not) and lets it
   // reach the platform GPU; `--enable-unsafe-swiftshader` is deliberately absent, because this
   // project exists to NOT be SwiftShader. On a machine with a GPU but no norm16, `caps.norm16` is
   // false and the R16 test skips with its reason — the leg is then honestly empty rather than
@@ -98,7 +131,7 @@ const angleProject: PlaywrightTestProject = {
   use: {
     browserName: 'chromium',
     channel: 'chromium',
-    headless: false,
+    headless: !HEADED, // full Chromium headless still reports ANGLE Metal + norm16 (docs/TESTING.md §2); TETRAVOX_E2E_HEADED=1 shows the window
     launchOptions: { args: DETERMINISM_ARGS },
   },
 };

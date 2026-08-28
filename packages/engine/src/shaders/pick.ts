@@ -17,6 +17,11 @@
  */
 
 import {
+  CLIP_DEFINES,
+  CLIP_DISCARD,
+  CLIP_EXTENSION,
+  CLIP_UNIFORMS,
+  CLIP_WRITE,
   PICK_OUTPUTS,
   PICK_WRITE_DEPTH,
   PRECISION_FLOAT,
@@ -26,22 +31,58 @@ import {
   VERSION,
 } from './chunks/caps';
 
+/**
+ * The mesh pick program.
+ *
+ * `TVX_CAP` picks a `plane_cut` cap instead of a surface: §7.2.3's `kindBit` is 1 there, and the
+ * element number is the cap's own per-vertex `ownerTet` — "Cut caps and flat-shaded field geometry
+ * are already de-indexed and carry `ownerElm`" — rather than a `texelFetch` at `gl_VertexID / 3`.
+ *
+ * The clip defines are the **same chunks** `shaders/mesh.ts` splices, because §7.2.3 requires the
+ * pick pass to enable "the same set"; a second copy of the sign convention is how the two drift and
+ * a double-click starts landing on geometry the clip removed.
+ */
 export const MESH_PICK_VS = `${VERSION}
+#ifndef TVX_CAP
+#define TVX_CAP 0
+#endif
+${CLIP_DEFINES}
+${CLIP_EXTENSION}
 ${PRECISION_FLOAT}
 ${PRECISION_INT}
 ${PRECISION_USAMPLER2D}
 layout(location = 0) in vec3 aPos;
-uniform mat4 uViewProj;
-uniform mat4 uModel;
+#if TVX_CAP
+layout(location = 8) in uint aOwnerTet;
+#else
 uniform usampler2D uOwnerTex;
 uniform int uOwnerWidth;
+#endif
+uniform mat4 uViewProj;
+uniform mat4 uModel;
 uniform uint uLayerBits;     // (layerIndex + 1) << 25 | kindBit << 24
+${CLIP_UNIFORMS}
+#if TVX_CLIP_PLANES > 0 && TVX_CLIP_DISCARD == 0
+out highp float gl_ClipDistance[TVX_CLIP_PLANES];
+#endif
+#if TVX_CLIP_PLANES > 0 && TVX_CLIP_DISCARD == 1
+out vec3 vWorld;
+#endif
 flat out uint vId;
 void main() {
+  vec4 w = uModel * vec4(aPos, 1.0);
+#if TVX_CAP
+  uint owner = aOwnerTet;
+#else
   int tri = gl_VertexID / 3;
   uint owner = texelFetch(uOwnerTex, ivec2(tri % uOwnerWidth, tri / uOwnerWidth), 0).r;
+#endif
   vId = uLayerBits | (owner & 0x00FFFFFFu);
-  gl_Position = uViewProj * uModel * vec4(aPos, 1.0);
+#if TVX_CLIP_PLANES > 0 && TVX_CLIP_DISCARD == 1
+  vWorld = w.xyz;
+#endif
+${CLIP_WRITE}
+  gl_Position = uViewProj * w;
 }`;
 
 /** Slice quads participate in picking: `elementKind:'slice'`, `elementId` = plane index (§7.2.3). */
@@ -75,11 +116,18 @@ void main() {
 }`;
 
 export const PICK_FS = `${VERSION}
+${CLIP_DEFINES}
 ${PRECISION_FLOAT}
 ${PRECISION_INT}
+#if TVX_CLIP_PLANES > 0 && TVX_CLIP_DISCARD == 1
+in vec3 vWorld;
+${CLIP_UNIFORMS}
+uniform int uClipSkip;
+#endif
 flat in uint vId;
 ${PICK_OUTPUTS}
 void main() {
+${CLIP_DISCARD}
   outId = vId;
   ${PICK_WRITE_DEPTH}
 }`;

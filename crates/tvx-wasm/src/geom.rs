@@ -4,7 +4,7 @@
 //! `tvx-geom` belongs to another agent (AGENTS rule 3), so this crate cannot fill it in. Calling a
 //! stub from wasm is not a recoverable error — `unimplemented!()` panics, a panic on
 //! `wasm32-unknown-unknown` traps, and a trapped module is poisoned for the life of the worker
-//! (§5 rule 8). Eleven of the seventeen §6.5.2 ops route through §6.3, and so does `load_mesh`'s
+//! (§5 rule 8). Twelve of the eighteen §6.5.2 ops route through §6.3, and so does `load_mesh`'s
 //! load-time work, so an ungated call would take the *whole* mesh half of the protocol down with
 //! it, including ops that only need the parsed `Mesh`.
 //!
@@ -21,8 +21,8 @@
 
 use tvx_core::{BitMask, Error, Field, Plane, ProgressSink, Result};
 use tvx_geom::{
-    Cut, IsolateCriteria, LabelCentroid, OrientReport, PointLocator, ProbeHit, SurfaceBuffers,
-    SurfaceVariant, TetBlocks, TetTopology,
+    Centroids, Cut, IsolateCriteria, LabelCentroid, OrientReport, PointLocator, ProbeHit,
+    SurfaceBuffers, SurfaceVariant, TetBlocks, TetTopology,
 };
 use tvx_mesh_io::{ElmField, Mesh};
 use tvx_nifti::{Volume, VolumeData};
@@ -220,6 +220,23 @@ pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> R
     {
         let _ = (mesh, plane, mask);
         Err(unavailable("surface_contours"))
+    }
+}
+
+pub fn tet_centroids(
+    mesh: &Mesh,
+    mask: Option<&BitMask>,
+    stride: usize,
+    tags: Option<&[i32]>,
+) -> Result<Centroids> {
+    #[cfg(feature = "geom")]
+    {
+        tvx_geom::tet_centroids(mesh, mask, stride, tags)
+    }
+    #[cfg(not(feature = "geom"))]
+    {
+        let _ = (mesh, mask, stride, tags);
+        Err(unavailable("tet_centroids"))
     }
 }
 

@@ -36,6 +36,7 @@ import type {
   DatasetSource,
   Engine,
   EngineEvents,
+  LabelCentroid,
   Layer,
   LayerId,
   Layout,
@@ -76,6 +77,12 @@ export interface NoGlEngineOptions {
   parseFailSubstring?: string | null;
   /** Deterministic clock for tests. */
   now?: () => number;
+  /**
+   * **Phase 2, appended.** Give loaded volumes a `toTemplate` (§4.3), so the §8 coordinate bar's
+   * MNI column is reachable in an E2E. Off by default, because absent is the honest default on
+   * subject data — a SimNIBS `m2m` T1 is `sform_code = 2` — and both states must be testable.
+   */
+  toTemplate?: boolean;
 }
 
 const CANONICAL_SLICES: readonly { id: ViewId; mode: SliceView['mode']; normal: vec3; up: vec3 }[] =
@@ -114,6 +121,7 @@ export class NoGlEngine implements Engine {
   private readonly stepMs: number;
   private readonly parseFailSubstring: string | null;
   private readonly clock: () => number;
+  private readonly withTemplate: boolean;
   private readonly heap = new Map<DatasetId, number>();
   private readonly cancelled = new Set<DatasetId>();
   private seq = 0;
@@ -128,6 +136,7 @@ export class NoGlEngine implements Engine {
     this.stepMs = options.stepMs ?? 60;
     this.parseFailSubstring = options.parseFailSubstring ?? null;
     this.clock = options.now ?? (() => performance.now());
+    this.withTemplate = options.toTemplate === true;
 
     const slices: SliceView[] = CANONICAL_SLICES.map((s) => ({
       id: s.id,
@@ -276,10 +285,14 @@ export class NoGlEngine implements Engine {
       throw error;
     }
 
+    // A mesh gets a `.msh.opt` exactly when one was admitted beside it (§7.6, §5 rule 9's sidecar
+    // rule) — the same condition the real loader uses, so the "defaults from X.msh.opt" chip
+    // appears here for the same reason it appears there.
+    const hasOpt = src.kind === 'path' && src.sidecars?.opt !== undefined;
     const dataset =
       kind === 'volume'
-        ? makeVolume(id, name, path, this.seq, this.seq)
-        : makeMesh(id, name, path, this.seq, this.seq);
+        ? makeVolume(id, name, path, this.seq, this.seq, { toTemplate: this.withTemplate })
+        : makeMesh(id, name, path, this.seq, this.seq, { opt: hasOpt });
     this.state.datasets.set(id, dataset);
     this.emit('progress', { datasetId: id, phase: 'upload', done: 1, total: 1 });
     this.emit('datasets', [...this.state.datasets.values()]);
@@ -389,6 +402,30 @@ export class NoGlEngine implements Engine {
       this.state.cursor[0] + normal[0] * step * steps,
       this.state.cursor[1] + normal[1] * step * steps,
       this.state.cursor[2] + normal[2] * step * steps,
+    ]);
+  }
+
+  /**
+   * §7.5's in-plane nudge (P2-09) — the arrows, as opposed to PgUp/PgDn's {@link stepCursor}.
+   *
+   * The real engine derives `right` / `up` from `sliceBasis(view, radiological)` and snaps each axis
+   * onto the voxel grid; this stand-in reproduces the **basis**, which is what the app's tests are
+   * about (that pressing → moves the cursor along the pane's right, not along its normal), and skips
+   * the snap, which needs an affine there is no dataset for here.
+   */
+  nudgeCursor(viewId: ViewId, dx: number, dy: number): void {
+    const view = this.state.slices.find((s) => s.id === viewId);
+    if (view === undefined) return;
+    const n = normalize(view.normal);
+    let u = normalize(reject(view.up, n));
+    if (u === null) u = [0, 0, 1];
+    let right = cross(u, n);
+    if (this.state.radiological) right = [-right[0], -right[1], -right[2]];
+    const step = this.stepMm(n);
+    this.setCursor([
+      this.state.cursor[0] + (right[0] * dx + u[0] * dy) * step,
+      this.state.cursor[1] + (right[1] * dx + u[1] * dy) * step,
+      this.state.cursor[2] + (right[2] * dx + u[2] * dy) * step,
     ]);
   }
 
@@ -530,6 +567,35 @@ export class NoGlEngine implements Engine {
     return { world, rows };
   }
 
+  /**
+   * §8's region panel, on the stand-in: the same `{ id, centroid, count }` shape the real engine's
+   * `labelCentroids` op returns, derived from the fake volume so a count is a number the test can
+   * predict rather than a recording.
+   *
+   * Label `k` gets `count = k + 1` voxels and a centroid on the diagonal of the dataset's bounds, so
+   * a row's count is distinguishable from its id and a double-click has somewhere to jump to.
+   */
+  labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {
+    const layer = this.state.layers.find((l) => l.id === layerId);
+    if (layer === undefined || layer.kind !== 'volume') return Promise.resolve([]);
+    const dataset = this.state.datasets.get(layer.datasetId);
+    if (dataset === undefined || dataset.kind !== 'volume' || !dataset.isLabel) {
+      return Promise.resolve([]);
+    }
+    const ids = dataset.labelTable?.entries.map((e) => e.id) ?? [];
+    return Promise.resolve(
+      ids.map((id, k) => ({
+        id,
+        count: k + 1,
+        centroid: applyMat4(dataset.affine, [
+          ((k + 1) / (ids.length + 1)) * ((dataset.dims[0] as number) - 1),
+          ((k + 1) / (ids.length + 1)) * ((dataset.dims[1] as number) - 1),
+          ((k + 1) / (ids.length + 1)) * ((dataset.dims[2] as number) - 1),
+        ]),
+      }))
+    );
+  }
+
   // ------------------------------------------------------------------------------------------
   // Frame pump, screenshot, pixels
   // ------------------------------------------------------------------------------------------
@@ -589,6 +655,17 @@ export class NoGlEngine implements Engine {
   // Persistence
   // ------------------------------------------------------------------------------------------
 
+  /**
+   * §4.6's `ViewSpec`. Two Phase-2 details the Phase-1 version left out, both of which the shell's
+   * persistence path depends on and neither of which changes what an existing field means:
+   *
+   *  * `absPath` beside `path`, so `lib/scene.ts` can rewrite the pair into §4.6's
+   *    "relative to the scene file, with an absolute fallback";
+   *  * `visibleLabels` as a plain `number[]`, because a `Uint32Array` does not survive
+   *    `JSON.stringify` — it serialises as `{"0":1,"1":2}` and comes back as an object. The real
+   *    engine's `toViewSpec` already does this; the stand-in has to agree or the round trip differs
+   *    between the two implementations for a reason that has nothing to do with the shell.
+   */
   serialize(): ViewSpec {
     return {
       version: 1,
@@ -597,9 +674,16 @@ export class NoGlEngine implements Engine {
         kind: d.kind,
         name: d.name,
         path: d.path ?? d.name,
-        fingerprint: '0'.repeat(16),
+        ...(d.path === undefined ? {} : { absPath: d.path }),
+        // §4.6 wants a real digest; it has no producer yet (W-WASM Gap 1, §5 rule 3 forbids
+        // computing it here), so the stand-in emits the same placeholder the real engine does.
+        fingerprint: '',
       })),
-      layers: this.state.layers.map((l) => ({ ...l }) as ViewSpec['layers'][number]),
+      layers: this.state.layers.map((l) => ({
+        ...l,
+        visibleLabels:
+          'visibleLabels' in l && l.visibleLabels !== undefined ? [...l.visibleLabels] : undefined,
+      })) as ViewSpec['layers'],
       activeLayerId: this.state.activeLayerId,
       slices: this.state.slices,
       view3d: this.state.view3d,
@@ -613,16 +697,33 @@ export class NoGlEngine implements Engine {
     };
   }
 
+  /**
+   * Restore the **presentation** half of a spec, and nothing more.
+   *
+   * This mirrors `packages/engine`'s `applyViewSpec` deliberately, including what it does *not* do:
+   * `spec.layers` and `spec.activeLayerId` are not restored, because the datasets a load re-adds get
+   * fresh ids and the remap is audit **P2-07**, which is E-SCENE's. The shell reconciles on top
+   * (`lib/scene.ts`'s `layersToRestore`), and it must be exercised against a stand-in that behaves
+   * like the engine it stands in for — a stand-in that restored layers would hide the very gap the
+   * reconcile exists for.
+   */
   async load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
     for (const ref of spec.datasets) {
       const path = resolve(ref);
       if (path === null) continue;
       await this.addDataset({ kind: 'path', path });
     }
+    this.state.slices = spec.slices;
+    this.state.view3d = spec.view3d;
+    this.state.layout = spec.layout;
     this.state.cursor = spec.cursor;
     this.state.radiological = spec.radiological;
-    this.state.layout = spec.layout;
+    this.state.background = spec.background;
+    this.state.lighting = spec.lighting;
+    this.state.annotations = spec.annotations;
+    this.state.transparency = spec.transparency;
     this.emit('cursor', this.state.cursor);
+    this.requestRender();
   }
 
   destroy(): void {
@@ -631,4 +732,28 @@ export class NoGlEngine implements Engine {
     this.state.datasets.clear();
     this.state.layers = [];
   }
+}
+
+// ------------------------------------------------------------------------------------------------
+// §3's slice basis, the three lines of it `nudgeCursor` needs.
+//
+// Duplicated rather than imported from `@tetravox/engine`'s `view/geometry.ts`, which is not part of
+// the package's public entry point (§4.7: the barrel exports the scene model, the facade and the
+// capability probe, and nothing else). Three vector helpers are a smaller price than widening a
+// frozen interface for a stand-in.
+// ------------------------------------------------------------------------------------------------
+
+function normalize(v: vec3): vec3 {
+  const l = Math.hypot(v[0], v[1], v[2]);
+  return l > 0 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 1];
+}
+
+/** `v` with its component along the unit vector `n` removed. */
+function reject(v: vec3, n: vec3): vec3 {
+  const d = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+  return [v[0] - d * n[0], v[1] - d * n[1], v[2] - d * n[2]];
+}
+
+function cross(a: vec3, b: vec3): vec3 {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }

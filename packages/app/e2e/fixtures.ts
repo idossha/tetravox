@@ -6,7 +6,8 @@
  * bare `pnpm e2e` is green without a 2-minute package step.
  */
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from '@playwright/test';
@@ -109,6 +110,14 @@ export interface LaunchOptions {
   search?: string;
   /** Extra environment for the launched app — `TETRAVOX_DOWNLOAD_DIR` for the screenshot leg. */
   env?: Record<string, string>;
+  /**
+   * Record a WebM of the window into this directory (the walk-through recorder's only caller).
+   *
+   * Playwright writes the video when the app is closed, so a spec that uses it must `app.close()`
+   * rather than leaving the process to the runner. Off everywhere else: a video per launch would
+   * cost every e2e run a few MB for nothing.
+   */
+  recordVideo?: string;
 }
 
 /**
@@ -121,6 +130,53 @@ export interface LaunchOptions {
  * *screenshot* leg assert the same bytes.
  */
 const DETERMINISM_ARGS = ['--force-color-profile=srgb', '--force-device-scale-factor=1'];
+
+/**
+ * A private profile directory per launch, and why every E2E needs one.
+ *
+ * `src/main/index.ts` takes `app.requestSingleInstanceLock()` (§8: a second `tetravox file.nii`
+ * hands its paths to the running window). That lock is keyed by the **userData directory**, which
+ * for an unpackaged Electron app is derived from the app name alone — so it is shared by every
+ * checkout of this repo on the machine, and by the developer's own running copy. While any of them
+ * holds it, a launched app calls `app.quit()` **before it creates a window**, and Playwright reports
+ * `Target page, context or browser has been closed` with `exitCode=0`: a failure that looks like a
+ * crash in the code under test and is not one. Reproduced 2026-08-27 against a second worktree's
+ * e2e run; the same shape appears in CI the moment two jobs share a runner.
+ *
+ * `--user-data-dir` moves the lock — and the cache, and local storage — into a fresh temp directory,
+ * so each launch is genuinely alone. It changes nothing any spec asserts: the `tetravox://file/…`
+ * allow-list is in-memory, the scheme is registered per process, and no test reads a profile.
+ */
+function privateUserDataDir(): string {
+  return mkdtempSync(join(tmpdir(), 'tetravox-e2e-profile-'));
+}
+
+/**
+ * A test run must not hijack the monitor (`src/main/window.ts`).
+ *
+ * On macOS every launch here used to raise a window, steal the keyboard focus and — under a tiling
+ * window manager — re-tile the developer's whole workspace, a dozen times per `pnpm e2e`.
+ * `TETRAVOX_E2E_OFFSCREEN=1` tells main to build the window and never show it. It stays on the real
+ * GPU: `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`, `norm16` and the timer query all
+ * present, which is what these tests exist to cover.
+ *
+ * **Default on darwin only.** Linux CI runs under Xvfb, where there is no monitor to hijack and
+ * where the shown-window path is the one worth exercising; Windows is not a target. Setting
+ * `TETRAVOX_E2E_HEADED=1` restores visible windows everywhere — main gives that variable priority,
+ * so the one export covers this suite and the engine's ANGLE project alike.
+ *
+ * The value is merged onto `process.env`, never assigned over it: `electron.launch({ env })`
+ * REPLACES the child's environment, and dropping PATH/HOME from an Electron launch fails in ways
+ * that look nothing like the cause.
+ */
+export function offscreenEnv(
+  env: NodeJS.ProcessEnv = process.env
+): Record<string, string> | undefined {
+  if (env['TETRAVOX_E2E_HEADED'] === '1') return undefined;
+  if (env['TETRAVOX_E2E_OFFSCREEN'] !== undefined)
+    return { TETRAVOX_E2E_OFFSCREEN: env['TETRAVOX_E2E_OFFSCREEN'] };
+  return process.platform === 'darwin' ? { TETRAVOX_E2E_OFFSCREEN: '1' } : undefined;
+}
 
 export async function launchApp(
   target: LaunchTarget,
@@ -144,26 +200,35 @@ export async function launchApp(
   // `--enable-unsafe-swiftshader` — which `src/main/index.ts` appends unconditionally — is the
   // combination measured in `packages/engine/playwright.config.ts`. macOS keeps its real GPU.
   const linuxArgs = process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [];
+  const profile = [`--user-data-dir=${privateUserDataDir()}`];
 
   // `env` REPLACES the child's environment when given, so it is always merged onto `process.env`:
   // dropping PATH/HOME from an Electron launch fails in ways that look nothing like the cause.
-  const env =
-    options.env === undefined
+  const offscreen = offscreenEnv();
+  const extra =
+    offscreen === undefined && options.env === undefined
       ? undefined
-      : ({ ...process.env, ...options.env } as Record<string, string>);
+      : { ...offscreen, ...options.env };
+  const env =
+    extra === undefined ? undefined : ({ ...process.env, ...extra } as Record<string, string>);
+
+  const recordVideo =
+    options.recordVideo === undefined ? {} : { recordVideo: { dir: options.recordVideo } };
 
   if (target === 'packaged') {
     const executablePath = packagedExecutable();
     if (executablePath === null) throw new Error('packaged artefact missing');
     return electron.launch({
       executablePath,
-      args: [...DETERMINISM_ARGS, ...linuxArgs, ...args],
+      args: [...DETERMINISM_ARGS, ...profile, ...linuxArgs, ...args],
+      ...recordVideo,
       ...(env === undefined ? {} : { env }),
     });
   }
   return electron.launch({
-    args: [APP_ROOT, ...DETERMINISM_ARGS, ...linuxArgs, ...args],
+    args: [APP_ROOT, ...DETERMINISM_ARGS, ...profile, ...linuxArgs, ...args],
     cwd: APP_ROOT,
+    ...recordVideo,
     ...(env === undefined ? {} : { env }),
   });
 }

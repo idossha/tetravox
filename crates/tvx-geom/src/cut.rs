@@ -340,6 +340,13 @@ fn edge_key(c: CutInterp) -> u64 {
 
 /// Contour segments of the **surface triangles** against `plane`; 6 floats per segment (§6.3).
 ///
+/// Contour lines of the mesh's **stored triangles** on one plane (§6.3).
+///
+/// A tri-less tet mesh therefore yields **nothing** — `grey_Thalamus_TI.msh` has 1,340,029 tets and
+/// 0 triangles — and that is correct, not a fallback to write: its 2D tissue boundaries are
+/// [`plane_cut`]'s `boundary_segments`, which the overlay gets from the same `cut` call that gives
+/// it the `fillIn2D` polygons (§6.5.2, §7.4).
+///
 /// Every other §6.3 function takes a mask over tets. Triangles are not tets, so a mask is applied
 /// here only when its length matches `Mesh::tris` — a tet-length mask means "these tets are
 /// isolated", which says nothing about which stored triangles to draw, and is ignored rather than

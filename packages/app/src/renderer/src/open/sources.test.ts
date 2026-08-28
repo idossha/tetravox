@@ -32,6 +32,15 @@ function stubBridge(existing: readonly string[], droppedPath = ''): Stub {
       phase0Fixture: async () => null,
       onOpened: () => () => {},
       log: () => {},
+      // Phase 2's scene IO. Nothing under test here touches it, and the stub says so rather than
+      // being cast: the point of stubbing the whole `TetravoxBridge` shape is that a new member is
+      // a compile error here and now, not an `undefined` at runtime later.
+      openSceneDialog: async () => null,
+      saveSceneDialog: async () => null,
+      relocateDialog: async () => null,
+      readSceneFile: async () => ({ ok: false, error: 'not stubbed' }),
+      writeSceneFile: async () => ({ ok: false, error: 'not stubbed' }),
+      onSceneCommand: () => () => {},
     },
   };
   (globalThis as { tetravox?: TetravoxBridge }).tetravox = stub.bridge;

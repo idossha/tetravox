@@ -5,9 +5,12 @@
  * number asserted here is AGENTS.md's, measured by
  * `scripts/refvalues/{mesh,nifti}_refvalues.py`; none of it is retyped from a previous run.
  *
- * This is the only place the §9.2 **load-path** memory bar can be measured, because
- * `wasm_heap_bytes()` is linear memory and linear memory only exists in a browser. The bar is per
- * *dataset worker*, so each measurement opens its own worker — which is also §5 rule 1.
+ * This is the only place §9.2's memory bars can be measured — **both** of them, the load path and
+ * the `buildTopology` path — because `wasm_heap_bytes()` is linear memory and linear memory only
+ * exists in a browser. The bar is per *dataset worker*, so each measurement opens its own worker,
+ * which is also §5 rule 1. The topology half was deferred from Phase 1 ("nothing in Phase 1 clips or
+ * isolates") and is a Phase-2 gate item in its own right; measuring only the load path and calling
+ * the other one covered is how §9.2's 1.56 GB worst case would ship unmeasured.
  *
  * `TETRAVOX_TESTDATA` lives outside the repo, so `e2e/vite.config.ts` adds it to `server.fs.allow`
  * and the worker fetches `/@fs/<absolute path>`. In the app the same bytes arrive over
@@ -299,6 +302,111 @@ test('ernie_seeg.msh: the declared worst case, against the ≤ 1.0 GB load-path 
   );
   // ROADMAP Phase-1 gate 7 / §9.2: the load path stays under 1.0 GB for this file.
   expect(heapMb, '§9.2 load path for ernie_seeg.msh').toBeLessThanOrEqual(1024);
+});
+
+/**
+ * §9.2's **`buildTopology` path** bar on the declared worst case — the Phase-2 gate item Phase 1
+ * deferred ("nothing in Phase 1 clips or isolates"; `docs/PHASE2-OWNERSHIP.md` assigns it to E-MESH).
+ *
+ * It is a **different arena** from the test above, which is why §9.2 has two rows rather than one
+ * "< 2 ×" rule: the load path is `input bytes + retained Mesh`, the topology path is
+ * `retained Mesh + counting-sort transient + TetTopology`, modelled at **1,548 MB** for this file —
+ * 3.15 × — against a **1.6 GB** budget. Asserting the load path and calling the topology path
+ * covered is exactly how a 1.56 GB worst case ships unmeasured.
+ *
+ * The measurement is `wasm_heap_bytes()` after the op, in the same worker, because linear memory
+ * **grows and never shrinks** (§9.2): the peak of both phases is still resident when the call
+ * returns. That can only over-report, which is the safe direction for a bar, and it is the only
+ * thing a browser can observe.
+ */
+test('ernie_seeg.msh: `buildTopology` against §9.2’s ≤ 1.6 GB topology-path bar', async ({
+  page,
+}) => {
+  test.slow();
+  test.setTimeout(600_000);
+  await open(page);
+  const loaded = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fsUrl(ERNIE_SEEG) },
+    format: 'auto',
+  });
+  const meta = loaded.result?.meta as Record<string, unknown>;
+  const handle = meta.handle as number;
+  expect(meta.nTets).toBe(13_033_527);
+  // Both SEEG meshes exceed 2²¹ nodes, which is what breaks a 3×21-bit packed face key (§6.3) — and
+  // the face table is precisely what `buildTopology` builds, so this file is the one that has to be
+  // measured rather than a smaller stand-in.
+  expect(meta.nNodes).toBeGreaterThan(1 << 21);
+
+  const built = await must(page, 'buildTopology', { handle });
+  const counts = built.result as unknown as { faces: number; boundaryFaces: number };
+  // A key collision deletes faces silently, and a topology that lost faces would also flatter the
+  // number this test exists to bound. 13,033,527 tets have 52,134,108 face *instances*; every one
+  // is shared by at most two tets, so a correct table has strictly more than `nTets` unique faces
+  // and strictly fewer than four per tet.
+  expect(counts.faces, 'every tet face is accounted for').toBeGreaterThan(meta.nTets as number);
+  expect(counts.faces).toBeLessThan(4 * (meta.nTets as number));
+  expect(counts.boundaryFaces).toBeGreaterThan(0);
+
+  const heapMb = built.heapBytes / MB;
+  console.log(
+    `[§9.2] ernie_seeg.msh buildTopology: ${counts.faces} unique faces ` +
+      `(${counts.boundaryFaces} boundary), wasm_heap_bytes ${built.heapBytes} = ` +
+      `${heapMb.toFixed(1)} MB (${(built.heapBytes / 492_090_201).toFixed(2)} × file) in ` +
+      `${built.elapsedMs.toFixed(0)} ms; the load path alone was ` +
+      `${(loaded.heapBytes / MB).toFixed(1)} MB`
+  );
+  // The peak is monotone: linear memory never shrinks, so the topology arena sits on top of the load
+  // arena and can only be higher. A lower number would mean the heap probe is not measuring what
+  // §9.2 says it measures.
+  expect(built.heapBytes, 'the topology arena is on top of the load arena').toBeGreaterThanOrEqual(
+    loaded.heapBytes
+  );
+  // §9.2's **resident** column, which this measurement is what added: the live-byte model is
+  // 1,548 MB, the observable linear memory is 1,893 MB `[M2Max]`, and the difference is the load
+  // path's freed 492 MB input block, which wasm never returns and dlmalloc only partly reuses.
+  // The bar is 2,100 MB — the measurement plus ~11 % — and is 52 % of the 4,032 MiB ceiling.
+  expect(heapMb, '§9.2 buildTopology resident bar for ernie_seeg.msh').toBeLessThanOrEqual(2100);
+  // The growth *over* the load path is the arena §9.2's model budgets: `TetTopology`
+  // (26,167,586 × 20 B = 499 MB) + the counting-sort transient (4 × 13,033,527 × 12 B = 597 MB).
+  expect(
+    (built.heapBytes - loaded.heapBytes) / MB,
+    '§9.2 buildTopology arena, over the load path'
+  ).toBeLessThanOrEqual(1200);
+});
+
+/** The same bar on `ernie.msh` — §9.2's common case, `≤ 600 MB` against a 566 MB model. */
+test('ernie.msh: `buildTopology` against §9.2’s ≤ 600 MB topology-path bar', async ({ page }) => {
+  test.slow();
+  test.setTimeout(300_000);
+  await open(page);
+  const loaded = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fsUrl(ERNIE) },
+    format: 'auto',
+  });
+  const meta = loaded.result?.meta as Record<string, unknown>;
+  expect(meta.nTets).toBe(4_722_625);
+
+  const built = await must(page, 'buildTopology', { handle: meta.handle as number });
+  const counts = built.result as unknown as { faces: number; boundaryFaces: number };
+  // §11's **Surface invariant**, from the other side: ernie has 9,509,557 unique faces `[DATA]`
+  // (`docs/ARCHITECTURE.md` §9.2's component table) and 128,614 of them are exterior.
+  expect(counts.faces).toBe(9_509_557);
+  expect(counts.boundaryFaces).toBe(128_614);
+
+  const heapMb = built.heapBytes / MB;
+  console.log(
+    `[§9.2] ernie.msh buildTopology: ${counts.faces} unique faces (${counts.boundaryFaces} boundary), ` +
+      `wasm_heap_bytes ${built.heapBytes} = ${heapMb.toFixed(1)} MB ` +
+      `(${(built.heapBytes / 184_207_351).toFixed(2)} × file) in ${built.elapsedMs.toFixed(0)} ms; ` +
+      `the load path alone was ${(loaded.heapBytes / MB).toFixed(1)} MB`
+  );
+  // §9.2's resident column for this file: model 566 MB, measured **846 MB** `[M2Max]`, of which
+  // 184 MB is the never-returned input block. Bar = the measurement plus ~13 %.
+  expect(heapMb, '§9.2 buildTopology resident bar for ernie.msh').toBeLessThanOrEqual(960);
+  expect(
+    (built.heapBytes - loaded.heapBytes) / MB,
+    '§9.2 buildTopology arena, over the load path'
+  ).toBeLessThanOrEqual(560);
 });
 
 test('opening ernie_seeg.msh shows progress fast and cancels fast (Phase-1 gate 1)', async ({

@@ -33,6 +33,36 @@ export interface TetravoxBridge {
   onOpened(listener: (paths: OpenedPath[]) => void): () => void;
   /** Renderer → main-process stdout, so an e2e run and a terminal see the same log. */
   log(message: string): void;
+
+  // -- Phase 2, scene save/load (§4.6, §8) -------------------------------------------------------
+  // Still **paths and small JSON**: a `ViewSpec` is a few kB, and main caps both directions at
+  // `MAX_SCENE_BYTES` (`main/scene-io.ts`). Reads go through the `tetravox://file/…` allow-list;
+  // writes go through a *separate* list that only the Save dialog fills, so being able to read
+  // `T1.nii.gz` never implies being able to overwrite it.
+
+  /** File ▸ Open Scene… — one `*.tetravox.json`, allow-listed for reading. */
+  openSceneDialog(): Promise<OpenedPath | null>;
+  /** File ▸ Save Scene As… — the chosen path, admitted for writing and nothing else. */
+  saveSceneDialog(defaultName: string): Promise<string | null>;
+  /** Pick a replacement for a dataset the scene could not find (§8's relocate dialog). */
+  relocateDialog(missingName: string): Promise<OpenedPath | null>;
+  /** Read an allow-listed scene file. `ok: false` carries the reason; it never throws. */
+  readSceneFile(path: string): Promise<SceneIoResult>;
+  /** Write a scene file to a path `saveSceneDialog` returned. */
+  writeSceneFile(path: string, text: string): Promise<SceneIoResult>;
+  /** File-menu scene commands, pushed from main. The renderer owns the `Engine`, so it does the work. */
+  onSceneCommand(listener: (command: SceneCommand) => void): () => void;
+}
+
+/** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
+export type SceneCommand = 'new' | 'open' | 'save' | 'saveAs';
+
+/** The result of the two scene-file calls; mirrors `main/scene-io.ts`'s own type. */
+export interface SceneIoResult {
+  ok: boolean;
+  path?: string;
+  text?: string;
+  error?: string;
 }
 
 const bridge: TetravoxBridge = {
@@ -48,6 +78,17 @@ const bridge: TetravoxBridge = {
     return () => ipcRenderer.removeListener('tetravox:opened', wrapped);
   },
   log: (message) => ipcRenderer.send('tetravox:log', message),
+  openSceneDialog: () => ipcRenderer.invoke('tetravox:open-scene-dialog'),
+  saveSceneDialog: (defaultName) => ipcRenderer.invoke('tetravox:save-scene-dialog', defaultName),
+  relocateDialog: (missingName) => ipcRenderer.invoke('tetravox:relocate-dialog', missingName),
+  readSceneFile: (path) => ipcRenderer.invoke('tetravox:read-scene', path),
+  writeSceneFile: (path, text) => ipcRenderer.invoke('tetravox:write-scene', path, text),
+  onSceneCommand: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, command: SceneCommand): void =>
+      listener(command);
+    ipcRenderer.on('tetravox:scene-command', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:scene-command', wrapped);
+  },
 };
 
 contextBridge.exposeInMainWorld('tetravox', bridge);

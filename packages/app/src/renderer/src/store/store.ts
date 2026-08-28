@@ -20,22 +20,31 @@ import type {
   Capabilities,
   Dataset,
   DatasetId,
+  DatasetRef,
   Layer,
   LayerId,
   LayoutKind,
   ProbeResult,
   QualityLevel,
+  ScreenshotOptions,
   ViewId,
+  ViewSpec,
   vec3,
 } from '@tetravox/engine';
 import type { LoadCard } from '../lib/loads';
 import type { Toast } from '../lib/toasts';
 import type { MetricsState } from '../lib/metrics';
+import type { RegionStat, SelectionState } from '../panels/regions/regions';
 import { EMPTY_METRICS } from '../lib/metrics';
 import type { EngineImpl } from '../engine/factory';
 
-/** §8's coordinate bar: `World RAS` | `Voxel (active layer)`. `MNI` arrives with `toTemplate` (Phase 2). */
-export type CoordSpace = 'ras' | 'voxel';
+/**
+ * §8's coordinate bar: `World RAS` | `Voxel (active layer)` | `MNI`.
+ *
+ * `'mni'` is Phase 2's (audit P2-10). The option is offered only when a volume dataset carries a
+ * `toTemplate`, and rendered **greyed** otherwise, so its absence is visible rather than silent.
+ */
+export type CoordSpace = 'ras' | 'voxel' | 'mni';
 
 export type EngineStatus = 'pending' | 'ready' | 'webgl2-null' | 'failed';
 
@@ -45,6 +54,14 @@ export interface ScreenshotRecord {
   /** The blob really started with the 8-byte PNG signature. */
   isPng: boolean;
   at: number;
+  // -- Phase 2, appended: what the PNG's own chunks said (§11: parse it, do not eyeball it) -------
+  /** `IHDR` width/height, so the status bar reports the file's size, not the pane's. */
+  width?: number;
+  height?: number;
+  /** From the `pHYs` chunk. Absent when the file carries none. */
+  dpi?: number;
+  /** What `ScreenshotOptions.dpi` asked for, so a mismatch is a visible pair, not a silent drop. */
+  requestedDpi?: number;
 }
 
 export interface UiState {
@@ -61,6 +78,8 @@ export interface UiState {
   cells: ViewId[];
   radiological: boolean;
   crosshair: boolean;
+  /** §8's colour bars, mirrored from `Scene.annotations.colorbars` (appended; never renamed). */
+  colorbars: boolean;
   cursor: vec3;
   cursorProbe: ProbeResult | null;
   hover: vec3 | null;
@@ -80,7 +99,83 @@ export interface UiState {
   heapBytes: Record<DatasetId, number>;
   lastLoadMs: Record<DatasetId, number>;
   lastScreenshot: ScreenshotRecord | null;
+  /**
+   * Region-panel selection per layer (R5: click / ⇧ / ⌘ / Alt-solo).
+   *
+   * Chrome, not scene: what is *highlighted* is a panel affordance, while what is **visible**
+   * lives in `VolumeLayer.visibleLabels` / `MeshLayer.tagStyle` and only the engine holds it.
+   */
+  regionSelection: Record<LayerId, SelectionState>;
+  /**
+   * `labelCentroids` (§6.5.2) results per layer — the only legitimate source of a region's voxel
+   * count and centroid. §4.3 keeps `VolumeDataset.data` on this thread "for probes only", and a
+   * count over 256×256×208 is not a probe.
+   */
+  regionStats: Record<LayerId, RegionStat[]>;
+
+  // -- A-PROPS (§8's property editors) — appended, per the shared-file rule in
+  //    docs/PHASE2-OWNERSHIP.md. Both are chrome: the engine has no opinion about either.
+  /**
+   * Per layer, the §7.4 switches whose geometry is being built in a worker right now — `'edges'`,
+   * `'elmField'`, `'label'`. §7.4: "the first toggle of `edges.surface`, the first switch to an
+   * element field, and the first `colorMode:'label'` on a given mask are **async loads with a
+   * progress state**, not instant checkboxes."
+   */
+  meshPending: Record<LayerId, string[]>;
+
+  // -- Phase 2, A-SHELL (appended; §8's scene save/load, dialogs and header panel) ----------------
+  /** The scene file this session is attached to, so `Save` can write without asking again (§4.6). */
+  sceneFile: SceneFileRecord | null;
+  /** The last scene save/load failure, shown next to the toolbar's scene controls. */
+  sceneError: string | null;
+  /** Which modal is up. One at a time: they are all full-window, so a stack would only hide one. */
+  dialog: DialogKind;
+  /** The relocate dialog's rows, populated by `loadScene` before it raises the dialog. */
+  relocate: RelocateRequest | null;
+  /** The options the screenshot dialog opens with; edits are kept so a reopen resumes them. */
+  screenshotOptions: ScreenshotOptions;
+  /** The dataset whose raw header the info panel's header block is showing; null = the active one. */
+  headerDatasetId: DatasetId | null;
 }
+
+/** Where this scene lives on disk, and when it was last written there. */
+export interface SceneFileRecord {
+  path: string;
+  name: string;
+  savedAt: number | null;
+}
+
+export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard';
+
+/** One row of the relocate dialog: the ref, what was tried for it, and what the user picked. */
+export interface RelocateRow {
+  ref: DatasetRef;
+  tried: string[];
+  picked: string | null;
+}
+
+export interface RelocateRequest {
+  spec: ViewSpec;
+  scenePath: string;
+  /** Refs that resolved on their own, mapped to the path that worked. Not shown; carried through. */
+  resolved: Record<string, string>;
+  missing: RelocateRow[];
+}
+
+/** §8's screenshot defaults — what the toolbar used before the dialog existed, unchanged. */
+export const DEFAULT_SCREENSHOT_OPTIONS: ScreenshotOptions = {
+  target: 'grid',
+  background: 'scene',
+  include: {
+    colorbar: true,
+    orientationLabels: true,
+    crosshair: true,
+    cornerInfo: true,
+    scaleBar: false,
+  },
+  autoTrim: false,
+  dpi: 144,
+};
 
 export const INITIAL_UI: UiState = {
   status: 'pending',
@@ -94,6 +189,7 @@ export const INITIAL_UI: UiState = {
   cells: [],
   radiological: false,
   crosshair: true,
+  colorbars: true,
   cursor: [0, 0, 0],
   cursorProbe: null,
   hover: null,
@@ -109,6 +205,15 @@ export const INITIAL_UI: UiState = {
   heapBytes: {},
   lastLoadMs: {},
   lastScreenshot: null,
+  regionSelection: {},
+  regionStats: {},
+  meshPending: {},
+  sceneFile: null,
+  sceneError: null,
+  dialog: 'none',
+  relocate: null,
+  screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,
+  headerDatasetId: null,
 };
 
 export type UiStore = StoreApi<UiState>;
@@ -141,4 +246,53 @@ export function layersTopFirst(state: UiState): Layer[] {
 export function activeVolumeDataset(state: UiState): Dataset | null {
   const dataset = datasetOf(state, activeLayer(state));
   return dataset?.kind === 'volume' ? dataset : null;
+}
+
+// -- Phase 2, A-SHELL (appended) -----------------------------------------------------------------
+
+/** A volume dataset that is known to carry §4.3's `toTemplate`, so callers need no second guard. */
+export type TemplateVolume = Extract<Dataset, { kind: 'volume' }> & {
+  toTemplate: NonNullable<Extract<Dataset, { kind: 'volume' }>['toTemplate']>;
+};
+
+/**
+ * The volume whose `toTemplate` the coordinate bar's MNI column uses, or null when none has one.
+ *
+ * The active layer's dataset first, so a scene with a subject volume *and* an MNI-space overlay
+ * reports the space of the thing the user is looking at; otherwise the topmost volume that carries
+ * one, because "some dataset in this scene is in MNI" is still worth offering. `sform_code`/
+ * `qform_code` = 4 is what makes a volume MNI152, and deriving that is E-SCENE's `scene/fromMeta.ts`
+ * (audit P2-10) — the app only reads the field.
+ *
+ * **It returns the dataset itself, never a wrapper object.** A selector is read through
+ * `useSyncExternalStore`, which compares with `Object.is`; a `{ dataset, toTemplate }` literal is a
+ * new object on every call, so every store read looks like a change and React re-renders until it
+ * throws "Maximum update depth exceeded". Returning the identity that is already in the store is
+ * what makes the selector stable, and it is why the return type narrows instead of wrapping.
+ */
+export function templateSource(state: UiState): TemplateVolume | null {
+  const active = datasetOf(state, activeLayer(state));
+  if (active?.kind === 'volume' && active.toTemplate !== undefined) return active as TemplateVolume;
+  for (let i = state.layers.length - 1; i >= 0; i--) {
+    const layer = state.layers[i] as Layer;
+    const dataset = state.datasets.find((d) => d.id === layer.datasetId);
+    if (dataset?.kind === 'volume' && dataset.toTemplate !== undefined) {
+      return dataset as TemplateVolume;
+    }
+  }
+  return null;
+}
+
+/** The dataset whose raw header the info panel shows: the pinned one, else the active layer's. */
+export function headerDataset(state: UiState): Dataset | null {
+  if (state.headerDatasetId !== null) {
+    return state.datasets.find((d) => d.id === state.headerDatasetId) ?? null;
+  }
+  return datasetOf(state, activeLayer(state));
+}
+
+/** The active layer's mesh dataset, when it has one — what the `.msh.opt` chip hangs off (§7.6). */
+export function activeMeshDataset(state: UiState): Extract<Dataset, { kind: 'mesh' }> | null {
+  const dataset = datasetOf(state, activeLayer(state));
+  return dataset?.kind === 'mesh' ? dataset : null;
 }

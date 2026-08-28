@@ -18,11 +18,29 @@ export { buildChrome } from './chrome';
 export type { ChromeInput } from './chrome';
 export { drawColorbar } from './colorbar';
 export type { ColorbarSpec, ColorbarTick } from './colorbar';
+// Appended by E-SLICE (Phase 2): the bar's layout and the volume producer (§8).
+export { colorbarLayout, formatTick, volumeColorbarSpec } from './colorbar';
+export type { ColorbarLayout } from './colorbar';
 export { drawCornerLines } from './corner';
 export type { CornerLines } from './corner';
 export { drawCrosshair } from './crosshair';
 export type { CrosshairSpec } from './crosshair';
+export { drawCrosshair3D, CROSSHAIR_3D_ARM_PX } from './crosshair';
 export { drawGizmo } from './gizmo';
 export type { GizmoSpec } from './gizmo';
+export {
+  gizmoBasis,
+  gizmoHandleAt,
+  handlePoints,
+  planeBasis,
+  ARC_SEGMENTS,
+  HANDLE_HIT_PX,
+  KNOB_PX,
+  RING_SEGMENTS,
+} from './gizmo';
+export type { GizmoColors, GizmoHandle } from './gizmo';
 export { drawEdgeLetters } from './letters';
 export type { EdgeLetters } from './letters';
+// E-DERIVED: the contour item's pure screen-space expansion, the CPU twin of `shaders/contour.ts`.
+export { contourInstanceCount, expandContourSegment } from './contours';
+export type { ContourQuad } from './contours';

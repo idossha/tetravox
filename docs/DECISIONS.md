@@ -1494,3 +1494,1009 @@ Each entry below names the problem, the fix, and the evidence.
   full macOS suite locally on every phase, so automatic macOS CI buys nothing; ubuntu-24.04 (the golden authority) stays
   automatic on push and PR. Alternatives rejected: keeping macOS on push (cost), dropping macOS entirely (still useful for
   a manual pre-release check).
+
+- 2026-08-27 — **`DatasetRef.fingerprint` has a producer: `tvxfp1`, in `tvx-core`, called by both loaders
+  before the bytes are freed** (W-WASM Phase-2 gap 1). §4.6 required the field, §8 keys the relocate dialog
+  on it, and nothing computed it: `VolumeMeta` and `MeshMeta` had no such member and `scene/serialize.ts`
+  wrote `''`. §5 rule 3 puts the file bytes out of the UI thread's reach and §5 rule 5 has the parser free
+  them before it returns, so there is exactly one line where the digest can be taken — above the
+  `read_nifti` / `read_msh` call in `tvx_wasm::{volume,mesh}::load` — and that is where it is taken.
+  The algorithm is **FNV-1a-64 over `len` (u64 LE) followed by sampled chunks, finished with `fmix64`**,
+  printed as `tvxfp1-<len:16hex>-<hash:16hex>`; the chunks are the whole file up to 8 MiB and three
+  non-overlapping 1 MiB windows (head, middle, tail) above it. §4.6's original `"<size>-<sha256 of first
+  1 MiB>-<sha256 of last 1 MiB>"` is amended to it in the same commit: **SHA-256 would be a new workspace
+  dependency and the dependency set is frozen** (§12.3), and this string identifies a file rather than
+  authenticating one. It is written out normatively instead of being delegated to a hasher's default because
+  it is persisted in a `*.tetravox.json` and must mean the same thing on every platform and in every future
+  build — `^`, `*` and shifts on u64 only, so wasm32 and native agree by construction, and the e2e asserts
+  the Rust output against an independent TypeScript implementation of the same spec over the same fixture
+  bytes. Two consequences are deliberate and tested: a `.nii` and a `.nii.gz` of one volume share a
+  fingerprint (the digest is of the **inflated** bytes, because §5 rule 4 inflates in the worker), and a
+  mesh's `.msh.opt` / `_LUT.txt` sidecars are outside it, so recolouring a tissue does not make the file
+  look like a different one. An edit to a file over 8 MiB that misses all three windows is not detected —
+  the accepted price of not reading 180 MB twice for a dialog that asks "is this the file you moved?".
+  Hashing every byte of every file, and hashing on the UI thread — both rejected, the first on the load
+  budget (§9.1) and the second by §5 rule 3.
+
+- 2026-08-27 — **Volumetric glyph origins are a new op, `meshCentroids` → `mesh_centroids` →
+  `tvx_geom::tet_centroids`** (W-WASM Phase-2 gap 2; §6.5.2 now has **18** ops). §7.4 draws glyphs as
+  "one instanced draw … with per-instance origin/direction/magnitude. **No new geometry from WASM**",
+  and two of the three cases already had origins — a *surface* glyph reads `SurfacePayload.positions`
+  + `ownerElm`, a *cut-plane-restricted* one reads `CutPayload.positions` + `ownerTet`. The
+  unrestricted case (interior tets, no cut plane — what `ernie_TDCS_1_scalar.msh`'s `E` over
+  5,900,498 elements invites) had none, and the map left the scope call open. **Taken, not closed as
+  "surface only"**: the op returns *points*, one per tet, so §7.4's rule stays true — no triangles, no
+  normals, no vertex-buffer expansion — and E-DERIVED can bind `positions` as an instance attribute
+  and `ownerTet` as the key into the field texture it already builds. `stride` is the density knob a
+  4.7 M-element layer needs; `maskId` and `tags` filter **first** so a rare tissue still gets glyphs
+  (Muscle is 4,400 tets, 0.09 % of ernie, and gets 69 origins at stride 64), and the count is exactly
+  `ceil(surviving / stride)`. Output is in **Morton order**, which is what makes striding a density
+  control rather than a spatial bias — measured on ernie's GM, the mean of a 1-in-64 sample is
+  **0.0156 mm** from the mean of all 1,340,029 `[M2Max]` — and that number also settles a second
+  question: R5's "double-click → region centroid" works for a **mesh tissue tag** through this op, so
+  no `meshTagCentroids` is needed. Returning bulk node positions instead — rejected: 847,165 nodes is
+  the wrong cardinality for a per-element field and 10 MB to move. A `field`-result extension —
+  rejected: it would put geometry in an op whose contract is values.
+- 2026-08-27 — **`locate_point` gates candidates on their AABB before the barycentric test.** Found
+  while writing `meshCentroids`' cross-check ("a tet's centroid must locate into that tet"): 2 of 48
+  sampled ernie centroids located into a **scalp sliver** at (49.3, 16.2, −71.9), ~60 mm away, with
+  6·V ≈ 2.5e-7 mm³. The locator's cells must be at least as large as the largest tet — that is what
+  makes its 3×3×3 scan exhaustive — so distant candidates are normal, and an f32 barycentric test on a
+  sliver at that distance is pure cancellation: it returned `[1019.5, 601.5, 5476.4, 2885.1]`, four
+  positive weights, i.e. "inside". The AABB test is exact (a point inside a tet is inside its AABB),
+  so it can only remove wrong answers; it is also cheaper than four signed volumes. This matters
+  beyond glyphs: `locate` is what R4's gate cross-checks a cut pixel's `TI_max` through, and what
+  P2-04's probe rows read. A regression test pins it with the sliver's real coordinates, because the
+  failure is a property of those f32 values. Tightening the barycentric `EPS` instead — rejected: the
+  weights are not near zero, they are meaningless.
+
+- 2026-08-27 — **`field`'s element values are the file's element order, and `MeshMeta` says whether
+  `gmsh - 1` may index them.** Found in the W-WASM re-check of Phase-2 protocol coverage. §7.4 builds
+  its element-field texture with `texelFetch(elmFieldTex, …)` per triangle, keyed by
+  `SurfacePayload.ownerElm` / `CutPayload.ownerTet` / `meshCentroids.ownerTet` — all **Gmsh element
+  numbers** (§6.2). The `field` op handed the tet block out in §6.3's **Morton** order, and
+  `tet_perm` never crosses the wire, so no consumer could turn a Gmsh number into a row: R4's gate
+  ("`Thalamus_TI.msh` with `TI_max` element colouring on the cut, cross-checked through `locate`")
+  was unimplementable, and the failure mode is a cut coloured with *other elements'* values — a
+  picture that looks entirely plausible and is wrong, which is the case §11 exists for. `elm_values`
+  now un-permutes the tet block, so row `i` is the file's `i`-th element for tris and tets alike, and
+  §6.5.2 states the ordering of both `source` kinds as part of the contract. `MeshMeta` gains
+  `identityElementNumbers` (true iff §6.2's identity rule holds, i.e. `gmsh_elm_numbers` is `None`,
+  which is every reference file and every format without element numbering): it is what licenses
+  `gmsh - 1`, so a consumer can detect the exotic case and colour by tag instead of silently painting
+  the wrong elements. Shipping `tet_perm` in `MeshMeta` instead — rejected: 19 MB on the wire for
+  ernie, to undo a permutation the worker can undo in one pass at query time. Leaving the ordering
+  undocumented and letting E-MESH discover it — rejected: no engine code consumes `field` yet, which
+  is exactly why W-WASM merges first.
+- 2026-08-27 — **`contours` is stored-triangles-only, and that is documented rather than patched.**
+  Same re-check: `grey_Thalamus_TI.msh` has 1,340,029 tets and **0 triangles**, so the `contours` op
+  answers with zero segments on the very mesh R4 names for mesh-only cross-sections. It is not a gap
+  — a tet mesh's `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with
+  `fillIn2D`'s polygons on the same latest-wins key, so the consumer makes one call, not two. The
+  trap was the silence, so §6.5.2, `surface_contours`' own doc comment and
+  `packages/wasm/e2e/contours.spec.ts` now say which producer serves which mesh, on the fixture and
+  on `grey_Thalamus_TI.msh` itself. Making `contours` fall back to the tet path — rejected: it would
+  need `TetBlocks` in a §6.3 signature that has none, and it would hide the distinction the 2D
+  overlay has to make anyway.
+- 2026-08-27 — **A 2D pane's in-plane origin is the scene bounding-box centre, not the cursor**
+  (E-SCENE, R3). §4.5 defined `SliceView.camera.center` as "relative to the cursor's projection", and
+  `sliceViewProj` implemented it literally: the pane's world-to-screen map was a function of
+  `scene.cursor`. That is the defect R3 names — *move the crosshair, not the scan*. Under it, setting
+  the cursor slides the image and leaves the crosshair pinned to the pane, so a left-click-to-set-cursor
+  gesture is not merely wrong but unwritable: the point the user clicked moves away from the pointer as
+  the click lands, and R3's gate ("the pixel colour at a fixed screen point away from the crosshair is
+  byte-identical before/after the left-drag") cannot be satisfied by any implementation of it. The
+  anchor is derived, never stored — the discipline §4.5 already applies to the slice plane — and it is
+  the bounds centre because that is the one point in the scene no gesture moves and because it
+  **coincides with the cursor at load** (§4.7 auto-centres there), which is why the change moved no
+  Phase-1 golden: every one of them is captured with `center = [0,0]` and the cursor on the bbox centre.
+  The compensation is applied in one place, `view/geometry.ts`'s `effectiveSliceView`, which
+  re-expresses `center` in the cursor-relative frame the renderer already speaks. That was chosen over
+  teaching the anchor to `sliceViewProj`, `SlicePass.quadHalfFor`, `SlicePass.#writeQuad` and
+  `OverlayPass`'s crosshair placement — four call sites in three files, two of them owned by E-SLICE
+  and by the shared pass layer — and it makes `quadHalfFor`'s `paneHalf + |center|` *correct* rather
+  than merely unchanged, since that expression always meant "quad centre to pane corner". **One
+  follow-up is owed to W-WASM**: the inline comment on `SliceView.camera.center` in the frozen
+  `scene/types.ts` still says "relative to the cursor's projection". It is a comment, not a type, so
+  nothing compiles differently; §4.5 now carries the normative paragraph and names the reword as
+  W-WASM's.
+
+- 2026-08-27 — **A mesh-only scene steps 1 mm per slice, not `bboxDiagonal / 256`** (E-SCENE, R4).
+  §7.5's fallback made a wheel notch mean a different distance per file — 1.32 mm on `ernie.msh`,
+  0.53 mm on `lh.central.gii`, 0.13 mm on a single electrode — for the one gesture whose value is that
+  it sweeps at a rate the user can predict and count. `stepMm` takes the step as an optional argument
+  (R4's "(configurable)") and defaults it to `MESH_ONLY_STEP_MM = 1`. The existing §7.5 unit test is
+  unchanged and still passes: its bounds have a 256 mm diagonal, where the two rules agree.
+
+- 2026-08-27 — **The 3D pane draws a crosshair marker, and it is a short cross rather than the 2D
+  pane's full-span rules** (E-SCENE, R1). R1's gate ends "and the 3D crosshair moves", and Phase 1
+  drew no crosshair in a `View3D` at all — `passes/overlay.ts` computed one only for a `SliceView`, so
+  the 3D pane had no way to show where the cursor was. The cursor is projected through the pane's own
+  view-projection (`worldToPane3D`) and drawn as a ±14 px cross, dropped when it is behind the eye.
+  Full-span rules were rejected: in a perspective view they read as two lines floating in space with no
+  relation to the geometry, and they cross the orientation letters on all four edges. The marker is
+  ~50 px of a 589,824 px pane, three orders below §11's `maxDiffPixelRatio: 0.002`, so **no Phase-1
+  golden was regenerated** — `gate3-t1-2x2-chrome` and `gate5-ernie-pick` both still pass against the
+  committed PNGs, which is the honest way to add an item to a pane a closed gate photographs.
+
+- 2026-08-27 — **The pointer layer's operations are public methods on `TetravoxEngine`, not private
+  event handlers** (E-SCENE, P2-01). Every gesture §7.5 binds — `setCursorFromScreen`, `panView`,
+  `zoomViewAt`, `zoomView`, `stepSlice`, `windowLevelDrag`, `opacityDrag`, `orbitView`, `pan3DView`,
+  `dollyView`, `pickToCursor`, `hoverAtScreen`, `noteInput` — is a method the class exposes, and
+  `PointerLayer` is the only caller of them inside the engine (`TetravoxEngine implements PointerHost`
+  is what keeps that honest). §8 requires that "everything the UI can do must be reachable from the
+  `Engine` API alone", and a gesture implemented inside a DOM handler is reachable from nothing: not
+  from the app, not from a script, not from a test that does not synthesise events. They are appended
+  to the concrete engine rather than to the frozen §4.7 `Engine`, because the ownership map gives
+  E-SCENE exactly **one** `api.ts` carve-out and it is P2-09's; promoting this set to the facade is a
+  W-WASM item whenever the app wants to reach it through the interface rather than the class.
+
+- 2026-08-27 — **`Engine.probe` remembers the last non-empty row per layer at the cursor** (E-SCENE,
+  P2-04). A mesh probe is a `locate` round trip, latest-wins on **one key per layer** (§6.3), and P2-04
+  points that key at the hover position so §8's `Mouse` block can fill inside its 50 ms budget. That
+  alone would blank §8's `Cursor` block — "last click, **persistent**" — every time the mouse moved,
+  because `probeRow` serves whatever the last `locate` answered and its world point no longer matches
+  the cursor. The memo is engine-side, keyed by layer, filled only for a probe **at** the cursor, and
+  cleared by `setCursor`, so it can never describe a point the cursor has left. Two `locate` keys per
+  layer was the alternative and was rejected: the key belongs to `layers/mesh.ts`, which is E-MESH's,
+  and doubling the in-flight requests to keep a UI panel populated is the wrong end of the problem.
+
+- 2026-08-27 — **§7.5's slice-step snap is along the normal only** (E-SCENE, found by the R1/R3 gate).
+  §7.5 says "snap **the cursor's along-normal component** to the nearest voxel plane"; Phase 1 rounded
+  all three voxel indices and rebuilt the world point from them, which also dragged the cursor
+  sideways to the nearest voxel *centre*. On `vol_asym.nii` one wheel notch after a click moved the
+  cursor 1 mm along the normal **and 0.5 mm across the plane**, so §7.5's "moves the cursor by
+  `step_mm`" was false and a click-then-scroll walked the crosshair off the anatomy the user had
+  picked. The snap now solves for the distance along the normal that puts the stepping voxel index
+  (`voxelAxisAlong`, the same derivation §8's corner index uses) on an integer: exact for canonical
+  planes, correct for oblique, and it cannot touch the in-plane position. It surfaced only once a
+  pointer could put the cursor at an arbitrary in-plane point — before P2-01 every cursor came from
+  `setCursor`, a pick, or a step, and the last two are already on the grid.
+
+- 2026-08-27 — **Harness note: two worktrees cannot share the Playwright test-server port.**
+  `playwright.config.ts` sets `reuseExistingServer: !CI` on a fixed 5199, so a second worktree running
+  `pnpm e2e` silently drives the *first* worktree's Vite — which serves that worktree's source and
+  whose `fs.allow` rejects this one's `testdata/`, producing `403 Forbidden` on every fixture and a
+  stack trace naming a directory the run has nothing to do with. `TETRAVOX_TEST_PORT` already exists
+  for this; Phase-2's parallel branches need to use it (`TETRAVOX_TEST_PORT=59xx pnpm --filter
+  @tetravox/engine exec playwright test`). Recorded rather than fixed: the port default is
+  `docs/TESTING.md`'s and the integrator's, not E-SCENE's.
+
+- 2026-08-27 — **`background: 'transparent'` is a two-render matte, not an alpha clear** (E-SCENE,
+  P2-06). The engine's context is created with `alpha: false` (`gl/context.ts`) — the right default for
+  a viewer, since an alpha canvas composites against the page every frame — so the default framebuffer
+  has **no alpha channel to read back**: clearing to `[0,0,0,0]` yields an opaque black PNG, which is
+  what the Phase-1 audit's fix F4 actually shipped. `screenshot()` now draws the frame twice, over
+  opaque black and over opaque white, and solves `α = 1 − (R_white − R_black)`, `C = R_black / α` per
+  pixel — exact for the `src·α + dst·(1−α)` blend every pass uses, and it costs a second render only on
+  the one `background` mode that needs it. `'white'` stopped being a post-composite at the same time
+  (compositing an already-opaque background over white is a no-op, so it returned the dark scene
+  colour) and is now simply a clear to white. Flipping the context to `alpha: true` was rejected: it is
+  `gl/context.ts`, the integrator's, and it would change how **every** frame composites to fix a
+  screenshot mode.
+
+- 2026-08-27 — **A screenshot at a size is a render at that size, and `include` is an `Annotations`
+  override** (E-SCENE, P2-06). §7.0.4 measured that `blitFramebuffer` cannot resolve **and** rescale in
+  one call, so `width`/`height`/`scale` cannot be a blit; the drawing buffer is resized to what
+  `screenshotPlan` computes, the frame is drawn, and the canvas is restored — all inside one task, so
+  the compositor never sees the intermediate size. For `target: 'view'` the plan sizes the **whole
+  canvas** so that the pane lands at the requested pixels (a 1200 px pane of a 2×2 layout needs a
+  2400 px canvas), which is what makes it a render rather than an upscale of 384 px. The `include`
+  flags map onto §4.5's `Annotations` for the duration of that render, because the chrome is drawn
+  *into* the framebuffer (§8, §11) and a post-process cannot tell a letter from the anatomy under it.
+  `conventionBadge` stays `true` throughout: §8 says it is not optional and `include` has no flag for
+  it, so a screenshot can never leave the application without its RAD/NEU badge.
+
+- 2026-08-27 — **The R2 zoom gate had to lift itself off the `mmPerPx` clamp** (E-SCENE, found by
+  running the suite the way CI runs it). `pointer.spec.ts`'s R2 test falls back to `vol_asym.nii` when
+  `TETRAVOX_TESTDATA` is unset — which is exactly what CI does, by design — and that fixture's 8 mm
+  extent fits to `max(0.05, …)`, i.e. the **0.05 floor** of R2's [0.05, 20] clamp. One notch in from
+  there is a no-op, so "one notch divides `mmPerPx` by 1.2" was asserting the clamp. The test now zooms
+  three notches out (about the pane centre, so `camera.center` stays `[0,0]`) before measuring, and the
+  "`r` restores the fit" leg zooms **out** rather than in for the same reason. It passed locally
+  because the local run has the real data; it would have failed on the first CI run.
+
+- 2026-08-27 — **`serialize()` is told where the scene file will live; it does not guess twice**
+  (E-SCENE, P2-07). §4.6 wants `DatasetRef.path` relative to the scene file and §4.7's `serialize()`
+  is frozen with no argument, so the one fact the engine cannot derive — the directory the host is
+  about to write to — is set on the concrete engine (`TetravoxEngine.setSceneDir`, outside the frozen
+  facade, like the rest of P2-01's surface). Unset, it measures from the datasets' own **common
+  directory**, which is exactly right for a scene saved beside its data and never worse than the
+  absolute path it also always writes. Resolution is the caller's (`load(spec, resolve)` is the
+  relocate hook), so the "scene-relative first, absolute fallback" order ships as one exported
+  function, `candidatePaths` — one implementation rather than one per host. A Vite `/@fs/<abs>` alias
+  is deliberately **not** treated as opaque: it is structurally a path, and treating it as one is what
+  lets the §11 harness exercise the relative-path code instead of skipping past it.
+
+- 2026-08-27 — **Restoring a scene is datasets, then layers, then views — in that order** (E-SCENE,
+  P2-07). `addDataset` mints a fresh `DatasetId`, so the spec's ids are stale from the first load:
+  layers can only be recreated once the old→new map exists, and `activeLayerId` /
+  `SliceView.layerVisibility` / `View3D.layerVisibility` only once the layers have theirs. Phase 1
+  restored neither and, as `scene/serialize.ts` said at the time, could not have. `remapLayer` also
+  rewrites the **second** dataset two layer kinds name — `MeshLayer.isolate.labelVolume` and
+  `IsosurfaceLayer.source` — and drops an isolation whose label volume did not come back rather than
+  leaving it pointed at whichever dataset now holds that id. A dataset the hook cannot place takes its
+  layers with it, so a partly relocated scene opens as the part that resolved.
+
+- 2026-08-27 — **`DatasetRef.fingerprint` is read from the meta, not asserted onto it** (E-SCENE,
+  P2-07 / W-WASM gap 1). The fingerprint has to be computed over the input bytes inside the dataset's
+  worker (§5 rule 3), and `VolumeMeta` / `MeshMeta` do not carry the field yet — it is W-WASM's, in a
+  frozen file E-SCENE may not touch. `fingerprintFromMeta` therefore reads whatever is on the meta,
+  accepts only a string and yields `''` otherwise. A cast that *declared* the field would have been a
+  lie about the wire; `''` is what §4.6's consumer, the relocate dialog, already reads as "cannot
+  verify", and the field lights up the day W-WASM lands with no change on this side.
+
+- 2026-08-27 — **`toTemplate` is derived from `sform_code`/`qform_code`, and only from the form the
+  reader actually used** (E-SCENE, P2-10). NIfTI-1 code 4 is `NIFTI_XFORM_MNI_152`, so a volume with
+  it is *already* in MNI152 mm and the transform is the identity — which is why the field is still a
+  matrix: `MNI305`, or a real registration, slots into the same shape. `headerJson` carries the codes
+  **and** the derived `affineSource`, so the check is against the form `affine_of` chose: a volume with
+  `sform_code = 2` and a stale `qform_code = 4` is in scanner space, and reporting MNI for it would put
+  a coordinate in a paper that is wrong by centimetres. Code 5 (`TEMPLATE_OTHER`) names no template
+  and claims nothing. No protocol change, exactly as the ownership map's "explicitly not gaps" table
+  predicted.
+
+- 2026-08-27 — **`Engine.nudgeCursor(viewId, dx, dy)` — the one `api.ts` change E-SCENE owns**
+  (P2-09, under the single named carve-out in `docs/PHASE2-OWNERSHIP.md`; ARCHITECTURE §4.7 and §7.5
+  amended in this commit, as §12.3 requires). §7.5 lists "arrows nudge the cursor" and "PgUp/PgDn
+  slice" as two bindings; the frozen facade had only `stepCursor`, "±1 voxel along the view normal",
+  so Phase 1's keymap gave all six keys to it and pressing → in the axial pane changed the axial
+  **slice**. The in-plane nudge cannot live in the app: the step is along
+  `sliceBasis(view, radiological).right` / `.up`, engine geometry that §8 forbids React from
+  computing. Shape chosen over an extended `stepCursor(viewId, steps, axis?)`: two independent
+  components let one call move diagonally and keep `stepCursor`'s signature — and therefore every
+  existing caller and test — untouched. `MockEngine` and `NoGlEngine` both grew the member in the
+  same commit, which is what the carve-out's terms require.
+
+- 2026-08-27 — **The voxel-grid snap is one function, applied along whichever direction is being
+  stepped** (E-SCENE, P2-09). `stepCursor` and `nudgeCursor` are the same operation in different
+  directions, so `view/geometry.ts`'s `snapAlong(ds, world, dir)` is now the single implementation:
+  it solves for the distance along `dir` that puts the voxel index `voxelAxisAlong(dir, affine)`
+  names on an integer. Applying it per axis is what makes 100 nudges out and 100 back return to the
+  starting voxel exactly, in-plane as well as along the normal, and it keeps the property the
+  along-normal snap was fixed for earlier today: a step never moves the cursor in a direction the
+  user did not ask for.
+
+- 2026-08-27 — **The cut-plane gizmo lives in the 3D pane and manipulates a 2D pane's plane**
+  (E-SCENE, §7.5's oblique affordances). A gizmo drawn inside the pane whose plane it rotates would be
+  looking at that plane edge-on — at a line — so `showGizmo(viewId)` names the *slice* view whose
+  plane is being manipulated and the geometry is drawn in the `View3D`. §7.2's "all clip distances
+  disabled" in pass 3 is what keeps it from being clipped by the plane it manipulates, and it is
+  drawn **after** the letters and corner block so nothing but the active-pane border covers the thing
+  the user is dragging. Its state — which plane, which handle is hot, how many plane-from-3-points
+  clicks are outstanding — is engine-private and is deliberately **not** in `Scene`: §4.5 is frozen,
+  and a saved `ViewSpec` must not carry "the user was mid-drag on a rotate handle".
+
+- 2026-08-27 — **A rotate handle rotates `normal` and `up` together, through Rodrigues** (E-SCENE).
+  Rotating the normal alone leaves `up` pointing out of the new plane, and `sliceBasis` then
+  re-orthogonalises it to whatever falls out — so a rotate handle would also *roll* the pane by an
+  amount nobody asked for, differently depending on which axis the orthogonalisation branched on.
+  `view/geometry.ts`'s `rotatePlane` carries both vectors rigidly and re-normalises, and the e2e
+  asserts the property directly: after a 90 px drag on the `rotateU` handle the normal has moved and
+  `up` is **unchanged**.
+
+- 2026-08-27 — **The gizmo's hit test and its drawing read the same `handlePoints`** (E-SCENE). Two
+  copies of "where is the rotate handle" is how a control becomes a picture of a control: the drawing
+  drifts by a few pixels, the grab radius no longer covers it, and the user's cursor sits on a handle
+  that does not respond. `overlay/gizmo.ts` exports the three world points once; `drawGizmo` puts
+  knobs there and `gizmoHandleAt` measures distance to them, both through the pane's own `viewProj`.
+  The e2e finds the handle by **scanning pane pixels with the engine's own hit test** rather than
+  through a test-only accessor, which is the same claim from the outside: a handle a user can see is
+  a handle a user can reach.
+
+- 2026-08-27 — **`OverlayBuilder` gained `quad()`, and the test page publishes `TetravoxEngine`**
+  (E-SCENE, two small consequences of the gizmo). Every Phase-1 overlay item was axis-aligned, so
+  `rect()` sufficed; §7.0.6's screen-space quad expansion is not axis-aligned, and the gizmo's ring
+  and arcs are rotated segments. And `test/pages/scene.ts` published its engine as the frozen §4.7
+  `Engine` while constructing a `TetravoxEngine`, so every spec driving a Phase-2 gesture cast it
+  straight back up, once per call; it now publishes the concrete type. Widening only — every `Engine`
+  member is still there and no existing spec changed.
+
+- 2026-08-27 — **`.msh.opt` seeding is partial about colormaps, on purpose** (E-SCENE, §7.6). The
+  sidecar seeds tag colours and visibility, the field range (`RangeType = 2` and only then, since
+  `CustomMin`/`CustomMax` are otherwise whatever the last Gmsh save left behind), the colour bar
+  (`ShowScale`), and the colormap — but the colormap table covers only `ColormapNumber = 2`, which is
+  what SimNIBS writes in every `.msh.opt` it produces `[DATA]` and is Gmsh's rainbow/jet, plus the
+  four numbers whose Gmsh names are a §7.6 `ColormapName` exactly. Every other number leaves the
+  layer's own default alone. Guessing at the rest of Gmsh's colour-table numbering would paint a
+  field in the wrong colours **silently**, which is the one failure a viewer may not have; a viewer
+  that disagrees with Gmsh about a colormap is visible and correctable. Seeding fires only for a
+  dataset the host gave a sidecar for (`app/.../lib/sidecars.ts` derives the candidates), so no
+  Phase-1 golden — none of which passes one — moved.
+
+- 2026-08-27 — **R2's corner `×zoom` readout appears only off the fit, and measures against the fit
+  the user last asked for** (E-SCENE). Two decisions, each forced by a failing test rather than by
+  taste. A line that is always present shifts the other three up a row in every pane of every
+  picture, i.e. six regenerated Phase-1 goldens — two of them a closed gate's — to print `ZOOM 1.00X`
+  under an image nobody zoomed; so at the fit it prints nothing. And measuring against a fit
+  **recomputed for the pane's current size** made every pane claim to be zoomed the moment the layout
+  changed, which is how it broke gate 5's slice-index decode: that test picks in a 1×1 pane and then
+  reads the corner block in a 2×2. `DrawInput.viewFit` remembers what each pane was fitted at
+  (`resetView`, and the auto-fit on the first dataset), so "zoom" means what a user means by it and
+  `r` always returns the readout to nothing.
+
+- 2026-08-27 — **`page.mouse.wheel` resolves before the page has handled the wheel** (E-SCENE, found
+  by running both Playwright projects together). It resolves once the event is *dispatched* to the
+  renderer, so a `whenSettled()` immediately after it sees an engine with nothing pending and returns
+  at once — and the next `cursorOf` reads the cursor from before the notch. The SwiftShader project
+  happened to win that race on every run; the headed **ANGLE** one does not, and §7.5's anti-drift
+  test read a one-voxel step as `2.5` — two notches, one reading. `pointer.spec.ts`'s `wheelNotch`
+  now waits for the cursor to actually move before settling. Worth recording because it is a property
+  of `page.mouse.wheel`, not of this test: any spec that wheels and then reads state needs the same
+  wait, and the failure is invisible on the golden-authority project.
+- 2026-08-27 — **`heat`'s `truncate` and `inverse`, defined (E-SLICE, §7.3 completion).** §4.2 gives
+  `Scale.heat` three knobs beyond the min/mid/max ramp — `negative`, `inverse`, `truncate` — and
+  FreeSurfer's own meanings for the last two ("hide the negative tail", "flip the data's sign") both
+  collapse into `negative: 'hide' | 'mirror'`, which would leave two frozen fields with no job and
+  `color/colormaps.ts` shipping `t = scale.truncate ? 1 : 1`. Each is therefore given the one job
+  `negative` does not cover. **`inverse` reverses the colour ramp** (`t → 1 − t`), a property of the
+  colours and not of the data, so it applies to both branches and to the negative colormap.
+  **`truncate` clips instead of saturating**: `|v| > max` is not drawn, where the default `false`
+  keeps the `max` colour. That is exactly the pair Gmsh spells `View.SaturateValues` (1 saturates to
+  the custom range, 0 clips outside it), which §4.3's `MshOptions.views[].saturateValues` already
+  parses, so the sidecar and the display model agree on one meaning. The clip cannot live in the
+  bake — a LUT is defined only over its own range and a sampler clamps rather than dropping — so it
+  travels beside the LUT as `BakedLut.clipMax` and the shader discards on it, in the same chunk as
+  `Threshold` and therefore reproduced by the pick pass for free. Rejected: leaving both flags inert
+  (a frozen field that does nothing is a bug with a schedule), and reading them the FreeSurfer way
+  (two spellings of `negative`, and a silent change to `inverse`'s already-shipped behaviour).
+
+- 2026-08-27 — **The colormap LUT is baked at texel centres, `(i + 0.5) / width`, not at endpoints.**
+  The shader samples `NEAREST` at `clamp(t, 0, 1)`, which selects texel `floor(t · width)` — whose
+  represented value is the centre of that texel, not `i / (width − 1)`. Phase 1 baked at endpoints,
+  offsetting every texel by up to half a texel: invisible in a picture, and enough to make §11's
+  analytic assertions argue with the driver's rounding instead of with the rendering. The largest
+  displayed change is one 8-bit level, well under §11's `threshold: 0.15`; every Phase-1 golden
+  passes unchanged. Rejected: choosing analytic test values that land in texel interiors — that
+  hides a real off-by-half rather than fixing it, and it does not survive the next person picking a
+  round number.
+
+- 2026-08-27 — **`GL_STATE.slice3d` — `showIn3D` planes blend, unlike the rest of pass 1.**
+  `docs/PHASE2-OWNERSHIP.md` expected §7.3's planes to draw in the existing `opaque3d` block. §7.3
+  fixes three of the five fields ("`DEPTH_TEST` on, `depthFunc(LEQUAL)`, `depthMask(true)`") and says
+  nothing about blending, but `opaque3d` has `BLEND` off — and two volume layers on one plane must
+  composite in a 3D pane exactly as they do in a 2D one, or `Thalamus_TI_subject_TI_max.nii.gz` over
+  `T1.nii.gz` reads differently in the 2×2 grid than in the 3D pane and `VolumeLayer.opacity`
+  silently stops working in 3D. The new block is `opaque3d` plus `blend: 'srcAlpha'`. §11's
+  exact-100 % assertion is unaffected: at opacity 1 over an alpha-1 fragment,
+  `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` reproduces the source exactly, which is what "independence over
+  every pixel" measures. Rejected: reusing `opaque3d` (correct for the golden, wrong for the user),
+  and per-draw blend calls (`gl/state.ts` exists so no pass issues a raw blend call).
+
+- 2026-08-27 — **The slice pick program is compiled from the frame's own fragment body.**
+  §7.2.3 requires pass 4 to reproduce *every* discard of pass 1. With Phase 2's threshold, `truncate`
+  clip, per-label palette alpha and 4-tap outline test, a second hand-written pick shader is a
+  standing invitation to divergence — the exact failure §7.2.3 names ("double-click lands on
+  geometry the user cannot see"). `shaders/slice.ts` now emits `SLICE_FS` and `SLICE_PICK_GATED_FS`
+  from one shared head and one shared body, both bound through one exported
+  `bindSliceSampling(...)`, so the two programs cannot drift without a compile error. Phase 1's
+  `SLICE_PICK_FS` stays in `shaders/pick.ts`, unused by the slice branch and untouched, because it is
+  not E-SLICE's file. Rejected: extending `SLICE_PICK_FS` in place (someone else's file), and
+  reproducing only the threshold (the outline discard is the one that removes most of the plane).
+
+- 2026-08-27 — **`visibleLabels`, `labelOpacity` and R5's recolour are baked into the palette, not
+  branched on in the shader.** The `N × 1 RGBA8` dense-index palette (§7.3) already decides
+  background by alpha, so hiding a label is `A = 0`, per-label opacity is a multiply on `A`, and a
+  recolour is a new `RGB`. Nothing in the fragment shader learns about any of them. That is what
+  makes R5's gate assertion — "hiding a label removes its colour from the pane pixels while others
+  are unchanged" — true by construction: exactly four bytes of one texture change, so every other
+  pixel is byte-identical without anyone being careful. The palette is keyed **per layer**
+  (`labelStyleKey`) because `visibleLabels` and `labelOpacity` are `VolumeLayer` fields, while label
+  **colour** is patched into the dataset's `LabelTable`, which is what a `*_LUT.txt` holds and what
+  §8's "Save LUT…" exports. R5's selection needs a second `N × 1` table (`R = 255` when selected)
+  rather than more rows of the first, because `gl/texture.ts`'s `createLut` builds `N × 1` and that
+  file belongs to the integrator. Rejected: a `visibleLabels` uniform array (ESSL 3.00 cannot index
+  one dynamically at the 65535-label cap — the same reason the palette is a texture at all).
+
+- 2026-08-27 — **R5's recolour and selection need two `VolumeLayer` fields that do not exist; filed
+  with the integrator rather than added (E-SLICE).** `docs/PHASE2-OWNERSHIP.md` closes its R5 row
+  with "No frozen-type change is needed: recolouring edits the layer's own `LabelTable`
+  (`VolumeLayer.labelLut`, `MeshLayer.label.table`)". **`VolumeLayer` has no `labelLut`** — §4.4 and
+  `packages/engine/src/scene/types.ts` carry `visibleLabels`, `labelOpacity`, `labelMode` and
+  `outlineWidthPx` and nothing else — and it has no home for a selection either, so the map's claim
+  is true of `MeshLayer` and false of `VolumeLayer`. §12.3 closes that file to everyone but W-WASM,
+  so the two fields are **filed**, not added:
+  * `VolumeLayer.labelLut?: LabelTable` — a per-layer colour override, plus a serialisable form in
+    `SerializableLayer` (a `LabelTable` holds a `Map`), so a recolour survives save/load as R5's
+    gate requires.
+  * `VolumeLayer.selectedLabels?: Uint32Array` — the region panel's selection, plus
+    `selectedLabels?: number[]` in `SerializableLayer`, exactly as `visibleLabels` is handled today.
+
+  Until they land, the engine carries both **outside** the frozen surface: label colour is patched
+  into the **dataset's** `LabelTable` (which is what a `*_LUT.txt` holds, what §8's "Save LUT…"
+  exports, and what every layer on that atlas reads) through `TetravoxEngine.setLabelColor`, and the
+  selection lives on the layer's runtime through `TetravoxEngine.setSelectedLabels`. Both are
+  appended `TetravoxEngine` methods, not §4.7 `Engine` members, so **A-PROPS cannot reach them from
+  React** — §8 requires everything the UI does to go through §4.7 alone. That is the part of R5 this
+  owner cannot close, and it is one W-WASM commit away. The palette pipeline behind it is complete
+  and tested: `buildLabelPalette(ds, ids, { visibleLabels, labelOpacity })` and `buildLabelAttrs`
+  already take the styling as parameters, so the two fields become two arguments at one call site.
+
+- 2026-08-27 — **`Annotations.colorbars` stays `false` by default, even though §11 now requires
+  colour bars in every screenshot.** `scene/defaults.ts` is a shared file whose rule is "never change
+  an existing default — it moves every golden that layer appears in", and flipping this one moves
+  `gate3-t1-2x2-chrome`, `gate3-t1-axial-radiological`, `gate4-t1-oblique`, `gate5-ernie-pick` and
+  `gate5-overlay-composite-oblique` — five goldens belonging to `phase1-gate.spec.ts`, "a closed
+  record of a passed gate" that this owner may not regenerate. Every Phase-2 golden turns the bars on
+  explicitly, so the requirement is met where it is testable. **The default flip is the integrator's
+  to make**, in the commit that regenerates the Phase-1 goldens — most naturally the same commit that
+  regenerates them on `ubuntu-24.04`, which §11 makes the authority and which has still never run.
+
+- 2026-08-27 — **The label outline is a binary 4-tap test, not §7.0.5's `fwidth`-scaled ramp.**
+  §7.0.5 asks for label outlines to "derive a distance-to-boundary from the neighbour-label test and
+  `fwidth`-scale the smoothstep, not a binary 'different label ⇒ outline colour'". §7.3's **normative**
+  formula, added later and in more detail, is four binary taps at `± 0.5 · outlineWidthPx · duv`, and
+  says in the same paragraph that four binary taps "cannot recover a distance … anyway". The two
+  cannot both be implemented; §7.3 is the specific, normative, measured one ("2.00 px axis-aligned /
+  2.69 px at 45°", "8 taps buy nothing … at 12 % more slice-composite cost"), so it wins and §7.0.5's
+  clause is read as an aspiration that its own successor retired. Measured here on
+  `labeling.nii.gz` at `outlineWidthPx: 2`: **2.00 px at 0.05 mm/px, 2.01 px at 1.0, 2.01 px at 5.0,
+  with 100.0 % of the fill boundary covered at all three** — §11's Label-outline-zoom row wants
+  [0.8, 2.9] px and ≥ 99 %. A ramp would need a distance, and the only honest source of one is
+  Phase 3's label-minification work (§ROADMAP Phase 3), which owns the sampler this sits on.
+- 2026-08-27 — **§7.4's masked barycentric edges select with `mix(vec3, vec3, bvec3)`, never the
+  float `mix` and a 1e9 sentinel.** §7.4 states the edge mechanism as `d = bary / fwidth(bary)` with
+  `d[i] = 1e9` for a cleared `edgeMask` bit. Written the obvious way —
+  `mix(vec3(1e9), bary / fwidth(bary), edgeOn)` — it is wrong, and wrong in a way that looks like a
+  geometry bug: the float overload is specified as `x + a*(y - x)`, so a *kept* edge evaluates
+  `1e9 + 1.0*(d - 1e9)`, and in f32 `d - 1e9` rounds to exactly `-1e9` for every `d` a barycentric
+  distance can produce. The sum is 0, every fragment reports distance zero, and the whole primitive
+  is painted in the edge colour — measured on the fixture cap, where the entire cross-section came
+  back solid black `[SwS]`. The `bvec3` overload is a genuine per-component select and does no
+  arithmetic at all. The bug reached both the surface and the cap path because §7.4 asks for **one**
+  edge mechanism for both, so one line fixed both; `test/e2e/mesh-clip.spec.ts`'s cap-diagonal test
+  is what catches it, by asserting that a suppressed 2-2 diagonal is *not* the edge colour while the
+  quad's real edge is. Keeping the float `mix` with a smaller sentinel — rejected: any sentinel large
+  enough to lose the `min` is large enough to annihilate `d`.
+
+- 2026-08-27 — **`CutManager` applies a result that is the newest one *seen*, not the newest one
+  *issued*.** §5 rule 6's latest-wins is implemented in `ComputeClient`: one request in flight and at
+  most one queued per key, a new request replacing the queued one, and *"an in-flight request has no
+  abort flag"* — it runs to completion and its result arrives. The manager's own guard compared the
+  returning ticket against the newest ticket *issued*, which is a different thing: during a gizmo
+  drag the plane moves every frame, so every result is superseded before it lands and **not one
+  cross-section is ever delivered**. Measured on `ernie.msh` at 120 fps against a ~17 ms cut: zero
+  cuts applied in a two-second drag, the cap frozen where the drag began; with the fix, 113. The
+  guarantee that motivated the guard is kept by comparing against the newest ticket *applied*: a
+  snapshot is still never replaced by an older one, `generation` is still monotonic, and removing the
+  last plane still burns a ticket so an in-flight cut cannot resurrect the caps. Queueing inside the
+  manager instead — rejected: `ComputeClient` already coalesces per key, and a second queue would
+  only add a second place for the newest request to be lost.
+- 2026-08-27 — **A-PROPS half 1 (volume editor, histogram, Region panel): four choices, and three
+  things the frozen model cannot express yet.** (1) **`symmetric ±p99` is read literally** as
+  `[-|p99|, +|p99|]`, not as `±max(|p1|, |p99|)`. §8 names one percentile; the preset exists so a
+  diverging colormap is centred on zero (§7.6 centres `bwr`/`coolwarm` at 0 when
+  `threshold.symmetric`), and folding in `p1` would let a one-sided tail silently widen the window
+  the user asked for. (2) **Switching a `Scale` between `linear` and `heat` carries the window
+  across** — `[lo, hi]` becomes `[min, max]` with `mid` at the midpoint — rather than re-seeding from
+  `Stats`. Re-seeding makes the picture jump every time a user looks at the other kind and discards
+  numbers they had just dialled in. (3) **The histogram's x axis is the `Stats` range, never the
+  window**, so dragging a window handle cannot move the axis under its own pointer; and handle ties
+  go to the **threshold** pair, which sits inside the window by construction. (4) **Probe-driven row
+  selection fires on a change of the probed label, not on every probe**: `updateLayer` re-probes the
+  cursor, so an unguarded effect undid the selection the user had just made with the very patch that
+  made it.
+  Three gaps are marked in the DOM rather than faked, and are filed with the integrator: a **label
+  volume's colour swatch is read-only** (`data-recolorable="false"`) because its palette is built
+  from `VolumeDataset.labelTable`, which is dataset state — no `Partial<VolumeLayer>` can carry an
+  edited colour, while a mesh tag's (`tagStyle[t].color`) and an annot's (`MeshLayer.label.table`)
+  both can; **every region's count and centroid is `—`** because the `labelCentroids` op (§6.5.2) has
+  no producer on the §4.7 facade, and §4.3 keeps `VolumeDataset.data` on the UI thread "for probes
+  only", which a count over 256×256×208 is not; and the **histogram's colormap strip is prop-driven**
+  and renders a named neutral rail, because `color/colormaps.ts` is not exported from the engine's
+  barrel and a copy of the tables in the app would be a second source of truth for every pixel the
+  strip is compared against.
+
+- 2026-08-27 — **The app E2E launches with its own `--user-data-dir`.** `src/main/index.ts` takes
+  `app.requestSingleInstanceLock()`, and that lock is scoped to the Chromium user data directory,
+  which every Tetravox worktree on a machine shares. A second agent running the app E2E in a sibling
+  worktree therefore makes this run's Electron **quit with exit code 0** and forward its argv to the
+  other agent's window; Playwright reports it as "Target page, context or browser has been closed" at
+  the launch site, with no hint of the cause, and every spec in the run fails. Observed between
+  `p2/props-volume` and `p2/props-mesh` on 2026-08-27. The two A-PROPS specs pass
+  `--user-data-dir=<mkdtemp>` in `LaunchOptions.args` (`collectCliPaths` drops it because it starts
+  with `-`, so the §8 argv path is unchanged) and remove it afterwards. Doing it in
+  `packages/app/e2e/fixtures.ts` for every spec would be better and is filed with the integrator —
+  that file is not A-PROPS's.
+- 2026-08-27 — **A-PROPS (mesh / iso / points editors): four decisions, and one frozen-interface
+  request left with the integrator.** (1) **The colour picker converts 8-bit hex to §4.1's 0..1
+  floats, in `panels/layers/mesh/state.ts`.** §4.1 names `scene/fromMeta.ts` as the only place that
+  divides by 255, and that rule is about **wire** colours — `MeshTag.color`, `MshOptions.tagColor`;
+  a colour the user just picked in an `<input type="color">` never came off a wire, and R5 requires
+  a picker whose edits land in `tagStyle.color`. The round trip is exact because every hex value is
+  `k / 255` (§11's "make the colours exact 8-bit values"), so a swatch shown for a tag colour and
+  saved back unedited is byte-identical, and `expectPixel`'s "the pixel is exactly the tag colour"
+  still holds after a recolour. (2) **A clip plane's 'follow cursor' is app state, and the frozen
+  `ClipPlane` should gain a `followCursor` flag.** §7.5 asks for a cut plane that sweeps, and the
+  offset that puts a plane through the cursor is `−dot(n, cursor)` — one line, but there is nowhere
+  in §4.4 to record *that the plane follows*. It therefore lives in `UiState.clipFollowsCursor` and
+  is re-applied from the `cursor` event by the controller, with the arithmetic in a pure, tested
+  function rather than in React. **Consequence, filed for W-WASM/the integrator rather than worked
+  around: the flag does not survive `serialize()` / `load()`** (§4.6 serialises layers, not app
+  state), so a saved scene reopens with the plane where it was but no longer following. The fix is
+  `ClipPlane.followCursor?: boolean` in `packages/engine/src/scene/types.ts`, which A-PROPS may not
+  edit. (3) **Every editor checks `layer.kind` before it touches a hook.** `LayerProperties`
+  dispatches on the kind and a layer's kind never changes, so the hook order is stable per mounted
+  instance — and it is what lets `properties.test.tsx` assert the registry at all, since the app's
+  vitest project runs under `node` with no DOM. (4) **The three §7.4 async switches get their
+  progress state from `whenSettled()`.** The first `edges.surface`, the first element field and the
+  first `colorMode:'label'` build the de-indexed variant in the worker; there is no per-layer
+  progress event in §4.7, and inventing one would be a frozen-interface change for a spinner. Also
+  recorded, because it cost a debugging session each: a `useUi` selector that returns a fresh `[]`
+  fallback re-renders forever (React #185 — `useSyncExternalStore` compares snapshots by identity),
+  and the tissue/point rows are `div`s with `role="listitem"` rather than `li`s, because
+  A-SHELL's `shell.spec.ts` counts `[data-testid="layer-list"] li` and a nested list would break a
+  spec this owner does not own.
+- 2026-08-27 — **A-SHELL (`p2/shell`): three decisions the §8 shell had to take to reach the
+  Phase-2 items, none of which touches a frozen interface.**
+  1. **Scene IO is a second, narrower channel on the preload bridge, with its own write
+     allow-list.** §8 needs the renderer to read and write `*.tetravox.json`, and §5's bridge
+     deliberately has no `readFile`. `main/scene-io.ts` adds one: reads go through the existing
+     `tetravox://file/…` allow-list (`paths.ts`), **writes go through a separate list that only the
+     Save dialog fills** — being able to read `T1.nii.gz` must never imply being able to overwrite
+     it — and both directions are capped at 8 MiB, three orders above a real `ViewSpec` and three
+     below `ernie.msh`. That cap is the line between "small JSON" and "a byte channel" written in
+     code rather than in a comment. Rejected: a general `readTextFile`/`writeTextFile` pair, which
+     would have been an arbitrary-file primitive for anything that gets script into the renderer.
+  2. **The shell reconciles layers after `Engine.load`, and the reconcile is designed to become a
+     no-op.** Audit **P2-07** records that `applyViewSpec` "does not restore `layers` or
+     `activeLayerId`, and cannot as written": the datasets a load re-adds get fresh ids. E-SCENE owns
+     fixing that. Until then a saved scene reopens with datasets and no layers, which is not a
+     restored scene — so `lib/scene.ts`'s `layersToRestore` asks the engine for the spec layers that
+     have no live counterpart, matched by `(datasetId, kind, name)` against a dataset-id map built
+     from the path each ref resolved to. When P2-07 lands, `liveLayers` covers the spec and it
+     returns `[]`: the same code path, one branch colder. Rejected: waiting for E-SCENE, which would
+     have left A-SHELL's persistence gate item untestable for two integration stages.
+  3. **The `.msh.opt` chip lives in `app/.../ui/`, not in the mesh property editor.** §7.6 and the
+     ownership map split that feature — E-SCENE seeds from `MeshMeta.opt` in `fromMeta`, A-SHELL owns
+     the chip and Reset — but the natural home for the chip is A-PROPS's `panels/layers/mesh/`.
+     `ui/MshOptChip.tsx` is therefore a self-contained component the shell mounts in the right-hand
+     column, and it is exported so A-PROPS's tissue table can render the same one rather than build a
+     second. One implementation, one owner, no shared-file edit.
+
+  Also recorded, because both were found by running the real data rather than by reading the
+  contract: **`DatasetRef.name` is `VolumeMeta.name`, which the loader derives from the source URL
+  and which is the whole absolute path on ernie `[DATA]`** — the Save dialog was about to offer
+  `_Users_idohaber_…_T1.tetravox.json` — so `defaultSceneName` and the relocate row take the
+  basename; and **`e2e/fixtures.ts` now gives every launch a private `--user-data-dir`**, because
+  `app.requestSingleInstanceLock()` is keyed by the userData directory, which for an unpackaged
+  Electron app is shared by every checkout of this repo on the machine. While another one holds it a
+  launched app quits **before creating a window**, and Playwright reports "Target page, context or
+  browser has been closed" with `exitCode 0` — a failure that looks like a crash in the code under
+  test and is not one. Reproduced against a second worktree's e2e run; the same shape appears in CI
+  the moment two jobs share a runner.
+- 2026-08-27 — **R5's per-region edits are `VolumeLayer` fields, not `VolumeDataset` mutations**
+  (Phase-2 integrator, applying the identical need filed by E-SLICE, A-PROPS and E-SCENE). Three
+  branches arrived saying the same thing in three shapes: `VolumeLayer.labelLut?: LabelTable`
+  (E-SLICE), `VolumeLayer.labelColors?: Record<number, vec4>` (A-PROPS, E-SCENE), and "the colour
+  edit does not round-trip" (all three). What all three are about is one clause of R5 — "edits
+  persist in the scene" — colliding with one clause of §4.6: **a `LabelTable` is not serialised**,
+  it is re-derived from the dataset and its LUT on load. E-SLICE's implementation wrote the new
+  colour into `VolumeDataset.labelTable`, which is correct about where a *file's* colours live and
+  therefore loses the user's edit on the next open. So the frozen `VolumeLayer` gains
+  **`labelColors?: Record<number, vec4>`**, an override the palette builder prefers over the table,
+  and **`selectedLabels?: number[]`**; `ClipPlane` gains **`followCursor?: boolean`** for A-PROPS's
+  identical filing about a clip plane's follow flag. Consequences worth stating: the dataset's table
+  is never mutated, so the file's own colours stay readable underneath and a **per-row Reset is
+  deleting a key** rather than re-parsing a LUT (`setLabelColor(…, null)`); "Save LUT…" merges the
+  override over the table; and `Engine.setLabelColor` / `setSelectedLabels` / the app's
+  `setClipFollowsCursor` are now `updateLayer` underneath, which is what makes §8's "everything the
+  UI can do must be reachable from the `Engine` API alone" true of R5 without promoting three
+  convenience members to the frozen facade. Rejected: `labelLut?: LabelTable` — a `LabelTable` holds
+  a `Map`, so it would need its own entry in `SerializableLayer` alongside `visibleLabels`, and it
+  duplicates the whole table to record one changed colour. Rejected: keeping the flag in the host's
+  UI store (A-PROPS's workaround) — a saved scene that reopens with the plane where it was but no
+  longer following did not round-trip. `selectedLabels` is a plain `number[]` rather than a
+  `Uint32Array` deliberately: a selection is a handful of ids edited click by click, not a filter
+  over up to 65535, and JSON here keeps `SerializableLayer` a straight `Omit` of one field.
+- 2026-08-27 — **`Engine.labelCentroids(layerId)` — §6.5.2's op finally has a producer** (Phase-2
+  integrator, from A-PROPS's filing; §4.7, second and last Phase-2 addition to the frozen facade
+  after E-SCENE's `nudgeCursor`). The op has existed since Phase 1 and returns exactly what R5's row
+  asks for — `{ id, centroid, count }[]` — and nothing on the facade called it, so the region panel
+  rendered `—` for every count and its double-click had nowhere to jump. The app cannot compute
+  either itself: §4.3 keeps `VolumeDataset.data` on the UI thread "for probes only" and a scan of
+  256×256×208 voxels is not a probe, while §8 forbids the logic living in React regardless. The
+  engine converts the op's **voxel** centroid to world RAS on the way out (§4.1's one-conversion
+  rule) and caches the answer per `(datasetId, volumeIndex)` — one pass over the volume per atlas per
+  session, shared by every layer drawing it, dropped with the dataset. A layer that is not a label
+  volume, or whose worker is gone, resolves to `[]` rather than rejecting, so the panel stops asking
+  and keeps rendering `—`.
+- 2026-08-27 — **`@tetravox/engine` re-exports `sampleColormap`, `isColormapName`, `scalePosition`
+  and `fallbackLabelColor`** (Phase-2 integrator, from A-PROPS's filing). §8 puts "the current
+  colormap painted along the x axis" under the histogram, and that widget is DOM in `packages/app`,
+  which had no way to ask the engine what a colormap looks like. A copy of the tables in the app
+  would be a second source of truth against the pane the user is comparing the strip to. These are
+  pure functions over §4.1 values and touch no GL, so exporting them costs nothing and closes the
+  gap; `packages/engine/src/index.ts` is the integrator's file, not a frozen one, so this needed no
+  carve-out. Found on the way in, and worth writing down because the types do not say it:
+  **`sampleColormap` returns RGB 0..255, not §4.1's 0..1** — the colour tables are stored the way
+  §7.6's `.json` colormaps and every LUT file write them, and only `MeshTag.color` / `LabelEntry.color`
+  are normalised at the wire. A second `× 255` in the app saturated every channel and painted the
+  strip white, which is how it was caught.
+
+## 2026-08-27 — Phase 2, E-DERIVED (contours, `fillIn2D`, glyphs, isosurfaces, points)
+
+- 2026-08-27 — **Glyph origins are surface-and-cut-plane only; W-WASM gap 2 closes as "none".** The
+  map asked E-DERIVED to decide this "before writing the shader". Decided: no new §6.3 function, no
+  new §6.5.2 op, no protocol change. §7.4 already says "**No new geometry from WASM**", and both
+  origin sources it leaves open are enough — a de-indexed `SurfacePayload` gives a per-triangle
+  centroid and its `ownerElm`, and `CutPayload` gives the same for the `clipToCutPlane` case. The
+  shader takes triangle `uFirst + gl_InstanceID · uStride` and averages its three vertices, reading
+  them out of an `R32F` table that is the payload's own `positions` array uploaded unchanged, so the
+  origin costs no CPU work and no extra memory beyond one texture. What is *not* served is the
+  unrestricted interior case — glyphs on tets no surface and no plane touches — which is the case
+  `ernie_TDCS_1_scalar.msh`'s `E` over 5,900,498 elements invites and which would need element
+  centroids from `tvx-geom`. Rejected for v1 on two grounds: the picture it draws is a solid block of
+  arrows nobody can read, and every reference workflow (a field on the GM surface, a field on a cut)
+  is already covered. If Phase 3 wants it, it is a `field`-result extension and it is W-WASM's.
+- 2026-08-27 — **The derived pass runs between `mesh` and `overlay`, not appended after it.**
+  `renderer.ts`'s shared-file rule is "append a pass to the sequence in `renderView`; **never
+  reorder**", and appending literally at the end would put `fillIn2D`, points and isosurfaces on top
+  of the crosshair and the corner info. §7.2 is unambiguous about where they belong — points,
+  isosurfaces and cut caps are **pass 1**, contours are **pass 3**, and R4 says the mesh fill draws
+  over the base volume and under the crosshair — so the only placement the contract allows is before
+  the overlay. No existing entry moves: `slice` → `mesh` → `overlay` keep their order and their
+  relative order, and the new call is one line between two of them. The pass enters a complete
+  `gl/state.ts` block and disables every clip distance, so it inherits nothing from pass 2 and leaks
+  nothing into pass 3. Drawing contours in the overlay pass's own buffer instead — rejected: the
+  overlay is "one buffer, one draw" of screen-space chrome geometry, and instancing 200,000 boundary
+  segments through a CPU-built vertex list is exactly the per-element work §5 rule 7 forbids.
+- 2026-08-27 — **`fillIn2D` and `contoursIn2D` default to `true` when a mesh is opened**, changing
+  two Phase-1 defaults in `scene/defaults.ts` against that file's "never change an existing default"
+  rule. R4 states it outright ("Default when a mesh is opened: fill **and** contours on"), and
+  `docs/requirements/2026-08-27-maintainer.md` says a maintainer requirement wins over the contract
+  where they conflict. The rule's stated reason — "it moves every golden that layer appears in" —
+  does not apply: Phase 1 drew no mesh in any 2D pane, so no committed golden contains one, and
+  `gate2` / `gate5`'s mesh scenes are `3d-only` where no cut is requested at all.
+- 2026-08-27 — **A per-face value reaches the fill shader as a table texture, never as a per-vertex
+  attribute.** The cut's `tag` and `ownerTet` are one texel per triangle in `R32UI`, fetched at
+  `gl_VertexID / 3` — §7.4's own mechanism for a de-indexed draw — and the `tag` upload is a
+  zero-copy `Uint32Array` view over the worker's `Int32Array`. Expanding either to three vertices on
+  the UI thread would be 62,966 triangles of per-element work per sweep step (§5 rule 7, AGENTS rule
+  7) and 12× the bytes. The tag *colour* is then a `tag → RGBA8` LUT indexed by the raw tag rather
+  than by a dense remap: tags are not contiguous (tag 4 is absent from ernie) and reach 2102 on the
+  SEEG meshes, so the direct table is 8.4 KB against a remap plus a search. Alpha in that LUT carries
+  `tagStyle` visibility and opacity, which is what makes R5's "hiding a tag removes its colour while
+  the others are unchanged" true by construction rather than by a second draw.
+- 2026-08-27 — **`derived/cut-source.ts` ships the `CutSource` contract *and* a worker-backed
+  implementation, rather than waiting for `compute/cut-manager.ts`.** The four methods
+  (`requestCut` / `getCut` / `onCut` / `releaseCut`, latest-wins per `(datasetId, key)`, keys
+  `pane:<viewId>` and `3d-clip`) are the shape agreed with E-MESH, and E-MESH owns the file that will
+  implement them. But R4 is a **gate item on this branch**, with real-data pixel assertions and a
+  measured sweep, and the integration order lands E-MESH one stage earlier — so a branch that only
+  had a fake would ship an untested feature. `PaneCutSource` implements the interface over the `cut`
+  op directly; swapping it for `CutManager` is one construction site in `engine.ts` and nothing else,
+  because nothing else names the implementation. It requests `recycle: false` throughout: the
+  recycled path hands geometry back through the worker's own `CutOut` pool, which only E-MESH's
+  GPU-side cap uploader can read, and §6.4 calls the buffers path "the correctness reference".
+- 2026-08-27 — **`defaultLayerFor` takes an optional `kind`.** `Engine.addLayer({ kind: 'iso' })`
+  could not work before it: the facade built the layer from `defaultLayerFor(id, ds)` and then
+  re-imposed `kind: base.kind`, so a caller-requested kind the function never produced was silently
+  replaced by the dataset's. One optional parameter, defaulting to the dataset's own kind, leaves
+  every Phase-1 call site unchanged and makes `layers/registry.ts`'s exhaustiveness over §4.4's four
+  kinds reachable rather than theoretical.
+- 2026-08-27 — **The `PaneCutSource` stand-in above is gone; `CutManager` is the implementation**
+  (Phase-2 integrator, stage 4 of the merge). The entry above predicted the swap would be "one
+  construction site in `engine.ts` and nothing else, because nothing else names the implementation",
+  and that is what it was. `derived/cut-source.ts` is now the consumer's *view* of E-MESH's manager —
+  its `CutSnapshot` / `CutRequestOptions` types re-exported, the four-method `CutSource` interface,
+  and a type-level `CutManager extends CutSource` assertion that goes red in `pnpm typecheck` rather
+  than in a Playwright run three stages later. `derived/cut-source.test.ts` was rewritten to assert
+  the same four guarantees against the **real** manager through that interface, so the seam is
+  pinned rather than claimed. What the stand-in's tests covered is covered there or in
+  `compute/cut-manager.test.ts`, which is a superset.
+- 2026-08-27 — **A `.msh.opt` tag colour is seeded into `tagStyle` only where the dataset's own tag
+  does not already carry it** (Phase-2 integrator, found by A-PROPS's real-data tissue-table spec at
+  the merge). E-SCENE's §7.6 seeding wrote `opt.tagColor[t]` into `MeshLayer.tagStyle[t].color` for
+  every tag, reasoning that "an edit needs somewhere to live and a Reset something to put back".
+  §6.2's ladder has already resolved that same colour onto `MeshTag.color` whenever the sidecar
+  reached the loader — which is every real open — so the layer slot R5 reserves for the **user's**
+  edit arrived pre-filled with the file's own colour. The consequence is not cosmetic: A-PROPS's
+  per-row Reset and its `data-recoloured` marker exist to say whether a tag has been changed, and
+  they could no longer tell a seed from an edit; nor could a `*.tetravox.json`, which would record
+  an "override" nobody made. The Reset does not need the pre-fill either — it deletes the override
+  and `tagColor()` falls through to `MeshTag.color`, the same value. So the seed now skips a colour
+  that is byte-identical to the dataset's (§4.1's 0..1 quadruple round-trips exactly, so this is
+  `===`, not a tolerance), and still seeds one where the tags were built without the sidecar, which
+  is what E-SCENE's own unit fixture exercises. `tagStyle.visible` is seeded unconditionally: there
+  is no `MeshTag.visible` for it to duplicate. This is the mesh half of the same rule the volume
+  half now follows with `VolumeLayer.labelColors`: **the file's colours live on the dataset, the
+  user's live on the layer, and a Reset is deleting a key.**
+- 2026-08-27 — **`whenSettled()` draws once even when nothing is dirty, and waits for at most one
+  vsync per call** (Phase-2 integrator, both found by running E-DERIVED's R4 specs on the merged
+  tree). §7.2 makes this method mean "what you asked for is on screen", and it was not quite either
+  thing. **(1)** With nothing dirty it returned without drawing, so a resource that only a *draw*
+  discovers — the element-field table `fillIn2D` reads through `ownerTet`, the surface tables a
+  glyph's origins come from — had not even been requested yet. Measured on `Thalamus_TI.msh` with
+  `TI_max` on the cut: the frame after `whenSettled()` was the **tag** colouring and the frame after
+  that was the colormap, so a pixel assertion or a golden taken at the documented moment
+  photographed the wrong picture — the failure mode §11 exists to prevent. It now draws once, and
+  the existing loop waits for whatever that registers. **(2)** Every repaint inside the loop waited
+  a full `requestAnimationFrame`. The first one should: it lets the pump's own scheduled render
+  happen instead of being duplicated. The ones after it are reached only because a worker result
+  dirtied the frame again, and there is nothing left for a vsync to coalesce — while the wait costs
+  a display frame each. R4's 20-step sweep paid two per step, which quantised a 12.9 ms cut plus its
+  draw into **33.3 ms — two 60 Hz frames** — and put the measurement at 30.0–33.3 fps against R4's
+  ≥ 30 bar, i.e. a gate that was measuring the display and flaking on it. One vsync per call: the
+  same sweep is **44–47 fps over three runs** (median step 20–23 ms), which is the round trip R4
+  actually names.
+- 2026-08-27 — **A test that dispatches N inputs must wait for N to be handled, not for N to be
+  sent** (Phase-2 integrator; E-SCENE recorded the same property for `page.mouse.wheel` and it is
+  true of `page.keyboard.press` too). `pointer.spec.ts`'s R2 clamp test pressed `+` eighty times in
+  a tight loop and asserted the 0.05 mm/px floor; on the headed ANGLE project one press occasionally
+  outran the handler and the value landed at **0.06** — one 1.2× step short — while SwiftShader won
+  the race every time. It now presses until the clamped value is observed, with a generous bound, so
+  the assertion after it still fails if the clamp itself is wrong. Worth recording as a rule rather
+  than a fix: on the golden-authority project this class of flake is invisible, so it will keep
+  arriving through the GPU leg.
+
+- 2026-08-27 — **E2E is windowless by default on macOS, and gives up no GPU coverage.** `pnpm e2e`
+  launched ~20 visible windows, stealing the focus and re-tiling the developer's workspace each time.
+  Both suites now run without one, gated on `TETRAVOX_E2E_OFFSCREEN=1` (set by `packages/app`'s
+  `e2e/fixtures.ts` on darwin) with `TETRAVOX_E2E_HEADED=1` as the debugging opt-in; a user launch is
+  unaffected. **Engine `chromium-angle`: `headless: false` → `headless: true`.** The leg was headed
+  because that is how it reaches the platform GPU — but it is `channel: 'chromium'` (the full browser
+  rather than Playwright's headless *shell*) that does that, not the window. Measured `[M2Max]`:
+  headless full Chromium reports `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max)`, `norm16` **true**,
+  timer query true, `MAX_TEXTURE_SIZE` 16384, `MAX_DRAW_BUFFERS` 8, 36 extensions — identical to headed,
+  against the headless shell's SwiftShader / false / 8192 / 6 / 29; the `@angle gate 6` R16 test runs and
+  passes. `--use-angle=metal --enable-gpu --ignore-gpu-blocklist` and an explicit `--headless=new`
+  changed nothing and are not passed. **App: a `BrowserWindow` that is never shown**, plus
+  `app.dock.hide()` — same caps, 29/29 in both the `dev` and `packaged` projects, `page.screenshot()`,
+  in-page `readPixels`, `setContentSize` and rAF all unaffected, gate timings 12.8 ms progress / 4.9 ms
+  cancel against 200/500 ms budgets. Electron OSR (`webPreferences.offscreen`, with and without
+  `useSharedTexture`) also passes 29/29 on ANGLE/Metal and was **rejected on cost**: it made the §12.1
+  orbit benchmark read `gpuMs` 3.52/4.07 ms @1x/@2x against 2.02/3.32 for a never-shown window and
+  doubled `cpuMs` median, so the mode that runs the benchmark would be the mode that inflates it; it
+  also pins rAF to `setFrameRate` (61 Hz vs 122) and made `Page.captureScreenshot` disagree with
+  `capturePage()` on the same frame (5,188 B vs 17,065 B). A shown window parked off-screen
+  (`setBounds({ x: -10000 })`) — **rejected as measured-false**: macOS returned `x: -1240` and
+  `CGWindowListCopyWindowInfo` listed the window on screen at `761,48,741x864`. `[M2Max]`
+  `scripts/e2e-quiet-check.sh` is the standing proof (86 samples, frontmost unchanged, no window).
+
+
+- 2026-08-27 — **The windowless-E2E proof had two holes: the focus check failed open, and the GPU leg
+  could not fail.** Review of the entry above. (1) `scripts/e2e-quiet-check.sh` read the frontmost app
+  with `osascript … 2>/dev/null` and used its stdout with no status check. Without Automation
+  permission for "System Events" — a fresh machine or a CI runner, exactly who runs this script —
+  `frontmost` returns the empty string, `BEFORE` and `AFTER` compare equal, the STOLEN/MOVED greps run
+  over an empty file, and all three focus assertions pass **vacuously** while the script prints `PASS`:
+  a window-only check wearing the badge of a focus check. Reproduced with a stub `osascript` that exits
+  1 like a denied prompt — the old script printed `frontmost before = <unknown> … 0 samples … PASS`,
+  exit 0. An empty reading (first, last, or any sample in between) is now **exit 2** with the
+  permission instructions, as is a command that ends before the first 0.5 s tick; unreadable samples
+  are recorded as `<unreadable>` rather than dropped, so "no samples" cannot masquerade as agreement.
+  (2) `caps.spec.ts` was untagged, so `chromium-angle`'s `grep: /@angle/` excluded it: the `[caps]`
+  block in that project's output was the *SwiftShader* leg's, and nothing on the ANGLE leg ever
+  asserted the renderer. The only in-suite signal that the leg still reached the GPU was `@angle
+  gate 6` **not skipping** — a silently skipping test, which is the failure mode §11 exists to prevent
+  — and §2.1 had just removed the incidental cue of a window on screen. A third caps test, tagged
+  `@angle` and skipped by project name elsewhere, now logs that leg's own capabilities
+  (`capabilities-angle.json`) and asserts `isSoftware false`, `rendererClass 'angle-metal'` and
+  `norm16 true`. `[M2Max]` it passes on `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified
+  Version)`; forcing that leg onto `--use-angle=swiftshader` turns it red with the renderer string in
+  the message, and in that same run gate 6's R16 branch skipped itself — the empty-leg shape, now
+  caught. `TETRAVOX_ALLOW_SOFTWARE_ANGLE=1` downgrades it to a skip for a runner with no GPU (the
+  mirror of `TETRAVOX_REQUIRE_PACKAGED=1`, opposite default); `ci.yml` sets it on Linux only, so a
+  hosted macOS runner that cannot reach Metal is a red leg naming the variable rather than a green
+  empty one. Standing proof re-run after `pnpm package`, with `TETRAVOX_TESTDATA` exported and
+  `TETRAVOX_REQUIRE_PACKAGED=1`: 87 samples, frontmost `ghostty` throughout, no window on screen,
+  51 + 28 + 58 green. **`TETRAVOX_TESTDATA` is part of the recipe**, not decoration: without it the
+  engine reports 19 passed / 11 skipped against 28 / 2 — the R16 gate among the skips — and the quiet
+  check still prints `PASS`, because it proves what the run *showed*, never what the run *covered*.
+  (The GPU assertion is the one part that does not depend on it: it passes in that run too, so a
+  testdata-less suite can no longer hide a software leg either.)
+
+
+- 2026-08-27 — **`GlyphSpec.origins: 'surface' | 'volume'` — the frozen field W-WASM's gap-2 op left
+  unreachable.** W-WASM took gap 2 rather than closing it as "surface only": `meshCentroids` ships,
+  and `docs/ARCHITECTURE.md` §6.5.2 already calls it "glyph origins for a **volumetric**
+  `GlyphSpec`". Nothing named which spec asked for them, so the op had no consumer and
+  `ernie_TDCS_1_scalar.msh`'s `E` over 5,900,498 elements could only be drawn on the surface — the
+  one place §7.4's own rationale says the interesting arrows are not. `origins` is that name, in
+  `packages/engine/src/scene/types.ts` (frozen, §12.3) with the §4.4 and §7.4 ARCHITECTURE edits in
+  this commit. **Optional, defaulting to `'surface'`**: every existing scene, golden and
+  `ViewSpec` on disk keeps its meaning, and `serialize()` needs no migration.
+  Rejected: a *runtime* uniform selecting the table. The two tables are indexed differently — one
+  origin per de-indexed triangle against one per tet — so the choice is constant for a draw and a
+  uniform would pay a branch and a dead texture binding per instance to re-decide it. It is a
+  `ProgramVariants` define (`TVX_GLYPH_VOLUME`), which is what §7.1 already does for `isLabel` and
+  the clip-plane count. Also rejected: inferring `'volume'` from "the mesh has tets and no visible
+  tri tags". A viewer must not guess which arrows the user meant.
+  **The tag restriction moves from the shader to the request, and that is the substantive
+  difference.** The surface path tests `faceTag` against the tag LUT's alpha per instance; the
+  volume path cannot, because the op filtered before it strided and nothing per-origin is left to
+  test. So `visibleTetTags(layer, ds)` builds the op's `tags` argument, hidden tissues cost nothing
+  (their centroids are never computed, let alone shipped), and **every** tet tag hidden is a draw the
+  engine skips rather than a request it makes — an absent `tags` means "no filter" to
+  `tet_centroids`, so asking with an empty list would light the whole mesh up.
+  Tri tags are excluded from that list. Not, as an earlier draft of the comment claimed, because
+  including them "filters out every tet": `tet_centroids`'s `keep_tag` is
+  `tags.is_none_or(|list| list.contains(&t))`, an allow-list, so an unmatched tri tag is simply
+  inert. The real reason is narrower and worse — a mesh that numbers a tri tag the same as a tet tag
+  would have the visible tri tag **re-admit the hidden tet tag**, silently undoing an R5 hide. The
+  comment is corrected to say so.
+  `subsample` keeps its §4.4 meaning in both paths but is applied in different places: the surface
+  path strides in the shader (`uStride`), the volume path hands the same number to the op and then
+  draws row *g* (`uStride = 1`), because striding an already-strided list would take one in
+  `stride²`. `{ maxCount: n }` is an upper bound rather than a target on the volume path — the op
+  strides over *surviving* tets, so a tag filter yields fewer than `n` — which is the same trade
+  §6.3 already recorded for filtering before striding.
+
+
+- 2026-08-27 — **The §8 status bar may never change height, because it resizes the drawing buffer.**
+  Found by the first test that drives the app's canvas with a real mouse
+  (`packages/app/e2e/pointer-realdata.spec.ts`), which is the seam between E-SCENE's P2-01 pointer
+  layer and A-SHELL's `ViewGrid` and belonged to neither owner. `interacting` (§7.2, P2-02) is
+  entered on `pointerdown`; A-SHELL's status bar reports it, because §7.2's "never degrade silently"
+  is only true if the bar says so; the bar is `flex-wrap` and sits directly under the view grid,
+  whose `ResizeObserver` owns `canvas.width/height`. So the two extra readouts wrapped the bar to a
+  second line, it grew **24 px → 41 px**, the canvas shrank **837 → 820** device pixels, every pane
+  re-fitted, and the world point under a *stationary* pointer moved **4.5 px ≈ 2.93 mm** `[M2Max]` —
+  measured, not estimated: R1's gate asserts ±½ voxel and the drag landed 2.93 mm out, and R3's "the
+  pixel colour at a fixed screen point is byte-identical before/after the left-drag (the scan did not
+  move)" was false of every pixel, because the whole viewport had resized. On every gesture, in the
+  shipping app, and in no test: `packages/engine/test/e2e/pointer.spec.ts` proves R1–R3 on
+  `test/pages/scene.html`, where there is no status bar, and A-SHELL's own status-bar tests assert
+  the readouts' *text*.
+  The fix is a layout invariant, not a workaround in the pointer layer: `.tvx-strip` (a new
+  `index.css` component) pins the bar to one non-wrapping 24 px row and scrolls horizontally instead
+  of reflowing. Rejected: making `ViewGrid` ignore resizes while a gesture is live — that defers the
+  jump to `pointerup` rather than removing it, and leaves the drawing buffer disagreeing with the
+  pane rects in between, which `readPixel` reads as `0,0,0,0`. Also rejected: hiding the `interacting`
+  readout — §7.2 requires it to be visible. The regression is asserted as what it is, a *layout*
+  invariant: canvas size and `paneRect` are read with the button down and compared to their idle
+  values, which is the only assertion in either suite that would catch the next chrome element that
+  grows during a gesture.
+
+
+- 2026-08-27 — **`sourceName` decoded after splitting, so every dataset opened by the app was named
+  by its whole absolute path.** A-SHELL filed it as an observation ("`VolumeMeta.name` /
+  `MeshMeta.name` is the whole absolute path on real data `[DATA]`") and worked around it in
+  `defaultSceneName` and the relocate row; it is a loader defect, not a display choice, and it is
+  fixed at the source. `datasets/source.ts`'s `fileUrl` builds `tetravox://file/${encodeURIComponent(path)}`
+  (§5 directive A2), so **every separator in a real app URL is `%2F`** and the last *literal* `/` is
+  the one after `file`: `path.slice(path.lastIndexOf('/') + 1)` returned the entire encoded path and
+  `decodeURIComponent` then handed back `/Users/…/m2m_ernie/T1.nii.gz` as the file's *name*. That is
+  what §8's layer panel, the info panel, a colour bar's title, a `ViewSpec`'s `DatasetRef.name` and
+  the relocate dialog all read. It survived Phase 1 and Phase 2 because the §11 harness serves the
+  reference dataset over Vite's `/@fs/<abs path>`, whose separators are **literal**, so every engine
+  test took the basename correctly; and because the one app test that looked
+  (`scene-realdata.spec.ts`) re-derived the basename itself, with a comment recording the bug as
+  though it were the contract. Decode first, then take the last `/` **or** `\`. The test now asserts
+  `'T1.nii.gz'` verbatim, which is the only form that can fail if this regresses.
+
+
+- 2026-08-28 — **`Scene.quality` was computed, stored, emitted and read by nothing, so the
+  `interacting` `QualityLevel` was inert and the status bar announced a degradation that never
+  happened.** §7.2's "never degrade silently" inverts when the bar is the only thing that changes:
+  the reader is told the picture got cheaper while every fragment was drawn exactly as before, and
+  §9.1 row 11's "≥ 30 fps sustained **at interacting quality**" was in fact a measurement of full
+  quality. §11's named E-SCENE obligation — *"the frame drawn then is full quality (assert a pixel
+  that the `interacting` level would have changed)"* — was unmeetable for the same reason, and was
+  not attempted.
+  `edges` is now consumed: `render/passes/mesh.ts` drops the `TVX_EDGES` branch for
+  `MeshLayer.edges.surface` / `.caps` while the level says so. It is the right one of the four to
+  make real first because it is a *shader variant*, so switching it costs a program bind and nothing
+  else — no re-upload, no cut, no field table — which is what makes it safe to flip inside a drag.
+  Deliberately **not** gated: `TVX_EMPHASIS` (R5's selected-region outline is a reading, like
+  `interpolation`) and the geometry variant a layer requested (swapping the de-indexed surface for
+  the indexed one mid-drag re-shades every fragment — a different picture, not a cheaper one;
+  measured on the 3×3×3 lattice, 82,200,97 against 58,169,71 at the same fragment).
+  The other three knobs are recorded in §7.2 as what they are rather than left to read as live:
+  `dprScale` is 1 at every level and has nothing to do; `msaa` is a **context** attribute
+  (`gl/context.ts`'s `antialias`) and cannot be changed per frame without an MSAA resolve target,
+  which is Phase 3's §7.0.7 accumulation buffer; `capDecimation` needs `plane_cut` to emit fewer cap
+  triangles and is Phase 3's §9 performance pass. `docs/benchmarks/phase2-mesh.md` already said so
+  in prose ("that is E-SCENE's P2-02 and does not exist yet"); it is now in the contract.
+  Two consequences worth naming. `whenSettled()` now raises the level to `full` before its last
+  frame, which §7.2 already required in words — *"every golden screenshot and every `screenshot()`
+  call awaits this and renders at full quality regardless of the current `QualityLevel`"* — and which
+  became load-bearing the moment `reduced` really dropped edges: without it a golden captured on a
+  slow machine would differ from the same golden on a fast one. And the status-bar tooltips now name
+  the one knob that moves rather than reciting the list.
+
+
+- 2026-08-28 — **§9.2's `buildTopology` memory bar was never measured, and measuring it moved the
+  number.** `docs/PHASE2-OWNERSHIP.md` lists it as a Phase-2 gate item explicitly deferred from
+  Phase 1 ("nothing in Phase 1 clips or isolates"), owner E-MESH. The only `ernie_seeg.msh` heap
+  assertion on `main` was on the **load** path (≤ 1024 MB) — a different arena, which is why §9.2 has
+  two rows rather than one "< 2 ×" rule — so the 1.56 GB worst case shipped unmeasured.
+  Measured `[M2Max]`, in `packages/wasm/e2e/realdata.spec.ts`: `ernie_seeg.msh` load 912.4 MB →
+  after `buildTopology` **1,893.1 MB**; `ernie.msh` 341.8 → **846.1 MB**. The live-byte model is
+  right (the growth over the load path is 981 MB against a 1,096 MB model of `TetTopology` +
+  counting-sort transient), and the gap is §9.2's own rule read one step further: linear memory
+  **grows and never shrinks**, so the load path's freed input block — 492 MB / 184 MB — is still
+  mapped when the topology path allocates, and dlmalloc reuses only part of it. The observable peak
+  is `load resident + topology arena`, never the larger of the two.
+  §9.2 now carries both columns: the live-byte model, unchanged, and a **resident** bar per file,
+  which is what `wasm_heap_bytes()` reports and therefore the only thing a test can assert. Bars are
+  the measurement plus ~11–13 % (960 MB and 2,100 MB). Rejected: quoting the model as the assertion
+  and letting the test fail — the model is not wrong, it is measuring live bytes, and a bar nothing
+  can observe is the reason this was never measured in the first place. Also rejected: freeing the
+  input earlier to close the gap — §5 rule 5 already drops it before `read_msh` returns; wasm cannot
+  give the pages back. Shrinking the transient is §6.3's counting sort and belongs to Phase 3's
+  performance pass, where it is worth ~597 MB on this file.
+  The two tests cross-check the topology itself while they are there: `ernie.msh` yields exactly
+  9,509,557 unique faces and 128,614 boundary faces, which are §9.2's component table and §11's
+  Surface invariant respectively — a packed-key collision would flatter the memory number as well as
+  losing faces.
+
+
+- 2026-08-28 — **`MeshLayer.colorMode:'label'` was implemented at both ends and connected at
+  neither, and the shader's index was wrong for `.label.gii`.** ROADMAP Phase 2 lists
+  "`colorMode:'label'` for `.annot` / `.label.gii`" and R5 names surface annotations as one of the
+  three things its Region panel must serve; `docs/PHASE2-OWNERSHIP.md` names the golden
+  `mesh-label-colormode`. The golden did not exist, and the reason it did not is that the feature
+  could not be reached: `MeshMeta.labelTables` carried the `<LabelTable>` on the wire (§6.5.1),
+  `scene/fromMeta.ts` dropped it, `MeshDataset` had no field for it, and so `MeshLayer.label.table`
+  — the `LabelTable` the mode needs — could only ever be set by a test that built one by hand.
+  Three changes, in the order the data flows. `MeshDataset.labelTables` (frozen `scene/types.ts`,
+  hence this line) receives it; `scene/defaults.ts` seeds `MeshLayer.label` from the first table a
+  mesh carries, leaving `colorMode` at `'tag'` — seeding the *table* is what makes the mode
+  selectable, and which colouring a surface opens in is the user's choice. And `read_gii` now
+  applies §6.2's dense remap to a `NIFTI_INTENT_LABEL` array, which is the defect the wiring
+  exposed: the shader indexes an `N × 2` palette by the node value and `.annot` was remapped at
+  parse time while `.label.gii` was not, so `clamp(key, 0, N−1)` sent every key above the last dense
+  index to the last entry. Measured on the new fixture: the whole patch painted Gamma, the last of
+  four. It looks plausible, which is exactly §11's stated failure mode for an off-by-one in a label
+  palette.
+  A new fixture was needed because none could be rendered: `testdata/surf.label.gii` is
+  deliberately data-only (a `.label.gii` that is not a surface), so
+  `testdata/surf_labelled.surf.gii` is the same 4×4 patch **plus** a label array and the same
+  `<LabelTable>`, with vertex labels chosen so four of its eighteen triangles are monochrome —
+  `vLabelColor` is an interpolated varying, so only a monochrome triangle has a closed-form colour.
+  `scripts/gen-fixtures.py` is deterministic, and the manifest diff is additive: one new `gifti`
+  entry and the byte total.
+  One test changed rather than being added: `packages/wasm/e2e/meshes.spec.ts` asserted the label
+  field's raw max (11) against nibabel's reading of the file. It now asserts the dense max (3) and
+  keeps the raw one as the manifest's, which is the distinction the remap is about.
+
+
+- 2026-08-28 — **A saved scene did not record its `.msh.opt` or its label LUT, so reopening one lost
+  every tissue name, every tissue colour and every label name.** §4.6 already said "`LabelTable`s
+  are **not** serialised; they are re-derived from the dataset and its LUT on load" — and the spec
+  did not record the LUT. `DatasetRef` was `{id, kind, name, path, fingerprint, absPath}`, so
+  `Engine.load` re-opened each dataset with `{kind:'path', path}` and nothing else: the tissue table
+  came back reading `tag 1`, `tag 2`, `tag 3`, `tag 5` … `tag 1099`, the head rendered in §7.6's
+  deterministic fallback palette instead of the `.msh.opt` colours, the cursor block's
+  `515 · Bone-Cortical` became `515 · —`, and the "defaults from ernie.msh.opt" chip was gone. R5's
+  "selection persists through scene save/load" was met for the *edits* and not for the table they
+  are edits against.
+  `DatasetRef.sidecars` (frozen `scene/types.ts`, hence this line) records them. Anchored to the
+  **dataset's** directory rather than to the scene file, because a sidecar travels with the file it
+  describes — `ernie.msh.opt` beside `ernie.msh` — so a relocated dataset brings it along, which is
+  precisely the case §8's relocate dialog exists for; an absolute fallback covers a LUT the user
+  picked from somewhere else entirely. The engine remembers what the host handed to `addDataset`
+  rather than re-deriving it: the app's `lib/sidecars.ts` *guesses* candidates from the dataset's
+  name and checks which exist, and a user who picked a LUT the guesser would not have found must
+  still get it back.
+  Two consequences worth naming. `loadSource` now reads sidecars **best-effort**: a scene whose data
+  moved without its `.msh.opt` must still open, and everything downstream already has an answer for
+  "no sidecar" (§7.6's palette, `Label <id>`). The dataset's own failure stays fatal. And the app
+  allow-lists the derived sidecar paths before `Engine.load` (§5 directive A2 serves only what main
+  admitted), using the engine's own `sidecarPathsFor` — one derivation, exported, rather than two
+  that can drift into a silent 403.
+
+
+- 2026-08-28 — **§11's Transparency (ii) does not close in Phase 2, and the reason is a rule, not an
+  omission.** §11 asks for "GM tag 1002 at opacity 0.5 with an opaque 10 mm sphere at the thalamus
+  target, diffed against a **CPU per-fragment-sorted reference render**, reporting max per-pixel
+  delta", and `docs/PHASE2-OWNERSHIP.md` says it "decides whether `twoPhase` is enough for v1 or
+  depth peeling moves out of Phase 3 — report the number even if it passes". A reference render of
+  that scene needs the mesh's triangles on the side doing the rendering, and §5 rule 3 and rule 7
+  put them out of a Playwright spec's reach: bulk arrays never touch the UI thread, they arrive as
+  GPU-bound transferables the engine uploads and drops, and 1.18 M triangles ray-traced per pixel in
+  page JS is not a test in any case.
+  What did close is **Transparency (i)**, on ernie, as a number rather than a look: the blend count
+  `k = ln((P − S)/(G − S)) / ln(1 − a)` recovered per pixel from three renders of the same scene,
+  measuring **median 1.000, p05 0.968, p95 1.014** over the crown with **0 of 363 channels** outside
+  the convex hull of `{S, G, background}` (`packages/engine/test/e2e/mesh-real.spec.ts`). One sheet,
+  blended once — `k = 2` there is exactly the double-blended back face §11 names. That covers "no
+  sheet is composited twice"; what it does not cover is **order** between two differently-coloured
+  sheets, which is (ii)'s subject.
+  The vehicle for (ii) is the CPU reference renderer being built on `feat/reference-renderer`
+  (`scripts/reference/`), which is exactly a per-fragment reference outside the browser. Until it
+  can render a mesh, Phase 3's transparency decision stands on §7.2's measured depth complexity
+  (4–6 median / 8–10 p90, ROADMAP Phase 3) rather than on a diff. Recorded as the one Phase-2 gate
+  item that does not close, with its owner, rather than satisfied by a weaker test wearing its name.
