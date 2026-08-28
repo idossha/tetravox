@@ -35,11 +35,24 @@ export function ViewGrid({ canvas, dpr }: ViewGridProps): React.JSX.Element {
     if (host === null) return;
     host.insertBefore(canvas, host.firstChild);
     const resize = (): void => {
+      // A sidebar toggle (or any other mid-transition flex reflow) can observe a transient 0×0
+      // host — `Math.max(1, …)` keeps the drawing buffer from ever collapsing to zero, which would
+      // otherwise make WebGL reject the allocation.
       const width = Math.max(1, Math.round(host.clientWidth * dpr));
       const height = Math.max(1, Math.round(host.clientHeight * dpr));
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
         canvas.height = height;
+        // Setting `canvas.width`/`.height` reallocates the drawing buffer per the WebGL spec — the
+        // previous frame's pixels are gone, cleared to transparent black — but that is not itself a
+        // scene mutation, so nothing else sets the engine's dirty bit for it. Without this call the
+        // panes stay black after any resize that is not also a scene change (§8: the sidebar
+        // chevrons/`Ctrl+[`/`Ctrl+]`, and a narrow-window collapse) until an unrelated command
+        // happens to repaint. The engine's own frame pump re-derives each pane's viewport rect from
+        // the new canvas size and each view's resolution-independent `camera.center`/`mmPerPx`
+        // (§7.2), so the world centre and zoom the user had are preserved — this only asks for a
+        // repaint, it does not touch camera state.
+        controller.requestRender();
       }
     };
     resize();
@@ -49,7 +62,7 @@ export function ViewGrid({ canvas, dpr }: ViewGridProps): React.JSX.Element {
       observer.disconnect();
       canvas.remove();
     };
-  }, [canvas, dpr]);
+  }, [canvas, controller, dpr]);
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {

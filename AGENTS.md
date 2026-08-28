@@ -6,7 +6,8 @@ and tests. `docs/ROADMAP.md` says what is open. `docs/DECISIONS.md` is append-on
 ## Commands
 
 - `pnpm install` · `pnpm wasm` (builds `crates/tvx-wasm` → `packages/wasm/pkg`) · `pnpm build` ·
-  `pnpm test` (cargo test + vitest) · `pnpm e2e` (Playwright) · `pnpm dev` · `pnpm package`
+  `pnpm test` (cargo test + wasm + vitest) · `pnpm test:coverage` (wasm + vitest with v8 coverage,
+  writing `coverage/coverage-summary.json`) · `pnpm e2e` (Playwright) · `pnpm dev` · `pnpm package`
 - Rust only: `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo bench -p <crate>`
 - `pnpm lint` is `eslint .` + `prettier --check .`. **Prettier does not format `docs/`** — keep it that way.
@@ -69,9 +70,12 @@ is wrong (it hard-codes 2 tags into a 3); §6.2 has the correct layout.
    **absent must reproduce the previous behaviour** — that is what makes "additive" a guarantee.
 4. **Lockfiles are frozen.** `pnpm-lock.yaml` and `Cargo.lock` are never merged: on conflict take `main`'s
    version and re-run `pnpm install` / `cargo check --workspace`. A new dependency is a deliberate change
-   with a line in `docs/DECISIONS.md`.
-5. Conventional commits, **no `Co-Authored-By` trailers**. Work on your own branch in your own worktree
-   (`git worktree add ../tetravox-wt-<name> -b feat/<name>`); never rewrite `main`.
+   with a line in `docs/DECISIONS.md` — that line, not the diff itself, is what makes a `pnpm-lock.yaml`
+   change reviewable.
+5. Conventional commits, **no `Co-Authored-By` trailers**. `main` is usually checked out in another
+   session's primary worktree — never check it out or push to it directly. Work on your own branch in your
+   own worktree instead: `git worktree add ../tetravox-wt-<name> -b feat/<name> origin/main`, push that
+   branch, and open a PR.
 6. **Never block the UI thread with parsing or geometry.** De-indexing, normal generation and any
    vertex-buffer expansion count as geometry: they happen in the dataset's worker and arrive as
    transferables. Raw file bytes never touch the UI thread or IPC (§5).
