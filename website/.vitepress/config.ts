@@ -67,70 +67,55 @@ export default defineConfig({
     siteTitle: 'Tetravox',
     outline: { level: [2, 3], label: 'On this page' },
 
-    nav: [
+    nav: [],
+
+    sidebar: [
       {
         text: 'Guide',
-        link: '/',
-        activeMatch: '^/(get-started|guide|automation|gallery|showcase)',
+        collapsed: false,
+        items: [
+          { text: 'Home', link: '/' },
+          { text: 'Get started', link: '/get-started' },
+          {
+            text: 'The wiki',
+            collapsed: false,
+            items: [
+              { text: 'Opening data & formats', link: '/guide/opening-data' },
+              { text: 'The panes', link: '/guide/panes' },
+              { text: 'Volume layers', link: '/guide/volume-layers' },
+              { text: 'Atlases & regions', link: '/guide/atlases-regions' },
+              { text: 'Meshes', link: '/guide/meshes' },
+              { text: 'Surfaces & annotations', link: '/guide/surfaces-annotations' },
+              { text: 'Isosurfaces', link: '/guide/isosurfaces' },
+              { text: 'Vector fields', link: '/guide/vector-fields' },
+              { text: 'Points & electrodes', link: '/guide/points-electrodes' },
+              { text: 'Measurements', link: '/guide/measurements' },
+              { text: 'Coordinates', link: '/guide/coordinates' },
+              { text: 'Themes & settings', link: '/guide/themes-settings' },
+              { text: 'Scenes', link: '/guide/scenes' },
+              { text: 'Screenshots & video', link: '/guide/screenshots-video' },
+              { text: 'Keyboard shortcuts', link: '/guide/keyboard-shortcuts' },
+              { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+            ],
+          },
+          { text: 'Automation & Python', link: '/automation' },
+          { text: 'Gallery', link: '/gallery' },
+          { text: 'Showcase', link: '/showcase' },
+        ],
       },
       {
         text: 'Developers',
-        link: '/developers/architecture',
-        activeMatch: '^/developers/',
+        collapsed: true,
+        items: [
+          { text: 'Architecture', link: '/developers/architecture' },
+          { text: 'Decisions', link: '/developers/decisions' },
+          { text: 'Testing', link: '/developers/testing' },
+          { text: 'Benchmarks', link: '/developers/benchmarks' },
+          { text: 'Roadmap', link: '/developers/roadmap' },
+          { text: 'Contributing', link: '/developers/contributing' },
+        ],
       },
     ],
-
-    sidebar: {
-      '/developers/': [
-        {
-          text: 'Developers',
-          collapsed: false,
-          items: [
-            { text: 'Architecture', link: '/developers/architecture' },
-            { text: 'Decisions', link: '/developers/decisions' },
-            { text: 'Testing', link: '/developers/testing' },
-            { text: 'Benchmarks', link: '/developers/benchmarks' },
-            { text: 'Roadmap', link: '/developers/roadmap' },
-            { text: 'Contributing', link: '/developers/contributing' },
-          ],
-        },
-      ],
-      '/': [
-        {
-          text: 'Guide',
-          collapsed: false,
-          items: [
-            { text: 'Home', link: '/' },
-            { text: 'Get started', link: '/get-started' },
-            {
-              text: 'The wiki',
-              collapsed: false,
-              items: [
-                { text: 'Opening data & formats', link: '/guide/opening-data' },
-                { text: 'The panes', link: '/guide/panes' },
-                { text: 'Volume layers', link: '/guide/volume-layers' },
-                { text: 'Atlases & regions', link: '/guide/atlases-regions' },
-                { text: 'Meshes', link: '/guide/meshes' },
-                { text: 'Surfaces & annotations', link: '/guide/surfaces-annotations' },
-                { text: 'Isosurfaces', link: '/guide/isosurfaces' },
-                { text: 'Vector fields', link: '/guide/vector-fields' },
-                { text: 'Points & electrodes', link: '/guide/points-electrodes' },
-                { text: 'Measurements', link: '/guide/measurements' },
-                { text: 'Coordinates', link: '/guide/coordinates' },
-                { text: 'Themes & settings', link: '/guide/themes-settings' },
-                { text: 'Scenes', link: '/guide/scenes' },
-                { text: 'Screenshots & video', link: '/guide/screenshots-video' },
-                { text: 'Keyboard shortcuts', link: '/guide/keyboard-shortcuts' },
-                { text: 'Troubleshooting', link: '/guide/troubleshooting' },
-              ],
-            },
-            { text: 'Automation & Python', link: '/automation' },
-            { text: 'Gallery', link: '/gallery' },
-            { text: 'Showcase', link: '/showcase' },
-          ],
-        },
-      ],
-    },
 
     search: { provider: 'local' },
 
