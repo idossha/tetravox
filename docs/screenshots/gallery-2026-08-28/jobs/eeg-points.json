@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/eeg_positions/GSN-HydroCel-185.geo"
+    ],
+    "preset": "plain"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "camera": "S",
+      "view": "view3d",
+      "distance": 280
+    },
+    {
+      "type": "screenshot",
+      "out": "eeg-electrodes-3d-superior",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "camera": "A"
+    },
+    {
+      "type": "screenshot",
+      "out": "eeg-electrodes-3d-anterior",
+      "view": "view3d",
+      "width": 1400
+    }
+  ]
+}

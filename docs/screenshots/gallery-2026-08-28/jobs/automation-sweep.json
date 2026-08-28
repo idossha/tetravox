@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.5
+    },
+    {
+      "type": "sweep",
+      "out": "axial-sweep",
+      "view": "axial",
+      "from": -40,
+      "to": 60,
+      "count": 16,
+      "fps": 10,
+      "width": 900
+    }
+  ]
+}

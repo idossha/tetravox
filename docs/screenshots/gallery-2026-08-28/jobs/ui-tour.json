@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/segmentation/labeling.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1600,
+    "height": 1000,
+    "panels": true
+  },
+  "actions": [
+    {
+      "type": "set",
+      "cursor": [
+        0.0,
+        -18.0,
+        8.0
+      ],
+      "view": "axial"
+    },
+    {
+      "type": "screenshot",
+      "out": "ui-tour-window-panels",
+      "view": "window",
+      "width": 1600
+    }
+  ]
+}
