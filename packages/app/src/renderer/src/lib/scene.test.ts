@@ -7,9 +7,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { SCENE_VERSION } from '@tetravox/engine';
 import type { DatasetRef, Layer, ViewSpec } from '@tetravox/engine';
 import {
   defaultSceneName,
+  defaultScenePath,
+  isScenePath,
   dirName,
   isAbsolutePath,
   joinPath,
@@ -148,9 +151,20 @@ describe('withRelativePaths', () => {
 
 describe('parseScene', () => {
   it('refuses a version it does not know rather than guessing', () => {
-    const result = parseScene(JSON.stringify({ version: 2, datasets: [], layers: [] }));
+    const result = parseScene(JSON.stringify({ version: 3, datasets: [], layers: [] }));
     expect(result.ok).toBe(false);
-    expect(result.error).toContain('version 2');
+    expect(result.error).toContain('version 3');
+  });
+
+  it('migrates a v1 file to the current version (directed task 13)', () => {
+    const result = parseScene(JSON.stringify({ version: 1, datasets: [], layers: [] }));
+    expect(result.ok).toBe(true);
+    expect(result.spec?.version).toBe(SCENE_VERSION);
+  });
+
+  it('accepts the version it writes', () => {
+    const result = parseScene(JSON.stringify({ version: SCENE_VERSION, datasets: [], layers: [] }));
+    expect(result.ok).toBe(true);
   });
 
   it('refuses non-JSON and non-objects with the reason', () => {
@@ -261,5 +275,67 @@ describe('layersToRestore', () => {
     const label = out[0]?.patch['label'] as { visibleLabels: Uint32Array };
     expect(label.visibleLabels).toBeInstanceOf(Uint32Array);
     expect([...label.visibleLabels]).toEqual([3]);
+  });
+});
+
+/**
+ * §8's "default name next to the data" (directed task 13): the Save sheet opens on a **path**, not
+ * on a bare name, so a first save lands in the directory the user is working in rather than in
+ * whatever the OS last remembered.
+ */
+describe('defaultScenePath', () => {
+  it('puts the file beside the first dataset', () => {
+    const s = spec({
+      datasets: [ref({ name: 'T1.nii.gz', absPath: '/data/m2m_ernie/T1.nii.gz' })],
+    });
+    expect(defaultScenePath(s)).toBe('/data/m2m_ernie/T1.tetravox.json');
+  });
+
+  it('falls back to the bare name when no dataset has a path on disk', () => {
+    // Every dataset came from a dropped `File` with no path: there is nowhere to point the sheet at.
+    expect(defaultScenePath(spec({ datasets: [ref({ absPath: undefined })] }))).toBe(
+      'T1.tetravox.json'
+    );
+    expect(defaultScenePath(spec({ datasets: [] }))).toBe('scene.tetravox.json');
+  });
+
+  it('anchors on `absPath`, never on the scene-relative `path`', () => {
+    // `path` is measured from a scene file that does not exist yet — resolving it would produce a
+    // directory that is wherever the *last* scene lived.
+    const s = spec({
+      datasets: [ref({ path: '../../data/T1.nii.gz', absPath: '/real/data/T1.nii.gz' })],
+    });
+    expect(defaultScenePath(s)).toBe('/real/data/T1.tetravox.json');
+  });
+});
+
+describe('isScenePath', () => {
+  it('is the whole compound suffix, so a `.json` colormap is not a scene', () => {
+    expect(isScenePath('/a/study.tetravox.json')).toBe(true);
+    expect(isScenePath('STUDY.TETRAVOX.JSON')).toBe(true);
+    expect(isScenePath('/luts/hot.json')).toBe(false);
+    expect(isScenePath('/data/T1.nii.gz')).toBe(false);
+  });
+});
+
+describe('serialiseScene extras (§4.6 v2)', () => {
+  it('writes the theme the scene was saved in', () => {
+    const text = serialiseScene(spec(), '/scenes/s.tetravox.json', { theme: 'light' });
+    expect((JSON.parse(text) as ViewSpec).theme).toBe('light');
+  });
+
+  it('omits the theme when none was given, so a file never claims one it does not have', () => {
+    const text = serialiseScene(spec(), '/scenes/s.tetravox.json');
+    expect('theme' in (JSON.parse(text) as object)).toBe(false);
+    expect('measurements' in (JSON.parse(text) as object)).toBe(false);
+  });
+
+  it('carries measurements through, rather than deleting a colleague’s work on re-save', () => {
+    const measurements = [{ kind: 'segment', mm: 42 }];
+    const text = serialiseScene(spec(), '/scenes/s.tetravox.json', { measurements });
+    expect((JSON.parse(text) as ViewSpec).measurements).toEqual(measurements);
+    // An empty list is not written: it is indistinguishable from having none.
+    const empty = serialiseScene(spec(), '/scenes/s.tetravox.json', { measurements: [] });
+    expect('measurements' in (JSON.parse(empty) as object)).toBe(false);
   });
 });

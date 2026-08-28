@@ -856,7 +856,15 @@ export type SerializableLayer = Omit<Layer, 'visibleLabels'> & {
  * missing dataset opens a "relocate" dialog keyed on `fingerprint`.
  */
 export interface ViewSpec {
-  version: 1;
+  /**
+   * **2** since directed task 13 (2026-08-28). `1` is still readable: {@link migrateViewSpec}
+   * (`scene/serialize.ts`) upgrades one in place. The only differences are that a v1 file predates
+   * the two optional fields below and may name a layout with no 3D pane (directed task 3), so a v1
+   * read that skipped the migration would restore a grid the UI can no longer show. Nothing added
+   * in v2 is required, which is why the migration is a version stamp and two defaults rather than a
+   * rewrite.
+   */
+  version: 1 | 2;
   datasets: DatasetRef[];
   layers: SerializableLayer[];
   activeLayerId: LayerId | null;
@@ -869,4 +877,23 @@ export interface ViewSpec {
   lighting: Scene['lighting'];
   annotations: Annotations;
   transparency: Scene['transparency'];
+  /**
+   * The theme the scene was saved in — v2, optional, and **not** engine state (directed task 13).
+   *
+   * `Scene` has no theme: §8's choice lives in `settings.json` and reaches the engine only as a
+   * chrome palette, so `serialize()` cannot produce this field and does not. The app writes it on
+   * save and applies it on load *when it is there*, which is what lets a scene mailed to a
+   * colleague look the way its author left it without a scene that never mentioned a theme
+   * overriding the reader's preference.
+   */
+  theme?: 'system' | 'light' | 'dark';
+  /**
+   * Measurements (directed task 11), carried opaquely — v2, optional.
+   *
+   * Task 11 owns the shape; this field exists so that a scene saved by a build that *has*
+   * measurements survives a round trip through a build that does not, instead of losing them
+   * silently on the next save. `Scene` has no measurement list yet, so `serialize()` never writes
+   * this field; the app carries it forward from the spec it loaded (`lib/scene.ts`).
+   */
+  measurements?: unknown[];
 }

@@ -91,6 +91,25 @@ export interface TetravoxBridge {
   writeSceneFile(path: string, text: string): Promise<SceneIoResult>;
   /** File-menu scene commands, pushed from main. The renderer owns the `Engine`, so it does the work. */
   onSceneCommand(listener: (command: SceneCommand) => void): () => void;
+  /**
+   * One scene file to open, by path — File ▸ Open Recent, a `*.tetravox.json` dropped on the
+   * window, one named on the command line, or one double-clicked in Finder (directed task 13).
+   *
+   * Separate from `onOpened` because a scene is not a dataset: `main/menu.ts` splits them, so the
+   * renderer never sniffs a filename to decide which of the two a path is.
+   */
+  onOpenScene(listener: (path: string) => void): () => void;
+  /**
+   * The scene this launch should open, drained once — argv, a launch-time `open-file`, or
+   * "reopen last scene on launch". Pulled rather than pushed, for the same reason
+   * {@link startupPaths} is: a push races React's first commit.
+   */
+  startupScene(): Promise<string | null>;
+  /**
+   * Put a scene path at the head of File ▸ Open Recent and rebuild the menu. Returns the merged
+   * settings, so the renderer's mirror of the list never has to be guessed at.
+   */
+  rememberScene(path: string): Promise<AppSettings | null>;
 
   // -- App settings (directed task 9, 2026-08-28) ------------------------------------------------
   // `main/settings.ts` owns the file; §5 keeps the filesystem there. Small JSON, like everything
@@ -167,6 +186,10 @@ export interface AppSettings {
   theme: 'system' | 'light' | 'dark';
   /** The FreeSurfer subjects directory for §3's fsaverage lookup; `''` = unset (directed task 8). */
   freesurferSubjectsDir: string;
+  /** File ▸ Open Recent — the last ten scene files, most recent first (directed task 13). */
+  recentScenes: string[];
+  /** "Reopen last scene on launch"; off by default (directed task 13). */
+  reopenLastScene: boolean;
 }
 
 /** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
@@ -209,6 +232,13 @@ const bridge: TetravoxBridge = {
   jobFrames: (payload) => ipcRenderer.invoke('tetravox:job-frames', payload),
   jobLog: (message) => ipcRenderer.send('tetravox:job-log', message),
   jobDone: (report) => ipcRenderer.invoke('tetravox:job-done', report),
+  onOpenScene: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, path: string): void => listener(path);
+    ipcRenderer.on('tetravox:open-scene', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:open-scene', wrapped);
+  },
+  startupScene: () => ipcRenderer.invoke('tetravox:startup-scene'),
+  rememberScene: (path) => ipcRenderer.invoke('tetravox:remember-scene', path),
   onSceneCommand: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, command: SceneCommand): void =>
       listener(command);

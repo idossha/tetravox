@@ -37,6 +37,7 @@ import type {
   SerializableLayer,
   SidecarRef,
   SliceView,
+  Threshold,
   View3D,
   ViewSpec,
 } from './types';
@@ -271,8 +272,42 @@ export function fingerprintFromMeta(meta: unknown): string {
  * persisted at all — §4.6: "`LabelTable`s are **not** serialised; they are re-derived from the
  * dataset and its LUT on load".
  */
+/**
+ * JSON has no infinity, and `Threshold` is full of it.
+ *
+ * `JSON.stringify(Infinity)` is `null` — silently, with no error and no warning — so a default
+ * threshold (`lo: -Infinity, hi: Infinity`, "let everything through") reached the file as
+ * `{"lo": null, "hi": null}` and came back as two nulls, which is not a number and is not a bound.
+ * Directed task 13's round-trip test is what found it, on a scene nobody had edited: every layer
+ * every user has ever saved carried it.
+ *
+ * The encoding is `null` **on purpose** rather than by accident, and the two are read back as the
+ * bound they mean: a missing `lo` is no lower bound, a missing `hi` is no upper one. A sentinel
+ * string would have been the other option and is worse — it makes the field's type a union in a file
+ * humans are meant to be able to read and edit (§4.6: "a scene file a human can read").
+ */
+function jsonThreshold(threshold: Threshold): Record<string, unknown> {
+  return {
+    ...threshold,
+    lo: Number.isFinite(threshold.lo) ? threshold.lo : null,
+    hi: Number.isFinite(threshold.hi) ? threshold.hi : null,
+  };
+}
+
+/** The inverse: `null` is the unbounded side it was written for. NaN is not preserved and is not a bound. */
+function runtimeThreshold(value: unknown): Threshold | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const raw = value as { lo?: unknown; hi?: unknown };
+  return {
+    ...(value as Threshold),
+    lo: typeof raw.lo === 'number' && Number.isFinite(raw.lo) ? raw.lo : -Infinity,
+    hi: typeof raw.hi === 'number' && Number.isFinite(raw.hi) ? raw.hi : Infinity,
+  };
+}
+
 export function serializableLayer(layer: Layer): SerializableLayer {
   const out = { ...layer } as Record<string, unknown>;
+  if ('threshold' in layer) out.threshold = jsonThreshold(layer.threshold);
   if ('visibleLabels' in layer && layer.visibleLabels !== undefined) {
     out.visibleLabels = [...layer.visibleLabels];
   }
@@ -319,9 +354,27 @@ export function remapLayer(
   const visible = (layer as { visibleLabels?: number[] }).visibleLabels;
   if (visible !== undefined) out.visibleLabels = Uint32Array.from(visible);
 
+  // The `null`s {@link jsonThreshold} wrote, back as the ±Infinity they stand for.
+  const threshold = runtimeThreshold(out['threshold']);
+  if (threshold !== undefined) out.threshold = threshold;
+
   if (layer.kind === 'mesh') {
-    // The `LabelTable` is re-derived on load (§4.6), and `MeshLayer.label` cannot exist without one.
-    delete out.label;
+    // §4.6 does not serialise the `LabelTable`, so the spec's `label` has no `table` and cannot be
+    // handed to `addLayer` as a `MeshLayer['label']`. It **is** carried, though: `mode`,
+    // `outlineWidthPx` and `visibleLabels` are things the user set in the annotation editor, and
+    // deleting the whole object — which is what this did until directed task 13 — reopened every
+    // saved scene with the annotation back in `fill` at the default width and every hidden region
+    // visible again. `Engine.addLayer` merges these three over the table it re-derived.
+    const label = (layer as { label?: { visibleLabels?: number[] } }).label;
+    if (label === undefined) delete out.label;
+    else {
+      out.label = {
+        ...label,
+        ...(label.visibleLabels !== undefined
+          ? { visibleLabels: Uint32Array.from(label.visibleLabels) }
+          : {}),
+      };
+    }
     const isolate = (layer as unknown as MeshLayer).isolate;
     const labelVolume = isolate?.labelVolume;
     if (isolate !== undefined && labelVolume !== undefined) {
@@ -377,19 +430,52 @@ export function remapViews(
   return { slices, view3d };
 }
 
-/** Narrow a serialised layer to the kinds `scene/defaults.ts` can seed today (§4.4). */
+/**
+ * Narrow a serialised layer to the kinds `scene/defaults.ts` can seed (§4.4).
+ *
+ * **All four, since directed task 13 (2026-08-28).** It used to be `volume | mesh`, on the grounds
+ * that "`addLayer` derives a layer's kind from its dataset" — which stopped being true when
+ * `defaultLayerFor` gained its third parameter: `addLayer` passes `spec.kind` straight through, and
+ * `'iso'` and `'points'` are two of its four cases. Excluding them silently dropped every
+ * isosurface and every electrode-position layer from a reopened scene, which is the exact failure
+ * §4.6 exists to prevent.
+ */
 export function isRestorableKind(kind: Layer['kind']): boolean {
-  return kind === 'volume' || kind === 'mesh';
+  return kind === 'volume' || kind === 'mesh' || kind === 'iso' || kind === 'points';
 }
 
 // ---------------------------------------------------------------------------------------------
 // The two entry points
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * The `ViewSpec.version` this engine writes (§4.6). Bumped 1 → 2 by directed task 13, 2026-08-28.
+ */
+export const SCENE_VERSION = 2;
+
+/**
+ * Bring a spec read from disk up to {@link SCENE_VERSION}.
+ *
+ * v1 → v2 is a version stamp: every field v2 added is optional, and a v1 file simply has none of
+ * them. The migration exists anyway rather than being skipped, for two reasons. It is the **one**
+ * place a version is decided, so `load` and every host read the same answer; and it is where the
+ * next migration goes, at which point "v1 files still open" is a test that already exists rather
+ * than a promise. A spec from a *newer* version is returned untouched — refusing it is the reader's
+ * call (`lib/scene.ts`'s `parseScene` does refuse), not this function's.
+ *
+ * Layouts are **not** migrated here: `'1x3'` and the rest are still valid `LayoutKind`s, and which
+ * of them the UI is willing to show is the app's policy (directed task 3, `lib/layout.ts`'s
+ * `migrateSpecLayout`), not the scene model's.
+ */
+export function migrateViewSpec(spec: ViewSpec): ViewSpec {
+  if (spec.version >= SCENE_VERSION) return spec;
+  return { ...spec, version: SCENE_VERSION };
+}
+
 /** `Engine.serialize()` (§4.7): the scene as a `ViewSpec`. */
 export function toViewSpec(scene: Scene, opts: SerializeOptions = {}): ViewSpec {
   return {
-    version: 1,
+    version: SCENE_VERSION,
     datasets: datasetRefs(scene, opts),
     layers: scene.layers.map(serializableLayer),
     activeLayerId: scene.activeLayerId,

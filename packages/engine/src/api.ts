@@ -430,6 +430,17 @@ export interface Engine {
   readPixel(viewId: ViewId, px: number, py: number): Uint8Array;
 
   serialize(): ViewSpec;
+  /**
+   * Where the scene file is about to be written, for §4.6's "paths **relative to the scene file**".
+   *
+   * **Optional on the facade** (appended by directed task 13, 2026-08-28; `docs/DECISIONS.md`).
+   * `serialize()` takes no argument and is frozen, so the one thing the engine cannot derive is told
+   * to it instead — and a host that never calls this still gets a spec whose relative paths are
+   * measured from the datasets' own common directory, plus an `absPath` on every ref. Optional
+   * rather than required because the §11 `MockEngine` has no dataset paths to be relative to and
+   * nothing to do with the answer.
+   */
+  setSceneDir?(dir: string | null): void;
   load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void>;
 
   on<E extends keyof EngineEvents>(e: E, cb: (p: EngineEvents[E]) => void): () => void;

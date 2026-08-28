@@ -25,6 +25,9 @@ export interface SettingsDialogProps {
   subjectsDir: string;
   onSubjectsDir(dir: string): void;
   onBrowse(): void;
+  /** "Reopen last scene on launch" (directed task 13); persisted in `settings.json`. */
+  reopenLastScene: boolean;
+  onReopenLastScene(on: boolean): void;
   onClose(): void;
 }
 
@@ -32,6 +35,8 @@ export function SettingsDialog({
   subjectsDir,
   onSubjectsDir,
   onBrowse,
+  reopenLastScene,
+  onReopenLastScene,
   onClose,
 }: SettingsDialogProps): React.JSX.Element {
   const [draft, setDraft] = useState(subjectsDir);
@@ -103,6 +108,27 @@ export function SettingsDialog({
           Nothing is bundled — point this at a FreeSurfer{' '}
           <span className="font-mono">subjects</span> directory that contains{' '}
           <span className="font-mono">fsaverage</span>. Leave it empty and the row is simply absent.
+        </p>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-1.5 border-t border-tvx-line pt-4">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
+          Scenes
+        </span>
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            data-testid="settings-reopen-last-scene"
+            checked={reopenLastScene}
+            onChange={(e) => onReopenLastScene(e.currentTarget.checked)}
+          />
+          Reopen last scene on launch
+        </label>
+        <p className="text-[10px] leading-relaxed text-tvx-dim">
+          Off by default: reopening a scene reloads every dataset in it, which for a head mesh is
+          seconds of work nobody asked for. When it is on, the most recent entry of{' '}
+          <span className="font-mono">File ▸ Open Recent</span> opens at launch — unless the launch
+          names a file of its own, which always wins.
         </p>
       </div>
     </DialogFrame>

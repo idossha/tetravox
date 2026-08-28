@@ -14,13 +14,15 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_SETTINGS, coercePatch, coerceSettings } from './settings';
+import { DEFAULT_SETTINGS, MAX_RECENT_SCENES, coercePatch, coerceSettings } from './settings';
 
 describe('coerceSettings', () => {
   it('fills every field, because a file is a whole settings object', () => {
     expect(coerceSettings({ theme: 'dark' })).toEqual({
       theme: 'dark',
       freesurferSubjectsDir: '',
+      recentScenes: [],
+      reopenLastScene: false,
     });
   });
 
@@ -60,6 +62,8 @@ describe('coercePatch', () => {
     expect(coerceSettings({ ...onDisk, ...coercePatch(patch) })).toEqual({
       theme: 'dark',
       freesurferSubjectsDir: '/opt/fs/subjects',
+      recentScenes: [],
+      reopenLastScene: false,
     });
     // …and what it would have been with `coerceSettings` on the patch: the theme, silently lost.
     expect(coerceSettings({ ...onDisk, ...coerceSettings(patch) }).theme).toBe('system');
@@ -67,5 +71,49 @@ describe('coercePatch', () => {
 
   it('accepts an empty directory, which is how the setting is cleared', () => {
     expect(coercePatch({ freesurferSubjectsDir: '' })).toEqual({ freesurferSubjectsDir: '' });
+  });
+});
+
+/**
+ * File ▸ Open Recent's list (directed task 13). The coercion is where the invariants live — most
+ * recent first, no duplicates, at most ten — because `rememberRecentScene` is `dedupe` plus a write,
+ * and the write needs Electron's `app.getPath`.
+ */
+describe('recentScenes', () => {
+  it('defaults to an empty list and to not reopening anything', () => {
+    expect(DEFAULT_SETTINGS.recentScenes).toEqual([]);
+    expect(DEFAULT_SETTINGS.reopenLastScene).toBe(false);
+  });
+
+  it('drops duplicates, keeping the first (most recent) occurrence', () => {
+    const patch = coercePatch({
+      recentScenes: ['/a.tetravox.json', '/b.tetravox.json', '/a.tetravox.json'],
+    });
+    expect(patch.recentScenes).toEqual(['/a.tetravox.json', '/b.tetravox.json']);
+  });
+
+  it(`keeps at most ${MAX_RECENT_SCENES}`, () => {
+    const many = Array.from({ length: 25 }, (_v, i) => `/scene-${i}.tetravox.json`);
+    expect(coercePatch({ recentScenes: many }).recentScenes).toHaveLength(MAX_RECENT_SCENES);
+    expect(coercePatch({ recentScenes: many }).recentScenes?.[0]).toBe('/scene-0.tetravox.json');
+  });
+
+  it('ignores entries that are not non-empty strings rather than failing the read', () => {
+    expect(coercePatch({ recentScenes: ['/a.tetravox.json', 42, '', null] }).recentScenes).toEqual([
+      '/a.tetravox.json',
+    ]);
+  });
+
+  it('ignores a list that is not a list, and a switch that is not a boolean', () => {
+    expect(coercePatch({ recentScenes: 'nope' })).toEqual({});
+    expect(coercePatch({ reopenLastScene: 'yes' })).toEqual({});
+    expect(coercePatch({ reopenLastScene: true })).toEqual({ reopenLastScene: true });
+  });
+
+  it('does not reset the recents when another key is written — the `coercePatch` rule again', () => {
+    const onDisk = coerceSettings({ recentScenes: ['/a.tetravox.json'], theme: 'dark' });
+    const merged = coerceSettings({ ...onDisk, ...coercePatch({ freesurferSubjectsDir: '/fs' }) });
+    expect(merged.recentScenes).toEqual(['/a.tetravox.json']);
+    expect(merged.theme).toBe('dark');
   });
 });

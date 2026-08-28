@@ -186,6 +186,21 @@ export interface UiState {
   sceneFile: SceneFileRecord | null;
   /** The last scene save/load failure, shown next to the toolbar's scene controls. */
   sceneError: string | null;
+  /**
+   * Unsaved changes since the last save or load (directed task 13) — the title bar's `•`.
+   *
+   * Derived from the engine's own events rather than from a diff of `serialize()`: the controller
+   * subscribes to `layers`, `datasets` and `cursor` anyway, and a spec-to-spec comparison on every
+   * pointer move would serialise the scene sixty times a second to answer a question a boolean
+   * already answers. It is deliberately **conservative** — a gesture that ends where it started
+   * still marks the scene dirty, because "possibly changed" and "changed" have the same right
+   * answer for a save prompt, and the opposite mistake loses work.
+   */
+  sceneDirty: boolean;
+  /** The scenes File ▸ Open Recent offers, mirrored from `settings.json` (most recent first). */
+  recentScenes: string[];
+  /** "Reopen last scene on launch", mirrored from `settings.json` so the dialog can render it. */
+  reopenLastScene: boolean;
   /** Which modal is up. One at a time: they are all full-window, so a stack would only hide one. */
   dialog: DialogKind;
   /** The relocate dialog's rows, populated by `loadScene` before it raises the dialog. */
@@ -296,6 +311,9 @@ export const INITIAL_UI: UiState = {
   iso3dPending: {},
   sceneFile: null,
   sceneError: null,
+  sceneDirty: false,
+  recentScenes: [],
+  reopenLastScene: false,
   dialog: 'none',
   relocate: null,
   screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,

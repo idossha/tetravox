@@ -2915,3 +2915,77 @@ vertex shader, so a golden PNG can only say that ink arrived. `Engine.glyphInsta
 `Engine.retainGlyphSources`, which the app never calls) reports the instances out of the same arrays
 the tables were uploaded from. It is the only way §11 rule 0 — "an agent cannot judge a PNG; it can
 judge a number" — reaches this feature at all.
+
+## 2026-08-28 — scenes that just work: `ViewSpec` v2, Open Recent, drop-to-open (directed task 13)
+
+`*.tetravox.json` is **version 2**. The bump buys two optional fields and one honest reader:
+`theme` (§8's choice, so a scene mailed to a colleague opens looking as its author left it) and
+`measurements` (directed task 11's, carried opaquely). `migrateViewSpec` in
+`packages/engine/src/scene/serialize.ts` upgrades a v1 file — a version stamp, because everything v2
+adds is optional — and it is the **only** place a version is decided, so `Engine.load` and a host
+that read the file itself cannot disagree. `lib/scene.ts`'s `parseScene` accepts 1 and 2 and still
+refuses 3: a future file opened as a current one restores the wrong scene silently, which is the
+failure a version number exists to prevent.
+
+**`theme` is not engine state.** `Scene` has no theme — the choice lives in `settings.json` and
+reaches the engine only as a chrome palette — so `serialize()` does not and cannot produce the
+field. The app writes it in `serialiseScene` and applies it on load *only when it is there*, so a
+scene that never mentioned a theme does not override the reader's preference.
+
+**Two round-trip bugs the audit found, and they were both silent.**
+
+* `isRestorableKind` claimed `volume | mesh` only, "because `addLayer` derives a layer's kind from
+  its dataset". That stopped being true when `defaultLayerFor` gained its `kind` parameter — which
+  `addLayer` passes straight through, and two of whose four cases are `iso` and `points`. Every
+  isosurface and every electrode-position layer was dropped from a reopened scene.
+* `remapLayer` deleted `MeshLayer.label` **wholesale**, on the correct grounds that §4.6 does not
+  serialise a `LabelTable`. But `mode`, `outlineWidthPx` and `visibleLabels` are things the user set,
+  and they went with it: every saved scene reopened with its annotation back in `fill`, at the
+  default width, with every hidden region visible again. The settings are now carried and
+  `Engine.addLayer` merges the re-derived table back underneath them — the one place that can, since
+  it is the one place that has the seeded layer.
+
+`packages/engine/src/scene/roundtrip.test.ts` is the guard: a fully-populated layer of each of the
+four kinds, through `toViewSpec` → JSON → `migrateViewSpec` → `remapLayer`, deep-equal to what went
+in. A field a user can set and a scene file loses now fails a test.
+
+**One `Engine` member, optional: `setSceneDir`.** It existed on `TetravoxEngine`; the facade did not
+declare it, so the app could not tell the engine where the file was about to be written and paths
+were measured from the datasets' common directory instead. Optional rather than required because
+`MockEngine` has no dataset paths to be relative to.
+
+**Scene files take the scene route, decided in main.** `main/menu.ts`'s `isScenePath` matches the
+whole compound suffix (a §7.6 `_LUT.json` colormap is a `.json` and is not a scene), and `sendOpened`
+splits a selection into datasets and scenes. That makes one set of doors — the menu, ⌘O, a drop,
+argv, `open-file`, a second instance, Open Recent, "reopen last scene" — serve both kinds, and the
+renderer never sniffs a filename. Only the **last** scene of a multi-selection is opened: loading
+several in sequence would show each one only to discard it.
+
+**A drop needs an allow-list entry.** `openScenePath` now calls `allowPath` before `readSceneFile`: a
+dropped scene has never been through a dialog, so main has not admitted it, and the read would have
+failed with "not on the allow-list" for a file that is right there. The call is idempotent, so every
+route takes one line.
+
+**Open Recent is ten paths in `settings.json`, and the menu is rebuilt, not mutated.** An Electron
+menu is immutable once set, so "the list changed" is `buildMenu(getWindow)` — which is why
+`tetravox:remember-scene` lives in main and the renderer only reports the path. Entries are
+allow-listed at **click** time, not at build time: admitting ten paths on every rebuild would open
+files the user has not asked for this session. A dead entry is dropped and the menu rebuilt, so it is
+never offered twice.
+
+**"Reopen last scene on launch" is off by default,** and only fills a startup slot nothing else
+claimed. Reopening a scene reloads every dataset in it, which for a 184 MB head mesh is seconds of
+work nobody asked for; and a launch that names a file — `Tetravox study.nii.gz`, a double-clicked
+scene — is a user saying what they want open, which a remembered scene must never overrule.
+
+**The dirty marker is conservative on purpose.** `sceneDirty` is set from the engine's own events
+(`layers`, `datasets`, `cursor`) plus any frame drawn at `interacting` quality, which is §7.2's
+signal that a camera is being moved and the only one §4.5's view state has. A gesture that ends where
+it began still marks the scene dirty: "possibly changed" and "changed" have the same right answer for
+a save prompt, and the opposite mistake loses work. A scene with no datasets is never dirty.
+
+**The Save sheet opens on a path, not a name.** `<first dataset's directory>/<name>.tetravox.json`,
+anchored on the ref's `absPath` — the scene-relative `path` is measured from a file that does not
+exist yet. A typed name with no extension gets `.tetravox.json` in `main/scene-io.ts`, because
+without the suffix the file association does not fire and dropping the file back on the window opens
+it as a dataset.

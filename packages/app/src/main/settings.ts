@@ -35,9 +35,35 @@ export interface AppSettings {
    * files under it are not there.
    */
   freesurferSubjectsDir: string;
+  /**
+   * File ▸ Open Recent — the last {@link MAX_RECENT_SCENES} scene files, most recent first
+   * (directed task 13, 2026-08-28).
+   *
+   * Absolute paths, deduplicated, and **never** validated here: a scene on an unmounted volume must
+   * still be listed, because the fix is to plug the disk back in, not to have the entry quietly
+   * disappear. The menu opens it and the open fails with §8's toast, which is the honest answer.
+   */
+  recentScenes: string[];
+  /**
+   * "Reopen last scene on launch" — off by default (directed task 13).
+   *
+   * Off, because a viewer that reopens 184 MB of mesh before the user has asked for anything is a
+   * viewer that takes ten seconds to start and cannot be told not to. On, it opens
+   * `recentScenes[0]` — and only when the launch names no files of its own, so
+   * `Tetravox T1.nii.gz` and a double-clicked scene both still win.
+   */
+  reopenLastScene: boolean;
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { theme: 'system', freesurferSubjectsDir: '' };
+/** §8's File ▸ Open Recent holds ten, which is the maintainer's ask for directed task 13. */
+export const MAX_RECENT_SCENES = 10;
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'system',
+  freesurferSubjectsDir: '',
+  recentScenes: [],
+  reopenLastScene: false,
+};
 
 /** A settings file is a preference, not a document: a megabyte of it is a bug or an attack. */
 const MAX_BYTES = 64 * 1024;
@@ -68,7 +94,33 @@ export function coercePatch(raw: unknown): Partial<AppSettings> {
   if (theme === 'system' || theme === 'light' || theme === 'dark') out.theme = theme;
   const dir = record['freesurferSubjectsDir'];
   if (typeof dir === 'string') out.freesurferSubjectsDir = dir;
+  const recent = record['recentScenes'];
+  if (Array.isArray(recent)) {
+    out.recentScenes = dedupe(recent.filter((v): v is string => typeof v === 'string' && v !== ''));
+  }
+  const reopen = record['reopenLastScene'];
+  if (typeof reopen === 'boolean') out.reopenLastScene = reopen;
   return out;
+}
+
+/** First occurrence wins, capped at {@link MAX_RECENT_SCENES}. */
+function dedupe(paths: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const path of paths) if (!out.includes(path)) out.push(path);
+  return out.slice(0, MAX_RECENT_SCENES);
+}
+
+/**
+ * Move `path` to the head of the recent list and write it back.
+ *
+ * Called after every successful scene save *and* every successful open, so the list is "scenes this
+ * user actually worked with" rather than "scenes they opened" — a scene created by Save As is the
+ * one they will want back first, and it has never been opened.
+ */
+export function rememberRecentScene(path: string): AppSettings {
+  if (path === '') return readSettings();
+  const current = readSettings().recentScenes;
+  return writeSettings({ recentScenes: dedupe([path, ...current]) });
 }
 
 export function readSettings(): AppSettings {

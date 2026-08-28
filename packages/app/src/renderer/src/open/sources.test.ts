@@ -22,8 +22,18 @@ function stubBridge(existing: readonly string[], droppedPath = ''): Stub {
     droppedPath,
     bridge: {
       // Settings: this stub keeps no preferences, which is what a test wants.
-      settings: async () => ({ theme: 'system' as const, freesurferSubjectsDir: '' }),
-      setSettings: async () => ({ theme: 'system' as const, freesurferSubjectsDir: '' }),
+      settings: async () => ({
+        theme: 'system' as const,
+        freesurferSubjectsDir: '',
+        recentScenes: [],
+        reopenLastScene: false,
+      }),
+      setSettings: async () => ({
+        theme: 'system' as const,
+        freesurferSubjectsDir: '',
+        recentScenes: [],
+        reopenLastScene: false,
+      }),
       // The `--job` half of the bridge: this window was not launched for one.
       jobSpec: async () => null,
       jobWrite: async () => ({ ok: false, error: 'not a job run' }),
@@ -52,6 +62,9 @@ function stubBridge(existing: readonly string[], droppedPath = ''): Stub {
       relocateDialog: async () => null,
       readSceneFile: async () => ({ ok: false, error: 'not stubbed' }),
       writeSceneFile: async () => ({ ok: false, error: 'not stubbed' }),
+      onOpenScene: () => () => {},
+      startupScene: async () => null,
+      rememberScene: async () => null,
       onSceneCommand: () => () => {},
     },
   };
