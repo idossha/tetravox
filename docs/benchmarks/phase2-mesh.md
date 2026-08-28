@@ -85,8 +85,8 @@ this cost during a drag. That is E-SCENE's P2-02 and does not exist yet.
 
 | Quantity | Value |
 |---|---|
-| Parse + boundary + upload + first frame | 582 ms |
-| `extract_boundary` + upload alone (de-indexed variant) | **223 ms** |
+| Parse + boundary + upload + first frame | 627 ms |
+| `extract_boundary` + upload alone (de-indexed variant) | **233 ms** |
 | Gate | 1500 ms |
 <!-- end boundary chromium-swiftshader -->
 
@@ -99,12 +99,12 @@ bounding box's mid-`z` for 2.0 s, moved on every frame.
 
 | Quantity | Value |
 |---|---|
-| Drag frame rate | **30.5 fps** (62 frames) |
-| Frame interval, median · p95 | 33.3 ms · 33.8 ms |
+| Drag frame rate | **121.1 fps** (243 frames) |
+| Frame interval, median · p95 | 8.3 ms · 10.2 ms |
 | Budget | 33.3 ms (30 fps) |
-| New cross-section on screen, median · p95 | 33 ms · 34 ms |
-| New cross-sections per second | 30.1 Hz (61 in the drag) |
-| Cap triangles at the last plane | 63,191 |
+| New cross-section on screen, median · p95 | 16 ms · 18 ms |
+| New cross-sections per second | 73.8 Hz (148 in the drag) |
+| Cap triangles at the last plane | 62,056 |
 
 This is the shipping renderer, so the frame rate here is the one §7.4 gates on. The cut latency is sampled once per frame, so it cannot read below one frame interval.
 <!-- end chromium-angle -->
@@ -118,12 +118,12 @@ bounding box's mid-`z` for 2.0 s, moved on every frame.
 
 | Quantity | Value |
 |---|---|
-| Drag frame rate | 3.9 fps (8 frames) |
-| Frame interval, median · p95 | 262.1 ms · 479.9 ms |
+| Drag frame rate | 3.4 fps (7 frames) |
+| Frame interval, median · p95 | 305.0 ms · 537.4 ms |
 | Budget | 33.3 ms (30 fps) — not gated on this leg |
-| New cross-section on screen, median · p95 | 262 ms · 480 ms |
-| New cross-sections per second | 3.4 Hz (7 in the drag) |
-| Cap triangles at the last plane | 52,239 |
+| New cross-section on screen, median · p95 | 310 ms · 539 ms |
+| New cross-sections per second | 2.9 Hz (6 in the drag) |
+| Cap triangles at the last plane | 48,683 |
 
 SwiftShader. The frame rate here is the software rasteriser, not this feature, and the cut latency is sampled once per frame — so on this leg it is quantised by the frame interval and reads as an upper bound. The renderer-independent number is the table above.
 <!-- end chromium-swiftshader -->

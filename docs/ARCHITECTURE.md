@@ -537,6 +537,12 @@ export interface ViewSpec {
 }
 ```
 
+A points layer's `labels` and `lineSegments` are **not** serialised either, for the same reason and one
+more: they are re-derived from `MeshDataset.geo` (§6.2's parsed views) exactly as a `LabelTable` is, and
+`lineSegments` is a `Float32Array` — `JSON.stringify` turns one into `{"0":…}`, so persisting it would
+write megabytes of a scene file that restores garbage. Everything the *user* chose about the layer —
+`showLabels`, `labelScale`, `valueMode`, `colormap`, `valueRange`, the per-point overrides — is persisted.
+
 `LabelTable`s are **not** serialised; they are re-derived from the dataset and its LUT on load. A missing dataset
 opens a "relocate" dialog keyed on `fingerprint`.
 
