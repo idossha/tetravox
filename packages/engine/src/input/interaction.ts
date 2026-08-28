@@ -15,6 +15,13 @@
  * changes displayed *values* rather than displayed *resolution*."** `interpolation` is a reading, so
  * no level below names it, and none ever will — a `QualityLevel` has no field for it, which is the
  * cheapest way to keep the rule.
+ *
+ * `edges` used to be in the fallback set, and it was the same mistake wearing a different name: a
+ * user who switched element edges on watched them vanish for every orbit / pan / dolly and come
+ * back on settle. A feature the user enabled is *what is displayed*, not the resolution it is
+ * displayed at. The field is gone from `QualityLevel` entirely, for the same reason
+ * `interpolation` never had one. What remains in the ladder is `dprScale` (1 at every level, so it
+ * changes nothing), `msaa` and `capDecimation` — both Phase 3, both pure resolution.
  */
 
 import type { QualityLevel } from '../scene/types';
@@ -35,17 +42,10 @@ export const FRAME_WINDOW = 30;
  * knob here cannot silently move the default scene (and every golden with it).
  */
 export const QUALITY_LEVELS: Record<QualityLevel['name'], QualityLevel> = {
-  full: { name: 'full', dprScale: 1, msaa: 4, edges: true, capDecimation: 1, oit: false },
-  // §7.2 verbatim: `dprScale 1`, `msaa 0`, `edges false`, `capDecimation` per §9.
-  interacting: {
-    name: 'interacting',
-    dprScale: 1,
-    msaa: 0,
-    edges: false,
-    capDecimation: 4,
-    oit: false,
-  },
-  reduced: { name: 'reduced', dprScale: 1, msaa: 0, edges: false, capDecimation: 8, oit: false },
+  full: { name: 'full', dprScale: 1, msaa: 4, capDecimation: 1, oit: false },
+  // §7.2: `dprScale 1`, `msaa 0`, `capDecimation` per §9. **No `edges`** — see the file header.
+  interacting: { name: 'interacting', dprScale: 1, msaa: 0, capDecimation: 4, oit: false },
+  reduced: { name: 'reduced', dprScale: 1, msaa: 0, capDecimation: 8, oit: false },
 };
 
 /** Median of a sample, without sorting the caller's array. */
@@ -62,8 +62,7 @@ export function median(xs: readonly number[]): number {
  *
  * Degrade at the budget, recover at 60 % of it. The hysteresis is not decoration: at exactly the
  * budget a degrade/recover pair each move the median across the line, and a viewer that flips
- * `QualityLevel` every 30 frames flickers `edges` on and off in the user's face — and, per §7.2,
- * announces it in the status bar each time.
+ * `QualityLevel` every 30 frames announces a degradation in the status bar each time (§7.2).
  */
 export function adaptiveLevel(
   frameTimes: readonly number[],

@@ -21,7 +21,7 @@ import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
-import { expectGolden, readCanvasPixels } from '../helpers/pixels';
+import { expectGolden, readCanvasPixels, readCanvasRect } from '../helpers/pixels';
 import { readCornerInfo } from '../helpers/chrome';
 // E-MESH's fixture geometry, reused rather than re-derived: §11's "assert a pixel the `interacting`
 // level would have changed" needs a fragment whose edge factor is known in closed form, and the
@@ -871,19 +871,34 @@ test('@angle P2-02: `interacting` is entered on input, cleared after the settle,
  * after `interacting` clears; the frame drawn then is full quality (**assert a pixel that the
  * `interacting` level would have changed**)."*
  *
- * The test above asserts the flag and the two `quality` events. That is the state half, and on its
- * own it is satisfied by a `QualityLevel` nothing reads — which is what `Scene.quality` was until
- * `render/passes/mesh.ts` started consuming `edges`. This is the pixel half, and it is the one that
- * cannot pass unless the level really applies.
+ * **The polarity of that clause is inverted, deliberately, and this comment is the record of why.**
+ * It used to be satisfied by §7.2's `edges false`: the `interacting` level switched element edges
+ * off, so the edge pixel changed under a gesture and changing back on settle proved the level was
+ * live. That was the bug, not the proof. A user who switches element edges on is *displaying* them;
+ * §7.2's own rule for the fallback set — "any knob that changes displayed *values* rather than
+ * displayed *resolution*" is forbidden — covers a feature the user enabled exactly as it covers
+ * `interpolation`. Edges vanished for every orbit, pan and dolly and reappeared 120 ms after the
+ * hand stopped. `QualityLevel` has no `edges` field any more (docs/DECISIONS.md, 2026-08-28).
  *
- * The subject is §7.2's `edges false`. On the committed 3×3×3 lattice under `FRONT_FACE_CAMERA` the
- * pane's vertical centre line is the `y = 0` triangle edge shared by the front face's four quads, so
- * a pixel 0.5 px from it has `1 − smoothstep(w − 0.5, w + 0.5, 0.5) = 1` at `w = 4.25` and is
- * therefore **exactly** the edge colour — `mix(rgb, uEdgeColor.rgb, 1 · 1)`. With `edges` off there
- * is no `TVX_EDGES` branch at all and the same fragment is the lit tag colour. Two colours that
- * differ by construction, at a pixel named by the projection rather than found by looking.
+ * So this test asserts the **invariant that replaced it**: the edge pixel is there at full quality
+ * *and* mid-gesture, byte for byte, and the whole ladder is checked for having no field that could
+ * take it away again. The pixel is still named by the projection rather than found by looking: on
+ * the committed 3×3×3 lattice under `FRONT_FACE_CAMERA` the pane's vertical centre line is the
+ * `y = 0` triangle edge shared by the front face's four quads, so a pixel 0.5 px from it has
+ * `1 − smoothstep(w − 0.5, w + 0.5, 0.5) = 1` at `w = 4.25` and is therefore **exactly** the edge
+ * colour — `mix(rgb, uEdgeColor.rgb, 1 · 1)`.
+ *
+ * Two gestures, because they prove different halves:
+ *
+ * 1. a **stationary press**, where the camera and the geometry are provably what they were, so the
+ *    mid-gesture pixel can be compared to the full-quality one *byte for byte*;
+ * 2. a real **orbit drag**, sampled mid-drag, where the camera has moved and the assertion is
+ *    therefore over the pane's edge-coloured pixel *count* — zero when the edge colour is
+ *    transparent, non-zero at rest, and still non-zero in the middle of the gesture.
+ *
+ * The state half of the obligation (the flag, and the two `quality` events) is the test above.
  */
-test('@angle P2-02 §11: the frame `whenSettled()` leaves is full quality, at a pixel `interacting` changes', async ({
+test('@angle P2-02 §11: element edges survive the gesture — full quality and mid-orbit alike', async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -906,29 +921,101 @@ test('@angle P2-02 §11: the frame `whenSettled()` leaves is full quality, at a 
     }, p);
   };
 
-  await page.evaluate(async (camera) => {
+  const setCamera = async (): Promise<void> => {
+    await page.evaluate(async (camera) => {
+      const engine = window.__tvxEngine!;
+      engine.setView('view3d', { camera: camera as never });
+      await engine.whenSettled();
+    }, FRONT_FACE_CAMERA);
+  };
+
+  /**
+   * How many pixels of a 300 px window at the pane centre are **exactly** the edge colour.
+   *
+   * A count rather than a named pixel, because an orbit has moved the camera by the time this is
+   * sampled and the `y = 0` line is no longer at a pixel anyone can name in closed form. Pure red
+   * is still unreachable without the edge: the lattice's lit tag colour is a green (measured
+   * 58,169,71 / 82,200,97 under this camera), and `mix(rgb, uEdgeColor.rgb, e)` reaches
+   * `(255, 0, 0)` only at `e = 1`, i.e. on a triangle edge. The transparent-edge control below is
+   * what makes that an assertion instead of a claim.
+   */
+  const edgePixelCount = async (): Promise<number> => {
+    const px = await readCanvasRect(page, PANE / 2 - 150, PANE / 2 - 150, 300, 300);
+    let n = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] === EDGE_RED[0] && px[i + 1] === EDGE_RED[1] && px[i + 2] === EDGE_RED[2]) n += 1;
+    }
+    return n;
+  };
+
+  /**
+   * Collect, **from inside the engine's own `frame` event**, the edge-pixel count of every frame it
+   * draws, tagged with the `QualityLevel` it drew at.
+   *
+   * Sampling from the test side cannot work here and the reason is worth writing down: `interacting`
+   * is left by a `setTimeout` 120 ms after the last input, and a Playwright round trip plus a render
+   * of a real mesh is longer than that on the software leg — so `mouse.move` then `evaluate` reads a
+   * settled engine and would report a bug that is not there (it did, before this was rewritten). The
+   * `frame` event is emitted **synchronously** at the end of `renderView`, in the same task as the
+   * draw, before compositing can discard the buffer (`preserveDrawingBuffer` is false, §7.1). A
+   * count taken there is the frame that was actually shown, and `#lastQuality` is the level it was
+   * drawn at. No clock is involved on either side.
+   */
+  const collectFrames = async (): Promise<void> => {
+    await page.evaluate(
+      ([x, y, w, h, r, g, b]) => {
+        const engine = window.__tvxEngine!;
+        const out: { quality: string; edges: number }[] = [];
+        (window as unknown as { __edgeFrames: typeof out }).__edgeFrames = out;
+        const el = document.querySelector('#gl');
+        if (!(el instanceof HTMLCanvasElement)) throw new Error('no canvas');
+        const gl = el.getContext('webgl2');
+        if (gl === null) throw new Error('no webgl2');
+        const px = new Uint8Array(w! * h! * 4);
+        engine.on('frame', (f) => {
+          if (out.length >= 24) return;
+          gl.readPixels(x!, el.height - y! - h!, w!, h!, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          let n = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            if (px[i] === r && px[i + 1] === g && px[i + 2] === b) n += 1;
+          }
+          out.push({ quality: f.quality, edges: n });
+        });
+      },
+      [PANE / 2 - 150, PANE / 2 - 150, 300, 300, EDGE_RED[0], EDGE_RED[1], EDGE_RED[2]] as const
+    );
+  };
+
+  const collectedFrames = async (): Promise<{ quality: string; edges: number }[]> =>
+    page.evaluate(
+      () =>
+        (window as unknown as { __edgeFrames: { quality: string; edges: number }[] }).__edgeFrames
+    );
+
+  await page.evaluate(async () => {
     const engine = window.__tvxEngine!;
-    engine.setView('view3d', { camera: camera as never });
     engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
     await engine.whenSettled();
-  }, FRONT_FACE_CAMERA);
+  });
+  await setCamera();
 
   // The control: the same fragment with the edge contributing nothing.
   //
-  // `edges: { surface: false }` would be the wrong control, and the difference is the point of
-  // §7.2's rule that a fallback level may change *resolution* and not *content*. `layers/mesh.ts`
-  // picks the geometry variant from the **layer's** settings, not from the quality level, so a drag
-  // does not swap the de-indexed surface out from under itself — no re-upload, no reflow, and the
-  // normals stay flat. Turning the layer's own `edges.surface` off *does* swap it (back to the
-  // indexed variant, whose averaged corner normals shade the same fragment differently: measured
-  // 82,200,97 against 58,169,71 here), which is a different picture for a reason that has nothing to
-  // do with the edge. A transparent edge colour keeps the variant and removes only the edge.
+  // `edges: { surface: false }` would be the wrong control. `layers/mesh.ts` picks the geometry
+  // variant from the **layer's** settings, so turning `edges.surface` off swaps the de-indexed
+  // surface for the indexed one, whose averaged corner normals shade the same fragment differently
+  // (measured 82,200,97 against 58,169,71 here) — a different picture for a reason that has nothing
+  // to do with the edge. A transparent edge colour keeps the variant and removes only the edge.
   await patch({
     edges: { surface: true, caps: false },
     edgeColor: [1, 0, 0, 0],
     edgeWidthPx: 4.25,
   });
   const [noEdges] = await readCanvasPixels(page, [EDGE_PIXEL]);
+  expect(
+    await edgePixelCount(),
+    'the control draws no edge-coloured pixel at all, so the counts below mean the edge'
+  ).toBe(0);
 
   await patch({
     edges: { surface: true, caps: false },
@@ -943,24 +1030,60 @@ test('@angle P2-02 §11: the frame `whenSettled()` leaves is full quality, at a 
   }
   expect(
     [...noEdges!].slice(0, 3),
-    'the two levels must differ at this pixel, or the assertion proves nothing'
+    'the edge really is what distinguishes the two frames, or the assertion proves nothing'
   ).not.toEqual([...full!].slice(0, 3));
+  const restCount = await edgePixelCount();
+  expect(restCount, 'edges are drawn at rest').toBeGreaterThan(0);
 
-  // Hold the pointer down: §7.2 enters `interacting` on pointerdown. No movement, so the camera and
-  // the geometry are exactly what they were — only the `QualityLevel` moved.
+  // The ladder cannot take them away again: no level names a knob for it, and there is no field to
+  // name. Same enforcement `interpolation` has had since P2-02.
+  const levels = await page.evaluate(() => window.__tvxEngine!.scene.quality);
+  expect(Object.keys(levels)).not.toContain('edges');
+
+  // (1) Stationary press. §7.2 enters `interacting` on pointerdown; no movement, so the camera and
+  // the geometry are exactly what they were and the pixel must be identical byte for byte.
   await page.mouse.move(200, 200);
   await page.mouse.down();
   const during = await page.evaluate(() => window.__tvxEngine!.scene.quality);
   expect(during.name).toBe('interacting');
-  expect(during.edges, '§7.2: the interacting level names `edges false`').toBe(false);
-  const [dragging] = await readCanvasPixels(page, [EDGE_PIXEL]);
+  expect(Object.keys(during), 'the interacting level has no `edges` knob to drop').not.toContain(
+    'edges'
+  );
+  const [pressed] = await readCanvasPixels(page, [EDGE_PIXEL]);
   expect(
-    [...dragging!],
-    '`edges false` really applies: the edge pixel is the un-edged frame, byte for byte'
-  ).toEqual([...noEdges!]);
-
+    [...pressed!],
+    'a user-enabled feature is never dropped mid-gesture: the edge pixel is unchanged under the press'
+  ).toEqual([...full!]);
   await page.mouse.up();
   await settle(page);
+
+  // (2) A real orbit drag — §7.5's 3D left-drag — sampled **while the pointer is still down**.
+  await page.mouse.move(PANE / 2, PANE / 2);
+  await page.mouse.down();
+  await collectFrames();
+  for (let i = 1; i <= 6; i += 1) await page.mouse.move(PANE / 2 + i * 8, PANE / 2 + i * 4);
+  await page.mouse.up();
+
+  const drawn = await collectedFrames();
+  const midGesture = drawn.filter((f) => f.quality === 'interacting');
+  expect(
+    midGesture.length,
+    'the orbit really drew frames at the `interacting` level'
+  ).toBeGreaterThan(0);
+  for (const [i, f] of midGesture.entries()) {
+    expect(
+      f.edges,
+      `mid-gesture frame ${String(i)}: edges are still drawn mid-orbit`
+    ).toBeGreaterThan(0);
+  }
+
+  // And the frame `whenSettled()` leaves behind is the full-quality one, at the named pixel: the
+  // camera is put back where the closed-form derivation applies, and nothing else is touched.
+  await settle(page);
+  expect(await edgePixelCount(), 'edges are still drawn after the gesture settles').toBeGreaterThan(
+    0
+  );
+  await setCamera();
   const [settled] = await readCanvasPixels(page, [EDGE_PIXEL]);
   expect(
     [...settled!],

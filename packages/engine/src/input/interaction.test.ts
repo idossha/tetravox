@@ -115,21 +115,30 @@ describe('the quality ladder (§7.2, §4.5)', () => {
     // §7.2: "Forbidden in the fallback set: any knob that changes displayed *values* rather than
     // displayed *resolution*." `interpolation` is a reading — a `QualityLevel` has no field for it,
     // which is the cheapest possible enforcement, and this test is what says so out loud.
+    //
+    // `edges` is on the same list now, and for the same reason: element edges the user switched on
+    // are *what is displayed*, not the resolution it is displayed at, so no level may drop them
+    // mid-gesture (docs/DECISIONS.md, 2026-08-28). The field is gone, so no level can.
     for (const level of Object.values(QUALITY_LEVELS)) {
       expect(Object.keys(level).sort()).toEqual(
-        ['capDecimation', 'dprScale', 'edges', 'msaa', 'name', 'oit'].sort()
+        ['capDecimation', 'dprScale', 'msaa', 'name', 'oit'].sort()
       );
     }
   });
 
+  it('has no knob for element edges, at any level', () => {
+    for (const [name, level] of Object.entries(QUALITY_LEVELS)) {
+      expect(Object.keys(level), `${name} must not name \`edges\``).not.toContain('edges');
+    }
+  });
+
   it('is §7.2’s interacting level verbatim', () => {
-    expect(QUALITY_LEVELS.interacting).toMatchObject({ dprScale: 1, msaa: 0, edges: false });
+    expect(QUALITY_LEVELS.interacting).toMatchObject({ dprScale: 1, msaa: 0 });
     expect(QUALITY_LEVELS.interacting.capDecimation).toBeGreaterThan(1);
     expect(QUALITY_LEVELS.full).toEqual({
       name: 'full',
       dprScale: 1,
       msaa: 4,
-      edges: true,
       capDecimation: 1,
       oit: false,
     });

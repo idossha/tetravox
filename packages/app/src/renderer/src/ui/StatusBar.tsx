@@ -98,17 +98,19 @@ export function StatusBar(): React.JSX.Element {
           budget. One shared label would make a permanent degradation look like a transient one.
 
           **The tooltips name what the level actually does, not what §7.2 lists.** The fallback set
-          is `dprScale 1`, `msaa 0`, `edges false`, `capDecimation`; of those, `edges` is consumed by
-          `render/passes/mesh.ts`, `dprScale` is 1 at every level so there is nothing to say, and
-          `msaa` / `capDecimation` have no consumer yet (docs/DECISIONS.md, 2026-08-28 — an MSAA
-          resolve target and a decimating cut are Phase 3). A bar that announced a degradation the
+          is `dprScale 1`, `msaa 0`, `capDecimation`; `dprScale` is 1 at every level so there is
+          nothing to say, and `msaa` / `capDecimation` have no consumer yet (docs/DECISIONS.md,
+          2026-08-28 — an MSAA resolve target and a decimating cut are Phase 3). `edges` was the one
+          live knob and is gone: element edges the user switched on now survive the gesture
+          (DECISIONS, 2026-08-28). So `interacting` currently reports a gesture in flight and NOT a
+          degradation, and the tooltips say exactly that. A bar that announced a degradation the
           renderer does not perform would invert "never degrade silently" into "claim a degradation
           that never happened", which is exactly the failure §7.2 is guarding against. */}
       {quality === 'interacting' && (
         <span
           data-testid="status-interacting"
           className="flex shrink-0 items-baseline gap-1 text-tvx-accent"
-          title="A gesture is in flight: mesh edges are off until it settles (§7.2)"
+          title="A gesture is in flight (§7.2). Nothing is dropped: element edges stay on."
         >
           <span aria-hidden="true">●</span>
           interacting
@@ -121,7 +123,7 @@ export function StatusBar(): React.JSX.Element {
           value={quality}
           title={
             quality === 'interacting'
-              ? 'The interacting QualityLevel (§7.2): mesh edges off until the gesture settles'
+              ? 'The interacting QualityLevel (§7.2). No knob it names is live today, so nothing is degraded'
               : 'Degraded to hold the frame budget (§7.2) — the drop is reported, never silent'
           }
         />

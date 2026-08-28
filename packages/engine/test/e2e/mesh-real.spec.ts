@@ -30,7 +30,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { expectGolden, readCanvasPixels } from '../helpers/pixels';
+import { expectGolden, readCanvasPixels, readCanvasRect } from '../helpers/pixels';
 import type { Rgba } from '../helpers/pixels';
 import { BACKGROUND, isBackground, PANE } from './mesh-support';
 
@@ -957,5 +957,153 @@ test('@angle §7.2.3 ernie.msh: the pick pass paints exactly where the frame doe
   // half-pixel between the pick's integer resolution grid and the anti-aliased silhouette this
   // measures against, not a sixth pixel of reach.
   expect(worstNearestInk, 'no hit is snapped further than §7.2.3’s radius').toBeLessThan(5.5);
+  expect(errors).toEqual([]);
+});
+
+// -------------------------------------------------------------------------------------------
+// 5 — element edges survive a gesture, on real geometry (P2-02, docs/DECISIONS.md 2026-08-28)
+// -------------------------------------------------------------------------------------------
+
+/**
+ * The real-data half of `pointer.spec.ts`'s inverted §11 obligation.
+ *
+ * §7.2's `interacting` level used to name `edges false`, and `render/passes/mesh.ts` honoured it, so
+ * ernie's element edges — surface *and* cap — blinked out for the whole of every orbit and came back
+ * 120 ms after the hand stopped. `QualityLevel` has no `edges` field any more. The fixture lattice
+ * proves the pixel identity in closed form; this proves the same thing on the geometry the bug was
+ * reported against: 1,177,213 triangles, a mid-axial clip, and edges on both the tag surfaces and
+ * the cut caps.
+ *
+ * The assertion is a count of pixels that are **exactly** the edge colour. Pure red is unreachable
+ * from ernie's tissue palette through `mix(rgb, uEdgeColor.rgb, e)` at anything but `e = 1`, and the
+ * transparent-edge control — the identical frame with `edgeColor` alpha 0, which keeps the
+ * de-indexed geometry variant and removes only the edge — is what turns that from a claim into a
+ * measurement: it must count zero.
+ *
+ * `@angle` so both projects run it: the subject is a gesture, and it is renderer-independent.
+ */
+test('@angle P2-02 ernie.msh: surface and cap edges stay drawn through an orbit', async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  const errors = await openScene(page);
+  await openMesh(page, ERNIE, ERNIE_OPT);
+
+  const EDGE_RED: readonly [number, number, number] = [255, 0, 0];
+
+  const patch = async (p: Record<string, unknown>): Promise<void> => {
+    await page.evaluate(async (q) => {
+      const engine = window.__tvxEngine!;
+      engine.updateLayer(window.__tvxRealLayer!, q as never);
+      for (let i = 0; i < 40; i += 1) {
+        await engine.whenSettled();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await engine.whenSettled();
+    }, p);
+  };
+
+  /** Pixels of a 300 px window at the pane centre that are exactly the edge colour. */
+  const edgePixelCount = async (): Promise<number> => {
+    const px = await readCanvasRect(page, PANE / 2 - 150, PANE / 2 - 150, 300, 300);
+    let n = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i] === EDGE_RED[0] && px[i + 1] === EDGE_RED[1] && px[i + 2] === EDGE_RED[2]) n += 1;
+    }
+    return n;
+  };
+
+  /**
+   * Collect, **from inside the engine's own `frame` event**, the edge-pixel count of every frame it
+   * draws, tagged with the `QualityLevel` it drew at.
+   *
+   * Sampling from the test side cannot work here and the reason is worth writing down: `interacting`
+   * is left by a `setTimeout` 120 ms after the last input, and a Playwright round trip plus a render
+   * of a real mesh is longer than that on the software leg — so `mouse.move` then `evaluate` reads a
+   * settled engine and would report a bug that is not there (it did, before this was rewritten). The
+   * `frame` event is emitted **synchronously** at the end of `renderView`, in the same task as the
+   * draw, before compositing can discard the buffer (`preserveDrawingBuffer` is false, §7.1). A
+   * count taken there is the frame that was actually shown, and `#lastQuality` is the level it was
+   * drawn at. No clock is involved on either side.
+   */
+  const collectFrames = async (): Promise<void> => {
+    await page.evaluate(
+      ([x, y, w, h, r, g, b]) => {
+        const engine = window.__tvxEngine!;
+        const out: { quality: string; edges: number }[] = [];
+        (window as unknown as { __edgeFrames: typeof out }).__edgeFrames = out;
+        const el = document.querySelector('#gl');
+        if (!(el instanceof HTMLCanvasElement)) throw new Error('no canvas');
+        const gl = el.getContext('webgl2');
+        if (gl === null) throw new Error('no webgl2');
+        const px = new Uint8Array(w! * h! * 4);
+        engine.on('frame', (f) => {
+          if (out.length >= 24) return;
+          gl.readPixels(x!, el.height - y! - h!, w!, h!, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          let n = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            if (px[i] === r && px[i + 1] === g && px[i + 2] === b) n += 1;
+          }
+          out.push({ quality: f.quality, edges: n });
+        });
+      },
+      [PANE / 2 - 150, PANE / 2 - 150, 300, 300, EDGE_RED[0], EDGE_RED[1], EDGE_RED[2]] as const
+    );
+  };
+
+  const collectedFrames = async (): Promise<{ quality: string; edges: number }[]> =>
+    page.evaluate(
+      () =>
+        (window as unknown as { __edgeFrames: { quality: string; edges: number }[] }).__edgeFrames
+    );
+
+  // A mid-axial clip so the cut caps exist, then edges on both the tag surfaces and the caps.
+  await patch({ clip: axialClip(MID_Z) });
+  await patch({
+    edges: { surface: true, caps: true },
+    edgeColor: [1, 0, 0, 0],
+    edgeWidthPx: 1.5,
+  });
+  expect(
+    await edgePixelCount(),
+    'the transparent-edge control paints no edge-coloured pixel, so the counts below mean the edge'
+  ).toBe(0);
+
+  await patch({
+    edges: { surface: true, caps: true },
+    edgeColor: [1, 0, 0, 1],
+    edgeWidthPx: 1.5,
+  });
+  const atRest = await edgePixelCount();
+  expect(atRest, 'ernie’s element edges are drawn at rest').toBeGreaterThan(0);
+
+  // Orbit, and sample **while the pointer is still down** — §7.5's 3D left-drag.
+  await page.mouse.move(PANE / 2, PANE / 2);
+  await page.mouse.down();
+  await collectFrames();
+  for (let i = 1; i <= 6; i += 1) await page.mouse.move(PANE / 2 + i * 8, PANE / 2 + i * 4);
+  await page.mouse.up();
+
+  const drawn = await collectedFrames();
+  console.log(
+    `[P2-02] ernie edges: ${String(atRest)} edge-coloured px at rest; frames drawn during the ` +
+      `orbit: ${drawn.map((f) => `${f.quality}:${String(f.edges)}`).join(', ')}`
+  );
+  const midGesture = drawn.filter((f) => f.quality === 'interacting');
+  expect(
+    midGesture.length,
+    'the orbit really drew frames at the `interacting` level'
+  ).toBeGreaterThan(0);
+  for (const [i, f] of midGesture.entries()) {
+    expect(
+      f.edges,
+      `mid-gesture frame ${String(i)}: ernie’s edges are still drawn mid-orbit`
+    ).toBeGreaterThan(0);
+  }
+
+  await page.evaluate(async () => {
+    await window.__tvxEngine!.whenSettled();
+  });
+  expect(await edgePixelCount(), 'and after the gesture settles').toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
