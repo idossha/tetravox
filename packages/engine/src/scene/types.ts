@@ -335,6 +335,36 @@ export interface VolumeLayer extends LayerBase {
   showIn3D: boolean;
   /** `'f32'` forces R32F, guarded by `caps.floatLinear`. */
   precision: 'auto' | 'f32';
+  /**
+   * The volume's **3D surface** (directed task 2, 2026-08-28 — see `docs/DECISIONS.md`).
+   *
+   * Additive and optional: absent means the volume has no isosurface, which is what every layer
+   * written before this field said and still says. Present and `enabled`, it makes the volume layer
+   * the **owner** of one or more linked `IsosurfaceLayer`s that the engine derives — it does not add
+   * rows to `Scene.layers`. That ownership is the whole point: the surfaces follow the volume's 4D
+   * `volumeIndex`, its `visible` flag and (for a label volume) its `visibleLabels` /
+   * `selectedLabels` / `labelColors`, and they go when the volume goes.
+   *
+   * `iso` and `color` describe the **scalar** case: one surface at one level. For a label volume the
+   * engine derives one surface per visible-or-selected region at `label − 0.5` in that region's LUT
+   * colour (`labelColors` first), so neither field is read.
+   */
+  iso3d?: VolumeIso3d;
+}
+
+/** §4.4's `VolumeLayer.iso3d`. Plain JSON, so `SerializableLayer` needs no new `Omit`. */
+export interface VolumeIso3d {
+  /** The **3D surface** switch. `false` keeps the settings without building anything. */
+  enabled: boolean;
+  /** Scalar volumes only: the level, in physical units. Defaults to the volume's p95. */
+  iso: number;
+  /** Scalar volumes only: 0..1 RGBA, like every colour in §4.1. */
+  color: vec4;
+  /** The surfaces' opacity, independent of the volume slice's `LayerBase.opacity`. */
+  opacity: number;
+  /** Smooth (per-vertex) shading; `false` is faceted. */
+  smooth: boolean;
+  faceMode: 'cull' | 'both';
 }
 
 export interface ClipPlane {
@@ -432,6 +462,16 @@ export interface IsosurfaceLayer extends LayerBase {
   source: {
     datasetId: DatasetId;
     volumeIndex?: number;
+    /**
+     * **One region of a label volume**, isolated at the sample (appended 2026-08-28 for §4.4's
+     * `VolumeLayer.iso3d` — see `docs/DECISIONS.md`).
+     *
+     * Present means the surface comes from §6.5.2's `marchingCubesLabel` rather than
+     * `marchingCubes`, and `iso` is unread. It has to be its own op, not a level: a label volume's
+     * samples are ids, so `value >= k - 0.5` is the union of every id at or above `k`, and SimNIBS
+     * ids do not nest.
+     */
+    label?: number;
     field?: { source: 'node' | 'elm'; name: string; component: 'mag' | 0 | 1 | 2 };
   };
   iso: number;
@@ -505,7 +545,23 @@ export interface View3D {
 
 export type View = SliceView | View3D;
 
-export type LayoutKind = '1x1' | '1x3' | '1x3-horizontal' | '2x2' | '3d-only';
+/**
+ * **`'1+3'` and `'3d+1'` were appended for directed task 3, 2026-08-28** (see `docs/DECISIONS.md`):
+ * "the 3D viewer is always on". The app's *catalogue* — the toolbar and the `x` cycle — offers only
+ * the kinds that contain the 3D pane, and migrates a saved scene that names one of the others; the
+ * engine's view model is untouched, so `'1x1'` and `'1x3'` remain expressible and remain what §11's
+ * single-pane pixel harnesses set.
+ */
+export type LayoutKind =
+  | '1x1'
+  | '1x3'
+  | '1x3-horizontal'
+  | '2x2'
+  | '3d-only'
+  /** 3D large on the left, the three slices stacked in a narrow column on the right. */
+  | '1+3'
+  /** The 3D pane and one slice, side by side. */
+  | '3d+1';
 export interface Layout {
   kind: LayoutKind;
   cells: ViewId[];

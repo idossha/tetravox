@@ -877,12 +877,17 @@ test.describe('visualisation scenario catalogue', () => {
         await engine.whenSettled();
         return hasGizmo;
       });
-      await page.click('[data-testid="layout-1x1"]');
-      await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '1x1');
+      // Directed task 3, 2026-08-28: `1x1` left the catalogue, because it had no 3D pane. `3d+1` is
+      // its replacement — the same zoomed oblique slice, with the 3D pane beside it.
+      await page.click('[data-testid="layout-3d+1"]');
+      await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute(
+        'data-layout',
+        '3d+1'
+      );
       await settle(page);
       await shoot(page, '14-oblique-slice.png');
-      // The gizmo is drawn in the **3D** pane and manipulates the named 2D pane's plane, so the
-      // 1×1 oblique pane cannot show it. The 2×2 does.
+      // The gizmo is drawn in the **3D** pane and manipulates the named 2D pane's plane. The 2×2
+      // shows both at a size worth a closeup.
       await page.click('[data-testid="layout-2x2"]');
       await settle(page);
       await shootPane(page, 'view3d', '14-oblique-slice-closeup.png');

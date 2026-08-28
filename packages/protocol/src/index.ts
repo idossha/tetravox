@@ -35,12 +35,13 @@ export type OpName =
   | 'elmToNode'
   | 'locate'
   | 'marchingCubes'
+  | 'marchingCubesLabel'
   | 'marchingTets'
   | 'contours'
   | 'labelCentroids'
   | 'meshCentroids'
   | 'free'
-  | 'freeMask'; // 18 ops
+  | 'freeMask'; // 19 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -363,6 +364,16 @@ export interface OpArgs {
   elmToNode: { handle: number; direction: 'elmToNode' | 'nodeToElm'; name: string };
   locate: { handle: number; world: [number, number, number] };
   marchingCubes: { handle: number; volumeIndex: number; iso: number; smooth: boolean };
+  /**
+   * One **region** of a label volume, isolated at the sample (§6.3's `marching_cubes_label`;
+   * appended 2026-08-28 for §4.4's `VolumeLayer.iso3d` — see `docs/DECISIONS.md`).
+   *
+   * Not `marchingCubes` at `label - 0.5`: a label volume's samples are ids, so that level set is the
+   * union of every id at or above it, and SimNIBS ids do not nest (`final_tissues` is 1 WM, 2 GM,
+   * 3 CSF, 5 scalp, 7 compact bone … `[DATA]`). The worker reads the volume through
+   * `value == label ? 1 : 0` and marches at 0.5 instead.
+   */
+  marchingCubesLabel: { handle: number; volumeIndex: number; label: number; smooth: boolean };
   marchingTets: {
     handle: number;
     source: FieldSource;
@@ -414,6 +425,7 @@ export interface OpResult {
   elmToNode: { name: string; values: Float32Array; stats: StatsT };
   locate: { hit: ProbeHitT | null };
   marchingCubes: SurfacePayload;
+  marchingCubesLabel: SurfacePayload;
   marchingTets: SurfacePayload;
   /** 6 floats per segment. */
   contours: { segments: Float32Array };
@@ -448,6 +460,7 @@ export const OP_NAMES = [
   'elmToNode',
   'locate',
   'marchingCubes',
+  'marchingCubesLabel',
   'marchingTets',
   'contours',
   'labelCentroids',
@@ -473,6 +486,7 @@ export const OP_TO_EXPORT = {
   elmToNode: 'mesh_convert_field',
   locate: 'mesh_locate',
   marchingCubes: 'volume_marching_cubes',
+  marchingCubesLabel: 'volume_marching_cubes_label',
   marchingTets: 'mesh_marching_tets',
   contours: 'mesh_contours',
   labelCentroids: 'volume_label_centroids',

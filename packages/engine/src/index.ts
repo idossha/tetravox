@@ -25,6 +25,14 @@ export { isColormapName, sampleColormap, scalePosition } from './color/colormaps
 export { fallbackLabelColor } from './layers/volume';
 
 /**
+ * §4.4's `VolumeLayer.iso3d` (directed task 2, 2026-08-28): the defaults the **3D surface** switch
+ * turns on with, and the derivation the engine reconciles against. The app's editor needs the first
+ * — a switch that has to invent a p95 itself would be §8's "no logic in React" broken — and the unit
+ * tests need the second.
+ */
+export { defaultIso3d, derivedIsoLayers, iso3dLabels, iso3dLayerId } from './layers/iso3d';
+
+/**
  * §4.6's sidecar resolution, for the host that owns the filesystem.
  *
  * `Engine.load` derives each `DatasetRef`'s sidecar paths from wherever the dataset resolved to and

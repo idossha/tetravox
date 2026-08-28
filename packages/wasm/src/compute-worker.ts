@@ -215,6 +215,10 @@ async function runOp<K extends OpName>(
       const a = args as OpArgs['marchingCubes'];
       return call(a.handle, a.volumeIndex, a.iso, a.smooth, onProgress) as OpResult[K];
     }
+    case 'marchingCubesLabel': {
+      const a = args as OpArgs['marchingCubesLabel'];
+      return call(a.handle, a.volumeIndex, a.label, a.smooth, onProgress) as OpResult[K];
+    }
     case 'marchingTets': {
       const a = args as OpArgs['marchingTets'];
       return call(

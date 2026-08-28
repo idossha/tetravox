@@ -197,6 +197,11 @@ export function volume_label_centroids(handle: number, vol_index: number): any;
 export function volume_marching_cubes(handle: number, vol_index: number, iso: number, smooth: boolean, on_progress: Function): any;
 
 /**
+ * One region of a label volume, isolated at the sample (§6.4, added 2026-08-28 for §4.4's `iso3d`).
+ */
+export function volume_marching_cubes_label(handle: number, vol_index: number, label: number, smooth: boolean, on_progress: Function): any;
+
+/**
  * Stamped onto every `Res` (§6.5) and read by the §9 memory bar and `scripts/bench.ts`.
  */
 export function wasm_heap_bytes(): number;
@@ -244,6 +249,7 @@ export interface InitOutput {
     readonly volume_frame: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly volume_label_centroids: (a: number, b: number) => [number, number, number];
     readonly volume_marching_cubes: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly volume_marching_cubes_label: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly wasm_heap_bytes: () => number;
     readonly free_mask: (a: number, b: number) => void;
     readonly free: (a: number) => void;

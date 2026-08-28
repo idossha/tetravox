@@ -2574,3 +2574,65 @@ Each entry below names the problem, the fix, and the evidence.
   pixel count sampled in the middle of a synthetic orbit drag, against a transparent-edge control
   that counts zero. `mesh-real.spec.ts` runs the same shape on ernie's surface and cap edges under a
   mid-axial clip. `input/interaction.test.ts` pins that no level names the knob.
+
+
+## 2026-08-28 — `VolumeLayer.iso3d`: the volume layer owns its 3D isosurfaces (directed task 2)
+
+**Decision.** §4.4's `VolumeLayer` gains one additive, optional field, `iso3d?: VolumeIso3d`
+(`{ enabled, iso, color, opacity, smooth, faceMode }`), and §4.7's `Engine` gains one member,
+`iso3dStatus(layerId)`. The surfaces themselves are **derived, never stored**: `layers/iso3d.ts` is a pure
+function from the volume layer to the `IsosurfaceLayer`s it implies, and the engine reconciles one
+`IsoLayerRuntime` per derived layer, keyed by the owning layer's id, delivered to §7.2 through the new optional
+`DrawInput.ownedRuntimes`.
+
+**Why an owned surface rather than a second layer.** The maintainer asked to "render isosurfaces of NIfTI in
+the 3D viewer". A standalone `IsosurfaceLayer` could already do it — and that is exactly the problem: the user
+would have to add a second layer, point it back at the volume they are already looking at, and then keep the
+two in step by hand. Nothing would hold the surface on the 4D frame the volume shows, or on the regions the
+region panel just hid, or delete it when the volume goes. Deriving the surfaces on every reconcile makes all
+four true with no synchronisation code, and makes them untestable-by-drift: the claim is a pure function, and
+`layers/iso3d.test.ts` tests the function.
+
+**What it did not cost.** No new geometry path. `marchingCubes` is Phase 1's, `layers/iso.ts` already owns the
+op with latest-wins on a slider drag and a `GpuStore` cache keyed by the surface's inputs, and §7.2's iso draw
+is unchanged. The surfaces draw in **3D panes only**.
+
+**Defaults.** p95 for a scalar volume, because `m2m_ernie/T1.nii.gz`'s max is exactly 65535.0 `[DATA]` and a
+`[min, max]` midpoint is an empty surface. Measured on that file p95 is 15991.17 against a median of −0.78 —
+a head volume is mostly background, so p95 lands up the tissue histogram rather than on the scalp rind, and the
+real-data test says so rather than asserting a shape the data does not have. For a label volume: one surface
+per visible-or-selected region at `label − 0.5` in its LUT colour, background id 0 excluded.
+
+**A label volume needed a new op, and this is why.** The first cut derived each region's surface as
+`marchingCubes` at `label − 0.5`, on the reasoning that the level halfway below an id bounds it. That is
+wrong, and the screenshot showed it: a label volume's samples are **ids**, so `value ≥ k − 0.5` is the union
+of every id at or above `k`, and SimNIBS ids do not nest (`final_tissues` is 1 WM, 2 GM, 3 CSF, 5 scalp,
+7 compact bone …, and 4 is absent `[DATA]`). "Compact bone" came back as the whole outer head. So §6.3 gains
+`marching_cubes_label` and §6.5.2 gains `marchingCubesLabel` (both additive; `OP_NAMES` goes 18 → 19), which
+read the volume through `value == label ? 1 : 0` and march at 0.5 — the region's own boundary and nothing
+else's. `IsosurfaceLayer.source.label` (additive) is what selects it. Measured on `final_tissues.nii.gz`:
+the isolated compact-bone surface encloses **601,788 mm³** against **601,300 mm³** counted (ratio 1.0008),
+while the level set at 6.5 encloses 674,738 mm³ and is a different shape;
+`crates/tvx-geom/tests/real_data.rs` asserts both halves, so the wrong answer cannot come back.
+
+**Not done, on purpose.** An isosurface still has no clip plane: §7.2's iso draw disables clip distances, so
+clipping one is a new shader path plus a further frozen field, and neither belongs in this change. Region
+visibility shows interior tissue today.
+
+## 2026-08-28 — every layout the app offers contains the 3D pane (directed task 3)
+
+**Decision.** `LayoutKind` gains `'1+3'` (3D large at 2/3 width, the three slices stacked in the remaining
+third) and `'3d+1'` (the 3D pane and one slice, side by side). The app's **catalogue** — the toolbar and the
+`x` cycle — becomes `2x2`, `1+3`, `3d+1`, `3d-only`, and a scene naming a removed layout is migrated on load:
+`1x1 → 3d+1`, `1x3` / `1x3-horizontal` → `1+3`, with the cells recomputed and the 3D pane leading.
+
+**Why the removed kinds stay in the type.** The maintainer's ask ("the 3D viewer is always on") is a statement
+about the *viewer*, and the enforcement point is the catalogue. §11's single-pane pixel harnesses set
+`{kind:'1x1', cells:['axial']}` in some thirty specs; deleting the kind would rewrite every one of them and
+turn a UI decision into a rendering-verification change. The brief also said to keep the engine's view model
+intact. So `view/layout.ts` still lays out all seven kinds, and `migrateLayoutKind` — not a parse error — is
+what a saved scene meets.
+
+**Visual change, stated.** `packages/app/e2e/catalogue.spec.ts`'s `14-oblique-slice.png` was a `1x1` oblique
+pane and is now `3d+1`: the same zoomed oblique slice, with the 3D pane beside it. `1x1` is no longer a button
+to click.

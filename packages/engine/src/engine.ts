@@ -22,6 +22,7 @@ import type {
   Engine,
   EngineEvents,
   EngineOptions,
+  Iso3dStatus,
   LabelCentroid,
   LoadProgress,
   NewLayer,
@@ -53,6 +54,8 @@ import { CutManager, CUT_KEY_3D_CLIP } from './compute/cut-manager';
 import { MeshLayerRuntime } from './layers/mesh';
 import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
+import { createIso3dRuntime, derivedIsoLayers } from './layers/iso3d';
+import type { Iso3dLayerRuntime } from './layers/iso3d';
 import { DerivedStore } from './derived/store';
 import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
 
@@ -182,6 +185,17 @@ export class TetravoxEngine implements Engine, PointerHost {
   readonly #store = new SceneStore();
   /** One `LayerRuntime` per layer — all per-kind decisions live there (`layers/`). */
   readonly #layers = new Map<LayerId, LayerRuntime>();
+  /**
+   * §4.4's `VolumeLayer.iso3d`: the surfaces a volume layer **owns**, keyed by that layer's id
+   * (directed task 2, 2026-08-28).
+   *
+   * Not in `this.#layers`, and not in `Scene.layers`: they are derived from the volume layer on
+   * every reconcile (`layers/iso3d.ts`), which is what makes them follow its 4D frame, its
+   * visibility and its region edits without a single line of synchronisation. The inner map is
+   * keyed by the derived `IsosurfaceLayer.id`, so a label volume whose visible set changed keeps
+   * the surfaces it already built and drops only the ones that left.
+   */
+  readonly #iso3d = new Map<LayerId, Map<LayerId, Iso3dLayerRuntime>>();
   /** One worker per dataset (§5 rule 1). */
   readonly #workers = new Map<DatasetId, DatasetRuntime>();
   /**
@@ -572,6 +586,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     for (const dropped of this.#store.removeDataset(id)) {
       this.#layers.get(dropped.id)?.dispose();
       this.#layers.delete(dropped.id);
+      this.#dropIso3d(dropped.id);
     }
     this.#gpu.dropVolume(id);
     this.#gpu.dropSurfaces(id);
@@ -629,6 +644,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#store.addLayer(layer);
     // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
     this.#layers.set(id, createLayerRuntime(layer, ds, this.#layerContext));
+    this.#reconcileIso3d(layer);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
     return layer;
@@ -638,6 +654,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#store.removeLayer(id);
     this.#layers.get(id)?.dispose();
     this.#layers.delete(id);
+    this.#dropIso3d(id);
     this.#derived.dropLayer(id);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
@@ -646,6 +663,7 @@ export class TetravoxEngine implements Engine, PointerHost {
   updateLayer<T extends Layer>(id: LayerId, patch: Partial<T>): void {
     const next = this.#store.updateLayer(id, patch);
     if (next !== undefined) this.#layers.get(id)?.applyPatch(next);
+    if (next !== undefined) this.#reconcileIso3d(next);
     this.#emit('layers', [...this.#scene.layers]);
     this.requestRender();
   }
@@ -795,8 +813,98 @@ export class TetravoxEngine implements Engine, PointerHost {
     for (const layer of this.#scene.layers) {
       const rt = this.#layers.get(layer.id);
       if (rt !== undefined) out.push(rt);
+      // A volume layer's own 3D surfaces sit directly above it, so §7.2's passes take them in the
+      // same bottom→top order everything else consumes and a surface never sorts under its volume.
+      const owned = this.#iso3d.get(layer.id);
+      if (owned !== undefined) for (const iso of owned.values()) out.push(iso);
     }
     return out;
+  }
+
+  /**
+   * Bring one volume layer's derived surfaces in line with what it now says (§4.4's `iso3d`).
+   *
+   * Called from `addLayer` and from every `updateLayer`, because *every* field the derivation reads
+   * is one an editor can patch: `visible`, `volumeIndex`, `visibleLabels`, `selectedLabels`,
+   * `labelColors`, and `iso3d` itself. Runtimes are keyed by the derived layer id, so an unchanged
+   * surface keeps its runtime — and with it its `GpuStore` entry, which is what stops a region-panel
+   * click from rebuilding ten tissues' marching cubes.
+   */
+  #reconcileIso3d(layer: Layer): void {
+    if (layer.kind !== 'volume') return;
+    const ds = this.#store.dataset(layer.datasetId);
+    if (ds === undefined || ds.kind !== 'volume') {
+      this.#dropIso3d(layer.id);
+      return;
+    }
+    const wanted = derivedIsoLayers(layer, ds);
+    let owned = this.#iso3d.get(layer.id);
+    if (wanted.length === 0) {
+      this.#dropIso3d(layer.id);
+      return;
+    }
+    if (owned === undefined) {
+      owned = new Map<LayerId, Iso3dLayerRuntime>();
+      this.#iso3d.set(layer.id, owned);
+    }
+    const keep = new Set<LayerId>();
+    for (const derived of wanted) {
+      keep.add(derived.id);
+      const existing = owned.get(derived.id);
+      if (existing === undefined) {
+        owned.set(
+          derived.id,
+          createIso3dRuntime(derived, ds, this.#layerContext, this.#iso3dChanged)
+        );
+      } else {
+        existing.applyPatch(derived);
+      }
+    }
+    for (const [id, rt] of [...owned]) {
+      if (keep.has(id)) continue;
+      rt.dispose();
+      owned.delete(id);
+    }
+  }
+
+  /** §7.2's `DrawInput.ownedRuntimes`: each volume layer's derived 3D surfaces, in derivation order. */
+  #ownedRuntimes(): ReadonlyMap<LayerId, readonly LayerRuntime[]> {
+    const out = new Map<LayerId, readonly LayerRuntime[]>();
+    for (const [id, owned] of this.#iso3d) out.set(id, [...owned.values()]);
+    return out;
+  }
+
+  /** Drop every surface a volume layer owned — it was removed, or its dataset was. */
+  #dropIso3d(layerId: LayerId): void {
+    const owned = this.#iso3d.get(layerId);
+    if (owned === undefined) return;
+    for (const rt of owned.values()) rt.dispose();
+    this.#iso3d.delete(layerId);
+  }
+
+  /**
+   * A derived surface started or finished building.
+   *
+   * It reaches §8 as a `layers` event because that is the one the app's `syncLayers` already
+   * listens to and the one {@link TetravoxEngine.iso3dStatus} is read from — a new event kind for a
+   * progress bar would be a frozen-facade change for nothing.
+   */
+  readonly #iso3dChanged = (): void => {
+    this.#emit('layers', [...this.#scene.layers]);
+  };
+
+  /**
+   * §8's load-card progress for a volume layer's 3D surface: how many of its surfaces are still
+   * being built, out of how many it owns.
+   *
+   * `{ pending: 0, total: 0 }` for a layer with no `iso3d`, so a caller needs no null check to ask.
+   */
+  iso3dStatus(layerId: LayerId): Iso3dStatus {
+    const owned = this.#iso3d.get(layerId);
+    if (owned === undefined) return { pending: 0, total: 0 };
+    let pending = 0;
+    for (const rt of owned.values()) if (rt.loading) pending += 1;
+    return { pending, total: owned.size };
   }
 
   // -----------------------------------------------------------------------------------------
@@ -1151,6 +1259,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       scene: this.#scene,
       store: this.#gpu,
       runtimes: this.#layers,
+      ownedRuntimes: this.#ownedRuntimes(),
       canvasWidth: this.#canvas.width,
       canvasHeight: this.#canvas.height,
       activeViewId: null,
@@ -1982,6 +2091,8 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#cuts.dispose();
     for (const id of [...this.#workers.keys()]) this.#teardown(id);
     for (const rt of this.#layers.values()) rt.dispose();
+    for (const owned of this.#iso3d.values()) for (const rt of owned.values()) rt.dispose();
+    this.#iso3d.clear();
     this.#layers.clear();
     this.#renderer.dispose();
     this.#derived.dispose();

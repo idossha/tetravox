@@ -20,6 +20,16 @@ import type { LayerPropertiesProps } from '../properties';
 import { useController, useUi } from '../../../ui/context';
 import { Histogram } from '../../histogram/Histogram';
 import { RegionPanel } from '../../regions/RegionPanel';
+import { iso3dLabels } from '@tetravox/engine';
+import { hexToVec4, vec4ToHex } from '../mesh/state';
+import {
+  effectiveIso3d,
+  iso3dRange,
+  iso3dStep,
+  iso3dSummary,
+  patchIso3d,
+  toggleIso3d,
+} from './iso3d';
 import { normalizeWindow } from '../../histogram/presets';
 import {
   COLORMAPS,
@@ -443,8 +453,203 @@ export function VolumeProperties({
         )}
       </div>
 
+      {/* ---- the 3D surface (§4.4's iso3d) ------------------------------------------------------- */}
+      <Iso3dSection layer={vl} dataset={ds} />
+
       {/* ---- R5's Region panel: where visibleLabels and labelOpacity are edited ------------------ */}
       {ds.isLabel && <RegionPanel layerId={vl.id} />}
+    </div>
+  );
+}
+
+/**
+ * §4.4's `VolumeLayer.iso3d` — the **3D surface** switch and its controls (directed task 2).
+ *
+ * One switch and four controls, and the switch is the only one that ever appears for a label volume:
+ * a label volume's surfaces are one per visible region at `label ± 0.5` in that region's LUT colour,
+ * so a single iso slider and a single colour swatch would both be lies. The region panel below is
+ * where those regions are chosen and recoloured, and the surfaces follow it — which is the point of
+ * the volume layer owning them.
+ *
+ * The progress line is §8's load card, in the one-line form a property editor has room for:
+ * marching cubes over 256×256×208 takes long enough to see, and a label volume queues one op per
+ * region, so a switch with no progress reads as a switch that did nothing.
+ */
+function Iso3dSection({
+  layer,
+  dataset,
+}: {
+  layer: VolumeLayer;
+  dataset: VolumeDataset;
+}): React.JSX.Element {
+  const controller = useController();
+  const status = useUi((s) => s.iso3dPending[layer.id]);
+  const spec = effectiveIso3d(layer, dataset);
+  const range = iso3dRange(dataset);
+  const step = iso3dStep(range);
+  const regions = iso3dLabels(layer, dataset).length;
+  const patch = (p: Partial<VolumeLayer>): void => controller.patchLayer<VolumeLayer>(layer.id, p);
+  const pending = status !== undefined && status.pending > 0;
+  const percent =
+    status === undefined || status.total === 0
+      ? 0
+      : Math.round(((status.total - status.pending) / status.total) * 100);
+
+  return (
+    <div
+      data-testid={`volume-iso3d-${layer.id}`}
+      data-enabled={spec.enabled}
+      data-regions={dataset.isLabel ? regions : undefined}
+      className="mt-1 flex flex-col gap-1 border-t border-tvx-line pt-1.5"
+    >
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          data-testid={`volume-iso3d-toggle-${layer.id}`}
+          aria-pressed={spec.enabled}
+          title="Build this volume's isosurface and draw it in the 3D pane (§4.4 iso3d)"
+          className={'tvx-btn tvx-btn-sm' + (spec.enabled ? ' tvx-btn-on' : '')}
+          onClick={() => patch(toggleIso3d(layer, dataset, !spec.enabled))}
+        >
+          3D surface
+        </button>
+        <span
+          data-testid={`volume-iso3d-summary-${layer.id}`}
+          className="ml-auto font-mono text-[10px] text-tvx-dim"
+        >
+          {iso3dSummary(dataset, spec, regions)}
+        </span>
+      </div>
+
+      {spec.enabled && (
+        <>
+          {!dataset.isLabel && (
+            <>
+              <Row label="Iso">
+                <input
+                  type="range"
+                  data-testid={`volume-iso3d-level-${layer.id}`}
+                  aria-label="3D surface iso level"
+                  title="Level of the surface, over the volume's histogram range; default p95"
+                  min={range.lo}
+                  max={range.hi}
+                  step={step}
+                  value={spec.iso}
+                  onChange={(e) =>
+                    patch(patchIso3d(layer, dataset, { iso: Number(e.currentTarget.value) }))
+                  }
+                  className="h-1 flex-1 accent-tvx-accent"
+                />
+                <span
+                  data-testid={`volume-iso3d-level-value-${layer.id}`}
+                  className="w-14 shrink-0 text-right font-mono"
+                >
+                  {spec.iso.toPrecision(4)}
+                </span>
+              </Row>
+              <Row label="Exact">
+                <NumberField
+                  testId={`volume-iso3d-level-exact-${layer.id}`}
+                  label="3D surface iso level, exact"
+                  value={spec.iso}
+                  step={step}
+                  onCommit={(v) => patch(patchIso3d(layer, dataset, { iso: v }))}
+                />
+                <span
+                  data-testid={`volume-iso3d-range-${layer.id}`}
+                  className="ml-auto shrink-0 font-mono text-[9px] text-tvx-dim"
+                >
+                  {range.lo.toPrecision(3)} … {range.hi.toPrecision(3)}
+                </span>
+              </Row>
+              <Row label="Colour">
+                <input
+                  type="color"
+                  data-testid={`volume-iso3d-color-${layer.id}`}
+                  aria-label="3D surface colour"
+                  value={vec4ToHex(spec.color)}
+                  onChange={(e) =>
+                    patch(
+                      patchIso3d(layer, dataset, {
+                        color: hexToVec4(e.currentTarget.value, spec.color[3]),
+                      })
+                    )
+                  }
+                  className="h-5 w-8 shrink-0 rounded border border-tvx-line bg-transparent p-0"
+                />
+              </Row>
+            </>
+          )}
+          {dataset.isLabel && (
+            <p
+              data-testid={`volume-iso3d-labels-note-${layer.id}`}
+              className="font-mono text-[10px] text-tvx-dim"
+            >
+              one surface per visible region, at label ± 0.5, in its LUT colour
+            </p>
+          )}
+          <Row label="Opacity">
+            <input
+              type="range"
+              data-testid={`volume-iso3d-opacity-${layer.id}`}
+              aria-label="3D surface opacity"
+              min={0}
+              max={1}
+              step={0.01}
+              value={spec.opacity}
+              onChange={(e) =>
+                patch(patchIso3d(layer, dataset, { opacity: Number(e.currentTarget.value) }))
+              }
+              className="h-1 flex-1 accent-tvx-accent"
+            />
+            <span className="w-8 shrink-0 text-right font-mono">{spec.opacity.toFixed(2)}</span>
+          </Row>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              data-testid={`volume-iso3d-smooth-${layer.id}`}
+              aria-pressed={spec.smooth}
+              className={'tvx-btn tvx-btn-sm' + (spec.smooth ? ' tvx-btn-on' : '')}
+              onClick={() => patch(patchIso3d(layer, dataset, { smooth: !spec.smooth }))}
+            >
+              {spec.smooth ? 'smooth' : 'flat'}
+            </button>
+            <button
+              type="button"
+              data-testid={`volume-iso3d-facemode-${layer.id}`}
+              aria-pressed={spec.faceMode === 'both'}
+              className={'tvx-btn tvx-btn-sm' + (spec.faceMode === 'both' ? ' tvx-btn-on' : '')}
+              onClick={() =>
+                patch(
+                  patchIso3d(layer, dataset, {
+                    faceMode: spec.faceMode === 'both' ? 'cull' : 'both',
+                  })
+                )
+              }
+            >
+              {spec.faceMode === 'both' ? 'two-sided' : 'cull back'}
+            </button>
+          </div>
+          {status !== undefined && (
+            <div
+              data-testid={`volume-iso3d-progress-${layer.id}`}
+              data-pending={pending}
+              data-total={status.total}
+              className="flex items-center gap-2"
+            >
+              <span className="w-16 shrink-0 font-mono text-[10px] text-tvx-dim">
+                {pending ? 'building' : 'ready'}
+              </span>
+              <div className="h-1 flex-1 overflow-hidden rounded bg-tvx-line">
+                <div className="h-full bg-tvx-accent" style={{ width: `${percent}%` }} />
+              </div>
+              <span className="w-9 shrink-0 text-right font-mono text-[10px] text-tvx-dim">
+                {percent}%
+              </span>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

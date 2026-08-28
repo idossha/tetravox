@@ -1,7 +1,7 @@
 /**
  * Layout → viewport rectangles (§7.5).
  *
- * Layouts: `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`; `mosaic` is Phase 3.
+ * Layouts: `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`, `1+3`, `3d+1`; `mosaic` is Phase 3.
  * Rects are in **device pixels**, origin bottom-left, which is what `gl.viewport` / `gl.scissor`
  * take. The engine converts pointer coordinates (origin top-left) at the single point that reads
  * them.
@@ -23,13 +23,24 @@ export function cellCount(kind: LayoutKind): number {
     case '1x1':
     case '3d-only':
       return 1;
+    case '3d+1':
+      return 2;
     case '1x3':
     case '1x3-horizontal':
       return 3;
     case '2x2':
+    case '1+3':
       return 4;
   }
 }
+
+/**
+ * `'1+3'`'s split: the 3D pane takes this fraction of the width, the slice column the rest.
+ *
+ * Two thirds, so the three stacked slices in the remaining third stay close to square on a 16:9
+ * canvas (1280×720 → 427×240 each) — the shape the layout exists to produce.
+ */
+const ONE_PLUS_THREE_MAIN = 2 / 3;
 
 /**
  * Split `width × height` device pixels into the layout's panes.
@@ -74,6 +85,40 @@ export function viewports(layout: Layout, width: number, height: number): Viewpo
           y: 0,
           width: isLast ? width - 2 * w : w,
           height,
+        });
+      }
+      break;
+    }
+    case '3d+1': {
+      // The 3D pane first, so `cells[0]` is the 3D one in every 3D-first layout.
+      const w = Math.floor(width / 2);
+      const rects: [number, number, number, number][] = [
+        [0, 0, w, height],
+        [w, 0, width - w, height],
+      ];
+      for (let i = 0; i < n; i += 1) {
+        const c = rects[i];
+        if (c === undefined) continue;
+        out.push({ viewId: at(i), x: c[0], y: c[1], width: c[2], height: c[3] });
+      }
+      break;
+    }
+    case '1+3': {
+      // `cells[0]` is the big 3D pane on the left; `cells[1..3]` stack down the right-hand column,
+      // top pane first, exactly as `'1x3'` orders its rows.
+      const w = Math.floor(width * ONE_PLUS_THREE_MAIN);
+      const colW = width - w;
+      const h = Math.floor(height / 3);
+      if (n > 0) out.push({ viewId: at(0), x: 0, y: 0, width: w, height });
+      for (let i = 1; i < n; i += 1) {
+        const row = i - 1;
+        const isLast = row === 2;
+        out.push({
+          viewId: at(i),
+          x: w,
+          y: isLast ? 0 : height - (row + 1) * h,
+          width: colW,
+          height: isLast ? height - 2 * h : h,
         });
       }
       break;

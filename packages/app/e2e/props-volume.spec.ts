@@ -555,3 +555,94 @@ test.describe('the R5 Region panel', () => {
     );
   });
 });
+
+// ------------------------------------------------------------------------------------------------
+// §4.4's `VolumeLayer.iso3d` — the **3D surface** switch (directed task 2, 2026-08-28).
+//
+// Same rule as everything above: press the control a user presses, then read what reached the
+// engine's scene. The stand-in engine builds no geometry, which is exactly what makes this a test of
+// the *editor* — the pixels are `packages/engine`'s `volume-iso3d.spec.ts`.
+// ------------------------------------------------------------------------------------------------
+
+test.describe('the 3D surface switch', () => {
+  test('is off until pressed, and opens a scalar volume at its p95', async () => {
+    await expect(page.getByTestId(`volume-iso3d-${fourD}`)).toHaveAttribute(
+      'data-enabled',
+      'false'
+    );
+    // The controls are hidden while it is off — the switch is the only affordance.
+    await expect(page.getByTestId(`volume-iso3d-level-${fourD}`)).toBeHidden();
+    expect((await layerState(page, fourD))['iso3d']).toBeUndefined();
+
+    await page.getByTestId(`volume-iso3d-toggle-${fourD}`).click();
+    const stats = await datasetStats(page, fourD);
+    const iso3d = (await layerState(page, fourD))['iso3d'] as Record<string, unknown>;
+    expect(iso3d['enabled']).toBe(true);
+    // Derived from the dataset the stand-in produced, never transcribed.
+    expect(iso3d['iso']).toBeCloseTo(stats.percentiles['95'] as number, 6);
+    await expect(page.getByTestId(`volume-iso3d-${fourD}`)).toHaveAttribute('data-enabled', 'true');
+  });
+
+  test('the level slider spans the histogram, and both level controls are one patch each', async () => {
+    const stats = await datasetStats(page, fourD);
+    const slider = page.getByTestId(`volume-iso3d-level-${fourD}`);
+    await expect(slider).toHaveAttribute('min', String(stats.histogramLo));
+    await expect(slider).toHaveAttribute('max', String(stats.histogramHi));
+
+    const target = (stats.histogramLo + stats.histogramHi) / 2;
+    await page.getByTestId(`volume-iso3d-level-exact-${fourD}`).fill(String(target));
+    const iso3d = (await layerState(page, fourD))['iso3d'] as Record<string, unknown>;
+    expect(iso3d['iso']).toBeCloseTo(target, 6);
+    // Everything else survived the patch — a control that rewrote the block would lose the rest.
+    expect(iso3d['enabled']).toBe(true);
+    expect(iso3d['smooth']).toBe(true);
+  });
+
+  test('opacity, smooth and the face mode each reach the layer', async () => {
+    await page.getByTestId(`volume-iso3d-opacity-${fourD}`).fill('0.4');
+    await page.getByTestId(`volume-iso3d-smooth-${fourD}`).click();
+    await page.getByTestId(`volume-iso3d-facemode-${fourD}`).click();
+    const iso3d = (await layerState(page, fourD))['iso3d'] as Record<string, unknown>;
+    expect(iso3d['opacity']).toBeCloseTo(0.4, 6);
+    expect(iso3d['smooth']).toBe(false);
+    expect(iso3d['faceMode']).toBe('cull');
+  });
+
+  test('turning it off keeps the settings rather than deleting them', async () => {
+    const before = (await layerState(page, fourD))['iso3d'] as Record<string, unknown>;
+    await page.getByTestId(`volume-iso3d-toggle-${fourD}`).click();
+    const after = (await layerState(page, fourD))['iso3d'] as Record<string, unknown>;
+    expect(after).toEqual({ ...before, enabled: false });
+    await page.getByTestId(`volume-iso3d-toggle-${fourD}`).click();
+    expect((await layerState(page, fourD))['iso3d']).toEqual(before);
+  });
+
+  test('a label volume gets no iso slider — it gets one surface per visible region', async () => {
+    await page.getByTestId(`volume-iso3d-toggle-${labels}`).click();
+    // No single level and no single colour: both would be a lie about what is built.
+    await expect(page.getByTestId(`volume-iso3d-level-${labels}`)).toHaveCount(0);
+    await expect(page.getByTestId(`volume-iso3d-color-${labels}`)).toHaveCount(0);
+    await expect(page.getByTestId(`volume-iso3d-labels-note-${labels}`)).toBeVisible();
+
+    const stats = await datasetStats(page, labels);
+    const regions = stats.labelIds.filter((id) => id !== 0).length;
+    await expect(page.getByTestId(`volume-iso3d-${labels}`)).toHaveAttribute(
+      'data-regions',
+      String(regions)
+    );
+    await expect(page.getByTestId(`volume-iso3d-summary-${labels}`)).toHaveText(
+      `${regions} region${regions === 1 ? '' : 's'}`
+    );
+  });
+
+  test('hiding a region drops its surface, because the volume layer owns them', async () => {
+    const stats = await datasetStats(page, labels);
+    const first = stats.labelIds.find((id) => id !== 0)!;
+    await page.getByTestId(`region-eye-${labels}-${first}`).click();
+    const regions = stats.labelIds.filter((id) => id !== 0).length - 1;
+    await expect(page.getByTestId(`volume-iso3d-${labels}`)).toHaveAttribute(
+      'data-regions',
+      String(regions)
+    );
+  });
+});

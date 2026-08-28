@@ -437,7 +437,7 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
       await stubDialogs(app, { save: scenePath });
 
       // A scene worth restoring: a moved cursor and a non-default layout.
-      await page.click('[data-testid="layout-1x3"]');
+      await page.click('[data-testid="layout-1+3"]');
       const input = page.locator('[data-testid="coord-input"]');
       await input.click();
       await input.fill('-42 18 6');
@@ -471,7 +471,7 @@ test.describe('scene save/load and relocate (§4.6, §8)', () => {
       // shell reconciled it against the remapped dataset id.
       expect(restored.layers.map((l) => l.kind)).toEqual(['volume']);
       expect(restored.cursor).toEqual([-42, 18, 6]);
-      expect(restored.layoutKind).toBe('1x3');
+      expect(restored.layoutKind).toBe('1+3');
       expect(restored.sceneError).toBeNull();
     } finally {
       await app.close();

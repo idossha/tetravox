@@ -315,7 +315,46 @@ export interface VolumeLayer extends LayerBase {
   selectedLabels?: number[];                            // R5's selection: the outline-emphasis set
   showIn3D: boolean;
   precision: 'auto' | 'f32';                            // 'f32' forces R32F, guarded by caps.floatLinear
+  iso3d?: VolumeIso3d;                                  // the volume's 3D SURFACE — additive, optional
 }
+
+export interface VolumeIso3d {
+  enabled: boolean;                                     // the "3D surface" switch
+  iso: number;                                          // scalar volumes only; default = the volume's p95
+  color: vec4 /* 0..1 */;                               // scalar volumes only
+  opacity: number;                                      // the surfaces', not the slice's
+  smooth: boolean;
+  faceMode: 'cull' | 'both';
+}
+
+**`VolumeLayer.iso3d` — the volume layer *owns* its isosurfaces** (directed task 2, 2026-08-28; see
+`docs/DECISIONS.md`). The maintainer's ask was "render isosurfaces of NIfTI in the 3D viewer". Nothing new
+renders them: `marchingCubes` has existed since Phase 1, `layers/iso.ts` owns that op with latest-wins and a
+`GpuStore` cache, and §7.2 already draws an `IsoDrawItem`. What was missing was an **owner**. A standalone
+`IsosurfaceLayer` pointed back at the same dataset would need the user to keep the two in step by hand, and
+nothing would hold the surface on the 4D frame the volume is showing or on the regions the region panel just
+hid.
+
+So the surfaces are **derived, never stored**. `layers/iso3d.ts`'s `derivedIsoLayers(layer, ds)` is a pure
+function from the volume layer to the `IsosurfaceLayer`s it implies; the engine reconciles one
+`IsoLayerRuntime` per returned layer, keyed by the owning layer's id, and hands them to §7.2 through
+`DrawInput.ownedRuntimes`. They are **not** rows in `Scene.layers`, they carry no row in §8's layer panel, and
+`collectPickItems` never reaches them. Everything the ownership promises falls out of the derivation being
+re-run: the surfaces follow `volumeIndex`, `visible`, `visibleLabels`, `selectedLabels` and `labelColors`, and
+they are dropped with the layer or its dataset. Only the `iso3d` block is persisted.
+
+* **Scalar volumes**: one surface at `iso`, in `color`. The default level is the volume's **p95** — on
+  `m2m_ernie/T1.nii.gz` the max is exactly 65535.0 `[DATA]`, so a `[min, max]` midpoint default is an empty
+  surface. (Measured on that file, p95 is 15991.17 against a median of −0.78: a head volume is mostly
+  background, so p95 lands up the tissue histogram rather than on the scalp rind.) The editor's slider spans
+  `Stats.histogramLo/Hi`, the same range §8's histogram widget draws.
+* **Label volumes**: one surface **per visible-or-selected region** at `label − 0.5`, in that region's colour
+  (`labelColors` first, then the dataset's `LabelTable`). Background id 0 never gets one. `iso` and `color` are
+  unread. An empty `selectedLabels` is "no narrowing", not "nothing".
+* The surfaces draw in **3D panes only** (`Iso3dLayerRuntime`): a slice pane already draws the volume, and a
+  second, differently-thresholded cross-section over it is what §7.4's `contoursIn2D` is for.
+* **Not yet**: an isosurface has no clip plane. §7.2's iso draw disables clip distances, so clipping one is a
+  new shader path and a further field; region visibility is the tool for showing interior tissue today.
 
 export interface ClipPlane { plane: Plane; enabled: boolean; followCursor?: boolean }
 // followCursor: the plane's `offset` tracks the cursor. On the layer, not in the host's UI state, so
@@ -420,7 +459,9 @@ export interface View3D { id: ViewId; camera: Camera3D; showSlicePlanes: boolean
                           layerVisibility?: Record<LayerId, boolean> }
 export type View = SliceView | View3D;
 
-export type LayoutKind = '1x1' | '1x3' | '1x3-horizontal' | '2x2' | '3d-only';
+export type LayoutKind = '1x1' | '1x3' | '1x3-horizontal' | '2x2' | '3d-only'
+                      | '1+3'          // 3D large on the left, the three slices stacked at 2/3 : 1/3
+                      | '3d+1';        // the 3D pane and one slice, side by side
 export interface Layout { kind: LayoutKind; cells: ViewId[] }
 
 export interface Annotations {
@@ -692,6 +733,14 @@ export interface Engine {
   cameraPreset(viewId: ViewId, preset: CameraPreset): void;        // §7.5 `1..6`
   setAnnotations(patch: Partial<Annotations>): void;               // §7.5 `c` + the §4.5 block
   heapBytes(id: DatasetId): number | undefined; // §8 status bar, from that dataset's last Res (§6.5.2)
+  iso3dStatus(layerId: LayerId): { pending: number; total: number };
+                                                // §8's load-card progress for §4.4's `VolumeLayer.iso3d`
+                                                //   (added 2026-08-28 — see docs/DECISIONS.md). Marching
+                                                //   cubes over 256×256×208 is not instant and a label
+                                                //   volume queues one op per visible region, so the
+                                                //   "3D surface" switch needs the progress state §8 gives
+                                                //   a mesh layer's async switches. {0,0} when the layer
+                                                //   owns none, so no caller needs a null check.
 
   requestRender(viewId?: ViewId): void;
   renderNow(): void;                            // draw synchronously — §11 readback, screenshot path
@@ -1228,6 +1277,15 @@ pub fn elm_to_node(mesh: &Mesh, field: &ElmField) -> Result<Field>;    // volume
 pub fn node_to_elm(mesh: &Mesh, field: &Field) -> Result<ElmField>;
 pub fn marching_cubes(vol: &Volume, vol_index: usize, iso: f32, smooth: bool,
                       p: &mut dyn ProgressSink) -> Result<SurfaceBuffers>;
+// ONE REGION of a label volume, isolated at the sample (added 2026-08-28 — see docs/DECISIONS.md).
+// Reads the volume through `value == label ? 1 : 0` (physical units, half-unit tolerance) and marches
+// at 0.5. It is a separate function, and not an `iso` a caller could pass, because a label volume's
+// samples are ids: `value >= k - 0.5` is the union of every id at or above `k`, and SimNIBS ids do
+// not nest (`final_tissues` is 1 WM, 2 GM, 3 CSF, 5 scalp, 7 compact bone …, and 4 is absent [DATA]).
+// Measured on `final_tissues.nii.gz`: isolated compact bone encloses 601,788 mm^3 against 601,300
+// counted (ratio 1.0008); the level set at 6.5 encloses 674,738 mm^3 and is a different shape.
+pub fn marching_cubes_label(vol: &Volume, vol_index: usize, label: f32, smooth: bool,
+                            p: &mut dyn ProgressSink) -> Result<SurfaceBuffers>;
 pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&BitMask>,
                      p: &mut dyn ProgressSink) -> Result<SurfaceBuffers>;
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
@@ -1348,6 +1406,8 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 #[wasm_bindgen] pub fn mesh_locate(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_marching_cubes(handle: u32, vol_index: u32, iso: f32, smooth: bool,
                                              on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn volume_marching_cubes_label(handle: u32, vol_index: u32, label: f32, smooth: bool,
+                                                   on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_marching_tets(handle: u32, source: &str, name: &str, component: &str,
                                           iso: f32, mask_id: Option<u32>,
                                           on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
@@ -1453,8 +1513,11 @@ export interface WorkerError { code: ErrorCode; message: string }
 
 export type OpName =
   | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
-  | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingTets' | 'contours'
-  | 'labelCentroids' | 'meshCentroids' | 'free' | 'freeMask';       // 18 ops
+  | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingCubesLabel' | 'marchingTets' | 'contours'
+  | 'labelCentroids' | 'meshCentroids' | 'free' | 'freeMask';       // 19 ops
+// `marchingCubesLabel` was appended 2026-08-28 for §4.4's `VolumeLayer.iso3d` (see docs/DECISIONS.md):
+//   marchingCubesLabel: { handle: number; volumeIndex: number; label: number; smooth: boolean }
+//                     → SurfacePayload
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -1667,6 +1730,7 @@ export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: Vol
 `surface`→`mesh_surface` · `boundary`→`mesh_boundary` ·
 `buildTopology`→`mesh_build_topology` · `cut`→`mesh_cut` · `isolate`→`mesh_isolate` · `field`→`mesh_field` ·
 `elmToNode`→`mesh_convert_field` · `locate`→`mesh_locate` · `marchingCubes`→`volume_marching_cubes` ·
+`marchingCubesLabel`→`volume_marching_cubes_label` (added 2026-08-28) ·
 `marchingTets`→`mesh_marching_tets` · `contours`→`mesh_contours` ·
 `labelCentroids`→`volume_label_centroids` · `meshCentroids`→`mesh_centroids` · `free`→`free` ·
 `freeMask`→`free_mask`.
@@ -2094,7 +2158,19 @@ declare `invariant gl_Position;`.
 
 ### 7.5 Views & interaction
 
-Layouts: `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`; `mosaic` is Phase 3.
+Layouts: `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`, `1+3`, `3d+1`; `mosaic` is Phase 3.
+
+**The app's catalogue is a subset: every layout it offers contains the 3D pane** (directed task 3,
+2026-08-28; see `docs/DECISIONS.md`). The maintainer's ask was "the 3D viewer is always on — the only option is
+whether to render the isosurface". The toolbar and the `x` cycle therefore offer `2x2`, `1+3`, `3d+1` and
+`3d-only`, in that order, and a scene naming a removed layout is **migrated on load**: `1x1 → 3d+1` (the
+zoomed layout, with the 3D pane added), `1x3` / `1x3-horizontal` → `1+3` (the same three slices, with the 3D
+pane beside them). The cells are recomputed, never carried, and the 3D pane leads in both new layouts.
+
+The kinds themselves stay in `LayoutKind`, and that is deliberate: §11's single-pane pixel harnesses set
+`{kind:'1x1', cells:['axial']}` in some thirty specs, and an analytic assertion on one pane is not something a
+viewer catalogue has any business breaking. This is a **catalogue** change, not a view-model one — which is
+why a saved scene meets `migrateLayoutKind` rather than a parse error.
 Every view has its own camera. 2D cameras are orthographic, pan/zoom only — **orientation comes from the view's
 `SliceView.{normal, up}`**, and in-plane rotation is `up` rotated about `normal` (there is no separate roll: that
 would be a second source of truth). 3D camera: orbit (arcball) / pan / dolly, `fit()` to scene bounds, presets

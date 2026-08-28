@@ -11,6 +11,7 @@
  */
 
 import { create } from '../../src/api';
+import { defaultIso3d } from '../../src/layers/iso3d';
 import type { TetravoxEngine } from '../../src/engine';
 
 const params = new URLSearchParams(location.search);
@@ -52,6 +53,14 @@ declare global {
     __tvxErrors?: string[];
     /** Every op the dataset workers were asked to run, in order — gate item 2's evidence. */
     __tvxOps?: string[];
+    /**
+     * Engine functions a §11 spec needs to call **as the app would**, rather than reimplementing.
+     *
+     * `defaultIso3d` is the only one so far: the real-data test's claim is that opening the
+     * **3D surface** switch on a T1 gives you the head, and a level typed into the spec would be
+     * asserting the spec's arithmetic instead of the engine's default.
+     */
+    __tvxEngineModule?: { defaultIso3d: typeof defaultIso3d };
   }
 }
 
@@ -77,6 +86,7 @@ Worker.prototype.postMessage = function patched(this: Worker, message: unknown, 
 window.__tvxEngine = engine;
 window.__tvxErrors = errors;
 window.__tvxOps = ops;
+window.__tvxEngineModule = { defaultIso3d };
 window.__tvxRender = () => {
   engine.renderNow();
 };

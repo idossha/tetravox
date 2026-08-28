@@ -272,14 +272,44 @@ test.describe('the §8 shell', () => {
     await page.selectOption('[data-testid="coord-space"]', 'ras');
   });
 
+  /**
+   * Directed task 3, 2026-08-28: "the 3D viewer is always on". The catalogue is the enforcement
+   * point, so the assertion is about the catalogue: every button the toolbar offers must produce a
+   * layout whose cells include the 3D view, and the two 3D-less layouts must not be offered at all.
+   */
+  test('every layout the toolbar offers contains the 3D pane', async () => {
+    const view3d = await page.evaluate(
+      () => window.__tetravox?.engine?.scene.view3d.id ?? 'view3d'
+    );
+    const buttons = page.locator('[data-testid^="layout-"]');
+    const ids = await buttons.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-testid')?.slice('layout-'.length) ?? '')
+    );
+    expect(ids).toEqual(['2x2', '1+3', '3d+1', '3d-only']);
+    expect(ids).not.toContain('1x1');
+    expect(ids).not.toContain('1x3');
+
+    for (const kind of ids) {
+      await page.click(`[data-testid="layout-${kind}"]`);
+      await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', kind);
+      const cells = await page.evaluate(() => window.__tetravox?.store.getState().cells ?? []);
+      expect(cells, `${kind} must contain the 3D pane`).toContain(view3d);
+      // The 3D pane leads wherever 3D is the subject of the layout.
+      if (kind !== '2x2') expect(cells[0]).toBe(view3d);
+    }
+    await page.click('[data-testid="layout-2x2"]');
+  });
+
   test('the keyboard map is live (§7.5)', async () => {
     await page.locator('[data-testid="view-grid"]').click();
 
     // `x` cycles the layout.
+    // Directed task 3, 2026-08-28: the cycle is `2x2 → 1+3 → 3d+1 → 3d-only`, and every one of them
+    // has the 3D pane. `1x1` and `1x3` left the catalogue with the 3D-less layouts.
     await page.keyboard.press('x');
-    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '1x1');
+    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '1+3');
     await page.keyboard.press('x');
-    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '1x3');
+    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '3d+1');
     await page.keyboard.press('x');
     await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute(
       'data-layout',
@@ -323,11 +353,11 @@ test.describe('the §8 shell', () => {
   });
 
   test('the layout switcher and the radiological toggle (§8 toolbar)', async () => {
-    await page.click('[data-testid="layout-1x3"]');
-    await expect(page.locator('[data-testid^="view-cell-"]')).toHaveCount(3);
-    // The engine's own boot order (`scene/defaults.ts`), which `lib/layout.ts` now follows so
-    // that rebuilding a layout cannot renumber the panes the engine already drew.
-    expect((await ui(page)).cells).toEqual(['axial', 'coronal', 'sagittal']);
+    // `1+3` replaced `1x3` in the catalogue (directed task 3): the same three slices, in the engine's
+    // own boot order (`scene/defaults.ts`), with the 3D pane leading.
+    await page.click('[data-testid="layout-1+3"]');
+    await expect(page.locator('[data-testid^="view-cell-"]')).toHaveCount(4);
+    expect((await ui(page)).cells).toEqual(['view3d', 'axial', 'coronal', 'sagittal']);
     await page.click('[data-testid="layout-2x2"]');
     await expect(page.locator('[data-testid^="view-cell-"]')).toHaveCount(4);
 

@@ -36,7 +36,7 @@ import { activeLayer, collapseAllAction, datasetOf, pruneCollapsed, templateSour
 import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import type { Command } from '../keyboard/keymap';
-import { LAYOUT_CYCLE, layoutCells, nextLayout } from '../lib/layout';
+import { LAYOUT_CYCLE, layoutCells, migrateSpecLayout, nextLayout } from '../lib/layout';
 import * as loads from '../lib/loads';
 import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
@@ -176,10 +176,20 @@ export class ShellController {
   private syncLayers(): void {
     const { engine, store } = this;
     const layers = [...engine.scene.layers];
+    // §4.4's `iso3d` progress travels on this event, because a derived surface is not a row in
+    // `Scene.layers` and has no event of its own — the engine emits `layers` when one starts or
+    // finishes building (directed task 2, 2026-08-28).
+    const iso3dPending: Record<LayerId, { pending: number; total: number }> = {};
+    for (const layer of layers) {
+      if (layer.kind !== 'volume') continue;
+      const status = engine.iso3dStatus(layer.id);
+      if (status.total > 0) iso3dPending[layer.id] = status;
+    }
     store.setState((s) => ({
       layers,
       activeLayerId: engine.scene.activeLayerId,
       datasets: [...engine.scene.datasets.values()],
+      iso3dPending,
       // A-COLLAPSE: forget the disclosure of a layer that is gone, so closing and reopening a
       // dataset does not resurrect a collapsed row. `pruneCollapsed` returns the same object when
       // there is nothing to drop, which keeps the panel from re-rendering on every layers event.
@@ -1030,7 +1040,10 @@ export class ShellController {
       }
     }
     try {
-      await this.engine.load(spec, (ref: DatasetRef) => resolved[ref.id] ?? null);
+      await this.engine.load(
+        migrateSpecLayout(spec),
+        (ref: DatasetRef) => resolved[ref.id] ?? null
+      );
     } catch (error: unknown) {
       const message = errorMessage(error);
       this.store.setState({ sceneError: message });

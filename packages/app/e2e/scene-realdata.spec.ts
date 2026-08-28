@@ -181,7 +181,7 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
 
       // Give the scene something to restore that is not a default: a layout, a convention and a
       // cursor at a named voxel of the real affine.
-      await page.click('[data-testid="layout-1x3"]');
+      await page.click('[data-testid="layout-1+3"]');
       await page.click('[data-testid="radiological-toggle"]');
       const input = page.locator('[data-testid="coord-input"]');
       await input.click();
@@ -208,7 +208,7 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       ]);
       savedMeshTags = before.meshTags;
       expect(before.radiological).toBe(true);
-      expect(before.layoutKind).toBe('1x3');
+      expect(before.layoutKind).toBe('1+3');
 
       await page.click('[data-testid="scene-save-as"]');
       await expect
@@ -270,7 +270,7 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       // (audit P2-07, E-SCENE's); the shell reconciled them against the remapped dataset ids.
       expect(after.layers.map((l) => l.kind)).toEqual(['volume', 'mesh']);
       expect(after.cursor).toEqual(CURSOR.map((c) => Number(c.toFixed(4))));
-      expect(after.layoutKind).toBe('1x3');
+      expect(after.layoutKind).toBe('1+3');
       expect(after.radiological).toBe(true);
       expect(after.sceneError).toBeNull();
       expect(after.sceneFile?.path).toBe(scenePath);

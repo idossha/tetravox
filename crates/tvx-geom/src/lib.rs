@@ -58,7 +58,7 @@ pub use fields::{elm_to_node, node_to_elm};
 pub use isolate::isolate;
 pub use labels::label_centroids;
 pub use locator::{build_point_locator, locate_point};
-pub use march::{marching_cubes, marching_tets};
+pub use march::{marching_cubes, marching_cubes_label, marching_tets};
 pub use morton::{build_tet_blocks, morton_reorder};
 pub use normals::{face_normals, orient_surface, vertex_normals};
 pub use surface::{build_topology, extract_boundary, tag_surfaces};
