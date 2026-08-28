@@ -165,13 +165,20 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
         ))}
       </div>
 
-      <ul
+      {/* `div role="list"` rather than `<ul>`, and the same for the rows — `TissueTable` already does
+          it, and the reason matters here: this panel is mounted **inside** a layer's editor, which
+          is itself an `<li>` of `[data-testid="layer-list"]`. A nested `<ul><li>` is legal HTML and
+          silently breaks every `layer-list li` count in `shell.spec.ts` (measured: 2 layers read as
+          8 rows), because a descendant selector cannot tell the two lists apart. */}
+      <div
+        role="list"
         data-testid={`region-list-${layerId}`}
         data-rows={shown.length}
         className="mt-1 max-h-64 overflow-y-auto"
       >
         {shown.map((row) => (
-          <li
+          <div
+            role="listitem"
             key={row.id}
             data-testid={`region-row-${layerId}-${row.id}`}
             data-visible={row.visible}
@@ -272,9 +279,9 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
                 className="h-1 w-10 shrink-0 accent-tvx-accent"
               />
             )}
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }
