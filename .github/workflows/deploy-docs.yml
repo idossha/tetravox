@@ -1,10 +1,34 @@
-name: 'Deploy Docs'
+name: Docs site
 
+# Builds website/ on every push that touches it, and publishes it to GitHub
+# Pages once you switch publishing on.
+#
+# The build job is useful on its own: VitePress fails on a dead internal link,
+# so this is the site's link checker and it runs whether or not Pages is set
+# up. Publishing is gated behind a repository variable rather than attempted
+# unconditionally, because Pages cannot be enabled on a private repository on
+# most plans, and a workflow that goes red on every push until some unrelated
+# setting changes just teaches everyone to ignore the red.
+#
+# To publish, once the repository is public:
+#   1. Settings -> Pages -> Source: GitHub Actions
+#   2. Settings -> Secrets and variables -> Actions -> Variables:
+#        DOCS_PAGES_ENABLED = true
+#   3. re-run this workflow (or push)
+# The site lands at https://<owner>.github.io/<repo>/.
 on:
   push:
-    branches: ['main']
+    branches: [main]
     paths:
+      - 'website/**'
       - 'docs/**'
+      - 'AGENTS.md'
+      - '.github/workflows/deploy-docs.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'docs/**'
+      - 'AGENTS.md'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
@@ -13,38 +37,52 @@ permissions:
   pages: write
   id-token: write
 
+# One deploy at a time; never cancel a run that is mid-publish.
 concurrency:
-  group: 'pages'
+  group: pages
   cancel-in-progress: false
 
 jobs:
   build:
-    name: Build Site
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+      - uses: pnpm/action-setup@v4
 
-      - name: Build Jekyll site
-        uses: actions/jekyll-build-pages@v1
+      - uses: actions/setup-node@v4
         with:
-          source: ./docs
-          destination: ./_site
+          node-version: 22
+          cache: pnpm
 
-      - name: Upload artifact
+      # The website has no workspace dependencies, so it installs on its own
+      # and never drags in electron or the desktop app's toolchain.
+      - name: Install
+        run: pnpm install --filter @tetravox/website --frozen-lockfile
+
+      - name: Build
+        # Project pages live under /<repo>/, so the site is built with that
+        # base. Building at the deploy base on every run means a base-path
+        # mistake fails here rather than after publishing. scripts/sync.mjs
+        # and scripts/gallery.mjs (run by the build script) also fail the
+        # build if a source doc under docs/ is missing.
+        run: pnpm --filter @tetravox/website build
+        env:
+          TETRAVOX_DOCS_BASE: /${{ github.event.repository.name }}/
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request' && vars.DOCS_PAGES_ENABLED == 'true'
         uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/.vitepress/dist
 
   deploy:
-    name: Deploy to GitHub Pages
-    runs-on: ubuntu-latest
     needs: build
+    if: github.event_name != 'pull_request' && vars.DOCS_PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4

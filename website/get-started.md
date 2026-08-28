@@ -1,15 +1,8 @@
 ---
-layout: page
-title: Install & Run
-permalink: /install.html
-nav_order: 2
+title: Get started
 ---
 
-# Install & run
-
-The full README lives at the repository root — this page is a short pointer, not a copy. See
-**[README.md on GitHub](https://github.com/idossha/tetravox/blob/main/README.md)** for the complete,
-up-to-date text (requirements, package layout, status and limitations).
+# Get started
 
 ## Packaged app
 
@@ -24,8 +17,8 @@ opened"). Clear the quarantine attribute once:
 xattr -dr com.apple.quarantine /Applications/Tetravox.app
 ```
 
-See the [User Guide]({{ site.baseurl }}/USER_GUIDE.html#installing) for why, and for the Linux
-`chrome-sandbox` note.
+See the [User Guide's installing section](https://github.com/idossha/tetravox/blob/main/docs/USER_GUIDE.md#installing)
+for why, and for the Linux `chrome-sandbox` note.
 
 ## Dev build
 
@@ -46,7 +39,7 @@ pnpm typecheck · pnpm lint
 `pnpm wasm` builds `crates/tvx-wasm` → `packages/wasm/pkg` and is a prerequisite of `build` / `test` /
 `typecheck`.
 
-## File associations
+## File formats and file associations
 
 Tetravox opens NIfTI (`.nii`, `.nii.gz`), Gmsh meshes (`.msh`), GIfTI, FreeSurfer surfaces, STL/PLY/OBJ,
 and its own scene format (`*.tetravox.json`) — drag a file onto the window, use **Open…**, or pass a path
@@ -54,9 +47,8 @@ on the command line.
 
 ## Where to go next
 
-- **[User Guide]({{ site.baseurl }}/USER_GUIDE.html)** — opening data, navigating, layers, regions,
-  measuring, scenes, themes.
-- **[Automation & Python]({{ site.baseurl }}/AUTOMATION.html)** — driving the same engine headlessly from
-  a script.
-- **[Architecture]({{ site.baseurl }}/ARCHITECTURE.html)** — the full technical contract, if you're
-  building or contributing.
+- **[Viewing data](/viewing-data)** — opening data, navigating, layers, regions, measuring, scenes,
+  themes.
+- **[Automation & Python](/automation)** — driving the same engine headlessly from a script.
+- **[Architecture](/developers/architecture)** — the full technical contract, if you're building or
+  contributing.

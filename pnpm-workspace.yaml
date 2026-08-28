@@ -5,3 +5,4 @@ packages:
   - packages/wasm
   - packages/engine
   - packages/app
+  - website

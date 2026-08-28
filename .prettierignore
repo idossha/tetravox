@@ -26,3 +26,10 @@ packages/engine/test/fixtures/
 
 # Agent worktrees of other Claude sessions.
 .claude/
+
+# VitePress docs site (website/): src/ is regenerated from docs/*.md (itself unformatted, above) by
+# scripts/sync.mjs and scripts/gallery.mjs, and cache/dist are build output. website/.vitepress/config.ts,
+# theme/ and scripts/ are hand-written and stay linted.
+website/src/
+website/.vitepress/cache/
+website/.vitepress/dist/

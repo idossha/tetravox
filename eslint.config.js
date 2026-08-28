@@ -21,6 +21,11 @@ export default tseslint.config(
       // Jekyll site assets and any agent worktrees checked out under .claude/ are not ours to lint.
       'docs/**',
       '.claude/**',
+      // VitePress docs site: src/ is regenerated from docs/*.md, .vitepress/cache and dist are build
+      // output. website/scripts/*.mjs, .vitepress/config.ts and theme/ stay linted.
+      'website/src/**',
+      'website/.vitepress/cache/**',
+      'website/.vitepress/dist/**',
     ],
   },
   js.configs.recommended,
@@ -42,7 +47,7 @@ export default tseslint.config(
   {
     // Node scripts: plain ESM, no TypeScript, so `no-undef` is live and the runtime's own globals
     // have to be declared. (`globals` is not a dependency and the lockfile is frozen — §12.3.)
-    files: ['scripts/**/*.{mjs,js}'],
+    files: ['scripts/**/*.{mjs,js}', 'website/scripts/**/*.{mjs,js}'],
     languageOptions: {
       globals: {
         console: 'readonly',

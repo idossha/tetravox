@@ -1,0 +1,387 @@
+/* ---------------------------------------------------------------------------
+   Tetravox docs theme — the app's own "no neon" palette, ported.
+
+   The token values below are copied from
+   packages/app/src/renderer/src/index.css so the website and the app read as
+   one object: dark instrument-panel surfaces, one muted slate-blue accent
+   (tokens.test.ts holds every pair to WCAG 4.5:1 / 3:1 in the app itself).
+
+   VitePress ships light-first; the mapping is:
+     :root      → tvx-light (the app's light theme)
+     html.dark  → tvx-dark  (the app's default dark theme)
+   -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------- light: tvx-light */
+:root {
+  --t-bg: #ffffff;
+  --t-bg-alt: #eef1f5;
+  --t-bg-elv: #ffffff;
+  --t-bg-soft: #eef1f5;
+  --t-bg-hover: rgba(21, 24, 29, 0.06);
+  --t-bg-active: rgba(59, 91, 169, 0.12);
+
+  --t-text: #15181d;
+  --t-text-muted: #5a6473;
+  --t-text-faint: #838c99;
+
+  --t-accent: #3b5ba9;
+  --t-accent-strong: #2f4a8c;
+  --t-accent-ink: #ffffff;
+
+  --t-danger: #b3261e;
+  --t-warn: #8a5a00;
+
+  --t-border: #ccd2db;
+  --t-border-strong: #767f8d;
+
+  --t-shadow: rgba(21, 24, 29, 0.1);
+}
+
+/* ---------------------------------------------------------------- dark: tvx-dark */
+.dark {
+  --t-bg: #16181c;
+  --t-bg-alt: #1e2126;
+  --t-bg-elv: #1e2126;
+  --t-bg-soft: #1e2126;
+  --t-bg-hover: rgba(255, 255, 255, 0.05);
+  --t-bg-active: rgba(147, 170, 226, 0.14);
+
+  --t-text: #dfe3ea;
+  --t-text-muted: #99a1ae;
+  --t-text-faint: #6d7683;
+
+  --t-accent: #93aae2;
+  --t-accent-strong: #aec0ee;
+  --t-accent-ink: #16181c;
+
+  --t-danger: #f0a09a;
+  --t-warn: #d9b76e;
+
+  --t-border: #333941;
+  --t-border-strong: #7d8794;
+
+  --t-shadow: rgba(0, 0, 0, 0.55);
+}
+
+:root {
+  --t-font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --t-font-mono: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+
+  --vp-font-family-base: var(--t-font-ui);
+  --vp-font-family-mono: var(--t-font-mono);
+}
+
+/* --------------------------------------------------------------- VitePress bridge */
+:root {
+  --vp-c-bg: var(--t-bg);
+  --vp-c-bg-alt: var(--t-bg-alt);
+  --vp-c-bg-elv: var(--t-bg-elv);
+  --vp-c-bg-soft: var(--t-bg-soft);
+
+  --vp-c-text-1: var(--t-text);
+  --vp-c-text-2: var(--t-text-muted);
+  --vp-c-text-3: var(--t-text-faint);
+
+  --vp-c-brand-1: var(--t-accent);
+  --vp-c-brand-2: var(--t-accent);
+  --vp-c-brand-3: var(--t-accent-strong);
+  --vp-c-brand-soft: var(--t-bg-active);
+
+  --vp-c-default-1: var(--t-text-muted);
+  --vp-c-default-2: var(--t-text-muted);
+  --vp-c-default-3: var(--t-text-faint);
+  --vp-c-default-soft: var(--t-bg-hover);
+
+  --vp-c-warning-1: var(--t-warn);
+  --vp-c-warning-2: var(--t-warn);
+  --vp-c-warning-3: var(--t-warn);
+  --vp-c-warning-soft: var(--t-bg-hover);
+
+  --vp-c-danger-1: var(--t-danger);
+  --vp-c-danger-2: var(--t-danger);
+  --vp-c-danger-3: var(--t-danger);
+  --vp-c-danger-soft: var(--t-bg-hover);
+
+  --vp-c-divider: var(--t-border);
+  --vp-c-gutter: var(--t-border);
+  --vp-c-border: var(--t-border);
+
+  /* Buttons stay outlined and fill only on hover — the accent is a signal,
+     not a fill, matching how the app itself uses it sparingly. */
+  --vp-button-brand-bg: transparent;
+  --vp-button-brand-text: var(--t-accent);
+  --vp-button-brand-border: var(--t-accent);
+  --vp-button-brand-hover-bg: var(--t-accent);
+  --vp-button-brand-hover-text: var(--t-accent-ink);
+  --vp-button-brand-hover-border: var(--t-accent);
+  --vp-button-brand-active-bg: var(--t-accent-strong);
+  --vp-button-brand-active-text: var(--t-accent-ink);
+  --vp-button-brand-active-border: var(--t-accent-strong);
+
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-text: var(--t-text-muted);
+  --vp-button-alt-border: var(--t-border-strong);
+  --vp-button-alt-hover-bg: var(--t-bg-hover);
+  --vp-button-alt-hover-text: var(--t-text);
+  --vp-button-alt-hover-border: var(--t-border-strong);
+
+  --vp-code-block-bg: var(--t-bg-alt);
+  --vp-code-block-divider-color: var(--t-border);
+  --vp-code-line-highlight-color: var(--t-bg-active);
+  --vp-code-copy-code-bg: var(--t-bg-elv);
+  --vp-code-copy-code-hover-bg: var(--t-bg-soft);
+  --vp-code-copy-code-active-text: var(--t-accent);
+  --vp-code-tab-divider: var(--t-border);
+  --vp-code-tab-text-color: var(--t-text-muted);
+  --vp-code-tab-active-text-color: var(--t-accent);
+  --vp-code-tab-active-bar-color: var(--t-accent);
+
+  --vp-custom-block-info-bg: var(--t-bg-soft);
+  --vp-custom-block-info-border: var(--t-border);
+  --vp-custom-block-tip-bg: var(--t-bg-soft);
+  --vp-custom-block-warning-bg: var(--t-bg-soft);
+  --vp-custom-block-danger-bg: var(--t-bg-soft);
+  --vp-custom-block-details-bg: var(--t-bg-soft);
+
+  --vp-sidebar-bg-color: var(--t-bg-alt);
+  --vp-nav-bg-color: var(--t-bg-alt);
+  --vp-local-nav-bg-color: var(--t-bg-alt);
+
+  --vp-layout-max-width: 1440px;
+  --vp-sidebar-width: 264px;
+  --vp-nav-height: 56px;
+
+  --vp-shadow-1: 0 1px 2px var(--t-shadow);
+  --vp-shadow-2: 0 3px 12px var(--t-shadow);
+  --vp-shadow-3: 0 12px 32px var(--t-shadow);
+}
+
+/* --------------------------------------------------------------------- chrome */
+.VPNav {
+  border-bottom: 1px solid var(--t-border);
+}
+
+.VPNavBar .title {
+  font-family: var(--t-font-ui);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  font-size: 15px;
+}
+
+.VPSidebar {
+  border-right: 1px solid var(--t-border);
+}
+
+.VPSidebarItem.level-0 > .item > .text {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--t-text-faint);
+}
+
+.VPSidebarItem.is-active > .item > .link > .text {
+  color: var(--t-accent);
+}
+
+/* A "Developers" badge on the nav item, so the User/Developer split reads at
+   a glance and not just by which sidebar happens to be showing. */
+.VPNavBarMenuLink[href*='/developers/']::after {
+  content: 'DEV';
+  margin-left: 6px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--t-accent);
+  border: 1px solid var(--t-accent);
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+/* Same badge cue in the sidebar's own section heading when on a dev page. */
+body:has(.VPSidebarItem.is-active a[href*='/developers/']) .VPSidebar::before {
+  content: 'Developer documentation';
+  display: block;
+  padding: 12px 32px 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t-accent);
+}
+
+/* -------------------------------------------------------------------- prose */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3 {
+  letter-spacing: -0.005em;
+}
+
+.vp-doc h1 {
+  font-size: 2.3rem;
+  line-height: 1.16;
+  font-weight: 700;
+}
+
+.vp-doc h2 {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  border-top: 1px solid var(--t-border);
+}
+
+.vp-doc h3 {
+  font-size: 1.18rem;
+  font-weight: 600;
+  margin-top: 2rem;
+}
+
+.vp-doc p,
+.vp-doc li {
+  line-height: 1.7;
+}
+
+.vp-doc h1 + p {
+  font-size: 1.08rem;
+  line-height: 1.65;
+  color: var(--t-text-muted);
+}
+
+.vp-doc a {
+  text-decoration-color: var(--t-bg-active);
+  text-underline-offset: 3px;
+}
+
+.vp-doc a:hover {
+  text-decoration-color: var(--t-accent);
+}
+
+.VPDoc .content-container {
+  max-width: 760px;
+}
+
+/* ---------------------------------------------------------------- screenshots
+   Every screenshot is a real capture of the running app — framed like an
+   instrument-panel window, not floated like decoration. */
+.vp-doc img {
+  border-radius: 6px;
+  border: 1px solid var(--t-border);
+  box-shadow: var(--vp-shadow-2);
+}
+
+.vp-doc video {
+  width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--t-border);
+  box-shadow: var(--vp-shadow-2);
+}
+
+/* ------------------------------------------------------------------- gallery */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.gallery-card {
+  border: 1px solid var(--t-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--t-bg-soft);
+  box-shadow: var(--vp-shadow-1);
+  transition: box-shadow 0.15s ease;
+}
+
+.gallery-card:hover {
+  box-shadow: var(--vp-shadow-2);
+}
+
+.gallery-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  border-bottom: 1px solid var(--t-border);
+}
+
+.gallery-card__body {
+  padding: 0.85rem 1rem 1.1rem;
+}
+
+.gallery-card__title {
+  margin: 0 0 0.35rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--t-text);
+}
+
+.gallery-card__text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--t-text-faint);
+}
+
+/* --------------------------------------------------------------- home hero */
+.VPHero .name {
+  color: var(--t-text) !important;
+  -webkit-text-fill-color: var(--t-text) !important;
+}
+
+.VPHero .clip {
+  color: var(--t-accent) !important;
+  -webkit-text-fill-color: var(--t-accent) !important;
+}
+
+.VPHero .image-bg {
+  display: none;
+}
+
+.VPHero .image-container {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--t-border);
+  box-shadow: var(--vp-shadow-3);
+}
+
+.VPHero .image-src {
+  max-width: 100% !important;
+  width: 100% !important;
+  height: auto !important;
+  object-fit: cover;
+}
+
+/* --------------------------------------------------------------- feature cards */
+.VPFeature {
+  border: 1px solid var(--t-border) !important;
+  background: var(--t-bg-soft) !important;
+}
+
+.VPFeature .icon {
+  background: var(--t-bg-active) !important;
+  color: var(--t-accent);
+}
+
+/* --------------------------------------------------------------------- footer */
+.VPFooter {
+  border-top: 1px solid var(--t-border);
+  background: var(--t-bg-alt);
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  color: var(--t-text-faint);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 640px) {
+  .vp-doc h1 {
+    font-size: 1.85rem;
+  }
+}
