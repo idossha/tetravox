@@ -3118,3 +3118,20 @@ decoding a label out of the framebuffer rather than looking at it: a golden PNG 
 Its default is tuned for the near-white chrome text and reads every glyph of a magenta label as blank; a caller
 that knows what colour its text is now passes the test for that colour. Additive, and every existing caller is
 unchanged.
+
+**A `tetravoxrc` config file, and the unified settings dialog (directed task: unified settings,
+2026-08-28).** All app preferences now sit behind one toolbar gear and one tabbed `SettingsDialog`
+(Appearance/Capture/Paths/Startup), replacing the three-scattered-controls state (theme in the toolbar,
+subjects dir + reopen in the old settings dialog, screenshot options only in the screenshot dialog).
+Alongside `settings.json` (Electron `userData`, edited only through the app) there is now a hand-editable
+rc file: `$TETRAVOX_HOME/tetravoxrc` if `TETRAVOX_HOME` is set, else `~/.tetravox/tetravoxrc`. It is plain
+JSON (a `_comment` field stands in for the comments JSON cannot carry) and is created with a starter file
+on first run via `ensureRcFile`. Precedence is **hardcoded defaults < `tetravoxrc` < `settings.json`** —
+the rc file sets a machine-wide default, and anything picked in the running app's dialog wins. A missing or
+corrupt rc file degrades silently to the defaults, exactly like `settings.json` always has. `AppSettings`
+gains `screenshotDefaults` (`background`/`dpi`/`scale?`/`autoTrim`), merged into the live
+`screenshotOptions` on startup. The screenshot gear still opens `ScreenshotDialog` directly rather than the
+settings dialog's Capture tab — several e2e specs drive that dialog's own testids (target/size/dpi/
+background/include/preview/save) and its live Preview needs the real `Engine.screenshot` call, which the
+settings dialog has no business holding — but `ScreenshotDialog` gained a "Defaults…" button that jumps to
+Capture for the standing preferences.
