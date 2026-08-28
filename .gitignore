@@ -35,3 +35,7 @@ testdata/generated/
 # Python bytecode (scripts/reference and scripts/*.py).
 __pycache__/
 *.pyc
+
+# Reference imaging data, fetched by `scripts/fetch-data.sh` (see data/README.md). ~1 GB of it, most
+# of it two meshes: it is what the examples read, and it is not something a clone should carry.
+/data/ernie/

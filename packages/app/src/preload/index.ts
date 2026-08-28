@@ -131,6 +131,12 @@ export interface TetravoxBridge {
   jobSpec(): Promise<JobSpec | null>;
   /** Write one PNG under `--out`. The name is re-checked against the out directory in main. */
   jobWrite(name: string, bytes: Uint8Array): Promise<JobWriteResult>;
+  /**
+   * A PNG of the whole window — panels, toolbar and status bar included — for a `view: "window"`
+   * capture. Null on an ordinary launch. `width`/`height` resize the device-pixel-ratio capture
+   * down to the size the action asked for.
+   */
+  jobCapture(width?: number, height?: number): Promise<Uint8Array | null>;
   /** Hand over a frame sequence: PNGs and a GIF always, MP4 when ffmpeg is on PATH. */
   jobFrames(payload: JobFramesPayload): Promise<JobFramesResult>;
   /** Progress, to the job runner's stdout (suppressed by `--quiet`). */
@@ -144,7 +150,7 @@ export interface JobSpec {
   job: {
     version?: number;
     scene: { path: string } | { files: string[]; preset: string };
-    window?: { width: number; height: number };
+    window?: { width: number; height: number; panels?: boolean };
     actions: Record<string, unknown>[];
   };
   outDir: string;
@@ -231,6 +237,7 @@ const bridge: TetravoxBridge = {
   setSettings: (patch) => ipcRenderer.invoke('tetravox:set-settings', patch),
   jobSpec: () => ipcRenderer.invoke('tetravox:job-spec'),
   jobWrite: (name, bytes) => ipcRenderer.invoke('tetravox:job-write', { name, bytes }),
+  jobCapture: (width, height) => ipcRenderer.invoke('tetravox:job-capture', width, height),
   jobFrames: (payload) => ipcRenderer.invoke('tetravox:job-frames', payload),
   jobLog: (message) => ipcRenderer.send('tetravox:job-log', message),
   jobDone: (report) => ipcRenderer.invoke('tetravox:job-done', report),

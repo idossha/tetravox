@@ -24,4 +24,4 @@ print(result.files)
 
 Set `TETRAVOX_APP` if the app is not in `/Applications` (macOS) or on `PATH`. The full job schema,
 the preset table and the dev-build recipe are in [`docs/AUTOMATION.md`](../docs/AUTOMATION.md).
-Runnable examples are in [`examples/`](examples).
+Runnable examples are in [`examples/capture/`](../examples/capture).

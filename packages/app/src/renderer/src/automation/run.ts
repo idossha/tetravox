@@ -76,7 +76,10 @@ export interface JobEnv {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 function fullScreenshotOptions(action: Bag, fallbackView?: ViewId): ScreenshotOptions {
-  const view = (action['view'] as string | undefined) ?? fallbackView ?? 'grid';
+  const requested = (action['view'] as string | undefined) ?? fallbackView ?? 'grid';
+  // `window` is not a pane: it is captured by main, and the options below are only ever the
+  // fallback path's, so it collapses to the grid rather than naming a view that does not exist.
+  const view = requested === 'window' ? 'grid' : requested;
   const include = (action['include'] ?? {}) as Bag;
   const options: ScreenshotOptions = {
     target: view === 'grid' ? 'grid' : 'view',
@@ -104,6 +107,33 @@ function fullScreenshotOptions(action: Bag, fallbackView?: ViewId): ScreenshotOp
 async function pngBytes(engine: Engine, options: ScreenshotOptions): Promise<Uint8Array> {
   const blob = await engine.screenshot(options);
   return new Uint8Array(await blob.arrayBuffer());
+}
+
+/** `view: "window"` — the capture target is the window itself, not the engine. */
+function isWindowCapture(action: Bag): boolean {
+  return action['view'] === 'window';
+}
+
+/**
+ * One frame of whatever the action asked to photograph.
+ *
+ * Everything except `view: "window"` comes off the engine's canvas, which is what keeps a job's
+ * output honest: it is the picture the product renders. A window capture is the one exception, and
+ * it exists for the one shot the engine cannot take — a tour of the interface — so it goes through
+ * main's `capturePage` and contains exactly what a user would see.
+ */
+async function captureFrame(
+  engine: Engine,
+  action: Bag,
+  options: ScreenshotOptions
+): Promise<Uint8Array> {
+  if (!isWindowCapture(action)) return pngBytes(engine, options);
+  const width = typeof action['width'] === 'number' ? action['width'] : undefined;
+  const height = typeof action['height'] === 'number' ? action['height'] : undefined;
+  const bytes = await bridge().jobCapture(width, height);
+  if (bytes === null)
+    throw new Error('view: "window" needs the app\u2019s own window (--job only)');
+  return bytes;
 }
 
 function withExtension(name: string, ext: string): string {
@@ -248,7 +278,7 @@ export class JobRunner {
         return;
       case 'screenshot': {
         const name = withExtension(String(action['out']), '.png');
-        const bytes = await pngBytes(this.env.engine, fullScreenshotOptions(action));
+        const bytes = await captureFrame(this.env.engine, action, fullScreenshotOptions(action));
         const written = await bridge().jobWrite(name, bytes);
         if (!written.ok) throw new Error(`writing ${name}: ${written.error ?? 'unknown error'}`);
         this.record(index, type, [name], started);
@@ -301,6 +331,14 @@ export class JobRunner {
         this.warnings.push(`set: no layer matched ${JSON.stringify(action['layer'] ?? 'active')}`);
       } else {
         engine.updateLayer(layerId, nullsToUndefined(patch) as Partial<Layer>);
+      }
+    }
+    if (action['active'] !== undefined) {
+      const activeId = this.resolveLayer(action['active']);
+      if (activeId === null) {
+        this.warnings.push(`set: no layer matched active ${JSON.stringify(action['active'])}`);
+      } else {
+        engine.setActiveLayer(activeId);
       }
     }
     const cursor = action['cursor'] as vec3 | undefined;
@@ -565,7 +603,7 @@ export class JobRunner {
       }
       engine.requestRender();
       await engine.whenSettled();
-      frames.push(await pngBytes(engine, options));
+      frames.push(await captureFrame(engine, action, options));
     }
     this.log(`tween ${String(action['out'])}: ${frames.length} frames`);
     await this.writeFrames(index, 'tween', action, frames, started);
@@ -625,8 +663,10 @@ export async function maybeRunJob(env: JobEnv): Promise<boolean> {
   const spec = await bridge().jobSpec();
   if (spec === null) return false;
   // Give the whole window to the view grid before the first frame is rendered: the §8 panels are
-  // 18 rem + 20 rem of chrome that no screenshot contains (see `UiState.jobMode`).
-  env.store.setState({ jobMode: true });
+  // 18 rem + 20 rem of chrome that no engine screenshot contains (see `UiState.jobMode`).
+  // `window.panels: true` keeps the §8 shell on screen, which is what a `view: "window"` tour
+  // photographs; every other job gives the whole window to the view grid.
+  env.store.setState({ jobMode: spec.job.window?.panels !== true });
   await env.engine.whenSettled();
   await new JobRunner(env, spec).run();
   return true;

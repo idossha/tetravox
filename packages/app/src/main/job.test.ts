@@ -136,9 +136,48 @@ describe('validateJob — the shape of a valid job', () => {
     expect(validateJob(minimal).ok).toBe(true);
     expect(DEFAULT_WINDOW).toEqual({ width: 1400, height: 900 });
   });
+
+  it('`set` can select the layer the panels show', () => {
+    const result = validateJob({
+      ...minimal,
+      actions: [{ type: 'set', active: 'ernie.msh' }],
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(errorsFor({ ...minimal, actions: [{ type: 'set', active: {} }] })).toEqual([
+      'actions[0].active: must be a layer index, a layer name, or "active"',
+    ]);
+  });
+
+  it('a UI tour asks for panels and captures the window', () => {
+    // `window.panels` keeps the §8 shell on screen and `view: "window"` photographs it — the pair
+    // that lets a job show the interface rather than only what the engine draws.
+    const result = validateJob({
+      ...minimal,
+      window: { width: 1920, height: 1080, panels: true },
+      actions: [
+        { type: 'screenshot', out: 'ui.png', view: 'window' },
+        { type: 'tween', out: 'tour', view: 'window', frames: 30, to: { distance: 300 } },
+      ],
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe('validateJob — what a bad job is told', () => {
+  it('rejects a non-boolean window.panels', () => {
+    expect(errorsFor({ ...minimal, window: { width: 10, height: 10, panels: 'yes' } })).toEqual([
+      'window.panels: must be true or false',
+    ]);
+  });
+
+  it('a sweep and an orbit cannot capture the window: they own a pane, not the chrome', () => {
+    expect(
+      errorsFor({ ...minimal, actions: [{ type: 'sweep', out: 's', view: 'window' }] })
+    ).toEqual(['actions[0].view: must be one of axial, coronal, sagittal']);
+  });
+
   it('rejects a non-object', () => {
     expect(errorsFor('a job')).toEqual(['job: must be a JSON object']);
     expect(errorsFor([])).toEqual(['job: must be a JSON object']);

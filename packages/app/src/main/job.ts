@@ -108,6 +108,14 @@ export interface SetAction {
   layer?: LayerSelector;
   /** A `Partial<Layer>` (§4.4), passed to `Engine.updateLayer` untouched. */
   patch?: Record<string, unknown>;
+  /**
+   * Make a layer the **active** one — the layer the §8 panels are showing (`Engine.setActiveLayer`).
+   *
+   * Invisible to an engine screenshot, and the whole point of a `window.panels` job: which controls
+   * a UI tour has on screen is which layer is selected, and clicking a row in the layer panel is how
+   * a user says it. Same selector as `layer`.
+   */
+  active?: LayerSelector;
   cursor?: [number, number, number];
   layout?: LayoutName;
   /** A 3D camera preset (§7.5's `1..6` / `A P L R S I`). */
@@ -138,8 +146,12 @@ export interface ScreenshotAction {
   type: 'screenshot';
   /** File name, relative to `--out`. `.png` is appended when missing. */
   out: string;
-  /** A view id captures that pane; `'grid'` captures the whole view grid. Default: `'grid'`. */
-  view?: ViewName | 'grid';
+  /**
+   * A view id captures that pane; `'grid'` captures the whole view grid; `'window'` captures the
+   * whole window, panels and toolbar included (`window.panels: true` is what puts them there).
+   * Default: `'grid'`.
+   */
+  view?: ViewName | 'grid' | 'window';
   width?: number;
   height?: number;
   scale?: number;
@@ -262,8 +274,8 @@ export interface TweenAction {
    * with whatever `to.distance` / `to.target` do, so one shot can dolly in while it turns.
    */
   orbit?: { degrees: number; axis?: 'x' | 'y' | 'z' };
-  /** The capture target, as `screenshot`: a view id, or `'grid'` (the default) for the whole grid. */
-  view?: ViewName | 'grid';
+  /** The capture target, as `screenshot`: a view id, `'grid'` (the default), or `'window'`. */
+  view?: ViewName | 'grid' | 'window';
   fps?: number;
   format?: FrameFormat | FrameFormat[];
   colors?: number;
@@ -283,8 +295,15 @@ export interface Job {
   /** Optional; validated against {@link JOB_SCHEMA_VERSION} when present. */
   version?: number;
   scene: JobScene;
-  /** The offscreen window's size. Defaults to 1400×900. */
-  window?: { width: number; height: number };
+  /**
+   * The offscreen window's size, and whether the §8 panels are drawn in it.
+   *
+   * `panels` defaults to **false**: a job's window is all view grid, because a screenshot comes off
+   * the engine's canvas and never contains the panels anyway. Set it to `true` when the job is
+   * *about* the interface — a UI tour — and capture with `view: "window"`, which photographs the
+   * whole window, chrome included, rather than the engine.
+   */
+  window?: { width: number; height: number; panels?: boolean };
   actions: JobAction[];
 }
 
@@ -586,6 +605,10 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       if (layer !== undefined && typeof layer !== 'number' && typeof layer !== 'string') {
         errors.push(`${path}.layer`, 'must be a layer index, a layer name, or "active"');
       }
+      const active = action['active'];
+      if (active !== undefined && typeof active !== 'number' && typeof active !== 'string') {
+        errors.push(`${path}.active`, 'must be a layer index, a layer name, or "active"');
+      }
       if (action['patch'] !== undefined && !isBag(action['patch'])) {
         errors.push(`${path}.patch`, 'must be an object of layer properties (§4.4)');
       }
@@ -619,6 +642,7 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       errors.include(`${path}.annotations`, action['annotations']);
       if (
         action['patch'] === undefined &&
+        action['active'] === undefined &&
         action['cursor'] === undefined &&
         action['layout'] === undefined &&
         action['camera'] === undefined &&
@@ -635,7 +659,7 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
     }
     case 'screenshot': {
       errors.outName(`${path}.out`, action['out']);
-      errors.enum(`${path}.view`, action['view'], [...VIEWS, 'grid']);
+      errors.enum(`${path}.view`, action['view'], [...VIEWS, 'grid', 'window']);
       errors.number(`${path}.width`, action['width'], { positive: true });
       errors.number(`${path}.height`, action['height'], { positive: true });
       errors.number(`${path}.scale`, action['scale'], { positive: true });
@@ -694,7 +718,7 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       errors.outName(`${path}.out`, action['out']);
       errors.number(`${path}.frames`, action['frames'], { positive: true });
       errors.enum(`${path}.ease`, action['ease'], EASES);
-      errors.enum(`${path}.view`, action['view'], [...VIEWS, 'grid']);
+      errors.enum(`${path}.view`, action['view'], [...VIEWS, 'grid', 'window']);
       errors.tweenState(`${path}.from`, action['from']);
       errors.tweenState(`${path}.to`, action['to']);
       const orbit = action['orbit'];
@@ -755,6 +779,7 @@ export function validateJob(input: unknown): ValidationResult {
     else {
       errors.number('window.width', window['width'], { positive: true });
       errors.number('window.height', window['height'], { positive: true });
+      errors.boolean('window.panels', window['panels']);
     }
   }
 

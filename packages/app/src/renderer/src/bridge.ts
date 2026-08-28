@@ -62,6 +62,7 @@ const ABSENT: TetravoxBridge = {
   // what a vitest run and a plain browser tab should see.
   jobSpec: async () => null,
   jobWrite: async () => ({ ok: false, error: 'no preload bridge' }),
+  jobCapture: async () => null,
   jobFrames: async () => ({ ok: false, error: 'no preload bridge' }),
   jobLog: () => {},
   jobDone: async () => false,
