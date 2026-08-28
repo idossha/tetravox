@@ -566,6 +566,18 @@ export class NoGlEngine implements Engine {
     };
   }
 
+  /**
+   * The mock draws nothing, so there is no contour to be under a pixel. `null` is the honest answer
+   * — inventing a hit would make the mock's active layer jump on every click, which is precisely the
+   * behaviour the real engine only shows when a contour really is there.
+   */
+  contourAtScreen(viewId: ViewId, px: number, py: number): LayerId | null {
+    void viewId;
+    void px;
+    void py;
+    return null;
+  }
+
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean {
     const hit = this.pick(viewId, px, py);
     if (hit === null) return false;

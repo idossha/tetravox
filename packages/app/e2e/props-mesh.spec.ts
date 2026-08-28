@@ -477,6 +477,55 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     expect(byField.field).toMatchObject({ source: 'elm', name: 'E' });
   });
 
+  /**
+   * Directed task 12: the contour's **own** colour and width, each one `updateLayer` call.
+   *
+   * The width control already existed and is asserted above; what is new is that the two of them
+   * are the pair a user reaches for when two outlines are hard to tell apart, so they are asserted
+   * together — including that the swatch shows what the contour actually draws in, which for a
+   * layer with no `contourColor` of its own is its `edgeColor` (`render/passes/derived.ts`'s
+   * fallback). A swatch that showed something else would be a lie the moment it was opened.
+   */
+  test('the contour colour and width are one `updateLayer` call each', async () => {
+    const swatch = page.locator(`[data-testid="mesh-contour-color-${ids.mesh}"]`);
+    await expect(swatch).toHaveCount(1);
+
+    const shown = await swatch.inputValue();
+    const layer = await page.evaluate(
+      (id) =>
+        (window.__tetravox?.store.getState().layers ?? []).find((l) => l.id === id) as unknown as {
+          contourColor?: number[];
+          edgeColor: number[];
+        },
+      ids.mesh
+    );
+    const hex = (c: number[]): string =>
+      `#${c
+        .slice(0, 3)
+        .map((v) =>
+          Math.round(v * 255)
+            .toString(16)
+            .padStart(2, '0')
+        )
+        .join('')}`;
+    expect(shown).toBe(hex(layer.contourColor ?? layer.edgeColor));
+
+    await record(page);
+    await setControl(page, `mesh-contour-color-${ids.mesh}`, '#ffe626');
+    const painted = (await onePatch(page)).contourColor as number[];
+    // `state.ts` divides by 255 and keeps the alpha; 0xff/0xe6/0x26 is 1 / 0.902 / 0.149.
+    expect(painted[0]).toBeCloseTo(1, 3);
+    expect(painted[1]).toBeCloseTo(0xe6 / 255, 3);
+    expect(painted[2]).toBeCloseTo(0x26 / 255, 3);
+    expect(painted[3]).toBe(1);
+
+    // The width the brief names as the surface default is inside the slider's range, and is one
+    // call like every other control here.
+    await record(page);
+    await setControl(page, `mesh-contour-width-${ids.mesh}`, '1.5');
+    expect(await onePatch(page)).toEqual({ contourWidthPx: 1.5 });
+  });
+
   // ---- clip planes -----------------------------------------------------------------------------
 
   test('a clip plane: add, preset, offset, flip, follow-cursor, caps, remove', async () => {

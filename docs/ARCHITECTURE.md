@@ -491,6 +491,7 @@ export interface MeshLayer extends LayerBase {
   isolate?: IsolateSpec;
   glyphs?: GlyphSpec;
   contoursIn2D: boolean; contourWidthPx: number; fillIn2D: boolean;
+  contourColor?: vec4 /* 0..1 */;                       // undefined = edgeColor; seeded per surface (§7.4)
 }
 
 export interface IsosurfaceLayer extends LayerBase {
@@ -910,6 +911,8 @@ export interface Engine {
 
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
+  contourAtScreen(viewId: ViewId, px: number, py: number): LayerId | null;  // §7.4: the surface
+                                                                   //   contour under a 2D pixel
   probe(world: vec3): ProbeResult;
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]>;      // §6.5.2's op — R5's row count
                                                                    //   and double-click target
@@ -2452,6 +2455,13 @@ declare `invariant gl_Position;`.
 * **Lighting:** headlight Blinn-Phong with configurable ambient; flat shading optional; two-sided lighting.
 * **Surfaces on 2D slices:** `contours` line segments drawn in the overlay pass as instanced screen-space quads;
   tet cut polygons drawn in the opaque pass with tag/field colour when `fillIn2D`.
+  A **surface** layer — a triangle-only mesh, `nTets === 0`: GIfTI, FreeSurfer, STL/PLY/OBJ, `.geo` triangles —
+  opens with `contoursIn2D: true`, `fillIn2D: false` and `contourWidthPx: 1.5`, and takes its own
+  `contourColor` from `SURFACE_CONTOUR_PALETTE` (`scene/defaults.ts`) in load order, first entry
+  Freeview yellow. A tet mesh's defaults do not move: it keeps `fillIn2D: true`, width 1 and no
+  `contourColor`, so its contours stay the layer's `edgeColor` as they were. Clicking within
+  `CONTOUR_PICK_PX` of a drawn contour in a 2D pane makes that layer active (`Engine.contourAtScreen`,
+  a CPU nearest-segment test over the same segments the frame drew — the pick pass draws no lines).
 * **Winding:** any triangle set rendered with `faceMode:'cull'` or in the transparency phase split passes through
   `orient_surface` first. The engine sets `faceMode:'both'` automatically when `orient.openComponents > 0`.
   Reference expectation `[M2Max]`: ernie's per-tag signed volumes are 1001 −603, 1002 −1309, 1003 −1495,
@@ -2532,7 +2542,8 @@ movement the user did not ask for. This is `Engine.nudgeCursor` (§4.7); it is a
 engine geometry and §8 forbids the app deriving it.
 
 Input (Freeview-like):
-* **2D** — left-click/drag sets the cursor; wheel = slice ±1 (⌘/Ctrl+wheel = zoom); right-drag = window/level on
+* **2D** — left-click/drag sets the cursor, and a click that lands on a surface **contour** also makes that
+  surface the active layer (`contourAtScreen`, §7.4); wheel = slice ±1 (⌘/Ctrl+wheel = zoom); right-drag = window/level on
   the **active** layer, falling back to the topmost non-label volume layer; middle/space-drag = pan; arrows nudge
   the cursor; PgUp/PgDn slice.
 * **3D** — left orbit, right pan, wheel dolly, double-click = `setCursorFromPick`.

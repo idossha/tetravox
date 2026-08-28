@@ -387,6 +387,21 @@ export class DerivedStore {
     return g;
   }
 
+  /**
+   * The contour segments **currently on the GPU** for one (layer, pane) — the ones the last frame
+   * drew (§7.4's contour pick, directed task 12).
+   *
+   * Read-only and pull-only: it never requests anything, so asking on a click cannot start a cut,
+   * and a pane that has not drawn yet answers `null` rather than a stale array from another plane.
+   * The array is the worker's own, held by `#uploadPaneCut` / `#surfaceContourGeometry` as
+   * `contourSource` for exactly this identity comparison, so this costs no copy.
+   */
+  paneContourSegments(layerId: LayerId, viewId: ViewId): Float32Array | null {
+    const g = this.#panes.get(`${layerId}|${viewId}`);
+    if (g === undefined || g.contourInstances === 0) return null;
+    return g.contourSource;
+  }
+
   // -------------------------------------------------------------------------------------------
   // Tag LUT
   // -------------------------------------------------------------------------------------------

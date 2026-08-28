@@ -1,10 +1,12 @@
 # Reference values for real-data tests
 
-These two scripts produce every number in `AGENTS.md` § "Test data". Re-run them instead of retyping numbers.
+These scripts produce every number in `AGENTS.md` § "Test data", plus the contour reference a Rust
+test reads back. Re-run them instead of retyping numbers.
 
 ```
 /Users/idohaber/Applications/SimNIBS-4.6/bin/simnibs_python scripts/refvalues/mesh_refvalues.py > scripts/refvalues/mesh_refvalues.json
 python3 scripts/refvalues/nifti_refvalues.py                                                   > scripts/refvalues/nifti_refvalues.json
+python3 scripts/refvalues/contour_refvalues.py                                                 > scripts/refvalues/contour_refvalues.json
 ```
 
 Both take an optional testdata root as `argv[1]`, defaulting to `$TETRAVOX_TESTDATA` and then to
@@ -19,6 +21,14 @@ Both take an optional testdata root as `argv[1]`, defaulting to `$TETRAVOX_TESTD
   `Nifti1Image.from_file_map` calls `set_slope_inter(None, None)` after handing scaling to the array proxy.
   It also rebuilds the qform from the quaternion and reports the max abs error against the image affine both
   with and without `qfac`, which is the assertion the qfac test uses.
+
+* `contour_refvalues.py` needs nibabel + numpy only. It intersects every triangle of
+  `m2m_ernie/surfaces/lh.pial.gii` with the three axis planes through the surface's own bounding-box
+  centre — the cursor a freshly opened scene puts there — and reports the segment count and the total
+  contour length for each, plus the **axial** plane's segments in full. That geometry is what
+  `crates/tvx-geom/tests/real_data.rs::surface_contours_match_numpy_on_lh_pial` asserts §6.3's
+  `surface_contours` against: length within 1 %, every endpoint within 0.1 mm of a reference segment.
+  Only one plane's geometry is committed because three is a megabyte of JSON.
 
 The committed `*.json` files are the 2026-08-27 output on this machine; a diff against a fresh run is a dataset
 change, not a test failure.
