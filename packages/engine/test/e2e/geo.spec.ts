@@ -103,6 +103,46 @@ test('a parsed view’s point lands on the pixel the projection names', async ({
 });
 
 /**
+ * A view's `ST`/`SQ` triangles are a **surface with a scalar field** — the second half of what a
+ * parsed view can carry, and the reason it loads through `loadMesh` at all.
+ *
+ * The fixture has one `ST` and one `SQ`, so three triangles after the quad's fan, nine de-indexed
+ * corners, and one node field named `value` spanning the corner values it spells out (1 … 30).
+ */
+test('a view’s ST/SQ triangles are a mesh with a `value` node field', async ({ page }) => {
+  const errors = await openScene(page);
+  const got = await page.evaluate(async (url) => {
+    const engine = window.__tvxEngine!;
+    const ds = await engine.addDataset({ kind: 'path', path: url as string });
+    if (ds.kind !== 'mesh') return null;
+    const field = ds.fields.find((f) => f.name === 'value');
+    return {
+      nTris: ds.nTris,
+      nNodes: ds.nNodes,
+      tags: ds.tags.map((t) => t.id),
+      field:
+        field === undefined
+          ? null
+          : {
+              source: field.source,
+              ncomp: field.ncomp,
+              min: field.stats.min,
+              max: field.stats.max,
+            },
+    };
+  }, VIEW_GEO);
+
+  // `ST` + `SQ` fanned into two = 3 triangles, de-indexed to 9 nodes.
+  expect(got?.nTris).toBe(3);
+  expect(got?.nNodes).toBe(9);
+  // One tag per view; only the first view has triangles.
+  expect(got?.tags).toEqual([1]);
+  // The per-corner values, on a NODE field — which is what a de-indexed mesh makes them.
+  expect(got?.field).toEqual({ source: 'node', ncomp: 1, min: 1, max: 30 });
+  expect(errors).toEqual([]);
+});
+
+/**
  * The label and its halo, in pixels.
  *
  * `T3(1, 2, 8, 0){"E001"}` sits 5 mm above `SP(1, 2, 3)`, so with a 6 mm radius it is inside the
