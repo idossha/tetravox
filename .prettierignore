@@ -23,3 +23,6 @@ testdata/
 # and it is compared element by element, never read by a human. Reflowing 1,397 elements of f64
 # would make every regeneration a whole-file diff.
 packages/engine/test/fixtures/
+
+# Agent worktrees of other Claude sessions.
+.claude/
