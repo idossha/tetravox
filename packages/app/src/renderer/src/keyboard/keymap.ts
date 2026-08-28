@@ -58,7 +58,15 @@ export type Command =
    * layer only sees `Escape` when the canvas has not swallowed it first, and a user who has just
    * clicked in a panel still expects `Esc` to drop the half-placed segment.
    */
-  | { kind: 'cancelMeasurement' };
+  | { kind: 'cancelMeasurement' }
+  /**
+   * `Ctrl+[` / `Ctrl+]` (or `⌘[` / `⌘]`) — collapse/expand the §8 sidebars (directed task:
+   * collapsible panels). Plain `[`/`]` are already §7.5's "cycle the active layer", so the toggle
+   * needs the modifier that key otherwise ignores — `resolveKey`'s modified branch only claims
+   * `ArrowUp`/`ArrowDown` before this, so these two chords were unbound.
+   */
+  | { kind: 'toggleLeftPanel' }
+  | { kind: 'toggleRightPanel' };
 
 /** `1..6` → the §7.5 3D camera presets, in A/P/L/R/S/I order. */
 export const PRESET_KEYS: Record<string, CameraPreset> = {
@@ -98,6 +106,8 @@ export function resolveKey(event: KeyEventLike): Command | null {
     if (event.altKey || event.shiftKey) return null;
     if (event.key === 'ArrowUp') return { kind: 'reorderActiveLayer', delta: 1 };
     if (event.key === 'ArrowDown') return { kind: 'reorderActiveLayer', delta: -1 };
+    if (event.key === '[') return { kind: 'toggleLeftPanel' };
+    if (event.key === ']') return { kind: 'toggleRightPanel' };
     return null;
   }
   if (event.altKey) return null;
@@ -159,7 +169,7 @@ export const KEYMAP_HELP =
   '[ / ] active layer · v visibility · Ctrl+↑/↓ reorder · x layout · c crosshair · m measure · ' +
   'Esc cancel a measurement · ' +
   'r reset · 1–6 A/P/L/R/S/I · o orthographic · , / . 4D index · ' +
-  '↑↓←→ nudge the cursor in-plane · PgUp/PgDn slice';
+  '↑↓←→ nudge the cursor in-plane · PgUp/PgDn slice · Ctrl+[ / Ctrl+] sidebars';
 
 /**
  * The §7.5 **pointer** bindings, for the same help sheet. Handled in the engine's input layer, so

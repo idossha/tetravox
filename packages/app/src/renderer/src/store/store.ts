@@ -41,6 +41,7 @@ import { EMPTY_METRICS } from '../lib/metrics';
 import type { EngineImpl } from '../engine/factory';
 import type { ThemeChoice } from '../theme/theme';
 import type { ThemeName } from '../theme/tokens';
+import { loadPanelPrefs } from '../lib/panels';
 
 /**
  * §8's coordinate bar space, as a `CoordSpaceRef` (directed task 8, 2026-08-28).
@@ -255,6 +256,20 @@ export interface UiState {
    * both.
    */
   theme: ThemeName;
+
+  // -- §8 sidebar collapse (directed task: collapsible panels) ------------------------------------
+  /**
+   * The left layer panel and right info panel's collapsed state (`lib/panels.ts`).
+   *
+   * Chrome, like `collapsedLayers` above: never serialised into a `ViewSpec`. Persisted in
+   * `localStorage` rather than `settings.json` — see `lib/panels.ts` for why — so `uiStore`'s own
+   * initial value is always `false`/`false` and the persisted value is layered on top by whoever
+   * constructs the singleton (`createUiStore(loadPanelPrefs())`), never baked into `INITIAL_UI`
+   * itself: a test building `createUiStore()` must get the same clean slate every time, not
+   * whatever a previous test left in `localStorage`.
+   */
+  leftPanelCollapsed: boolean;
+  rightPanelCollapsed: boolean;
 }
 
 /** Where this scene lives on disk, and when it was last written there. */
@@ -352,6 +367,8 @@ export const INITIAL_UI: UiState = {
   // Dark until the resolver has run, matching `BrowserWindow.backgroundColor`'s own fallback: a
   // window that guessed light and was wrong would show a white flash, and the reverse would not.
   theme: 'dark',
+  leftPanelCollapsed: false,
+  rightPanelCollapsed: false,
 };
 
 export type UiStore = StoreApi<UiState>;
@@ -361,7 +378,7 @@ export function createUiStore(initial: Partial<UiState> = {}): UiStore {
 }
 
 /** The single store the renderer mounts against. Tests build their own with `createUiStore`. */
-export const uiStore: UiStore = createUiStore();
+export const uiStore: UiStore = createUiStore(loadPanelPrefs());
 
 // ------------------------------------------------------------------------------------------------
 // Selectors — pure, so a component never derives anything itself.

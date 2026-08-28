@@ -54,6 +54,7 @@ import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import type { Command } from '../keyboard/keymap';
 import { LAYOUT_CYCLE, layoutCells, migrateSpecLayout, nextLayout } from '../lib/layout';
+import { savePanelPrefs } from '../lib/panels';
 import * as loads from '../lib/loads';
 import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
@@ -719,6 +720,40 @@ export class ShellController {
     this.engine.requestRender();
   }
 
+  // -- §8 sidebar collapse (directed task: collapsible panels) ----------------------------------
+
+  /**
+   * Chrome only — no engine call. The view grid reflows on its own: `ViewGrid`'s `ResizeObserver`
+   * watches its host `<div>`, and collapsing a sidebar is a flex-layout change to that host, exactly
+   * like a window resize. `lib/panels.ts` owns the `localStorage` round trip so this file stays free
+   * of a storage API, the same split `theme.ts` keeps for `settings.json`.
+   */
+  setLeftPanelCollapsed(collapsed: boolean): void {
+    if (this.store.getState().leftPanelCollapsed === collapsed) return;
+    this.store.setState({ leftPanelCollapsed: collapsed });
+    savePanelPrefs({
+      leftPanelCollapsed: collapsed,
+      rightPanelCollapsed: this.store.getState().rightPanelCollapsed,
+    });
+  }
+
+  setRightPanelCollapsed(collapsed: boolean): void {
+    if (this.store.getState().rightPanelCollapsed === collapsed) return;
+    this.store.setState({ rightPanelCollapsed: collapsed });
+    savePanelPrefs({
+      leftPanelCollapsed: this.store.getState().leftPanelCollapsed,
+      rightPanelCollapsed: collapsed,
+    });
+  }
+
+  toggleLeftPanel(): void {
+    this.setLeftPanelCollapsed(!this.store.getState().leftPanelCollapsed);
+  }
+
+  toggleRightPanel(): void {
+    this.setRightPanelCollapsed(!this.store.getState().rightPanelCollapsed);
+  }
+
   /** §8's colour bars — one per visible scalar layer, drawn in the overlay pass (§7.2). */
   // -- measurements (directed task 11, 2026-08-28) ----------------------------------------------
 
@@ -1068,6 +1103,10 @@ export class ShellController {
         return this.stepCursor(command.steps);
       case 'nudgeCursor':
         return this.nudgeCursor(command.dx, command.dy);
+      case 'toggleLeftPanel':
+        return this.toggleLeftPanel();
+      case 'toggleRightPanel':
+        return this.toggleRightPanel();
       case 'toggleMeasure':
         return this.toggleMeasureMode();
       case 'cancelMeasurement':
