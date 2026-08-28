@@ -143,6 +143,16 @@ export interface ShadingSolution {
  * `upper(s)` a min of them, so `upper − lower` is concave and a ternary search finds its maximum.
  * Non-negative there means feasible, and nothing weaker than "this colour, lit" satisfies it — the
  * wrong tag's colour fails on the first two channels alone.
+ *
+ * **The framebuffer clamps, and so does the model.** `fragColor` is written to an 8-bit target, so
+ * what a channel reports is `clamp(c_k·s + t, 0, 255)` and not `c_k·s + t`. A saturated channel is
+ * therefore a *one-sided* constraint: at `p_k = 255` every `(s, t)` with `c_k·s + t ≥ 254` produces
+ * that byte, and demanding `c_k·s + t ≤ 256` as well rejects the whole family. It is not a corner
+ * case on real tissue colours — `Compact_bone` is (255, 239, 179) and `Scalp` (255, 166, 133), both
+ * saturated in red before the headlight's specular term adds anything, and the unclamped model
+ * called 38 of 64 correctly-rendered ernie cap pixels infeasible against 3 of 64 with the clamp.
+ * `lower(s)` stays a max of affine functions and `upper(s)` a min of them, so the ternary search is
+ * unaffected; a saturated channel simply contributes one bound instead of two.
  */
 export function solveShading(
   c: readonly number[],
@@ -159,8 +169,10 @@ export function solveShading(
     let hi = tMax;
     for (let k = 0; k < 3; k += 1) {
       const base = (c[k] ?? 0) * s;
-      lo = Math.max(lo, (p[k] ?? 0) - h - base);
-      hi = Math.min(hi, (p[k] ?? 0) + h - base);
+      const byte = p[k] ?? 0;
+      // A channel at the ceiling constrains only from below, one at the floor only from above.
+      if (byte < 255 - h) hi = Math.min(hi, byte + h - base);
+      if (byte > h) lo = Math.max(lo, byte - h - base);
     }
     return { lo, hi };
   };

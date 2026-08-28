@@ -37,6 +37,22 @@ const T1 = 'm2m_ernie/T1.nii.gz';
 /** `test/pages/scene.html`'s canvas. */
 const CANVAS = 768;
 
+/**
+ * The pane pixel whose **centre** sees a world offset of `dx` mm right / `dy` mm up from the anchor.
+ *
+ * A fragment samples at the pixel *centre*, so pixel `i` covers the world interval
+ * `[anchor + (i − N/2)·mm, anchor + (i + 1 − N/2)·mm]` and shows the value at its midpoint
+ * `anchor + (i + 0.5 − N/2)·mm`. Inverting that gives `i = N/2 + d/mm − 0.5`; dropping the −0.5
+ * asks about a point half a pixel — 0.25 mm at this zoom — away from the one the pixel actually
+ * shows, which is enough to land in a neighbouring tet at a tissue boundary. Measured on
+ * `Thalamus_TI.msh`'s `TI_max` cut at ten targets: without the −0.5 the grey deltas are
+ * 2, 2, 0, 0, 0, 4, 1, 6, 3, 0 — three of them outside this file's own ±2 window, and the assertion
+ * below passing with zero margin — and with it all ten are 0.
+ */
+function paneCentrePixel(dx: number, dy: number, mmPerPx: number): [number, number] {
+  return [Math.round(CANVAS / 2 + dx / mmPerPx - 0.5), Math.round(CANVAS / 2 - dy / mmPerPx - 0.5)];
+}
+
 test.skip(ROOT === '', 'TETRAVOX_TESTDATA is unset');
 test.describe.configure({ mode: 'serial' });
 
@@ -120,9 +136,29 @@ test('R4: ernie.msh with no volume shows tissue cross-sections in all three pane
       engine.setCursor([0, 0, 20]);
       await engine.whenSettled();
 
+      // R4's "default when a mesh is opened: fill **and** contours on", read off the layer before
+      // anything patches it — the state assertion the pixel assertion below cannot make, because
+      // this is where the two features are told apart.
+      const created = engine.scene.layers.find((l) => l.id === layer.id) as unknown as {
+        fillIn2D: boolean;
+        contoursIn2D: boolean;
+      };
+      const defaults = { fillIn2D: created.fillIn2D, contoursIn2D: created.contoursIn2D };
+
+      // **The fill is asserted with the contours off**, and that is the difference between a claim
+      // about `fillIn2D` and a claim about whichever of the two happened to reach the pixel. A
+      // contour is drawn *over* the fill at a tissue boundary (§7.2 pass order), so a probe inside a
+      // thin shell can be a legitimately black contour pixel: RAS (0, 80, 20) is CSF, and the pixel
+      // whose centre sees it is on the CSF/bone line. Reading it as a failure of the fill would be
+      // reading the wrong feature; asserting the fill on a frame that has no contours reads the
+      // right one. The goldens below keep both on, which is what pins them together.
+      engine.updateLayer(layer.id, { contoursIn2D: false });
+      await engine.whenSettled();
+
       return {
         samples,
         tags,
+        defaults,
         tagColors:
           'tags' in ds ? ds.tags.map((t) => ({ id: t.id, kind: t.kind, color: t.color })) : [],
         tagNames: 'tags' in ds ? ds.tags.map((t) => ({ id: t.id, name: t.name })) : [],
@@ -147,6 +183,8 @@ test('R4: ernie.msh with no volume shows tissue cross-sections in all three pane
   // The 2D cut is served by the `cut` op — no topology build, as in every other ernie path (§6.3).
   expect(info.ops).toContain('cut');
   expect(info.ops).not.toContain('buildTopology');
+  // R4: "Default when a mesh is opened: fill **and** contours on."
+  expect(info.defaults).toEqual({ fillIn2D: true, contoursIn2D: true });
 
   // Axial basis (§3): normal +Z, up +Y, right = cross(up, normal) = +X. §4.5's anchor — the scene
   // bounds centre — projects to the pane centre at `camera.center = [0, 0]`, so a world point on
@@ -155,10 +193,8 @@ test('R4: ernie.msh with no volume shows tissue cross-sections in all three pane
     (info.bounds.min[0]! + info.bounds.max[0]!) / 2,
     (info.bounds.min[1]! + info.bounds.max[1]!) / 2,
   ];
-  const toPixel = (w: readonly number[]): [number, number] => [
-    Math.round(CANVAS / 2 + (w[0]! - anchor[0]!) / info.mmPerPx),
-    Math.round(CANVAS / 2 - (w[1]! - anchor[1]!) / info.mmPerPx),
-  ];
+  const toPixel = (w: readonly number[]): [number, number] =>
+    paneCentrePixel(w[0]! - anchor[0]!, w[1]! - anchor[1]!, info.mmPerPx);
   const colorOf = (tag: number): [number, number, number, number] => {
     const t = info.tagColors.find((c) => c.id === tag && c.kind === 'tet');
     if (t === undefined) throw new Error(`no tet tag ${tag} in the mesh`);
@@ -235,9 +271,27 @@ test('R4: TI_max colours the cut, and the pixel is the colormap value `locate` i
       // The thalamus target: the simulation this mesh comes from is `Simulations/Thalamus`, and the
       // point below is inside the left thalamus in this subject's space. What matters for the
       // assertion is only that `locate` finds a tet there and reports its `TI_max`.
-      const target: [number, number, number] = [-11, -19, 9];
+      const nominal: [number, number, number] = [-11, -19, 9];
+      const mmPerPx = 0.5;
+      const ax = (ds.bounds.min[0]! + ds.bounds.max[0]!) / 2;
+      const ay = (ds.bounds.min[1]! + ds.bounds.max[1]!) / 2;
+      // **`locate` is asked about the point the pixel actually shows, not about the point the pixel
+      // was chosen for.** Rounding to a pixel index leaves up to half a pixel — 0.25 mm here — of
+      // in-plane offset, and ernie's tets are 1–2 mm, so the residual is enough to straddle a tet
+      // face: with the nominal target the drawn grey was 38 against a `locate` answer of 40, which
+      // is this assertion's whole ±2 window spent on an avoidable disagreement about *which
+      // element* rather than on the f32 rounding it was written for. Snapping the query to the
+      // pixel's own centre makes the two speak about the same tet by construction. The `z` is
+      // untouched, so the cut plane is still the one `nominal` names.
+      const tx = Math.round(768 / 2 + (nominal[0] - ax) / mmPerPx - 0.5);
+      const ty = Math.round(768 / 2 - (nominal[1] - ay) / mmPerPx - 0.5);
+      const target: [number, number, number] = [
+        ax + (tx + 0.5 - 768 / 2) * mmPerPx,
+        ay + (768 / 2 - ty - 0.5) * mmPerPx,
+        nominal[2],
+      ];
       engine.setCursor(target);
-      engine.setView('axial', { camera: { center: [0, 0], mmPerPx: 0.5 } });
+      engine.setView('axial', { camera: { center: [0, 0], mmPerPx } });
       await engine.whenSettled();
 
       let hit: { tag?: number; elementId?: number; tiMax?: number } | null = null;
@@ -256,6 +310,8 @@ test('R4: TI_max colours the cut, and the pixel is the colormap value `locate` i
       }
       await engine.whenSettled();
       return {
+        nominal,
+        pixel: [tx, ty] as [number, number],
         target,
         hit,
         lo,
@@ -280,22 +336,29 @@ test('R4: TI_max colours the cut, and the pixel is the colormap value `locate` i
   const t = Math.min(1, Math.max(0, (info.hit!.tiMax! - info.lo) / (info.hi - info.lo)));
   const grey = Math.min(255, Math.max(0, Math.floor(t * 256)));
   // The target is on the plane but **not** at the pane centre: §4.5's anchor is the scene bounds
-  // centre, so the target's own pixel has to be computed rather than assumed.
-  const tx = Math.round(
-    CANVAS / 2 + (info.target[0] - (info.bounds.min[0]! + info.bounds.max[0]!) / 2) / info.mmPerPx
+  // centre, so the target's own pixel has to be computed rather than assumed — at the pixel's own
+  // centre, which is what `paneCentrePixel` is for. It is recomputed here from the *nominal* target
+  // and the bounds, against the index the page derived, so the convention is asserted rather than
+  // trusted: if the two ever disagreed, the probe and the pixel would be about different points.
+  const [tx, ty] = paneCentrePixel(
+    info.nominal[0] - (info.bounds.min[0]! + info.bounds.max[0]!) / 2,
+    info.nominal[1] - (info.bounds.min[1]! + info.bounds.max[1]!) / 2,
+    info.mmPerPx
   );
-  const ty = Math.round(
-    CANVAS / 2 - (info.target[1] - (info.bounds.min[1]! + info.bounds.max[1]!) / 2) / info.mmPerPx
+  expect([tx, ty], 'the page and the spec agree on the pixel-centre convention').toEqual(
+    info.pixel
   );
   const [px] = await readCanvasPixels(page, [[tx, ty]]);
   console.log(
     `[R4] Thalamus_TI.msh: element ${info.hit!.elementId} tag ${info.hit!.tag} ` +
       `TI_max ${info.hit!.tiMax!.toFixed(6)} -> t ${t.toFixed(4)} -> grey ${grey}; ` +
-      `pixel (${tx},${ty}) ${px!.join(',')}`
+      `pixel (${tx},${ty}) ${px!.join(',')} at world ` +
+      `(${info.target.map((v) => v.toFixed(3)).join(', ')})`
   );
-  // ±2 absorbs the f32 rounding of `t` in the vertex shader against the exact double here; nothing
-  // else can move it, because a grey ramp has no interpolation between texels under NEAREST.
-  for (let c = 0; c < 3; c += 1) expect(Math.abs((px![c] ?? 0) - grey)).toBeLessThanOrEqual(2);
+  // ±1 is 8-bit rounding and the f32 evaluation of `t` in the shader against the exact double here;
+  // nothing else can move it, because `locate` and the pixel now speak about the same world point —
+  // the pixel's own centre — and a grey ramp has no interpolation between texels under NEAREST.
+  for (let c = 0; c < 3; c += 1) expect(Math.abs((px![c] ?? 0) - grey)).toBeLessThanOrEqual(1);
   expect(px![3]).toBe(255);
 });
 
