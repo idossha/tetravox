@@ -32,6 +32,8 @@ export function Toolbar(): React.JSX.Element {
   const radiological = useUi((s) => s.radiological);
   const crosshair = useUi((s) => s.crosshair);
   const colorbars = useUi((s) => s.colorbars);
+  const scaleBar = useUi((s) => s.scaleBar);
+  const orientationCube = useUi((s) => s.orientationCube);
   const sceneFile = useUi((s) => s.sceneFile);
   const sceneError = useUi((s) => s.sceneError);
   const dialog = useUi((s) => s.dialog);
@@ -166,6 +168,29 @@ export function Toolbar(): React.JSX.Element {
         title="Colour bars: one per visible scalar layer, with ticks, units and the threshold notch (§8)"
       >
         Bars
+      </button>
+
+      {/* Directed task 10: the two §4.5 annotations that were named but never drawn. */}
+      <button
+        type="button"
+        data-testid="scalebar-toggle"
+        aria-pressed={scaleBar}
+        className={scaleBar ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+        onClick={() => controller.toggleScaleBar()}
+        title="Scale bar: a millimetre rule in every 2D pane, snapped to 1 2 5 10 20 50 100 mm (§4.5)"
+      >
+        Scale
+      </button>
+
+      <button
+        type="button"
+        data-testid="orientation-cube-toggle"
+        aria-pressed={orientationCube}
+        className={orientationCube ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+        onClick={() => controller.toggleOrientationCube()}
+        title="Orientation cube: A/P/L/R/S/I faces in the 3D pane; click a face for that preset (§4.5)"
+      >
+        Cube
       </button>
 
       <div className="flex items-center gap-0.5" role="group" aria-label="Screenshot">

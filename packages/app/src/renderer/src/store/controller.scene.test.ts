@@ -423,6 +423,7 @@ describe('the screenshot spec (§4.7, audit P2-06)', () => {
         crosshair: false,
         cornerInfo: false,
         scaleBar: true,
+        orientationCube: false,
       },
       autoTrim: true,
     };

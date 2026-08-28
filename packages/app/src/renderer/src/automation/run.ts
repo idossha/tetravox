@@ -80,6 +80,7 @@ function fullScreenshotOptions(action: Bag, fallbackView?: ViewId): ScreenshotOp
       crosshair: (include['crosshair'] as boolean | undefined) ?? false,
       cornerInfo: (include['cornerInfo'] as boolean | undefined) ?? true,
       scaleBar: (include['scaleBar'] as boolean | undefined) ?? false,
+      orientationCube: (include['orientationCube'] as boolean | undefined) ?? false,
     },
     autoTrim: (action['autoTrim'] as boolean | undefined) ?? false,
   };
@@ -339,6 +340,9 @@ export class JobRunner {
           : {}),
         ...(typeof annotations['scaleBar'] === 'boolean'
           ? { scaleBar: annotations['scaleBar'] }
+          : {}),
+        ...(typeof annotations['orientationCube'] === 'boolean'
+          ? { orientationCube: annotations['orientationCube'] }
           : {}),
       });
     }

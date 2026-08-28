@@ -155,6 +155,7 @@ export function screenshotAnnotations(include: ScreenshotOptions['include']): An
     cornerInfo: include.cornerInfo,
     conventionBadge: true,
     scaleBar: include.scaleBar,
+    orientationCube: include.orientationCube,
     colorbars: include.colorbar,
     crosshair: include.crosshair,
   };

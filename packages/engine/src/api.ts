@@ -224,6 +224,15 @@ export interface ScreenshotOptions {
     crosshair: boolean;
     cornerInfo: boolean;
     scaleBar: boolean;
+    /**
+     * The 3D pane's orientation cube (§4.5's `Annotations.orientationCube`, directed task 10).
+     *
+     * Additive, like every other member of this block: a caller written before the cube existed
+     * omits it, and TypeScript makes that a compile error rather than a silently different picture —
+     * which is what an `include` map is for. `automation/run.ts` defaults it to the annotation's own
+     * default (off).
+     */
+    orientationCube: boolean;
   };
   autoTrim: boolean;
 }

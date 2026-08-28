@@ -2989,3 +2989,60 @@ anchored on the ref's `absPath` — the scene-relative `path` is measured from a
 exist yet. A typed name with no extension gets `.tetravox.json` in `main/scene-io.ts`, because
 without the suffix the file association does not fire and dropping the file back on the window opens
 it as a dataset.
+
+## 2026-08-28 — The orientation cube, the scale bar, and six presets that were four
+
+Directed task 10. Two items §4.5's `Annotations` has named since Phase 0 — `scaleBar`, and now
+`orientationCube` — and neither was drawn. Both are §7.2 pass-3 items, both take the pane's
+**bottom-right** corner (corner info is bottom-left, the badge top-right, the colour bars down the
+right edge from under it, the orientation letters at the edge midpoints), and they can never contend
+for it: a cube is a 3D-pane item and a bar a 2D one.
+
+**`Annotations.orientationCube` and `ScreenshotOptions.include.orientationCube` are additive changes
+to frozen files** (`scene/types.ts`, `api.ts`), made with ARCHITECTURE §4.5 / §4.7 / §7.2 / §8 in
+this commit, per rule 4. Both default **off** in `scene/defaults.ts`, for the reason `scaleBar` and
+`colorbars` do: an engine default that moves every golden with a 3D pane in it is a conversation, not
+a patch. The app turns both on at attach and gives them toolbar buttons, the same shape the colour
+bars already had.
+
+**The bar is snapped, and the snap is the feature.** `1 / 2 / 5 / 10 / 20 / 50 / 100 mm`, the rung
+picked so the drawn length lands in 60…160 px. A bar labelled `137 mm` is arithmetic, not a ruler.
+The **drawn length is `mm / mmPerPx` exactly** — never rounded to the rung — and §11 measures it off
+the framebuffer at two zooms rather than comparing `snapScaleBar` to itself, because a scale bar is a
+promise about a distance and a promise nobody measured is decoration. `ZOOM 1.42X` in the corner info
+is a ratio to a fit the reader of a saved PNG never saw; that is what this closes.
+
+**The cube gets its own projection.** Not the pane's view-projection (which the gizmo does use): the
+cube must be the same size at every dolly and must not meet the near plane. It is an orthographic
+projection of a unit cube at `half/√3` px per unit, which is the scale at which **no** rotation can
+push a corner out of its box, so it never grows into the corner info as the camera turns.
+`cubeFaces` produces the picture *and* the hit test — the same rule `overlay/gizmo.ts` states as "a
+handle you can see and a handle you can grab have to be the same three points" — and a click routes
+through `Engine.cameraPreset`, so the cube and §7.5's `1..6` keys are the same six views by
+construction. Colours are the theme's `text` and `halo` and nothing else: a face is `halo` mixed
+toward `text` by its Lambert term, capped at 0.48, which keeps the **letter** the brightest thing on
+the cube — §11 decodes those letters with the same 5×7 template matcher §8's chrome uses, and a face
+as bright as its own label decodes as a filled cell rather than as an `A`.
+
+**`presetRotation` was wrong for four of its six, and the cube is what exposed it.** Composed out of
+`quat.rotateX` / `quat.rotateY`, which **post-multiply** — they rotate in the quaternion's *local*
+frame, so `rotateY(q, id, −90)` followed by `rotateX(q, q, −90)` applies the X rotation first in
+world terms. Measured on the shipped code, presets 1–4 all produced the eye axis `(0, 1, 0)`: `A`,
+`P`, `L` and `R` were **one anterior view in four different rolls**, and `A` itself was upside down
+(`up = (0, 0, −1)`). Nothing caught it because nothing in the product pictured the camera's
+direction — which is exactly what the cube does, and a cube built on that table would have shown `A`
+for a click on `L`.
+
+The fix names the three vectors `camera3dMatrices` actually reads out of the rotation (`right`, `up`,
+`back`) and derives the quaternion from them, so a preset is data rather than a composition order.
+`up` is superior for the four lateral views and anterior for the two axial ones, and `right` is
+`up × back`; the inferior view is therefore the axial view **mirrored left-for-right**, not rolled
+180° as it was. `test/unit/geometry.test.ts` pins all six as directions, through
+`camera3dMatrices`, so a future refactor of the quaternion cannot quietly re-break them. No golden
+moves: nothing in §11 photographed a preset.
+
+**New goldens:** `scene-scale-bar` (a 2D pane at 0.1 mm/px, `10 MM` over a 100 px bar, with the rest
+of the chrome on so a future layout change that collides with it fails here) and
+`scene-orientation-cube` (a 3D pane off-preset, three shaded faces labelled). Real data:
+`docs/screenshots/directed-2026-08-28/cube-scalebar.png` — ernie's T1 in the 2×2 layout, three scale
+bars and a cube over the slice planes in 3D.

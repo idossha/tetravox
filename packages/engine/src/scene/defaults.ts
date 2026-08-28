@@ -96,6 +96,9 @@ export function defaultScene(): Scene {
       scaleBar: false,
       colorbars: false,
       crosshair: true,
+      // Off, like `scaleBar` and `colorbars`: on by default would move every §11 golden with a 3D
+      // pane in it (directed task 10, 2026-08-28).
+      orientationCube: false,
     },
     transparency: { mode: 'twoPhase' },
     quality: { name: 'full', dprScale: 1, msaa: 4, capDecimation: 1, oit: false },

@@ -157,6 +157,7 @@ describe('layoutCells', () => {
         scaleBar: true,
         colorbars: true,
         crosshair: true,
+        orientationCube: false,
       },
       transparency: { mode: 'twoPhase' as const },
     };

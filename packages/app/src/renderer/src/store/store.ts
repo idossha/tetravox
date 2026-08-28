@@ -117,6 +117,17 @@ export interface UiState {
   /** §8's colour bars, mirrored from `Scene.annotations.colorbars` (appended; never renamed). */
   colorbars: boolean;
   /**
+   * The 2D panes' scale bar and the 3D pane's orientation cube, mirrored from `Scene.annotations`
+   * (directed task 10, 2026-08-28; appended, never renamed).
+   *
+   * Both default **on in the app** while `scene/defaults.ts` keeps them off, exactly as `colorbars`
+   * does and for the same reason: the engine default is what §11's goldens are captured with and may
+   * not move, but a product that ships a millimetre scale nobody can see has not shipped it. The
+   * toolbar's `Scale` and `Cube` buttons are the way back off.
+   */
+  scaleBar: boolean;
+  orientationCube: boolean;
+  /**
    * This window was launched for a `--job` (`automation/run.ts`), so the §8 panels are not drawn.
    *
    * The panels are 18 rem + 20 rem of chrome that no screenshot contains — a job's pictures come off
@@ -269,7 +280,11 @@ export const DEFAULT_SCREENSHOT_OPTIONS: ScreenshotOptions = {
     orientationLabels: true,
     crosshair: true,
     cornerInfo: true,
+    // Directed task 10: appended off, like `scaleBar` already was — this constant is "what the
+    // toolbar used before the dialog existed, unchanged", and the dialog's two new checkboxes are
+    // how a picture asks for the scale bar or the cube.
     scaleBar: false,
+    orientationCube: false,
   },
   autoTrim: false,
   dpi: 144,
@@ -288,6 +303,8 @@ export const INITIAL_UI: UiState = {
   radiological: false,
   crosshair: true,
   colorbars: true,
+  scaleBar: true,
+  orientationCube: true,
   jobMode: false,
   cursor: [0, 0, 0],
   cursorProbe: null,
