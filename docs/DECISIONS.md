@@ -2371,3 +2371,29 @@ Each entry below names the problem, the fix, and the evidence.
   One test changed rather than being added: `packages/wasm/e2e/meshes.spec.ts` asserted the label
   field's raw max (11) against nibabel's reading of the file. It now asserts the dense max (3) and
   keeps the raw one as the manifest's, which is the distinction the remap is about.
+
+
+- 2026-08-28 — **A saved scene did not record its `.msh.opt` or its label LUT, so reopening one lost
+  every tissue name, every tissue colour and every label name.** §4.6 already said "`LabelTable`s
+  are **not** serialised; they are re-derived from the dataset and its LUT on load" — and the spec
+  did not record the LUT. `DatasetRef` was `{id, kind, name, path, fingerprint, absPath}`, so
+  `Engine.load` re-opened each dataset with `{kind:'path', path}` and nothing else: the tissue table
+  came back reading `tag 1`, `tag 2`, `tag 3`, `tag 5` … `tag 1099`, the head rendered in §7.6's
+  deterministic fallback palette instead of the `.msh.opt` colours, the cursor block's
+  `515 · Bone-Cortical` became `515 · —`, and the "defaults from ernie.msh.opt" chip was gone. R5's
+  "selection persists through scene save/load" was met for the *edits* and not for the table they
+  are edits against.
+  `DatasetRef.sidecars` (frozen `scene/types.ts`, hence this line) records them. Anchored to the
+  **dataset's** directory rather than to the scene file, because a sidecar travels with the file it
+  describes — `ernie.msh.opt` beside `ernie.msh` — so a relocated dataset brings it along, which is
+  precisely the case §8's relocate dialog exists for; an absolute fallback covers a LUT the user
+  picked from somewhere else entirely. The engine remembers what the host handed to `addDataset`
+  rather than re-deriving it: the app's `lib/sidecars.ts` *guesses* candidates from the dataset's
+  name and checks which exist, and a user who picked a LUT the guesser would not have found must
+  still get it back.
+  Two consequences worth naming. `loadSource` now reads sidecars **best-effort**: a scene whose data
+  moved without its `.msh.opt` must still open, and everything downstream already has an answer for
+  "no sidecar" (§7.6's palette, `Label <id>`). The dataset's own failure stays fatal. And the app
+  allow-lists the derived sidecar paths before `Engine.load` (§5 directive A2 serves only what main
+  admitted), using the engine's own `sidecarPathsFor` — one derivation, exported, rather than two
+  that can drift into a silent 403.

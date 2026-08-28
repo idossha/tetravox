@@ -250,6 +250,92 @@ test('@angle P2-07: a two-dataset scene round-trips through JSON, with fresh dat
   expect(errors).toEqual([]);
 });
 
+/**
+ * §4.6's sidecars — the half of R5's "persists through scene save/load" that was missing.
+ *
+ * The edits round-tripped; the **table they are edits against** did not. `DatasetRef` recorded
+ * `{id, kind, name, path, fingerprint, absPath}` and nothing else, so reopening a scene reloaded the
+ * mesh with no `.msh.opt`: every tissue name became `tag <id>`, every tag colour became §7.6's
+ * deterministic fallback, and a label volume's cursor readout lost its region name. §7.6 makes the
+ * sidecar a load-time input — `ernie.msh` has no `$PhysicalNames` at all, so the sidecar is the only
+ * source of "WM"/"GM"/"CSF" — and nothing in `Layer` can stand in for it.
+ */
+test('@angle P2-07: a scene remembers its `.msh.opt`, so the tissue names and colours come back', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  const OPT = fixture('mesh_v2_binary.msh.opt');
+  await page.evaluate(
+    async ([url, opt]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { opt: opt as string },
+      });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      await engine.whenSettled();
+    },
+    [fixture('mesh_v2_binary.msh'), OPT] as const
+  );
+
+  const tagsOf = async (): Promise<{ id: number; name: string | null; color: number[] }[]> =>
+    page.evaluate(() => {
+      const ds = [...window.__tvxEngine!.scene.datasets.values()].find((d) => d.kind === 'mesh');
+      if (ds === undefined || ds.kind !== 'mesh') return [];
+      return ds.tags.map((t) => ({
+        id: t.id,
+        name: t.name ?? null,
+        color: [...t.color].map((c) => Math.round(c * 255)),
+      }));
+    });
+
+  const before = await tagsOf();
+  // `Mesh.Color.One` / `.Two` from the sidecar, as `testdata/manifest.json`'s
+  // `mshOptParsedByGmsh` records them — Gmsh's own reading of the same file, not ours.
+  expect(before.find((t) => t.id === 1)?.color).toEqual([230, 230, 210, 255]);
+  expect(before.find((t) => t.id === 2)?.color).toEqual([129, 129, 129, 255]);
+  expect(before.find((t) => t.id === 1)?.name).toBe('Tissue_A');
+
+  // …and the same mesh **without** the sidecar, so "it came back" is a claim with content: if the
+  // two agreed, the assertion after the round trip would pass whether or not the spec carried the
+  // sidecar at all. This is the state the reopened scene used to be in.
+  const bare = await page.evaluate(async (url) => {
+    const engine = window.__tvxEngine!;
+    const ds = await engine.addDataset({ kind: 'path', path: url });
+    const tags =
+      ds.kind === 'mesh'
+        ? ds.tags.map((t) => ({
+            id: t.id,
+            name: t.name ?? null,
+            color: [...t.color].map((c) => Math.round(c * 255)),
+          }))
+        : [];
+    engine.removeDataset(ds.id);
+    await engine.whenSettled();
+    return tags;
+  }, fixture('mesh_v2_binary.msh'));
+  expect(bare.find((t) => t.id === 1)?.color, 'no sidecar means the fallback palette').not.toEqual(
+    before.find((t) => t.id === 1)?.color
+  );
+
+  const sceneDir = `/@fs${REPO}testdata/scenes`;
+  const spec = await serializeFrom(page, sceneDir);
+  // The sidecar is recorded relative to the **dataset**, not to the scene file — one level of
+  // indirection that is the whole reason a relocated dataset brings it along.
+  expect(spec.datasets[0]?.sidecars?.opt?.path).toBe('mesh_v2_binary.msh.opt');
+  expect(spec.datasets[0]?.sidecars?.opt?.absPath).toBe(OPT);
+  // And it survives JSON, which is what a `*.tetravox.json` on disk is.
+  expect(JSON.parse(JSON.stringify(spec)).datasets[0].sidecars.opt.path).toBe(
+    'mesh_v2_binary.msh.opt'
+  );
+
+  await reopen(page, spec, resolveRefs(spec, sceneDir));
+  expect(await tagsOf(), 'the names and the .msh.opt colours came back').toEqual(before);
+  expect(errors).toEqual([]);
+});
+
 test('@angle P2-07: a dataset the hook cannot place takes its layers with it, and the rest still opens', async ({
   page,
 }) => {

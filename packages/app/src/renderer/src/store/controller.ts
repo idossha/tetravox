@@ -30,6 +30,7 @@ import type {
   VolumeLayer,
   vec3,
 } from '@tetravox/engine';
+import { sidecarPathsFor } from '@tetravox/engine';
 import type { CoordSpace, DialogKind, RelocateRow, UiStore } from './store';
 import { activeLayer, datasetOf, templateSource } from './store';
 import { requestFromPath } from '../open/sources';
@@ -1010,6 +1011,19 @@ export class ShellController {
     resolved: Record<string, string>
   ): Promise<boolean> {
     this.newScene();
+    // §5 directive A2: `tetravox://file/…` serves only what main has allow-listed, and `Engine.load`
+    // asks the loader for each ref's §6.5.1 sidecars — derived from wherever the dataset resolved
+    // to (`sidecarPathsFor`, the engine's own function, so the two cannot drift). Without this the
+    // request 403s and the sidecar is silently absent again: the tissue table reads `tag 1099` and
+    // the head is the fallback palette. `allowPath` doubles as the existence check, so a sidecar
+    // that did not travel with its dataset is simply not listed and the load carries on without it.
+    for (const ref of spec.datasets) {
+      const path = resolved[ref.id];
+      if (path === undefined) continue;
+      for (const sidecar of Object.values(sidecarPathsFor(ref, path))) {
+        if (sidecar !== undefined) await bridge().allowPath(sidecar);
+      }
+    }
     try {
       await this.engine.load(spec, (ref: DatasetRef) => resolved[ref.id] ?? null);
     } catch (error: unknown) {

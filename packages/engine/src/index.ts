@@ -23,3 +23,15 @@ export { probeCapabilities } from './gl/caps';
 export { isColormapName, sampleColormap, scalePosition } from './color/colormaps';
 /** The deterministic colour §7.6 gives a label no LUT names — so a swatch matches the pane. */
 export { fallbackLabelColor } from './layers/volume';
+
+/**
+ * §4.6's sidecar resolution, for the host that owns the filesystem.
+ *
+ * `Engine.load` derives each `DatasetRef`'s sidecar paths from wherever the dataset resolved to and
+ * asks the loader for them. In Electron that read goes through `tetravox://file/…`, which serves
+ * only paths on main's allow-list (§5 directive A2) — so the shell has to allow-list the same paths
+ * before it calls `load`, and it must derive them the same way. One implementation, exported, rather
+ * than two that can drift.
+ */
+export { sidecarPathsFor } from './scene/serialize';
+export type { SidecarPaths } from './scene/serialize';

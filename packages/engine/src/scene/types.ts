@@ -562,6 +562,21 @@ export interface Scene {
 // §4.6 ViewSpec — the persisted form (`*.tetravox.json`)
 // ---------------------------------------------------------------------------------------------
 
+/** One role-keyed sidecar of a `DatasetRef` (§6.5.1's `lut` / `opt`). */
+export interface SidecarRef {
+  /**
+   * Relative to the **dataset's own directory**, not to the scene file.
+   *
+   * A sidecar lives beside the file it describes — `ernie.msh.opt` beside `ernie.msh`,
+   * `labeling_LUT.txt` beside `labeling.nii.gz` — so anchoring it to the dataset is what makes a
+   * relocated dataset bring its sidecars with it. Anchoring it to the scene file instead would
+   * resolve to the old directory the moment the data moved, which is the case relocation exists for.
+   */
+  path: string;
+  /** Fallback when the dataset-relative path misses, exactly as `DatasetRef.absPath` is. */
+  absPath?: string;
+}
+
 export interface DatasetRef {
   id: DatasetId;
   kind: 'volume' | 'mesh';
@@ -572,6 +587,18 @@ export interface DatasetRef {
   absPath?: string;
   /** `tvxfp1-<len:16hex>-<hash:16hex>` — see §4.6; produced by `tvx_core::fingerprint`. */
   fingerprint: string;
+  /**
+   * The §6.5.1 sidecars this dataset was opened with — the `.msh.opt` and the label LUT.
+   *
+   * §7.6 makes them load-time inputs, not layer state: tissue **names** come from a `.msh.opt`
+   * (`ernie.msh` has no `$PhysicalNames` at all), tag colours and visibility are seeded from it, and
+   * a label volume's names and colours come from its `_LUT.txt`. None of that is in `Layer`, so a
+   * spec that recorded only `path` reopened the same file as a different-looking dataset: the tissue
+   * table read `tag 1` … `tag 1099`, the head rendered in the deterministic fallback palette, and a
+   * cursor readout that said `515 · Bone-Cortical` said `515 · —`. R5's "persists through scene
+   * save/load" was true of the *edits* and false of the table they are edits against.
+   */
+  sidecars?: { lut?: SidecarRef; opt?: SidecarRef };
 }
 
 /**

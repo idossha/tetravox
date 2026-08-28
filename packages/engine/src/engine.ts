@@ -105,8 +105,10 @@ import {
   fingerprintFromMeta,
   isRestorableKind,
   remapLayer,
+  sidecarPathsFor,
   toViewSpec,
 } from './scene/serialize';
+import type { SidecarPaths } from './scene/serialize';
 import { looksLikeVolume, sourceName, toLoadSource } from './datasets/source';
 import type {
   Annotations,
@@ -241,6 +243,15 @@ export class TetravoxEngine implements Engine, PointerHost {
    * `scene/serialize.ts`'s `fingerprintFromMeta`, and W-WASM's gap 1.
    */
   readonly #fingerprints = new Map<DatasetId, string>();
+  /**
+   * The §6.5.1 sidecars each dataset was opened with, for `serialize()` (§4.6).
+   *
+   * Engine-private for the same reason `#fingerprints` is: `Dataset` has nowhere to hold it, and
+   * §12.3 freezes `Dataset`. It is a fact about *how the file was opened*, not about the file, and a
+   * spec that loses it reopens the same mesh with `tag 1` … `tag 1099` where the names were and the
+   * fallback palette where the `.msh.opt` colours were.
+   */
+  readonly #sidecars = new Map<DatasetId, SidecarPaths>();
   /** §4.7's `labelCentroids`, cached per `(datasetId, volumeIndex)` — one pass over the volume. */
   readonly #labelCentroids = new Map<string, Promise<LabelCentroid[]>>();
   /** §4.6's "relative to the scene file" — see {@link TetravoxEngine.setSceneDir}. */
@@ -413,6 +424,15 @@ export class TetravoxEngine implements Engine, PointerHost {
 
     const source = toLoadSource(src);
     const path = src.kind === 'path' ? src.path : undefined;
+    // Remembered before the load, because it is what the *host* asked for and nothing downstream
+    // reports it back: a `.msh.opt` that turned out not to parse is still the sidecar this dataset
+    // was opened with, and a spec that names it will find it again next time.
+    if (src.kind === 'path' && src.sidecars !== undefined) {
+      const cars: SidecarPaths = {};
+      if (src.sidecars.lut !== undefined) cars.lut = src.sidecars.lut;
+      if (src.sidecars.opt !== undefined) cars.opt = src.sidecars.opt;
+      if (Object.keys(cars).length > 0) this.#sidecars.set(id, cars);
+    }
 
     try {
       if (looksLikeVolume(name)) {
@@ -556,6 +576,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#gpu.dropVolume(id);
     this.#gpu.dropSurfaces(id);
     this.#fingerprints.delete(id);
+    this.#sidecars.delete(id);
     this.#gpu.dropMeshTables(id);
     this.#derived.dropDataset(id);
     this.#cuts.releaseDataset(id);
@@ -1896,6 +1917,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     return toViewSpec(this.#scene, {
       sceneDir: this.#sceneDir,
       fingerprints: this.#fingerprints,
+      sidecars: this.#sidecars,
     });
   }
 
@@ -1918,7 +1940,15 @@ export class TetravoxEngine implements Engine, PointerHost {
     for (const ref of spec.datasets) {
       const path = resolve(ref);
       if (path === null) continue;
-      const ds = await this.addDataset({ kind: 'path', path });
+      // §6.5.1's sidecars come back with the dataset, resolved **against the path that resolved** —
+      // so a scene whose data moved brings its `.msh.opt` and its LUT along, which is the whole
+      // point of anchoring `SidecarRef.path` to the dataset's own directory. A sidecar that is not
+      // there any more is a missing table, never a failed load: `loadSource` reads them
+      // best-effort (`packages/wasm/src/sources.ts`).
+      const sidecars = sidecarPathsFor(ref, path);
+      const ds = await this.addDataset(
+        Object.keys(sidecars).length > 0 ? { kind: 'path', path, sidecars } : { kind: 'path', path }
+      );
       idMap.set(ref.id, ds.id);
     }
 

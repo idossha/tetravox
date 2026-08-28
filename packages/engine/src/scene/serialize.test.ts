@@ -24,11 +24,14 @@ import {
   remapLayer,
   remapViews,
   serializableLayer,
+  sidecarPathsFor,
+  sidecarRef,
   toViewSpec,
 } from './serialize';
 import { SceneStore } from './store';
 import { defaultMeshLayer, defaultVolumeLayer } from './defaults';
 import type {
+  DatasetRef,
   Layer,
   MeshDataset,
   Scene,
@@ -189,6 +192,73 @@ describe('datasetRefs', () => {
     expect(refs[0]?.fingerprint).toBe('1234-abcd-ef01');
     expect(refs[1]?.fingerprint).toBe('');
   });
+
+  it('records the §6.5.1 sidecars, relative to the **dataset**, with an absolute fallback', () => {
+    const refs = datasetRefs(scene(['/data/sub/m2m/ernie.msh']), {
+      sceneDir: '/data/scenes',
+      sidecars: new Map([['ds1', { opt: '/data/sub/m2m/ernie.msh.opt' }]]),
+    });
+    // The dataset's own path is scene-relative; the sidecar's is dataset-relative, which is what
+    // makes a relocated dataset bring its `.msh.opt` along.
+    expect(refs[0]?.path).toBe('../sub/m2m/ernie.msh');
+    expect(refs[0]?.sidecars?.opt).toEqual({
+      path: 'ernie.msh.opt',
+      absPath: '/data/sub/m2m/ernie.msh.opt',
+    });
+    expect(refs[0]?.sidecars?.lut).toBeUndefined();
+  });
+
+  it('omits `sidecars` entirely for a dataset opened without any', () => {
+    const refs = datasetRefs(scene(['/d/a.nii']));
+    expect(refs[0]).not.toHaveProperty('sidecars');
+  });
+});
+
+describe('sidecarRef / sidecarPathsFor — a sidecar travels with its dataset (§4.6, §7.6)', () => {
+  it('resolves against wherever the dataset resolved to, not where it used to be', () => {
+    const ref: DatasetRef = {
+      id: 'ds1',
+      kind: 'mesh',
+      name: 'ernie.msh',
+      path: 'm2m/ernie.msh',
+      absPath: '/old/m2m/ernie.msh',
+      fingerprint: '',
+      sidecars: { opt: sidecarRef('/old/m2m/ernie.msh', '/old/m2m/ernie.msh.opt') },
+    };
+    // The pair moved together — the relocate dialog's normal case.
+    expect(sidecarPathsFor(ref, '/new/place/ernie.msh')).toEqual({
+      opt: '/new/place/ernie.msh.opt',
+    });
+    // Nothing moved: the same answer, by the same route.
+    expect(sidecarPathsFor(ref, '/old/m2m/ernie.msh')).toEqual({ opt: '/old/m2m/ernie.msh.opt' });
+  });
+
+  it('falls back to the absolute path when there is nothing dataset-relative to say', () => {
+    const ref: DatasetRef = {
+      id: 'ds1',
+      kind: 'volume',
+      name: 'labeling.nii.gz',
+      path: 'labeling.nii.gz',
+      fingerprint: '',
+      // A LUT the user picked from somewhere else entirely: no relative path expresses it, so
+      // `relativePath` returns the absolute one and both fields agree.
+      sidecars: { lut: sidecarRef('/data/seg/labeling.nii.gz', '/elsewhere/labeling_LUT.txt') },
+    };
+    expect(sidecarPathsFor(ref, '/data/seg/labeling.nii.gz').lut).toBe(
+      '/elsewhere/labeling_LUT.txt'
+    );
+  });
+
+  it('says nothing for a ref that has no sidecars', () => {
+    const ref: DatasetRef = {
+      id: 'ds1',
+      kind: 'volume',
+      name: 'a.nii',
+      path: 'a.nii',
+      fingerprint: '',
+    };
+    expect(sidecarPathsFor(ref, '/d/a.nii')).toEqual({});
+  });
 });
 
 describe('candidatePaths — the resolution order §4.6 gives', () => {
@@ -283,6 +353,28 @@ describe('serializableLayer (§4.6 SerializableLayer)', () => {
     });
     // A Map stringifies to `{}`, which is how a table would silently become an empty one.
     expect(JSON.stringify(out.label)).not.toContain('byId');
+  });
+
+  it('carries R5’s recolour and selection: `labelColors` and `selectedLabels` survive JSON', () => {
+    // The two fields `f668a49` added to the frozen `VolumeLayer` **for R5**, whose stated
+    // justification is "the edit round-trips because layers are serialised". Nothing asserted it:
+    // `serialize.test.ts` covered `visibleLabels` + `labelOpacity` and `scene-io.spec.ts` covered
+    // the mesh side's `tagStyle`, so R5's "selection persists through scene save/load" had no test
+    // for the half it was added for. They were given JSON shapes on purpose (a plain record and a
+    // plain array), which is exactly the property that has to be pinned — a `Map` or a
+    // `Uint32Array` here would stringify to `{}` and lose the edit without a word.
+    const layer: Layer = {
+      ...defaultVolumeLayer('layer1', volumeDataset('ds1')),
+      labelColors: { 1: [0.1, 0.7, 0.3, 1], 530: [0, 0, 1, 0.5] },
+      selectedLabels: [1, 2, 530],
+    };
+    const parsed = JSON.parse(JSON.stringify(serializableLayer(layer))) as SerializableLayer;
+    const patch = remapLayer(parsed, new Map([['ds1', 'ds9']])) as {
+      labelColors?: Record<number, number[]>;
+      selectedLabels?: number[];
+    };
+    expect(patch.labelColors).toEqual({ 1: [0.1, 0.7, 0.3, 1], 530: [0, 0, 1, 0.5] });
+    expect(patch.selectedLabels).toEqual([1, 2, 530]);
   });
 
   it('carries R5’s volume-side selection: `visibleLabels` and `labelOpacity` survive JSON', () => {

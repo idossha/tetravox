@@ -119,6 +119,21 @@ async function sceneState(page: Page) {
         path: d.path ?? null,
       })),
       layers: state.layers.map((l) => ({ kind: l.kind, name: l.name, visible: l.visible })),
+      // §7.6's `.msh.opt` seeding, as the dataset holds it: `ernie.msh` has **no**
+      // `$PhysicalNames`, so the sidecar is the only source of "WM"/"GM"/"CSF" and of the tag
+      // colours the head is drawn in.
+      meshTags: state.datasets
+        .filter((d) => d.kind === 'mesh')
+        .flatMap((d) =>
+          (d as { tags: { id: number; kind: string; name?: string; color: number[] }[] }).tags.map(
+            (t) => ({
+              id: t.id,
+              kind: t.kind,
+              name: t.name ?? null,
+              color: [...t.color].map((c) => Math.round(c * 255)),
+            })
+          )
+        ),
       cursor: state.cursor.map((c) => Number(c.toFixed(4))),
       layoutKind: state.layoutKind,
       radiological: state.radiological,
@@ -137,6 +152,8 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
 
   let dir = '';
   let scenePath = '';
+  /** The mesh's tag names and colours as the *saving* process had them (§7.6's `.msh.opt`). */
+  let savedMeshTags: { id: number; kind: string; name: string | null; color: number[] }[] = [];
 
   test.beforeAll(() => {
     // `realpathSync` because macOS's `/var` is a symlink to `/private/var`. `main/paths.ts`
@@ -174,6 +191,22 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       const before = await sceneState(page);
       expect(before.datasets.map((d) => d.name)).toEqual(['T1.nii.gz', 'ernie.msh']);
       expect(before.layers.map((l) => l.kind)).toEqual(['volume', 'mesh']);
+      // AGENTS.md's census, from `ernie.msh.opt` — the ten tissue names and the tet-1 colour.
+      expect(
+        before.meshTags.filter((t) => t.kind === 'tet').map((t) => t.name),
+        'the sidecar was found on open'
+      ).toEqual([
+        'WM',
+        'GM',
+        'CSF',
+        'Scalp',
+        'Eye_balls',
+        'Compact_bone',
+        'Spongy_bone',
+        'Blood',
+        'Muscle',
+      ]);
+      savedMeshTags = before.meshTags;
       expect(before.radiological).toBe(true);
       expect(before.layoutKind).toBe('1x3');
 
@@ -241,6 +274,23 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       expect(after.radiological).toBe(true);
       expect(after.sceneError).toBeNull();
       expect(after.sceneFile?.path).toBe(scenePath);
+
+      // §4.6's sidecars, end to end. Before this, `DatasetRef` recorded only the dataset's own
+      // path, so the reopened scene had no `.msh.opt`: every tissue read `tag 1` … `tag 1099` and
+      // the head rendered in §7.6's deterministic fallback palette. R5's "persists through scene
+      // save/load" was true of the edits and false of the table they are edits against. The
+      // comparison is against the *saved* scene's tags, name for name and byte for byte.
+      const saved = JSON.parse(readFileSync(scenePath, 'utf8')) as {
+        datasets: { name: string; sidecars?: { opt?: { path: string; absPath?: string } } }[];
+      };
+      const ernieRef = saved.datasets.find((d) => d.name === 'ernie.msh');
+      expect(ernieRef?.sidecars?.opt?.path, 'recorded relative to the dataset').toBe(
+        'ernie.msh.opt'
+      );
+      expect(ernieRef?.sidecars?.opt?.absPath).toBe(join(ROOT, 'm2m_ernie', 'ernie.msh.opt'));
+      expect(after.meshTags, 'the tissue names and .msh.opt colours came back').toEqual(
+        savedMeshTags
+      );
 
       // The three panes are on the same slices they were saved on: the plane offset §4.5 derives
       // from `(normal, cursor)` is what a slice index is, so equal offsets are equal slices.

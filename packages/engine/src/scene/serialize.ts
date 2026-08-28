@@ -35,10 +35,14 @@ import type {
   MeshLayer,
   Scene,
   SerializableLayer,
+  SidecarRef,
   SliceView,
   View3D,
   ViewSpec,
 } from './types';
+
+/** The role-keyed sidecar paths a dataset was opened with, as `Engine.addDataset` took them. */
+export type SidecarPaths = { lut?: string; opt?: string };
 
 /** The §4.6 fields {@link applyViewSpec} restores directly, without a remap. */
 export const ROUND_TRIP_FIELDS = [
@@ -169,6 +173,47 @@ export interface SerializeOptions {
   sceneDir?: string | null;
   /** Per-dataset fingerprints from the loader's meta (see {@link fingerprintFromMeta}). */
   fingerprints?: ReadonlyMap<DatasetId, string>;
+  /**
+   * Per-dataset §6.5.1 sidecar paths, as the host handed them to `addDataset`.
+   *
+   * They are not on `Dataset` and cannot be re-derived: the app's `lib/sidecars.ts` *guesses*
+   * candidates from the dataset's name and checks which exist, and a user who picked a LUT the
+   * guesser would not have found must still get it back. The engine remembers what it was given.
+   */
+  sidecars?: ReadonlyMap<DatasetId, SidecarPaths>;
+}
+
+/**
+ * One sidecar as a `SidecarRef`: relative to the **dataset's** directory, with an absolute fallback.
+ *
+ * Anchored to the dataset rather than to the scene file, because a sidecar travels with the file it
+ * describes. `ernie.msh.opt` sits beside `ernie.msh`; move the pair and the relative path still
+ * resolves, which is exactly the case §8's relocate dialog exists for.
+ */
+export function sidecarRef(datasetPath: string, sidecarPath: string): SidecarRef {
+  const ref: SidecarRef = { path: relativePath(directoryOf(datasetPath), sidecarPath) };
+  if (sidecarPath !== '' && !isOpaqueLocation(sidecarPath)) ref.absPath = sidecarPath;
+  return ref;
+}
+
+/**
+ * Where a sidecar might be found once its dataset has resolved to `datasetPath`.
+ *
+ * Dataset-relative first, absolute second — the same order, and for the same reason, as
+ * {@link candidatePaths}. Reading a sidecar is best-effort in the loader
+ * (`packages/wasm/src/sources.ts`), so handing it a path that turns out not to exist costs a missing
+ * table, never a failed load.
+ */
+export function sidecarPathsFor(ref: DatasetRef, datasetPath: string): SidecarPaths {
+  const out: SidecarPaths = {};
+  for (const role of ['lut', 'opt'] as const) {
+    const s = ref.sidecars?.[role];
+    if (s === undefined) continue;
+    const relative = s.path === '' ? undefined : joinPath(directoryOf(datasetPath), s.path);
+    const chosen = relative ?? s.absPath;
+    if (chosen !== undefined && chosen !== '') out[role] = chosen;
+  }
+  return out;
 }
 
 /** One `DatasetRef` per loaded dataset: relative path, absolute fallback, fingerprint. */
@@ -185,6 +230,13 @@ export function datasetRefs(scene: Scene, opts: SerializeOptions = {}): DatasetR
       fingerprint: opts.fingerprints?.get(ds.id) ?? '',
     };
     if (absPath !== '') ref.absPath = absPath;
+    const cars = opts.sidecars?.get(ds.id);
+    if (cars !== undefined && absPath !== '') {
+      const sidecars: NonNullable<DatasetRef['sidecars']> = {};
+      if (cars.lut !== undefined) sidecars.lut = sidecarRef(absPath, cars.lut);
+      if (cars.opt !== undefined) sidecars.opt = sidecarRef(absPath, cars.opt);
+      if (Object.keys(sidecars).length > 0) ref.sidecars = sidecars;
+    }
     return ref;
   });
 }

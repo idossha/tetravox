@@ -497,11 +497,16 @@ still the cursor's alone.
 ### 4.6 ViewSpec — the persisted form (`*.tetravox.json`)
 
 ```ts
+export interface SidecarRef {
+  path: string;                     // relative to the DATASET's directory, not to the scene file
+  absPath?: string;                 // fallback when the relative path misses
+}
 export interface DatasetRef {
   id: DatasetId; kind: 'volume' | 'mesh'; name: string;
   path: string;                     // relative to the scene file
   absPath?: string;                 // fallback when the relative path misses
   fingerprint: string;              // `tvxfp1-<len:16hex>-<hash:16hex>` — see below
+  sidecars?: { lut?: SidecarRef; opt?: SidecarRef };   // §6.5.1's role-keyed sidecars — see below
 }
 export type SerializableLayer =
   Omit<Layer, 'visibleLabels'> & { visibleLabels?: number[]; label?: { name: string; mode: string;
@@ -521,6 +526,21 @@ export interface ViewSpec {
 
 `LabelTable`s are **not** serialised; they are re-derived from the dataset and its LUT on load. A missing dataset
 opens a "relocate" dialog keyed on `fingerprint`.
+
+**`sidecars` — because "re-derived from the dataset and its LUT" needs the LUT.** §6.5.1's sidecars are *load-time
+inputs*, not layer state: `ernie.msh` carries no `$PhysicalNames` at all, so `ernie.msh.opt` is the only source of
+"WM"/"GM"/"CSF" and of the tag colours the head is drawn in, and a label volume's names and colours come from its
+`_LUT.txt`. None of that lives in `Layer`, so a `DatasetRef` that recorded only `path` reopened the same file as a
+different-looking dataset — every tissue `tag <id>`, the head in §7.6's deterministic fallback palette, a cursor
+readout that said `515 · Bone-Cortical` reduced to `515 · —`. R5's "persists through scene save/load" was true of
+the *edits* and false of the table they are edits against.
+`SidecarRef.path` is relative to **the dataset**, not to the scene file, because a sidecar travels with the file it
+describes: relocate the dataset and the sidecar comes with it, which is the case the relocate dialog exists for.
+`Engine.load` derives the paths from wherever each dataset resolved to (`scene/serialize.ts`'s `sidecarPathsFor`,
+exported so a host that owns the filesystem — Electron's §5 directive A2 allow-list — can admit exactly the same
+paths rather than a second derivation of them). **Reading a sidecar is best-effort in the loader**: one that is not
+beside this copy of the file is a missing table, never a failed load, which is the same answer the no-sidecar case
+has always had.
 
 **`fingerprint` — `tvxfp1`, normative.** The producer is `tvx_core::fingerprint` (§6.0), called by
 `load_volume` / `load_mesh` over the bytes the loader was handed and **before** the parser frees them (§5 rule 5).

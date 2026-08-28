@@ -175,19 +175,35 @@ async function fileBytes(file: File, onProgress?: ReadProgress): Promise<Uint8Ar
   return readStream(file.name, file.stream(), file.size, onProgress);
 }
 
+/**
+ * One role-keyed sidecar's bytes, or `undefined`.
+ *
+ * **A sidecar that will not read is a missing sidecar, not a failed load.** §6.5.1 makes them
+ * optional and role-keyed, and everything downstream already has an answer for absent: a mesh with
+ * no `.msh.opt` gets §7.6's deterministic palette, a label volume with no LUT gets `Label <id>`.
+ * The path they arrive by is a *guess* in both hosts that produce one — the app's
+ * `lib/sidecars.ts` derives candidates from the dataset's name, and `Engine.load` re-derives a
+ * saved `SidecarRef` against wherever the dataset relocated to — so a 404 here means "not beside
+ * this copy of the file", which is exactly the case the fallbacks exist for. Failing the whole
+ * load instead would mean a scene whose data moved without its `.msh.opt` refuses to open at all.
+ */
 async function sidecar(source: LoadSource, role: 'lut' | 'opt'): Promise<Uint8Array | undefined> {
   const cars = source.sidecars;
   if (cars === undefined) return undefined;
-  if (source.kind === 'url') {
-    const url = (cars as { lut?: string; opt?: string })[role];
-    return url === undefined ? undefined : fetchBytes(url);
+  try {
+    if (source.kind === 'url') {
+      const url = (cars as { lut?: string; opt?: string })[role];
+      return url === undefined ? undefined : await fetchBytes(url);
+    }
+    if (source.kind === 'file') {
+      const f = (cars as { lut?: File; opt?: File })[role];
+      return f === undefined ? undefined : await fileBytes(f);
+    }
+    const b = (cars as { lut?: ArrayBuffer; opt?: ArrayBuffer })[role];
+    return b === undefined ? undefined : new Uint8Array(b);
+  } catch {
+    return undefined;
   }
-  if (source.kind === 'file') {
-    const f = (cars as { lut?: File; opt?: File })[role];
-    return f === undefined ? undefined : fileBytes(f);
-  }
-  const b = (cars as { lut?: ArrayBuffer; opt?: ArrayBuffer })[role];
-  return b === undefined ? undefined : new Uint8Array(b);
 }
 
 /**
