@@ -127,6 +127,21 @@ Both GIfTI files use `Encoding = GZipBase64Binary` (a **zlib** stream — `ZlibD
 array is int32. Bounding boxes: `lh.central.gii` (−64.371368, −79.962860, −28.561777) … (3.572175, 100.309242,
 81.128761); `lh.pial.gii` (−65.527679, −80.793640, −30.076311) … (3.624710, 101.465622, 82.150192).
 
+**Contours of `lh.pial.gii`**, from `scripts/refvalues/contour_refvalues.py` (nibabel + numpy), on
+the three axis planes through the surface's own bounding-box centre — `(−30.951485, 10.335991,
+26.036941)`, which is where a freshly opened scene puts the cursor. These are the reference values
+`crates/tvx-geom/tests/real_data.rs::surface_contours_match_numpy_on_lh_pial` asserts §6.3's
+`surface_contours` against.
+
+| Plane | Segments | Total contour length (mm) |
+|---|---|---|
+| axial (`normal = +Z`) | 3,312 | 1075.327914 |
+| coronal (`normal = +Y`) | 2,153 | 711.677664 |
+| sagittal (`normal = +X`) | 4,092 | 1336.458183 |
+
+The full axial segment list is committed as `scripts/refvalues/contour_refvalues.json`; the other two
+planes carry their count and length only, because three planes of geometry is a megabyte of JSON.
+
 `m2m_ernie/segmentation/lh.ernie_DK40.annot`: 245,762 vertices, 36 colortable entries, raw label range −1 … 35
 (−1 = unassigned). Its ids must be remapped to dense 0..N−1 at parse time (§6.2).
 
@@ -186,6 +201,7 @@ are the `.msh.opt` sidecars (§6.2).
 ```
 /Users/idohaber/Applications/SimNIBS-4.6/bin/simnibs_python scripts/refvalues/mesh_refvalues.py
 python3 scripts/refvalues/nifti_refvalues.py
+python3 scripts/refvalues/contour_refvalues.py
 ```
 
 Both take an optional testdata root, default `$TETRAVOX_TESTDATA`, and print JSON.

@@ -23,6 +23,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readCornerInfo } from '../helpers/chrome';
 import type { DatasetRef, ViewSpec } from '../../src/scene/types';
+import { SCENE_VERSION } from '../../src/scene/serialize';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
@@ -234,7 +235,10 @@ test('@angle P2-07: a two-dataset scene round-trips through JSON, with fresh dat
   const spec = await serializeFrom(page, `/@fs${REPO}testdata/scenes`);
 
   // §4.6: relative to the scene file, with an absolute fallback. The fixtures are one level up.
-  expect(spec.version).toBe(1);
+  // `SCENE_VERSION`, not a literal: directed task 13 bumped it 1 → 2 and this assertion kept saying
+  // 1, so the leg has been red on `main` since. Naming the constant is what stops the next bump
+  // doing it again — the claim here is "serialize writes the current version", not "it writes 1".
+  expect(spec.version).toBe(SCENE_VERSION);
   expect(spec.datasets.map((d) => d.path)).toEqual(['../vol_f32.nii.gz', '../mesh_v2_binary.msh']);
   for (const ref of spec.datasets) expect(ref.absPath).toBe(`/@fs${REPO}testdata/${ref.name}`);
   expect(spec.layers).toHaveLength(2);

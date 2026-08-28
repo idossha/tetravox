@@ -355,6 +355,14 @@ export interface Engine {
   setRadiological(on: boolean): void;
 
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
+  /**
+   * §7.4's contour pick: the surface layer whose 2D contour is under this pane pixel, or `null`.
+   *
+   * Not part of `pick` because it is not the pick pass — a contour is a screen-space quad in the
+   * derived pass, and this is a CPU nearest-segment test over the segments the last frame drew.
+   * `setCursorFromScreen` calls it, so a plain left-click on an outline selects its layer.
+   */
+  contourAtScreen(viewId: ViewId, px: number, py: number): LayerId | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
 
@@ -600,6 +608,12 @@ export class MockEngine implements Engine {
   }
 
   pick(viewId: ViewId, px: number, py: number): PickResult | null {
+    void viewId;
+    void px;
+    void py;
+    throw new Error('phase 1');
+  }
+  contourAtScreen(viewId: ViewId, px: number, py: number): LayerId | null {
     void viewId;
     void px;
     void py;

@@ -16,10 +16,12 @@
 
 import type { MeshDataset, MeshLayer } from '@tetravox/engine';
 import { useController } from '../../../ui/context';
-import { Row, Section, Select, Slider, Toggle } from './controls';
+import { Row, Section, Select, Slider, Swatch, Toggle } from './controls';
 import {
+  contourColorHex,
   cutColorSource,
   fieldKey,
+  setContourColor,
   setContourWidth,
   setContoursIn2D,
   setCutColorSource,
@@ -77,6 +79,20 @@ export function CrossSection({
           step={0.5}
           format={(v) => `${v.toFixed(1)} px`}
           onChange={(v) => patch(setContourWidth(layer, v))}
+        />
+      </Row>
+
+      {/*
+        Directed task 12: one colour per surface, editable. A surface opens with its palette entry
+        (`scene/defaults.ts`); a tet mesh has none and the swatch shows the `edgeColor` its contours
+        actually draw in, so setting it here is not a jump.
+      */}
+      <Row label="Contour colour">
+        <Swatch
+          testId={`mesh-contour-color-${layer.id}`}
+          hex={contourColorHex(layer)}
+          title="The colour this layer's outline draws in, in every 2D pane"
+          onChange={(hex) => patch(setContourColor(layer, hex))}
         />
       </Row>
 

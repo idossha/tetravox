@@ -1049,3 +1049,153 @@ fn nearest_vertex_on_lh_central() {
         );
     }
 }
+
+/// **`surface_contours` on `lh.pial.gii`, against nibabel + numpy** (directed task 12).
+///
+/// The reference is `scripts/refvalues/contour_refvalues.json`, produced by
+/// `scripts/refvalues/contour_refvalues.py` — nibabel reads the GIfTI, numpy intersects every
+/// triangle with the plane. Nothing is shared with the code under test but the file on disk, which
+/// is the point: a bug in `cut.rs`'s edge walk, its on-plane tie-break or its interpolation shows up
+/// here as geometry that has moved, not as a test that agrees with itself.
+///
+/// Two assertions, both from the brief:
+///
+/// * the **total contour length** is within 1 % of the reference, on all three planes — a length is
+///   the one scalar that catches a dropped or a doubled family of segments, which a count alone
+///   does not (a doubled shared edge keeps the count plausible);
+/// * **every endpoint is within 0.1 mm of a reference segment**, on the plane whose geometry is
+///   committed. 0.1 mm is two orders above f32 round-off on a 100 mm surface and two orders below
+///   the 1 mm the pial surface's own triangles span, so it is tight enough to fail on a wrong
+///   interpolation parameter and loose enough not to fail on arithmetic order.
+///
+/// Skips, never fails, without `TETRAVOX_TESTDATA` — and skips too when the reference JSON is
+/// absent, which is what a shallow checkout of a large file looks like.
+#[test]
+fn surface_contours_match_numpy_on_lh_pial() {
+    let Some(root) = root() else {
+        eprintln!("skipping: TETRAVOX_TESTDATA is unset");
+        return;
+    };
+    let refpath = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/refvalues/contour_refvalues.json");
+    let Ok(text) = std::fs::read_to_string(&refpath) else {
+        eprintln!("skipping: {} is missing", refpath.display());
+        return;
+    };
+    let reference: serde_json::Value = serde_json::from_str(&text).expect("reference JSON");
+
+    let p = root.join("m2m_ernie/surfaces/lh.pial.gii");
+    let Ok(bytes) = std::fs::read(&p) else {
+        eprintln!("skipping: {} is missing", p.display());
+        return;
+    };
+    let mut m = tvx_mesh_io::read_gifti(bytes, &mut NoProgress).expect("parse lh.pial.gii");
+    // The engine orients a surface at load time; `surface_contours` is winding-independent, so this
+    // is here to prove that rather than to enable it.
+    load_time(&mut m);
+    assert_eq!(m.nodes.len(), reference["nodes"].as_u64().unwrap() as usize);
+    assert_eq!(m.tris.len(), reference["tris"].as_u64().unwrap() as usize);
+
+    for name in ["axial", "coronal", "sagittal"] {
+        let want = &reference["planes"][name];
+        let n = want["normal"].as_array().unwrap();
+        let normal = [
+            n[0].as_f64().unwrap() as f32,
+            n[1].as_f64().unwrap() as f32,
+            n[2].as_f64().unwrap() as f32,
+        ];
+        let offset = want["offset"].as_f64().unwrap() as f32;
+        let seg = surface_contours(&m, &Plane { normal, offset }, None).unwrap();
+        assert_eq!(seg.len() % 6, 0, "{name}: 6 floats per segment");
+
+        let length: f64 = seg
+            .chunks_exact(6)
+            .map(|s| {
+                let (dx, dy, dz) = (
+                    f64::from(s[3] - s[0]),
+                    f64::from(s[4] - s[1]),
+                    f64::from(s[5] - s[2]),
+                );
+                (dx * dx + dy * dy + dz * dz).sqrt()
+            })
+            .sum();
+        let want_len = want["totalLengthMm"].as_f64().unwrap();
+        let rel = (length - want_len).abs() / want_len;
+        assert!(
+            rel < 0.01,
+            "{name}: contour length {length:.3} mm vs numpy {want_len:.3} mm ({:.3} % apart)",
+            rel * 100.0
+        );
+
+        let Some(list) = want["seg"].as_array() else {
+            continue;
+        };
+        // A uniform grid over the reference segments, so "the nearest reference segment" is a
+        // handful of candidates rather than 3,312 — this is a test, but an O(n·m) scan over a
+        // 245,762-vertex surface is minutes, and a minute-long test does not get run.
+        let cell = 2.0_f32; // mm; > the longest pial triangle edge, so a 3x3x3 neighbourhood suffices
+        let refseg: Vec<[f32; 6]> = list
+            .iter()
+            .map(|r| {
+                let a = r.as_array().unwrap();
+                let mut out = [0.0_f32; 6];
+                for (i, v) in out.iter_mut().enumerate() {
+                    *v = a[i].as_f64().unwrap() as f32;
+                }
+                out
+            })
+            .collect();
+        let key = |p: [f32; 3]| {
+            (
+                (p[0] / cell).floor() as i32,
+                (p[1] / cell).floor() as i32,
+                (p[2] / cell).floor() as i32,
+            )
+        };
+        let mut grid: std::collections::HashMap<(i32, i32, i32), Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, s) in refseg.iter().enumerate() {
+            // Both endpoints, so a segment is found from either end of it.
+            for p in [[s[0], s[1], s[2]], [s[3], s[4], s[5]]] {
+                grid.entry(key(p)).or_default().push(i);
+            }
+        }
+
+        let mut worst = 0.0_f32;
+        for s in seg.chunks_exact(6) {
+            for p in [[s[0], s[1], s[2]], [s[3], s[4], s[5]]] {
+                let (kx, ky, kz) = key(p);
+                let mut best = f32::INFINITY;
+                for dx in -1..=1 {
+                    for dy in -1..=1 {
+                        for dz in -1..=1 {
+                            for &i in grid.get(&(kx + dx, ky + dy, kz + dz)).into_iter().flatten() {
+                                let r = &refseg[i];
+                                best = best
+                                    .min(point_segment_distance(p, [r[0], r[1], r[2]], [r[3], r[4], r[5]]));
+                            }
+                        }
+                    }
+                }
+                worst = worst.max(best);
+            }
+        }
+        assert!(
+            worst < 0.1,
+            "{name}: an endpoint is {worst:.4} mm from the nearest numpy segment"
+        );
+    }
+}
+
+/// Euclidean distance from `p` to the segment `a → b`, clamped to the segment.
+fn point_segment_distance(p: [f32; 3], a: [f32; 3], b: [f32; 3]) -> f32 {
+    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    let t = if len2 < 1e-12 {
+        0.0
+    } else {
+        (((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / len2).clamp(0.0, 1.0)
+    };
+    let q = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t];
+    ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
+}

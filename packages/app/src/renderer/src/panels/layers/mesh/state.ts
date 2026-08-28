@@ -264,6 +264,23 @@ export function setContourWidth(_layer: MeshLayer, contourWidthPx: number): Part
 }
 
 /**
+ * The 2D contour's own colour (directed task 12).
+ *
+ * The alpha is carried over from whatever the layer already had — the swatch is an
+ * `<input type="color">` and has no alpha to give — so setting a colour never silently makes a
+ * hidden contour visible or a visible one transparent. A layer with no `contourColor` yet (every
+ * tet mesh) starts from opaque, which is what its `edgeColor` fallback already was.
+ */
+export function setContourColor(layer: MeshLayer, hex: string): Partial<MeshLayer> {
+  return { contourColor: hexToVec4(hex, layer.contourColor?.[3] ?? 1) };
+}
+
+/** What the contour swatch shows: the layer's own colour, else the edge colour it falls back to. */
+export function contourColorHex(layer: MeshLayer): string {
+  return vec4ToHex(layer.contourColor ?? layer.edgeColor);
+}
+
+/**
  * **What colours the cut** (R4). The frozen §4.4 `MeshLayer` has no separate cut field — §7.4 draws
  * `fillIn2D` polygons "with tag/field colour", i.e. through the layer's own `colorMode` and `field`,
  * which is exactly what R4 asks for ("coloured by tissue tag (or by the selected node/element field

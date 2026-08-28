@@ -148,6 +148,48 @@ export function defaultVolumeLayer(id: string, ds: VolumeDataset): VolumeLayer {
   };
 }
 
+/** §7.4's default surface contour width, in render-target pixels — the brief's 1.5 px. */
+export const DEFAULT_SURFACE_CONTOUR_WIDTH_PX = 1.5;
+
+/**
+ * **One colour per surface** (§7.4, directed task 12), in load order.
+ *
+ * The maintainer's reference is a Freeview screenshot: the pial surface's intersection drawn as a
+ * thin **yellow** outline on all three 2D panes. So entry 0 is that yellow, and the rest are a
+ * non-neon set — chosen by eye against `T1.nii.gz`'s grey ramp for the one thing that matters here,
+ * which is telling two outlines apart where they run a millimetre from each other over an
+ * anatomical grey. Deliberately **not** the electrode amber (`[1, 0.85, 0.2, 1]`): a montage's
+ * spheres and a surface's outline share a pane, and a viewer must not have to guess which is which.
+ *
+ * Cyan is absent for the same reason the brief excludes it — it is the colour Freeview gives the
+ * white-matter surface, and reusing it for an arbitrary second surface would be a false cue.
+ */
+export const SURFACE_CONTOUR_PALETTE: readonly vec4[] = [
+  [1.0, 0.9, 0.15, 1], // yellow — Freeview's pial
+  [0.45, 0.78, 0.42, 1], // green
+  [0.95, 0.5, 0.3, 1], // orange
+  [0.6, 0.62, 0.95, 1], // periwinkle
+  [0.9, 0.45, 0.68, 1], // rose
+  [0.55, 0.82, 0.8, 1], // teal
+];
+
+/** The palette entry a surface opened `index`-th takes; wraps, because a scene may hold more. */
+export function surfaceContourColor(index: number): vec4 {
+  const n = SURFACE_CONTOUR_PALETTE.length;
+  return SURFACE_CONTOUR_PALETTE[((index % n) + n) % n] as vec4;
+}
+
+/**
+ * A **surface**: a triangle-only mesh (§6.2's GIfTI, FreeSurfer, STL/PLY/OBJ and `.geo` triangles).
+ *
+ * `nTets === 0` is the whole test, and it is the same one `derived/store.ts` branches on to send
+ * this dataset down the `contours` op instead of `cut` — so "what draws an outline" and "what is
+ * styled as an outline" cannot drift apart.
+ */
+export function isSurfaceMesh(ds: MeshDataset): boolean {
+  return ds.nTets === 0;
+}
+
 const DEFAULT_MESH_COLOR: vec4 = [0.78, 0.78, 0.8, 1];
 
 export function defaultMeshLayer(id: string, ds: MeshDataset): MeshLayer {
@@ -186,6 +228,20 @@ export function defaultMeshLayer(id: string, ds: MeshDataset): MeshLayer {
     contoursIn2D: true,
     contourWidthPx: 1,
     fillIn2D: true,
+    // **Directed task 12: a surface is not a tissue complex, and opens differently.** It has no
+    // tets, so `fillIn2D` has nothing to fill (`derived/store.ts` sends it to the `contours` op
+    // and returns no polygons) — leaving it on would advertise a control that does nothing. Its
+    // contour is the whole of its 2D presence, so it gets the brief's 1.5 px and its own palette
+    // colour, first surface yellow like Freeview. **Nothing here moves for a tet mesh**: the three
+    // lines above are still what `ernie.msh` opens with, so no R4 golden moves.
+    ...(isSurfaceMesh(ds)
+      ? {
+          contoursIn2D: true,
+          contourWidthPx: DEFAULT_SURFACE_CONTOUR_WIDTH_PX,
+          fillIn2D: false,
+          contourColor: surfaceContourColor(0),
+        }
+      : {}),
     // §4.4's `MeshLayer.label`, seeded from the dataset's own `<LabelTable>` / colortable.
     //
     // **`colorMode` is deliberately left at `'tag'`.** Seeding the *table* is what makes

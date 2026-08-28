@@ -8,12 +8,17 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_SURFACE_CONTOUR_WIDTH_PX,
   MSH_OPT_COLORMAPS,
+  SURFACE_CONTOUR_PALETTE,
   defaultLayerFor,
   defaultMeshLayer,
+  isSurfaceMesh,
   seedMeshLayerFromOpt,
+  surfaceContourColor,
 } from './defaults';
 import { fitMmPerPx } from '../view/geometry';
+import { remapLayer, serializableLayer } from './serialize';
 import type { Aabb, MeshDataset, MeshLayer, MshOptions } from './types';
 
 function meshDataset(opt?: MshOptions): MeshDataset {
@@ -194,5 +199,68 @@ describe('fitMmPerPx (§7.5 `r`, and R2’s corner readout)', () => {
 
   it('treats a zero-pixel pane as one pixel rather than dividing by zero', () => {
     expect(Number.isFinite(fitMmPerPx(bounds(100), 0))).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Directed task 12 — a surface opens as an outline, a tissue complex does not move
+// ------------------------------------------------------------------------------------------------
+
+/** A triangle-only mesh: `nTets === 0` is the whole of what makes a dataset a surface (§7.4). */
+function surfaceDataset(name = 'lh.pial.gii'): MeshDataset {
+  return {
+    kind: 'mesh',
+    id: 'ds2',
+    name,
+    nTets: 0,
+    tags: [{ id: 1, name: 'surface', color: [0.8, 0.8, 0.8, 1], kind: 'tri', count: 18 }],
+    orient: { components: 1, openComponents: 1, nonManifoldEdges: 0, flippedComponents: 0 },
+  } as unknown as MeshDataset;
+}
+
+describe('surface contour defaults (§7.4, directed task 12)', () => {
+  it('opens a surface as a 1.5 px yellow outline with no fill', () => {
+    const layer = defaultMeshLayer('l1', surfaceDataset());
+    expect(layer.contoursIn2D).toBe(true);
+    expect(layer.contourWidthPx).toBe(DEFAULT_SURFACE_CONTOUR_WIDTH_PX);
+    expect(layer.contourWidthPx).toBe(1.5);
+    // `fillIn2D` is off because there is nothing to fill: `derived/store.ts` sends a tet-less mesh
+    // to the `contours` op, which returns lines and no polygons.
+    expect(layer.fillIn2D).toBe(false);
+    // Freeview's pial yellow, and the first palette entry — the two are the same by construction.
+    expect(layer.contourColor).toEqual(SURFACE_CONTOUR_PALETTE[0]);
+    expect(layer.contourColor?.[0]).toBeGreaterThan(0.9);
+    expect(layer.contourColor?.[2]).toBeLessThan(0.3);
+  });
+
+  it('leaves a tissue mesh exactly where R4 left it', () => {
+    const layer = defaultMeshLayer('l1', meshDataset());
+    expect(layer.contoursIn2D).toBe(true);
+    expect(layer.contourWidthPx).toBe(1);
+    expect(layer.fillIn2D).toBe(true);
+    // No `contourColor`, so `render/passes/derived.ts` falls back to `edgeColor` as it always did.
+    expect(layer.contourColor).toBeUndefined();
+  });
+
+  it('gives consecutive surfaces distinct colours, and wraps rather than running out', () => {
+    const n = SURFACE_CONTOUR_PALETTE.length;
+    const seen = new Set(Array.from({ length: n }, (_, i) => surfaceContourColor(i).join(',')));
+    expect(seen.size).toBe(n);
+    expect(surfaceContourColor(n)).toEqual(SURFACE_CONTOUR_PALETTE[0]);
+    expect(surfaceContourColor(n + 2)).toEqual(SURFACE_CONTOUR_PALETTE[2]);
+  });
+
+  it('classifies by tet count, which is what the render path branches on', () => {
+    expect(isSurfaceMesh(surfaceDataset())).toBe(true);
+    expect(isSurfaceMesh({ ...meshDataset(), nTets: 12 } as MeshDataset)).toBe(false);
+  });
+});
+
+describe('a surface layer round-trips its contour colour (§4.6)', () => {
+  it('survives serialize → remap, because both are spread-based', () => {
+    const layer = defaultMeshLayer('l1', surfaceDataset());
+    const wire = serializableLayer({ ...layer, contourColor: [0.2, 0.4, 0.6, 1] });
+    const back = remapLayer(wire, new Map([['ds2' as never, 'ds9' as never]]));
+    expect((back as { contourColor?: number[] }).contourColor).toEqual([0.2, 0.4, 0.6, 1]);
   });
 });
