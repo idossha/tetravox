@@ -51,14 +51,25 @@ async function openScene(page: Page): Promise<string[]> {
 }
 
 /** `SLICE n` from one pane's corner block, decoded out of the framebuffer. */
+/**
+ * The pane's `SLICE n` line, **found rather than indexed**.
+ *
+ * §8's corner block is not a fixed height: it is `[MODE, RAS …]`, plus `SLICE n` only when there is
+ * a top volume layer, plus R2's `ZOOM n×` only when the pane is off its fit. Reading a fixed slot
+ * from the bottom therefore returns a different line depending on what the scene holds — and
+ * silently, because every line is text: a run of this file once read `"RAS 0.0 0"` where it wanted
+ * `SLICE …`, which is the two-line block truncated to nine characters. Searching for the line whose
+ * shape is the one being asserted cannot be confused that way, and it is also the only reading that
+ * makes "the same three slice indices" a claim about slice indices.
+ */
 async function sliceReadout(page: Page, pane: keyof typeof GL_PANES): Promise<string> {
   const lines = await readCornerInfo(page, {
     canvasHeight: CANVAS,
     pane: GL_PANES[pane],
-    lineCount: 3,
+    lineCount: 4,
     length: 'SLICE 000'.length,
   });
-  return lines[2]?.trim() ?? '';
+  return lines.map((l) => l.trim()).find((l) => /^SLICE \d+$/.test(l)) ?? lines.join(' | ');
 }
 
 /**
