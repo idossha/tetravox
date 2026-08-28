@@ -184,21 +184,6 @@
   color: var(--t-accent);
 }
 
-/* A "Developers" badge on the nav item, so the User/Developer split reads at
-   a glance and not just by which sidebar happens to be showing. */
-.VPNavBarMenuLink[href*='/developers/']::after {
-  content: 'DEV';
-  margin-left: 6px;
-  padding: 1px 5px;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: var(--t-accent);
-  border: 1px solid var(--t-accent);
-  border-radius: 3px;
-  vertical-align: middle;
-}
-
 /* Same badge cue in the sidebar's own section heading when on a dev page. */
 body:has(.VPSidebarItem.is-active a[href*='/developers/']) .VPSidebar::before {
   content: 'Developer documentation';
