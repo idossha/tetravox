@@ -180,18 +180,24 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     const sheet = page.locator('[data-testid="keyboard-help"]');
     await expect(sheet).toBeVisible();
 
+    // The sheet is tabbed (View / Cursor & Layers / Mouse); only the active tab's rows render.
+    await expect(page.locator('[data-testid="keymap-tab-view"]')).toBeVisible();
+
     // Generated rows: the six §7.5 camera presets are one section, and the two arrow meanings
     // §7.5 lists separately appear as separate rows.
     await expect(page.locator('[data-testid="keyhelp-section-Camera presets"]')).toBeVisible();
     await expect(
       page.locator('[data-testid="keyhelp-section-Camera presets"] [data-testid="keyhelp-chord"]')
     ).toHaveCount(6);
+
+    await page.click('[data-testid="keymap-tab-cursor-layers"]');
     const cursorChords = await page
       .locator('[data-testid="keyhelp-section-Cursor"] [data-testid="keyhelp-chord"]')
       .allInnerTexts();
     expect(cursorChords).toEqual(['PgUp', 'PgDn', '↑', '↓', '→', '←']);
 
     // §7.5's pointer gestures are listed, and labelled as the engine's rather than the map's.
+    await page.click('[data-testid="keymap-tab-mouse"]');
     await expect(page.locator('[data-testid="keyhelp-section-2D panes"]')).toBeVisible();
     await expect(page.locator('[data-testid="keyhelp-section-3D pane"]')).toBeVisible();
 

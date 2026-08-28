@@ -43,7 +43,6 @@ export function Toolbar(): React.JSX.Element {
   const sceneError = useUi((s) => s.sceneError);
   const dialog = useUi((s) => s.dialog);
   const hasContent = useUi((s) => s.layers.length > 0 || s.datasets.length > 0);
-  const busy = useUi((s) => s.loads.some((c) => c.state === 'loading' || c.state === 'queued'));
 
   const onOpen = useCallback(() => void controller.openDialog(), [controller]);
   const onScreenshot = useCallback(() => {
@@ -227,16 +226,12 @@ export function Toolbar(): React.JSX.Element {
         </button>
       </div>
 
-      <span data-testid="keymap-help" className="ml-auto truncate text-[11px] text-tvx-dim">
-        {busy ? 'loading…' : 'press ? for the key map'}
-      </span>
-
       <button
         type="button"
         data-testid="keyboard-help-button"
         aria-label="Keyboard shortcuts"
         aria-pressed={dialog === 'keyboard'}
-        className={dialog === 'keyboard' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+        className={dialog === 'keyboard' ? 'tvx-btn tvx-btn-on ml-auto' : 'tvx-btn ml-auto'}
         title={KEYMAP_HELP}
         onClick={() => controller.toggleKeyboardHelp()}
       >
