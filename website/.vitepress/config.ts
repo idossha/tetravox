@@ -27,7 +27,7 @@ export default defineConfig({
   // URL depth — visitors never see the source/generated split.
   srcDir: '.',
   rewrites: {
-    'src/viewing-data.md': 'viewing-data.md',
+    'src/guide/:page.md': 'guide/:page.md',
     'src/automation.md': 'automation.md',
     'src/gallery.md': 'gallery.md',
     'src/developers/architecture.md': 'developers/architecture.md',
@@ -40,7 +40,11 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon.svg` }],
-    ['meta', { name: 'theme-color', content: '#0f1720' }],
+    // PNG fallback for the browsers that still ignore an SVG favicon, and the
+    // size iOS reaches for when the site is added to a home screen.
+    ['link', { rel: 'icon', type: 'image/png', sizes: '180x180', href: `${base}favicon.png` }],
+    ['link', { rel: 'apple-touch-icon', href: `${base}favicon.png` }],
+    ['meta', { name: 'theme-color', content: '#1b1f26' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Tetravox — voxel + mesh viewer' }],
     [
@@ -59,52 +63,59 @@ export default defineConfig({
   },
 
   themeConfig: {
+    logo: '/logo.svg',
     siteTitle: 'Tetravox',
     outline: { level: [2, 3], label: 'On this page' },
 
-    nav: [
+    nav: [],
+
+    sidebar: [
       {
         text: 'Guide',
-        link: '/',
-        activeMatch: '^/(get-started|viewing-data|automation|gallery|showcase)',
+        collapsed: false,
+        items: [
+          { text: 'Home', link: '/' },
+          { text: 'Get started', link: '/get-started' },
+          {
+            text: 'The wiki',
+            collapsed: false,
+            items: [
+              { text: 'Opening data & formats', link: '/guide/opening-data' },
+              { text: 'The panes', link: '/guide/panes' },
+              { text: 'Volume layers', link: '/guide/volume-layers' },
+              { text: 'Atlases & regions', link: '/guide/atlases-regions' },
+              { text: 'Meshes', link: '/guide/meshes' },
+              { text: 'Surfaces & annotations', link: '/guide/surfaces-annotations' },
+              { text: 'Isosurfaces', link: '/guide/isosurfaces' },
+              { text: 'Vector fields', link: '/guide/vector-fields' },
+              { text: 'Points & electrodes', link: '/guide/points-electrodes' },
+              { text: 'Measurements', link: '/guide/measurements' },
+              { text: 'Coordinates', link: '/guide/coordinates' },
+              { text: 'Themes & settings', link: '/guide/themes-settings' },
+              { text: 'Scenes', link: '/guide/scenes' },
+              { text: 'Screenshots & video', link: '/guide/screenshots-video' },
+              { text: 'Keyboard shortcuts', link: '/guide/keyboard-shortcuts' },
+              { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+            ],
+          },
+          { text: 'Automation & Python', link: '/automation' },
+          { text: 'Gallery', link: '/gallery' },
+          { text: 'Showcase', link: '/showcase' },
+        ],
       },
       {
         text: 'Developers',
-        link: '/developers/architecture',
-        activeMatch: '^/developers/',
+        collapsed: true,
+        items: [
+          { text: 'Architecture', link: '/developers/architecture' },
+          { text: 'Decisions', link: '/developers/decisions' },
+          { text: 'Testing', link: '/developers/testing' },
+          { text: 'Benchmarks', link: '/developers/benchmarks' },
+          { text: 'Roadmap', link: '/developers/roadmap' },
+          { text: 'Contributing', link: '/developers/contributing' },
+        ],
       },
     ],
-
-    sidebar: {
-      '/developers/': [
-        {
-          text: 'Developers',
-          collapsed: false,
-          items: [
-            { text: 'Architecture', link: '/developers/architecture' },
-            { text: 'Decisions', link: '/developers/decisions' },
-            { text: 'Testing', link: '/developers/testing' },
-            { text: 'Benchmarks', link: '/developers/benchmarks' },
-            { text: 'Roadmap', link: '/developers/roadmap' },
-            { text: 'Contributing', link: '/developers/contributing' },
-          ],
-        },
-      ],
-      '/': [
-        {
-          text: 'Guide',
-          collapsed: false,
-          items: [
-            { text: 'Home', link: '/' },
-            { text: 'Get started', link: '/get-started' },
-            { text: 'Viewing data', link: '/viewing-data' },
-            { text: 'Automation & Python', link: '/automation' },
-            { text: 'Gallery', link: '/gallery' },
-            { text: 'Showcase', link: '/showcase' },
-          ],
-        },
-      ],
-    },
 
     search: { provider: 'local' },
 

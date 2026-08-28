@@ -1,4 +1,4 @@
-# Tetravox
+<img src="docs/media/logo.png" alt="Tetravox" width="440">
 
 A desktop viewer for **voxel volumes** (NIfTI-1/2) and **finite-element / surface meshes** (Gmsh `.msh`,
 GIfTI, FreeSurfer, STL/PLY/OBJ), with a linked 3D view and sagittal / axial / coronal slices. Rendering is a

@@ -163,9 +163,8 @@ impl DirGrid {
                         if x < 0 || x >= GRID as i64 {
                             continue;
                         }
-                        let on_ring = (x - cx).abs() == r
-                            || (y - cy).abs() == r
-                            || (z - cz).abs() == r;
+                        let on_ring =
+                            (x - cx).abs() == r || (y - cy).abs() == r || (z - cz).abs() == r;
                         if !on_ring {
                             continue;
                         }

@@ -47,10 +47,10 @@ export interface ScreenshotDialogProps {
   onConfirm(opts: ScreenshotOptions): void;
   onCancel(): void;
   /**
-   * Opens the unified settings dialog's Capture tab (directed task: unified settings,
-   * 2026-08-28). This dialog keeps its own gear button — see the "screenshot gear" comment in
-   * `toolbar/Toolbar.tsx` for why it was not folded into the settings dialog directly — but
-   * "Defaults…" is the one click from here to where the *standing* background/dpi/autoTrim live.
+   * Opens the unified settings dialog's Capture tab (directed task: unified settings /
+   * toolbar consolidation, 2026-08-28). This dialog is reached from the toolbar's `▾` beside
+   * Screenshot, not a gear of its own — see `toolbar/Toolbar.tsx` — but "Defaults…" is still the
+   * one click from here to where the *standing* background/dpi/autoTrim live.
    */
   onOpenDefaults(): void;
 }

@@ -937,7 +937,10 @@ fn sphere_map_matches_brute_force_on_ernie_to_fsaverage() {
     };
     let (slo, shi) = radius(&subject);
     let (flo, fhi) = radius(&fsavg);
-    assert!((shi - slo) < 1e-4 * shi, "subject sphere.reg is not a sphere");
+    assert!(
+        (shi - slo) < 1e-4 * shi,
+        "subject sphere.reg is not a sphere"
+    );
     assert!((fhi - flo) < 1e-3 * fhi, "fsaverage sphere is not a sphere");
     eprintln!("[sphere_map] subject radius ~{slo:.6}, fsaverage radius ~{flo:.4}");
 
@@ -1037,7 +1040,11 @@ fn nearest_vertex_on_lh_central() {
 
     // A point off the surface: brute force must agree with brute force, so instead assert the
     // invariant — nothing is closer than what it returned.
-    for probe in [[0.0f32, 0.0, 0.0], [-30.0, 20.0, -25.0], [-64.0, 100.0, 81.0]] {
+    for probe in [
+        [0.0f32, 0.0, 0.0],
+        [-30.0, 20.0, -25.0],
+        [-64.0, 100.0, 81.0],
+    ] {
         let (i, c) = tvx_geom::nearest_vertex(&m.nodes, probe).expect("a hit");
         let d2 = |a: [f32; 3]| {
             (a[0] - probe[0]).powi(2) + (a[1] - probe[1]).powi(2) + (a[2] - probe[2]).powi(2)
@@ -1171,8 +1178,11 @@ fn surface_contours_match_numpy_on_lh_pial() {
                         for dz in -1..=1 {
                             for &i in grid.get(&(kx + dx, ky + dy, kz + dz)).into_iter().flatten() {
                                 let r = &refseg[i];
-                                best = best
-                                    .min(point_segment_distance(p, [r[0], r[1], r[2]], [r[3], r[4], r[5]]));
+                                best = best.min(point_segment_distance(
+                                    p,
+                                    [r[0], r[1], r[2]],
+                                    [r[3], r[4], r[5]],
+                                ));
                             }
                         }
                     }
@@ -1194,7 +1204,8 @@ fn point_segment_distance(p: [f32; 3], a: [f32; 3], b: [f32; 3]) -> f32 {
     let t = if len2 < 1e-12 {
         0.0
     } else {
-        (((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / len2).clamp(0.0, 1.0)
+        (((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / len2)
+            .clamp(0.0, 1.0)
     };
     let q = [a[0] + d[0] * t, a[1] + d[1] * t, a[2] + d[2] * t];
     ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()

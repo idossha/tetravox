@@ -35,7 +35,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 import { decodePng } from './png';
 import type { DecodedPng } from './png';
@@ -414,7 +414,7 @@ async function openFiles(
     },
     [...paths]
   );
-  await page.click('[data-testid="open-button"]');
+  await clickAppMenu(page, 'open');
   await page.waitForFunction(
     (want: number) => (window.__tetravox?.store.getState().layers.length ?? 0) >= want,
     before + paths.length,
@@ -941,7 +941,7 @@ test.describe('visualisation scenario catalogue', () => {
       await settle(page);
 
       // ---- 15 · the screenshot dialog, and a saved scene -----------------------------------
-      await page.click('[data-testid="screenshot-options"]');
+      await page.click('[data-testid="screenshot-menu"]');
       await expect(page.locator('[data-testid="screenshot-preview-pane"]')).toBeVisible();
       await setControl(page, 'screenshot-width', '1200');
       await setControl(page, 'screenshot-dpi', '300');
@@ -959,7 +959,7 @@ test.describe('visualisation scenario catalogue', () => {
           filePath: path,
         })) as typeof dialog.showSaveDialog;
       }, scenePath);
-      await page.click('[data-testid="scene-save-as"]');
+      await clickAppMenu(page, 'save-as');
       await expect(page.locator('[data-testid="scene-file"]')).toBeVisible({ timeout: 60_000 });
       await shoot(page, '15-scene-saved.png');
       expect(existsSync(scenePath), 'the scene file was written').toBe(true);

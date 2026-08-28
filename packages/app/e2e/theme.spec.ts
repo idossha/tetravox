@@ -75,9 +75,17 @@ async function computed(page: Page, testid: string, prop: string): Promise<strin
  * a run whose every other assertion passed. Sampling until two readings agree waits for the real
  * end state instead of guessing a duration.
  */
+/** Opens the settings dialog's Appearance tab if it is not already open (§8). */
+async function openThemeControls(page: Page): Promise<void> {
+  if ((await page.locator('[data-testid="settings-panel-appearance"]').count()) === 0) {
+    await page.click('[data-testid="settings-button"]');
+  }
+  await expect(page.locator('[data-testid="settings-panel-appearance"]')).toBeVisible();
+}
+
 async function stylesSettled(page: Page): Promise<void> {
   const sample = async (): Promise<string> =>
-    page.locator('[data-testid="theme-group"] button').evaluateAll((els) =>
+    page.locator('[data-testid="toolbar"] .tvx-btn').evaluateAll((els) =>
       els
         .map((el) => {
           const cs = getComputedStyle(el);
@@ -124,7 +132,8 @@ test.describe('the theme switch (stand-in engine)', () => {
     await app?.close();
   });
 
-  test('the toolbar offers System / Light / Dark and one of them is pressed', async () => {
+  test('the settings dialog offers System / Light / Dark and one of them is pressed', async () => {
+    await openThemeControls(page);
     for (const choice of ['system', 'light', 'dark']) {
       await expect(page.locator(`[data-testid="theme-${choice}"]`)).toBeVisible();
     }
@@ -139,6 +148,7 @@ test.describe('the theme switch (stand-in engine)', () => {
   });
 
   test('Light applies live, in computed colours, with no reload', async () => {
+    await openThemeControls(page);
     const before = page.url();
     await page.click('[data-testid="theme-light"]');
 
@@ -159,6 +169,7 @@ test.describe('the theme switch (stand-in engine)', () => {
   });
 
   test('Dark applies live too, and is graphite rather than black', async () => {
+    await openThemeControls(page);
     await page.click('[data-testid="theme-dark"]');
     await expect(page.locator('[data-testid="theme-group"]')).toHaveAttribute(
       'data-theme-resolved',
@@ -174,6 +185,7 @@ test.describe('the theme switch (stand-in engine)', () => {
   });
 
   test('no cyan and no saturated highlight survives in the window', async () => {
+    await openThemeControls(page);
     // The Phase-1 accent, in every form a stylesheet could still carry it.
     for (const theme of ['light', 'dark']) {
       await page.click(`[data-testid="theme-${theme}"]`);
@@ -195,6 +207,7 @@ test.describe('the theme switch (stand-in engine)', () => {
   });
 
   test('the switch reaches the engine chrome, not only the CSS', async () => {
+    await openThemeControls(page);
     await page.click('[data-testid="theme-light"]');
     const light = await engineTheme(page);
     await page.click('[data-testid="theme-dark"]');
@@ -242,6 +255,7 @@ test.describe('the theme survives a relaunch', () => {
     const first = await launchApp(target, { search: 'engine=mock', userDataDir: profile });
     const firstPage = await first.firstWindow();
     await firstPage.waitForSelector('[data-testid="shell"][data-ready="true"]');
+    await openThemeControls(firstPage);
     await firstPage.click('[data-testid="theme-light"]');
     await expect(firstPage.locator('[data-testid="theme-light"]')).toHaveAttribute(
       'aria-pressed',
@@ -256,6 +270,7 @@ test.describe('the theme survives a relaunch', () => {
     const second = await launchApp(target, { search: 'engine=mock', userDataDir: profile });
     const secondPage = await second.firstWindow();
     await secondPage.waitForSelector('[data-testid="shell"][data-ready="true"]');
+    await openThemeControls(secondPage);
     await expect(secondPage.locator('[data-testid="theme-light"]')).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -341,21 +356,24 @@ test.describe('both themes on ernie (real data)', () => {
   for (const theme of ['light', 'dark'] as const) {
     test(`the whole window in the ${theme} theme`, async () => {
       test.setTimeout(120_000);
+      await openThemeControls(page);
       await page.click(`[data-testid="theme-${theme}"]`);
       await expect(page.locator('[data-testid="theme-group"]')).toHaveAttribute(
         'data-theme-resolved',
         theme
       );
+      await expect(page.locator(`[data-testid="theme-${theme}"]`)).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+      // The window in the shot is the app, not the settings dialog that picked the theme.
+      await page.click('[data-testid="settings-close"]');
       // Two different clocks have to run out before the shutter: the engine's frame pump (§7.2 sets
       // a dirty bit, it never renders synchronously) and the DOM's 150 ms colour transitions.
       await page.evaluate(async () => {
         await window.__tetravox?.engine?.whenSettled();
       });
       await stylesSettled(page);
-      await expect(page.locator(`[data-testid="theme-${theme}"]`)).toHaveAttribute(
-        'aria-pressed',
-        'true'
-      );
 
       const file = join(SHOTS, `theme-${theme}.png`);
       mkdirSync(dirname(file), { recursive: true });

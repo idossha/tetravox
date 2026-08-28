@@ -33,3 +33,7 @@ packages/engine/test/fixtures/
 website/src/
 website/.vitepress/cache/
 website/.vitepress/dist/
+
+# Brand assets. The SVGs and the generated icons are output of brand/generate.py —
+# reformatting them would put the file and its generator permanently out of sync.
+brand/*.svg

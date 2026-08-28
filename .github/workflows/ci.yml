@@ -293,19 +293,26 @@ jobs:
           if-no-files-found: ignore
 
   # The §12.1 `package` matrix, now real (ROADMAP Phase 3). Each leg builds one slice with
-  # electron-builder, runs the artefact smoke test that §12.1 requires, and uploads the result as a
-  # workflow artefact. `.github/workflows/release.yml` is the same matrix on a tag, plus a draft
-  # GitHub Release; this one exists so a packaging regression is caught before a tag, not by it.
+  # electron-builder, runs the artefact smoke test §12.1 requires, and uploads the result as a
+  # downloadable workflow artefact. `.github/workflows/release.yml` is the same matrix on a tag, plus
+  # a draft GitHub Release; this one exists so a packaging regression is caught before a tag, and so
+  # every push to `main` leaves builds anyone can download and try.
   #
-  # Still `workflow_dispatch` only. It is ~5 minutes per leg of runner time that a source-only change
-  # cannot break, and `test` already proves the host-platform `.dmg` on every push to `main` — the leg
-  # that carries the packaged E2E. Cutting a release runs the full matrix by definition.
+  # **Push to `main` and `workflow_dispatch` only.** Pull requests build nothing: `test` already gates
+  # them, packaging costs ~5 minutes of runner per leg, and a source change that breaks packaging
+  # without breaking a test is rare enough to catch on `main`. A job-level `if:` is legal here because
+  # it reads `github`, not `matrix` — the restriction that shapes the `test` matrix above does not
+  # apply.
   package:
     name: package (${{ matrix.name }})
-    if: github.event_name == 'workflow_dispatch'
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     needs: test
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    # Windows is the optional platform (see release.yml): it is built and launch-verified, and a
+    # failure there is a yellow leg rather than a red build. macOS and Linux are `required: yes` and
+    # fail the workflow.
+    continue-on-error: ${{ matrix.required == 'no' }}
     strategy:
       fail-fast: false
       matrix:
@@ -314,16 +321,18 @@ jobs:
             os: macos-latest
             builder: --mac --arm64
             smoke: job
+            required: 'yes'
             artefacts: |
               packages/app/release/*.dmg
               packages/app/release/*.zip
-          # `macos-latest` is arm64 only, so the x64 slice needs the last Intel image. Building it on
-          # the arm runner with `--x64` would work but could only be smoke-tested under Rosetta, which
-          # is a weaker claim than the one this leg exists to make.
+          # `macos-latest` is arm64 only, so the x64 slice needs the Intel image. Building it on the
+          # arm runner with `--x64` would work but could only be smoke-tested under Rosetta, which is
+          # a weaker claim than the one this leg exists to make.
           - name: macOS x64 (dmg + zip)
             os: macos-26-intel
             builder: --mac --x64
             smoke: job
+            required: 'yes'
             artefacts: |
               packages/app/release/*.dmg
               packages/app/release/*.zip
@@ -331,14 +340,16 @@ jobs:
             os: ubuntu-24.04
             builder: --linux --x64
             smoke: job
+            required: 'yes'
             artefacts: |
               packages/app/release/*.AppImage
               packages/app/release/*.deb
               packages/app/release/*.tar.gz
-          - name: Windows x64 (nsis)
+          - name: Windows x64 (nsis, optional)
             os: windows-latest
             builder: --win --x64
             smoke: version
+            required: 'no'
             artefacts: |
               packages/app/release/*.exe
     steps:

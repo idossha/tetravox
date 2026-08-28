@@ -14,7 +14,7 @@ operator's manual for it, the way `docs/TESTING.md` is the operator's manual for
 |---|---|
 | Bump versions, changelog, commit, tag | `scripts/release.sh <version>` — **never pushes** |
 | Build every artefact, draft the Release | `.github/workflows/release.yml`, on a `v*` tag |
-| Build the matrix without releasing | `ci.yml`'s `package` job, `workflow_dispatch` |
+| Downloadable builds of `main` | `ci.yml`'s `package` job, every push to `main` |
 | macOS artefacts locally | `pnpm package` |
 | Linux artefacts locally | `scripts/package-linux.sh` (Docker) |
 | Prove a packaged artefact works | `node scripts/smoke-artefact.mjs` |
@@ -28,11 +28,26 @@ every platform and every target — set by an `artifactName` **inside each os bl
 top-level default is not inherited into the `dmg` / `nsis` / `appImage` blocks the way per-os ones
 are, and a `.deb` otherwise arrives as `tetravox_0.2.0_amd64.deb`.
 
-| Platform | Targets | Arch | Built on |
-|---|---|---|---|
-| macOS | `dmg`, `zip` | arm64 **and** x64 | `macos-latest` (arm64) + `macos-26-intel` (x64); both locally with `pnpm package` |
-| Linux | `AppImage`, `deb`, `tar.gz` | x64 | `ubuntu-24.04`; locally via `scripts/package-linux.sh` |
-| Windows | `nsis` | x64 | `windows-latest`; **also builds from macOS/Linux** — see §5 |
+| Platform | Targets | Arch | Built on | Required |
+|---|---|---|---|---|
+| macOS | `dmg`, `zip` | arm64 **and** x64 | `macos-latest` (arm64) + `macos-26-intel` (x64); both locally with `pnpm package` | **yes** |
+| Linux | `AppImage`, `deb`, `tar.gz` | x64 | `ubuntu-24.04`; locally via `scripts/package-linux.sh` | **yes** |
+| Windows | `nsis` | x64 | `windows-latest`; also builds from macOS/Linux — see §5 | no (§5) |
+
+**macOS and Linux are the priority platforms.** Both workflows mark the Windows leg
+`continue-on-error`, and `release.yml`'s `verify` job treats a missing `.exe` as an absence to report
+rather than a failure. A Windows problem never blocks a macOS/Linux release.
+
+The exact asset names at version `<v>`:
+
+```
+Tetravox-<v>-mac-arm64.dmg        Tetravox-<v>-mac-arm64.zip
+Tetravox-<v>-mac-x64.dmg          Tetravox-<v>-mac-x64.zip
+Tetravox-<v>-linux-x86_64.AppImage
+Tetravox-<v>-linux-amd64.deb
+Tetravox-<v>-linux-x64.tar.gz
+Tetravox-<v>-win-x64.exe          (optional)
+```
 
 **`${arch}` resolves per target to that ecosystem's spelling**, which matters if you are writing a
 download link by hand: macOS and `.tar.gz` get `arm64` / `x64`, the `.AppImage` gets `x86_64`, and the
@@ -140,23 +155,39 @@ git push origin main
 git push origin v0.2.0        # <- this builds the matrix and drafts the Release
 ```
 
+### What the tag push does
+
+`release.yml` runs three stages, in the shape of the maintainer's `release-build.yml`:
+
+1. **`create-release`** — makes the GitHub Release for the tag immediately, as a **draft**, with the
+   body taken from `CHANGELOG.md`'s section for this version (`scripts/changelog-section.mjs`) plus
+   the unsigned-build instructions, and GitHub's generated commit/PR summary appended underneath.
+2. **`build`** — four parallel jobs (macOS arm64, macOS x64, Linux x64, Windows x64). Each installs
+   the pinned toolchains, builds, runs its artefact smoke test, uploads a workflow artefact, and then
+   **attaches its own files to that Release**. Creating the Release first is what lets each platform
+   publish as soon as it is ready instead of waiting for the slowest.
+3. **`verify`** — reads the assets actually attached and fails if any *required* one is missing. This
+   is the check that a green matrix does not give you: a leg can succeed and still upload nothing.
+
 Then, on the draft:
 
-1. Four `build` jobs must be green — each one ends with its artefact smoke test, so a green matrix
-   means every artefact was launched.
+1. `verify` must be green. It names every required asset it found.
 2. Download at least the `.dmg` for your own machine and open it. The smoke test proves the renderer
    starts; it does not prove the installer produced something a human can double-click.
-3. Check the generated notes. The body is `CHANGELOG.md`'s section for this version (extracted by
-   `scripts/changelog-section.mjs`) plus the unsigned-build instructions, with GitHub's commit/PR
-   summary appended underneath.
-4. Publish.
+3. Read the notes.
+4. Press Publish.
 
-Nothing is public until step 4. `release.yml` creates the Release with `draft: true` and there is no
-path in it that publishes.
+Nothing is public until step 4. `release.yml` creates the Release with `draft: true` and no path in it
+publishes. **This is the one deliberate difference from the reference workflow**, which publishes
+straight away: a draft missing a `.dmg` is a fixable morning, a published one is not.
 
-To rehearse without a tag: run `ci.yml`'s `package` job, or `release.yml` itself, from the Actions tab
-— `workflow_dispatch` builds the same matrix and uploads workflow artefacts, and the `release` job is
-`if:`-gated on `refs/tags/v`, so it does not run.
+If `verify` fails, do not publish. Re-run the failed `build` leg, or delete the draft and the tag
+(`git push origin :refs/tags/v0.2.0`) and cut it again.
+
+To rehearse without a tag: run `release.yml` from the Actions tab. `workflow_dispatch` builds the same
+matrix and uploads workflow artefacts, while `create-release`, the attach step and `verify` are all
+`if:`-gated on `refs/tags/v` and do not run. Every push to `main` also runs `ci.yml`'s `package` job,
+so `main` always has downloadable builds without any tag at all.
 
 ---
 

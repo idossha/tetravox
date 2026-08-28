@@ -1,5 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#16181c"/>
-  <path d="M16 5 L27 12 L22 27 L10 27 L5 12 Z" fill="none" stroke="#93aae2" stroke-width="1.6"/>
-  <path d="M16 5 L16 27 M5 12 L27 12 M10 27 L22 12 M22 27 L10 12" fill="none" stroke="#93aae2" stroke-width="1" opacity="0.6"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Tetravox">
+  <title>Tetravox</title>
+  <defs><linearGradient id="p" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b313b"/><stop offset="1" stop-color="#1b1f26"/></linearGradient></defs>
+  <rect x="0.000" y="0.000" width="256.000" height="256.000" rx="51.200" ry="51.200" fill="url(#p)"/>
+  <g transform="translate(0.000,0.000)">
+  <polygon points="128.000,14.080 29.342,71.040 72.752,96.102 183.248,96.102 226.658,71.040" fill="#6d7586" stroke="#1b2029" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="29.342,71.040 29.342,184.960 128.000,241.920 128.000,191.795 72.752,96.102" fill="#4b5362" stroke="#1b2029" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="226.658,71.040 183.248,96.102 128.000,191.795 128.000,241.920 226.658,184.960" fill="#424a58" stroke="#1b2029" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="183.248,96.102 72.752,96.102 128.000,191.795" fill="#252c39" stroke="#1b2029" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="194.298,38.459 61.702,38.459 128.000,76.736" fill="#a4b8e7" stroke="#1b2029" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="61.702,38.459 128.000,153.290 128.000,76.736" fill="#6883c4" stroke="#1b2029" stroke-width="1.600" stroke-linejoin="round"/>
+  <polygon points="128.000,153.290 194.298,38.459 128.000,76.736" fill="#5976bb" stroke="#1b2029" stroke-width="1.600" stroke-linejoin="round"/>
+  </g>
 </svg>

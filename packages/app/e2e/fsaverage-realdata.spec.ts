@@ -34,7 +34,7 @@ import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const ROOT = process.env['TETRAVOX_TESTDATA'] ?? '';
@@ -139,7 +139,7 @@ test('opening lh.central.gii loads the two spheres and the fsaverage surface, wi
     },
     [SURFACE]
   );
-  await page.click('[data-testid="open-button"]');
+  await clickAppMenu(page, 'open');
   await page.waitForFunction(
     () => (window.__tetravox?.store.getState().layers.length ?? 0) >= 1,
     undefined,

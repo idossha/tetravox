@@ -24,7 +24,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp } from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 import { decodePng } from './png';
 
@@ -73,7 +73,7 @@ test.beforeAll(async ({}, workerInfo) => {
     },
     [MESH]
   );
-  await page.click('[data-testid="open-button"]');
+  await clickAppMenu(page, 'open');
   await page.waitForFunction(
     () => (window.__tetravox?.store.getState().layers ?? []).some((l) => l.kind === 'mesh'),
     undefined,

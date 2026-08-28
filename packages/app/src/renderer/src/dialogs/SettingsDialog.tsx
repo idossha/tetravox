@@ -19,6 +19,7 @@ import type { ScreenshotDefaults } from '../../../preload/index';
 import type { SettingsTab } from '../store/store';
 import type { ThemeChoice } from '../theme/theme';
 import { THEME_CHOICES } from '../theme/theme';
+import type { ThemeName } from '../theme/tokens';
 import { DialogFrame, Field } from './dialog';
 
 export interface SettingsDialogProps {
@@ -27,6 +28,8 @@ export interface SettingsDialogProps {
 
   // -- Appearance --
   themeChoice: ThemeChoice;
+  /** What `themeChoice` resolves to right now — `theme-group`'s `data-theme-resolved` (§8). */
+  theme: ThemeName;
   onThemeChoice(choice: ThemeChoice): void;
 
   // -- Capture --
@@ -62,6 +65,7 @@ export function SettingsDialog({
   tab,
   onTab,
   themeChoice,
+  theme,
   onThemeChoice,
   screenshotDefaults,
   onScreenshotDefaults,
@@ -136,12 +140,22 @@ export function SettingsDialog({
           <span className="text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
             Theme
           </span>
-          <div className="flex items-center gap-1" role="group" aria-label="Theme">
+          {/* Testids kept as `theme-*` / `theme-group` (directed task: toolbar consolidation,
+            2026-08-28) — this used to be the toolbar's own control, and the E2E that reads
+            `data-theme-resolved` off it did not need to learn a new name, only a new place. */}
+          <div
+            className="flex items-center gap-1"
+            role="group"
+            aria-label="Theme"
+            data-testid="theme-group"
+            data-theme-choice={themeChoice}
+            data-theme-resolved={theme}
+          >
             {THEME_CHOICES.map((choice) => (
               <button
                 key={choice}
                 type="button"
-                data-testid={`settings-theme-${choice}`}
+                data-testid={`theme-${choice}`}
                 aria-pressed={themeChoice === choice}
                 className={themeChoice === choice ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
                 onClick={() => onThemeChoice(choice)}

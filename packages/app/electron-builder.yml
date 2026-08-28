@@ -33,11 +33,15 @@ extraResources:
 asar: true
 npmRebuild: false
 
-# `directories.buildResources: build` above, so these resolve to `packages/app/build/`. They are
-# produced by the logo pipeline and committed; `scripts/ensure-icons.sh` mirrors a repo-root `build/`
-# into this one and, failing that, refuses to guess. electron-builder would silently fall back to its
-# own Electron icon if these were merely absent, so they are named explicitly rather than left to the
-# `buildResources` convention.
+# The icons in `build/` (buildResources, above) are generated — never hand-edited.
+# `python3 brand/generate.py` rebuilds every one of them from brand/generate.py's
+# geometry, so a change to the mark is one command away from the packaged app.
+#
+# Each is also named EXPLICITLY in the os blocks below rather than left to the `buildResources`
+# convention, because electron-builder falls back to the stock Electron logo in silence when one is
+# missing — a release that ships wearing someone else's mark and no error anywhere. For the same
+# reason `scripts/ensure-icons.sh` fails the build when any of them is absent, and both packaging
+# workflows run it before electron-builder.
 icon: build/icon.png
 
 # §8: registered by the installer. BIDS/SimNIBS neuroimaging inputs; `.nii.gz` is a compound
@@ -123,6 +127,8 @@ dmg:
 
 linux:
   category: Science
+  # A directory, not a file: electron-builder picks the <n>x<n>.png it needs per
+  # target, and the .deb needs the small sizes the AppImage does not.
   icon: build/icons
   # REQUIRED, and Linux-only. electron-builder derives the executable name from `package.json`'s
   # `name`, which here is the scoped `@tetravox/app`; it sanitises that to `@tetravoxapp` and then

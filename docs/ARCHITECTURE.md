@@ -2471,12 +2471,24 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | `package` | `windows-latest` | `.exe` (nsis) x64 | electron-builder makes this from macOS/Linux too — only *signing* needs wine — but this is the only runner that can launch it |
 | `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | not built today |
 
-The `package` matrix lives in **two** workflows over one definition of the work: `ci.yml`'s `package`
-job (`workflow_dispatch`, uploads workflow artefacts) and `release.yml` (on a `v*` tag, uploads to a
-**draft** GitHub Release with generated notes). Artefact names are
-`Tetravox-<version>-<os>-<arch>.<ext>` on every platform and target. `docs/RELEASING.md` is the
-operator's manual: cutting a version with `scripts/release.sh`, the notarisation switch, the Docker
-path for Linux artefacts, and what the smoke test does and does not claim.
+**macOS and Linux are the priority platforms; Windows is optional.** The Windows leg is carried
+because it costs nothing — a stock `windows-latest` builds an unsigned NSIS installer with no extra
+tooling — and both workflows mark it `continue-on-error`, so a Windows failure never blocks a
+macOS/Linux release.
+
+The `package` matrix lives in **two** workflows over one definition of the work. `ci.yml`'s `package`
+job runs on every push to `main` (and on `workflow_dispatch`) and uploads workflow artefacts, so
+`main` always has downloadable builds. `release.yml` runs on a `v*` tag in three stages —
+`create-release` makes a **draft** Release first, four `build` jobs attach their own artefacts to it
+as each finishes, and `verify` fails if a required asset is not actually attached. Creating the
+Release up front is what lets a fast platform publish without waiting for a slow one; `verify` is what
+catches a leg that went green and uploaded nothing.
+
+Artefact names are `Tetravox-<version>-<os>-<arch>.<ext>` on every platform and target, where the arch
+token is each ecosystem's own spelling of x64 (`x86_64` for the AppImage, `amd64` for the deb).
+`docs/RELEASING.md` is the operator's manual: cutting a version with `scripts/release.sh`, the
+notarisation switch, the Docker path for Linux artefacts, and what the smoke test does and does not
+claim.
 
 **When each `test` leg runs.** The macOS leg is gated by the **matrix itself** —
 {% raw %}`os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[…, "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}`{% endraw %}

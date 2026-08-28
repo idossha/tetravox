@@ -17,8 +17,7 @@ opened"). Clear the quarantine attribute once:
 xattr -dr com.apple.quarantine /Applications/Tetravox.app
 ```
 
-See the [User Guide's installing section](https://github.com/idossha/tetravox/blob/main/docs/USER_GUIDE.md#installing)
-for why, and for the Linux `chrome-sandbox` note.
+See the [home page's Getting started section](/) for why, and for the Linux `chrome-sandbox` note.
 
 ## Dev build
 
@@ -47,8 +46,8 @@ on the command line.
 
 ## Where to go next
 
-- **[Viewing data](/viewing-data)** — opening data, navigating, layers, regions, measuring, scenes,
-  themes.
+- **[The wiki](/guide/opening-data)** — opening data, the panes, layers, regions, meshes, measuring,
+  coordinates, scenes, themes, keyboard shortcuts and troubleshooting, one topic per page.
 - **[Automation & Python](/automation)** — driving the same engine headlessly from a script.
 - **[Architecture](/developers/architecture)** — the full technical contract, if you're building or
   contributing.
