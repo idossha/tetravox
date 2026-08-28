@@ -809,6 +809,19 @@ export class ShellController {
     this.setRightPanelCollapsed(!this.store.getState().rightPanelCollapsed);
   }
 
+  /**
+   * §8's only sanctioned door into the engine's dirty bit for a component that is not otherwise
+   * driving scene state — `ViewGrid`'s `ResizeObserver` calls this after it changes the canvas's
+   * drawing-buffer size. A canvas resize clears the WebGL drawing buffer per spec (a fresh backing
+   * store, transparent black) but sets no dirty bit of its own; without this call the panes stay
+   * black until something unrelated later calls `requestRender()`. This does not touch any camera
+   * state — `center`/`mmPerPx` are resolution-independent (§7.2's `camera` type), so the next frame
+   * redraws the same view, just re-fit to the new viewport rects.
+   */
+  requestRender(): void {
+    this.engine.requestRender();
+  }
+
   /** §8's colour bars — one per visible scalar layer, drawn in the overlay pass (§7.2). */
   // -- measurements (directed task 11, 2026-08-28) ----------------------------------------------
 

@@ -391,6 +391,27 @@ describe('views, screenshot and the rest of the toolbar (§8)', () => {
   });
 });
 
+describe('requestRender (the sidebar-collapse-black-panes fix)', () => {
+  // `ViewGrid`'s `ResizeObserver` fires whenever collapsing/expanding a sidebar changes the host's
+  // size. Resizing the canvas element reallocates its WebGL drawing buffer to transparent black per
+  // spec — that clear is not itself a scene mutation, so nothing else in the engine sets a dirty bit
+  // for it. Before this fix `ViewGrid` only wrote `canvas.width`/`.height` and never told the engine
+  // to repaint, so the panes stayed black until an unrelated command happened to call
+  // `requestRender()`. `controller.requestRender()` is the door `ViewGrid` now uses.
+  it('delegates straight to the engine, with no state of its own to lose', () => {
+    const { engine, controller } = harness();
+    let frames = 0;
+    engine.on('frame', () => {
+      frames += 1;
+    });
+    controller.requestRender();
+    expect(frames).toBe(1);
+    controller.requestRender();
+    controller.requestRender();
+    expect(frames).toBe(3);
+  });
+});
+
 describe('the frozen facade is enough', () => {
   it('type-checks the stand-in as an `Engine`', () => {
     // A compile-time assertion, kept as a runtime one so it cannot be deleted as "unused".
