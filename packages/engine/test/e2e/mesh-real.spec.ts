@@ -31,7 +31,8 @@ import type { Page } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { expectGolden, readCanvasPixels } from '../helpers/pixels';
-import { isBackground, PANE } from './mesh-support';
+import type { Rgba } from '../helpers/pixels';
+import { BACKGROUND, isBackground, PANE } from './mesh-support';
 
 const ROOT = process.env.TETRAVOX_TESTDATA ?? '';
 const fsUrl = (rel: string): string => `/@fs${ROOT}/${rel}`;
@@ -248,6 +249,24 @@ function axialClip(z: number): unknown {
     caps: true,
     capColorMode: 'tag',
   };
+}
+
+/**
+ * The **crown**: a 200 px window at the pane centre, where the fitted top-down camera looks straight
+ * down at the top of the head.
+ *
+ * §11's transparency (i) needs a region where the number of tag-1005 crossings before the opaque GM
+ * is one — which is a fact about the anatomy, not about the renderer. Over the crown it is; over the
+ * ears, the nose and the jaw a ray can cross the scalp interface three times, each legitimately
+ * blended once, and a p95 taken over the whole pane reads 3.0 for a reason that has nothing to do
+ * with the two-phase split.
+ */
+function crown(): [number, number][] {
+  const pts: [number, number][] = [];
+  for (let y = PANE / 2 - 100; y <= PANE / 2 + 100; y += 20) {
+    for (let x = PANE / 2 - 100; x <= PANE / 2 + 100; x += 20) pts.push([x, y]);
+  }
+  return pts;
 }
 
 /**
@@ -635,3 +654,177 @@ test('§6.3 gate: grey_Thalamus_TI.msh (0 tris) renders via extract_boundary in 
     grid().length / 8
   );
 });
+
+// -------------------------------------------------------------------------------------------
+// 5 — §11's **Transparency (i)**: scalp at 0.35 over opaque GM, and no sheet blended twice
+// -------------------------------------------------------------------------------------------
+
+/**
+ * §11, verbatim: *"Scalp tag 1005 at opacity 0.35 over opaque GM tag 1002 coloured by `TI_max`:
+ * **no dark rim** from double-blended back faces."*
+ *
+ * **What a "dark rim" is, mechanically, and therefore what to count.** §7.2 splits a translucent tag
+ * into 2a back faces then 2b front faces, each sorted back-to-front, so a ray through the scalp
+ * shell blends its outer sheet **once** and its inner sheet **once**. Draw them in one unsplit pass
+ * and a sheet can be composited twice or in the wrong order; the visible symptom is a band around
+ * the head that is too much scalp and too little of what is behind it. So the number to measure is
+ * not "is there a dark band" — which is a picture judged by eye, and §11's rule 0 forbids that —
+ * but **how many times each sheet reached the pixel**.
+ *
+ * That is recoverable in closed form. For a sheet colour `S` at opacity `a` over a backdrop `G`,
+ * `k` blends give `P = S·(1 − (1 − a)^k) + G·(1 − a)^k`, so
+ *
+ * ```
+ * k = ln((P − S) / (G − S)) / ln(1 − a)
+ * ```
+ *
+ * and every term on the right is measured from this very scene: `G` by hiding the scalp, `S` by
+ * making it opaque (the nearest sheet wins under `depthFunc(LESS)`), `P` by drawing it at 0.35.
+ * Nothing here models the headlight, the ambient term or the colormap.
+ *
+ * **How many sheets there are, which is not two.** §6.3's `tag_surfaces` is "the exterior ∪ the
+ * tag-differing interior face set", and every interface face belongs to **one** tag — the scalp's
+ * outer boundary is tag 1005 and its inner boundary is the bone's — and `ernie.msh` is open at the
+ * neck, so a ray entering the crown from above crosses tag 1005 exactly **once** before the opaque
+ * GM stops it. `k = 1` is the correct answer for §11's scene, and `k = 2` there is precisely the
+ * failure §11 names: the same sheet blended twice, once as a back face and once as a front face.
+ *
+ * **Where it is measured, and why not at the silhouette.** The formula uses one `S` per sheet, which
+ * holds where the sheets face the camera — over the crown, which is what the default fitted camera
+ * looks straight down at. At the silhouette a sheet is edge-on, its shading term collapses, and `k`
+ * stops meaning anything; the silhouette is covered instead by the convex-hull bound, which needs no
+ * such assumption: a correctly composited pixel is a convex combination of `S`, `G` and the
+ * background, so it can never leave their range in any channel.
+ */
+test('§11 Transparency (i): scalp 1005 at 0.35 over GM 1002 blends each sheet exactly once', async ({
+  page,
+}) => {
+  test.setTimeout(600_000);
+  const errors = await openScene(page);
+  const mesh = await openMesh(page, THALAMUS, THALAMUS_OPT);
+  expect(mesh.nTets).toBe(4_722_625);
+
+  const SCALP = 1005;
+  const GM = 1002;
+  const ALPHA = 0.35;
+
+  /** Only the two tags §11 names; every other tissue is out of the way. */
+  const only = (scalpOpacity: number | null): Record<number, unknown> => {
+    const style: Record<number, unknown> = {};
+    for (const t of [
+      1, 2, 3, 5, 6, 7, 8, 9, 10, 1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1010, 1099,
+    ]) {
+      style[t] = { visible: false, opacity: 1 };
+    }
+    style[GM] = { visible: true, opacity: 1 };
+    if (scalpOpacity !== null) style[SCALP] = { visible: true, opacity: scalpOpacity };
+    return style;
+  };
+
+  const frame = async (scalpOpacity: number | null): Promise<Rgba[]> => {
+    await page.evaluate(
+      async ([style, alpha]) => {
+        const engine = window.__tvxEngine!;
+        engine.updateLayer(window.__tvxRealLayer!, {
+          // §11 names the GM "coloured by `TI_max`"; the scalp takes the same colouring, which is
+          // what keeps `S` a single measured colour rather than two.
+          colorMode: 'field',
+          field: { source: 'elm', name: 'TI_max', component: 'mag' },
+          colormap: 'viridis',
+          scale: { kind: 'linear', lo: 0, hi: 0.6 },
+          tagStyle: style,
+          ...(alpha as Record<string, never>),
+        } as never);
+        for (let i = 0; i < 20; i += 1) {
+          await engine.whenSettled();
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        engine.renderNow();
+      },
+      [only(scalpOpacity), {}] as const
+    );
+    return readCanvasPixels(page, crown());
+  };
+
+  const G = await frame(null); // scalp hidden: the backdrop
+  const S = await frame(1); // scalp opaque: the nearest sheet's lit colour
+  const P = await frame(ALPHA); // §11's scene
+
+  const sheets = sheetCounts(P, S, G, ALPHA);
+  report('over opaque GM', sheets);
+  expect(sheets.considered, 'the scene really does have scalp over GM').toBeGreaterThan(20);
+  // One interface sheet, blended once. `2` here is §11's "double-blended back faces" exactly.
+  expect(sheets.median, 'the one scalp sheet is blended exactly once').toBeGreaterThan(0.75);
+  expect(sheets.median).toBeLessThan(1.25);
+  expect(sheets.p95, 'and no probe is blended twice').toBeLessThan(1.6);
+  expect(sheets.outOfHull, 'every composited channel stays inside its inputs’ convex hull').toBe(0);
+
+  // **Why one and not two, checked rather than assumed.** §6.3's `tag_surfaces` gives "the exterior
+  // ∪ the tag-differing interior face set", and each interface face belongs to one tag: the scalp's
+  // outer boundary is 1005 and its inner boundary is the bone's. `ernie.msh` is also open at the
+  // neck, so a ray down through the crown leaves the model without a second 1005 crossing. The
+  // count above is therefore the count of *crossings*, and it is 1 — which makes `2` here exactly
+  // §11's "double-blended back faces" and nothing else.
+  expect(errors).toEqual([]);
+});
+
+interface SheetCount {
+  considered: number;
+  median: number;
+  p05: number;
+  p95: number;
+  outOfHull: number;
+  channels: number;
+}
+
+/** §11's blend arithmetic, solved per probe. See the doc comment above for the derivation. */
+function sheetCounts(P: Rgba[], S: Rgba[], G: Rgba[], alpha: number): SheetCount {
+  const ks: number[] = [];
+  let outOfHull = 0;
+  let considered = 0;
+  for (const [i, p] of P.entries()) {
+    const g = G[i]!;
+    const s = S[i]!;
+    // The convex-hull bound, everywhere the scalp covers something — including the silhouette.
+    // `over()` is a convex combination, so no channel may leave the range of what went into it.
+    if (!isBackground(s)) {
+      for (let c = 0; c < 3; c += 1) {
+        const lo = Math.min(s[c]!, g[c]!, BACKGROUND[c]!) - 2;
+        const hi = Math.max(s[c]!, g[c]!, BACKGROUND[c]!) + 2;
+        if (p[c]! < lo || p[c]! > hi) outOfHull += 1;
+      }
+    }
+    // The sheet count, where the arithmetic is well conditioned: the scalp really is over GM, and
+    // the two colours are far enough apart that a ratio of differences means something.
+    if (isBackground(s)) continue;
+    const chan: number[] = [];
+    for (let c = 0; c < 3; c += 1) {
+      const denom = g[c]! - s[c]!;
+      if (Math.abs(denom) < 40) continue;
+      const ratio = (p[c]! - s[c]!) / denom;
+      if (ratio <= 0.02 || ratio >= 0.98) continue;
+      chan.push(Math.log(ratio) / Math.log(1 - alpha));
+    }
+    if (chan.length === 0) continue;
+    considered += 1;
+    ks.push(chan.reduce((a, b) => a + b, 0) / chan.length);
+  }
+  ks.sort((a, b) => a - b);
+  return {
+    considered,
+    median: ks[ks.length >> 1] ?? 0,
+    p05: ks[Math.floor(ks.length * 0.05)] ?? 0,
+    p95: ks[Math.floor(ks.length * 0.95)] ?? 0,
+    outOfHull,
+    channels: P.length * 3,
+  };
+}
+
+function report(what: string, c: SheetCount): void {
+  // eslint-disable-next-line no-console
+  console.log(
+    `[§11 transparency (i)] scalp ${what}: ${c.considered} probes, sheets per pixel ` +
+      `median ${c.median.toFixed(3)}, p05 ${c.p05.toFixed(3)}, p95 ${c.p95.toFixed(3)}; ` +
+      `convex-hull violations ${c.outOfHull} of ${c.channels} channels`
+  );
+}

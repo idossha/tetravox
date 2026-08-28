@@ -85,8 +85,8 @@ this cost during a drag. That is E-SCENE's P2-02 and does not exist yet.
 
 | Quantity | Value |
 |---|---|
-| Parse + boundary + upload + first frame | 584 ms |
-| `extract_boundary` + upload alone (de-indexed variant) | **221 ms** |
+| Parse + boundary + upload + first frame | 575 ms |
+| `extract_boundary` + upload alone (de-indexed variant) | **217 ms** |
 | Gate | 1500 ms |
 <!-- end boundary chromium-swiftshader -->
 
@@ -118,12 +118,12 @@ bounding box's mid-`z` for 2.0 s, moved on every frame.
 
 | Quantity | Value |
 |---|---|
-| Drag frame rate | 3.9 fps (8 frames) |
-| Frame interval, median · p95 | 262.3 ms · 479.3 ms |
+| Drag frame rate | 4.0 fps (8 frames) |
+| Frame interval, median · p95 | 258.5 ms · 471.2 ms |
 | Budget | 33.3 ms (30 fps) — not gated on this leg |
-| New cross-section on screen, median · p95 | 262 ms · 480 ms |
-| New cross-sections per second | 3.4 Hz (7 in the drag) |
-| Cap triangles at the last plane | 52,267 |
+| New cross-section on screen, median · p95 | 259 ms · 472 ms |
+| New cross-sections per second | 3.5 Hz (7 in the drag) |
+| Cap triangles at the last plane | 48,781 |
 
 SwiftShader. The frame rate here is the software rasteriser, not this feature, and the cut latency is sampled once per frame — so on this leg it is quantised by the frame interval and reads as an upper bound. The renderer-independent number is the table above.
 <!-- end chromium-swiftshader -->
