@@ -40,7 +40,11 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: `${base}favicon.svg` }],
-    ['meta', { name: 'theme-color', content: '#0f1720' }],
+    // PNG fallback for the browsers that still ignore an SVG favicon, and the
+    // size iOS reaches for when the site is added to a home screen.
+    ['link', { rel: 'icon', type: 'image/png', sizes: '180x180', href: `${base}favicon.png` }],
+    ['link', { rel: 'apple-touch-icon', href: `${base}favicon.png` }],
+    ['meta', { name: 'theme-color', content: '#1b1f26' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Tetravox — voxel + mesh viewer' }],
     [
@@ -59,6 +63,7 @@ export default defineConfig({
   },
 
   themeConfig: {
+    logo: '/logo.svg',
     siteTitle: 'Tetravox',
     outline: { level: [2, 3], label: 'On this page' },
 

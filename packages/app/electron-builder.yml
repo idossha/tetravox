@@ -27,6 +27,11 @@ extraResources:
 asar: true
 npmRebuild: false
 
+# The icons in `build/` (buildResources, above) are generated — never hand-edited.
+# `python3 brand/generate.py` rebuilds every one of them from brand/generate.py's
+# geometry, so a change to the mark is one command away from the packaged app.
+icon: build/icon.png
+
 # §8: registered by the installer. BIDS/SimNIBS neuroimaging inputs; `.nii.gz` is a compound
 # extension, which macOS treats as a distinct UTI and Linux as its own MIME type.
 fileAssociations:
@@ -81,6 +86,7 @@ fileAssociations:
 
 mac:
   category: public.app-category.medical
+  icon: build/icon.icns
   target:
     - target: dmg
       arch:
@@ -93,8 +99,14 @@ mac:
 dmg:
   writeUpdateInfo: false
 
+win:
+  icon: build/icon.ico
+
 linux:
   category: Science
+  # A directory, not a file: electron-builder picks the <n>x<n>.png it needs per
+  # target, and the .deb needs the small sizes the AppImage does not.
+  icon: build/icons
   target:
     - AppImage
     - deb
