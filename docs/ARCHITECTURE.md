@@ -173,7 +173,17 @@ Rules:
   unit sphere** — both files are normalised first, because their radii are 1 and ~100 and the ~0.016
   radius spread of the fsaverage sphere swamps the ~0.003 chord between true neighbours (§6.3).
   Nothing is bundled; the fsaverage subject comes from the FreeSurfer subjects directory named in app
-  settings, and the readout simply omits the fsaverage row when it is not there.
+  settings (`AppSettings.freesurferSubjectsDir`, §8), and the readout simply omits the fsaverage row
+  when it is not there. Four files take part — the surface on screen, its hemisphere's `sphere.reg`
+  beside it, `<subjects>/fsaverage/surf/<hemi>.sphere` and `<hemi>.pial` — and the **hemisphere comes
+  from the file name** (`lh.` / `rh.`), because a SimNIBS GIfTI pointset carries no
+  `AnatomicalStructurePrimary`. Verified end to end against nibabel on four ernie vertices: subject
+  vertex 0 → fsaverage 40,188 at (−42.985291, −10.803907, −44.410835), 1,000 → 152,958,
+  100,000 → 68,099, 245,761 → 48,810 `[DATA]`.
+* **An fsaverage coordinate is quoted in fsaverage's own tkr-RAS**, and labelled with the surface it
+  came from (`fsaverage lh.pial`) rather than called "RAS". A FreeSurfer binary surface *is* in
+  tkr-RAS and this rule already loads one as-is when no companion volume is named, so the number the
+  readout shows is the number `mris_info` and `nibabel.freesurfer.read_geometry` show.
 
 ---
 
@@ -711,16 +721,45 @@ export interface CoordSpaceOption {
   enabled: boolean; reason?: string; loading?: boolean;
 }
 
+export interface FsaverageSpec {
+  surfaceId: DatasetId;         // the subject surface being looked at
+  subjectSphereId: DatasetId;   // that hemisphere's sphere.reg
+  fsavgSphereId: DatasetId;     // fsaverage/surf/<hemi>.sphere
+  fsavgSurfaceId?: DatasetId;   // fsaverage/surf/<hemi>.pial — the coordinate that is quoted
+  targetName?: string;          // what to call it in the read-out
+}
+
 coordinateSpaces(): CoordSpaceOption[];
 toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null;
 fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null;
 setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void;
+attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean>;
 
 // ProbeResult, appended
 tkr?: vec3; tkrVolume?: string; mniNonlinear?: vec3;
 // ProbeRow, appended
-vertex?: number; vertexWorld?: vec3; fsavgVertex?: number; fsavgWorld?: vec3;
+vertex?: number; vertexWorld?: vec3;
+fsavgVertex?: number; fsavgWorld?: vec3; fsavgSpace?: string;
+// EngineEvents, appended
+probe: { world: vec3; result: ProbeResult };
 ```
+
+**The `probe` event closes a hole §4.7 has always described.** "A mesh probe is at most one round
+trip stale": `probe` is synchronous, `locate` and `nearestVertex` are worker calls, so the row the
+`cursor` event's probe returns is the one from *before* the click, and nothing told the app when the
+real one arrived. §8's info panel therefore showed a mesh row only after a second interaction — and
+for a **surface**, whose only row is the vertex, it showed nothing at all. A runtime now calls
+`LayerRuntimeContext.probeLanded(world)` when an async row lands, and the engine re-emits it as
+`probe` if that point is still the cursor or the hover. It is its own event and not a second `cursor`
+because the app's `cursor` handler also clears the coordinate bar's draft, and a probe landing must
+not delete what a user is typing.
+
+`attachFsaverage` composes three §6.5 ops — `vertices` on the fsaverage sphere, `sphereMap` on the
+subject's, `vertices` on the fsaverage surface — and caches all three, so a second surface of the
+same hemisphere costs nothing. It is on the facade because those are worker calls and §5 rule 3 keeps
+the app off that path. It resolves `false` rather than throwing on every miss, including a node-count
+mismatch between the `sphere.reg` and the displayed surface: nothing about fsaverage is bundled, so
+"there is none here" is the ordinary answer.
 
 They are facade members rather than app code for the reason §8 already gives: every one of them is
 engine geometry — which volume is active, what its `vox2ras-tkr` is, whether a warp has finished
@@ -2537,7 +2576,16 @@ Under the field, every *derived* space is shown at once, each labelled, so none 
 **Info panel: every value carries its space.** The world triple beside each block heading is labelled `RAS`;
 `tkr-RAS · <volume>`, `MNI (affine)` and `MNI (nonlinear)` get their own labelled lines. A mesh row adds
 `vertex <index> · RAS <x y z>` — the nearest node's index and **its own** coordinate, not the probe point —
-and `fsaverage <index> · <x y z>` when a correspondence has been built.
+and a row labelled with the fsaverage surface (`fsaverage lh.pial`) carrying `vertex <index> · <x y z>` when
+a correspondence has been built.
+
+**Settings dialog** (`⚙` in the toolbar): preferences for the *machine*, not for the scene, persisted by
+`main/settings.ts` in `settings.json`. One field today — the **FreeSurfer subjects directory**, typed or
+browsed through a native directory picker, which is what turns the fsaverage row on. Setting it re-attaches
+every surface already open, because a user sets it *because* they are looking at one. Clearing it drops every
+correspondence. `AppSettings` gained a second key, and with it `coercePatch`: a patch is not a settings
+object, and filling a patch's absent fields with defaults before merging would silently reset the user's
+theme every time they set the directory.
 
 **Colour bars** (Phase 2, required in screenshots): one per visible scalar layer — colormap, numeric ticks at the
 scale endpoints and at `mid` for heat, the threshold cut drawn as a notch, the field name, and units from

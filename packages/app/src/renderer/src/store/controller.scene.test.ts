@@ -49,8 +49,8 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
   };
   fs.bridge = {
     // Settings: this stub keeps no preferences, which is what a test wants.
-    settings: async () => ({ theme: 'system' as const }),
-    setSettings: async () => ({ theme: 'system' as const }),
+    settings: async () => ({ theme: 'system' as const, freesurferSubjectsDir: '' }),
+    setSettings: async () => ({ theme: 'system' as const, freesurferSubjectsDir: '' }),
     // The `--job` half of the bridge: this window was not launched for one.
     jobSpec: async () => null,
     jobWrite: async () => ({ ok: false, error: 'not a job run' }),
@@ -64,6 +64,8 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
       fs.files.has(path) ? { path, url: `tetravox://file/${encodeURIComponent(path)}` } : null,
     startupPaths: async () => [],
     subjectSpaces: async () => null,
+    surfaceSpaces: async () => null,
+    chooseDirectory: async () => null,
     phase0Fixture: async () => null,
     onOpened: () => () => {},
     log: () => {},

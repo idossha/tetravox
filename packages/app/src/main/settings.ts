@@ -22,13 +22,22 @@ import { app } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-/** Everything the app persists. One key today; the shape is the point. */
+/** Everything the app persists. */
 export interface AppSettings {
   /** §8's theme switch: what the user picked, not what it resolved to. */
   theme: 'system' | 'light' | 'dark';
+  /**
+   * The FreeSurfer **subjects directory**, for §3's fsaverage lookup (directed task 8). `''` = unset.
+   *
+   * A path rather than a bundled `fsaverage`: the subject is ~50 MB of surfaces per hemisphere, it
+   * is licensed by FreeSurfer rather than by us, and every machine that would use this feature
+   * already has one. The readout simply omits the fsaverage row when the setting is empty or the
+   * files under it are not there.
+   */
+  freesurferSubjectsDir: string;
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { theme: 'system' };
+export const DEFAULT_SETTINGS: AppSettings = { theme: 'system', freesurferSubjectsDir: '' };
 
 /** A settings file is a preference, not a document: a megabyte of it is a bug or an attack. */
 const MAX_BYTES = 64 * 1024;
@@ -39,10 +48,26 @@ function settingsPath(): string {
 
 /** Coerce whatever was on disk into an `AppSettings`, one field at a time. */
 export function coerceSettings(raw: unknown): AppSettings {
-  const out: AppSettings = { ...DEFAULT_SETTINGS };
+  return { ...DEFAULT_SETTINGS, ...coercePatch(raw) };
+}
+
+/**
+ * The subset of `AppSettings` a value actually *carries* — keys that are absent stay absent.
+ *
+ * Separate from {@link coerceSettings} because a patch and a whole file are different things, and
+ * conflating them is a data-loss bug that only appears once there is a second key: filling a patch's
+ * missing fields with defaults and spreading it over the file resets every field the caller did not
+ * mention. With one setting that was invisible; with two it would silently reset the user's theme
+ * every time they set the subjects directory.
+ */
+export function coercePatch(raw: unknown): Partial<AppSettings> {
+  const out: Partial<AppSettings> = {};
   if (raw === null || typeof raw !== 'object') return out;
-  const theme = (raw as Record<string, unknown>)['theme'];
+  const record = raw as Record<string, unknown>;
+  const theme = record['theme'];
   if (theme === 'system' || theme === 'light' || theme === 'dark') out.theme = theme;
+  const dir = record['freesurferSubjectsDir'];
+  if (typeof dir === 'string') out.freesurferSubjectsDir = dir;
   return out;
 }
 
@@ -64,7 +89,7 @@ export function readSettings(): AppSettings {
  * whether its write landed.
  */
 export function writeSettings(patch: unknown): AppSettings {
-  const next = coerceSettings({ ...readSettings(), ...coerceSettings(patch) });
+  const next = coerceSettings({ ...readSettings(), ...coercePatch(patch) });
   try {
     const path = settingsPath();
     mkdirSync(dirname(path), { recursive: true });

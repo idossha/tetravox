@@ -27,6 +27,7 @@ import type {
   CoordSpaceOption,
   CoordSpaceRef,
   DatasetSource,
+  FsaverageSpec,
   Engine,
   EngineEvents,
   EngineOptions,
@@ -276,6 +277,19 @@ export class TetravoxEngine implements Engine, PointerHost {
    * selector can distinguish "still loading" from "this subject has no warp" (directed task 8).
    */
   readonly #pendingFields = new Set<DatasetId>();
+  /**
+   * Built fsaverage correspondences, keyed by the **subject surface** they are attached to
+   * (directed task 8). `map[subjectVertex]` is the fsaverage vertex; `positions` are the fsaverage
+   * surface's node coordinates, flat xyz, when one was named.
+   */
+  readonly #fsaverage = new Map<
+    DatasetId,
+    { map: Uint32Array; positions?: Float32Array; targetName?: string }
+  >();
+  /** `sphereMap` results, keyed `subjectSphereId|fsavgSphereId` — the 42 ms is paid once. */
+  readonly #sphereMaps = new Map<string, Uint32Array>();
+  /** `vertices` results for whole surfaces, keyed by dataset id. The fsaverage sphere is 2.0 MB. */
+  readonly #allVertices = new Map<DatasetId, Float32Array>();
   /** The view-projection each pane last rendered with, so a pick reuses it exactly (§7.2.3). */
   readonly #lastViewProj = new Map<ViewId, mat4>();
   readonly #lastRects = new Map<ViewId, ViewportRect>();
@@ -339,6 +353,42 @@ export class TetravoxEngine implements Engine, PointerHost {
       // §4.4's `IsolateSpec.labelVolume` names another dataset; §5 rule 2 makes it the one
       // cross-dataset op in v1, and the samples are structured-cloned rather than transferred.
       dataset: (id: DatasetId) => this.#store.dataset(id),
+      // Directed task 8: an async row landed. Re-emitted as `probe`, never as `cursor`, so a probe
+      // arriving cannot clear what the user is typing into the coordinate bar.
+      probeLanded: (world: vec3) => this.#onProbeLanded(world),
+      // Directed task 8: the fsaverage vertex a subject vertex maps to, when one has been built.
+      // Synchronous by construction — `attachFsaverage` did the worker round trips up front, so the
+      // probe path stays a lookup and §8's ≤ 50 ms mesh hover is untouched.
+      fsaverageFor: (id: DatasetId, vertex: number) => this.#fsaverageFor(id, vertex),
+    };
+  }
+
+  #onProbeLanded(world: vec3): void {
+    const hover = this.#scene.hover;
+    const atCursor = dist3(world, this.#scene.cursor) < 1e-6;
+    const atHover = hover !== null && dist3(world, hover) < 1e-6;
+    if (!atCursor && !atHover) return;
+    this.#emit('probe', { world, result: this.probe(world) });
+  }
+
+  #fsaverageFor(
+    id: DatasetId,
+    vertex: number
+  ): { fsavgVertex: number; fsavgWorld?: vec3; fsavgSpace?: string } | undefined {
+    const corr = this.#fsaverage.get(id);
+    if (corr === undefined || vertex < 0 || vertex >= corr.map.length) return undefined;
+    const fsavgVertex = corr.map[vertex] as number;
+    const named = corr.targetName === undefined ? {} : { fsavgSpace: corr.targetName };
+    const p = corr.positions;
+    if (p === undefined || (fsavgVertex + 1) * 3 > p.length) return { fsavgVertex, ...named };
+    return {
+      fsavgVertex,
+      ...named,
+      fsavgWorld: [
+        p[fsavgVertex * 3] as number,
+        p[fsavgVertex * 3 + 1] as number,
+        p[fsavgVertex * 3 + 2] as number,
+      ],
     };
   }
 
@@ -641,6 +691,14 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#cuts.releaseDataset(id);
     for (const key of [...this.#labelCentroids.keys()]) {
       if (key.startsWith(`${id}|`)) this.#labelCentroids.delete(key);
+    }
+    // Directed task 8: an fsaverage correspondence names four datasets and any of them may be the
+    // one that just went. A stale `map` would keep answering with an index into a file that is no
+    // longer open, which is exactly the "plausible but wrong" the whole feature is written against.
+    this.#fsaverage.delete(id);
+    this.#allVertices.delete(id);
+    for (const key of [...this.#sphereMaps.keys()]) {
+      if (key.split('|').includes(id)) this.#sphereMaps.delete(key);
     }
     this.#teardown(id);
     this.#emit('datasets', [...this.#scene.datasets.values()]);
@@ -1301,6 +1359,82 @@ export class TetravoxEngine implements Engine, PointerHost {
 
   fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null {
     return fromCoordSpace(this.#scene, ref, value);
+  }
+
+  /**
+   * §4.7's `attachFsaverage` (directed task 8). Three worker ops, composed once and cached.
+   *
+   * Everything that can go wrong is a `false`, not a throw: nothing about fsaverage is bundled, the
+   * files are somewhere the user pointed at, and "this pair does not correspond" has to be as
+   * ordinary an answer as "it does".
+   */
+  async attachFsaverage(
+    spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }
+  ): Promise<boolean> {
+    if ('clear' in spec) {
+      this.#fsaverage.delete(spec.surfaceId);
+      return false;
+    }
+    const surface = this.#store.dataset(spec.surfaceId);
+    const subjectSphere = this.#store.dataset(spec.subjectSphereId);
+    const fsavgSphere = this.#store.dataset(spec.fsavgSphereId);
+    if (
+      surface?.kind !== 'mesh' ||
+      subjectSphere?.kind !== 'mesh' ||
+      fsavgSphere?.kind !== 'mesh'
+    ) {
+      return false;
+    }
+    // The map is indexed by the SUBJECT SPHERE's node numbering, and it is read with a vertex index
+    // that came off the displayed surface. Equal node counts is what makes that the same numbering;
+    // checking it is the difference between "no fsaverage row" and a row pointing at a random gyrus.
+    if (surface.nNodes !== subjectSphere.nNodes) return false;
+
+    try {
+      const key = `${spec.subjectSphereId}|${spec.fsavgSphereId}`;
+      let map = this.#sphereMaps.get(key);
+      if (map === undefined) {
+        const target = await this.#verticesOf(spec.fsavgSphereId);
+        if (target === null) return false;
+        const client = this.#workers.get(spec.subjectSphereId)?.client;
+        if (client === undefined) return false;
+        const res = await this.#track(
+          client.call(`spheremap:${key}`, 'sphereMap', {
+            handle: subjectSphere.handle,
+            target,
+          })
+        );
+        map = res.map;
+        this.#sphereMaps.set(key, map);
+      }
+      if (map.length !== surface.nNodes) return false;
+
+      const positions =
+        spec.fsavgSurfaceId === undefined
+          ? undefined
+          : ((await this.#verticesOf(spec.fsavgSurfaceId)) ?? undefined);
+      this.#fsaverage.set(spec.surfaceId, {
+        map,
+        ...(positions !== undefined ? { positions } : {}),
+        ...(spec.targetName !== undefined ? { targetName: spec.targetName } : {}),
+      });
+      this.requestRender();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Every node coordinate of a mesh dataset, world mm, cached — `vertices` with no index list. */
+  async #verticesOf(id: DatasetId): Promise<Float32Array | null> {
+    const cached = this.#allVertices.get(id);
+    if (cached !== undefined) return cached;
+    const ds = this.#store.dataset(id);
+    const client = this.#workers.get(id)?.client;
+    if (ds?.kind !== 'mesh' || client === undefined) return null;
+    const res = await this.#track(client.call(`vertices:${id}`, 'vertices', { handle: ds.handle }));
+    this.#allVertices.set(id, res.positions);
+    return res.positions;
   }
 
   setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void {

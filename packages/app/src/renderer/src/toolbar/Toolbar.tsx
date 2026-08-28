@@ -190,6 +190,18 @@ export function Toolbar(): React.JSX.Element {
         </button>
       </div>
 
+      <button
+        type="button"
+        data-testid="settings-button"
+        title="Settings — the FreeSurfer subjects directory for the fsaverage read-out (§8)"
+        aria-label="Settings"
+        aria-pressed={dialog === 'settings'}
+        className={dialog === 'settings' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+        onClick={() => controller.openDialogKind(dialog === 'settings' ? 'none' : 'settings')}
+      >
+        ⚙
+      </button>
+
       {/* §8's theme switch. Three radio-ish buttons rather than a `<select>`: it is the same
         control shape as the layout and RAD/NEU groups beside it, one click deep instead of two,
         and `aria-pressed` makes the current one announceable. `data-theme-resolved` is what the

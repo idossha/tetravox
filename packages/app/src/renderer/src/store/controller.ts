@@ -26,6 +26,7 @@ import type {
   LayoutKind,
   LoadProgress,
   MeshLayer,
+  ProbeResult,
   ScreenshotOptions,
   ViewId,
   TemplateSpace,
@@ -74,7 +75,7 @@ import {
 } from '../panels/layers/mesh/state';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
 import type { SceneCommand } from '../bridge';
-import type { SubjectSpacesReply } from '../../../preload/index';
+import type { SubjectSpacesReply, SurfaceSpacesReply } from '../../../preload/index';
 import { applyTheme, enginePatch, isThemeChoice, resolveTheme } from '../theme/theme';
 import type { ThemeChoice } from '../theme/theme';
 
@@ -86,6 +87,11 @@ function identityMat4(): Float32Array {
   m[10] = 1;
   m[15] = 1;
   return m;
+}
+
+/** Squared-free distance, for the two "is this still the point we asked about" checks above. */
+function dist3(a: vec3, b: vec3): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
 function errorCode(error: unknown): string {
@@ -109,6 +115,11 @@ export class ShellController {
   private readonly subjectSpaceFiles = new Map<DatasetId, SubjectSpacesReply>();
   /** In-flight (or finished) deformation-field loads, so selecting the space twice loads once. */
   private readonly fieldLoads = new Map<DatasetId, Promise<void>>();
+  /** Surfaces whose fsaverage correspondence has been attempted, so a re-render does not retry. */
+  private readonly fsaverageAttached = new Set<DatasetId>();
+  /** Sphere / fsaverage-surface datasets by path — one load per file, however many surfaces use it. */
+  private readonly helperDatasets = new Map<string, DatasetId>();
+  private readonly helperLoads = new Map<string, Promise<DatasetId | null>>();
   private ticketSeq = 0;
   private toastSeq = 0;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -164,6 +175,16 @@ export class ShellController {
       engine.on('layers', () => this.syncLayers()),
       engine.on('cursor', (world: vec3) => {
         store.setState({ cursor: world, cursorProbe: engine.probe(world), coordDraft: null });
+      }),
+      // Directed task 8: an async mesh row (`locate`, `nearestVertex`) landed for a point that is
+      // still the cursor or the hover. Only the probe is replaced — not the cursor, and not the
+      // coordinate bar's draft, which the `cursor` handler clears and a user may be mid-way through.
+      engine.on('probe', ({ world, result }: { world: vec3; result: ProbeResult }) => {
+        const state = store.getState();
+        if (state.hover !== null && dist3(state.hover, world) < 1e-6) {
+          store.setState({ hoverProbe: result });
+        }
+        if (dist3(state.cursor, world) < 1e-6) store.setState({ cursorProbe: result });
       }),
       engine.on('hover', (world: vec3 | null) => {
         store.setState({
@@ -315,6 +336,9 @@ export class ShellController {
       // Directed task 8: ask main whether a SimNIBS `toMNI/` governs this volume. Fire-and-forget —
       // a registration that is not there, or a bridge that is not there, must not fail the load.
       if (dataset.kind === 'volume') void this.attachSubjectSpaces(dataset.id, dataset.path);
+      // …and the fsaverage correspondence for a surface, when the subjects directory is set and the
+      // spheres are where they should be. Silent on every miss (`attachFsaverage`).
+      if (dataset.kind === 'mesh') void this.attachFsaverage(dataset.id, dataset.path);
     } catch (error: unknown) {
       const code = errorCode(error);
       const message = errorMessage(error);
@@ -510,6 +534,102 @@ export class ShellController {
     this.setThemeChoice(isThemeChoice(settings.theme) ? settings.theme : 'system', {
       persist: false,
     });
+    // Directed task 8's other persisted preference, read in the same round trip.
+    this.store.setState({ freesurferSubjectsDir: settings.freesurferSubjectsDir });
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // §8's settings dialog — the FreeSurfer subjects directory (directed task 8)
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * Persist the subjects directory and re-attach fsaverage to every surface already open.
+   *
+   * The re-attach is the point: a user sets this *because* they are looking at a surface and want
+   * the fsaverage row, and a setting that only took effect on the next file they opened would look
+   * broken. `''` clears it, and every correspondence with it.
+   */
+  async setFreesurferSubjectsDir(dir: string): Promise<void> {
+    this.store.setState({ freesurferSubjectsDir: dir });
+    try {
+      await bridge().setSettings({ freesurferSubjectsDir: dir });
+    } catch {
+      // An unwritable preference still applies to this session (`main/settings.ts`).
+    }
+    for (const dataset of this.store.getState().datasets) {
+      if (dataset.kind !== 'mesh') continue;
+      if (dir.length === 0) {
+        void this.engine.attachFsaverage({ surfaceId: dataset.id, clear: true });
+      } else {
+        this.fsaverageAttached.delete(dataset.id);
+        void this.attachFsaverage(dataset.id, dataset.path);
+      }
+    }
+  }
+
+  /** §8's settings dialog Browse button. Returns the chosen directory, or null when cancelled. */
+  async browseFreesurferSubjectsDir(): Promise<string | null> {
+    const dir = await bridge().chooseDirectory();
+    if (dir === null) return null;
+    await this.setFreesurferSubjectsDir(dir);
+    return dir;
+  }
+
+  /**
+   * Attach the fsaverage correspondence for one opened surface, when every piece is on disk.
+   *
+   * Fire-and-forget, and silent on every miss: a `.msh` head model, a surface with no hemisphere in
+   * its name, a subject with no `sphere.reg`, an unset subjects directory and a `false` from the
+   * engine are all the ordinary case, and none of them is worth a toast. The two spheres and the
+   * fsaverage surface load as datasets with **no layer**, exactly like the `toMNI/` warps.
+   */
+  private async attachFsaverage(datasetId: DatasetId, path: string | undefined): Promise<void> {
+    if (path === undefined || this.fsaverageAttached.has(datasetId)) return;
+    let reply: SurfaceSpacesReply | null;
+    try {
+      reply = await bridge().surfaceSpaces(path);
+    } catch {
+      return;
+    }
+    if (reply === null) return;
+    this.fsaverageAttached.add(datasetId);
+
+    const load = async (p: string): Promise<DatasetId | null> => {
+      // One dataset per file, however many surfaces of the hemisphere are open: `lh.sphere` is the
+      // same 163,842 vertices for every subject in the session, and re-reading it per surface would
+      // be the whole cost of the feature paid again for nothing.
+      const cached = this.helperDatasets.get(p);
+      if (cached !== undefined) return cached;
+      const pending = this.helperLoads.get(p);
+      if (pending !== undefined) return await pending;
+      const promise = this.engine
+        .addDataset({ kind: 'path', path: p })
+        .then((ds) => {
+          this.helperDatasets.set(p, ds.id);
+          return ds.id;
+        })
+        .catch(() => null);
+      this.helperLoads.set(p, promise);
+      return await promise;
+    };
+
+    const subjectSphereId = await load(reply.subjectSphere.path);
+    const fsavgSphereId = await load(reply.fsavgSphere.path);
+    if (subjectSphereId === null || fsavgSphereId === null) {
+      this.fsaverageAttached.delete(datasetId);
+      return;
+    }
+    const fsavgSurfaceId =
+      reply.fsavgSurface === undefined ? null : await load(reply.fsavgSurface.path);
+
+    const ok = await this.engine.attachFsaverage({
+      surfaceId: datasetId,
+      subjectSphereId,
+      fsavgSphereId,
+      ...(fsavgSurfaceId !== null ? { fsavgSurfaceId } : {}),
+      targetName: reply.targetName,
+    });
+    if (!ok) this.fsaverageAttached.delete(datasetId);
   }
 
   /**

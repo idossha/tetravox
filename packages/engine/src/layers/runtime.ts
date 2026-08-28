@@ -106,6 +106,12 @@ export interface LayerRuntimeContext {
    * `sphere.reg` and an fsaverage `sphere` *both* on disk, and nothing is bundled. The probe row
    * then simply has no fsaverage line — an absent registration is not an error.
    */
+  /**
+   * Tell the engine an **asynchronous** probe row has landed for `world`, so it can re-emit it to
+   * the app (§4.7's `probe` event, directed task 8). Optional: a runtime whose probe is synchronous
+   * has nothing to announce.
+   */
+  probeLanded?(world: vec3): void;
   fsaverageFor?(
     id: DatasetId,
     vertex: number

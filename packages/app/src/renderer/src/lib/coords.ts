@@ -12,9 +12,16 @@
 
 import type { mat4, vec3 } from '@tetravox/engine';
 
-/** The §8 copy format: one decimal, space-separated, e.g. `-42.0 18.0 6.0`. */
+/**
+ * The §8 copy format: one decimal, space-separated, e.g. `-42.0 18.0 6.0`.
+ *
+ * `Array.from` first, because a `vec3` that came off the §6.5 wire may really be a `Float32Array`:
+ * `TypedArray.prototype.map` returns a **typed** array, so mapping to strings silently produces
+ * numbers again and `join` then prints full f32 precision. The producers normalise (`layers/mesh.ts`),
+ * and this is the second lock on a failure whose only symptom is a plausible-looking number.
+ */
 export function formatTriple(v: vec3, decimals = 1): string {
-  return v.map((c) => formatNumber(c, decimals)).join(' ');
+  return Array.from(v, (c) => formatNumber(c, decimals)).join(' ');
 }
 
 /** `-0` prints as `0.0`, never `-0.0`: a sign on zero is a laterality question a reader should not have. */

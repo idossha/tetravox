@@ -105,6 +105,8 @@ export interface ProbeRow {
    */
   fsavgVertex?: number;
   fsavgWorld?: vec3;
+  /** Which fsaverage surface {@link ProbeRow.fsavgWorld} is on, e.g. `fsaverage lh.pial`. */
+  fsavgSpace?: string;
 }
 
 export interface ProbeResult {
@@ -173,6 +175,27 @@ export interface CoordSpaceOption {
 }
 
 /**
+ * What {@link Engine.attachFsaverage} needs (directed task 8).
+ *
+ * Every id is an ordinary loaded dataset. The subject's `sphere.reg` and the displayed surface must
+ * share a node numbering — they do, for every surface of one hemisphere of one subject
+ * (`lh.central.gii`, `lh.pial.gii` and `lh.sphere.reg.gii` all carry 245,762 nodes `[DATA]`) — and
+ * the engine checks it rather than trusting it.
+ */
+export interface FsaverageSpec {
+  /** The subject surface being looked at, e.g. `lh.central.gii`. */
+  surfaceId: DatasetId;
+  /** That hemisphere's registered sphere, e.g. `lh.sphere.reg.gii`. */
+  subjectSphereId: DatasetId;
+  /** The fsaverage sphere, e.g. `fsaverage/surf/lh.sphere`. */
+  fsavgSphereId: DatasetId;
+  /** The fsaverage surface whose coordinate is quoted, e.g. `fsaverage/surf/lh.pial`. */
+  fsavgSurfaceId?: DatasetId;
+  /** What to call the target in the readout, e.g. `fsaverage lh.pial`. */
+  targetName?: string;
+}
+
+/**
  * One row of the `labelCentroids` op (§6.5.2), as §8's region panel reads it.
  *
  * `count` is the region's voxel count and `centroid` its centre of mass in world RAS — R5's row
@@ -228,6 +251,20 @@ export interface EngineEvents {
   cursor: vec3;
   hover: vec3 | null;
   pick: PickResult | null;
+  /**
+   * An **asynchronous** probe row landed for a point that is still the cursor or the hover
+   * (directed task 8).
+   *
+   * §4.7 has always said a mesh probe is "at most one round trip stale": `probe` is synchronous,
+   * `locate` and `nearestVertex` are worker calls, so the row the `cursor` event's `probe` returned
+   * is the one from *before* the click. Until now nothing told the app when the real one arrived, so
+   * §8's info panel showed a mesh row only after a second interaction — and for a surface, whose
+   * only row is the vertex, it showed nothing at all.
+   *
+   * Deliberately its own event rather than a second `cursor`: the app's `cursor` handler also
+   * clears the coordinate bar's draft, and a probe landing must not delete what a user is typing.
+   */
+  probe: { world: vec3; result: ProbeResult };
   layers: Layer[];
   datasets: Dataset[];
   progress: LoadProgress;
@@ -313,6 +350,25 @@ export interface Engine {
    * result back here.
    */
   setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void;
+  /**
+   * Build the **fsaverage correspondence** for a subject surface, so a pick on it reports an
+   * fsaverage vertex as well as its own (§3, directed task 8).
+   *
+   * Four datasets, all already loaded through the ordinary `addDataset`: the surface being looked
+   * at, the subject hemisphere's registered sphere, the fsaverage sphere, and (optionally) the
+   * fsaverage surface whose coordinates are quoted. Resolves `true` when a correspondence was
+   * built, `false` when it could not be — a node-count mismatch between the sphere and the surface,
+   * a dataset that is not a mesh, a worker that has gone. **Never throws**: nothing is bundled, so
+   * "there is no fsaverage here" is the ordinary case and must not be an error.
+   *
+   * It is an engine member rather than app code because the three ops it composes (`vertices`,
+   * `sphereMap`, `vertices`) are §6.5 worker calls, and §5 rule 3 keeps the app off that path
+   * entirely. The fsaverage sphere's directions and the resulting map are cached per dataset pair,
+   * so a second surface of the same hemisphere costs nothing.
+   *
+   * `{ surfaceId, clear: true }` drops the correspondence attached to that surface.
+   */
+  attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean>;
 
   /**
    * §8's region panel: every label of a label-volume layer, with its voxel count and world centroid
@@ -503,6 +559,10 @@ export class MockEngine implements Engine {
   setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void {
     void datasetId;
     void space;
+    throw new Error('phase 1');
+  }
+  attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean> {
+    void spec;
     throw new Error('phase 1');
   }
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {

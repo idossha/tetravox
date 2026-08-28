@@ -87,9 +87,9 @@ function Row({ row }: { row: ProbeRow }): React.JSX.Element {
         )}
         {row.fsavgVertex !== undefined && (
           <>
-            <dt>fsaverage</dt>
+            <dt>{row.fsavgSpace ?? 'fsaverage'}</dt>
             <dd data-testid="probe-fsavg">
-              {row.fsavgVertex}
+              vertex {row.fsavgVertex}
               {row.fsavgWorld === undefined ? '' : ` · ${formatTriple(row.fsavgWorld)}`}
             </dd>
           </>

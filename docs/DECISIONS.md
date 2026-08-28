@@ -2809,3 +2809,48 @@ cannot collide over the single-instance lock, which also discards anything per-p
 JSON file, `e2e/fixtures.ts` gains a `userDataDir` option, and `theme.spec.ts` launches twice against one
 directory. Main also reads the file to choose `BrowserWindow.backgroundColor`, so a light-theme launch does not
 open on a black rectangle.
+
+---
+
+## 2026-08-28 — the fsaverage read-out, app half (directed task 8, `feat/coordinate-systems`)
+
+- 2026-08-28 — **The FreeSurfer subjects directory is an app setting, and nothing is bundled.**
+  `fsaverage` is FreeSurfer's, ~6 MB per surface and ~50 MB per hemisphere of them, and every machine
+  that wants this feature already has a copy. `AppSettings.freesurferSubjectsDir` (`''` = unset) sits
+  beside the theme in `settings.json`; it describes the **machine**, not the data, so it is not a
+  `ViewSpec` field. When it is empty, or the files under it are not there, the readout omits the
+  fsaverage row rather than reporting anything — the same shape as a subject with no `toMNI/`.
+- 2026-08-28 — **`coercePatch` exists because a patch is not a settings object.** `writeSettings` ran
+  `coerceSettings({ ...readSettings(), ...coerceSettings(patch) })`, and `coerceSettings` fills every
+  absent field with its default — correct for a file, data loss for a partial write. With one key it
+  was invisible; the moment a second key existed, setting the subjects directory would have silently
+  reset the user's theme. `coercePatch` keeps absent keys absent, and a field of the wrong **type** is
+  dropped rather than defaulted, because defaulting is indistinguishable from the user asking for the
+  default.
+- 2026-08-28 — **The hemisphere comes from the file name.** A SimNIBS GIfTI pointset carries no
+  `AnatomicalStructurePrimary`, so `lh.` / `rh.` is the only place it is written down. A surface that
+  declares none — `ernie.msh` — simply has no correspondence, which is the same answer as an unset
+  setting. Both spellings of the subject sphere are looked for (`lh.sphere.reg.gii` from SimNIBS,
+  the extensionless `lh.sphere.reg` from FreeSurfer's own `surf/`); the reader sniffs the format by
+  magic either way, so the only question is which name is on disk.
+- 2026-08-28 — **The correspondence is built by the engine, from four ordinary datasets.**
+  `Engine.attachFsaverage` composes `vertices` → `sphereMap` → `vertices`; the app only discovers the
+  paths (in main, §5) and loads the files. The three helpers get **no layer** — nobody wants to look
+  at a sphere — exactly like the `toMNI/` warps, and they are cached by path, so `fsaverage/lh.sphere`
+  is read once however many surfaces of that hemisphere are open. The engine checks that the
+  `sphere.reg` and the displayed surface have the same node count rather than trusting it: the map is
+  indexed by the sphere's numbering and read with an index off the surface, and a mismatch would point
+  the readout at a random gyrus instead of showing nothing.
+- 2026-08-28 — **`EngineEvents` gains `probe`, and it fixes a hole that predates this branch.** §4.7
+  has always said a mesh probe is "at most one round trip stale", but nothing told the app when the
+  real row arrived, so §8's info panel showed a mesh row only after a *second* interaction — and for a
+  surface, whose only row is the vertex, it showed nothing at all. `LayerRuntimeContext.probeLanded`
+  now announces an async row and the engine re-emits it as `probe` when that point is still the cursor
+  or the hover. A second `cursor` emit would have been the smaller change and the wrong one: the app's
+  `cursor` handler clears the coordinate bar's draft, and a probe landing must not delete what a user
+  is typing.
+- 2026-08-28 — **An fsaverage coordinate is quoted in fsaverage's own tkr-RAS**, labelled with the
+  surface it came from (`fsaverage lh.pial`) rather than called "RAS". §3 loads a FreeSurfer binary
+  surface as-is when no companion volume is named, and tkr-RAS is the space `mris_info` and
+  `nibabel.freesurfer.read_geometry` report — so the number in the panel is the number a FreeSurfer
+  user expects, and the label says which space it is rather than leaving them to guess.

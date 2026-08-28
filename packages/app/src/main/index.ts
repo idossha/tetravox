@@ -14,7 +14,7 @@
  * demands.
  */
 
-import { BrowserWindow, app, ipcMain, nativeTheme, session } from 'electron';
+import { BrowserWindow, app, dialog, ipcMain, nativeTheme, session } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -23,6 +23,7 @@ import { buildMenu, sendOpened, showOpenDialog, toOpened } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
 import { discoverSubjectSpaces } from './subject-spaces';
+import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
 import {
   armWatchdog,
@@ -264,6 +265,50 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
         : {}),
     };
   });
+  /**
+   * §3's fsaverage lookup (directed task 8): the four files a pick on a subject surface needs.
+   *
+   * Paths only, each admitted to the `tetravox://file/…` allow-list — the workers fetch them. The
+   * subjects directory comes from `settings.json`, so the renderer does not have to pass it and
+   * cannot pass one the user did not choose.
+   */
+  ipcMain.handle('tetravox:surface-spaces', (_event, path: unknown) => {
+    if (typeof path !== 'string') return null;
+    const found = discoverSurfaceSpaces(path, readSettings().freesurferSubjectsDir);
+    if (found === null) return null;
+    const admit = (p: string | undefined): { path: string; url: string } | undefined => {
+      if (p === undefined) return undefined;
+      const real = allowPath(p);
+      return real === null ? undefined : { path: real, url: fileUrl(real) };
+    };
+    const subjectSphere = admit(found.subjectSphere);
+    const fsavgSphere = admit(found.fsavgSphere);
+    if (subjectSphere === undefined || fsavgSphere === undefined) return null;
+    const fsavgSurface = admit(found.fsavgSurface);
+    return {
+      hemisphere: found.hemisphere,
+      targetName: found.targetName,
+      subjectSphere,
+      fsavgSphere,
+      ...(fsavgSurface !== undefined ? { fsavgSurface } : {}),
+    };
+  });
+
+  /** The Browse button of §8's settings dialog. One directory, or null when the user cancelled. */
+  ipcMain.handle('tetravox:choose-directory', async () => {
+    const window = getWindow();
+    const options = {
+      properties: ['openDirectory' as const],
+      title: 'FreeSurfer subjects directory',
+    };
+    const result =
+      window === null
+        ? await dialog.showOpenDialog(options)
+        : await dialog.showOpenDialog(window, options);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  });
+
   ipcMain.handle('tetravox:startup-paths', () => {
     const opened = startupPaths;
     startupPaths = [];

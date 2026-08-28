@@ -135,6 +135,11 @@ export interface UiState {
   // -- chrome ------------------------------------------------------------------------------------
   activeViewId: ViewId | null;
   coordSpace: CoordSpace;
+  /**
+   * §8's settings dialog: the FreeSurfer subjects directory, mirrored from `settings.json` so the
+   * dialog can render it without a round trip (directed task 8). `''` = unset.
+   */
+  freesurferSubjectsDir: string;
   /** `null` = the field follows the cursor; a string = the user is editing. */
   coordDraft: string | null;
   loads: LoadCard[];
@@ -223,7 +228,7 @@ export interface SceneFileRecord {
   savedAt: number | null;
 }
 
-export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard';
+export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard' | 'settings';
 
 /** One row of the relocate dialog: the ref, what was tried for it, and what the user picked. */
 export interface RelocateRow {
@@ -276,6 +281,7 @@ export const INITIAL_UI: UiState = {
   quality: 'full',
   activeViewId: null,
   coordSpace: WORLD_SPACE,
+  freesurferSubjectsDir: '',
   coordDraft: null,
   loads: [],
   toasts: [],

@@ -29,6 +29,7 @@
 import type {
   CoordSpaceOption,
   CoordSpaceRef,
+  FsaverageSpec,
   TemplateSpace,
   Iso3dStatus,
   Annotations,
@@ -638,6 +639,18 @@ export class NoGlEngine implements Engine {
 
   fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null {
     return fromCoordSpace(this.state, ref, value);
+  }
+
+  /**
+   * The stand-in has no worker, so it has no `sphereMap` to run — and a UI developed against it must
+   * still compile and behave. `false` is the same answer the real engine gives for "there is no
+   * fsaverage here", which is the ordinary case (directed task 8).
+   */
+  async attachFsaverage(
+    spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }
+  ): Promise<boolean> {
+    void spec;
+    return false;
   }
 
   setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void {

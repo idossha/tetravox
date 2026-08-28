@@ -16,6 +16,7 @@ import type { DatasetRef, ScreenshotOptions } from '@tetravox/engine';
 import { KeyboardHelp } from '../keyboard/KeyboardHelp';
 import { RelocateDialog } from '../dialogs/RelocateDialog';
 import { ScreenshotDialog } from '../dialogs/ScreenshotDialog';
+import { SettingsDialog } from '../dialogs/SettingsDialog';
 import { useController, useUi } from './context';
 
 export function ShellDialogs(): React.JSX.Element | null {
@@ -23,6 +24,7 @@ export function ShellDialogs(): React.JSX.Element | null {
   const dialog = useUi((s) => s.dialog);
   const relocate = useUi((s) => s.relocate);
   const screenshotOptions = useUi((s) => s.screenshotOptions);
+  const subjectsDir = useUi((s) => s.freesurferSubjectsDir);
 
   const capture = useCallback(
     (opts: ScreenshotOptions) => controller.captureScreenshot(opts),
@@ -32,6 +34,17 @@ export function ShellDialogs(): React.JSX.Element | null {
   const close = useCallback(() => controller.closeDialog(), [controller]);
 
   if (dialog === 'keyboard') return <KeyboardHelp open onClose={close} />;
+
+  if (dialog === 'settings') {
+    return (
+      <SettingsDialog
+        subjectsDir={subjectsDir}
+        onSubjectsDir={(dir) => void controller.setFreesurferSubjectsDir(dir)}
+        onBrowse={() => void controller.browseFreesurferSubjectsDir()}
+        onClose={close}
+      />
+    );
+  }
 
   if (dialog === 'screenshot') {
     return (
