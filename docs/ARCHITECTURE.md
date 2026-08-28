@@ -1,3 +1,10 @@
+---
+layout: page
+title: Architecture
+permalink: /ARCHITECTURE.html
+nav_order: 7
+---
+
 # Tetravox — Architecture Contract
 
 > Desktop viewer for **voxel volumes** (NIfTI) and **finite-element / surface meshes** (Gmsh `.msh`, GIfTI,
@@ -2464,7 +2471,7 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | |
 
 **When each `test` leg runs.** The macOS leg is gated by the **matrix itself** —
-`os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[…, "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}`
+{% raw %}`os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[…, "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}`{% endraw %}
 — and **not** by a job-level `if:`: the `matrix` context does not exist in `jobs.<id>.if`, so an `if:`
 reading `matrix.os` is an **invalid workflow**, not a false condition, and the run fails in 0 s with no jobs
 at all. GitHub bills macOS at **10×** the Linux rate on a private repo, and the golden authority is ubuntu,

@@ -1,3 +1,10 @@
+---
+layout: page
+title: Benchmarks
+permalink: /BENCHMARKS.html
+nav_order: 10
+---
+
 # Benchmarks
 
 The numbers §9 of `docs/ARCHITECTURE.md` is measured against. Two renderer classes appear throughout:

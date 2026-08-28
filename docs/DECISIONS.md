@@ -1,3 +1,10 @@
+---
+layout: page
+title: Decisions
+permalink: /DECISIONS.html
+nav_order: 8
+---
+
 # Decision log
 
 **How to read this.** Append-only and chronological: entries are `YYYY-MM-DD — decision — why —
@@ -1400,8 +1407,8 @@ Each entry below names the problem, the fix, and the evidence.
   so every PR iteration was costing ten Linux runs' worth of budget for a second opinion on a matrix
   whose *authority* is the other leg: §11 makes `ubuntu-24.04` the golden authority, and §11's own rule
   is that a golden passing on macOS and failing on ubuntu must be regenerated on ubuntu. Implemented in
-  the **matrix**, `os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') ||
-  fromJSON('["ubuntu-24.04", "macos-latest"]') }}`, so the job list, the steps, every cache and the
+  the **matrix**, {% raw %}`os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') ||
+  fromJSON('["ubuntu-24.04", "macos-latest"]') }}`{% endraw %}, so the job list, the steps, every cache and the
   packaged-`.dmg` e2e stay exactly as they were on the events that do run macOS. A job-level
   `if: matrix.os != 'macos-latest' || …` was tried first and is **not a valid workflow**: the `matrix`
   context does not exist in `jobs.<id>.if` (only `github`, `needs`, `vars`, `inputs` do), and the run
