@@ -1,0 +1,343 @@
+# Tetravox release — ARCHITECTURE.md §12.1's `package` matrix, on a tag.
+#
+# The shape is TI-Toolbox's `release-build.yml`, which this project's maintainer runs elsewhere:
+#
+#   create-release  →  one job per OS, each uploading its own artefacts to that release
+#                   →  verify, which fails if an expected asset is missing
+#
+# Creating the Release first (rather than collecting everything and creating it at the end) means a
+# slow leg does not hold the fast ones hostage: each platform attaches its assets as soon as it has
+# them, and a leg that fails leaves the others already attached. The cost is that the Release object
+# exists before it is complete, which is exactly why it is created as a **draft** and why `verify`
+# exists.
+#
+# ONE DELIBERATE DEVIATION from the reference workflow: `draft: true`. The reference publishes
+# immediately; here nothing is public until a human has looked at the assets and pressed Publish
+# (docs/RELEASING.md §3). A draft missing a `.dmg` is a fixable morning; a published one is not.
+#
+# `workflow_dispatch` builds the same matrix without touching any Release: `create-release` and every
+# upload step are `if:`-gated on `refs/tags/`, so a dispatch still produces downloadable workflow
+# artefacts and proves the matrix.
+#
+# The repository is public, so Actions minutes are free and the 10x macOS cost policy that shapes
+# `ci.yml`'s matrix does not apply here (DECISIONS 2026-08-27 is about a private repo).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the Release and attach assets
+
+env:
+  CARGO_TERM_COLOR: always
+  # Same pin as ci.yml — wasm-pack's version is pinned in scripts/build-wasm.sh and wasm-bindgen is
+  # `=0.2.127` in Cargo.toml. A mismatch produces glue that does not match the module (§12.3).
+  WASM_PACK_VERSION: '0.15.0'
+
+jobs:
+  # ------------------------------------------------------------------------------------------------
+  # 1. The Release object, before anything is built
+  # ------------------------------------------------------------------------------------------------
+  create-release:
+    name: Create the draft Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # `generate_release_notes` diffs against the previous tag
+
+      - name: Version and notes
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # node rather than awk/sed: the CHANGELOG heading contains `[` and `]` and the body contains
+          # backticks and `$`. A heredoc-delimited multi-line value is the only way to pass it on.
+          node scripts/changelog-section.mjs "$version" > /tmp/notes.md
+          {
+            echo 'body<<TETRAVOX_EOF'
+            cat /tmp/notes.md
+            echo 'TETRAVOX_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create the draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Tetravox ${{ steps.version.outputs.version }}
+          body: ${{ steps.version.outputs.body }}
+          generate_release_notes: true
+          draft: true
+          prerelease: false
+
+  # ------------------------------------------------------------------------------------------------
+  # 2. One job per OS/arch: build, smoke-test, upload a workflow artefact, attach to the Release.
+  # ------------------------------------------------------------------------------------------------
+  build:
+    name: ${{ matrix.name }}
+    needs: create-release
+    # `always()` plus the explicit check, so a `workflow_dispatch` run — where `create-release` is
+    # skipped rather than successful — still builds the matrix. A *tagged* run whose Release could not
+    # be created stops here instead of building four artefacts with nowhere to put them.
+    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    # Windows is optional; see the matrix comment. A failure there must not fail the workflow.
+    continue-on-error: ${{ matrix.required == 'no' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS: one runner per slice. `macos-latest` is arm64-only, and `--x64` on it would produce
+          # an app only Rosetta can launch — a weaker smoke test than a native one, and the difference
+          # is measurable (the same packaged e2e takes 7.6 s native and 4.9 min under Rosetta).
+          - name: macOS arm64 (dmg + zip)
+            os: macos-latest
+            builder: --mac --arm64
+            smoke: job
+            required: 'yes'
+            artefacts: |
+              packages/app/release/*.dmg
+              packages/app/release/*.zip
+              packages/app/release/*.blockmap
+          - name: macOS x64 (dmg + zip)
+            os: macos-26-intel
+            builder: --mac --x64
+            smoke: job
+            required: 'yes'
+            artefacts: |
+              packages/app/release/*.dmg
+              packages/app/release/*.zip
+              packages/app/release/*.blockmap
+          - name: Linux x64 (AppImage + deb + tar.gz)
+            os: ubuntu-24.04
+            builder: --linux --x64
+            smoke: job
+            required: 'yes'
+            artefacts: |
+              packages/app/release/*.AppImage
+              packages/app/release/*.deb
+              packages/app/release/*.tar.gz
+          # Windows is OPTIONAL. macOS and Linux are the priority platforms; this leg is here only
+          # because it costs nothing to keep — `electron-builder --win --x64` on a stock
+          # `windows-latest` downloads its own NSIS and produces an unsigned installer with no extra
+          # tooling: no wine, no Visual Studio, no certificate. `continue-on-error` plus
+          # `required: no` mean a Windows failure never blocks a macOS/Linux release; `verify` reports
+          # it as an absence instead of failing on it.
+          - name: Windows x64 (nsis, optional)
+            os: windows-latest
+            builder: --win --x64
+            smoke: version
+            required: 'no'
+            artefacts: |
+              packages/app/release/*.exe
+              packages/app/release/*.blockmap
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # §12.2: pin the electron download cache to one path on every runner — macOS would otherwise put
+      # it under ~/Library/Caches. Not in `env:`, which is not shell-expanded.
+      - name: Pin the download cache to the §12.2 path
+        shell: bash
+        run: echo "ELECTRON_CACHE=$HOME/.cache/electron" >> "$GITHUB_ENV"
+
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup show
+          rustc --version
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin
+            target
+          key: cargo-${{ matrix.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ matrix.os }}-
+
+      - name: Resolve the pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ matrix.os }}-
+
+      - name: Electron binary cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: electron-${{ matrix.os }}-
+
+      - name: Install wasm-pack ${{ env.WASM_PACK_VERSION }} (pinned by scripts/build-wasm.sh)
+        shell: bash
+        run: |
+          if [ "$(wasm-pack --version 2>/dev/null | awk '{print $2}')" != "$WASM_PACK_VERSION" ]; then
+            cargo install wasm-pack --version "$WASM_PACK_VERSION" --locked --force
+          fi
+          wasm-pack --version
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      # The Linux smoke test launches the packaged binary, so this leg needs the same runtime
+      # libraries and display the `test` job provides. `libasound2t64` is the 24.04 name — the
+      # 64-bit-time_t rename makes an unqualified `libasound2` unsatisfiable there.
+      - name: Linux runtime deps + Xvfb
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-utils libgtk-3-0 libnss3 libasound2t64
+          Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
+          for _ in $(seq 1 30); do
+            if xdpyinfo -display :99 >/dev/null 2>&1; then
+              echo "DISPLAY=:99" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Xvfb never came up on :99" >&2
+          exit 1
+
+      - name: pnpm wasm
+        run: pnpm wasm
+
+      - name: Icons must be present (never ship the stock Electron logo)
+        shell: bash
+        run: bash scripts/ensure-icons.sh
+
+      - name: pnpm build
+        run: pnpm -r --if-present run build
+
+      # `--publish never`, and it is load-bearing: electron-builder reads `CI=true` as consent to
+      # publish, and without the flag it builds every artefact and *then* dies with
+      # `⨯ GitHub Personal Access Token is not set`. Attaching assets is the explicit
+      # `softprops/action-gh-release` step below, never a side effect of the build.
+      - name: electron-builder ${{ matrix.builder }}
+        shell: bash
+        run: pnpm --filter @tetravox/app exec electron-builder --config electron-builder.yml ${{ matrix.builder }} --publish never
+
+      # §12.1: "launch the packaged binary with a CLI arg pointing at a fixture and assert it exits 0
+      # after rendering one frame." macOS and Linux do exactly that; Windows asserts launch-and-exit,
+      # for the reason scripts/smoke-artefact.mjs documents at length.
+      - name: Artefact smoke test
+        shell: bash
+        run: |
+          if [ "${{ matrix.smoke }}" = "version" ]; then
+            node scripts/smoke-artefact.mjs --version-only
+          else
+            node scripts/smoke-artefact.mjs
+          fi
+
+      - name: Upload the workflow artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tetravox-${{ matrix.os }}
+          path: ${{ matrix.artefacts }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # Straight onto the Release from the runner that built them — no download-artifact round trip.
+      # Tagged runs only: a `workflow_dispatch` has no Release to attach to.
+      - name: Attach to the Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: ${{ matrix.artefacts }}
+          fail_on_unmatched_files: true
+
+  # ------------------------------------------------------------------------------------------------
+  # 3. Verify. A release is not done because four jobs went green — it is done when the assets a user
+  #    will click on are actually attached.
+  # ------------------------------------------------------------------------------------------------
+  verify:
+    name: Verify the Release assets
+    needs: [create-release, build]
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.create-release.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Every expected asset must be attached
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --json assets --jq '.assets[].name' | sort > /tmp/attached.txt
+          echo "attached:"
+          sed 's/^/  /' /tmp/attached.txt
+
+          # REQUIRED — macOS and Linux are the priority platforms, and a release missing any of these
+          # is not a release. The arch token is each ecosystem's own spelling of x64
+          # (docs/RELEASING.md §1): `x86_64` for the AppImage, `amd64` for the deb.
+          required=(
+            "Tetravox-$VERSION-mac-arm64.dmg"
+            "Tetravox-$VERSION-mac-arm64.zip"
+            "Tetravox-$VERSION-mac-x64.dmg"
+            "Tetravox-$VERSION-mac-x64.zip"
+            "Tetravox-$VERSION-linux-x86_64.AppImage"
+            "Tetravox-$VERSION-linux-amd64.deb"
+            "Tetravox-$VERSION-linux-x64.tar.gz"
+          )
+          # OPTIONAL — Windows is a bonus leg. Absence is reported, not fatal.
+          optional=("Tetravox-$VERSION-win-x64.exe")
+
+          missing=0
+          for asset in "${required[@]}"; do
+            if grep -qxF "$asset" /tmp/attached.txt; then
+              echo "ok       $asset"
+            else
+              echo "MISSING  $asset (required)" >&2
+              missing=1
+            fi
+          done
+          for asset in "${optional[@]}"; do
+            if grep -qxF "$asset" /tmp/attached.txt; then
+              echo "ok       $asset (optional)"
+            else
+              echo "absent   $asset (optional — the Windows leg did not deliver)"
+            fi
+          done
+
+          if [ "$missing" != "0" ]; then
+            echo >&2
+            echo "The draft Release is incomplete. Do not publish it: re-run the failed build leg," >&2
+            echo "or delete the draft and the tag and cut the release again." >&2
+            exit 1
+          fi
+          echo
+          echo "All required assets are attached. Review the draft and press Publish."

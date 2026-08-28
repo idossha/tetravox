@@ -23,7 +23,13 @@ export function packagedExecutable(): string | null {
   const release = join(APP_ROOT, 'release');
   if (!existsSync(release)) return null;
   if (process.platform === 'darwin') {
-    for (const dir of readdirSync(release)) {
+    // The HOST's own architecture first. electron-builder writes arm64 to `release/mac-arm64` and
+    // x64 to `release/mac`; now that the config builds both slices, a plain readdir finds `mac`
+    // first and this suite spends its whole run driving the **x64** app under Rosetta while
+    // reporting that it tested the packaged one. It passes, which is what makes it worth guarding:
+    // the arm64 artefact — the one nearly every user downloads — would never be launched.
+    const preferred = process.arch === 'arm64' ? ['mac-arm64', 'mac'] : ['mac', 'mac-arm64'];
+    for (const dir of [...preferred, ...readdirSync(release)]) {
       const exe = join(release, dir, 'Tetravox.app', 'Contents', 'MacOS', 'Tetravox');
       if (existsSync(exe)) return exe;
     }

@@ -6,6 +6,12 @@
   "description": "Electron main/preload/renderer (React UI) and packaging config (ARCHITECTURE.md §5, §7.1, §8).",
   "license": "MIT",
   "author": "Tetravox contributors",
+  "//homepage": "REQUIRED BY THE .deb TARGET. electron-builder reads `homepage` from this file for the Debian control file's Homepage field and hard-fails the deb build without it — `⨯ Please specify project homepage` — after the AppImage and tar.gz have already been written, so the run looks like it nearly worked. macOS and Windows never read it.",
+  "homepage": "https://github.com/idossha/tetravox",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/idossha/tetravox.git"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -14,7 +20,7 @@
     "e2e": "electron-vite build && playwright test",
     "e2e:packaged": "playwright test --project=packaged",
     "walkthrough": "electron-vite build && node scripts/record-walkthrough.mjs",
-    "package": "electron-builder --config electron-builder.yml"
+    "package": "electron-builder --config electron-builder.yml --publish never"
   },
   "dependencies": {
     "@tetravox/engine": "workspace:*",
