@@ -38,3 +38,4 @@ exclude:
   - requirements/
   - media/walkthrough.manifest.json
   - link_check.py
+  - "reports/**/*.html"
