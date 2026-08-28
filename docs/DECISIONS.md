@@ -1476,3 +1476,16 @@ Each entry below names the problem, the fix, and the evidence.
   its status bar for the machine that has none. Asserting the canvas only through `readPixels` and
   dropping the screenshot leg — rejected: §11's whole point is that the screenshot and the drawing
   buffer must agree, and on macOS they do.
+
+- 2026-08-27 — **The `test` job is capped at `timeout-minutes: 45`.** A green leg is ~8 min on ubuntu
+  and ~5 min on macOS (run `33125834965`), so the cap cannot fire on a working build. It exists for the
+  failure mode this suite actually has, which is not a hang: when the engine page never publishes
+  `window.__tvxEngine`, every Playwright test still *starts*, waits out its own 30 s timeout and fails,
+  ~120 of them per project — the job stays "in progress", billing, for hours while producing the same
+  one-line diagnosis over and over. Run `33116778462` spent **3 h 14 m of macOS runner time, at the 10x
+  private-repo rate**, on a defect that was fully visible in its first minute, and run `33126921336`
+  was heading the same way on ubuntu when it was cancelled by hand. 45 min is five times a green run.
+  Lowering Playwright's per-test timeout instead — rejected: 30 s is a *test* budget tuned to the
+  slowest legitimate golden, and shrinking it to bound the *job* would trade real coverage for a
+  billing property. A shorter step-level cap on `pnpm e2e` alone — rejected as strictly weaker: the
+  cache, install and packaging steps can wedge too, and one job-level cap covers all of them.

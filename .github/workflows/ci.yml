@@ -27,6 +27,14 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A green `test` leg is ~8 min on ubuntu and ~5 min on macOS (measured, run 33125834965). The cap
+    # is not for the happy path; it is for the one where the engine cannot start. Playwright's
+    # per-test timeout is 30 s and the engine suite is ~120 tests over two projects, so a page that
+    # never publishes `window.__tvxEngine` does not hang — it fails once per test, one timeout at a
+    # time, and bills every second of it. That is what run 33116778462 did on `main`: **3 h 14 m on a
+    # macOS runner, at the 10x rate**, for a failure that was fully diagnosable from its first
+    # minute. 45 min is five times a green run and still cuts that worst case by 4x.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

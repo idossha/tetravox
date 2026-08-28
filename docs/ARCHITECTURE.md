@@ -2245,6 +2245,13 @@ is already gated on the runner whose pixels decide. macOS remains a hard gate on
 `.dmg` e2e, which exists nowhere else — so a PR that is green on ubuntu can still turn `main` red; that is the
 accepted cost of the policy, and it is why the macOS leg is not merely deleted.
 
+The `test` job also carries **`timeout-minutes: 45`**, and it is part of the same policy. A green leg is ~8 min
+on ubuntu and ~5 min on macOS, so the cap never touches a working build; it exists because this suite's
+characteristic failure is not a hang but a **slow-motion pile of timeouts** — an engine page that never
+publishes `window.__tvxEngine` fails ~120 Playwright tests at 30 s each, on each project, and bills every
+second. Run `33116778462` did exactly that for **3 h 14 m on a macOS runner at the 10x rate**, for a defect
+visible in its first minute.
+
 `pnpm package` on a developer machine produces that platform's artefacts only. Linux artefacts come from CI or
 `docker run electronuserland/builder`.
 Every `package` job ends with an **artefact smoke test**: launch the packaged binary with a CLI arg pointing at a

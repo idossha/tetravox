@@ -266,6 +266,10 @@ with no change of shape.
   root-owned setuid, and Chromium aborts (`SIGTRAP`) rather than run unsandboxed — even for `--version`.
   Same reason `packages/app/e2e/fixtures.ts` passes `--no-sandbox` on every Linux launch (§12.2).
 * **`TETRAVOX_TESTDATA` is unset**, and a step asserts it — real-data tests skip in CI by design.
+* The job carries **`timeout-minutes: 45`**. A green leg is ~8 min on ubuntu and ~5 min on macOS, so the
+  cap only ever fires on the failure mode this suite actually has: an engine that cannot start does not
+  hang, it times out once per test — ~120 tests × 30 s, twice over on a two-project run — and bills all
+  of it. Run `33116778462` spent **3 h 14 m of macOS runner time at the 10x rate** that way.
 * An **Xvfb** is started on the Linux runner and exported as `DISPLAY`, because Electron needs an X server
   and the app E2E runs there. The step waits on `xdpyinfo` before exporting `DISPLAY`, so a display that
   never came up is a red Xvfb step rather than an unexplained Electron crash three steps later. The
