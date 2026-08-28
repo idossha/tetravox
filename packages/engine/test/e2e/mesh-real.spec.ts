@@ -828,3 +828,134 @@ function report(what: string, c: SheetCount): void {
       `convex-hull violations ${c.outOfHull} of ${c.channels} channels`
   );
 }
+
+// -------------------------------------------------------------------------------------------
+// 6 — §7.2.3's footprint: the pick pass reproduces every discard, and snaps no further than 5 px
+// -------------------------------------------------------------------------------------------
+
+/**
+ * §7.2.3, verbatim: *"This pass must reproduce **every** discard of the main pass … Otherwise
+ * double-click lands on geometry the user cannot see."* Phase 2 gave it clip planes, the isolation
+ * mask and face culling to reproduce, and nothing measured whether it does.
+ *
+ * The measurement is a footprint comparison over the whole pane: the colour buffer's ink map read
+ * back in one `readPixels`, against `Engine.pick` on a 16 px grid, with one clip plane active so the
+ * clip half of §7.2.3 is in the picture.
+ *
+ * **Two numbers, and only one of them is a defect if it moves.**
+ *
+ * * `inkNoPick` — a pixel the frame painted where `pick` finds nothing. This is §7.2.3's clause and
+ *   it must be **0**: a discard the pick pass performs and the colour pass does not is geometry the
+ *   user can see and cannot click.
+ * * `bgWithPick` — a background pixel that returns a hit. This is **not** a defect: §7.2.3 also says
+ *   "a 9×9 scissored read, resolved by taking the nearest non-zero id within a 3–5 px radius", so a
+ *   click within 5 px of the head is meant to hit the head. What must hold is that the snap never
+ *   reaches further than the radius it is allowed, which is what `worstNearestInk` measures.
+ *
+ * Tagged `@angle` and gated there: a pick is a full scene render into the pick FBO, and 2,304 of
+ * them on `ernie.msh` is seconds on the GPU and minutes on SwiftShader.
+ */
+test('@angle §7.2.3 ernie.msh: the pick pass paints exactly where the frame does, ±the snap radius', async ({
+  page,
+}, info) => {
+  test.setTimeout(600_000);
+  test.skip(info.project.name !== 'chromium-angle', 'the pick sweep is gated on the GPU leg');
+  const errors = await openScene(page);
+  const mesh = await openMesh(page, ERNIE, ERNIE_OPT);
+  expect(mesh.nTets).toBe(4_722_625);
+
+  await page.evaluate(
+    async ([clip, centre]) => {
+      const engine = window.__tvxEngine!;
+      engine.updateLayer(window.__tvxRealLayer!, { clip } as never);
+      for (let i = 0; i < 40; i += 1) {
+        await engine.whenSettled();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      // §7.2.3's pick geometry is the de-indexed variant, requested lazily by the first `pick`.
+      for (let i = 0; i < 60; i += 1) {
+        if (engine.pick('view3d', centre as number, centre as number) !== null) break;
+        await engine.whenSettled();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    },
+    [axialClip(MID_Z), PANE / 2] as const
+  );
+
+  // The whole pane's ink map, read back in one call inside the page: 589,824 pixels is a round trip
+  // per pixel through Playwright if it is done any other way, and that is minutes.
+  const ink = Uint8Array.from(
+    await page.evaluate(
+      ([size, bg]) => {
+        const canvas = document.querySelector('#gl') as HTMLCanvasElement;
+        const gl = canvas.getContext('webgl2')!;
+        (window as unknown as { __tvxRender?: () => void }).__tvxRender?.();
+        const n = size as number;
+        const buf = new Uint8Array(n * n * 4);
+        gl.readPixels(0, 0, n, n, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+        const out: number[] = [];
+        for (let y = 0; y < n; y += 1) {
+          for (let x = 0; x < n; x += 1) {
+            // `readPixels` is bottom-left; the grid below is top-left, like every §11 coordinate.
+            const at = ((n - 1 - y) * n + x) * 4;
+            const isBg = [0, 1, 2].every((c) => Math.abs(buf[at + c]! - (bg as number[])[c]!) <= 2);
+            out.push(isBg ? 0 : 1);
+          }
+        }
+        return out;
+      },
+      [PANE, [...BACKGROUND].slice(0, 3)] as const
+    )
+  );
+
+  const probes: [number, number][] = [];
+  for (let y = 0; y < PANE; y += 16) for (let x = 0; x < PANE; x += 16) probes.push([x, y]);
+  const hits = await page.evaluate(
+    (ps) =>
+      (ps as [number, number][]).map(
+        (p) => window.__tvxEngine!.pick('view3d', p[0], p[1]) !== null
+      ),
+    probes
+  );
+
+  let inkNoPick = 0;
+  let inkWithPick = 0;
+  let bgWithPick = 0;
+  let worstNearestInk = 0;
+  for (const [i, [x, y]] of probes.entries()) {
+    const painted = ink[y * PANE + x] === 1;
+    const hit = hits[i]!;
+    if (painted) {
+      if (hit) inkWithPick += 1;
+      else inkNoPick += 1;
+      continue;
+    }
+    if (!hit) continue;
+    bgWithPick += 1;
+    let nearest = Infinity;
+    for (let dy = -12; dy <= 12; dy += 1) {
+      for (let dx = -12; dx <= 12; dx += 1) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= PANE || ny >= PANE) continue;
+        if (ink[ny * PANE + nx] === 1) nearest = Math.min(nearest, Math.hypot(dx, dy));
+      }
+    }
+    worstNearestInk = Math.max(worstNearestInk, nearest);
+  }
+
+  console.log(
+    `[§7.2.3] ernie + one clip plane, ${probes.length} probes: ink→pick ${inkWithPick}, ` +
+      `ink→miss ${inkNoPick}, background→pick ${bgWithPick} ` +
+      `(worst distance to ink ${worstNearestInk.toFixed(2)} px, snap radius 5)`
+  );
+
+  expect(inkWithPick, 'the head really is on screen').toBeGreaterThan(200);
+  // §7.2.3's clause: a pixel the frame painted is a pixel `pick` answers for.
+  expect(inkNoPick, 'the pick pass reproduces every discard of the main pass').toBe(0);
+  // …and the other direction is the documented snap, never a wider footprint. 5.10 px is the
+  // half-pixel between the pick's integer resolution grid and the anti-aliased silhouette this
+  // measures against, not a sixth pixel of reach.
+  expect(worstNearestInk, 'no hit is snapped further than §7.2.3’s radius').toBeLessThan(5.5);
+  expect(errors).toEqual([]);
+});

@@ -2397,3 +2397,26 @@ Each entry below names the problem, the fix, and the evidence.
   allow-lists the derived sidecar paths before `Engine.load` (§5 directive A2 serves only what main
   admitted), using the engine's own `sidecarPathsFor` — one derivation, exported, rather than two
   that can drift into a silent 403.
+
+
+- 2026-08-28 — **§11's Transparency (ii) does not close in Phase 2, and the reason is a rule, not an
+  omission.** §11 asks for "GM tag 1002 at opacity 0.5 with an opaque 10 mm sphere at the thalamus
+  target, diffed against a **CPU per-fragment-sorted reference render**, reporting max per-pixel
+  delta", and `docs/PHASE2-OWNERSHIP.md` says it "decides whether `twoPhase` is enough for v1 or
+  depth peeling moves out of Phase 3 — report the number even if it passes". A reference render of
+  that scene needs the mesh's triangles on the side doing the rendering, and §5 rule 3 and rule 7
+  put them out of a Playwright spec's reach: bulk arrays never touch the UI thread, they arrive as
+  GPU-bound transferables the engine uploads and drops, and 1.18 M triangles ray-traced per pixel in
+  page JS is not a test in any case.
+  What did close is **Transparency (i)**, on ernie, as a number rather than a look: the blend count
+  `k = ln((P − S)/(G − S)) / ln(1 − a)` recovered per pixel from three renders of the same scene,
+  measuring **median 1.000, p05 0.968, p95 1.014** over the crown with **0 of 363 channels** outside
+  the convex hull of `{S, G, background}` (`packages/engine/test/e2e/mesh-real.spec.ts`). One sheet,
+  blended once — `k = 2` there is exactly the double-blended back face §11 names. That covers "no
+  sheet is composited twice"; what it does not cover is **order** between two differently-coloured
+  sheets, which is (ii)'s subject.
+  The vehicle for (ii) is the CPU reference renderer being built on `feat/reference-renderer`
+  (`scripts/reference/`), which is exactly a per-fragment reference outside the browser. Until it
+  can render a mesh, Phase 3's transparency decision stands on §7.2's measured depth complexity
+  (4–6 median / 8–10 p90, ROADMAP Phase 3) rather than on a diff. Recorded as the one Phase-2 gate
+  item that does not close, with its owner, rather than satisfied by a weaker test wearing its name.

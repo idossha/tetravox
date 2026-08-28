@@ -99,12 +99,12 @@ bounding box's mid-`z` for 2.0 s, moved on every frame.
 
 | Quantity | Value |
 |---|---|
-| Drag frame rate | **119.7 fps** (240 frames) |
-| Frame interval, median · p95 | 8.3 ms · 9.5 ms |
+| Drag frame rate | **120.8 fps** (242 frames) |
+| Frame interval, median · p95 | 8.3 ms · 10.2 ms |
 | Budget | 33.3 ms (30 fps) |
-| New cross-section on screen, median · p95 | 16 ms · 21 ms |
-| New cross-sections per second | 72.3 Hz (145 in the drag) |
-| Cap triangles at the last plane | 61,746 |
+| New cross-section on screen, median · p95 | 16 ms · 18 ms |
+| New cross-sections per second | 74.4 Hz (149 in the drag) |
+| Cap triangles at the last plane | 61,269 |
 
 This is the shipping renderer, so the frame rate here is the one §7.4 gates on. The cut latency is sampled once per frame, so it cannot read below one frame interval.
 <!-- end chromium-angle -->
