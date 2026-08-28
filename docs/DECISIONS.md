@@ -2341,3 +2341,33 @@ Each entry below names the problem, the fix, and the evidence.
   9,509,557 unique faces and 128,614 boundary faces, which are §9.2's component table and §11's
   Surface invariant respectively — a packed-key collision would flatter the memory number as well as
   losing faces.
+
+
+- 2026-08-28 — **`MeshLayer.colorMode:'label'` was implemented at both ends and connected at
+  neither, and the shader's index was wrong for `.label.gii`.** ROADMAP Phase 2 lists
+  "`colorMode:'label'` for `.annot` / `.label.gii`" and R5 names surface annotations as one of the
+  three things its Region panel must serve; `docs/PHASE2-OWNERSHIP.md` names the golden
+  `mesh-label-colormode`. The golden did not exist, and the reason it did not is that the feature
+  could not be reached: `MeshMeta.labelTables` carried the `<LabelTable>` on the wire (§6.5.1),
+  `scene/fromMeta.ts` dropped it, `MeshDataset` had no field for it, and so `MeshLayer.label.table`
+  — the `LabelTable` the mode needs — could only ever be set by a test that built one by hand.
+  Three changes, in the order the data flows. `MeshDataset.labelTables` (frozen `scene/types.ts`,
+  hence this line) receives it; `scene/defaults.ts` seeds `MeshLayer.label` from the first table a
+  mesh carries, leaving `colorMode` at `'tag'` — seeding the *table* is what makes the mode
+  selectable, and which colouring a surface opens in is the user's choice. And `read_gii` now
+  applies §6.2's dense remap to a `NIFTI_INTENT_LABEL` array, which is the defect the wiring
+  exposed: the shader indexes an `N × 2` palette by the node value and `.annot` was remapped at
+  parse time while `.label.gii` was not, so `clamp(key, 0, N−1)` sent every key above the last dense
+  index to the last entry. Measured on the new fixture: the whole patch painted Gamma, the last of
+  four. It looks plausible, which is exactly §11's stated failure mode for an off-by-one in a label
+  palette.
+  A new fixture was needed because none could be rendered: `testdata/surf.label.gii` is
+  deliberately data-only (a `.label.gii` that is not a surface), so
+  `testdata/surf_labelled.surf.gii` is the same 4×4 patch **plus** a label array and the same
+  `<LabelTable>`, with vertex labels chosen so four of its eighteen triangles are monochrome —
+  `vLabelColor` is an interpolated varying, so only a monochrome triangle has a closed-form colour.
+  `scripts/gen-fixtures.py` is deterministic, and the manifest diff is additive: one new `gifti`
+  entry and the byte total.
+  One test changed rather than being added: `packages/wasm/e2e/meshes.spec.ts` asserted the label
+  field's raw max (11) against nibabel's reading of the file. It now asserts the dense max (3) and
+  keeps the raw one as the manifest's, which is the distinction the remap is about.

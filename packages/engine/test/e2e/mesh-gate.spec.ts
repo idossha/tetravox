@@ -41,9 +41,11 @@ import {
   facePixelToWorld,
   FRONT_FACE_CAMERA,
   fitShading,
+  isBackground,
   isPlausibleShading,
   nodeScalarAt,
   PANE,
+  solveShading,
 } from './mesh-support';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
@@ -208,7 +210,7 @@ test('a node field paints `bakeScale`’s grey for the value the fixture’s own
     const value = nodeScalarAt(world);
     const g = greyFor(value, NODE_LO, NODE_HI);
     const want = [0, 1, 2].map(() => g * shade.s + shade.t);
-    // eslint-disable-next-line no-console
+
     console.log(
       `[mesh-field-node] ${name} world (${world.map((v) => v.toFixed(3)).join(', ')}) ` +
         `node_scalar ${value.toFixed(4)} -> grey ${g}; shading s=${shade.s.toFixed(3)} ` +
@@ -317,7 +319,7 @@ test('an element field paints the grey of the element `pick` names, on the de-in
     const value = 0.5 * (hit.elementId - 1) - 3;
     const g = greyFor(value, ELM_LO, ELM_HI);
     const want = [0, 1, 2].map(() => g * shade.s + shade.t);
-    // eslint-disable-next-line no-console
+
     console.log(
       `[mesh-field-elm] ${name} element ${hit.elementId} -> elm_scalar ${value} -> grey ${g}; ` +
         `expected ${want.map((v) => v.toFixed(1)).join(',')} got ${px.slice(0, 3).join(',')}`
@@ -427,7 +429,7 @@ test('a surface edge is `1 − smoothstep(w−0.5, w+0.5, d)` of the edge colour
     const d = k + 0.5; // the pixel's centre, in the continuous coordinate the shader works in
     const e = edgeFactor(d, EDGE_WIDTH_PX);
     const want = [0, 1, 2].map((c) => (lit[i]![c] ?? 0) * (1 - e) + (EDGE_COLOR255[c] ?? 0) * e);
-    // eslint-disable-next-line no-console
+
     console.log(
       `[mesh-edges-masked] d=${d.toFixed(1)} px -> edge ${e.toFixed(4)}; ` +
         `unlit-by-edge ${lit[i]!.slice(0, 3).join(',')} expected ` +
@@ -503,7 +505,7 @@ test('a translucent tag blends each of its two sheets exactly once (§7.2 two-ph
 
   const oneSheet = over(opaque!, TRANSPARENT_ALPHA, BACKGROUND);
   const twoSheets = over(opaque!, TRANSPARENT_ALPHA, oneSheet);
-  // eslint-disable-next-line no-console
+
   console.log(
     `[mesh-transparency] lit ${opaque!.slice(0, 3).join(',')}; one sheet would be ` +
       `${oneSheet.join(',')}, two sheets ${twoSheets.join(',')}; got ${blended!.slice(0, 3).join(',')}`
@@ -526,4 +528,228 @@ test('golden: mesh-transparency-twophase', async ({ page }) => {
   });
   expect(errors).toEqual([]);
   await expectGolden(page, 'mesh-transparency-twophase');
+});
+
+// -------------------------------------------------------------------------------------------
+// mesh-label-colormode — §7.4's `colorMode:'label'` for `.annot` / `.label.gii`
+// -------------------------------------------------------------------------------------------
+
+/**
+ * The E-MESH item that reached the gate with **no test, no golden and no producer**.
+ *
+ * `colorMode:'label'` was implemented in `layers/mesh.ts` and in `shaders/mesh.ts`, and nothing
+ * could reach it: `MeshLayer.label.table` is a `LabelTable`, `MeshMeta.labelTables` carried one on
+ * the wire, and `scene/fromMeta.ts` dropped it on the floor — so no file a user could open produced
+ * a mesh the mode would draw. That is why the golden did not exist rather than being an oversight.
+ * `MeshDataset.labelTables` closes it (see `docs/DECISIONS.md`, 2026-08-28).
+ *
+ * **The fixture, and why it is new.** `testdata/surf.label.gii` is deliberately data-only — a
+ * `.label.gii` with no geometry — so it cannot be rendered. `testdata/surf_labelled.surf.gii`
+ * (`scripts/gen-fixtures.py`) is the 4×4 patch **plus** a `NIFTI_INTENT_LABEL` array and the same
+ * `<LabelTable>`, and its vertex labels are chosen so that four of the eighteen triangles are
+ * monochrome: `surface_patch()` triangulates a = 4j + i as `(a, a+1, a+5)` and `(a, a+5, a+4)`, and
+ * with {0, 1, 5} → Beta and {10, 14, 15} → Gamma, the first triangle `(0, 1, 5)`, the last
+ * `(10, 15, 14)` and the Alpha triangles `(2, 3, 7)` and `(8, 13, 12)` each have one label at all
+ * three corners.
+ *
+ * **Monochrome is the precondition, not a convenience.** `vLabelColor` is an interpolated varying
+ * (`shaders/mesh.ts`), so a triangle straddling a region boundary is a gradient and has no
+ * closed-form colour. Only a monochrome triangle does — and which triangle covers a pixel is the
+ * pick pass's answer, not this file's guess, exactly as in the element-field test above.
+ */
+const LABELLED = fixture('surf_labelled.surf.gii');
+
+/** `testdata/manifest.json`'s `gifti['surf_labelled.surf.gii'].labelTable`, transcribed. */
+const GIFTI_LABEL_COLORS: Record<number, readonly [number, number, number]> = {
+  3: [255, 0, 0], // Alpha
+  7: [0, 128, 0], // Beta
+  11: [0, 0, 255], // Gamma
+};
+
+/** `surface_patch()`'s own construction rule, transcribed from `scripts/gen-fixtures.py`. */
+function patchTriangles(): [number, number, number][] {
+  const n = 4;
+  const out: [number, number, number][] = [];
+  for (let j = 0; j < n - 1; j += 1) {
+    for (let i = 0; i < n - 1; i += 1) {
+      const a = j * n + i;
+      out.push([a, a + 1, a + n + 1]);
+      out.push([a, a + n + 1, a + n]);
+    }
+  }
+  return out;
+}
+
+/** The fixture's vertex → GIfTI label key, from the same source. */
+function patchVertexKeys(): number[] {
+  const keys = new Array<number>(16).fill(3);
+  for (const v of [0, 1, 5]) keys[v] = 7;
+  for (const v of [10, 14, 15]) keys[v] = 11;
+  return keys;
+}
+
+/** Looking down −Z with screen-up +Y: R = I, so the quaternion is the identity. */
+const TOP_DOWN_CAMERA = {
+  target: [2.5, -4, 8.116] as [number, number, number],
+  distance: 120,
+  rotation: [0, 0, 0, 1] as [number, number, number, number],
+  fovYDeg: 30,
+  orthographic: true,
+  near: 1,
+  far: 400,
+};
+
+async function openLabelled(page: Page): Promise<string[]> {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/test/pages/scene.html');
+  await page.waitForFunction(() => window.__tvxEngine !== undefined);
+  await page.evaluate(
+    async ([url, camera]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({ kind: 'path', path: url as string });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      window.__tvxGateLayer = layer.id;
+      engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
+      engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+      engine.setView('view3d', { camera: camera as never });
+      await engine.whenSettled();
+    },
+    [LABELLED, TOP_DOWN_CAMERA] as const
+  );
+  return errors;
+}
+
+test('a `.label.gii`’s `<LabelTable>` reaches the layer, and `colorMode:"label"` paints it', async ({
+  page,
+}) => {
+  const errors = await openLabelled(page);
+
+  // 1. The producer: the wire table becomes `MeshDataset.labelTables`, and `scene/defaults.ts`
+  //    seeds `MeshLayer.label` from it. Without this the mode has nothing to draw.
+  const seeded = await page.evaluate(() => {
+    const engine = window.__tvxEngine!;
+    const ds = [...engine.scene.datasets.values()][0]!;
+    const layer = engine.scene.layers[0] as unknown as {
+      colorMode: string;
+      label?: { name: string; mode: string; table: { entries: { id: number; name: string }[] } };
+    };
+    return {
+      tableNames: ds.kind === 'mesh' ? Object.keys(ds.labelTables ?? {}) : [],
+      colorMode: layer.colorMode,
+      labelName: layer.label?.name ?? null,
+      labelMode: layer.label?.mode ?? null,
+      entries: (layer.label?.table.entries ?? []).map((e) => ({ id: e.id, name: e.name })),
+      nTris: ds.kind === 'mesh' ? ds.nTris : 0,
+    };
+  });
+  expect(seeded.nTris).toBe(18);
+  expect(seeded.tableNames).toEqual(['label']);
+  expect(seeded.labelName).toBe('label');
+  expect(seeded.labelMode).toBe('fill');
+  // §8's field selector offers the mode; opening in it is not this layer's business to decide.
+  expect(seeded.colorMode, 'seeding the table does not change how the surface opens').toBe('tag');
+  // `testdata/manifest.json`: the `<LabelTable>` is Unknown/Alpha/Beta/Gamma at keys 0/3/7/11.
+  expect(seeded.entries).toEqual([
+    { id: 0, name: 'Unknown' },
+    { id: 3, name: 'Alpha' },
+    { id: 7, name: 'Beta' },
+    { id: 11, name: 'Gamma' },
+  ]);
+
+  // 2. The pixels. A grid over the pane; `pick` names the triangle under each one, and only the
+  //    four monochrome triangles carry a closed-form colour.
+  await patchAndSettle(page, { colorMode: 'label' });
+  const tris = patchTriangles();
+  const keys = patchVertexKeys();
+  const step = 24;
+  const probes: [number, number][] = [];
+  for (let y = step; y < PANE; y += step)
+    for (let x = step; x < PANE; x += step) probes.push([x, y]);
+
+  const picked = await page.evaluate(async (ps) => {
+    const engine = window.__tvxEngine!;
+    // §7.2.3's pick geometry is the de-indexed variant, requested lazily by the first `pick`, so
+    // the first call after a load returns `null` by design (see the element-field test above).
+    let ready = null as ReturnType<typeof engine.pick>;
+    for (let i = 0; i < 60 && ready === null; i += 1) {
+      ready = engine.pick('view3d', 384, 384);
+      if (ready === null) {
+        await engine.whenSettled();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
+    // A probe counts only when the whole ±6 px cross around it picks the **same** triangle.
+    //
+    // Two reasons, both structural. §7.2.3 resolves a pick by "the nearest non-zero id within a
+    // 3–5 px radius", so a pixel of pure background within 5 px of the patch reports the triangle
+    // beside it — measured here at (24, 144), which returned triangle 14 over a background pixel.
+    // ±6 is deliberately outside that radius. And a pixel *on* a silhouette is a coverage blend of
+    // the triangle and the background, which has no closed-form colour either; the caller drops a
+    // background-coloured probe as well, so the assertion runs on interior fragments only, where
+    // the colour is the label's and nothing else's.
+    const at = (x: number, y: number): number | null => {
+      const hit = engine.pick('view3d', x, y);
+      return hit === null || hit.elementKind !== 'tri' ? null : hit.elementId;
+    };
+    return (ps as [number, number][]).map((p) => {
+      const id = at(p[0], p[1]);
+      if (id === null) return null;
+      const cross: [number, number][] = [
+        [-6, 0],
+        [6, 0],
+        [0, -6],
+        [0, 6],
+      ];
+      for (const [dx, dy] of cross) {
+        if (at(p[0] + dx, p[1] + dy) !== id) return null;
+      }
+      return { elementId: id, kind: 'tri' };
+    });
+  }, probes);
+
+  const pixels = await readCanvasPixels(page, probes);
+  const seen = new Set<number>();
+  let asserted = 0;
+  for (const [i, hit] of picked.entries()) {
+    if (hit === null || hit.kind !== 'tri') continue;
+    if (isBackground(pixels[i]!)) continue; // the snap radius again; see the pick loop above
+    const tri = tris[hit.elementId - 1];
+    if (tri === undefined) continue;
+    const [a, b, c] = tri;
+    if (keys[a] !== keys[b] || keys[b] !== keys[c]) continue; // a gradient, by construction
+    const key = keys[a]!;
+    const want = GIFTI_LABEL_COLORS[key]!;
+    const px = pixels[i]!;
+    const solved = solveShading(want, px);
+    expect(
+      solved.feasible,
+      `pixel ${probes[i]!.join(',')} on triangle ${hit.elementId} (${tri.join(',')}) is label ${key}, ` +
+        `so it must be ${want.join(',')} lit — got ${px.slice(0, 3).join(',')}`
+    ).toBe(true);
+    // …and it is *that* label, not merely some label: the three colours are mutually
+    // unreachable by a scalar diffuse plus a channel-independent specular.
+    for (const [other, color] of Object.entries(GIFTI_LABEL_COLORS)) {
+      if (Number(other) === key) continue;
+      expect(solveShading(color, px).feasible, `…and not label ${other} (${color.join(',')})`).toBe(
+        false
+      );
+    }
+    seen.add(key);
+    asserted += 1;
+  }
+  // All three labels present, so the assertion is not one triangle's luck.
+  expect(
+    [...seen].sort((x, y) => x - y),
+    'every label in the table was asserted'
+  ).toEqual([3, 7, 11]);
+  expect(asserted, 'and on more than a handful of pixels').toBeGreaterThan(20);
+  expect(errors).toEqual([]);
+});
+
+test('golden: mesh-label-colormode', async ({ page }) => {
+  const errors = await openLabelled(page);
+  await patchAndSettle(page, { colorMode: 'label' });
+  expect(errors).toEqual([]);
+  await expectGolden(page, 'mesh-label-colormode');
 });

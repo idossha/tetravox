@@ -631,6 +631,51 @@ def write_gifti_label(path: Path, keys):
     w(path, img.to_bytes())
 
 
+def write_gifti_labelled_surface(path: Path, verts, tris, keys):
+    """A GIfTI carrying **geometry and a `<LabelTable>` in one file**.
+
+    `surf.label.gii` is deliberately data-only — it is the "a `.label.gii` is not a surface" case —
+    so nothing in `testdata/` could exercise `MeshLayer.colorMode:'label'`, which needs a mesh that
+    has both a node label array and triangles to paint.  §6.2 keys `MeshMeta.labelTables` by node-
+    field name, and `tvx-mesh-io` names a GIfTI array from its `Name` metadata falling back to the
+    short intent, so the label array's field name here is `label`.
+
+    `keys` is chosen (see the caller) so that four of the patch's eighteen triangles have all three
+    vertices in one label: `vLabelColor` is an interpolated varying, so only a monochrome triangle
+    has a closed-form colour, and those four are what §11's analytic assertion can stand on.
+    """
+    coord = nib.gifti.GiftiCoordSystem(dataspace=0, xformspace=1, xform=GIFTI_XFORM)
+    da_p = nib.gifti.GiftiDataArray(
+        np.ascontiguousarray(verts, dtype=np.float32),
+        intent="NIFTI_INTENT_POINTSET",
+        datatype="NIFTI_TYPE_FLOAT32",
+        encoding="GZipBase64Binary",
+        endian="little",
+        coordsys=coord,
+    )
+    da_t = nib.gifti.GiftiDataArray(
+        np.ascontiguousarray(tris, dtype=np.int32),
+        intent="NIFTI_INTENT_TRIANGLE",
+        datatype="NIFTI_TYPE_INT32",
+        encoding="GZipBase64Binary",
+        endian="little",
+    )
+    da_l = nib.gifti.GiftiDataArray(
+        np.ascontiguousarray(keys, dtype=np.int32),
+        intent="NIFTI_INTENT_LABEL",
+        datatype="NIFTI_TYPE_INT32",
+        encoding="GZipBase64Binary",
+        endian="little",
+    )
+    lt = nib.gifti.GiftiLabelTable()
+    for key, name, (r, g, b, a) in GIFTI_LABELS:
+        lab = nib.gifti.GiftiLabel(key=key, red=r, green=g, blue=b, alpha=a)
+        lab.label = name
+        lt.labels.append(lab)
+    img = nib.gifti.GiftiImage(darrays=[da_p, da_t, da_l], labeltable=lt)
+    w(path, img.to_bytes())
+
+
 def write_stl_ascii(path: Path, verts, tris, name="tetravox"):
     out = [f"solid {name}"]
     for t in tris:
@@ -903,6 +948,16 @@ def generate(out: Path) -> dict:
     write_gifti_surface(out / "surf_ascii.surf.gii", verts, stris, "ASCII")
     write_gifti_func(out / "surf.func.gii", (verts[:, 0] * 0.1 + verts[:, 1] * 0.01))
     write_gifti_label(out / "surf.label.gii", np.array([0, 3, 7, 11], dtype=np.int32)[np.arange(len(verts)) % 4])
+    # The one fixture that can be *rendered* in `colorMode:'label'`: geometry + a <LabelTable>.
+    # `surface_patch()` triangulates a 4x4 grid as (a, a+1, a+5) and (a, a+5, a+4) for a = 4j + i,
+    # j, i in 0..2. Labelling vertices {0, 1, 5} Beta and {10, 14, 15} Gamma leaves the first
+    # triangle (0, 1, 5) and the last (10, 15, 14) monochrome, and two Alpha triangles — (2, 3, 7)
+    # and (8, 13, 12) — untouched. Those four are the analytic assertions; every other triangle
+    # straddles a boundary and is a gradient, which is what `mode:'outline'` is drawn from.
+    patch_keys = np.full(len(verts), 3, dtype=np.int32)  # Alpha
+    patch_keys[[0, 1, 5]] = 7  # Beta
+    patch_keys[[10, 14, 15]] = 11  # Gamma
+    write_gifti_labelled_surface(out / "surf_labelled.surf.gii", verts, stris, patch_keys)
 
     # FreeSurfer
     nib.freesurfer.write_geometry(str(out / "lh.fixture.surf"), verts.astype(np.float64), stris.astype(np.int32))

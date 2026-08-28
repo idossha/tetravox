@@ -211,6 +211,22 @@ function optFromWire(opt: NonNullable<MeshMeta['opt']>): MshOptions {
   return { tagColor, tagVisible, views: opt.views };
 }
 
+/**
+ * `MeshMeta.labelTables` — the `<LabelTable>` a `.label.gii` carries, or a `.annot`'s colortable —
+ * keyed by the node-field name §6.5.1 keys it by.
+ *
+ * `undefined` rather than `{}` when the file has none, so `MeshDataset.labelTables !== undefined`
+ * reads as "this mesh has a label table" without a length check at every call site.
+ */
+export function labelTablesFromWire(
+  tables: MeshMeta['labelTables']
+): Record<string, LabelTable> | undefined {
+  if (tables === undefined) return undefined;
+  const out: Record<string, LabelTable> = {};
+  for (const [name, entries] of Object.entries(tables)) out[name] = labelTableFromWire(entries);
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function meshDatasetFromMeta(
   id: DatasetId,
   meta: MeshMeta,
@@ -239,6 +255,7 @@ export function meshDatasetFromMeta(
     nTets: meta.nTets,
     hasTris: meta.hasTris,
     fields: meta.fields.map(fieldFromWire),
+    labelTables: labelTablesFromWire(meta.labelTables),
     tags,
     skipped: meta.skipped,
     opt: meta.opt !== undefined ? optFromWire(meta.opt) : undefined,

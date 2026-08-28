@@ -930,7 +930,11 @@ test('@angle P2-02 §11: the frame `whenSettled()` leaves is full quality, at a 
   });
   const [noEdges] = await readCanvasPixels(page, [EDGE_PIXEL]);
 
-  await patch({ edges: { surface: true, caps: false }, edgeColor: [1, 0, 0, 1], edgeWidthPx: 4.25 });
+  await patch({
+    edges: { surface: true, caps: false },
+    edgeColor: [1, 0, 0, 1],
+    edgeWidthPx: 4.25,
+  });
   const [full] = await readCanvasPixels(page, [EDGE_PIXEL]);
   for (let c = 0; c < 3; c += 1) {
     expect(full![c], `full quality: the edge pixel is the edge colour, channel ${c}`).toBe(

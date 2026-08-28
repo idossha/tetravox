@@ -1064,7 +1064,12 @@ entry points are gone.
 stream, not gzip — use `ZlibDecoder`, not `GzDecoder`.** Honour `Endian` and `ArrayIndexingOrder`
 (Row/ColumnMajorOrder); apply `CoordinateSystemTransformMatrix` when
 `TransformedSpace == NIFTI_XFORM_SCANNER_ANAT`, and record `DataSpace`/`TransformedSpace` in the dataset.
-`.func/.shape/.label.gii` become node `Field`s keyed by `Intent`; `<LabelTable>` becomes a `LabelTable`.
+`.func/.shape/.label.gii` become node `Field`s keyed by `Intent`; `<LabelTable>` becomes a `LabelTable`, and a
+`NIFTI_INTENT_LABEL` array is **remapped to dense 0..N−1 through that table at parse time**, exactly as
+`read_fs_annot` does below and for the same reason — the renderer's label palette is an `N × 2` texture indexed by
+position in `LabelTable.entries`, and a `<LabelTable>` key is an arbitrary sparse integer (the reference fixture's
+are 0/3/7/11). The original key stays in `LabelEntry.id`. A value the table does not name maps to dense 0. A
+`.func`/`.shape` array is a continuous scalar and is never remapped.
 Reference files use `GZipBase64Binary` / `LittleEndian` / `RowMajorOrder`, `DataSpace = NIFTI_XFORM_UNKNOWN`,
 `TransformedSpace = NIFTI_XFORM_SCANNER_ANAT` `[DATA]`.
 

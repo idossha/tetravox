@@ -256,6 +256,17 @@ export interface MeshDataset {
   nTets: number;
   hasTris: boolean;
   fields: MeshFieldInfo[];
+  /**
+   * `MeshMeta.labelTables` (§6.5.1), keyed by **node-field name** — the `<LabelTable>` of a
+   * `.label.gii` or the colortable of a `.annot`.
+   *
+   * Without this the `.label.gii`'s table stopped at the wire: `MeshLayer.colorMode:'label'` and
+   * `MeshLayer.label.table` were implemented in the shader and in `layers/mesh.ts`, and nothing
+   * could fill them from a file the user opened. R5's "one Region panel for every labelled thing"
+   * names surface annotations as one of its three, so this is the field that makes the third
+   * reachable.
+   */
+  labelTables?: Record<string, LabelTable>;
   tags: MeshTag[];
   skipped: { elemType: number; count: number }[];
   opt?: MshOptions;

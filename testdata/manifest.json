@@ -745,6 +745,243 @@
     }
    ],
    "bytes": 1706
+  },
+  "surf_labelled.surf.gii": {
+   "arrays": [
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "bboxTransformed": {
+      "max": [
+       32.5,
+       16.0,
+       13.982050896
+      ],
+      "min": [
+       -27.5,
+       -24.0,
+       2.25
+      ]
+     },
+     "bboxUntransformed": {
+      "max": [
+       30.0,
+       20.0,
+       6.732050896
+      ],
+      "min": [
+       -30.0,
+       -20.0,
+       -5.0
+      ]
+     },
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "datatypeCode": 16,
+     "dims": [
+      16,
+      3
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "first": [
+      -30.0,
+      -20.0,
+      5.0
+     ],
+     "intent": "pointset",
+     "intentCode": 1008,
+     "last": [
+      30.0,
+      20.0,
+      -5.0
+     ],
+     "stats": {
+      "max": 30.0,
+      "mean": 0.288675154,
+      "min": -30.0,
+      "n": 48,
+      "nFinite": 48,
+      "sum": 13.856407404
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       2.5
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       -4.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       7.25
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_SCANNER_ANAT"
+    },
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_INT32",
+     "datatypeCode": 8,
+     "dims": [
+      18,
+      3
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "first": [
+      0,
+      1,
+      5
+     ],
+     "intent": "triangle",
+     "intentCode": 1009,
+     "last": [
+      10,
+      15,
+      14
+     ],
+     "stats": {
+      "max": 15.0,
+      "mean": 7.5,
+      "min": 0.0,
+      "n": 54,
+      "nFinite": 54,
+      "sum": 405.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    },
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_INT32",
+     "datatypeCode": 8,
+     "dims": [
+      16
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "intent": "label",
+     "intentCode": 1002,
+     "stats": {
+      "max": 11.0,
+      "mean": 5.25,
+      "min": 3.0,
+      "n": 16,
+      "nFinite": 16,
+      "sum": 84.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bytes": 2688,
+   "labelTable": [
+    {
+     "key": 0,
+     "name": "Unknown",
+     "rgba255": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "key": 3,
+     "name": "Alpha",
+     "rgba255": [
+      255,
+      0,
+      0,
+      255
+     ]
+    },
+    {
+     "key": 7,
+     "name": "Beta",
+     "rgba255": [
+      0,
+      128,
+      0,
+      255
+     ]
+    },
+    {
+     "key": 11,
+     "name": "Gamma",
+     "rgba255": [
+      0,
+      0,
+      255,
+      255
+     ]
+    }
+   ]
   }
  },
  "msh": {
@@ -3608,7 +3845,7 @@
    "reader": "gmsh 4.14.0 python api"
   }
  },
- "totalFixtureBytes": 80684,
+ "totalFixtureBytes": 83372,
  "version": 1,
  "volumes": {
   "labels_float32.nii.gz": {

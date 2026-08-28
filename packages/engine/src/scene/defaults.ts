@@ -180,7 +180,32 @@ export function defaultMeshLayer(id: string, ds: MeshDataset): MeshLayer {
     contoursIn2D: true,
     contourWidthPx: 1,
     fillIn2D: true,
+    // §4.4's `MeshLayer.label`, seeded from the dataset's own `<LabelTable>` / colortable.
+    //
+    // **`colorMode` is deliberately left at `'tag'`.** Seeding the *table* is what makes
+    // `colorMode:'label'` selectable at all — `layers/mesh.ts` refuses the mode without one, and
+    // §8's field selector greys it out — but which colouring a surface opens in is the user's
+    // choice, and switching it here would change what every `.label.gii` looks like on open.
+    // Appended, never edited: `label` is `undefined` for every mesh that carries no table, which
+    // is every mesh in every golden that existed before this line.
+    ...defaultMeshLabel(ds),
   };
+}
+
+/**
+ * The `MeshLayer.label` block for a mesh that came with a `<LabelTable>` (`.label.gii`) or a
+ * colortable (`.annot`), or `{}` for one that did not.
+ *
+ * §6.5.1 keys `MeshMeta.labelTables` by **node-field name**, and the layer's `label.name` is that
+ * same key — it is the field the shader reads the dense index out of. When a file carries more than
+ * one (nothing in the reference data does), the first is seeded and the rest are reachable through
+ * §8's field selector; picking arbitrarily would be worse than picking the first.
+ */
+function defaultMeshLabel(ds: MeshDataset): { label?: MeshLayer['label'] } {
+  const entries = Object.entries(ds.labelTables ?? {});
+  const first = entries[0];
+  if (first === undefined) return {};
+  return { label: { name: first[0], table: first[1], mode: 'fill', outlineWidthPx: 1 } };
 }
 
 /**
