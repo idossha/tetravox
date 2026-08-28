@@ -53,6 +53,10 @@
     },
     {
       "type": "set",
+      "layer": "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/data/public/niivue-images/CT_Philips.nii.gz",
+      "patch": {
+        "showIn3D": true
+      },
       "camera": "A",
       "view": "view3d",
       "reset": true

@@ -8,103 +8,191 @@
       "action": 0,
       "type": "set",
       "files": [],
-      "ms": 448
+      "ms": 17
     },
     {
       "action": 1,
       "type": "set",
       "files": [],
-      "ms": 3
+      "ms": 16
     },
     {
       "action": 2,
-      "type": "screenshot",
-      "files": [
-        "tdcs-field-surface-3d-left.png"
-      ],
-      "ms": 70
-    },
-    {
-      "action": 3,
-      "type": "set",
-      "files": [],
-      "ms": 13
-    },
-    {
-      "action": 4,
-      "type": "screenshot",
-      "files": [
-        "tdcs-field-surface-3d-superior.png"
-      ],
-      "ms": 68
-    },
-    {
-      "action": 5,
       "type": "set",
       "files": [],
       "ms": 16
     },
     {
-      "action": 6,
+      "action": 3,
       "type": "screenshot",
       "files": [
-        "tdcs-field-surface-colormap-viridis.png"
+        "public-spine-ct-bone-axial.png"
       ],
-      "ms": 70
+      "ms": 65
     },
     {
-      "action": 7,
-      "type": "set",
-      "files": [],
-      "ms": 344
-    },
-    {
-      "action": 8,
+      "action": 4,
       "type": "set",
       "files": [],
       "ms": 1
     },
     {
+      "action": 5,
+      "type": "screenshot",
+      "files": [
+        "public-spine-ct-bone-coronal.png"
+      ],
+      "ms": 62
+    },
+    {
+      "action": 6,
+      "type": "set",
+      "files": [],
+      "ms": 5
+    },
+    {
+      "action": 7,
+      "type": "screenshot",
+      "files": [
+        "public-spine-ct-bone-sagittal.png"
+      ],
+      "ms": 58
+    },
+    {
+      "action": 8,
+      "type": "set",
+      "files": [],
+      "ms": 9
+    },
+    {
       "action": 9,
       "type": "screenshot",
       "files": [
-        "tdcs-vector-glyphs-arrows.png"
+        "public-spine-ct-bone-3d.png"
       ],
-      "ms": 78
+      "ms": 56
     },
     {
       "action": 10,
       "type": "set",
       "files": [],
-      "ms": 7
+      "ms": 10
     },
     {
       "action": 11,
       "type": "screenshot",
       "files": [
-        "tdcs-vector-glyphs-lines.png"
+        "public-spine-ct-bone-2x2.png"
       ],
-      "ms": 70
+      "ms": 43
     },
     {
       "action": 12,
       "type": "set",
       "files": [],
-      "ms": 13
+      "ms": 7
     },
     {
       "action": 13,
       "type": "screenshot",
       "files": [
-        "tdcs-vector-glyphs-anterior.png"
+        "public-spine-ct-soft-sagittal.png"
       ],
-      "ms": 67
+      "ms": 56
+    },
+    {
+      "action": 14,
+      "type": "set",
+      "files": [],
+      "ms": 11
+    },
+    {
+      "action": 15,
+      "type": "set",
+      "files": [],
+      "ms": 16
+    },
+    {
+      "action": 16,
+      "type": "screenshot",
+      "files": [
+        "public-spine-vertebra-labels-sagittal.png"
+      ],
+      "ms": 58
+    },
+    {
+      "action": 17,
+      "type": "set",
+      "files": [],
+      "ms": 8
+    },
+    {
+      "action": 18,
+      "type": "screenshot",
+      "files": [
+        "public-spine-vertebra-labels-coronal.png"
+      ],
+      "ms": 56
+    },
+    {
+      "action": 19,
+      "type": "set",
+      "files": [],
+      "ms": 11
+    },
+    {
+      "action": 20,
+      "type": "set",
+      "files": [],
+      "ms": 16
+    },
+    {
+      "action": 21,
+      "type": "screenshot",
+      "files": [
+        "public-spine-vertebra-labels-outline-axial.png"
+      ],
+      "ms": 62
+    },
+    {
+      "action": 22,
+      "type": "set",
+      "files": [],
+      "ms": 6985
+    },
+    {
+      "action": 23,
+      "type": "set",
+      "files": [],
+      "ms": 1
+    },
+    {
+      "action": 24,
+      "type": "screenshot",
+      "files": [
+        "public-spine-vertebra-labels-3d-iso.png"
+      ],
+      "ms": 61
+    },
+    {
+      "action": 25,
+      "type": "set",
+      "files": [],
+      "ms": 8
+    },
+    {
+      "action": 26,
+      "type": "screenshot",
+      "files": [
+        "public-spine-vertebra-labels-3d-iso-left.png"
+      ],
+      "ms": 56
     }
   ],
   "timings": {
-    "totalMs": 3480,
-    "loadMs": 1969,
-    "actionsMs": 1268
+    "totalMs": 8659,
+    "loadMs": 654,
+    "actionsMs": 7770
   },
   "warnings": [],
   "errors": []

@@ -61,6 +61,10 @@
     },
     {
       "type": "set",
+      "layer": "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/data/public/totalsegmentator/example_ct_sm.nii.gz",
+      "patch": {
+        "showIn3D": true
+      },
       "camera": "A",
       "view": "view3d",
       "reset": true
