@@ -21,6 +21,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from scipy import ndimage
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -50,8 +51,9 @@ OUT = Path(
 #: on the midline.
 ERNIE_CURSOR = (-8.62, 7.51, 17.79)
 #: The same slice, re-centred on the **midline**, so a left-sided structure lands visibly left of
-#: the pane centre instead of on it — the cursor is the in-plane origin (§4.5), so a laterality
-#: assertion taken at `ERNIE_CURSOR` would be asserting `0 < 0`.
+#: the pane centre instead of on it. These panes are written `centerFromCursor`, which makes the
+#: cursor the in-plane origin, so a laterality assertion taken at `ERNIE_CURSOR` — where the cursor
+#: *is* the left thalamus — would be asserting `0 < 0`.
 MIDLINE_CURSOR = (0.0, 7.51, 17.79)
 LEFT_THALAMUS = 10
 RIGHT_THALAMUS = 49
@@ -107,7 +109,14 @@ def labeling_layer(mode="outline", width=2.0, **label_over):
 def scene(layers, mode="axial", mm=0.7, radiological=False, pane=PANE, cursor=ERNIE_CURSOR):
     return {
         "layers": list(layers),
-        "view": {"mode": mode, "cursor": list(cursor), "mmPerPx": mm,
+        # `centerFromCursor`, not `center`: these panes are deliberately centred on the cursor
+        # (a thalamus, or the midline) rather than on §4.5's bounding-box anchor, which for ernie
+        # is (3.763, 26.688, -16.142) — 40 mm of anterior-superior offset that would take the
+        # structure these tests are about off the middle of the pane. It also keeps the anchor out
+        # of the overlay-independence test, where rendering one layer of a two-layer scene on its
+        # own would otherwise move the pane: the engine's anchor spans every *loaded dataset*,
+        # while `plane_anchor` here can only span the layers the scene JSON names.
+        "view": {"mode": mode, "cursor": list(cursor), "mmPerPx": mm, "centerFromCursor": [0, 0],
                  "widthPx": pane, "heightPx": pane, "radiological": radiological},
         "background": [0, 0, 0, 1],
     }
@@ -229,7 +238,7 @@ class TestRealData(unittest.TestCase):
 
     def screen_labels(self, view, layer_spec):
         layer = R.load_layers({"layers": [layer_spec]}, OUT)[0]
-        world = R.pane_to_world(view)
+        world = R.pane_to_world(view, R.plane_anchor([layer]))
         tc = R.world_to_tc(layer.volume, world)
         inside = R.inside_tc(tc)
         phys = np.rint(layer.volume.physical(0)).astype(np.int64)
@@ -237,29 +246,32 @@ class TestRealData(unittest.TestCase):
 
     @staticmethod
     def thickness(mask: np.ndarray) -> float:
-        runs: list[int] = []
-        for row in mask:
-            n = 0
-            for v in row:
-                if v:
-                    n += 1
-                elif n:
-                    runs.append(n)
-                    n = 0
-            if n:
-                runs.append(n)
-        return float(np.median(runs)) if runs else 0.0
+        """**Perpendicular** band width: twice the median distance-to-background on the ridge.
 
-    def test_the_outline_band_is_two_pixels_at_every_zoom_where_a_band_exists(self):
-        """§11's named test — with the zoom range its thickness bound is actually defined over.
+        This is the measure §7.3 names — "measured perpendicular thickness 2.00 px axis-aligned /
+        2.69 px at 45 deg" — and therefore the one §11's [0.8, 2.9] px bound is a bound on. A run
+        length along a screen axis is a different quantity: it reads the band's *oblique* crossing,
+        so it grows with whatever angle the boundary happens to make with the pane (on this atlas at
+        5 mm/px, 4 px along rows and 9 px down columns for the same 2.83 px band), and it fuses the
+        runs of two boundaries that come within a pixel of each other.
 
-        A band width is only measurable while a structure is wider than the band. At 5 mm/px a 1 mm
-        atlas puts every boundary within a pixel of the next one, all the runs merge, and the
-        median run reaches 4 px on this data — not a wider outline, an atlas with nothing left
-        between its outlines. §11's [0.8, 2.9] bound is asserted here over 0.05 - 1.0 mm/px, and the
-        property that survives at 5 mm/px is coverage, asserted by the next test at that zoom.
+        The Euclidean distance transform has no preferred direction. On the band's **ridge** — its
+        medial axis, the pixels where the distance to background is a local maximum — twice that
+        distance is the width across the band, whichever way the band runs. `scipy` is already a
+        dependency of `make_ct.py`, so this costs nothing new.
         """
-        for mm in (0.05, 0.25, 1.0):
+        d = ndimage.distance_transform_edt(mask)
+        ridge = mask & (d >= ndimage.maximum_filter(d, size=3, mode="constant", cval=0.0) - 1e-12)
+        return 2.0 * float(np.median(d[ridge])) if ridge.any() else 0.0
+
+    def test_the_outline_band_is_two_pixels_at_every_zoom(self):
+        """§11's named test, at all three of its named zooms.
+
+        2.00 px at 0.05 and 1.0 mm/px; 2.83 px at 5.0, where the boundary the ridge runs along is
+        diagonal in pane pixels — `2 * sqrt(2) / 2`, still one 2 px band, and still inside the
+        bound. What changes with zoom is only how much of the atlas is on screen.
+        """
+        for mm in (0.05, 1.0, 5.0):
             r = R.render_scene(scene([labeling_layer("outline", 2.0)], mm=mm))
             self.assertTrue(r["mask"].any(), f"{mm} mm/px")
             t = self.thickness(r["mask"])

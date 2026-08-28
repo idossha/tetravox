@@ -1,12 +1,27 @@
 #!/usr/bin/env python3
-"""An **independent reference implementation** of §7.3's slice compositing.
+"""An **independent rendering path** for §7.3's slice compositing, on the CPU.
 
 Rule 0 of §11 is that an agent cannot judge a PNG, only a number. This is where the numbers come
 from for a whole *pane* rather than a hand-computed pixel: the same scene JSON goes to the engine
-and to this file, and the engine's screenshot is differenced against this file's `.npy`. It shares
-exactly one thing with `packages/engine` — the colormap tables, which `colormaps.py` reads out of
-`packages/engine/src/color/colormaps.ts` rather than copying (see that module's header). Everything
-else is written from the prose of §3, §4.2, §6.1, §7.3 and §7.6.
+and to this file, and the engine's screenshot is differenced against this file's `.npy`.
+
+**What is independent here, and what is not.** Independent: the geometry (pane -> world -> voxel,
+the view basis, the anchor, the screen-pixel derivative computed analytically instead of from a 2x2
+quad), the sampling (trilinear and nearest by hand, in NumPy, on the raw samples, with no texture
+unit, no R16 ladder and no `CLAMP_TO_EDGE` hardware), the compositing loop, and everything GL does
+below the shader — upload, format choice, DPR, the driver, the JIT. A disagreement in any of those
+is what this file exists to catch, and it is where the interesting bugs live.
+
+Not independent: the **display model** — §4.2's value gate, §7.6's scale baking and LUT texel
+lookup, and the colour tables themselves. `value_gate` here follows `shaders/chunks/ladder.ts`'s
+`VALUE_GATE` branch for branch; `colormaps.py`'s `scale_position` / `bake_scale` / `lut_texel_of`
+follow `color/colormaps.ts`'s `scalePosition` / `bakeScale` / `lutTexelOf` the same way, and read
+the tables out of that file rather than copying them (see that module's header); the label branch
+follows `chunks/lut.ts`'s `LABEL_BODY`, whose branch order decides which of outline, selection and
+`labelOpacity` wins. A logic error inside one of those would be reproduced here rather than
+caught; the defence against that is elsewhere: §11's analytic pixel tests, and the cases in
+`tests/test_colormaps.py` and `tests/test_render_slice.py` that check these functions against the
+*prose* of §4.2 and §7.6 rather than against the engine.
 
 The pipeline, per pixel, is §7.3's fragment shader done on the CPU:
 
@@ -43,6 +58,15 @@ The pipeline, per pixel, is §7.3's fragment shader done on the CPU:
 `scene/defaults.ts`'s `NO_THRESHOLD`. Paths are resolved relative to the scene file's directory,
 then to the repo root, then as given. A layer carrying a `label` block takes §7.3's label path and
 its interpolation is forced to `nearest`, exactly as §4.4 requires of a label dataset.
+
+`view.center` is §4.5's `camera.center` **verbatim** — the pan offset from the scene-bounds anchor,
+which the reference derives itself with `plane_anchor` from the volumes the scene names, exactly as
+`planeAnchor(store.bounds())` does. A harness can therefore copy `slice.camera.center` straight out
+of a `Scene` and get the pane the engine draws. `view.centerFromCursor` is the same offset measured
+from the **cursor** instead (`effectiveSliceView`'s number, the anchor already folded in); it is
+what a test that wants a pane centred on a chosen world point should write, and the two keys are
+mutually exclusive. They coincide when the cursor sits on the bounding-box centre, which is where
+`#onFirstDataset` puts it.
 
 **Outputs** — `<out>.png` (RGBA8), `<out>.npy` (float32 `(H, W, 4)` in 0..1, the composite before
 8-bit quantisation) and `<out>.mask.npy` (bool `(H, W)`, true where any layer drew — §11's "volume
@@ -132,9 +156,50 @@ def slice_basis(normal: Sequence[float], up: Sequence[float], radiological: bool
     return _norm(r), u, n
 
 
+def volume_bounds(vol: Volume) -> tuple[np.ndarray, np.ndarray]:
+    """A volume's world AABB as `(min, max)` — `scene/fromMeta.ts`'s `volumeBounds`.
+
+    All eight voxel-grid corners through the affine. Voxel *centres* are at integer indices (§3), so
+    the grid spans `0 .. dims-1`: the box is **not** padded by the half voxel a texture footprint
+    would add, and the reference has to match that or every anchor derived from it sits half a voxel
+    off.
+    """
+    d = np.asarray(vol.dims, dtype=np.float64) - 1.0
+    corners = np.array(
+        [[d[0] if c & 1 else 0.0, d[1] if c & 2 else 0.0, d[2] if c & 4 else 0.0] for c in range(8)]
+    )
+    w = corners @ vol.affine[:3, :3].T + vol.affine[:3, 3]
+    return w.min(axis=0), w.max(axis=0)
+
+
+def plane_anchor(layers: Sequence["LayerSpec"]) -> np.ndarray | None:
+    """§4.5's R3 anchor: the centre of the union of every loaded dataset's world AABB.
+
+    `planeAnchor(store.bounds())` is nothing but the centre of `volumeBounds` unioned over the
+    scene's datasets, and a scene JSON names its datasets — so the reference **derives** the anchor
+    from the volumes it just loaded rather than asking to be told it. This is the pane's *in-plane
+    origin*, and R3 is why it exists: moving the cursor must move the crosshair, not the image under
+    it.
+
+    `None` for a scene with no datasets — the case the engine answers with `EMPTY_BOUNDS`. The
+    reference declines to invent a box and falls back to the cursor as the origin instead.
+    """
+    if not layers:
+        return None
+    boxes = [volume_bounds(layer.volume) for layer in layers]
+    lo = np.min([b[0] for b in boxes], axis=0)
+    hi = np.max([b[1] for b in boxes], axis=0)
+    return (lo + hi) / 2.0
+
+
 @dataclass
 class ViewSpec:
-    """A 2D slice pane. The plane is **derived** from `cursor` + `normal`, never stored (§4.5)."""
+    """A 2D slice pane. The plane is **derived** from `cursor` + `normal`, never stored (§4.5).
+
+    `center` is §4.5's `camera.center` verbatim — the pan offset from the scene-bounds **anchor** —
+    unless `center_is_pan` is false, in which case it is measured from the cursor instead (the scene
+    JSON's `centerFromCursor`, the number `sliceViewProj` speaks internally).
+    """
 
     mode: str = "axial"
     normal: np.ndarray = field(default_factory=lambda: preset_normal("axial"))
@@ -145,6 +210,7 @@ class ViewSpec:
     height_px: int = 256
     radiological: bool = False
     center: tuple[float, float] = (0.0, 0.0)
+    center_is_pan: bool = True
 
     @staticmethod
     def from_json(d: dict) -> "ViewSpec":
@@ -153,6 +219,11 @@ class ViewSpec:
             raise ValueError(f"unknown view mode {mode!r}")
         normal = d.get("normal") or preset_normal(mode)
         up = d.get("up") or preset_up(mode)
+        if "center" in d and "centerFromCursor" in d:
+            raise ValueError("view: give 'center' or 'centerFromCursor', never both")
+        from_cursor = "centerFromCursor" in d
+        center = d.get("centerFromCursor") if from_cursor else d.get("center")
+        center = (0.0, 0.0) if center is None else center  # `null` reads as "no pan", like `up`
         return ViewSpec(
             mode=mode,
             normal=np.asarray(normal, dtype=np.float64),
@@ -162,27 +233,48 @@ class ViewSpec:
             width_px=int(d.get("widthPx", 256)),
             height_px=int(d.get("heightPx", 256)),
             radiological=bool(d.get("radiological", False)),
-            center=tuple(float(x) for x in d.get("center", (0.0, 0.0))),  # type: ignore[arg-type]
+            center=tuple(float(x) for x in center),  # type: ignore[arg-type]
+            center_is_pan=not from_cursor,
         )
 
     def basis(self):
         return slice_basis(self.normal, self.up, self.radiological)
 
 
-def pane_to_world(view: ViewSpec) -> np.ndarray:
+def effective_center(view: ViewSpec, anchor: np.ndarray | None) -> tuple[float, float]:
+    """`effectiveSliceView(...).camera.center`: the pane offset in the **cursor-relative** frame.
+
+    §4.5 measures `camera.center` from the scene-bounds anchor, while `sliceViewProj`, the slice
+    quad and the crosshair all speak a frame whose origin is the cursor. `effectiveSliceView` folds
+    the difference into one number — `center + (anchor - cursor) . right` and the same on `up` — and
+    that is what this returns, so `pane_to_world` below stays the cursor-relative formula the engine
+    ships. With `center_is_pan` false the caller is already speaking that frame and nothing is
+    folded; with no anchor (a scene with no datasets) there is nothing to fold either.
+    """
+    cx, cy = view.center
+    if view.center_is_pan and anchor is not None:
+        right, up, _ = view.basis()
+        d = np.asarray(anchor, dtype=np.float64) - view.cursor
+        cx += float(np.dot(d, right))
+        cy += float(np.dot(d, up))
+    return cx, cy
+
+
+def pane_to_world(view: ViewSpec, anchor: np.ndarray | None = None) -> np.ndarray:
     """Every pixel centre of the pane, as world mm. Shape `(H, W, 3)`, **top-left origin**.
 
     `view/geometry.ts`'s `paneToWorld`, vectorised: pixel `(x, y)` samples its own **centre**,
-    `p + 0.5`, so `u = center.x + (x + 0.5 - W/2) * mmPerPx` and
-    `v = center.y + (H/2 - y - 0.5) * mmPerPx`, and `world = cursor + right*u + up*v`.
+    `p + 0.5`, so `u = c.x + (x + 0.5 - W/2) * mmPerPx` and `v = c.y + (H/2 - y - 0.5) * mmPerPx`,
+    and `world = cursor + right*u + up*v`, where `c = effective_center(view, anchor)`.
 
-    `center` here is the pane offset **from the cursor**, i.e. the engine's `effectiveSliceView`
-    value (§4.5's R3 anchor folded in). A scene JSON has no scene bounds, so it cannot re-derive the
-    bbox anchor; the engine-side harness must pass the effective centre. See `docs/TESTING.md`.
+    `anchor` is §4.5's R3 anchor — `plane_anchor(layers)` for the scene being rendered, which is
+    what `render_scene` passes. Omitting it anchors the pane on the cursor, which is right only for
+    a scene whose cursor already sits on the bounding-box centre (and for a bare geometry test).
     """
     right, up, _ = view.basis()
-    xs = (np.arange(view.width_px) + 0.5 - view.width_px / 2) * view.mm_per_px + view.center[0]
-    ys = (view.height_px / 2 - np.arange(view.height_px) - 0.5) * view.mm_per_px + view.center[1]
+    cx, cy = effective_center(view, anchor)
+    xs = (np.arange(view.width_px) + 0.5 - view.width_px / 2) * view.mm_per_px + cx
+    ys = (view.height_px / 2 - np.arange(view.height_px) - 0.5) * view.mm_per_px + cy
     u = xs[None, :, None]
     v = ys[:, None, None]
     return view.cursor[None, None, :] + right[None, None, :] * u + up[None, None, :] * v
@@ -495,7 +587,7 @@ def render_scene(scene: dict, base: Path = REPO_ROOT) -> dict[str, np.ndarray]:
     """
     view = ViewSpec.from_json(scene.get("view", {}))
     layers = load_layers(scene, base)
-    world = pane_to_world(view)
+    world = pane_to_world(view, plane_anchor(layers))
 
     bg = np.asarray(scene.get("background", [0.0, 0.0, 0.0, 1.0]), dtype=np.float64)
     out = np.empty((view.height_px, view.width_px, 4), dtype=np.float64)

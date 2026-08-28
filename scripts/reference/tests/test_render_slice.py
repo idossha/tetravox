@@ -59,6 +59,9 @@ def one_pixel(layers, cursor, mode="axial", radiological=False, background=(0, 0
             "widthPx": 1,
             "heightPx": 1,
             "radiological": radiological,
+            # Centred on the cursor, not on §4.5's bbox anchor: the point of a 1x1 pane is to
+            # evaluate one chosen world point, so it is the cursor-relative frame that is meant.
+            "centerFromCursor": [0, 0],
         },
         "background": list(background),
     }
@@ -74,7 +77,7 @@ def probe(layer_spec, cursor, mode="axial", radiological=False):
     """
     view = R.ViewSpec.from_json(
         {"mode": mode, "cursor": list(cursor), "mmPerPx": 0.25, "widthPx": 1, "heightPx": 1,
-         "radiological": radiological}
+         "radiological": radiological, "centerFromCursor": [0, 0]}
     )
     layer = R.load_layers({"layers": [layer_spec]}, TESTDATA)[0]
     rgb, alpha, keep = R.render_layer(layer, view, R.pane_to_world(view), TESTDATA)
@@ -102,7 +105,8 @@ class TestWorkedExample(unittest.TestCase):
         scene = {
             "layers": [ramp_layer()],
             "view": {"mode": "axial", "cursor": [1.5, 1.5, 1.5], "mmPerPx": 0.25,
-                     "widthPx": 32, "heightPx": 32, "radiological": False},
+                     "widthPx": 32, "heightPx": 32, "radiological": False,
+                     "centerFromCursor": [0, 0]},
             "background": [0, 0, 0, 1],
         }
         row = np.rint(R.render_scene(scene)["rgba"][16, :, 0] * 255).astype(int)
@@ -132,7 +136,8 @@ class TestOrientation(unittest.TestCase):
                 "scale": {"kind": "linear", "lo": 0, "hi": 255}, "interpolation": "nearest",
             }],
             "view": {"mode": mode, "cursor": list(self.CURSOR[mode]), "mmPerPx": 0.25,
-                     "widthPx": self.PANE, "heightPx": self.PANE, "radiological": radiological},
+                     "widthPx": self.PANE, "heightPx": self.PANE, "radiological": radiological,
+                     "centerFromCursor": [0, 0]},
             "background": [0, 0, 0, 1],
         }
         bright = R.render_scene(scene)["rgba"][..., 0] > 0.5
@@ -167,7 +172,8 @@ class TestOrientation(unittest.TestCase):
                     "scale": {"kind": "linear", "lo": 0, "hi": 255}, "interpolation": "linear",
                 }],
                 "view": {"mode": "coronal", "cursor": [0, 2.5, 0], "mmPerPx": 0.3,
-                         "widthPx": 48, "heightPx": 48, "radiological": rad},
+                         "widthPx": 48, "heightPx": 48, "radiological": rad,
+                         "centerFromCursor": [0, 0]},
                 "background": [0.1, 0.1, 0.1, 1],
             }
             return R.render_scene(scene)["rgba"]
@@ -186,6 +192,94 @@ class TestOrientation(unittest.TestCase):
             rad_right, rad_up, _ = R.slice_basis(R.preset_normal(mode), R.preset_up(mode), True)
             np.testing.assert_allclose(rad_right, -np.asarray(right), atol=1e-12)
             np.testing.assert_allclose(rad_up, up, atol=1e-12, err_msg=f"{mode}: up is untouched")
+
+
+class TestPlaneAnchor(unittest.TestCase):
+    """§4.5's R3 anchor, derived here the way `planeAnchor(store.bounds())` derives it."""
+
+    RAMP = str(TESTDATA / "vol_ramp4.nii")
+    ASYM = str(TESTDATA / "vol_asym.nii")
+
+    def layers(self, *paths):
+        return R.load_layers({"layers": [{"path": p, "kind": "volume"} for p in paths]}, TESTDATA)
+
+    def test_volume_bounds_span_voxel_centres_not_the_texture_footprint(self):
+        """`volumeBounds` walks `0 .. dims-1` (§3: voxel centres sit on integer indices)."""
+        lo, hi = R.volume_bounds(self.layers(self.RAMP)[0].volume)
+        np.testing.assert_allclose(lo, [0, 0, 0])
+        np.testing.assert_allclose(hi, [3, 3, 3])  # 4 voxels on a unit affine -> 3 mm, not 4
+        lo, hi = R.volume_bounds(self.layers(self.ASYM)[0].volume)
+        np.testing.assert_allclose(lo, [-3.5, -3.5, -3.5])
+        np.testing.assert_allclose(hi, [3.5, 3.5, 3.5])
+
+    def test_the_anchor_is_the_centre_of_the_union_over_datasets(self):
+        np.testing.assert_allclose(R.plane_anchor(self.layers(self.RAMP)), [1.5, 1.5, 1.5])
+        np.testing.assert_allclose(R.plane_anchor(self.layers(self.ASYM)), [0, 0, 0])
+        # the union of [0,3]^3 and [-3.5,3.5]^3 is [-3.5,3.5]^3, whose centre is the origin
+        np.testing.assert_allclose(R.plane_anchor(self.layers(self.RAMP, self.ASYM)), [0, 0, 0])
+
+    def test_a_scene_with_no_datasets_has_no_anchor(self):
+        self.assertIsNone(R.plane_anchor([]))
+
+    def view(self, **over):
+        d = {"mode": "axial", "cursor": [0, 0, 1.5], "mmPerPx": 0.25,
+             "widthPx": 8, "heightPx": 8, "radiological": False}
+        d.update(over)
+        return R.ViewSpec.from_json(d)
+
+    def test_center_is_from_the_anchor_and_center_from_cursor_is_from_the_cursor(self):
+        """The two differ by `effectiveSliceView`'s fold, `(anchor - cursor) . {right, up}`.
+
+        The cursor is `(0, 0, 1.5)` and `vol_ramp4.nii`'s anchor `(1.5, 1.5, 1.5)`, so on an axial
+        pane (`right = +X`, `up = +Y`) the fold is `(1.5, 1.5)` mm.
+        """
+        anchor = R.plane_anchor(self.layers(self.RAMP))
+        pan = R.pane_to_world(self.view(center=[0, 0]), anchor)
+        folded = R.pane_to_world(self.view(centerFromCursor=[1.5, 1.5]), anchor)
+        np.testing.assert_allclose(pan, folded, atol=1e-12)
+        cursor_frame = R.pane_to_world(self.view(centerFromCursor=[0, 0]), anchor)
+        np.testing.assert_allclose(
+            pan - cursor_frame, np.broadcast_to([1.5, 1.5, 0.0], pan.shape), atol=1e-12
+        )
+        # An absent `center` means `center: [0, 0]` — anchored, not cursor-centred.
+        np.testing.assert_allclose(R.pane_to_world(self.view(), anchor), pan, atol=1e-12)
+
+    def test_the_two_frames_coincide_when_the_cursor_is_on_the_anchor(self):
+        """Which is where `#onFirstDataset` puts it — the reason no Phase-1 golden moved (§4.5)."""
+        anchor = R.plane_anchor(self.layers(self.RAMP))
+        np.testing.assert_allclose(
+            R.pane_to_world(self.view(cursor=list(anchor)), anchor),
+            R.pane_to_world(self.view(cursor=list(anchor), centerFromCursor=[0, 0]), anchor),
+            atol=1e-12,
+        )
+
+    def test_radiological_folds_the_anchor_through_the_mirrored_right(self):
+        """`effectiveSliceView` takes the *radiological* basis, so the horizontal fold flips."""
+        anchor = R.plane_anchor(self.layers(self.RAMP))
+        self.assertEqual(R.effective_center(self.view(radiological=True), anchor), (-1.5, 1.5))
+
+    def test_naming_both_keys_is_an_error_rather_than_a_silent_winner(self):
+        with self.assertRaises(ValueError):
+            self.view(center=[0, 0], centerFromCursor=[0, 0])
+
+    def test_without_an_anchor_the_pane_falls_back_to_the_cursor(self):
+        np.testing.assert_allclose(
+            R.pane_to_world(self.view(center=[0, 0]), None),
+            R.pane_to_world(self.view(centerFromCursor=[0, 0]), None),
+            atol=1e-12,
+        )
+
+    def test_render_scene_anchors_on_the_datasets_it_loaded(self):
+        """End to end: the default framing is the anchor's, and `render_scene` derives it itself."""
+        def pane(**view_over):
+            v = {"mode": "axial", "cursor": [0, 0, 1.5], "mmPerPx": 0.5,
+                 "widthPx": 16, "heightPx": 16, "radiological": False}
+            v.update(view_over)
+            return R.render_scene({"layers": [ramp_layer()], "view": v,
+                                   "background": [0, 0, 0, 1]})["rgba"]
+
+        np.testing.assert_array_equal(pane(), pane(centerFromCursor=[1.5, 1.5]))
+        self.assertTrue(np.any(pane() != pane(centerFromCursor=[0, 0])))
 
 
 class TestSampling(unittest.TestCase):
@@ -433,7 +527,8 @@ class TestLabels(unittest.TestCase):
             "layers": [{"path": self.VOL, "kind": "volume", "colormap": "gray",
                         "scale": {"kind": "linear", "lo": 0, "hi": 1}, "label": label}],
             "view": {"mode": "axial", "cursor": [0, 10, 0], "mmPerPx": mm,
-                     "widthPx": pane, "heightPx": pane, "radiological": False},
+                     "widthPx": pane, "heightPx": pane, "radiological": False,
+                     "centerFromCursor": [0, 0]},
             "background": [0, 0, 0, 1],
         }
 
@@ -626,7 +721,8 @@ class TestPng(unittest.TestCase):
         scene = {
             "layers": [ramp_layer()],
             "view": {"mode": "axial", "cursor": [1.5, 1.5, 1.5], "mmPerPx": 0.5,
-                     "widthPx": 16, "heightPx": 16, "radiological": False},
+                     "widthPx": 16, "heightPx": 16, "radiological": False,
+                     "centerFromCursor": [0, 0]},
             "background": [0, 0, 0, 1],
         }
         r = R.render_scene(scene)
