@@ -10,7 +10,7 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
-## [0.2.0]
+## [0.2.0] - 2026-08-28
 
 The first release with artefacts. 0.1.0 was the scaffold; this is the version you can download.
 
