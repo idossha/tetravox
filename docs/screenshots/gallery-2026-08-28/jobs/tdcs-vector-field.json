@@ -2,7 +2,7 @@
   "version": 1,
   "scene": {
     "files": [
-      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/Simulations/flex_20260709_021442_285db057_mapped/high_Frequency/mesh/ernie_TDCS_1_scalar.msh"
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh"
     ],
     "preset": "plain"
   },
@@ -11,6 +11,57 @@
       "type": "set",
       "layer": "ernie_TDCS_1_scalar.msh",
       "patch": {
+        "colorMode": "field",
+        "field": {
+          "source": "elm",
+          "name": "E",
+          "component": "mag"
+        },
+        "colormap": "hot",
+        "showColorbar": true
+      }
+    },
+    {
+      "type": "set",
+      "camera": "L",
+      "view": "view3d",
+      "distance": 280
+    },
+    {
+      "type": "screenshot",
+      "out": "tdcs-field-surface-3d-left",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "camera": "S"
+    },
+    {
+      "type": "screenshot",
+      "out": "tdcs-field-surface-3d-superior",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "colormap": "viridis"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "tdcs-field-surface-colormap-viridis",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "colorMode": "tag",
+        "opacity": 0.15,
         "glyphs": {
           "field": {
             "source": "elm",
@@ -29,15 +80,12 @@
           },
           "scale": "byMagnitude",
           "lengthMm": 10.0
-        },
-        "opacity": 0.15
+        }
       }
     },
     {
       "type": "set",
-      "camera": "L",
-      "view": "view3d",
-      "distance": 280
+      "camera": "L"
     },
     {
       "type": "screenshot",
@@ -78,9 +126,7 @@
     },
     {
       "type": "set",
-      "camera": "A",
-      "view": "view3d",
-      "distance": 280
+      "camera": "A"
     },
     {
       "type": "screenshot",

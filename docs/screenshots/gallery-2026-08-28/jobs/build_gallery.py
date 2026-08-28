@@ -69,7 +69,8 @@ j.set(view="coronal", mm_per_px=0.35)
 j.screenshot("t1-coronal-1x1-zoom", view="coronal", width=1400)
 j.set(view="sagittal", mm_per_px=0.35)
 j.screenshot("t1-sagittal-1x1-zoom", view="sagittal", width=1400)
-j.set(view="view3d", camera="A", distance=260)
+# A volume has no 3D presence until `showIn3D` puts its three slice planes in the 3D pane.
+j.set(layer=T1, patch={"showIn3D": True}, view="view3d", camera="A", distance=260)
 j.screenshot("t1-3d-anterior", view="view3d", width=1400)
 j.set(camera="S")
 j.screenshot("t1-3d-superior", view="view3d", width=1400)
@@ -111,7 +112,7 @@ j.screenshot("t1-convention-neurological", view="axial", width=1400, crosshair=T
 j.screenshot("t1-crosshair-off", view="axial", width=1400, crosshair=False)
 j.screenshot("t1-cursor-readout", view="axial", width=1400, crosshair=True)
 j.screenshot("t1-scale-bar", view="axial", width=1400, colorbar=False)
-j.set(view="view3d", camera="A")
+j.set(layer=T1, patch={"showIn3D": True}, view="view3d", camera="A", distance=260)
 j.screenshot("t1-orientation-cube", view="view3d", width=1400)
 run("t1-window-colormap-convention", j, "T1: window/level presets, colormaps, nearest vs linear, RAD/NEU, crosshair, scale bar, orientation cube")
 

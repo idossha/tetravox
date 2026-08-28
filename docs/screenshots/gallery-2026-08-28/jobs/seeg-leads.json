@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie-seeg/ernie-seeg.msh",
+      "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie-seeg/ernie_seeg_views.pos"
+    ],
+    "preset": "mesh-tissues-translucent"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "camera": "R",
+      "view": "view3d",
+      "distance": 280
+    },
+    {
+      "type": "screenshot",
+      "out": "seeg-leads-mesh-3d-right",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "cursor": [
+        40.0,
+        8.0,
+        -1.0
+      ],
+      "view": "axial",
+      "mmPerPx": 0.35
+    },
+    {
+      "type": "screenshot",
+      "out": "seeg-leads-contacts-axial",
+      "view": "axial",
+      "width": 1400
+    }
+  ]
+}

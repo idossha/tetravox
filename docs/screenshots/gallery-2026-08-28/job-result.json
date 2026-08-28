@@ -8,55 +8,103 @@
       "action": 0,
       "type": "set",
       "files": [],
-      "ms": 339
+      "ms": 448
     },
     {
       "action": 1,
       "type": "set",
       "files": [],
-      "ms": 1
+      "ms": 3
     },
     {
       "action": 2,
       "type": "screenshot",
       "files": [
-        "tdcs-vector-glyphs-arrows.png"
+        "tdcs-field-surface-3d-left.png"
       ],
-      "ms": 79
+      "ms": 70
     },
     {
       "action": 3,
       "type": "set",
       "files": [],
-      "ms": 14
+      "ms": 13
     },
     {
       "action": 4,
       "type": "screenshot",
       "files": [
-        "tdcs-vector-glyphs-lines.png"
+        "tdcs-field-surface-3d-superior.png"
       ],
-      "ms": 75
+      "ms": 68
     },
     {
       "action": 5,
       "type": "set",
       "files": [],
-      "ms": 8
+      "ms": 16
     },
     {
       "action": 6,
       "type": "screenshot",
       "files": [
+        "tdcs-field-surface-colormap-viridis.png"
+      ],
+      "ms": 70
+    },
+    {
+      "action": 7,
+      "type": "set",
+      "files": [],
+      "ms": 344
+    },
+    {
+      "action": 8,
+      "type": "set",
+      "files": [],
+      "ms": 1
+    },
+    {
+      "action": 9,
+      "type": "screenshot",
+      "files": [
+        "tdcs-vector-glyphs-arrows.png"
+      ],
+      "ms": 78
+    },
+    {
+      "action": 10,
+      "type": "set",
+      "files": [],
+      "ms": 7
+    },
+    {
+      "action": 11,
+      "type": "screenshot",
+      "files": [
+        "tdcs-vector-glyphs-lines.png"
+      ],
+      "ms": 70
+    },
+    {
+      "action": 12,
+      "type": "set",
+      "files": [],
+      "ms": 13
+    },
+    {
+      "action": 13,
+      "type": "screenshot",
+      "files": [
         "tdcs-vector-glyphs-anterior.png"
       ],
-      "ms": 69
+      "ms": 67
     }
   ],
   "timings": {
-    "totalMs": 2840,
-    "loadMs": 2026,
-    "actionsMs": 585
+    "totalMs": 3480,
+    "loadMs": 1969,
+    "actionsMs": 1268
   },
   "warnings": [],
   "errors": []

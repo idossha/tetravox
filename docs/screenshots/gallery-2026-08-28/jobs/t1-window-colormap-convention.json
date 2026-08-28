@@ -194,8 +194,13 @@
     },
     {
       "type": "set",
+      "layer": "/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz",
+      "patch": {
+        "showIn3D": true
+      },
       "camera": "A",
-      "view": "view3d"
+      "view": "view3d",
+      "distance": 260
     },
     {
       "type": "screenshot",

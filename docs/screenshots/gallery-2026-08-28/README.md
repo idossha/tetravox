@@ -1,190 +1,154 @@
 # Screenshot gallery — 2026-08-28
 
-93 curated PNGs (plus a 16-frame axial sweep, a 24-frame mesh orbit and their two GIFs) captured
-from the built app, offscreen, against `TETRAVOX_TESTDATA=…/derivatives/SimNIBS/sub-ernie`. Every
-image was produced by a job document in [`jobs/`](jobs/) — rerun any of them with
+Every feature of the app, as pictures, on the SimNIBS `ernie` subject
+(`TETRAVOX_TESTDATA=…/derivatives/SimNIBS/sub-ernie`), MNE's `fsaverage`, and four public non-head
+CTs ([DATASETS.md](DATASETS.md)). Two producers:
+
+* **Jobs** — `--job` documents under [`jobs/`](jobs/), written and run by the four Python builders
+  there (`jobs/build_all.sh` runs them in order). Every engine picture comes from one of these;
+  `Tetravox --job jobs/<name>.json --out .` reruns any single one.
+* **Playwright** — [`packages/app/e2e/ui-tour-gallery.spec.ts`](../../../packages/app/e2e/ui-tour-gallery.spec.ts)
+  drives the real app offscreen for the states a job cannot reach (dialogs, panels, the measurement
+  gesture, both themes) and writes the `ui-*.png` files here.
 
 ```sh
 export TETRAVOX_TESTDATA=/path/to/derivatives/SimNIBS/sub-ernie
 export TETRAVOX_APP="$PWD/node_modules/.bin/electron"
 export TETRAVOX_APP_ARGS="$PWD/packages/app"
-Tetravox --job docs/screenshots/gallery-2026-08-28/jobs/<name>.json --out docs/screenshots/gallery-2026-08-28/
+pnpm wasm && pnpm --filter @tetravox/app build
+scripts/fetch-public-samples.sh
+docs/screenshots/gallery-2026-08-28/jobs/build_all.sh
+pnpm --filter @tetravox/app exec playwright test e2e/ui-tour-gallery.spec.ts --project=dev
 ```
 
-or regenerate the whole gallery with the two Python builders that wrote the jobs and PNGs:
+Every image was opened and checked: 2D panes are world RAS with superior up (anterior left in a
+sagittal pane), 3D panes use the A/P/L/R/S/I camera presets, every PNG is under 1.5 MB. Nothing here
+puts a window on screen.
 
-```sh
-python3 docs/screenshots/gallery-2026-08-28/jobs/build_gallery.py
-python3 docs/screenshots/gallery-2026-08-28/jobs/build_tdcs_glyphs.py
-```
-
-Every 2D image is world RAS: superior is up, anterior is left in a sagittal pane. Every 3D image
-uses a logical camera preset (A/P/L/R/S/I). All were opened and visually checked after rendering;
-see **Flagged / not captured** below for the two shots that were dropped.
-
-## T1 volume
+## T1 volume — `jobs/t1-views-layouts.json`, `jobs/t1-window-colormap-convention.json`
 
 | File | What it shows |
 |---|---|
-| `t1-axial-1x1-zoom.png` / `t1-coronal-1x1-zoom.png` / `t1-sagittal-1x1-zoom.png` | Single-pane close-ups, `mmPerPx: 0.35`, `plain` preset |
-| `t1-3d-anterior.png` / `t1-3d-superior.png` | The T1's bounding box from A and S camera presets |
-| `t1-layout-2x2.png` / `t1-layout-1plus3.png` / `t1-layout-3dplus1.png` / `t1-layout-1x3.png` / `t1-layout-1x3-horizontal.png` | All five `layout` kinds |
-| `t1-window-min-max.png` | Scale = data min→max (0–65535) |
-| `t1-window-p2-98.png` | Scale ≈ p2–p98 (800–3200) |
-| `t1-window-p50-p999.png` | Scale ≈ p50–p99.9 (400–5200) |
-| `t1-colormap-viridis.png` / `t1-colormap-hot.png` / `t1-colormap-bone.png` | Alternate colormaps on the T1 |
-| `t1-interp-nearest.png` / `t1-interp-linear.png` | Interpolation modes |
-| `t1-convention-radiological.png` / `t1-convention-neurological.png` | RAD vs NEU convention (badge always on) |
-| `t1-crosshair-off.png` | Crosshair explicitly off |
-| `t1-cursor-readout.png` | Crosshair + coordinate/cursor readout on |
-| `t1-scale-bar.png` | Scale bar, colour bar off |
-| `t1-orientation-cube.png` | 3D pane's orientation cube |
+| `t1-axial-1x1-zoom.png` / `t1-coronal-1x1-zoom.png` / `t1-sagittal-1x1-zoom.png` | Single panes at `mmPerPx: 0.35` |
+| `t1-3d-anterior.png` / `t1-3d-superior.png` | The volume's three slice planes in the 3D pane (`showIn3D`) from A and S |
+| `t1-layout-2x2.png` / `-1plus3.png` / `-3dplus1.png` / `-1x3.png` / `-1x3-horizontal.png` | All five `layout` kinds |
+| `t1-window-min-max.png` / `t1-window-p2-98.png` / `t1-window-p50-p999.png` | Window/level as `scale` |
+| `t1-colormap-viridis.png` / `-hot.png` / `-bone.png` | Colormaps |
+| `t1-interp-nearest.png` / `t1-interp-linear.png` | Interpolation |
+| `t1-convention-radiological.png` / `t1-convention-neurological.png` | RAD vs NEU (the badge is never optional) |
+| `t1-crosshair-off.png` / `t1-cursor-readout.png` / `t1-scale-bar.png` / `t1-orientation-cube.png` | Chrome toggles |
 
-Produced by `jobs/t1-views-layouts.json` and `jobs/t1-window-colormap-convention.json`.
-
-## Label volume (`labeling.nii.gz`)
+## Label volume — `jobs/labels-lut-modes.json`
 
 | File | What it shows |
 |---|---|
-| `labels-fill-axial.png` / `labels-outline-axial.png` / `labels-fill-outline-axial.png` | `labelMode: fill / outline / both` |
-| `labels-coronal.png` | Fill mode, coronal pane |
-| `labels-isolate-single-tissue.png` | `visibleLabels: [2]` — grey matter only |
-| `labels-show-in-3d-iso.png` | `showIn3D` + `iso3d.enabled` — the label volume's 3D iso surfaces |
+| `labels-fill-axial.png` / `labels-outline-axial.png` / `labels-fill-outline-axial.png` | `labelMode: fill / outline / both`, LUT colours from `labeling_LUT.txt` |
+| `labels-coronal.png` | Fill, coronal |
+| `labels-isolate-single-tissue.png` | `visibleLabels: [2]` |
+| `labels-show-in-3d-iso.png` | `showIn3D` + `iso3d` — per-label 3D surfaces (voxel-faceted at native resolution) |
 
-Produced by `jobs/labels-lut-modes.json`.
-
-## Head mesh (`ernie.msh`, tissue tags from `.msh.opt`)
+## Head mesh — `jobs/mesh-tissues.json`
 
 | File | What it shows |
 |---|---|
-| `mesh-tissues-translucent-anterior.png` / `-left.png` / `-superior.png` | `mesh-tissues-translucent` preset from three cameras — scalp 0.3, skull 0.5, opaque grey/white |
-| `mesh-per-tissue-visibility-scalp-off.png` | Scalp tag hidden via `tagStyle` |
-| `mesh-clip-plane-sagittal.png` | A sagittal clip plane with capping |
-| `mesh-cross-section-2d-axial.png` | The mesh's contour in a 2D axial pane |
-| `mesh-isolate-brain-only.png` | `isolate.tags` restricted to the brain tag |
+| `mesh-tissues-translucent-anterior.png` / `-left.png` / `-superior.png` | `mesh-tissues-translucent` preset, tissue colours from `ernie.msh.opt` |
+| `mesh-per-tissue-visibility-scalp-off.png` | `tagStyle` hides the scalp |
+| `mesh-clip-plane-sagittal.png` | A clip plane with caps |
+| `mesh-cross-section-2d-axial.png` | The mesh's contour in a 2D pane |
+| `mesh-isolate-brain-only.png` | `isolate.tags` |
 
-Produced by `jobs/mesh-tissues.json`.
+## Fields on meshes
 
-## Scalar field on mesh — TI (`grey_Thalamus_TI.msh`)
-
-| File | What it shows |
-|---|---|
-| `ti-field-on-t1-axial.png` / `-coronal.png` | `ti-field-on-t1` preset: grey T1 + `hot` field thresholded at p90, colour bar with p90/p97/p99.9 ticks |
-| `ti-field-colormap-turbo.png` | Same field, `turbo` colormap |
-
-Produced by `jobs/ti-field.json`. **`ti-field-on-t1-3d.png` was dropped** — `grey_Thalamus_TI.msh`
-has 0 triangles (documented in `AGENTS.md`: "anything assuming a mesh ships its own surface renders
-an empty 3D view"), so its 3D pane is legitimately black. The 2D captures above are the field's real
-pictures.
-
-## Vector field — TDCS E-field (`ernie_TDCS_1_scalar.msh`)
+**TI** — `jobs/ti-field.json`
 
 | File | What it shows |
 |---|---|
-| `tdcs-vector-glyphs-arrows.png` | Arrow glyphs, `colorBy: magnitude`, `scale: byMagnitude` |
-| `tdcs-vector-glyphs-lines.png` | Line-shaped glyphs, same field |
-| `tdcs-vector-glyphs-anterior.png` | Arrow glyphs from an anterior camera |
+| `ti-field-on-t1-axial.png` / `-coronal.png` | `ti-field-on-t1` preset: `hot` over grey, thresholded at p90, colour bar with p90/p97/p99.9 ticks |
+| `ti-field-colormap-turbo.png` | Same, `turbo` |
 
-Produced by `jobs/tdcs-vector-field.json` (written by `build_tdcs_glyphs.py`). **Flagged:**
-`MeshLayer` with `colorMode: 'field'` (the field-coloured surface, as opposed to glyphs) rendered
-**fully black** in the 3D pane for this mesh in every camera/zoom tried — the colour bar's own
-statistics compute correctly (real min/mid/max printed), but the field-coloured surface geometry
-never draws, while the same mesh's default tag/solid colour mode and its glyphs (which read
-`meshCentroids` independently of that colour pass) render correctly. That looks like an app bug
-scoped to `colorMode: 'field'` on this mesh; it was not investigated or fixed further, per the
-task's "do not modify app source except for a genuine bug blocking a capture, and note it" —
-noting it here. `tdcs-scalar-field-3d.png` (the field-coloured surface) and two glyph variants that
-depended on the same broken preset state were dropped from the gallery for this reason.
+`grey_Thalamus_TI.msh` has 0 triangles (AGENTS.md), so it has no 3D picture; its 2D captures are
+the real ones.
 
-## Surfaces (GIfTI pial, lh/rh)
+**TDCS E-field** — `jobs/tdcs-vector-field.json` (`jobs/build_tdcs_glyphs.py`)
 
 | File | What it shows |
 |---|---|
-| `surfaces-pial-3d-left.png` / `-anterior.png` | The pial surfaces as 3D geometry |
-| `surfaces-pial-contours-axial.png` / `-coronal.png` | The same surfaces as 2D contours over the T1 |
-| `surfaces-pial-overview-2x2.png` | 2×2 overview: three contoured slices + the 3D surface |
+| `tdcs-field-surface-3d-left.png` / `-superior.png` | `colorMode: 'field'`, `|E|` on the cortical surface, `hot` |
+| `tdcs-field-surface-colormap-viridis.png` | Same, `viridis` |
+| `tdcs-vector-glyphs-arrows.png` / `-lines.png` / `-anterior.png` | Vector glyphs, `everyNth: 400`, length by magnitude |
 
-Produced by `jobs/surfaces-pial.json`. `.annot`/`.curv` overlays were not attempted — the dataset
-carries no such sidecars next to `lh.pial.gii`, so that overlay path was left uncaptured (see
-below).
+**Resolved: the "field mode renders black" note from the first pass was not a renderer bug.** The
+`ti-field-on-t1` preset thresholds the field at its whole-mesh p90 — 0.598 V/m on this mesh, where
+`|E|` peaks at 13 V/m in the electrodes and gel — while the cortical surface's `|E|` tops out at
+0.285 V/m, so every surface triangle was below threshold. With `plain` and `colorMode: 'field'` set by
+hand (no threshold) the surface renders correctly. It is a preset limitation on a whole-head tDCS
+mesh, not something to fix in the engine; no app source was changed. The glyph fuzz at any density is
+also expected — 5.9 M elements — and is kept as the honest picture.
 
-## Points — EEG electrodes (`GSN-HydroCel-185.geo`)
+## Surfaces and points
+
+| File | Job | What it shows |
+|---|---|---|
+| `surfaces-pial-3d-left.png` / `-anterior.png` | `surfaces-pial.json` | GIfTI `lh/rh.pial.gii` in 3D |
+| `surfaces-pial-contours-axial.png` / `-coronal.png` / `surfaces-pial-overview-2x2.png` | | The same surfaces as 2D contours |
+| `freesurfer-binary-pial-3d.png` | `freesurfer-pial.json` | A FreeSurfer **binary** surface (`fsaverage/surf/lh.pial`) |
+| `eeg-electrodes-3d-superior.png` / `-anterior.png` | `eeg-points.json` | `GSN-HydroCel-185.geo` — 185 labelled points |
+| `seeg-leads-mesh-3d-right.png` | `seeg-leads.json` | `m2m_ernie-seeg/ernie-seeg.msh` (electrode tags, >2²¹ nodes) + `ernie_seeg_views.pos` contacts |
+| `seeg-leads-contacts-axial.png` | | The lead tracks through the axial slice |
+
+`.annot` / `.curv` — **not openable.** `crates/tvx-mesh-io` has `read_fs_annot` / curv readers, but
+`crates/tvx-wasm/src/mesh.rs` only routes `msh / gii / fs(surface) / stl / ply / obj / geo`, so opening
+`fsaverage/label/lh.aparc.annot` fails with `unrecognised mesh format` and `surf/lh.curv` with
+`unexpected end of file` (it is parsed as a surface). `.label.gii` is routed, but no such file exists
+in the dataset. Not captured.
+
+## Overviews and automation
+
+| File | Job |
+|---|---|
+| `overview-ti-field-2x2.png` / `overview-ti-field-1plus3.png` | `overview-ti-field.json` |
+| `axial-sweep-0000…0015.png`, `axial-sweep.gif` | `automation-sweep.json` |
+| `head-orbit-0000…0023.png`, `head-orbit.gif` | `automation-orbit.json` |
+
+## Public non-head data — `jobs/build_public.py` ([DATASETS.md](DATASETS.md))
+
+Windows are Hounsfield: soft tissue W400/L40 (`-160…240`), bone W1500/L300 (`-450…1050`), lung
+W1500/L-600 (`-1350…150`).
+
+| Prefix | Files | What it shows |
+|---|---|---|
+| `public-totalseg-` | `ct-soft-{axial,coronal,sagittal,3d,2x2}`, `ct-bone-{coronal,sagittal}`, `labels-fill-{coronal,axial}`, `labels-outline-axial`, `labels-3d-iso` | TotalSegmentator example CT + its multi-organ label map |
+| `public-ct-abdo-` | `soft-{axial,coronal,sagittal,3d,2x2}`, `bone-{coronal,axial}` | niivue-images `CT_Abdo` |
+| `public-ct-chest-` | `lung-{axial,coronal,sagittal,3d,2x2}`, `soft-axial`, `bone-sagittal` | niivue-images `CT_Philips` — a **head** CT despite the prefix (see DATASETS.md) |
+| `public-spine-` | `ct-bone-{axial,coronal,sagittal,3d,2x2}`, `ct-soft-sagittal`, `vertebra-labels-{sagittal,coronal}`, `vertebra-labels-outline-axial`, `vertebra-labels-3d-iso`, `vertebra-labels-3d-iso-left` | CTSpine1K chest CT with per-vertebra labels — the column is vertical, superior up |
+
+Knee MRI: not found as a small login-free NIfTI — DATASETS.md lists what was tried.
+
+## Interface — `packages/app/e2e/ui-tour-gallery.spec.ts` (T1 + labeling, 1600×1000)
 
 | File | What it shows |
 |---|---|
-| `eeg-electrodes-3d-superior.png` / `-anterior.png` | 185 labelled electrode positions over the T1, from S and A cameras |
+| `ui-window-dark.png` / `ui-window-light.png` | The whole window, both sidebars open, 2×2, in each theme |
+| `ui-window-light-layout-1plus3.png` / `ui-window-light-layout-3d-only.png` | Light theme, other layouts |
+| `ui-measure-length-and-angle.png` | Measure mode: an angle (three clicks, axial) and a length (two clicks, coronal) drawn on the slices and echoed in the 3D pane |
+| `ui-measure-panel.png` | The measurements panel (M1 67.0 °, M2 96.8 mm, jump-to, delete) |
+| `ui-histogram-panel.png` | The T1 layer's editor: colormap, scale, histogram with log-y, window presets, threshold, interpolation, 3D surface |
+| `ui-region-panel.png` | The label volume's region list — names, ids, voxel counts, per-label eye/opacity |
+| `ui-layer-panel.png` / `ui-layer-panel-light.png` | The left panel |
+| `ui-info-panel.png` / `ui-info-panel-light.png` | The right panel: coordinate bar, cursor and mouse probes, header |
+| `ui-header-panel.png` / `ui-coordinate-bar.png` | NIfTI header viewer with search and raw toggle; the coordinate bar with space picker, copy and paste |
+| `ui-keyboard-help.png` / `ui-keyboard-help-light.png` | The keyboard sheet (generated from the key map) |
+| `ui-settings-dialog.png` | Settings, Appearance tab (System / Light / Dark, config path) |
+| `ui-screenshot-dialog.png` | The screenshot dialog: target, size, scale, DPI, background, auto-trim, include flags, preview |
+| `ui-app-menu-open.png` | The Tetravox menu (Open, New, Open scene, Save, Save as) |
+| `ui-sidebars-collapsed.png` | Both sidebars collapsed — the grid takes the window |
+| `ui-tour-window-panels.png` | The `window.panels: true` job capture (`jobs/ui-tour.json`), for comparison |
 
-Produced by `jobs/eeg-points.json`. sEEG (`m2m_ernie-seeg/ernie-seeg.msh`) was not captured — see
-below.
+Themes only repaint the panel chrome: the rendered panes are the same in both, by design (the pane
+chrome is drawn by the engine and keyed off the pane, not the theme — `theme.spec.ts` asserts it).
 
-## Overview captures
+## Remaining gaps
 
-| File | What it shows |
-|---|---|
-| `overview-ti-field-2x2.png` / `overview-ti-field-1plus3.png` | The TI-field-on-T1 scene in both multi-pane layouts |
-
-Produced by `jobs/overview-ti-field.json`.
-
-## Automation
-
-| File(s) | What it shows |
-|---|---|
-| `axial-sweep-0000.png` … `-0015.png`, `axial-sweep.gif` | 16-frame axial sweep of the T1, −40→60 mm |
-| `head-orbit-0000.png` … `-0023.png`, `head-orbit.gif` | 24-frame 360° turntable of the translucent tissue mesh |
-
-Produced by `jobs/automation-sweep.json` and `jobs/automation-orbit.json`.
-
-## Interface
-
-| File | What it shows |
-|---|---|
-| `ui-tour-window-panels.png` | Full application window (`window.panels: true`, `view: "window"`) — toolbar, 2×2 layout, coordinate/cursor panel, region label readout, header/metadata panel, GPU/renderer status bar |
-
-Produced by `jobs/ui-tour.json`.
-
-## Coverage checklist — what's here and what's not
-
-Covered: T1 axial/coronal/sagittal/3D, window/level presets, 3 colormaps, nearest vs linear, RAD/NEU,
-crosshair on/off, cursor readout, scale bar, orientation cube, all 5 layouts; label fill/outline/both,
-LUT colours, single-tissue isolation, 3D iso; mesh tissue preset, per-tissue visibility, clip plane,
-2D cross-section, isolation; TI scalar field with thresholded colour bar and ticks, alternate
-colormap; TDCS vector glyphs (arrows and lines); GIfTI pial surfaces in 3D and as 2D contours; EEG
-electrode points with labels; one multi-panel window tour capturing the coordinate bar, region/label
-readout, header panel, measure/crosshair/scale toolbar buttons, and the GPU status bar; an axial
-sweep and a mesh orbit as PNG frames + GIF.
-
-**Not captured, and why:**
-
-- **Measurement tool (length/angle) as a drawn overlay, histogram panel, keyboard-help sheet,
-  settings dialog, and a dedicated screenshot dialog.** These are interactive UI states with no job
-  action to reach them (the job schema drives the engine, not mouse gestures over toolbar buttons),
-  and a Playwright-driven pass against the built app's toolbar (`Measure`, `?`, the settings gear,
-  `Screenshot`) was not attempted in this pass — time-boxed out. The toolbar itself, with all of
-  these buttons labelled, is visible in `ui-tour-window-panels.png`.
-- **sEEG points** (`m2m_ernie-seeg/ernie-seeg.msh`) — not captured; same points/labels feature is
-  demonstrated with the scalp EEG `.geo` file instead.
-- **`.annot`/`.curv` surface overlays** — the dataset has no such sidecars next to the pial GIfTI
-  files, so this path could not be exercised against real data.
-- **A second, non-head public dataset** (spine/chest/abdomen CT, knee MRI, etc.) was not fetched or
-  rendered in this pass — see `DATASETS.md` for what that would take and why it was skipped here.
-- **Light-theme variants.** A job's screenshot comes off the WebGL canvas, which has no "theme" —
-  `Scene.theme` and the app's dark/light setting only repaint the **panel chrome** (toolbar, side
-  panels), not the rendered scene. `ui-tour-window-panels.png` is the one capture that includes
-  panel chrome, and it was captured once, in the app's default (dark) theme; a second light-theme
-  pass of the same window tour was not done in this session.
-- **`ex-search`, `flex-search`, `leadfields`, `forward`** outputs under `TETRAVOX_TESTDATA` were
-  surveyed but not rendered — the checklist's other feature areas (T1, labels, mesh tissues, scalar
-  and vector fields, surfaces, points) already exercise every distinct rendering path the app has,
-  and these directories are further instances of the same mesh/field/volume types already captured.
-
-## Known-questionable images
-
-- `labels-show-in-3d-iso.png` — the label volume's 3D iso surface renders as visibly blocky voxel
-  facets rather than a smooth surface. This may be the true appearance of a per-label marching-cubes
-  pass at the label volume's native resolution rather than a bug; not investigated further.
-- `tdcs-vector-glyphs-arrows.png` / `-lines.png` / `-anterior.png` — at the glyph density needed to
-  make individual arrows/lines visible against `ernie_TDCS_1_scalar.msh`'s ~5.9M elements, the result
-  reads as a fine white fuzz over the cortical surface rather than discrete arrows. `everyNth` was
-  raised as far as 400 or opacity dropped without individual glyphs becoming visually distinct;
-  the feature is demonstrably active (correct colour-bar stats, correct arrow-vs-line shape switch)
-  but is not a clean, legible picture the way the TI field's 2D captures are.
+* `.annot` / `.curv` overlays (not wired into the wasm loader — above).
+* A knee MRI (no small open NIfTI found — DATASETS.md).
+* A real chest CT from a non-head source other than CTSpine1K's; `CT_Philips` turned out to be a head.

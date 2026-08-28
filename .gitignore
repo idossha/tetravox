@@ -56,3 +56,6 @@ docs/benchmarks/
 .claude/
 
 /coverage/
+
+# Public sample volumes fetched by scripts/fetch-public-samples.sh
+/data/public/

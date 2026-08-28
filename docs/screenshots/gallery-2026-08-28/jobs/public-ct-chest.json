@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/data/public/niivue-images/CT_Philips.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/data/public/niivue-images/CT_Philips.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -1350,
+          "hi": 150
+        }
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "reset": true
+    },
+    {
+      "type": "screenshot",
+      "out": "public-ct-chest-lung-axial",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "reset": true
+    },
+    {
+      "type": "screenshot",
+      "out": "public-ct-chest-lung-coronal",
+      "view": "coronal",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "view": "sagittal",
+      "reset": true
+    },
+    {
+      "type": "screenshot",
+      "out": "public-ct-chest-lung-sagittal",
+      "view": "sagittal",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d",
+      "reset": true
+    },
+    {
+      "type": "screenshot",
+      "out": "public-ct-chest-lung-3d",
+      "view": "view3d",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layout": "2x2"
+    },
+    {
+      "type": "screenshot",
+      "out": "public-ct-chest-lung-2x2",
+      "view": "grid",
+      "width": 1600,
+      "height": 1000
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/data/public/niivue-images/CT_Philips.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -160,
+          "hi": 240
+        }
+      },
+      "view": "axial",
+      "reset": true
+    },
+    {
+      "type": "screenshot",
+      "out": "public-ct-chest-soft-axial",
+      "view": "axial",
+      "width": 1400
+    },
+    {
+      "type": "set",
+      "layer": "/Users/idohaber/00_development/tetravox/.claude/worktrees/agent-af23a0067e58eef8d/data/public/niivue-images/CT_Philips.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -450,
+          "hi": 1050
+        }
+      },
+      "view": "sagittal",
+      "reset": true
+    },
+    {
+      "type": "screenshot",
+      "out": "public-ct-chest-bone-sagittal",
+      "view": "sagittal",
+      "width": 1400
+    }
+  ]
+}

@@ -71,16 +71,6 @@
     ]
   ],
   [
-    "tdcs-vector-field",
-    "E-field vector glyphs on ernie_TDCS_1_scalar.msh: arrow shape, line shape, dense/scaled variant",
-    [
-      "tdcs-scalar-field-3d.png",
-      "tdcs-vector-glyphs-arrows.png",
-      "tdcs-vector-glyphs-lines.png",
-      "tdcs-vector-glyphs-dense-scaled.png"
-    ]
-  ],
-  [
     "surfaces-pial",
     "GIfTI pial surfaces (lh/rh) as a 3D mesh and as 2D contours over the T1",
     [
