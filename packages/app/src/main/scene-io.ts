@@ -135,6 +135,10 @@ export async function showSaveSceneDialog(
   win: BrowserWindow | null,
   defaultName: unknown
 ): Promise<string | null> {
+  // The renderer sends a whole **path** now (directed task 13): `<first dataset's directory>/<name>
+  // .tetravox.json`, so the dialog opens beside the data instead of in whatever directory the OS
+  // last remembered. A bare name still works and still lands wherever the platform defaults to,
+  // which is what every caller written before this did.
   const name = typeof defaultName === 'string' && defaultName !== '' ? defaultName : 'scene';
   const options: Electron.SaveDialogOptions = {
     title: 'Save scene',
@@ -145,7 +149,19 @@ export async function showSaveSceneDialog(
     ? await dialog.showSaveDialog(win, options)
     : await dialog.showSaveDialog(options);
   if (result.canceled || result.filePath === undefined || result.filePath === '') return null;
-  return allowWrite(result.filePath);
+  return allowWrite(withSceneExtension(result.filePath));
+}
+
+/**
+ * Give a chosen path §4.6's extension when it has none.
+ *
+ * A user who types `study` in the Save sheet means `study.tetravox.json`: without the suffix the
+ * file association does not fire, `isScenePath` says it is not a scene, and dropping it back on the
+ * window opens it as a dataset and fails. Anything that already ends in `.tetravox.json` — or that
+ * the user deliberately gave another extension — is left exactly as typed.
+ */
+export function withSceneExtension(path: string): string {
+  return /\.[^./\\]+$/.test(path) ? path : `${path}.${SCENE_EXTENSION}`;
 }
 
 /**

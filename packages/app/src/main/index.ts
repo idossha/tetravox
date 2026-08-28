@@ -19,7 +19,7 @@ import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
-import { buildMenu, sendOpened, showOpenDialog, toOpened } from './menu';
+import { buildMenu, sendOpened, showOpenDialog, splitScenes, toOpened } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
 import { discoverSubjectSpaces } from './subject-spaces';
@@ -42,7 +42,7 @@ import {
   writeSceneFile,
 } from './scene-io';
 import { windowMode } from './window';
-import { readSettings, writeSettings } from './settings';
+import { readSettings, rememberRecentScene, writeSettings } from './settings';
 
 /**
  * `BrowserWindow.backgroundColor` for this launch: the `bg` token of the theme the renderer will
@@ -222,13 +222,28 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // effect, so a message sent before that commit is dropped. Runtime opens (menu, second instance,
   // `open-file` after ready) are pushed, because by then the listener exists.
   let startupPaths: OpenedPath[] = [];
+  /**
+   * The scene this launch should open, drained by `tetravox:startup-scene` (directed task 13).
+   *
+   * Held apart from `startupPaths` because a `*.tetravox.json` is not a dataset: the renderer's two
+   * routes are "add these datasets" and "replace the scene with this file", and mixing them would
+   * make the second one race the first. Last writer wins — argv, then `open-file`, then the
+   * "reopen last scene" setting, which only fills a slot none of the others claimed.
+   */
+  let startupScene: string | null = null;
 
-  // macOS `open-file` fires before ready when the app is launched by opening a document.
+  // macOS `open-file` fires before ready when the app is launched by opening a document — which is
+  // how a double-clicked `*.tetravox.json` arrives, now that the installer registers the extension.
   app.on('open-file', (event, path) => {
     event.preventDefault();
     const opened = toOpened([path]);
     if (mainWindow) sendOpened(mainWindow, opened);
-    else startupPaths = [...startupPaths, ...opened];
+    else {
+      const { scenes } = splitScenes(opened.map((o) => o.path));
+      const scene = scenes[scenes.length - 1];
+      if (scene !== undefined) startupScene = scene;
+      startupPaths = [...startupPaths, ...opened.filter((o) => !scenes.includes(o.path))];
+    }
   });
 
   // IPC: dialogs, menus, **paths** and CLI args only. Never bytes (§5 rule 3).
@@ -314,6 +329,23 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     startupPaths = [];
     return opened;
   });
+  ipcMain.handle('tetravox:startup-scene', () => {
+    const scene = startupScene;
+    startupScene = null;
+    return scene;
+  });
+  /**
+   * File ▸ Open Recent's list, written by the renderer after every successful save or open.
+   *
+   * The menu is rebuilt here rather than in the renderer because an Electron menu is immutable once
+   * set: "the list changed" is "build a new menu", and only main can do that.
+   */
+  ipcMain.handle('tetravox:remember-scene', (_event, path: unknown) => {
+    if (typeof path !== 'string' || path === '') return readSettings();
+    const settings = rememberRecentScene(path);
+    buildMenu(getWindow);
+    return settings;
+  });
   ipcMain.handle('tetravox:phase0-fixture', () => {
     const real = allowPath(phase0FixturePath());
     return real === null ? null : { path: real, url: fileUrl(real) };
@@ -357,8 +389,30 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     installDownloadHandler();
 
     const cliPaths = toOpened(collectCliPaths(process.argv, app.getAppPath(), process.cwd()));
-    startupPaths = [...startupPaths, ...cliPaths];
     for (const item of cliPaths) console.log(`[tetravox] argv: ${item.path}`);
+    const cliSplit = splitScenes(cliPaths.map((item) => item.path));
+    const cliScene = cliSplit.scenes[cliSplit.scenes.length - 1];
+    if (cliScene !== undefined) startupScene = cliScene;
+    startupPaths = [...startupPaths, ...cliPaths.filter((i) => !cliSplit.scenes.includes(i.path))];
+
+    // "Reopen last scene on launch" (directed task 13), off by default. It fills the startup slot
+    // **only** when nothing else claimed it: a launch that names a file — `Tetravox study.nii.gz`,
+    // a double-clicked scene — is a user saying what they want open, and a remembered scene must
+    // never overrule that. `allowPath` doubles as the existence check, so a scene on a disk that is
+    // no longer mounted is skipped rather than reported as a failure the user did not ask for.
+    const settings = readSettings();
+    const last = settings.recentScenes[0];
+    if (
+      startupScene === null &&
+      startupPaths.length === 0 &&
+      settings.reopenLastScene &&
+      last !== undefined &&
+      !isJobRun()
+    ) {
+      const real = allowPath(last);
+      if (real === null) console.log(`[tetravox] last scene is gone: ${last}`);
+      else startupScene = real;
+    }
 
     mainWindow = createWindow();
     mainWindow.on('closed', () => {

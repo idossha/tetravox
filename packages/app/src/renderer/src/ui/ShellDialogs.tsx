@@ -25,6 +25,7 @@ export function ShellDialogs(): React.JSX.Element | null {
   const relocate = useUi((s) => s.relocate);
   const screenshotOptions = useUi((s) => s.screenshotOptions);
   const subjectsDir = useUi((s) => s.freesurferSubjectsDir);
+  const reopenLastScene = useUi((s) => s.reopenLastScene);
 
   const capture = useCallback(
     (opts: ScreenshotOptions) => controller.captureScreenshot(opts),
@@ -41,6 +42,8 @@ export function ShellDialogs(): React.JSX.Element | null {
         subjectsDir={subjectsDir}
         onSubjectsDir={(dir) => void controller.setFreesurferSubjectsDir(dir)}
         onBrowse={() => void controller.browseFreesurferSubjectsDir()}
+        reopenLastScene={reopenLastScene}
+        onReopenLastScene={(on) => void controller.setReopenLastScene(on)}
         onClose={close}
       />
     );

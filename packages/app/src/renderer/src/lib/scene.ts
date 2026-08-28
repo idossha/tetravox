@@ -12,7 +12,23 @@
  * relative form **first** is what makes "copy the whole folder" the case that never needs a dialog.
  */
 
+import { SCENE_VERSION, migrateViewSpec } from '@tetravox/engine';
 import type { DatasetRef, Layer, ViewSpec } from '@tetravox/engine';
+
+/** §4.6's extension. One regexp, shared by the drop route, the Open route and the Save default. */
+export const SCENE_SUFFIX = '.tetravox.json';
+
+/**
+ * True for a `*.tetravox.json`. **Not** for any `.json`: §7.6's user colormaps are `.json` too, and
+ * opening one as a scene would report "no datasets array" instead of loading a colormap.
+ *
+ * Mirrors `main/menu.ts`'s `isScenePath` — duplicated rather than imported, because the renderer
+ * must not import from main, and a two-line predicate is a smaller liability than a shared module
+ * across the §5 boundary. `scene.test.ts` and `menu.test.ts` assert the same cases of both.
+ */
+export function isScenePath(path: string): boolean {
+  return /\.tetravox\.json$/i.test(path);
+}
 
 // ------------------------------------------------------------------------------------------------
 // Paths
@@ -140,8 +156,33 @@ export function withRelativePaths(spec: ViewSpec, scenePath: string): ViewSpec {
 }
 
 /** `2 kB of JSON, indented`: a scene file a human can read and a diff can show. */
-export function serialiseScene(spec: ViewSpec, scenePath: string): string {
-  return `${JSON.stringify(withRelativePaths(spec, scenePath), null, 2)}\n`;
+export interface SceneExtras {
+  /** §8's theme choice, written into the file so a scene reopens looking as it was left. */
+  theme?: 'system' | 'light' | 'dark';
+  /**
+   * Measurements (directed task 11) carried through from the spec that was loaded.
+   *
+   * `Engine.serialize()` cannot produce them — `Scene` has no measurement list on this branch — so
+   * a save that ignored them would delete a colleague's measurements the first time their scene was
+   * opened here and saved again. Carrying them is the difference between "not implemented" and
+   * "silently destructive".
+   */
+  measurements?: unknown[];
+}
+
+export function serialiseScene(
+  spec: ViewSpec,
+  scenePath: string,
+  extras: SceneExtras = {}
+): string {
+  const out: ViewSpec = {
+    ...withRelativePaths(spec, scenePath),
+    ...(extras.theme !== undefined ? { theme: extras.theme } : {}),
+    ...(extras.measurements !== undefined && extras.measurements.length > 0
+      ? { measurements: extras.measurements }
+      : {}),
+  };
+  return `${JSON.stringify(out, null, 2)}\n`;
 }
 
 export interface ParsedScene {
@@ -167,10 +208,14 @@ export function parseScene(text: string): ParsedScene {
   }
   if (typeof value !== 'object' || value === null) return { ok: false, error: 'not an object' };
   const spec = value as Partial<ViewSpec>;
-  if (spec.version !== 1) return { ok: false, error: `unsupported scene version ${spec.version}` };
+  if (spec.version !== 1 && spec.version !== SCENE_VERSION) {
+    return { ok: false, error: `unsupported scene version ${String(spec.version)}` };
+  }
   if (!Array.isArray(spec.datasets)) return { ok: false, error: 'no datasets array' };
   if (!Array.isArray(spec.layers)) return { ok: false, error: 'no layers array' };
-  return { ok: true, spec: spec as ViewSpec };
+  // v1 → v2 (directed task 13). The engine owns the migration so that a host which reads a file
+  // itself and one which hands the bytes to `Engine.load` agree on what version 1 means.
+  return { ok: true, spec: migrateViewSpec(spec as ViewSpec) };
 }
 
 /**
@@ -181,6 +226,25 @@ export function parseScene(text: string): ParsedScene {
  * is the whole absolute path `[DATA]`. Offering `_Users_idohaber_…_T1.tetravox.json` as a filename
  * would be a defensible bug and a terrible default.
  */
+/**
+ * The **path** the Save dialog opens on: `<first dataset's directory>/<name>.tetravox.json` (§8,
+ * directed task 13).
+ *
+ * The maintainer's ask is "default name next to the data" — a name alone leaves the sheet in
+ * whatever directory the OS last used, which for a first save is usually Documents and never the
+ * results directory the user is working in. The directory comes from the first `DatasetRef`'s
+ * `absPath` (the relative `path` is measured from a scene file that does not exist yet), and falls
+ * back to the bare name when there is no absolute path to anchor to — a scene of datasets opened
+ * from dropped `File`s with no path, which is the one case where there is nowhere to point at.
+ */
+export function defaultScenePath(spec: ViewSpec): string {
+  const name = defaultSceneName(spec);
+  const anchor = spec.datasets[0]?.absPath ?? '';
+  if (anchor === '' || !isAbsolutePath(anchor)) return name;
+  const dir = dirName(anchor);
+  return dir === '' ? name : joinPath(dir, name);
+}
+
 export function defaultSceneName(spec: ViewSpec): string {
   const first = (spec.datasets[0]?.name ?? '').split(SEPARATOR).pop() ?? '';
   const stem = first

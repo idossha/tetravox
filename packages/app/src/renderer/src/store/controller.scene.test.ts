@@ -49,8 +49,18 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
   };
   fs.bridge = {
     // Settings: this stub keeps no preferences, which is what a test wants.
-    settings: async () => ({ theme: 'system' as const, freesurferSubjectsDir: '' }),
-    setSettings: async () => ({ theme: 'system' as const, freesurferSubjectsDir: '' }),
+    settings: async () => ({
+      theme: 'system' as const,
+      freesurferSubjectsDir: '',
+      recentScenes: [],
+      reopenLastScene: false,
+    }),
+    setSettings: async () => ({
+      theme: 'system' as const,
+      freesurferSubjectsDir: '',
+      recentScenes: [],
+      reopenLastScene: false,
+    }),
     // The `--job` half of the bridge: this window was not launched for one.
     jobSpec: async () => null,
     jobWrite: async () => ({ ok: false, error: 'not a job run' }),
@@ -89,6 +99,9 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
       fs.files.set(path, text);
       return { ok: true, path };
     },
+    onOpenScene: () => () => {},
+    startupScene: async () => null,
+    rememberScene: async () => null,
     onSceneCommand: () => () => {},
   };
   (globalThis as { tetravox?: TetravoxBridge }).tetravox = fs.bridge;
@@ -337,18 +350,21 @@ describe('scene load (§4.6, §8, audit P2-07)', () => {
 
   it('refuses a scene from a future version rather than restoring the wrong thing', async () => {
     fakeFs({
-      '/scenes/next.tetravox.json': JSON.stringify({ version: 2, datasets: [], layers: [] }),
+      '/scenes/next.tetravox.json': JSON.stringify({ version: 3, datasets: [], layers: [] }),
     });
     const { store, controller } = harness();
     await expect(controller.openScenePath('/scenes/next.tetravox.json')).resolves.toBe(false);
-    expect(store.getState().sceneError).toContain('version 2');
+    expect(store.getState().sceneError).toContain('version 3');
   });
 
   it('reports a file it cannot read', async () => {
     fakeFs();
     const { store, controller } = harness();
     await expect(controller.openScenePath('/nope.tetravox.json')).resolves.toBe(false);
-    expect(store.getState().sceneError).toBe('not on the allow-list');
+    // A path main will not admit cannot be read, and since directed task 13 `openScenePath` asks
+    // for it to be admitted *first* — so a drop of a file that is gone reports the missing file
+    // rather than the allow-list rule it happened to trip on the way there.
+    expect(store.getState().sceneError).toBe('the scene file could not be found');
   });
 });
 

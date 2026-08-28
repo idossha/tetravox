@@ -124,6 +124,7 @@ import {
   applyViewSpec,
   fingerprintFromMeta,
   isRestorableKind,
+  migrateViewSpec,
   remapLayer,
   sidecarPathsFor,
   toViewSpec,
@@ -745,6 +746,16 @@ export class TetravoxEngine implements Engine, PointerHost {
     const id: LayerId = `layer${this.#nextId++}`;
     const base = defaultLayerFor(id, ds as VolumeDataset | MeshDataset, spec.kind);
     const layer = { ...base, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
+    // §4.6 does not serialise a `LabelTable`, so a `label` that arrives from a scene file carries
+    // the user's `mode` / `outlineWidthPx` / `visibleLabels` and **no table**. The table is the one
+    // part of it that is re-derived, so it is taken from the layer this dataset seeded — without
+    // this, restoring an annotation's settings would replace the table with `undefined` and the
+    // layer would render nothing (directed task 13, 2026-08-28).
+    if (layer.kind === 'mesh' && layer.label !== undefined && layer.label.table === undefined) {
+      const seeded = base.kind === 'mesh' ? base.label : undefined;
+      if (seeded === undefined) delete (layer as { label?: unknown }).label;
+      else layer.label = { ...layer.label, table: seeded.table };
+    }
     this.#store.addLayer(layer);
     // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
     this.#layers.set(id, createLayerRuntime(layer, ds, this.#layerContext));
@@ -2320,7 +2331,10 @@ export class TetravoxEngine implements Engine, PointerHost {
    * nothing. `scene/serialize.ts`'s `candidatePaths` is the "relative first, absolute fallback"
    * policy a host should try before it asks the user.
    */
-  async load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
+  async load(input: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
+    // One migration point, so a host that read the file itself and a host that did not both get a
+    // spec at `SCENE_VERSION` (§4.6, directed task 13).
+    const spec = migrateViewSpec(input);
     const idMap = new Map<DatasetId, DatasetId>();
     for (const ref of spec.datasets) {
       const path = resolve(ref);

@@ -25,6 +25,7 @@ import { uiStore } from '../store/store';
 import type { UiStore } from '../store/store';
 import { isEditableTarget, resolveKey } from '../keyboard/keymap';
 import { requestFromDroppedFile, requestFromPath } from '../open/sources';
+import { isScenePath } from '../lib/scene';
 import type { OpenRequest } from '../open/sources';
 import { bridge } from '../bridge';
 import { maybeRunJob } from '../automation/run';
@@ -125,13 +126,26 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
       void bridge()
         .startupPaths()
         .then((opened) => openPaths(opened.map((o) => o.path)));
+      // A scene named on the command line, double-clicked in Finder, or remembered by "reopen last
+      // scene on launch" (directed task 13). Its own drain, because a scene *replaces* the scene
+      // and the dataset route *adds* to it — main never puts both in the same launch.
+      void bridge()
+        .startupScene()
+        .then((path) => {
+          if (path !== null && !cancelled) void controller.openScenePath(path);
+        });
     }
 
     // Runtime opens — menu Open…, ⌘O, a second instance, macOS `open-file` after ready.
     const off = bridge().onOpened((opened) => void openPaths(opened.map((o) => o.path)));
+    // …and the scene half of the same routes, split by main so nothing here sniffs a filename.
+    const offScene = bridge().onOpenScene((path) => {
+      if (!cancelled) void controller.openScenePath(path);
+    });
     return () => {
       cancelled = true;
       off();
+      offScene();
     };
   }, [controller]);
 
@@ -209,11 +223,28 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     const files = Array.from(event.dataTransfer.files);
     void (async () => {
       const requests: OpenRequest[] = [];
+      // A `*.tetravox.json` dropped on the window opens the **scene** (directed task 13). It is
+      // decided on the `File`'s own name rather than on the path, because a drop is the one route
+      // where there may be no path at all — and the last one wins, for the same reason main's
+      // `sendOpened` takes the last: two scenes in one drop would show the first only to discard it.
+      let scene: string | null = null;
       for (const file of files) {
+        if (isScenePath(file.name)) {
+          const path = bridge().getDroppedFilePath(file);
+          if (path !== '') {
+            scene = path;
+            continue;
+          }
+          // No backing path: the scene file's own bytes are unreadable to us by design (§5 rule 3
+          // keeps `readFile` off this bridge, and main will only read an allow-listed path).
+          controller.reportSceneError(`${file.name} was dropped without a path on disk`);
+          continue;
+        }
         const request = await requestFromDroppedFile(file);
         if (request !== null) requests.push(request);
       }
-      controller.open(requests);
+      if (requests.length > 0) controller.open(requests);
+      if (scene !== null) await controller.openScenePath(scene);
     })();
   };
 

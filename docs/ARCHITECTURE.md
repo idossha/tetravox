@@ -630,6 +630,17 @@ still the cursor's alone.
 
 ### 4.6 ViewSpec — the persisted form (`*.tetravox.json`)
 
+**`version` is 2 since directed task 13 (2026-08-28).** v2 adds two optional fields — `theme` (§8's choice, so a
+scene reopens looking as its author left it; `serialize()` never writes it, because `Scene` has no theme, and it
+is applied on load only when it is present) and `measurements` (directed task 11's, carried opaquely so a build
+without the tool does not delete them on re-save). `migrateViewSpec` (`scene/serialize.ts`) upgrades a v1 file
+and is the only place a version is decided; a version *above* the current one is refused by the reader rather
+than guessed at.
+
+**JSON has no infinity.** `Threshold.lo` / `.hi` default to `∓Infinity`, and `JSON.stringify` turns those into
+`null` without a word — so every scene written before task 13 read its bounds back as two nulls. They are now
+written as `null` deliberately and read back as the bound the null stands for.
+
 ```ts
 export interface SidecarRef {
   path: string;                     // relative to the DATASET's directory, not to the scene file
@@ -647,7 +658,7 @@ export type SerializableLayer =
                                    outlineWidthPx: number; visibleLabels?: number[] } };
 
 export interface ViewSpec {
-  version: 1;
+  version: 1 | 2;                   // 2 since directed task 13; `migrateViewSpec` upgrades a 1
   datasets: DatasetRef[];
   layers: SerializableLayer[];
   activeLayerId: LayerId | null;
@@ -655,6 +666,8 @@ export interface ViewSpec {
   cursor: vec3; radiological: boolean; background: vec4;
   lighting: Scene['lighting']; annotations: Annotations;
   transparency: Scene['transparency'];
+  theme?: 'system' | 'light' | 'dark';   // v2, optional — the app's, not the engine's
+  measurements?: unknown[];              // v2, optional — directed task 11's, carried opaquely
 }
 ```
 
@@ -2645,7 +2658,14 @@ and slice sweeps, and because six figures from six invocations would parse a 184
 `docs/DECISIONS.md` (2026-08-28) has the reasoning; the single-shot case is the one-action job.
 
 **Scene save/load**: `*.tetravox.json` (`ViewSpec`, §4.6). Paths are stored relative to the scene file with an
-absolute fallback; a missing dataset opens a "relocate" dialog.
+absolute fallback; a missing dataset opens a "relocate" dialog. **Directed task 13 (2026-08-28)** made it the
+gesture rather than the format: **⌘S** saves (a sheet the first time, defaulting to
+`<the first dataset's directory>/<name>.tetravox.json`; in place afterwards), **⇧⌘S** is Save As, the title bar
+carries the scene's name and a `•` while it is dirty, **File ▸ Open Recent** lists the last ten from
+`settings.json`, and a scene reaches the app by **every** door a dataset does — a drop on the window, ⌘O, argv,
+`open-file` from a double-click (the installer registers the extension), a second instance — plus an optional
+"reopen last scene on launch", off by default. `main/menu.ts` splits scenes from datasets on the way in, so the
+renderer never sniffs a filename. `docs/USER_GUIDE-scenes.md` is the user-facing half.
 
 **Status bar**: `Capabilities.renderer`; **fps** = frames drawn in the last second (0 when idle is correct under
 render-on-demand); **frame ms** = median CPU frame time over the last 30 rendered frames; **GPU ms** separately
