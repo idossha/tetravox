@@ -25,17 +25,30 @@ export interface LoadedBytes {
   opt?: Uint8Array;
 }
 
-/** The file name a `LoadSource` implies — what `.gz` sniffing and `MeshMeta.name` both key on. */
+/**
+ * The file name a `LoadSource` implies — what `.gz` sniffing and `MeshMeta.name` both key on.
+ *
+ * **Decode first, then take the last segment.** `tetravox://file/…` (§5 directive A2) is built with
+ * `encodeURIComponent(path)`, so every separator in a real app URL is `%2F` and the last *literal*
+ * `/` is the one after `file`. Splitting before decoding therefore returned the whole absolute path
+ * — `/Users/…/m2m_ernie/T1.nii.gz` as the "file name" — which is what §8's layer panel, the info
+ * panel, a colour bar's title and a scene's default file name all read. It went unseen because the
+ * §11 harness serves the reference dataset over Vite's `/@fs/<abs path>`, whose separators are
+ * literal and which therefore takes the basename correctly either way.
+ *
+ * A backslash counts as a separator too, for a Windows path that reached a URL.
+ */
 export function sourceName(source: LoadSource): string {
   if (source.kind === 'file') return source.file.name;
   if (source.kind === 'bytes') return source.name;
-  const path = source.url.replace(/[?#].*$/, '');
-  const last = path.slice(path.lastIndexOf('/') + 1);
+  const url = source.url.replace(/[?#].*$/, '');
+  let path: string;
   try {
-    return decodeURIComponent(last);
+    path = decodeURIComponent(url);
   } catch {
-    return last;
+    path = url;
   }
+  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
 }
 
 function concat(chunks: Uint8Array[], total: number): Uint8Array {

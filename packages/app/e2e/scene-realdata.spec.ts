@@ -109,10 +109,12 @@ async function sceneState(page: Page) {
       ),
     }));
     return {
-      // `Dataset.name` is `VolumeMeta.name`, which the loader derives from the source URL and which
-      // is the whole absolute path on real data `[DATA]`. The basename is what a user calls the file.
+      // `Dataset.name` is `VolumeMeta.name`, which the loader derives from the source URL. It is
+      // the **basename** — asserted verbatim here rather than re-derived, because it used to be the
+      // whole absolute path on real data and the basename-splitting this test did hid that from
+      // itself (`packages/wasm/src/sources.ts`, and `docs/DECISIONS.md` 2026-08-27).
       datasets: state.datasets.map((d) => ({
-        name: (d.name.split(/[/\\]/).pop() ?? d.name) as string,
+        name: d.name,
         kind: d.kind,
         path: d.path ?? null,
       })),
@@ -124,10 +126,7 @@ async function sceneState(page: Page) {
       sceneFile: state.sceneFile,
       sceneError: state.sceneError,
       dialog: state.dialog,
-      relocateMissing:
-        state.relocate?.missing.map(
-          (m) => (m.ref.name.split(/[/\\]/).pop() ?? m.ref.name) as string
-        ) ?? [],
+      relocateMissing: state.relocate?.missing.map((m) => m.ref.name) ?? [],
     };
   });
 }
@@ -192,10 +191,9 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
         cursor: number[];
       };
       expect(spec.version).toBe(1);
-      expect(spec.datasets.map((d) => (d.name.split('/').pop() ?? d.name) as string)).toEqual([
-        'T1.nii.gz',
-        'ernie.msh',
-      ]);
+      // Verbatim: a `ViewSpec` on disk carries the file's **name**, not its path — the path is
+      // `path` / `absPath`, two fields below.
+      expect(spec.datasets.map((d) => d.name)).toEqual(['T1.nii.gz', 'ernie.msh']);
       expect(spec.datasets[0]?.absPath).toBe(T1);
       expect(spec.datasets[1]?.absPath).toBe(ERNIE);
       // The temp dir and the dataset share `/`, so the relative form really is relative.

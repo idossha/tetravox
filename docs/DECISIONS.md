@@ -2268,3 +2268,20 @@ Each entry below names the problem, the fix, and the evidence.
   invariant: canvas size and `paneRect` are read with the button down and compared to their idle
   values, which is the only assertion in either suite that would catch the next chrome element that
   grows during a gesture.
+
+
+- 2026-08-27 — **`sourceName` decoded after splitting, so every dataset opened by the app was named
+  by its whole absolute path.** A-SHELL filed it as an observation ("`VolumeMeta.name` /
+  `MeshMeta.name` is the whole absolute path on real data `[DATA]`") and worked around it in
+  `defaultSceneName` and the relocate row; it is a loader defect, not a display choice, and it is
+  fixed at the source. `datasets/source.ts`'s `fileUrl` builds `tetravox://file/${encodeURIComponent(path)}`
+  (§5 directive A2), so **every separator in a real app URL is `%2F`** and the last *literal* `/` is
+  the one after `file`: `path.slice(path.lastIndexOf('/') + 1)` returned the entire encoded path and
+  `decodeURIComponent` then handed back `/Users/…/m2m_ernie/T1.nii.gz` as the file's *name*. That is
+  what §8's layer panel, the info panel, a colour bar's title, a `ViewSpec`'s `DatasetRef.name` and
+  the relocate dialog all read. It survived Phase 1 and Phase 2 because the §11 harness serves the
+  reference dataset over Vite's `/@fs/<abs path>`, whose separators are **literal**, so every engine
+  test took the basename correctly; and because the one app test that looked
+  (`scene-realdata.spec.ts`) re-derived the basename itself, with a comment recording the bug as
+  though it were the contract. Decode first, then take the last `/` **or** `\`. The test now asserts
+  `'T1.nii.gz'` verbatim, which is the only form that can fail if this regresses.

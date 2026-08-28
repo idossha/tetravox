@@ -90,6 +90,29 @@ describe('sourceName (§6.5.1)', () => {
     );
   });
 
+  it('takes the basename of a **percent-encoded** path, which is what the app actually sends', () => {
+    // `datasets/source.ts`'s `fileUrl` is `tetravox://file/${encodeURIComponent(path)}`, so every
+    // separator is `%2F` and the last literal `/` is the one after `file`. Splitting before
+    // decoding returned the whole absolute path as the file's name.
+    const abs = '/Users/idohaber/datasets/000/derivatives/SimNIBS/sub-ernie/m2m_ernie/T1.nii.gz';
+    expect(sourceName({ kind: 'url', url: `tetravox://file/${encodeURIComponent(abs)}` })).toBe(
+      'T1.nii.gz'
+    );
+    // …and it is still a `.gz` afterwards, which is what the sniff downstream keys on.
+    expect(
+      sourceName({
+        kind: 'url',
+        url: `tetravox://file/${encodeURIComponent('/a b/c d/ernie.msh')}`,
+      })
+    ).toBe('ernie.msh');
+  });
+
+  it('treats a backslash as a separator, for a Windows path that reached a URL', () => {
+    expect(
+      sourceName({ kind: 'url', url: `tetravox://file/${encodeURIComponent('C:\\data\\T1.nii')}` })
+    ).toBe('T1.nii');
+  });
+
   it('uses the declared name for bytes sources', () => {
     expect(sourceName({ kind: 'bytes', name: 'ernie.msh', bytes: new ArrayBuffer(0) })).toBe(
       'ernie.msh'
