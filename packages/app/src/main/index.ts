@@ -14,7 +14,7 @@
  * demands.
  */
 
-import { BrowserWindow, app, dialog, ipcMain, nativeTheme, session } from 'electron';
+import { BrowserWindow, app, dialog, ipcMain, nativeTheme, session, shell } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -42,7 +42,13 @@ import {
   writeSceneFile,
 } from './scene-io';
 import { windowMode } from './window';
-import { readSettings, rememberRecentScene, writeSettings } from './settings';
+import {
+  configPath,
+  ensureRcFile,
+  readSettings,
+  rememberRecentScene,
+  writeSettings,
+} from './settings';
 
 /**
  * `BrowserWindow.backgroundColor` for this launch: the `bg` token of the theme the renderer will
@@ -372,6 +378,12 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // merged settings, so the renderer never has to guess whether the write landed.
   ipcMain.handle('tetravox:settings', () => readSettings());
   ipcMain.handle('tetravox:set-settings', (_event, patch: unknown) => writeSettings(patch));
+  // -- rc-style config file (directed task: unified settings, 2026-08-28) ------------------------
+  ipcMain.handle('tetravox:config-path', () => configPath());
+  ipcMain.handle('tetravox:reveal-config-file', () => {
+    ensureRcFile();
+    shell.showItemInFolder(configPath());
+  });
   ipcMain.handle('tetravox:read-scene', (_event, path: unknown) => readSceneFile(path));
   ipcMain.handle('tetravox:write-scene', (_event, path: unknown, text: unknown) =>
     writeSceneFile(path, text)
@@ -385,6 +397,7 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
 
     // 3. Serve the scheme (§5, directive A2).
     handleScheme(rendererRoot);
+    ensureRcFile();
     buildMenu(getWindow);
     installDownloadHandler();
 

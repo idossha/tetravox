@@ -7,14 +7,38 @@
  * over the existing settings it resets everything the caller did not mention. `coercePatch` keeps
  * absent keys absent, and `writeSettings` merges *that*.
  *
- * Nothing here touches the disk: `readSettings`/`writeSettings` need Electron's `app.getPath`, and
- * the round trip through a real profile directory is `e2e/theme.spec.ts`'s job. The coercions are
- * pure, and they are where the data loss would live.
+ * Most of this file touches no disk: `readSettings`/`writeSettings` need Electron's `app.getPath`,
+ * and the full round trip through a real profile directory is `e2e/theme.spec.ts`'s job. The
+ * coercions are pure, and they are where the data loss would live.
+ *
+ * The `tetravoxrc` precedence tests at the bottom are the exception — they exercise `readSettings`
+ * for real, against a temp directory. `app.getPath('userData')` is mocked (there is no real
+ * Electron process under vitest's `node` environment) and `TETRAVOX_HOME` is set to the same temp
+ * dir per directed task's ask, so `settings.json` and `tetravoxrc` both land somewhere this test
+ * owns and cleans up, never `~/.tetravox`.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import { DEFAULT_SETTINGS, MAX_RECENT_SCENES, coercePatch, coerceSettings } from './settings';
+vi.mock('electron', () => ({
+  app: { getPath: () => process.env['TETRAVOX_TEST_USERDATA'] ?? tmpdir() },
+}));
+
+import {
+  DEFAULT_SCREENSHOT_DEFAULTS,
+  DEFAULT_SETTINGS,
+  MAX_RECENT_SCENES,
+  coercePatch,
+  coerceSettings,
+  configPath,
+  ensureRcFile,
+  rcPath,
+  readSettings,
+  writeSettings,
+} from './settings';
 
 describe('coerceSettings', () => {
   it('fills every field, because a file is a whole settings object', () => {
@@ -23,6 +47,7 @@ describe('coerceSettings', () => {
       freesurferSubjectsDir: '',
       recentScenes: [],
       reopenLastScene: false,
+      screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
     });
   });
 
@@ -64,6 +89,7 @@ describe('coercePatch', () => {
       freesurferSubjectsDir: '/opt/fs/subjects',
       recentScenes: [],
       reopenLastScene: false,
+      screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
     });
     // …and what it would have been with `coerceSettings` on the patch: the theme, silently lost.
     expect(coerceSettings({ ...onDisk, ...coerceSettings(patch) }).theme).toBe('system');
@@ -115,5 +141,122 @@ describe('recentScenes', () => {
     const merged = coerceSettings({ ...onDisk, ...coercePatch({ freesurferSubjectsDir: '/fs' }) });
     expect(merged.recentScenes).toEqual(['/a.tetravox.json']);
     expect(merged.theme).toBe('dark');
+  });
+});
+
+/** §4.7's screenshot defaults, coerced the same defensive way as everything else in this file. */
+describe('screenshotDefaults coercion', () => {
+  it('accepts a whole valid object', () => {
+    expect(
+      coercePatch({ screenshotDefaults: { background: 'white', dpi: 300, autoTrim: true } })
+    ).toEqual({ screenshotDefaults: { background: 'white', dpi: 300, autoTrim: true } });
+  });
+
+  it('fills the fields it did not see with the screenshot defaults, not the whole-settings ones', () => {
+    expect(coercePatch({ screenshotDefaults: { dpi: 600 } })).toEqual({
+      screenshotDefaults: { ...DEFAULT_SCREENSHOT_DEFAULTS, dpi: 600 },
+    });
+  });
+
+  it('drops the whole field rather than throwing on a bad shape', () => {
+    expect(coercePatch({ screenshotDefaults: 'nope' })).toEqual({});
+    expect(coercePatch({ screenshotDefaults: null })).toEqual({});
+  });
+
+  it('drops individual bad fields — a wrong background, a non-positive dpi, a non-boolean autoTrim', () => {
+    expect(coercePatch({ screenshotDefaults: { background: 'plaid' } })).toEqual({});
+    expect(coercePatch({ screenshotDefaults: { dpi: -5 } })).toEqual({});
+    expect(coercePatch({ screenshotDefaults: { dpi: 0 } })).toEqual({});
+    expect(coercePatch({ screenshotDefaults: { autoTrim: 'yes' } })).toEqual({});
+  });
+
+  it('accepts an optional scale, and drops it when absent or bad', () => {
+    expect(coercePatch({ screenshotDefaults: { scale: 2 } })).toEqual({
+      screenshotDefaults: { ...DEFAULT_SCREENSHOT_DEFAULTS, scale: 2 },
+    });
+    expect(coercePatch({ screenshotDefaults: { background: 'white', scale: -1 } })).toEqual({
+      screenshotDefaults: { ...DEFAULT_SCREENSHOT_DEFAULTS, background: 'white' },
+    });
+  });
+
+  it('is the field `DEFAULT_SETTINGS` carries', () => {
+    expect(DEFAULT_SETTINGS.screenshotDefaults).toEqual(DEFAULT_SCREENSHOT_DEFAULTS);
+  });
+});
+
+/**
+ * `tetravoxrc` precedence (directed task: unified settings, 2026-08-28): hardcoded defaults <
+ * `tetravoxrc` < `settings.json`. Real `fs`, a real temp directory for both files, `app.getPath`
+ * mocked at the top of this file.
+ */
+describe('tetravoxrc precedence', () => {
+  function withTempHome<T>(fn: (dir: string) => T): T {
+    const dir = mkdtempSync(join(tmpdir(), 'tvx-settings-'));
+    const prevHome = process.env['TETRAVOX_HOME'];
+    const prevUserData = process.env['TETRAVOX_TEST_USERDATA'];
+    process.env['TETRAVOX_HOME'] = dir;
+    process.env['TETRAVOX_TEST_USERDATA'] = dir;
+    try {
+      return fn(dir);
+    } finally {
+      if (prevHome === undefined) delete process.env['TETRAVOX_HOME'];
+      else process.env['TETRAVOX_HOME'] = prevHome;
+      if (prevUserData === undefined) delete process.env['TETRAVOX_TEST_USERDATA'];
+      else process.env['TETRAVOX_TEST_USERDATA'] = prevUserData;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('degrades to the hardcoded defaults when neither file exists', () => {
+    withTempHome(() => {
+      expect(readSettings()).toEqual(DEFAULT_SETTINGS);
+    });
+  });
+
+  it('ensureRcFile creates a starter file once, and never overwrites it again', () => {
+    withTempHome((dir) => {
+      ensureRcFile();
+      const first = JSON.parse(readFileSync(rcPath(), 'utf8')) as { _comment?: unknown };
+      expect(typeof first._comment).toBe('string');
+      expect(configPath()).toBe(rcPath());
+      expect(rcPath()).toBe(join(dir, 'tetravoxrc'));
+
+      writeFileSync(rcPath(), JSON.stringify({ theme: 'dark' }), 'utf8');
+      ensureRcFile();
+      expect(readSettings().theme).toBe('dark');
+    });
+  });
+
+  it('tetravoxrc sets a default that settings.json has never mentioned', () => {
+    withTempHome(() => {
+      writeFileSync(rcPath(), JSON.stringify({ freesurferSubjectsDir: '/rc/subjects' }), 'utf8');
+      expect(readSettings().freesurferSubjectsDir).toBe('/rc/subjects');
+    });
+  });
+
+  it('settings.json wins over tetravoxrc for the same key', () => {
+    withTempHome(() => {
+      writeFileSync(rcPath(), JSON.stringify({ theme: 'dark' }), 'utf8');
+      writeSettings({ theme: 'light' });
+      expect(readSettings().theme).toBe('light');
+    });
+  });
+
+  it('a corrupt tetravoxrc degrades to the defaults silently, never throws', () => {
+    withTempHome(() => {
+      writeFileSync(rcPath(), '{ not json', 'utf8');
+      expect(() => readSettings()).not.toThrow();
+      expect(readSettings()).toEqual(DEFAULT_SETTINGS);
+    });
+  });
+
+  it('rc and settings.json compose field-by-field rather than one replacing the other', () => {
+    withTempHome(() => {
+      writeFileSync(rcPath(), JSON.stringify({ theme: 'dark' }), 'utf8');
+      writeSettings({ freesurferSubjectsDir: '/opt/fs/subjects' });
+      const settings = readSettings();
+      expect(settings.theme).toBe('dark');
+      expect(settings.freesurferSubjectsDir).toBe('/opt/fs/subjects');
+    });
   });
 });

@@ -11,10 +11,19 @@ import type {
   JobSpec,
   JobWriteResult,
   OpenedPath,
+  ScreenshotDefaults,
   SceneCommand,
   SceneIoResult,
   TetravoxBridge,
 } from '../../preload/index';
+
+/** `main/settings.ts`'s `DEFAULT_SCREENSHOT_DEFAULTS`, duplicated for the same reason as everything
+ * else on this page — the renderer must not import from `main`. */
+const DEFAULT_SCREENSHOT_DEFAULTS: ScreenshotDefaults = {
+  background: 'scene',
+  dpi: 144,
+  autoTrim: false,
+};
 
 const ABSENT: TetravoxBridge = {
   openDialog: async () => [],
@@ -50,14 +59,20 @@ const ABSENT: TetravoxBridge = {
     freesurferSubjectsDir: '',
     recentScenes: [],
     reopenLastScene: false,
+    screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
   }),
   setSettings: async (patch) => ({
     theme: 'system',
     freesurferSubjectsDir: '',
     recentScenes: [],
     reopenLastScene: false,
+    screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
     ...patch,
   }),
+  // No bridge means no `tetravoxrc` either — the footer shows nothing to reveal.
+  configPath: async () => '',
+  revealConfigFile: async () => {},
+  onOpenSettings: () => () => {},
   // No bridge means no filesystem and no launch argv, so there is no job to run — which is exactly
   // what a vitest run and a plain browser tab should see.
   jobSpec: async () => null,
@@ -84,6 +99,7 @@ export type {
   JobSpec,
   JobWriteResult,
   OpenedPath,
+  ScreenshotDefaults,
   SceneCommand,
   SceneIoResult,
 };

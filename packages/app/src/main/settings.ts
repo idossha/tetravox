@@ -21,6 +21,26 @@
 import { app } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+
+/**
+ * Screenshot defaults (directed task: unified settings, 2026-08-28) — the subset of
+ * `ScreenshotOptions` (§4.7) a user reasonably wants to fix once rather than re-pick every time the
+ * dialog opens. Deliberately not the whole option set: `target`/`viewId` describe *this* capture,
+ * not a standing preference.
+ */
+export interface ScreenshotDefaults {
+  background: 'scene' | 'white' | 'transparent';
+  dpi: number;
+  scale?: number;
+  autoTrim: boolean;
+}
+
+export const DEFAULT_SCREENSHOT_DEFAULTS: ScreenshotDefaults = {
+  background: 'scene',
+  dpi: 144,
+  autoTrim: false,
+};
 
 /** Everything the app persists. */
 export interface AppSettings {
@@ -53,6 +73,8 @@ export interface AppSettings {
    * `Tetravox T1.nii.gz` and a double-clicked scene both still win.
    */
   reopenLastScene: boolean;
+  /** Persisted §4.7 screenshot defaults, applied to `screenshotOptions` on startup. */
+  screenshotDefaults: ScreenshotDefaults;
 }
 
 /** §8's File ▸ Open Recent holds ten, which is the maintainer's ask for directed task 13. */
@@ -63,6 +85,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   freesurferSubjectsDir: '',
   recentScenes: [],
   reopenLastScene: false,
+  screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
 };
 
 /** A settings file is a preference, not a document: a megabyte of it is a bug or an attack. */
@@ -70,6 +93,73 @@ const MAX_BYTES = 64 * 1024;
 
 function settingsPath(): string {
   return join(app.getPath('userData'), 'settings.json');
+}
+
+/**
+ * rc-style config file (directed task: unified settings, 2026-08-28).
+ *
+ * `settings.json` in Electron's `userData` is per-profile and edited only through the app; the rc
+ * file is the opposite — a plain-text, hand-editable file in a fixed, predictable place, for a user
+ * who wants to set a default (say, `freesurferSubjectsDir`) once for every profile/launch rather than
+ * click through the dialog, or who is scripting a fleet of headless jobs. `TETRAVOX_HOME` overrides
+ * where it lives, mainly so tests never touch a real `~/.tetravox`.
+ */
+export function configHome(): string {
+  return process.env['TETRAVOX_HOME'] ?? join(homedir(), '.tetravox');
+}
+
+/** JSON, despite the traditional rc-file look — see `ensureRcFile`'s `_comment` for why. */
+export function rcPath(): string {
+  return join(configHome(), 'tetravoxrc');
+}
+
+/** What the UI shows next to "Reveal": the file a user would edit by hand. */
+export function configPath(): string {
+  return rcPath();
+}
+
+/**
+ * Write a starter file the first time `configHome()` is used, so `~/.tetravox/tetravoxrc` exists to
+ * be found and edited rather than being a file the docs mention and nothing ever creates.
+ *
+ * JSON cannot carry `//` comments, so the "commented defaults" are a `_comment` string field —
+ * `coercePatch`-style parsing already ignores unknown keys, so it costs nothing at read time and
+ * explains the file to anyone who opens it. Every value below is commented **out** by being absent:
+ * this is intentionally an empty override set, not a copy of the defaults a later app version would
+ * have to keep in sync.
+ */
+export function ensureRcFile(): void {
+  const path = rcPath();
+  try {
+    readFileSync(path, 'utf8');
+    return; // already there — never overwrite a file the user may have edited.
+  } catch {
+    // fall through to create it
+  }
+  const starter = {
+    _comment:
+      'Tetravox rc file. JSON has no comments, so this field is the explanation: uncomment ' +
+      '(add) any of theme / freesurferSubjectsDir / reopenLastScene / screenshotDefaults to set a ' +
+      'machine-wide default. settings.json (the in-app dialog) wins over this file when both set ' +
+      'the same key.',
+  };
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify(starter, null, 2)}\n`, 'utf8');
+  } catch {
+    // A config file that cannot be created is not worth failing a launch over.
+  }
+}
+
+/** Read `tetravoxrc` as a settings patch. Missing, corrupt or oversized degrades to `{}`, never throws. */
+function readRc(): Partial<AppSettings> {
+  try {
+    const text = readFileSync(rcPath(), 'utf8');
+    if (text.length > MAX_BYTES) return {};
+    return coercePatch(JSON.parse(text));
+  } catch {
+    return {};
+  }
 }
 
 /** Coerce whatever was on disk into an `AppSettings`, one field at a time. */
@@ -100,7 +190,38 @@ export function coercePatch(raw: unknown): Partial<AppSettings> {
   }
   const reopen = record['reopenLastScene'];
   if (typeof reopen === 'boolean') out.reopenLastScene = reopen;
+  const screenshotDefaults = coerceScreenshotDefaults(record['screenshotDefaults']);
+  if (screenshotDefaults !== undefined) out.screenshotDefaults = screenshotDefaults;
   return out;
+}
+
+/** Same defensive shape as {@link coercePatch}: a bad field is dropped, never thrown on. */
+function coerceScreenshotDefaults(raw: unknown): ScreenshotDefaults | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const record = raw as Record<string, unknown>;
+  const out: ScreenshotDefaults = { ...DEFAULT_SCREENSHOT_DEFAULTS };
+  let sawAny = false;
+  const background = record['background'];
+  if (background === 'scene' || background === 'white' || background === 'transparent') {
+    out.background = background;
+    sawAny = true;
+  }
+  const dpi = record['dpi'];
+  if (typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0) {
+    out.dpi = dpi;
+    sawAny = true;
+  }
+  const scale = record['scale'];
+  if (typeof scale === 'number' && Number.isFinite(scale) && scale > 0) {
+    out.scale = scale;
+    sawAny = true;
+  }
+  const autoTrim = record['autoTrim'];
+  if (typeof autoTrim === 'boolean') {
+    out.autoTrim = autoTrim;
+    sawAny = true;
+  }
+  return sawAny ? out : undefined;
 }
 
 /** First occurrence wins, capped at {@link MAX_RECENT_SCENES}. */
@@ -123,14 +244,22 @@ export function rememberRecentScene(path: string): AppSettings {
   return writeSettings({ recentScenes: dedupe([path, ...current]) });
 }
 
+/**
+ * Precedence: hardcoded defaults < `tetravoxrc` < `settings.json` — the rc file sets a machine-wide
+ * default, and the in-app dialog (backed by `settings.json`) always overrides it, because a user who
+ * clicked a control in the running app has a stronger claim on the value than a file they may have
+ * forgotten was there.
+ */
 export function readSettings(): AppSettings {
+  const rcPatch = readRc();
+  let filePatch: Partial<AppSettings> = {};
   try {
     const text = readFileSync(settingsPath(), 'utf8');
-    if (text.length > MAX_BYTES) return { ...DEFAULT_SETTINGS };
-    return coerceSettings(JSON.parse(text));
+    if (text.length <= MAX_BYTES) filePatch = coercePatch(JSON.parse(text));
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    // missing or corrupt settings.json degrades to {} — same as always.
   }
+  return coerceSettings({ ...rcPatch, ...filePatch });
 }
 
 /**

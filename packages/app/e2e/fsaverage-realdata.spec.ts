@@ -113,6 +113,7 @@ async function probeRow(world: [number, number, number]): Promise<{
 test('the settings dialog carries the FreeSurfer subjects directory, and it persists', async () => {
   await page.click('[data-testid="settings-button"]');
   await expect(page.locator('[data-testid="settings-dialog"]')).toBeVisible();
+  await page.click('[data-testid="settings-tab-paths"]');
 
   const field = page.locator('[data-testid="settings-fs-subjects"]');
   await expect(field).toHaveValue('');

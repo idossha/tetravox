@@ -40,7 +40,8 @@ import {
   sidecarPathsFor,
   subjectToMniAffine,
 } from '@tetravox/engine';
-import type { CoordSpace, DialogKind, RelocateRow, UiStore } from './store';
+import type { CoordSpace, DialogKind, RelocateRow, SettingsTab, UiStore } from './store';
+import type { ScreenshotDefaults } from '../../../preload/index';
 import {
   activeLayer,
   collapseAllAction,
@@ -127,6 +128,13 @@ export class ShellController {
   private readonly helperLoads = new Map<string, Promise<DatasetId | null>>();
   private ticketSeq = 0;
   private toastSeq = 0;
+  /**
+   * Guards `loadTheme`'s screenshot-defaults merge (directed task: unified settings, 2026-08-28)
+   * against a race with a caller that edits `screenshotOptions` before that `settings()` round trip
+   * resolves — `setScreenshotOptions`/`setScreenshotDefaults` flip this, and a merge that has
+   * already lost the race for the user's edit must not clobber it back to the persisted default.
+   */
+  private screenshotOptionsTouched = false;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   /** The `prefers-color-scheme` subscription, live only while the choice is `'system'`. */
   private themeMedia: { query: MediaQueryList; off: () => void } | null = null;
@@ -564,11 +572,58 @@ export class ShellController {
     });
     // Directed task 8's other persisted preference, and directed task 13's two, in the same round
     // trip: the recents list the settings dialog mirrors and the reopen-on-launch switch.
-    this.store.setState({
+    const screenshotDefaults = settings.screenshotDefaults;
+    this.store.setState((s) => ({
       freesurferSubjectsDir: settings.freesurferSubjectsDir,
       recentScenes: [...(settings.recentScenes ?? [])],
       reopenLastScene: settings.reopenLastScene ?? false,
-    });
+      screenshotDefaults: screenshotDefaults ?? s.screenshotDefaults,
+      // Merge the persisted defaults into the live options the screenshot dialog edits, so a
+      // background/dpi/autoTrim set once in the settings dialog applies from the very first shot —
+      // unless the caller already edited `screenshotOptions` while this round trip was in flight,
+      // in which case that edit has the stronger claim (see `screenshotOptionsTouched`).
+      screenshotOptions:
+        screenshotDefaults === undefined || this.screenshotOptionsTouched
+          ? s.screenshotOptions
+          : { ...s.screenshotOptions, ...screenshotDefaults },
+    }));
+    void bridge()
+      .configPath()
+      .then((path) => this.store.setState({ configPath: path }));
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // §8's unified settings dialog (directed task: unified settings, 2026-08-28)
+  // ------------------------------------------------------------------------------------------
+
+  /** Open the settings dialog on a given tab; also used by "Defaults…" inside the screenshot dialog. */
+  openSettingsTab(tab: SettingsTab): void {
+    this.store.setState({ settingsTab: tab, dialog: 'settings' });
+  }
+
+  /**
+   * Persist a screenshot-defaults patch and merge it into the live `screenshotOptions` the
+   * screenshot dialog edits, so the Capture tab changes what "Screenshot" and a fresh dialog open
+   * both do immediately, not just what a *future* app launch does.
+   */
+  async setScreenshotDefaults(patch: Partial<ScreenshotDefaults>): Promise<void> {
+    this.screenshotOptionsTouched = true;
+    this.store.setState((s) => ({
+      screenshotDefaults: { ...s.screenshotDefaults, ...patch },
+      screenshotOptions: { ...s.screenshotOptions, ...patch },
+    }));
+    try {
+      await bridge().setSettings({
+        screenshotDefaults: { ...this.store.getState().screenshotDefaults, ...patch },
+      });
+    } catch {
+      // An unwritable preference still applies to this session (`main/settings.ts`).
+    }
+  }
+
+  /** The footer's "Reveal" button: show `tetravoxrc` in the OS file manager. */
+  async revealConfigFile(): Promise<void> {
+    await bridge().revealConfigFile();
   }
 
   /** §8's settings dialog: "Reopen last scene on launch" (directed task 13). */
@@ -1297,6 +1352,7 @@ export class ShellController {
   // ------------------------------------------------------------------------------------------
 
   setScreenshotOptions(options: ScreenshotOptions): void {
+    this.screenshotOptionsTouched = true;
     this.store.setState({ screenshotOptions: options });
   }
 
@@ -1311,6 +1367,7 @@ export class ShellController {
    * `lastScreenshot`, so a `dpi` the engine silently dropped is visible in the product.
    */
   async saveScreenshot(options: ScreenshotOptions): Promise<boolean> {
+    this.screenshotOptionsTouched = true;
     this.store.setState({ screenshotOptions: options, dialog: 'none' });
     const blob = await this.engine.screenshot(options);
     // Reading back a blob this process just produced is not "raw file bytes on the UI thread"

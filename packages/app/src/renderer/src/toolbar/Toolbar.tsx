@@ -220,6 +220,18 @@ export function Toolbar(): React.JSX.Element {
         Cube
       </button>
 
+      {/*
+        The screenshot gear keeps opening `ScreenshotDialog` directly rather than the unified
+        settings dialog's Capture tab (directed task: unified settings, 2026-08-28). Several e2e
+        specs (`catalogue.spec.ts`, `shell-phase2.spec.ts`, `walkthrough.spec.ts`,
+        `cube-scalebar.spec.ts`) click `screenshot-options` and then drive `screenshot-*` testids —
+        target/width/height/scale/dpi/background/autotrim/include/preview/save — that only exist on
+        `ScreenshotDialog`, which also owns the live Preview against the real `Engine.screenshot`.
+        Folding it into a tab would mean re-deriving all of that inside `SettingsDialog` and
+        rewriting five specs for no behavioural gain. Instead `ScreenshotDialog` gained a
+        "Defaults…" button that jumps to the Capture tab for the *standing* preferences
+        (background/dpi/autoTrim), which is the part that actually belongs in Settings.
+      */}
       <div className="flex items-center gap-0.5" role="group" aria-label="Screenshot">
         <button
           type="button"
@@ -245,7 +257,7 @@ export function Toolbar(): React.JSX.Element {
       <button
         type="button"
         data-testid="settings-button"
-        title="Settings — the FreeSurfer subjects directory for the fsaverage read-out (§8)"
+        title="Settings — appearance, capture defaults, paths and startup (§8)"
         aria-label="Settings"
         aria-pressed={dialog === 'settings'}
         className={dialog === 'settings' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
