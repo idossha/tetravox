@@ -11,6 +11,10 @@ and tests. `docs/ROADMAP.md` says what is open. `docs/DECISIONS.md` is append-on
   `cargo bench -p <crate>`
 - `pnpm lint` is `eslint .` + `prettier --check .`. **Prettier does not format `docs/`** — keep it that way.
 - `docs/TESTING.md` is the operator's manual for the suites, the golden policy and the CI workflow.
+- `docs/RELEASING.md` is the operator's manual for packaging: `scripts/release.sh <version>` bumps
+  every version in one place, `scripts/package-linux.sh` builds the Linux artefacts in Docker, and
+  `scripts/smoke-artefact.mjs` launches a *packaged* binary with `--job` and asserts it rendered.
+  **Never push a tag** — `release.sh` deliberately stops at a local commit and tag.
 
 ## Test data
 

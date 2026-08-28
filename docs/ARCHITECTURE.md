@@ -2465,10 +2465,30 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 |---|---|---|---|
 | `test` | `ubuntu-24.04` | `cargo test --workspace`, `cargo clippy -- -D warnings`, `pnpm wasm`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm e2e` | **Golden authority** (§11) |
 | `test` | `macos-latest` | same | goldens compared at a looser ratio; **push to `main` and `workflow_dispatch` only** |
-| `package` | `macos-latest` | `.dmg` arm64 | |
-| `package` | `macos-26-intel` | `.dmg` x64 | `macos-latest` is arm64 only |
-| `package` | `ubuntu-24.04` | `.AppImage` + `.deb` x64 | **Linux artefacts are never built on macOS** |
-| `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | |
+| `package` | `macos-latest` | `.dmg` + `.zip` arm64 | |
+| `package` | `macos-26-intel` | `.dmg` + `.zip` x64 | `macos-latest` is arm64 only |
+| `package` | `ubuntu-24.04` | `.AppImage` + `.deb` + `.tar.gz` x64 | **Linux artefacts are never built on macOS** |
+| `package` | `windows-latest` | `.exe` (nsis) x64 | electron-builder makes this from macOS/Linux too — only *signing* needs wine — but this is the only runner that can launch it |
+| `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | not built today |
+
+**macOS and Linux are the priority platforms; Windows is optional.** The Windows leg is carried
+because it costs nothing — a stock `windows-latest` builds an unsigned NSIS installer with no extra
+tooling — and both workflows mark it `continue-on-error`, so a Windows failure never blocks a
+macOS/Linux release.
+
+The `package` matrix lives in **two** workflows over one definition of the work. `ci.yml`'s `package`
+job runs on every push to `main` (and on `workflow_dispatch`) and uploads workflow artefacts, so
+`main` always has downloadable builds. `release.yml` runs on a `v*` tag in three stages —
+`create-release` makes a **draft** Release first, four `build` jobs attach their own artefacts to it
+as each finishes, and `verify` fails if a required asset is not actually attached. Creating the
+Release up front is what lets a fast platform publish without waiting for a slow one; `verify` is what
+catches a leg that went green and uploaded nothing.
+
+Artefact names are `Tetravox-<version>-<os>-<arch>.<ext>` on every platform and target, where the arch
+token is each ecosystem's own spelling of x64 (`x86_64` for the AppImage, `amd64` for the deb).
+`docs/RELEASING.md` is the operator's manual: cutting a version with `scripts/release.sh`, the
+notarisation switch, the Docker path for Linux artefacts, and what the smoke test does and does not
+claim.
 
 **When each `test` leg runs.** The macOS leg is gated by the **matrix itself** —
 {% raw %}`os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[…, "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}`{% endraw %}
@@ -2486,8 +2506,19 @@ publishes `window.__tvxEngine` fails ~120 Playwright tests at 30 s each, on each
 second. One such run spent 3 h 14 m of macOS runner time for a defect visible in its first minute.
 
 Every `package` job ends with an **artefact smoke test**: launch the packaged binary with a CLI arg pointing
-at a fixture and assert it exits 0 after rendering one frame. `pnpm package` on a developer machine produces
-that platform's artefacts only; Linux artefacts come from CI or `docker run electronuserland/builder`.
+at a fixture and assert it exits 0 after rendering one frame. That is `scripts/smoke-artefact.mjs` — `--job`
+on two committed synthetic fixtures, then `job-result.json` must be `ok` with a real PNG on disk. `--job` is
+what makes it CI-safe: it is forced offscreen and is exempt from the single-instance lock, so it needs no
+display manager and takes no developer's focus.
+
+**The Windows leg claims less, on purpose.** A hosted `windows-latest` runner has no GPU and no compositor,
+so rather than go green on a vacuous render it runs `--version-only`: launch, print a version, exit 0.
+Windows is therefore *built and launch-verified* every release, and *rendering on Windows is not covered by
+CI* — a real gap, recorded rather than papered over.
+
+`pnpm package` on a developer machine produces that platform's artefacts only; Linux artefacts come from CI
+or from `scripts/package-linux.sh`, which runs electron-builder inside `electronuserland/builder` with the
+wasm pre-built on the host.
 
 ### 12.2 Environment pitfalls encoded in the scaffold
 

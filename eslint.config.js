@@ -54,6 +54,10 @@ export default tseslint.config(
         performance: 'readonly',
         process: 'readonly',
         URL: 'readonly',
+        // scripts/smoke-artefact.mjs kills a hung packaged binary rather than letting the CI job's
+        // timeout do it, so the failure names the artefact instead of the workflow.
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
       },
     },
   },

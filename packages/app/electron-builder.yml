@@ -1,8 +1,14 @@
 # electron-builder (§12.1, §12.2). Pinned to an exact patch in package.json.
 #
 # `pnpm package` builds **this platform's** artefacts only: the mac block on macOS, the linux block on
-# Linux. Linux artefacts are never built on macOS — that is a CI job (§12.1), and the cross-platform
-# matrix is a Phase-3 gate item.
+# Linux. Linux artefacts are never built on macOS — they come from `scripts/package-linux.sh` (Docker)
+# or from the CI matrix (§12.1). `nsis` is produced on Linux/macOS too: electron-builder's NSIS
+# toolchain is a downloaded, platform-native `makensis`, and **wine is only needed for signing**, which
+# this project does not do. `docs/RELEASING.md` is the operator's manual.
+#
+# ARTEFACT NAMES are `Tetravox-<version>-<os>-<arch>.<ext>` on every platform and every target, set by
+# an `artifactName` inside each os block — the top-level default is not inherited into `nsis`/`dmg`
+# blocks the way per-os ones are, and a `.deb` otherwise arrives as `tetravox_0.2.0_amd64.deb`.
 appId: dev.tetravox.viewer
 productName: Tetravox
 copyright: Tetravox contributors
@@ -30,6 +36,12 @@ npmRebuild: false
 # The icons in `build/` (buildResources, above) are generated — never hand-edited.
 # `python3 brand/generate.py` rebuilds every one of them from brand/generate.py's
 # geometry, so a change to the mark is one command away from the packaged app.
+#
+# Each is also named EXPLICITLY in the os blocks below rather than left to the `buildResources`
+# convention, because electron-builder falls back to the stock Electron logo in silence when one is
+# missing — a release that ships wearing someone else's mark and no error anywhere. For the same
+# reason `scripts/ensure-icons.sh` fails the build when any of them is absent, and both packaging
+# workflows run it before electron-builder.
 icon: build/icon.png
 
 # §8: registered by the installer. BIDS/SimNIBS neuroimaging inputs; `.nii.gz` is a compound
@@ -87,30 +99,102 @@ fileAssociations:
 mac:
   category: public.app-category.medical
   icon: build/icon.icns
+  artifactName: Tetravox-${version}-mac-${arch}.${ext}
   target:
+    # Both architectures, both containers. `dmg` is what a human downloads; `zip` is what a script
+    # downloads, and it is also the only mac artefact that unpacks without a mount, which is what the
+    # CI smoke test needs. NOT `universal`: it doubles the download for every user to save a choice,
+    # and the two slices are built on separate runners in CI anyway.
     - target: dmg
-      arch:
-        - arm64
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
   # Unsigned for v1 (§12.2). Gatekeeper consequence and the `xattr -dr com.apple.quarantine`
-  # walkthrough belong in USER_GUIDE.md; Developer ID + notarisation is a documented switch.
+  # walkthrough belong in USER_GUIDE.md; Developer ID + notarisation is a documented switch, and
+  # `docs/RELEASING.md` §4 is that switch: set CSC_LINK / CSC_KEY_PASSWORD / APPLE_ID /
+  # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID and flip the three lines below.
+  #
+  # `hardenedRuntime: false` is REQUIRED while unsigned, not a preference: notarisation demands the
+  # hardened runtime, the hardened runtime demands a valid signature, and an ad-hoc-signed app with
+  # `hardenedRuntime: true` is killed by the kernel at launch rather than merely warned about.
   identity: null
   hardenedRuntime: false
+  notarize: false
 
 dmg:
   writeUpdateInfo: false
-
-win:
-  icon: build/icon.ico
+  artifactName: Tetravox-${version}-mac-${arch}.${ext}
 
 linux:
   category: Science
   # A directory, not a file: electron-builder picks the <n>x<n>.png it needs per
   # target, and the .deb needs the small sizes the AppImage does not.
   icon: build/icons
+  # REQUIRED, and Linux-only. electron-builder derives the executable name from `package.json`'s
+  # `name`, which here is the scoped `@tetravox/app`; it sanitises that to `@tetravoxapp` and then
+  # refuses it — "executableName contains characters that cannot be safely used in file paths". macOS
+  # and Windows never hit this because they name the binary after `productName` instead, so the whole
+  # class of bug is invisible until the first Linux build. `tetravox` is also the name
+  # `packages/app/e2e/fixtures.ts` already looks for at `release/linux-unpacked/tetravox`.
+  executableName: tetravox
+  # `${arch}` resolves PER TARGET to that target's native spelling of the architecture, which is a
+  # thing to know before writing a download link by hand: `.tar.gz` gets `x64`, `.AppImage` gets
+  # `x86_64` and `.deb` gets `amd64`. The *pattern* is uniform across all three platforms; the arch
+  # token inside it is the one each ecosystem expects. Hard-coding `x64` here would be prettier and
+  # would silently misname the first arm64 build, so it is left as the macro.
+  artifactName: Tetravox-${version}-linux-${arch}.${ext}
   target:
-    - AppImage
-    - deb
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+    # The escape hatch for every distro that is neither Debian nor FUSE-capable: unpack and run the
+    # binary. Also the only Linux artefact that a container can smoke-test without libfuse2.
+    - target: tar.gz
+      arch: [x64]
   synopsis: High-performance NIfTI and mesh viewer
+  description: >-
+    Tetravox is a desktop viewer for NIfTI volumes and Gmsh/GIfTI/FreeSurfer meshes, with linked 2D
+    and 3D panes, clip planes, field colouring and a scriptable --job automation mode.
+  maintainer: Tetravox contributors <noreply@tetravox.dev>
   desktop:
     entry:
       StartupWMClass: Tetravox
+
+deb:
+  # `libgtk-3-0`, `libnss3` and the ALSA runtime are Electron's hard runtime deps; on Ubuntu 24.04 the
+  # ALSA package is `libasound2t64` (the 64-bit-time_t rename), so an unqualified `libasound2` is
+  # unsatisfiable there. The alternation keeps the package installable on both sides of the rename.
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libsecret-1-0
+    - libasound2t64 | libasound2
+
+appImage:
+  artifactName: Tetravox-${version}-linux-${arch}.${ext}
+
+# Windows: `nsis` x64 only, and unsigned. electron-builder downloads a native `makensis` for the build
+# host, so this target is produced from macOS and Linux as well as from Windows — verified locally on
+# macOS arm64 (docs/RELEASING.md §5). Only *signing* would need wine, and there is none.
+win:
+  icon: build/icon.ico
+  artifactName: Tetravox-${version}-win-${arch}.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # §8's associations are registered by the NSIS installer; without this the `fileAssociations` block
+  # above is a no-op on Windows.
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  artifactName: Tetravox-${version}-win-${arch}.${ext}

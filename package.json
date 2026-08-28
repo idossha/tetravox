@@ -1,6 +1,6 @@
 {
   "name": "tetravox",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "High-performance NIfTI + mesh viewer. See docs/ARCHITECTURE.md.",
@@ -15,7 +15,9 @@
     "test": "cargo test --workspace && pnpm run wasm && vitest run",
     "e2e": "pnpm -r --if-present run e2e",
     "dev": "pnpm --filter @tetravox/app run dev",
-    "package": "pnpm run build && pnpm --filter @tetravox/app run package",
+    "package": "pnpm run build && bash scripts/ensure-icons.sh && pnpm --filter @tetravox/app run package",
+    "package:linux": "bash scripts/package-linux.sh",
+    "smoke": "node scripts/smoke-artefact.mjs",
     "typecheck": "pnpm run wasm && pnpm -r --if-present run typecheck",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write ."
