@@ -1,102 +1,121 @@
-<img src="docs/media/logo.png" alt="Tetravox" width="440">
+<p align="center">
+  <img src="docs/media/logo.png" alt="Tetravox" width="360">
+</p>
 
-A desktop viewer for **voxel volumes** (NIfTI-1/2) and **finite-element / surface meshes** (Gmsh `.msh`,
-GIfTI, FreeSurfer, STL/PLY/OBJ), with a linked 3D view and sagittal / axial / coronal slices. Rendering is a
-custom WebGL2 engine in TypeScript; parsing and geometry are Rust compiled to WASM, one worker and one wasm
-instance per dataset, so nothing heavy ever touches the UI thread. The shell is Electron; the targets are
-macOS and Linux.
+<p align="center"><b>A fast desktop viewer for brain volumes and meshes.</b></p>
 
-![A head mesh in 3D beside three linked slices](docs/screenshots/directed-2026-08-28/layout-1plus3.png)
+<p align="center">
+  <a href="https://github.com/idossha/tetravox/releases/latest"><img src="https://img.shields.io/github/v/release/idossha/tetravox" alt="Latest release"></a>
+  <a href="https://github.com/idossha/tetravox/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/idossha/tetravox/ci.yml?branch=main&label=CI" alt="CI status"></a>
+  <a href="https://github.com/idossha/tetravox/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/idossha/tetravox/release.yml?label=release" alt="Release status"></a>
+  <a href="https://codecov.io/gh/idossha/tetravox"><img src="https://img.shields.io/codecov/c/github/idossha/tetravox" alt="Coverage"></a>
+  <a href="https://idossha.github.io/tetravox/"><img src="https://img.shields.io/badge/docs-website-blue" alt="Documentation"></a>
+  <img src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux-lightgrey" alt="Platforms: macOS, Linux">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+</p>
 
-## What it does
+---
 
-* **Volumes** — N composited layers per plane, linear and heat scales, thresholds with a soft edge, 15
-  colormaps, label atlases with fill/outline and per-region show/hide/recolour, 4D frames, and 3D
-  isosurfaces owned by the volume layer.
-* **Meshes** — tissue surfaces from tags, node and element field colouring, up to six clip planes with
-  **exact per-element caps**, element isolation by tag / field / sphere / box / atlas region, element edges,
-  and vector glyphs with four length-scaling models.
-* **Cross-sections** — a tet mesh shows filled tissue polygons and boundary contours in the 2D panes and
-  sweeps with the slice, with or without a volume loaded. Surfaces draw Freeview-style outlines.
-* **Coordinates** — world RAS, per-volume voxel and FreeSurfer tkr-RAS, MNI through a SimNIBS `toMNI/`
-  folder (affine and nonlinear kept separate), surface vertex index, and an fsaverage vertex when a
-  `sphere.reg` is on disk.
-* **Tools** — a measurement tool in world millimetres, a region panel, a histogram with draggable window and
-  threshold handles, an orientation cube and a scale bar, light and dark themes, and screenshots with the
-  DPI written into the PNG.
-* **Scenes** — `*.tetravox.json` remembers every layer setting, region edit, measurement, camera and the
-  theme, with relative paths and a relocate dialog when the data has moved.
+## What it is
 
-## Running it
+Tetravox opens NIfTI volumes and Gmsh/GIfTI/FreeSurfer/STL/PLY/OBJ meshes side by side: a 3D view linked to
+sagittal, axial and coronal slices, so a click in any pane moves the cursor everywhere else. It is built for
+the kind of data a neuroimaging or neurostimulation project actually produces — segmented head models,
+tetrahedral simulation meshes, cortical surfaces, and the volumes that go with them — and renders it with a
+custom WebGL2 engine so large meshes and 4D volumes stay responsive.
+
+Loading, parsing and geometry work happen off the UI thread, one worker per dataset, so opening a new file
+never freezes the window you're already looking at. The app runs on macOS and Linux.
+
+![A head mesh over a T1 slice](docs/reports/2026-08-28-visualization-scenarios/05-mesh-over-t1.png)
+
+## Features
+
+- **Formats** — NIfTI-1/2, Gmsh `.msh`, GIfTI, FreeSurfer surfaces, STL/PLY/OBJ
+- **Linked views** — a 3D pane plus sagittal/axial/coronal slices that stay in sync, with layouts from a
+  single pane to 1-plus-3
+- **Overlays & atlases** — layered volumes with linear and heat scales, thresholds, 15 colormaps, and label
+  atlases with fill/outline rendering and per-region show/hide/recolour
+- **Meshes, cuts & isolation** — tissue surfaces from tags, node/element field colouring, up to six clip
+  planes with exact per-element caps, and element isolation by tag, field, sphere, box or atlas region
+- **Isosurfaces** — 3D isosurfaces generated directly from a volume layer
+- **Glyphs** — vector field glyphs with four length-scaling models
+- **Electrodes** — SimNIBS-style electrode and gel geometry rendered from simulation meshes
+- **Measurements** — a world-millimetre measurement tool and a region panel
+- **Coordinates** — world RAS, per-volume voxel and tkr-RAS, MNI (affine and nonlinear), surface vertex
+  index, and fsaverage vertex mapping
+- **Scenes** — `*.tetravox.json` saves every layer, region edit, measurement and camera setting, with
+  relative paths and a relocate dialog when data moves
+- **Automation** — a scriptable job format and a Python client for headless screenshots and sweeps
+- **Themes** — light and dark
+
+## Download & install
+
+Grab the latest build from the [Releases page](https://github.com/idossha/tetravox/releases/latest).
+
+**macOS** — the app is unsigned, so Gatekeeper blocks it on first launch. After copying it to
+`/Applications`, run once:
 
 ```sh
-pnpm install
-pnpm exec electron --version   # warms the ~100 MB binary on a cold machine
-pnpm dev                       # the app, against the dev server
+xattr -dr com.apple.quarantine /Applications/Tetravox.app
 ```
+
+**Linux** — the AppImage needs the executable bit set before it will run:
 
 ```sh
-pnpm build      # wasm + every package
-pnpm package    # THIS platform's artefacts only (.dmg on macOS, .AppImage/.deb on Linux)
-pnpm test       # cargo test --workspace + vitest
-pnpm e2e        # Playwright, in Chromium and in Electron
-pnpm typecheck · pnpm lint
+chmod +x Tetravox-*.AppImage
+./Tetravox-*.AppImage
 ```
 
-`pnpm wasm` builds `crates/tvx-wasm` → `packages/wasm/pkg` and is a prerequisite of `build` / `test` /
-`typecheck`. `pkg/` is generated and git-ignored (except the committed `tvx_wasm.d.ts` stub) and is never a
-pnpm workspace member.
+A `.deb` package is also published for Debian/Ubuntu-based systems.
 
-On macOS the app is **unsigned**: `xattr -dr com.apple.quarantine /Applications/Tetravox.app` once, and see
-the user guide for why.
+## Quick start
 
-## Scripting it
+1. Launch Tetravox and choose **Open File(s)** (or drag files onto the window).
+2. Load a volume (e.g. a T1 NIfTI) and, optionally, a mesh or surface alongside it.
+3. Click anywhere in the 3D view or a slice pane to move the cursor everywhere else.
+4. Use the layer panel to adjust colormaps, thresholds, clip planes and visibility.
+5. Save your setup with **Save Scene** (`*.tetravox.json`) to reopen it later.
+6. Switch between light and dark themes from the settings menu.
 
-The same engine runs offscreen, with no window and no stolen focus, so a batch of figures or a video can
-render while you work:
+## Scripting
+
+Tetravox can also run headlessly from Python, for batch figures or videos:
 
 ```python
 from tetravox import Job
 
-Job(files=["m2m_ernie/T1.nii.gz", "sim_TI_max.nii.gz"], preset="ti-field-on-t1") \
-    .set(cursor=(0, -18, 8)) \
-    .screenshot("axial.png", view="axial", width=1600, dpi=300) \
-    .sweep("sweep", view="axial", count=24, fps=12, format="mp4") \
-    .run("figures/")
+Job(files=["T1.nii.gz", "surface.gii"], preset="plain") \
+    .screenshot("figure.png", view="axial", width=1600, dpi=300)
 ```
 
-Or without Python: `Tetravox --job job.json --out DIR`.
+See [`docs/AUTOMATION.md`](docs/AUTOMATION.md) and [`examples/`](examples/) for more.
 
-## Where things are
+## Documentation
 
-| Path | What |
-|---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | **The contract.** Coordinates (§3), data model (§4), threading (§5), Rust + worker-protocol APIs (§6), rendering (§7), the app (§8), budgets (§9), verification (§11), CI (§12). Read it first. |
-| [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) | Using the app: opening data, navigating, layers, regions, measuring, scenes, themes. |
-| [`docs/AUTOMATION.md`](docs/AUTOMATION.md) | The job file and the Python client, in full. |
-| [`docs/TESTING.md`](docs/TESTING.md) | Running the suites, the golden policy, and how to add a pixel test. |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | What exists and what is open. |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Append-only log of why things are the way they are. |
-| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | The measured numbers §9 is read against. |
-| [`AGENTS.md`](AGENTS.md) | Commands, test data and the working rules. |
-| `crates/` | `tvx-core`, `tvx-nifti`, `tvx-mesh-io`, `tvx-geom` (pure Rust, native + wasm), `tvx-wasm` (bindings). |
-| `packages/` | `@tetravox/protocol`, `@tetravox/wasm`, `@tetravox/engine`, `@tetravox/app`. |
-| `python/` | the automation client (stdlib only). |
+Full documentation, including the user guide and automation reference, lives at
+**[idossha.github.io/tetravox](https://idossha.github.io/tetravox/)**.
 
-## Status and limitations
+## Showcase
 
-Everything above works today, on real SimNIBS subjects, and is covered by 235 Rust tests, 1,128 vitest tests
-and 66 Playwright specs with 40 goldens. Known gaps, with more in the roadmap:
+![Tetravox showcase](docs/media/showcase-preview.gif)
 
-* **macOS and Linux only.** No Windows build, and none planned.
-* **Unsigned.** No notarisation and no auto-update while that is true.
-* Transparency is a two-phase back/front split — exact for nested convex shells, approximate for folded
-  cortex. Depth peeling is the next step.
-* Nearest-sampled label volumes drop thin structure when a pixel covers more than one voxel.
-* Isosurfaces cannot be clipped, and a 3D volume raycast (MIP / transfer function) does not exist yet.
-* No DICOM, no tractography, no remote loading. Loading a 4D NIfTI and stepping frames works; playback does
-  not.
+Full-resolution video: [`docs/media/showcase.mp4`](docs/media/showcase.mp4)
 
-## Licence
+## Status & limitations
 
-MIT.
+Tetravox is actively developed and tested against real neuroimaging datasets. Known gaps:
+
+- **Windows** is not officially supported (best-effort only; no packaged build).
+- **3D volume raycasting** (MIP / transfer-function rendering of raw volumes) does not exist yet —
+  isosurfaces are supported, but a full volumetric raycaster is not.
+- See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the complete list of open work.
+
+## Contributing
+
+Contributions are welcome. See [`AGENTS.md`](AGENTS.md) for how the project is built and tested, and
+[`docs/`](docs/) for the architecture and design decisions behind it.
+
+## License
+
+[MIT](LICENSE)

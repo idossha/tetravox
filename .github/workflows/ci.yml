@@ -219,6 +219,19 @@ jobs:
       - name: pnpm test
         run: pnpm test
 
+      # Coverage on the golden-authority leg only (ubuntu-24.04): one number, not one per OS.
+      # `pnpm run wasm` already ran above; `vitest run --coverage` reuses the same build.
+      - name: pnpm test:coverage
+        if: matrix.os == 'ubuntu-24.04'
+        run: pnpm run test:coverage
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-24.04'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-summary.json
+          fail_ci_if_error: false
+
       # Engine Playwright (§11 goldens + analytic pixels) and, once packages/app has an `e2e` script,
       # the Playwright-Electron app E2E — `pnpm e2e` is `pnpm -r --if-present run e2e`, so the app leg
       # joins this step by existing. Dev build only; packaging is separate.
