@@ -317,29 +317,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS arm64 (dmg + zip)
+          # ONE mac runner for BOTH slices — `electron-builder.yml` declares `arch: [arm64, x64]`, so
+          # this leg emits every mac artefact, and `--all` smoke-tests both: arm64 natively and x64
+          # under Rosetta 2, both on the runner's real GPU. The `macos-26-intel` leg this replaces
+          # had no Metal device and no software fallback to reach for — macOS ANGLE offers only
+          # `metal` and `swiftshader`, and SwiftShader's Vulkan backend does not initialise there —
+          # so it could build the x64 slice but never render it (release.yml has the measurements).
+          - name: macOS arm64 + x64 (dmg + zip)
             os: macos-latest
-            builder: --mac --arm64
-            smoke: job
+            builder: --mac
+            smoke: --all
             required: 'yes'
             artefacts: |
               packages/app/release/*.dmg
               packages/app/release/*.zip
-          # `macos-latest` is arm64 only, so the x64 slice needs the Intel image. Building it on the
-          # arm runner with `--x64` would work but could only be smoke-tested under Rosetta, which is
-          # a weaker claim than the one this leg exists to make.
-          - name: macOS x64 (dmg + zip)
-            os: macos-26-intel
-            builder: --mac --x64
-            smoke: job
-            required: 'yes'
-            artefacts: |
-              packages/app/release/*.dmg
-              packages/app/release/*.zip
+          # No GPU on a hosted Linux runner: the GPU process dies during initialisation under Xvfb
+          # and the renderer reports `vertex shader failed to compile: (no log)` from a context that
+          # is already gone. `--software-gl` names ANGLE/SwiftShader explicitly (`src/main/index.ts`
+          # §2) — the same software rendering the `chromium-swiftshader` Playwright project uses.
           - name: Linux x64 (AppImage + deb + tar.gz)
             os: ubuntu-24.04
             builder: --linux --x64
-            smoke: job
+            smoke: --software-gl
             required: 'yes'
             artefacts: |
               packages/app/release/*.AppImage
@@ -348,7 +347,7 @@ jobs:
           - name: Windows x64 (nsis, optional)
             os: windows-latest
             builder: --win --x64
-            smoke: version
+            smoke: --version-only
             required: 'no'
             artefacts: |
               packages/app/release/*.exe
@@ -442,24 +441,23 @@ jobs:
       - name: pnpm build
         run: pnpm -r --if-present run build
 
-      # `--publish never`, and it is load-bearing: electron-builder reads `CI=true` as consent to
-      # publish, and on a runner with no GH_TOKEN it builds every artefact and *then* fails with
-      # `⨯ GitHub Personal Access Token is not set`. Uploading is the `release` job's business —
-      # through `actions/upload-artifact` and a draft Release — never electron-builder's.
+      # `scripts/electron-builder.sh` owns `--publish never` (load-bearing: electron-builder reads
+      # `CI=true` as consent to publish and otherwise fails with `⨯ GitHub Personal Access Token is
+      # not set` after building everything) and the macOS signing conditional.
+      #
+      # NO SIGNING SECRETS HERE, deliberately: this workflow runs on every push to `main` and must
+      # work identically in a fork. The script sees no `CSC_LINK` and builds unsigned — which also
+      # means this is the leg that keeps the *unsigned* path honest, since release.yml only ever
+      # exercises the signed one.
       - name: electron-builder ${{ matrix.builder }}
         shell: bash
-        run: pnpm --filter @tetravox/app exec electron-builder --config electron-builder.yml ${{ matrix.builder }} --publish never
+        run: bash scripts/electron-builder.sh ${{ matrix.builder }}
 
       # §12.1: "launch the packaged binary with a CLI arg pointing at a fixture and assert it exits 0
       # after rendering one frame." That is `scripts/smoke-artefact.mjs`.
       - name: Artefact smoke test
         shell: bash
-        run: |
-          if [ "${{ matrix.smoke }}" = "version" ]; then
-            node scripts/smoke-artefact.mjs --version-only
-          else
-            node scripts/smoke-artefact.mjs
-          fi
+        run: node scripts/smoke-artefact.mjs ${{ matrix.smoke }}
 
       - name: Upload the artefacts
         uses: actions/upload-artifact@v4

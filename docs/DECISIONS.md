@@ -247,6 +247,10 @@ dataset.
   a GPU-less ubuntu runner needs `--enable-unsafe-swiftshader` post-M137. "swiftshader ok" — deleted.
 - 2026-08-27 — CI/packaging matrix is explicit: `test` on ubuntu-24.04 (golden authority) + macos-latest;
   `package` on macos-latest (arm64 `.dmg`), macos-26-intel (x64 `.dmg`), ubuntu-24.04 (`.AppImage` + `.deb`).
+  **Superseded 2026-08-28**: the macos-26-intel leg is gone. It has no Metal device and macOS offers no software
+  fallback (ANGLE allows only `metal`/`swiftshader` there, and SwiftShader's Vulkan backend does not initialise),
+  so it built the x64 slice and then failed its smoke test. macos-latest already builds both slices and now
+  smoke-tests both (`--all`, x64 under Rosetta); the Linux leg renders with `--software-gl`.
   **Linux artefacts are never built on macOS.** Every package job ends with an artefact smoke test.
 - 2026-08-27 — macOS builds are **unsigned for v1** — Sequoia removed the Control-click Gatekeeper bypass, so a
   downloaded unsigned `.dmg` shows a hard "cannot be opened" dialog and the user must use System Settings →
@@ -255,6 +259,13 @@ dataset.
   + notarisation is a documented switch (`APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` +
   `notarize: true`). Ad-hoc signing (`identity: "-"`) — rejected: it only runs on the build machine and has
   known electron-builder regressions. `electron-builder` is pinned to an exact patch.
+  **Amended 2026-08-28**: the switch is now built and conditional rather than documented-only.
+  `electron-builder.yml` describes the signed build (hardened runtime, entitlements, `notarize: true`, no
+  `identity` key so `CSC_LINK` is discovered) and `scripts/electron-builder.sh` — the single entry point for
+  `pnpm package` and both workflows — falls back to an unsigned build when `CSC_LINK` is empty
+  (`CSC_IDENTITY_AUTO_DISCOVERY=false` plus `--config.mac.hardenedRuntime=false --config.mac.notarize=false`),
+  because electron-builder ad-hoc-signs arm64 regardless and ad-hoc + hardened runtime is killed at launch.
+  Releases stay unsigned until the four secrets exist (docs/RELEASING.md §4).
 - 2026-08-27 — Dependency freeze at the end of Phase 0 with both lockfiles committed; `pnpm-lock.yaml` and
   `Cargo.lock` are never merged (take `main`, regenerate). pnpm 10 ignores dependency build scripts, so the root
   carries `"pnpm": {"onlyBuiltDependencies": ["esbuild","electron"]}`. Electron **38–41** fetch the ~100 MB

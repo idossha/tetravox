@@ -109,17 +109,31 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
-  # Unsigned for v1 (§12.2). Gatekeeper consequence and the `xattr -dr com.apple.quarantine`
-  # walkthrough belong in USER_GUIDE.md; Developer ID + notarisation is a documented switch, and
-  # `docs/RELEASING.md` §4 is that switch: set CSC_LINK / CSC_KEY_PASSWORD / APPLE_ID /
-  # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID and flip the three lines below.
+  # SIGNED + NOTARISED is what this file describes, and `docs/RELEASING.md` §4 lists the four secrets
+  # that turn it on: CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD (plus the
+  # plain-text APPLE_TEAM_ID, which is not a secret). electron-builder 26 notarises through those
+  # environment variables on its own; `@electron/notarize` is its dependency, not ours.
   #
-  # `hardenedRuntime: false` is REQUIRED while unsigned, not a preference: notarisation demands the
-  # hardened runtime, the hardened runtime demands a valid signature, and an ad-hoc-signed app with
-  # `hardenedRuntime: true` is killed by the kernel at launch rather than merely warned about.
-  identity: null
-  hardenedRuntime: false
-  notarize: false
+  # **The unsigned path is not this file's job.** `scripts/electron-builder.sh` is the single place
+  # that decides: with no `CSC_LINK` in the environment — a fork, a contributor's `pnpm package`, the
+  # ci.yml package legs — it exports `CSC_IDENTITY_AUTO_DISCOVERY=false` and overrides
+  # `mac.hardenedRuntime` and `mac.notarize` back to `false` on the command line. Both workflows and
+  # the `package` script go through it, so neither path can be configured by accident.
+  #
+  # `hardenedRuntime: false` is REQUIRED while unsigned, and that is why the override exists rather
+  # than a second config file: notarisation demands the hardened runtime, the hardened runtime demands
+  # a valid signature, and an ad-hoc-signed app with `hardenedRuntime: true` is killed by the kernel
+  # at launch rather than merely warned about.
+  #
+  # No `identity:` key at all — with one, electron-builder never looks at CSC_LINK. Discovery is what
+  # finds the Developer ID certificate the workflow imports, and the unsigned path turns discovery off
+  # instead of naming an identity.
+  type: distribution
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
 
 dmg:
   writeUpdateInfo: false

@@ -30,7 +30,7 @@ are, and a `.deb` otherwise arrives as `tetravox_0.2.0_amd64.deb`.
 
 | Platform | Targets | Arch | Built on | Required |
 |---|---|---|---|---|
-| macOS | `dmg`, `zip` | arm64 **and** x64 | `macos-latest` (arm64) + `macos-26-intel` (x64); both locally with `pnpm package` | **yes** |
+| macOS | `dmg`, `zip` | arm64 **and** x64 | `macos-latest` — **one** runner builds and smoke-tests both slices (§7); also `pnpm package` locally | **yes** |
 | Linux | `AppImage`, `deb`, `tar.gz` | x64 | `ubuntu-24.04`; locally via `scripts/package-linux.sh` | **yes** |
 | Windows | `nsis` | x64 | `windows-latest`; also builds from macOS/Linux — see §5 | no (§5) |
 
@@ -191,41 +191,60 @@ so `main` always has downloadable builds without any tag at all.
 
 ---
 
-## 4. The notarisation switch (macOS)
+## 4. Signing and notarisation (macOS)
 
-Everything ships **unsigned** today (§12.2), which costs users a Gatekeeper prompt and costs the
-project nothing. `hardenedRuntime: false` is not a preference in that state, it is required:
-notarisation demands the hardened runtime, the hardened runtime demands a valid signature, and an
-ad-hoc-signed app with `hardenedRuntime: true` is killed by the kernel at launch rather than merely
-warned about.
+`packages/app/electron-builder.yml` describes the **signed** build — `hardenedRuntime: true`,
+`gatekeeperAssess: false`, `entitlements` / `entitlementsInherit: build/entitlements.mac.plist`,
+`notarize: true`, and deliberately **no** `identity:` key (with one, electron-builder never looks at
+`CSC_LINK`). electron-builder 26 signs from `CSC_LINK` and notarises through the `APPLE_*` variables
+by itself; `@electron/notarize` is its own dependency, not one of ours.
 
-To turn it on, three lines in `packages/app/electron-builder.yml`:
+**Whether that config is used is decided in one place: `scripts/electron-builder.sh`.** Every
+packaging path goes through it — `pnpm package`, ci.yml's package legs, release.yml's build step:
 
-```yaml
-mac:
-  identity: 'Developer ID Application: Your Org (TEAMID)' # was: null
-  hardenedRuntime: true # was: false
-  notarize: true # was: false
-  entitlements: build/entitlements.mac.plist # new file, see below
-  entitlementsInherit: build/entitlements.mac.plist
+| `CSC_LINK` | What happens |
+|---|---|
+| set | signed with the Developer ID, hardened, notarised, stapled |
+| empty | `CSC_IDENTITY_AUTO_DISCOVERY=false`, plus `--config.mac.hardenedRuntime=false --config.mac.notarize=false` — an ordinary unsigned build, no error |
+
+The unsigned fallback is not politeness towards forks, it is a correctness rule: electron-builder
+ad-hoc-signs the arm64 slice whether or not you have a certificate, and an ad-hoc signature plus
+`hardenedRuntime: true` is an app the kernel kills at launch. Turning auto-discovery off also keeps
+`pnpm package` deterministic between two developers, one of whom happens to have a Developer ID in
+their login keychain.
+
+### The four secrets
+
+`release.yml`'s build step passes these on every leg and tolerates all of them being empty. Only the
+first four are secrets; `APPLE_TEAM_ID` is public and is written in the workflow (`3BMY24SA43`).
+
+| Secret | What it is | Where it comes from |
+|---|---|---|
+| `CSC_LINK` | the Developer ID **Application** certificate, as a base64 `.p12` | Xcode → Settings → Accounts → Manage Certificates, or developer.apple.com; export from Keychain Access as `.p12`, then `base64 -i cert.p12 \| pbcopy` |
+| `CSC_KEY_PASSWORD` | the password set when exporting that `.p12` | you chose it during the export |
+| `APPLE_ID` | the Apple ID of the developer-programme account | — |
+| `APPLE_APP_SPECIFIC_PASSWORD` | an **app-specific** password, never the account password | appleid.apple.com → Sign-In and Security → App-Specific Passwords |
+
+The maintainer adds them once:
+
+```sh
+gh secret set CSC_LINK --repo idossha/tetravox < cert.p12.base64
+gh secret set CSC_KEY_PASSWORD --repo idossha/tetravox
+gh secret set APPLE_ID --repo idossha/tetravox
+gh secret set APPLE_APP_SPECIFIC_PASSWORD --repo idossha/tetravox
 ```
 
-and five environment variables on the signing runner — as repository **secrets**, never in the file:
+Until they exist the mac artefacts are unsigned, the release still builds, and the release-run log
+says so: the `Signature, Gatekeeper and staple` step runs `codesign -dv`, `spctl -a -t install` and
+`xcrun stapler validate` on the built `.app` and prints what they say without gating on it. Once the
+secrets are in place, `stapler validate` reporting `The validate action worked!` is what proves the
+notarisation ticket is stapled — and the smoke test still runs against the signed, stapled app, so a
+signature that breaks the launch is caught in the same job that made it.
 
-| Variable | What |
-|---|---|
-| `CSC_LINK` | base64 of the Developer ID `.p12`, or a path to it |
-| `CSC_KEY_PASSWORD` | that `.p12`'s password |
-| `APPLE_ID` | the Apple ID of the developer account |
-| `APPLE_APP_SPECIFIC_PASSWORD` | an app-specific password, **not** the account password |
-| `APPLE_TEAM_ID` | the 10-character team identifier |
-
-`build/entitlements.mac.plist` needs `com.apple.security.cs.allow-jit` and
-`allow-unsigned-executable-memory` — V8 needs both, and the hardened runtime denies them by default.
-
-When it is on, drop the unsigned-build paragraph from `scripts/changelog-section.mjs` and the
-`xattr` walkthrough from `docs/USER_GUIDE.md`. Auto-update stays out of scope regardless; it is a
-separate decision with its own `docs/DECISIONS.md` line.
+Notarisation is slow (minutes, occasionally tens of minutes on a first submission); the mac leg's
+`timeout-minutes: 60` covers it. When signing is live, drop the unsigned-build paragraph from
+`scripts/changelog-section.mjs` and the `xattr -dr com.apple.quarantine` walkthrough from
+`docs/USER_GUIDE.md`. Auto-update stays out of scope regardless.
 
 Windows signing is not planned. It needs a paid certificate whose reputation SmartScreen builds up
 over downloads, which an unpopular installer never accumulates, so the warning would remain.
@@ -313,8 +332,38 @@ pointing at a fixture and assert it exits 0 after rendering one frame"*.
 ```sh
 node scripts/smoke-artefact.mjs                 # discover the artefact in packages/app/release
 node scripts/smoke-artefact.mjs --exe <path>    # an explicit binary
+node scripts/smoke-artefact.mjs --all           # every slice this platform built (both mac slices)
+node scripts/smoke-artefact.mjs --software-gl   # force ANGLE/SwiftShader (a runner with no GPU)
 node scripts/smoke-artefact.mjs --version-only  # launch-and-exit (Windows)
 ```
+
+**What each leg passes, and why it is not the same everywhere.** A hosted runner is not a desktop:
+three of the four have no GPU, and the v0.2.0 release run failed on exactly that (run 33217830015).
+
+| Leg | Flags | Renderer it proves |
+|---|---|---|
+| macOS `macos-latest` | `--all` | Apple Metal, **both** slices — arm64 natively, x64 under Rosetta 2 |
+| Linux `ubuntu-24.04` | `--software-gl` | ANGLE/SwiftShader under Xvfb, asserted to be software |
+| Windows `windows-latest` | `--version-only` | launch-and-exit only (§5) |
+
+`--software-gl` adds `--use-gl=angle --use-angle=swiftshader --disable-gpu-compositing` to the launch
+(`packages/app/src/main/index.ts` §2), on top of the `--enable-unsafe-swiftshader` every launch
+carries and the `--no-sandbox` Linux always needs. The distinction matters: `enable-unsafe-swiftshader`
+only *permits* a fallback, and on a runner where the GPU process cannot bring up a display at all
+there is nothing to fall back from — the Linux leg died with `vertex shader failed to compile:
+(no log)` from a context that was already gone. The job then logs which renderer answered
+(`gl: <renderer> (software|hardware)`) and the smoke test asserts on it, so a leg cannot quietly make
+a different claim than its name.
+
+**There is no software-GL path on macOS, and that is measured, not assumed.** macOS ANGLE allows only
+`metal` and `swiftshader`; SwiftShader's Vulkan backend fails to initialise (`Internal Vulkan error
+(-3) … Exiting GPU process`) — reproduced identically on an M2 Mac against eight flag combinations
+(`--disable-gpu-sandbox`, `--in-process-gpu`, `--ignore-gpu-blocklist`, `--use-vulkan=swiftshader`,
+`VK_ICD_FILENAMES`, …) and on the `macos-26-intel` runner, which has no Metal device either. That is
+why the Intel leg is gone rather than fixed: `electron-builder.yml` declares `arch: [arm64, x64]`, so
+the arm64 runner already emits **all six** mac assets — during the failed v0.2.0 run it filled the
+draft Release on its own — and `--all` smoke-tests the x64 slice there, on a real GPU under Rosetta 2.
+Measured on an M2 Max: arm64 2.6 s, x64 under Rosetta 39 s.
 
 It writes a two-file job (`testdata/vol_asym.nii` + `testdata/mesh_v2_ascii.msh`, `plain` preset, one
 screenshot) into a temp directory, runs the **packaged** binary against it, and asserts `ok: true`,

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- The four the hardened runtime takes away and Electron cannot run without: V8 needs to write
+         and then execute JIT pages, Chromium's own frameworks and the ANGLE/SwiftShader dylibs are
+         loaded from inside the bundle, and the renderer is launched through DYLD environment
+         variables. Without these an Electron app signed with `hardenedRuntime: true` launches and is
+         killed by the kernel. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <!-- DELIBERATELY ABSENT: `com.apple.security.app-sandbox` and the
+         `com.apple.security.files.user-selected.read-write` that goes with it. This app is not
+         sandboxed — it is a Developer ID build distributed outside the App Store, and it reads whole
+         directories of neuroimaging data that the user names in an Open dialog. Adding the
+         file-access entitlement without the sandbox key does nothing at all. -->
+</dict>
+</plist>

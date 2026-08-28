@@ -2465,8 +2465,7 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 |---|---|---|---|
 | `test` | `ubuntu-24.04` | `cargo test --workspace`, `cargo clippy -- -D warnings`, `pnpm wasm`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm e2e` | **Golden authority** (§11) |
 | `test` | `macos-latest` | same | goldens compared at a looser ratio; **push to `main` and `workflow_dispatch` only** |
-| `package` | `macos-latest` | `.dmg` + `.zip` arm64 | |
-| `package` | `macos-26-intel` | `.dmg` + `.zip` x64 | `macos-latest` is arm64 only |
+| `package` | `macos-latest` | `.dmg` + `.zip` **arm64 and x64** | one runner: the config builds both slices, and the smoke test runs the x64 one under Rosetta. macOS has no working software-GL fallback, so a GPU-less Intel runner could build the slice but never render it (docs/RELEASING.md §7) |
 | `package` | `ubuntu-24.04` | `.AppImage` + `.deb` + `.tar.gz` x64 | **Linux artefacts are never built on macOS** |
 | `package` | `windows-latest` | `.exe` (nsis) x64 | electron-builder makes this from macOS/Linux too — only *signing* needs wine — but this is the only runner that can launch it |
 | `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | not built today |

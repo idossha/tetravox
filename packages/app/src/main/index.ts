@@ -76,6 +76,34 @@ app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 app.commandLine.appendSwitch('enable-webgl-developer-extensions');
 
 /**
+ * **Software-GL mode** — `--software-gl` or `TETRAVOX_SOFTWARE_GL=1`, and never on by default.
+ *
+ * `enable-unsafe-swiftshader` above only *permits* a fallback to SwiftShader; it does not conjure
+ * one where Chromium cannot bring up a GL/EGL display at all, and a hosted CI runner with no GPU is
+ * exactly that case. Both failures the v0.2.0 release run hit are this:
+ *
+ *   - Linux under Xvfb: the GPU process has a display but no usable driver, so shader compilation
+ *     dies with `vertex shader failed to compile: (no log)` — a lost context, not a bad shader.
+ *   - macOS x64 with no Metal device (`macos-26-intel`): `Initialization of all (1) EGL display
+ *     types failed ... Exiting GPU process`, so there is no context to fall back *from*.
+ *
+ * Naming ANGLE's SwiftShader backend explicitly gives the GPU process a display it can always
+ * create, and `disable-gpu-compositing` keeps the (already offscreen) compositor off the same
+ * missing device. `--disable-gpu` is deliberately NOT in this set: it disables the GPU process
+ * wholesale and takes WebGL2 with it, so the smoke test could not render at all.
+ *
+ * The mode is opt-in because it is a *weaker* claim — a SwiftShader frame proves the pipeline, not
+ * the platform driver — so the mac arm64 leg, which has a real GPU, stays off it (docs/RELEASING.md).
+ */
+const SOFTWARE_GL =
+  process.argv.includes('--software-gl') || process.env['TETRAVOX_SOFTWARE_GL'] === '1';
+if (SOFTWARE_GL) {
+  app.commandLine.appendSwitch('use-gl', 'angle');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+}
+
+/**
  * `'offscreen'` under `TETRAVOX_E2E_OFFSCREEN=1` (what `e2e/fixtures.ts` sets by default on macOS):
  * the window is built and never shown, so a test run cannot take the screen or the keyboard focus.
  * `TETRAVOX_E2E_HEADED=1` forces `'normal'` back. A user launch sets neither and is `'normal'`.
