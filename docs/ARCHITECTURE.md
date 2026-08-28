@@ -2220,8 +2220,12 @@ it is not the drop path.) Both the path and the `File` paths are exercised by a 
 associations are registered by the installer.
 
 **Screenshot**: `screenshot(opts: ScreenshotOptions)` (§4.7) → PNG with the DPI written into the pHYs chunk.
-Phase 3 exposes the same path headlessly: `tetravox --scene s.tetravox.json --screenshot out.png --width 2400
---background white [--headless]`, running the same engine in an offscreen Electron window.
+The same path is exposed headlessly by the **automation surface** (`docs/AUTOMATION.md`):
+`Tetravox --job job.json --out DIR [--quiet]`, running this engine in an offscreen Electron window. It
+is a job *file* rather than the flag-per-option CLI sketched here in Phase 0 — a scene plus an ordered
+list of `set` / `screenshot` / `sweep` / `orbit` actions — because the ask it answers includes videos
+and slice sweeps, and because six figures from six invocations would parse a 184 MB mesh six times.
+`docs/DECISIONS.md` (2026-08-28) has the reasoning; the single-shot case is the one-action job.
 
 **Scene save/load**: `*.tetravox.json` (`ViewSpec`, §4.6). Paths are stored relative to the scene file with an
 absolute fallback; a missing dataset opens a "relocate" dialog.

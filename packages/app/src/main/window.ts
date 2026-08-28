@@ -42,7 +42,18 @@
 
 export type WindowMode = 'normal' | 'offscreen';
 
-export function windowMode(env: NodeJS.ProcessEnv = process.env): WindowMode {
+/**
+ * `--job` — the automation runner (`job-runner.ts`) — takes the **same** offscreen mode, and takes it
+ * unconditionally: `TETRAVOX_E2E_HEADED` does not outrank it. A `--job` run is unattended by
+ * definition and the plan's requirement is explicit that it "must run with the window never shown and
+ * must not steal focus", so there is no debugging opt-in that would put a window on a user's screen
+ * in the middle of a batch. Debug a job by opening its scene interactively instead.
+ */
+export function windowMode(
+  env: NodeJS.ProcessEnv = process.env,
+  argv: readonly string[] = process.argv
+): WindowMode {
+  if (argv.some((arg) => arg === '--job' || arg.startsWith('--job='))) return 'offscreen';
   if (env['TETRAVOX_E2E_HEADED'] === '1') return 'normal';
   return env['TETRAVOX_E2E_OFFSCREEN'] === '1' ? 'offscreen' : 'normal';
 }

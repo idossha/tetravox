@@ -52,6 +52,66 @@ export interface TetravoxBridge {
   writeSceneFile(path: string, text: string): Promise<SceneIoResult>;
   /** File-menu scene commands, pushed from main. The renderer owns the `Engine`, so it does the work. */
   onSceneCommand(listener: (command: SceneCommand) => void): () => void;
+
+  // -- The automation surface (`--job`, `main/job-runner.ts`, `docs/AUTOMATION.md`) ---------------
+  // The one place bytes cross this bridge, and they are **not** file bytes: a PNG the renderer just
+  // rendered off its own canvas, bounded by the window size. §5 rule 3 keeps *dataset* bytes off the
+  // UI thread and out of IPC — those still reach the worker over `tetravox://file/…` — and the
+  // screenshot button already reads exactly such a blob back today (`controller.saveScreenshot`).
+  // Main writes the files, because main owns the filesystem.
+
+  /** The job this window was launched for, or null on every ordinary launch. */
+  jobSpec(): Promise<JobSpec | null>;
+  /** Write one PNG under `--out`. The name is re-checked against the out directory in main. */
+  jobWrite(name: string, bytes: Uint8Array): Promise<JobWriteResult>;
+  /** Hand over a frame sequence: PNGs and a GIF always, MP4 when ffmpeg is on PATH. */
+  jobFrames(payload: JobFramesPayload): Promise<JobFramesResult>;
+  /** Progress, to the job runner's stdout (suppressed by `--quiet`). */
+  jobLog(message: string): void;
+  /** Report the run. Main writes `job-result.json` and exits 0 or 1. */
+  jobDone(report: JobDonePayload): Promise<boolean>;
+}
+
+/** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
+export interface JobSpec {
+  job: {
+    version?: number;
+    scene: { path: string } | { files: string[]; preset: string };
+    window?: { width: number; height: number };
+    actions: Record<string, unknown>[];
+  };
+  outDir: string;
+  quiet: boolean;
+}
+
+export interface JobWriteResult {
+  ok: boolean;
+  file?: string;
+  error?: string;
+}
+
+export interface JobFramesPayload {
+  base: string;
+  fps: number;
+  gif: boolean;
+  mp4: boolean;
+  colors?: number;
+  frames: Uint8Array[];
+}
+
+export interface JobFramesResult {
+  ok: boolean;
+  files?: string[];
+  warnings?: string[];
+  error?: string;
+}
+
+export interface JobDonePayload {
+  ok: boolean;
+  outputs: { action: number; type: string; files: string[]; ms: number }[];
+  warnings: string[];
+  errors: string[];
+  loadMs: number;
 }
 
 /** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
@@ -83,6 +143,11 @@ const bridge: TetravoxBridge = {
   relocateDialog: (missingName) => ipcRenderer.invoke('tetravox:relocate-dialog', missingName),
   readSceneFile: (path) => ipcRenderer.invoke('tetravox:read-scene', path),
   writeSceneFile: (path, text) => ipcRenderer.invoke('tetravox:write-scene', path, text),
+  jobSpec: () => ipcRenderer.invoke('tetravox:job-spec'),
+  jobWrite: (name, bytes) => ipcRenderer.invoke('tetravox:job-write', { name, bytes }),
+  jobFrames: (payload) => ipcRenderer.invoke('tetravox:job-frames', payload),
+  jobLog: (message) => ipcRenderer.send('tetravox:job-log', message),
+  jobDone: (report) => ipcRenderer.invoke('tetravox:job-done', report),
   onSceneCommand: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, command: SceneCommand): void =>
       listener(command);

@@ -27,6 +27,7 @@ import { isEditableTarget, resolveKey } from '../keyboard/keymap';
 import { requestFromDroppedFile, requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import { bridge } from '../bridge';
+import { maybeRunJob } from '../automation/run';
 import { ShellContext } from './context';
 import { CoordinateBar } from '../panels/coordinate/CoordinateBar';
 import { HeaderPanel } from '../panels/info/HeaderPanel';
@@ -56,8 +57,11 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
   const [failure, setFailure] = useState<string | null>(null);
   const impl = useMemo(() => engineImpl(), []);
   const status = useStore(store, (s) => s.status);
+  // A `--job` window draws the view grid and nothing else: see `UiState.jobMode`.
+  const jobMode = useStore(store, (s) => s.jobMode);
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
   const startedRef = useRef(false);
+  const startedJobRef = useRef(false);
 
   const canvas = useMemo(() => {
     const element = document.createElement('canvas');
@@ -130,6 +134,17 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
       off();
     };
   }, [controller]);
+
+  // ---- `--job`: the automation runner (`automation/run.ts`, `docs/AUTOMATION.md`) ---------------
+  // Asked once, after the engine exists. Every ordinary launch gets `null` back and nothing happens;
+  // a `--job` launch runs the script and main exits the process from `job-done`. `startedJobRef`
+  // keeps StrictMode's double-mount from starting the same job twice.
+  useEffect(() => {
+    if (controller === null || engine === null) return;
+    if (startedJobRef.current) return;
+    startedJobRef.current = true;
+    void maybeRunJob({ controller, engine, store });
+  }, [controller, engine, store]);
 
   // ---- scene commands from the File menu (§4.6, §8) ---------------------------------------------
   // Main owns the accelerators, the renderer owns the `Engine` whose `serialize()` makes the spec.
@@ -229,27 +244,29 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
           </div>
         ) : (
           <>
-            <Toolbar />
+            {jobMode ? null : <Toolbar />}
             <div className="flex min-h-0 flex-1">
-              <LayerPanel />
+              {jobMode ? null : <LayerPanel />}
               <ViewGrid canvas={canvas} dpr={dpr} />
-              <aside
-                data-testid="right-panel"
-                className="flex w-80 min-w-64 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
-              >
-                <CoordinateBar />
-                {/* §7.6's chip is mounted here rather than inside the mesh property editor, which
+              {jobMode ? null : (
+                <aside
+                  data-testid="right-panel"
+                  className="flex w-80 min-w-64 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
+                >
+                  <CoordinateBar />
+                  {/* §7.6's chip is mounted here rather than inside the mesh property editor, which
                     is A-PROPS's directory. It renders nothing unless the active layer is a mesh
                     that had a `.msh.opt` beside it — see `MshOptChip.tsx`. */}
-                <MshOptChip />
-                <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                  <InfoPanel />
-                  <div className="border-t border-tvx-line" />
-                  <HeaderPanel />
-                </div>
-              </aside>
+                  <MshOptChip />
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                    <InfoPanel />
+                    <div className="border-t border-tvx-line" />
+                    <HeaderPanel />
+                  </div>
+                </aside>
+              )}
             </div>
-            <StatusBar />
+            {jobMode ? null : <StatusBar />}
             <Toasts />
             <ShellDialogs />
           </>

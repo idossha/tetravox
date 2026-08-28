@@ -48,6 +48,12 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
     bridge: {} as TetravoxBridge,
   };
   fs.bridge = {
+    // The `--job` half of the bridge: this window was not launched for one.
+    jobSpec: async () => null,
+    jobWrite: async () => ({ ok: false, error: 'not a job run' }),
+    jobFrames: async () => ({ ok: false, error: 'not a job run' }),
+    jobLog: () => {},
+    jobDone: async () => false,
     openDialog: async () => [],
     getDroppedFilePath: () => '',
     // The existence check and the allow-list are one call, as in the real bridge (§5 rule 9).
