@@ -8,27 +8,13 @@ use tvx_mesh_io::{ElmField, Format, Mesh, MshOptions};
 use tvx_nifti::VolumeData;
 use wasm_bindgen::prelude::*;
 
-use crate::{geom, handles, jsv, lut, stats, surface};
+use crate::{geo, geom, handles, jsv, lut, stats, surface};
 
 // ---------------------------------------------------------------------------------------------
 // load_mesh
 // ---------------------------------------------------------------------------------------------
 
-fn dispatch(bytes: Vec<u8>, format: &str, p: &mut dyn ProgressSink) -> Result<Mesh> {
-    let chosen = match format {
-        "auto" => tvx_mesh_io::sniff(&bytes, None)?,
-        "msh" => Format::Msh,
-        "gii" => Format::Gifti,
-        "fs" => Format::FsSurface,
-        "stl" => Format::Stl,
-        "ply" => Format::Ply,
-        "obj" => Format::Obj,
-        other => {
-            return Err(Error::Unsupported(format!(
-                "load_mesh format {other:?}; expected auto|msh|gii|fs|stl|ply|obj"
-            )))
-        }
-    };
+fn dispatch(bytes: Vec<u8>, chosen: Format, p: &mut dyn ProgressSink) -> Result<Mesh> {
     match chosen {
         Format::Msh => tvx_mesh_io::read_msh(bytes, p),
         Format::Gifti => tvx_mesh_io::read_gifti(bytes, p),
@@ -36,6 +22,29 @@ fn dispatch(bytes: Vec<u8>, format: &str, p: &mut dyn ProgressSink) -> Result<Me
         Format::Stl => tvx_mesh_io::read_stl(bytes),
         Format::Ply => tvx_mesh_io::read_ply(bytes),
         Format::Obj => tvx_mesh_io::read_obj(bytes),
+        // Unreachable: `load` peels the parsed-view format off first, because a `GeoView` is not
+        // a `Mesh` and the conversion needs the whole view, not just its triangles.
+        Format::Geo => Err(Error::Unsupported(
+            "a parsed post-processing view is not a mesh; see `crate::geo`".into(),
+        )),
+    }
+}
+
+/// Which format `load` will use, without consuming the bytes — `dispatch`'s first half, lifted so
+/// the parsed-view branch can be taken **before** the mesh readers see the file.
+fn chosen_format(bytes: &[u8], format: &str) -> Result<Format> {
+    match format {
+        "auto" => tvx_mesh_io::sniff(bytes, None),
+        "msh" => Ok(Format::Msh),
+        "gii" => Ok(Format::Gifti),
+        "fs" => Ok(Format::FsSurface),
+        "stl" => Ok(Format::Stl),
+        "ply" => Ok(Format::Ply),
+        "obj" => Ok(Format::Obj),
+        "geo" => Ok(Format::Geo),
+        other => Err(Error::Unsupported(format!(
+            "load_mesh format {other:?}; expected auto|msh|gii|fs|stl|ply|obj|geo"
+        ))),
     }
 }
 
@@ -335,7 +344,21 @@ pub fn load(
     // takes ownership and frees them (§5 rule 5). The sidecars are **not** in it — a `.msh.opt`
     // edit must not make the mesh look like a different file.
     let fingerprint = tvx_core::fingerprint(&bytes);
-    let mut mesh = dispatch(bytes, format, p)?;
+    let chosen = chosen_format(&bytes, format)?;
+    // A parsed post-processing view is not a mesh file: it becomes one (`crate::geo`), and its
+    // points / labels / line segments ride out on the additive `geo` half of the result (§6.5.1).
+    let views = if chosen == Format::Geo {
+        Some(geo::read(bytes.clone())?)
+    } else {
+        None
+    };
+    let mut mesh = match &views {
+        Some(v) => {
+            drop(bytes);
+            geo::to_mesh(v)
+        }
+        None => dispatch(bytes, chosen, p)?,
+    };
     // §6.2: a `.label.gii` carries its `<LabelTable>` on the mesh (it used to need a second parse
     // of the same bytes through an additive entry point).
     let gifti_labels = mesh.label_table.take();
@@ -374,6 +397,9 @@ pub fn load(
     let m = handles::with_mesh(handle, |st| Ok(meta(handle, st, &orient, &fingerprint)))?;
     let out = jsv::obj();
     jsv::set(&out, "meta", &m);
+    if let Some(v) = &views {
+        jsv::set(&out, "geo", &geo::payload(v));
+    }
     Ok(out.into())
 }
 

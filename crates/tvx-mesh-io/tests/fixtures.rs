@@ -14,8 +14,8 @@
 
 use tvx_core::NoProgress;
 use tvx_mesh_io::{
-    read_fs_annot, read_fs_curv, read_fs_surface, read_gifti, read_msh, read_msh_opt, read_obj,
-    read_ply, read_stl, sniff, Format,
+    read_fs_annot, read_fs_curv, read_fs_surface, read_geo_view, read_gifti, read_msh,
+    read_msh_opt, read_obj, read_ply, read_stl, sniff, Format,
 };
 
 mod common;
@@ -533,7 +533,10 @@ fn func_and_label_gifti_become_node_fields() {
         .as_array()
         .unwrap();
     assert_eq!(want.len(), 4);
-    let table = l.label_table.as_ref().expect("a .label.gii carries its table");
+    let table = l
+        .label_table
+        .as_ref()
+        .expect("a .label.gii carries its table");
     assert_eq!(table.entries.len(), 4);
     // §6.2's dense remap: the FIELD holds 0..N-1 and the TABLE holds the original keys. The
     // fixture cycles the keys 0, 3, 7, 11 over its 16 vertices, so the remapped field is
@@ -766,6 +769,7 @@ fn sniff_identifies_every_fixture_from_its_bytes() {
         ("patch_tri_ascii.ply", Format::Ply),
         ("patch_tri_binary.ply", Format::Ply),
         ("patch_tri.obj", Format::Obj),
+        ("view_electrodes.geo", Format::Geo),
     ];
     for (name, want) in cases {
         let b = fx::bytes(name);
@@ -775,4 +779,73 @@ fn sniff_identifies_every_fixture_from_its_bytes() {
         assert_eq!(&sniff(&b, None).unwrap(), want, "{name}: no extension hint");
         assert_eq!(&sniff(&b, ext).unwrap(), want, "{name}: with hint {ext:?}");
     }
+}
+
+// -------------------------------------------------------------------------------------------
+// Parsed Gmsh post-processing views (`.geo` / `.pos`, §6.2, directed task 6)
+// -------------------------------------------------------------------------------------------
+
+/// `testdata/view_electrodes.geo` — one of every supported primitive, in the SimNIBS dialect.
+///
+/// Every number here was read off the fixture by hand (it is 20 lines of ascii); nothing came
+/// from the reader. The `ST` is the component-major assertion: its three corners are
+/// `(0,0,0) (1,0,0) (0,1,0)`, which the interleaved misreading would turn into
+/// `(0,1,0) (0,0,0) (1,0,0)`.
+#[test]
+fn a_parsed_view_fixture_carries_every_primitive() {
+    let views = read_geo_view(fx::bytes("view_electrodes.geo")).unwrap();
+    assert_eq!(views.len(), 2, "two `View` blocks");
+
+    let v = &views[0];
+    assert_eq!(
+        v.name, "",
+        "SimNIBS writes `View\"\"` — an empty, unspaced name"
+    );
+    assert_eq!(v.points.len(), 3, "two SP plus the VP");
+    assert_eq!(v.points[0], [1.0, 2.0, 3.0]);
+    assert!((v.points[1][0] - -0.015).abs() < 1e-7);
+    assert_eq!(v.point_values[0], 10.0);
+    assert_eq!(v.point_values[1], 20.0);
+    assert_eq!(v.point_values[2], 5.0, "VP magnitude: |(3,4,0)| = 5");
+
+    assert_eq!(v.labels.len(), 2);
+    assert_eq!(v.labels[0].1, "E001");
+    assert_eq!(v.labels[0].0, [1.0, 2.0, 8.0]);
+    assert_eq!(v.labels[1].1, "E002");
+
+    assert_eq!(v.lines, vec![[[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]]]);
+    assert_eq!(v.line_values, vec![1.0, 2.0]);
+
+    // One ST plus the SQ's two-triangle fan.
+    assert_eq!(v.tris.len(), 3);
+    assert_eq!(
+        v.tris[0],
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        "component-major coordinates"
+    );
+    assert_eq!(&v.tri_values[0..3], &[10.0, 20.0, 30.0]);
+    assert_eq!(&v.tri_values[3..9], &[1.0, 2.0, 3.0, 1.0, 3.0, 4.0]);
+
+    assert_eq!(
+        v.skipped,
+        vec![("SS".to_string(), 1)],
+        "SS is counted, not fatal"
+    );
+    assert_eq!(v.time_steps, 1);
+    assert_eq!(v.bounds.min, [-0.015, 0.0, 0.0]);
+    assert_eq!(v.bounds.max, [100.0, 2.0, 8.0]);
+
+    assert_eq!(views[1].name, "second");
+    assert_eq!(views[1].points, vec![[9.0, 9.0, 9.0]]);
+    assert_eq!(views[1].point_values, vec![0.5]);
+}
+
+/// A `.geo` that is a geometry script is `Unsupported` **and says which command gave it away**.
+#[test]
+fn a_geometry_script_fixture_is_rejected_by_name() {
+    let err = read_geo_view(fx::bytes("view_geometry_script.geo")).unwrap_err();
+    assert!(matches!(err, tvx_core::Error::Unsupported(_)), "{err}");
+    let msg = err.to_string();
+    assert!(msg.contains("`Point(`"), "{msg}");
+    assert!(msg.contains("geometry script"), "{msg}");
 }

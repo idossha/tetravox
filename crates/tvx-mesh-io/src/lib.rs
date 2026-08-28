@@ -41,6 +41,7 @@
 #![forbid(unsafe_code)]
 
 mod freesurfer;
+mod geo;
 mod gifti;
 mod msh;
 mod mshopt;
@@ -53,6 +54,9 @@ mod util;
 /// struct carries `stats`; duplicating the 65536-bin accumulator in a second crate would be two
 /// implementations of one normative rule.
 pub use stats::{field_stats, field_stats_parts};
+
+/// A parsed Gmsh post-processing view (§6.2, task 6). See [`read_geo_view`].
+pub use geo::GeoView;
 
 use tvx_core::{Aabb, Field, FieldStats, LabelTable, ProgressSink, Result};
 
@@ -149,6 +153,9 @@ pub enum Format {
     Stl,
     Ply,
     Obj,
+    /// Gmsh **parsed post-processing** views, `.geo` / `.pos` (task 6). Not a mesh: it carries
+    /// de-indexed points, labels, line segments and triangles. See [`read_geo_view`].
+    Geo,
 }
 
 /// Gmsh `.msh` v2 (ascii + binary) and v4.1 (ascii + binary). Takes ownership of `bytes` and frees it
@@ -212,6 +219,20 @@ pub fn read_obj(bytes: Vec<u8>) -> Result<Mesh> {
     mesh
 }
 
+/// Gmsh **parsed post-processing** views — `.geo` and `.pos`, which share one grammar.
+///
+/// Returns one [`GeoView`] per `View "name" { … };` block, in file order. A `.geo` that is a Gmsh
+/// *geometry script* (`Point(1) = {…};`) is [`tvx_core::Error::Unsupported`] with a message naming
+/// the offending command: it is CAD input, not data.
+///
+/// Takes ownership of `bytes` and frees it before returning, like every other reader here
+/// (§5 rule 5).
+pub fn read_geo_view(bytes: Vec<u8>) -> Result<Vec<GeoView>> {
+    let views = geo::read(&bytes);
+    drop(bytes);
+    views
+}
+
 /// Identify a format from a byte prefix, with the file extension as a hint.
 pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format> {
     if bytes.starts_with(b"$MeshFormat") {
@@ -232,6 +253,9 @@ pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format> {
     if surf::looks_like_obj(bytes) {
         return Ok(Format::Obj);
     }
+    if geo::looks_like_view(bytes) {
+        return Ok(Format::Geo);
+    }
     // The content said nothing; fall back to the caller's extension hint (§6.2).
     match hint_ext
         .map(|e| e.trim_start_matches('.').to_ascii_lowercase())
@@ -242,6 +266,7 @@ pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format> {
         Some("stl") => Ok(Format::Stl),
         Some("ply") => Ok(Format::Ply),
         Some("obj") => Ok(Format::Obj),
+        Some("geo") | Some("pos") => Ok(Format::Geo),
         Some("pial") | Some("white") | Some("inflated") | Some("sphere") | Some("central")
         | Some("surf") => Ok(Format::FsSurface),
         _ => Err(tvx_core::Error::Unsupported(format!(
@@ -256,7 +281,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn supported_formats_are_the_six_of_the_contract() {
+    fn supported_formats_are_the_seven_of_the_contract() {
         let all = [
             Format::Msh,
             Format::Gifti,
@@ -264,8 +289,25 @@ mod tests {
             Format::Stl,
             Format::Ply,
             Format::Obj,
+            Format::Geo,
         ];
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), 7);
+    }
+
+    #[test]
+    fn sniff_finds_a_parsed_view_by_content_and_by_extension() {
+        assert_eq!(
+            sniff(b"View\"\"{SP(0,0,0){0};};", None).unwrap(),
+            Format::Geo
+        );
+        assert_eq!(sniff(b"  \n View \"x\" {", None).unwrap(), Format::Geo);
+        assert_eq!(sniff(b"// c\nView \"x\" {", None).unwrap(), Format::Geo);
+        // A geometry script sniffs as Geo by extension, and `read_geo_view` is what rejects it.
+        assert_eq!(
+            sniff(b"Point(1) = {0,0,0,1};", Some("geo")).unwrap(),
+            Format::Geo
+        );
+        assert_eq!(sniff(b"anything", Some(".pos")).unwrap(), Format::Geo);
     }
 
     /// §6.2: `gmsh_elm_numbers: None` is the identity numbering, and the fast path every reference
