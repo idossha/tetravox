@@ -35,6 +35,9 @@ import {
   volumeColorbarSpec,
 } from '../../overlay';
 import { drawPointLabels, placePointLabels } from '../../overlay/point-labels';
+import { drawMeasurement, onPlane } from '../../overlay/measure';
+import type { PlacedMeasurement } from '../../overlay/measure';
+import { formatMeasurement } from '../../derived/measure';
 import type { ChromeInput, EdgeLetters, OverlayTheme } from '../../overlay';
 import { visibleIn } from '../../layers/runtime';
 import { isSliceView, topVolume } from '../../scene/store';
@@ -48,7 +51,16 @@ import {
 } from '../../view/geometry';
 import type { DrawInput } from './pass';
 import type { ViewportRect } from '../../view/layout';
-import type { mat4, Scene, SliceView, vec3, vec4, View, VolumeDataset } from '../../scene/types';
+import type {
+  mat4,
+  Measurement,
+  Scene,
+  SliceView,
+  vec3,
+  vec4,
+  View,
+  VolumeDataset,
+} from '../../scene/types';
 
 /**
  * Directed task 9 (2026-08-28): these six colours were `const`s here. They are now
@@ -189,6 +201,10 @@ export class OverlayPass implements FramePass {
     // the reason every other string here is — a DOM overlay is invisible to `readPixel` and to
     // `screenshot()`, which is the same as not testing it (§11).
     drawPointLabelsFor(b, view, rect, viewProj, input);
+
+    // Appended (shared-file rule) for directed task 11: §7.5's measurements, in every pane that
+    // contains their points. After the labels and before the draw, in the same reserved slot.
+    drawMeasurements(b, view, rect, viewProj, input, theme.measure);
 
     if (b.vertexCount === 0) return;
     const gl = this.#gl;
@@ -387,4 +403,60 @@ function glyphLegendLines(input: DrawInput, view: View): string[] {
     );
   }
   return out;
+}
+
+/**
+ * §7.5's measurements, drawn in **every pane that contains their points** (directed task 11).
+ *
+ * "Contains" is the whole of the per-pane decision, and it differs by pane kind:
+ *
+ * * a **3D** pane contains any point in front of its eye, so every measurement is drawn there;
+ * * a **2D** pane shows one plane, so it draws a measurement only when *all* of its points are
+ *   within `MEASURE_SLAB_MM` of that plane. Drawing one whose far end is 40 mm away would put a
+ *   segment across an image that segment has nothing to do with — the smear the point-label slab
+ *   above exists to prevent — and would print a length nothing in the picture is that long.
+ *
+ * Both kinds project through the pane's own `viewProj`, which is exact for the orthographic 2D case
+ * and correct for the perspective 3D one, so a measurement placed in the axial pane and read off
+ * the 3D pane is the same two endpoints rather than two derivations that must be kept in step.
+ *
+ * The colour is the theme's, unless the measurement carries an override (§4.5's optional `color`).
+ */
+function drawMeasurements(
+  b: OverlayBuilder,
+  view: View,
+  rect: ViewportRect,
+  viewProj: mat4,
+  input: DrawInput,
+  themeColor: vec4
+): void {
+  const scene = input.scene;
+  const draft = input.measureDraft ?? null;
+  if (scene.measurements.length === 0 && (draft === null || draft.length === 0)) return;
+  const m = overlayMetrics(rect.width, rect.height, input.uiScale);
+  const plane = isSliceView(view) ? slicePlane(view, scene.cursor) : null;
+
+  const place = (points: readonly vec3[], label: string): PlacedMeasurement | null => {
+    const out: [number, number][] = [];
+    for (const p of points) {
+      if (plane !== null && !onPlane(plane, p)) return null;
+      const q = worldToPane3D(viewProj, rect, p);
+      if (q === null) return null;
+      // Every overlay item is bottom-left origin; `worldToPane3D` answers top-left, like `readPixel`.
+      out.push([q[0], rect.height - 1 - q[1]]);
+    }
+    return { points: out, label };
+  };
+
+  for (const measurement of scene.measurements as Measurement[]) {
+    const placed = place(measurement.points, formatMeasurement(measurement));
+    if (placed === null) continue;
+    drawMeasurement(b, m, placed, measurement.color ?? themeColor);
+  }
+  // The gesture in progress: the points clicked so far, with no label — there is no length yet, and
+  // a "0.0 MM" under a single click would be a number the user did not ask for.
+  if (draft !== null && draft.length > 0) {
+    const placed = place(draft, '');
+    if (placed !== null) drawMeasurement(b, m, placed, themeColor);
+  }
 }

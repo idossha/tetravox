@@ -3106,3 +3106,57 @@ other two carry the count and the length, which is the whole of the length asser
 **Visual change, stated.** One new golden, `derived-surface-contours-2x2` (the fixture surface in
 the 2×2 layout: yellow outlines on three panes, the shaded patch in 3D). No existing golden is
 regenerated.
+
+## 2026-08-28 — the measurement tool is scene state, and its points are world millimetres
+
+`docs/PLAN-2026-08-28-directed.md` #11. `Scene` gains `measurements: Measurement[]`, `ViewSpec` gains an
+**optional** `measurements`, `EngineEvents` gains `measurements`, and `Engine` gains four members —
+`setMeasureMode`, `measureMode`, `addMeasurement`, `removeMeasurement`, `cancelMeasurement`. Three frozen files
+(§12.3): `scene/types.ts`, `api.ts` and ARCHITECTURE §4.5 / §4.6 / §4.7 / §7.2 / §7.5 / §8 changed in the same
+commit. Every change is additive; the `ViewSpec` field is optional, so a `*.tetravox.json` written before today
+still loads and means "no measurements".
+
+**Why `Scene` and not a layer.** A measurement has no dataset, nothing colours it, and nothing about it belongs
+in the layer panel's stacking order — a layer row for one would carry an eye, an opacity slider and a position
+in the transparency sort, none of which mean anything. And not host chrome either: R5's "edits persist in the
+scene" is exactly what a measurement is. A note that vanished on save/load is a note taken in disappearing ink.
+
+**Why world millimetres.** §3 fixes one world, and the two clicks are turned into world points before they ever
+reach a `Measurement` — `paneToWorld` in a 2D pane, the §7.2.3 `pick` in the 3D one. So the number does not move
+when the pane is zoomed, when the convention flips to radiological, or when the same segment is read off the 3D
+pane. A screen-space length scaled by `mmPerPx` would be right only for a point that happens to lie on the plane
+it was clicked in, and silently wrong for every 3D pick. §11's gate asserts exactly this identity from the other
+side: two clicks at pane pixels `p1`, `p2` give `hypot(p2 − p1) · mmPerPx`, to within 0.05 mm, derived from §3's
+orthonormal basis rather than from the engine.
+
+**Why the mode is the engine's.** Only the engine can turn a pane pixel into a world point (a 2D cursor is the
+pointer ray ∩ that view's *derived* plane), and §8 forbids the app deriving it. The app owns the toolbar button,
+the `m` key and the panel; everything else is `Engine.setMeasureMode` and the pointer layer's
+`addMeasurePoint` — the same shape as §7.5's plane-from-3-points, which already consumes clicks this way.
+
+**Three clicks, one measurement.** Two clicks make a `'distance'` and it is stored immediately, so the common
+case needs no third click; the third **promotes that same row** to an `'angle'` with the vertex at the shared
+endpoint, rather than leaving a stray segment behind and adding a second measurement. `Esc` drops the gesture and
+nothing else. The half-placed gesture rides on `DrawInput.measureDraft`, never on `Scene`, for the reason
+`DrawInput.gizmo` does: a saved scene must not carry transient pointer state.
+
+**`OverlayTheme` gains `measure`, and `Measurement.color` is an optional override.** The colour is the theme's by
+default and only the theme's, so a measurement saved under the light theme is legible when reopened under the
+dark one — baking a colour in at placement time would make "theme-aware" false for the one kind of scene content
+that outlives the window it was made in. The default is magenta, chosen the way the gizmo's cyan was: three
+overlay items that can share a pane need three colours a test can name without a tolerance that also matches
+their neighbours.
+
+**A visual change, stated.** Nothing moves in any existing golden: `Scene.measurements` starts empty, the
+overlay item returns before writing a vertex when it is, and `DEFAULT_OVERLAY_THEME`'s existing seven fields are
+untouched. The new picture is `docs/screenshots/directed-2026-08-28/measure.png`, on `T1.nii.gz` + `ernie.msh`.
+
+**One placement bug §11 caught, and the fix.** An angle's label was first lifted straight up from its vertex,
+which put it on top of a vertical arm; the chrome decoder read `90.0 DEG` back as `90.0LDEG`. It is now pushed
+out along the **bisector** — by construction the direction furthest from both arms. That is the whole value of
+decoding a label out of the framebuffer rather than looking at it: a golden PNG would have passed.
+
+**A test-helper change.** `test/helpers/chrome.ts`'s `ChromeReadOptions` gains an optional `ink` predicate.
+Its default is tuned for the near-white chrome text and reads every glyph of a magenta label as blank; a caller
+that knows what colour its text is now passes the test for that colour. Additive, and every existing caller is
+unchanged.

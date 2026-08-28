@@ -796,6 +796,46 @@ export interface QualityLevel {
  * JSON-serialisable. GL objects live in an engine-private map keyed by `DatasetId`, declared in
  * `packages/engine/src/gl/resources.ts` (not part of this frozen file).
  */
+// ---------------------------------------------------------------------------------------------
+// Measurements — directed task 11 (2026-08-28). Additive; see ARCHITECTURE §4.5 / §7.5 and
+// docs/DECISIONS.md.
+// ---------------------------------------------------------------------------------------------
+
+export type MeasurementId = string;
+
+/**
+ * A distance or an angle the user placed, in **world RAS millimetres** (§3).
+ *
+ * World points, never pane pixels, and that is the whole design: a measurement placed in the axial
+ * pane has to be the same length when the pane is zoomed, when the convention flips to radiological,
+ * and when it is looked at from the 3D pane. A screen-space measurement is none of those things —
+ * it is a number about the window, not about the subject.
+ *
+ * `points` carries **two** entries for `'distance'` and **three** for `'angle'`, whose vertex is
+ * `points[1]`: the angle is the one at the shared endpoint of the two segments, which is what the
+ * three clicks that made it drew.
+ */
+export interface Measurement {
+  id: MeasurementId;
+  kind: 'distance' | 'angle';
+  /** What §8's measurement panel lists it as — `M1`, `M2`, … unless the user renamed it. */
+  name: string;
+  /** 2 points for `'distance'`, 3 for `'angle'` (vertex = `points[1]`). World RAS mm. */
+  points: vec3[];
+  /**
+   * A per-measurement colour override, 0..1 like every colour in §4 (§4.1).
+   *
+   * **Optional, and absent is the normal case**: with no override the overlay draws it in
+   * `OverlayTheme.measure`, so every measurement follows the window's theme — which is what
+   * "theme-aware" has to mean for something that is saved in the scene and reopened by a reader
+   * using the other theme. A colour baked in at placement time would be a light-theme measurement
+   * drawn over a dark pane forever.
+   */
+  color?: vec4;
+  /** The pane the points were placed in, for §8's jump-to. Absent for a loaded scene's own. */
+  viewId?: ViewId;
+}
+
 export interface Scene {
   version: 1;
   datasets: Map<DatasetId, Dataset>;
@@ -815,6 +855,16 @@ export interface Scene {
   annotations: Annotations;
   transparency: { mode: 'twoPhase' | 'sorted' | 'peel'; peelLayers?: number };
   quality: QualityLevel;
+  /**
+   * The measurements placed in this scene (directed task 11, 2026-08-28) — **scene state**, so they
+   * are drawn in every pane that contains them and saved with the scene (§4.6).
+   *
+   * Not a layer: a measurement has no dataset, nothing colours it, and nothing about it belongs in
+   * the layer panel's stacking order. Not host chrome either — R5's rule that "edits persist in the
+   * scene" is exactly what a measurement is, and one that vanished on save/load would be a note
+   * taken in disappearing ink.
+   */
+  measurements: Measurement[];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -912,12 +962,16 @@ export interface ViewSpec {
    */
   theme?: 'system' | 'light' | 'dark';
   /**
-   * Measurements (directed task 11), carried opaquely — v2, optional.
+   * §4.5's measurements (directed task 11) — v2, optional, and absent means **none**.
    *
-   * Task 11 owns the shape; this field exists so that a scene saved by a build that *has*
-   * measurements survives a round trip through a build that does not, instead of losing them
-   * silently on the next save. `Scene` has no measurement list yet, so `serialize()` never writes
-   * this field; the app carries it forward from the spec it loaded (`lib/scene.ts`).
+   * Task 13 reserved this slot as an opaque `unknown[]` so that a scene saved by a build with
+   * measurements survived a round trip through a build without them; task 11 is that build, and
+   * this is the single definition. It is no longer carried opaquely by the app: `serialize()`
+   * writes `Scene.measurements` and `applyViewSpec` restores it, so the app's carry-forward is now
+   * a fallback for a spec the engine never saw rather than the only thing keeping the field alive.
+   *
+   * Optional because a `*.tetravox.json` written before it existed must still load, which is the
+   * additive rule a frozen file is changed under (§12.3).
    */
-  measurements?: unknown[];
+  measurements?: Measurement[];
 }

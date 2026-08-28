@@ -90,6 +90,16 @@ export interface PointerHost {
   readonly planeFromPointsPending: number | null;
   /** Contribute one click to an armed plane-from-3-points; `true` while it is consuming clicks. */
   addPlanePoint(viewId: string, x: number, y: number): boolean;
+
+  // §7.5's measure mode (directed task 11, 2026-08-28). Same rule as the rest of this interface:
+  // one member per gesture, each of them public on `TetravoxEngine`.
+
+  /** How many points the measure gesture holds, or `null` when the mode is off. */
+  readonly measurePending: number | null;
+  /** Contribute one click; `true` while measure mode is consuming them. */
+  addMeasurePoint(viewId: string, x: number, y: number, is3D: boolean): boolean;
+  /** `Esc`: abandon the measurement being placed. */
+  cancelMeasurement(): void;
 }
 
 /** True when the key event is going into a text field and no shortcut may fire. */
@@ -191,8 +201,10 @@ export class PointerLayer {
       e.preventDefault();
       return;
     }
-    // The orientation cube is chrome on top of the 3D scene, so it takes the click before the
-    // gizmo and before the orbit gesture ever starts.
+    // The orientation cube is chrome on top of the 3D scene, so it takes the click before
+    // everything below it — before measure mode, before the gizmo, and before the orbit gesture
+    // ever starts. A face of the cube is a camera preset, and a click that landed on one was never
+    // aimed at the anatomy behind it.
     if (
       e.button === 0 &&
       pane.is3D &&
@@ -200,6 +212,16 @@ export class PointerLayer {
     ) {
       e.preventDefault();
       return;
+    }
+    // §7.5's measure mode: a left-click places a measurement point instead of setting the cursor,
+    // in **both** pane kinds — a 2D click lands on that pane's plane, a 3D one on the picked
+    // surface. It is tried before the gizmo so a measurement in the 3D pane is not eaten by a
+    // handle the pointer happens to be over.
+    if (e.button === 0 && this.#host.measurePending !== null) {
+      if (this.#host.addMeasurePoint(pane.viewId, pane.x, pane.y, pane.is3D)) {
+        e.preventDefault();
+        return;
+      }
     }
     this.#gizmoHandle = pane.is3D ? this.#host.gizmoAt(pane.viewId, pane.x, pane.y) : null;
     // Capture first: a drag that leaves the canvas must keep arriving.
@@ -326,6 +348,13 @@ export class PointerLayer {
       // space keypress in the app's chrome still does whatever the app wants it to.
       this.#mods = { ...this.#mods, space: true };
       if (this.#hovered !== null) e.preventDefault();
+      return;
+    }
+    // `Esc` cancels the measurement being placed (directed task 11). Bound here rather than in the
+    // app's keymap because the draft is engine state and the canvas is where the clicks landed; it
+    // is scoped to nothing, so it works wherever the pointer is.
+    if (e.key === 'Escape' && this.#host.measurePending !== null) {
+      this.#host.cancelMeasurement();
       return;
     }
     const viewId = this.#hovered;

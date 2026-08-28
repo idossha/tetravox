@@ -159,15 +159,13 @@ export function withRelativePaths(spec: ViewSpec, scenePath: string): ViewSpec {
 export interface SceneExtras {
   /** §8's theme choice, written into the file so a scene reopens looking as it was left. */
   theme?: 'system' | 'light' | 'dark';
-  /**
-   * Measurements (directed task 11) carried through from the spec that was loaded.
-   *
-   * `Engine.serialize()` cannot produce them — `Scene` has no measurement list on this branch — so
-   * a save that ignored them would delete a colleague's measurements the first time their scene was
-   * opened here and saved again. Carrying them is the difference between "not implemented" and
-   * "silently destructive".
-   */
-  measurements?: unknown[];
+  // **Measurements are NOT an extra any more** (directed task 11). Task 13 carried them through
+  // this object because `Scene` had no measurement list and `Engine.serialize()` could not produce
+  // them, so a save here would have deleted a colleague's work. It can produce them now — they are
+  // `Scene.measurements` (§4.5) and `toViewSpec` writes them — so the spec this function is handed
+  // already carries the live list. Carrying a second copy from the *loaded* file would be worse
+  // than redundant: it would write back the measurements the scene opened with, undoing every one
+  // the user had since deleted.
 }
 
 export function serialiseScene(
@@ -178,10 +176,10 @@ export function serialiseScene(
   const out: ViewSpec = {
     ...withRelativePaths(spec, scenePath),
     ...(extras.theme !== undefined ? { theme: extras.theme } : {}),
-    ...(extras.measurements !== undefined && extras.measurements.length > 0
-      ? { measurements: extras.measurements }
-      : {}),
   };
+  // An empty list is not written: it is indistinguishable from having none, and a file that says
+  // `"measurements": []` claims a thing it has nothing to say about.
+  if (out.measurements !== undefined && out.measurements.length === 0) delete out.measurements;
   return `${JSON.stringify(out, null, 2)}\n`;
 }
 

@@ -23,7 +23,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { SCENE_VERSION, migrateViewSpec, remapLayer, toViewSpec } from './serialize';
+import { SCENE_VERSION, applyViewSpec, migrateViewSpec, remapLayer, toViewSpec } from './serialize';
 import { SceneStore } from './store';
 import {
   defaultIsoLayer,
@@ -320,16 +320,59 @@ function movedScene() {
   return store.scene;
 }
 
-/** §4.6 v2's two optional fields are JSON and survive the file unchanged. */
+/**
+ * §4.6 v2's two optional fields are JSON and survive the file unchanged.
+ *
+ * `measurements` was an opaque `unknown[]` when task 13 reserved the slot; task 11 gave it its real
+ * type, so the shape below is a `Measurement` rather than an invented placeholder — which is the
+ * point of the field having one definition.
+ */
 describe('v2 fields', () => {
   it('carries a theme and measurements through JSON', () => {
     const spec: ViewSpec = {
       ...toViewSpec(new SceneStore().scene),
       theme: 'light',
-      measurements: [{ kind: 'segment', a: [0, 0, 0], b: [1, 0, 0], mm: 1 }],
+      measurements: [
+        {
+          id: 'meas1',
+          kind: 'distance',
+          name: 'M1',
+          points: [
+            [0, 0, 0],
+            [1, 0, 0],
+          ],
+        },
+      ],
     };
     const reread = JSON.parse(JSON.stringify(spec)) as ViewSpec;
     expect(reread.theme).toBe('light');
     expect(reread.measurements).toEqual(spec.measurements);
+  });
+
+  it('a scene with measurements serialises them and loads them back (task 11)', () => {
+    const store = new SceneStore();
+    store.addMeasurement({
+      id: 'meas1',
+      kind: 'angle',
+      name: 'M1',
+      points: [
+        [10, 0, 0],
+        [0, 0, 0],
+        [0, 10, 0],
+      ],
+    });
+    const spec = JSON.parse(JSON.stringify(toViewSpec(store.scene))) as ViewSpec;
+    expect(spec.measurements).toHaveLength(1);
+
+    const fresh = new SceneStore();
+    applyViewSpec(fresh, spec);
+    expect(fresh.scene.measurements).toEqual(store.scene.measurements);
+
+    // A v1 spec — one written before the field existed — loads as "no measurements", never as
+    // "keep whatever the live scene had".
+    const v1 = { ...spec, version: 1 as const };
+    delete (v1 as { measurements?: unknown }).measurements;
+    applyViewSpec(fresh, migrateViewSpec(v1));
+    expect(fresh.scene.measurements).toEqual([]);
   });
 });

@@ -34,7 +34,12 @@ import type {
   VolumeLayer,
   vec3,
 } from '@tetravox/engine';
-import { parseTextAffine, sidecarPathsFor, subjectToMniAffine } from '@tetravox/engine';
+import {
+  measurementFocus,
+  parseTextAffine,
+  sidecarPathsFor,
+  subjectToMniAffine,
+} from '@tetravox/engine';
 import type { CoordSpace, DialogKind, RelocateRow, UiStore } from './store';
 import {
   activeLayer,
@@ -125,14 +130,6 @@ export class ShellController {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   /** The `prefers-color-scheme` subscription, live only while the choice is `'system'`. */
   private themeMedia: { query: MediaQueryList; off: () => void } | null = null;
-  /**
-   * `ViewSpec.measurements` as the loaded scene carried them (directed task 11's field, §4.6 v2).
-   *
-   * This branch has no measurement tool, so there is nothing to render and nothing to produce — but
-   * a scene written by a build that has one must survive being opened and saved here. Held rather
-   * than dropped, and written back out by `writeScene`.
-   */
-  private loadedMeasurements: unknown[] = [];
 
   constructor(
     private readonly engine: Engine,
@@ -226,6 +223,9 @@ export class ShellController {
         if (frame.quality === 'interacting') this.markDirty();
       }),
       engine.on('quality', (quality) => store.setState({ quality: quality.name })),
+      // Directed task 11: the measurement list. Its own event, so a click in measure mode does not
+      // rebuild the layer panel (see `EngineEvents.measurements`).
+      engine.on('measurements', (measurements) => store.setState({ measurements })),
       engine.on('error', (error) => this.onEngineError(error))
     );
 
@@ -720,6 +720,51 @@ export class ShellController {
   }
 
   /** §8's colour bars — one per visible scalar layer, drawn in the overlay pass (§7.2). */
+  // -- measurements (directed task 11, 2026-08-28) ----------------------------------------------
+
+  /**
+   * §7.5's `m`, and the toolbar's Measure button — the same call from both.
+   *
+   * The mode lives in the engine; the store's copy is a projection kept in step here rather than by
+   * an event, because the engine has no `measureMode` event and does not need one: nothing but this
+   * method and the key that routes to it can change it.
+   */
+  toggleMeasureMode(): void {
+    this.setMeasureMode(!this.store.getState().measureMode);
+  }
+
+  setMeasureMode(on: boolean): void {
+    this.engine.setMeasureMode(on);
+    this.store.setState({ measureMode: on });
+    this.engine.requestRender();
+  }
+
+  /** `Esc`. Nothing already placed is touched. */
+  cancelMeasurement(): void {
+    this.engine.cancelMeasurement();
+  }
+
+  /** §8's panel row delete button. */
+  removeMeasurement(id: string): void {
+    this.engine.removeMeasurement(id);
+  }
+
+  /**
+   * §8's panel row jump-to: put the cursor on the measurement, so every pane slices through it.
+   *
+   * The midpoint for a segment and the **vertex** for an angle (`measurementFocus`) — the point the
+   * measurement is about in each case. Setting the cursor is all it takes: §4.5 derives every 2D
+   * pane's plane from the cursor, so all three panes arrive at the measurement together.
+   */
+  jumpToMeasurement(id: string): void {
+    const measurement = this.store.getState().measurements.find((m) => m.id === id);
+    if (measurement === undefined) return;
+    const focus = measurementFocus(measurement);
+    if (focus === null) return;
+    this.engine.setCursor(focus);
+    this.engine.requestRender();
+  }
+
   toggleColorbars(): void {
     this.markDirty();
     const next = !this.store.getState().colorbars;
@@ -1023,6 +1068,10 @@ export class ShellController {
         return this.stepCursor(command.steps);
       case 'nudgeCursor':
         return this.nudgeCursor(command.dx, command.dy);
+      case 'toggleMeasure':
+        return this.toggleMeasureMode();
+      case 'cancelMeasurement':
+        return this.cancelMeasurement();
     }
   }
 
@@ -1310,7 +1359,11 @@ export class ShellController {
       dialog: 'none',
       loads: [],
     });
-    this.loadedMeasurements = [];
+    // "New" is an empty scene, and §4.5's measurements are scene state like everything else here —
+    // removing the datasets drops their layers but says nothing about a measurement, which has no
+    // dataset to be dropped with (directed task 11).
+    for (const m of [...this.store.getState().measurements]) this.engine.removeMeasurement(m.id);
+    this.setMeasureMode(false);
     this.syncTitle();
     this.engine.requestRender();
     this.syncLayers();
@@ -1338,10 +1391,9 @@ export class ShellController {
     // the datasets' common directory, so a scene saved somewhere else still resolves relatively.
     this.engine.setSceneDir?.(dirName(path));
     const spec = this.engine.serialize();
-    const text = serialiseScene(spec, path, {
-      theme: this.store.getState().themeChoice,
-      measurements: this.loadedMeasurements,
-    });
+    // No `measurements` extra: `Engine.serialize()` writes `Scene.measurements` itself now
+    // (directed task 11), so `spec` already carries the live list — see `SceneExtras`.
+    const text = serialiseScene(spec, path, { theme: this.store.getState().themeChoice });
     const result = await bridge().writeSceneFile(path, text);
     if (!result.ok) {
       const message = result.error ?? 'could not write the scene file';
@@ -1550,7 +1602,6 @@ export class ShellController {
     // §4.6 v2's optional theme: applied when the scene names one, ignored when it does not, so a
     // scene never silently overrides a preference it said nothing about (directed task 13).
     if (spec.theme !== undefined) this.setThemeChoice(spec.theme);
-    this.loadedMeasurements = [...(spec.measurements ?? [])];
 
     this.engine.setSceneDir?.(dirName(scenePath));
     this.engine.requestRender();

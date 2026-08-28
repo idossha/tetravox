@@ -24,6 +24,8 @@ import type {
   Layer,
   LayerId,
   Layout,
+  Measurement,
+  MeasurementId,
   MeshDataset,
   Scene,
   SliceView,
@@ -217,6 +219,30 @@ export class SceneStore {
 
   setTransparency(transparency: Scene['transparency']): void {
     this.#scene.transparency = transparency;
+  }
+
+  // -- Measurements (directed task 11, 2026-08-28). Appended; additive only. ------------------
+
+  /** Replace the whole list, as a loaded `ViewSpec` does (§4.6). */
+  setMeasurements(measurements: Measurement[]): void {
+    this.#scene.measurements = measurements;
+  }
+
+  /** Append one. The array is replaced rather than mutated, so a projection can compare by identity. */
+  addMeasurement(measurement: Measurement): void {
+    this.#scene.measurements = [...this.#scene.measurements, measurement];
+  }
+
+  /** Drop one by id; a no-op for an id nothing answers to. */
+  removeMeasurement(id: MeasurementId): void {
+    this.#scene.measurements = this.#scene.measurements.filter((m) => m.id !== id);
+  }
+
+  /** Patch one in place, keeping its position in the list — what promoting a distance to an angle is. */
+  updateMeasurement(id: MeasurementId, patch: Partial<Measurement>): void {
+    this.#scene.measurements = this.#scene.measurements.map((m) =>
+      m.id === id ? { ...m, ...patch } : m
+    );
   }
 
   /**

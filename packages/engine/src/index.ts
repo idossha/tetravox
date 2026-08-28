@@ -97,3 +97,19 @@ export {
   referenceMagnitude,
 } from './derived/glyph-scale';
 export type { GlyphInstance } from './derived/glyph-readback';
+
+/**
+ * Measurement arithmetic (directed task 11, 2026-08-28) — exported because §8's measurement panel
+ * prints the same number the overlay does, and two formatters would be two answers to "how long is
+ * it". `formatMeasurementHtml` is the DOM's spelling of the one the bitmap font has to shout.
+ */
+export {
+  angleDeg,
+  distanceMm,
+  formatMeasurement,
+  formatMeasurementHtml,
+  measurementFocus,
+  measurementValue,
+  nextMeasurementName,
+  pointsNeeded,
+} from './derived/measure';

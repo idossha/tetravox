@@ -330,12 +330,29 @@ describe('serialiseScene extras (§4.6 v2)', () => {
     expect('measurements' in (JSON.parse(text) as object)).toBe(false);
   });
 
-  it('carries measurements through, rather than deleting a colleague’s work on re-save', () => {
-    const measurements = [{ kind: 'segment', mm: 42 }];
-    const text = serialiseScene(spec(), '/scenes/s.tetravox.json', { measurements });
-    expect((JSON.parse(text) as ViewSpec).measurements).toEqual(measurements);
+  it('writes the spec’s own measurements, and omits an empty list', () => {
+    // Task 11: `Engine.serialize()` produces these, so they arrive on the spec rather than as an
+    // extra. Task 13's carry-through is gone — it would have written back the measurements the
+    // file was opened with, undoing every one the user had since deleted.
+    const withOne: ViewSpec = {
+      ...spec(),
+      measurements: [
+        {
+          id: 'meas1',
+          kind: 'distance',
+          name: 'M1',
+          points: [
+            [0, 0, 0],
+            [3, 4, 0],
+          ],
+        },
+      ],
+    };
+    const text = serialiseScene(withOne, '/scenes/s.tetravox.json');
+    expect((JSON.parse(text) as ViewSpec).measurements).toEqual(withOne.measurements);
+
     // An empty list is not written: it is indistinguishable from having none.
-    const empty = serialiseScene(spec(), '/scenes/s.tetravox.json', { measurements: [] });
+    const empty = serialiseScene({ ...spec(), measurements: [] }, '/scenes/s.tetravox.json');
     expect('measurements' in (JSON.parse(empty) as object)).toBe(false);
   });
 });

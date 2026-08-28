@@ -23,6 +23,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readCornerInfo } from '../helpers/chrome';
 import type { DatasetRef, ViewSpec } from '../../src/scene/types';
+import { SCENE_VERSION } from '../../src/scene/serialize';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
@@ -234,7 +235,9 @@ test('@angle P2-07: a two-dataset scene round-trips through JSON, with fresh dat
   const spec = await serializeFrom(page, `/@fs${REPO}testdata/scenes`);
 
   // §4.6: relative to the scene file, with an absolute fallback. The fixtures are one level up.
-  expect(spec.version).toBe(2); // ViewSpec v2 since the scene-ux work (2026-08-28)
+  // `SCENE_VERSION`, not a literal: the assertion here is "serialize writes the current version",
+  // and a literal is what let this leg go red between task 13's 1 → 2 bump and its fix.
+  expect(spec.version).toBe(SCENE_VERSION);
   expect(spec.datasets.map((d) => d.path)).toEqual(['../vol_f32.nii.gz', '../mesh_v2_binary.msh']);
   for (const ref of spec.datasets) expect(ref.absPath).toBe(`/@fs${REPO}testdata/${ref.name}`);
   expect(spec.layers).toHaveLength(2);

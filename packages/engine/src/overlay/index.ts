@@ -52,6 +52,19 @@ export type { LabelPlacement, PlacedLabel } from './point-labels';
 // `setTheme` has something to carry and the halo flips with the embedder's theme.
 export { DEFAULT_OVERLAY_THEME, resolveOverlayTheme } from './theme';
 export type { OverlayTheme } from './theme';
+// Directed task 11 (2026-08-28): the measurement item — segments, endpoints and the mm/degree
+// label, all in screen-space quads at a constant width (§7.0.6).
+export {
+  drawMeasurement,
+  measureLabelAnchor,
+  measureLabelHeightPx,
+  onPlane,
+  MEASURE_ENDPOINT_PX,
+  MEASURE_LABEL_GAP_PX,
+  MEASURE_SLAB_MM,
+  MEASURE_WIDTH_PX,
+} from './measure';
+export type { PlacedMeasurement } from './measure';
 // Directed task 10 (2026-08-28): the 3D pane's orientation cube and the 2D panes' scale bar — the
 // two §7.2 pass-3 items §4.5's `Annotations` names (`orientationCube`, `scaleBar`) but nothing drew.
 export {

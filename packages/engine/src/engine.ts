@@ -35,6 +35,7 @@ import type {
   LabelCentroid,
   LoadProgress,
   NewLayer,
+  NewMeasurement,
   PickResult,
   ProbeResult,
   ProbeRow,
@@ -66,6 +67,7 @@ import { createLayerRuntime } from './layers/registry';
 import { createIso3dRuntime, derivedIsoLayers } from './layers/iso3d';
 import type { Iso3dLayerRuntime } from './layers/iso3d';
 import { DerivedStore } from './derived/store';
+import { nextMeasurementName } from './derived/measure';
 import { readGlyphInstances } from './derived/glyph-readback';
 import type { GlyphInstance } from './derived/glyph-readback';
 import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
@@ -153,6 +155,8 @@ import type {
   Layer,
   LayerId,
   mat4,
+  Measurement,
+  MeasurementId,
   MeshDataset,
   MeshLayer,
   QualityLevel,
@@ -344,6 +348,19 @@ export class TetravoxEngine implements Engine, PointerHost {
   #gizmoView: ViewId | null = null;
   #gizmoHot: 'none' | GizmoHandle = 'none';
   #planePoints: { viewId: ViewId; points: vec3[] } | null = null;
+
+  // -- measurements (directed task 11, 2026-08-28) ---------------------------------------------
+  /** §7.5's measure mode. Off until §8's toolbar turns it on. */
+  #measureMode = false;
+  /**
+   * The gesture in progress.
+   *
+   * `points` is what has been clicked; `id` is the measurement those clicks have already produced,
+   * which is what makes the **third** click promote a segment into an angle rather than start a
+   * second segment. Cleared by `Esc`, by leaving the mode, and by the third click itself.
+   */
+  #measureDraft: { viewId: ViewId; points: vec3[]; id: MeasurementId | null } | null = null;
+  #measureSeq = 0;
 
   /** Read-only view of the scene the store owns. */
   get #scene(): Scene {
@@ -1645,6 +1662,9 @@ export class TetravoxEngine implements Engine, PointerHost {
       clipDistance: this.caps.clipDistance,
       forceDiscardClip: this.#opts.forceDiscardClip === true,
       derived: { store: this.#derived },
+      // Directed task 11: the half-placed measurement, so the first click is visible before the
+      // second one lands. Never in `Scene` — see `DrawInput.measureDraft`.
+      measureDraft: this.#measureDraft?.points ?? null,
     };
   }
 
@@ -2383,6 +2403,138 @@ export class TetravoxEngine implements Engine, PointerHost {
     return true;
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Measurements — directed task 11 (2026-08-28). §4.5, §4.7, §7.5, §8.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * §7.5's measure mode. While it is on, a left-click **places a point** instead of moving the
+   * cursor, in 2D panes and in the 3D pane alike.
+   *
+   * Leaving the mode abandons the gesture in progress: a dangling half-measurement that survived
+   * the button being switched off would reappear on the next click in a mode the user had left.
+   */
+  setMeasureMode(on: boolean): void {
+    if (this.#measureMode === on) return;
+    this.#measureMode = on;
+    if (!on) this.#measureDraft = null;
+    this.requestRender();
+  }
+
+  measureMode(): boolean {
+    return this.#measureMode;
+  }
+
+  /** Every measurement in the scene, newest last — §8's panel reads this and the event. */
+  get measurements(): readonly Measurement[] {
+    return this.#scene.measurements;
+  }
+
+  /**
+   * Place a measurement from world points. The engine assigns the id and, unless one is given, the
+   * name (`M1`, `M2`, … — {@link nextMeasurementName}).
+   *
+   * The points are **copied**, so a caller that reuses its array cannot mutate a placed
+   * measurement out from under the scene.
+   */
+  addMeasurement(spec: NewMeasurement): Measurement {
+    this.#measureSeq += 1;
+    const measurement: Measurement = {
+      id: `meas${this.#measureSeq}`,
+      kind: spec.kind,
+      name: spec.name ?? nextMeasurementName(this.#scene.measurements),
+      points: spec.points.map((p) => [p[0], p[1], p[2]] as vec3),
+      ...(spec.color !== undefined ? { color: spec.color } : {}),
+      ...(spec.viewId !== undefined ? { viewId: spec.viewId } : {}),
+    };
+    this.#store.addMeasurement(measurement);
+    this.#emitMeasurements();
+    return measurement;
+  }
+
+  removeMeasurement(id: MeasurementId): void {
+    if (!this.#scene.measurements.some((m) => m.id === id)) return;
+    if (this.#measureDraft?.id === id) this.#measureDraft = null;
+    this.#store.removeMeasurement(id);
+    this.#emitMeasurements();
+  }
+
+  /** `Esc`. Nothing already placed is touched — only the gesture in progress is dropped. */
+  cancelMeasurement(): void {
+    if (this.#measureDraft === null) return;
+    this.#measureDraft = null;
+    this.requestRender();
+  }
+
+  /** How many points the gesture in progress holds, or `null` when it is not collecting. */
+  get measurePending(): number | null {
+    if (!this.#measureMode) return null;
+    return this.#measureDraft?.points.length ?? 0;
+  }
+
+  /**
+   * One click of the measure gesture, from a pane pixel — the pointer layer's entry point, and the
+   * only place the three-click grammar lives.
+   *
+   * The click becomes a **world** point first: in a 2D pane the pointer ray ∩ that pane's derived
+   * plane (`worldAtScreen`), in the 3D pane the existing surface `pick` (§7.2.3). A 3D click that
+   * hits nothing places nothing — there is no world point behind empty space, and inventing one on
+   * the near plane would put a measurement in front of the head.
+   *
+   * The grammar, in the order the clicks arrive:
+   *
+   * 1. the first click starts the gesture and is drawn as a lone marker;
+   * 2. the second completes a `'distance'`, which is stored immediately — the user has their number
+   *    without a third click;
+   * 3. the third **extends that same measurement into an `'angle'`**, whose vertex is the shared
+   *    endpoint the second click placed. It is one measurement throughout, so the number in §8's
+   *    panel changes from millimetres to degrees rather than a stray segment being left behind.
+   *
+   * A fourth click starts a new gesture. `Esc` (and leaving the mode) drops whatever is pending: an
+   * incomplete first click leaves nothing, a completed segment stays a segment.
+   *
+   * Returns `true` while it is consuming clicks, so the pointer layer knows not to also move the
+   * cursor.
+   */
+  addMeasurePoint(viewId: ViewId, x: number, y: number, is3D: boolean): boolean {
+    if (!this.#measureMode) return false;
+    const world = is3D
+      ? (this.pick(viewId, x / this.#dpr(), y / this.#dpr())?.world ?? null)
+      : this.worldAtScreen(viewId, x, y);
+    // A click on nothing is swallowed rather than ignored: the mode is on, so it must not fall
+    // through to "set the cursor".
+    if (world === null) return true;
+
+    const draft = this.#measureDraft;
+    if (draft === null || draft.points.length === 0) {
+      this.#measureDraft = { viewId, points: [world], id: null };
+      this.requestRender();
+      return true;
+    }
+    if (draft.points.length === 1) {
+      const points = [...draft.points, world];
+      const placed = this.addMeasurement({ kind: 'distance', points, viewId });
+      this.#measureDraft = { viewId, points, id: placed.id };
+      this.requestRender();
+      return true;
+    }
+    // The third click: promote in place, so the row §8 already shows becomes the angle.
+    const id = draft.id;
+    if (id !== null) {
+      const points = [...draft.points, world];
+      this.#store.updateMeasurement(id, { kind: 'angle', points });
+      this.#emitMeasurements();
+    }
+    this.#measureDraft = null;
+    this.requestRender();
+    return true;
+  }
+
+  #emitMeasurements(): void {
+    this.#emit('measurements', [...this.#scene.measurements]);
+    this.requestRender();
+  }
+
   /**
    * §7.6's "defaults from X.msh.opt": which layer fields the sidecar seeded, and its name.
    *
@@ -2493,6 +2645,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     const active = spec.activeLayerId;
     this.#store.setActiveLayer(active !== null ? (layerMap.get(active) ?? null) : null);
     this.#emit('layers', [...this.#scene.layers]);
+    this.#emit('measurements', [...this.#scene.measurements]);
     this.#emit('cursor', this.#scene.cursor);
     this.requestRender();
   }

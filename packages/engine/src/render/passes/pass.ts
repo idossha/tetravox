@@ -109,6 +109,15 @@ export interface DrawInput {
    * `activeViewId: null`.
    */
   derived?: DerivedInput;
+  /**
+   * The measurement being placed right now — the points clicked so far, before the gesture is
+   * complete (directed task 11, 2026-08-28; appended, shared-file rule: additive only).
+   *
+   * It rides on the frame rather than in `Scene` for the same reason `gizmo` does: a half-placed
+   * measurement is transient pointer state, and a `*.tetravox.json` must never carry one. The
+   * finished ones are `Scene.measurements` and are drawn from there.
+   */
+  measureDraft?: readonly vec3[] | null;
 }
 
 /** The derived pass's half of a frame. See `src/derived/store.ts`. */
