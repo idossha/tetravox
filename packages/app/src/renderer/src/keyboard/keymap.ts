@@ -58,7 +58,14 @@ export type Command =
    * layer only sees `Escape` when the canvas has not swallowed it first, and a user who has just
    * clicked in a panel still expects `Esc` to drop the half-placed segment.
    */
-  | { kind: 'cancelMeasurement' };
+  | { kind: 'cancelMeasurement' }
+  /**
+   * `Home` — the toolbar's "Reset" (directed task, 2026-08-28): every view refit, the cursor sent
+   * to world `(0, 0, 0)`, any in-progress measurement abandoned. See `ShellController.resetAll`
+   * for the exact contract. Bound to `Home` rather than `Shift+R` because `r`/`R` already resolve
+   * to `resetView` above regardless of Shift, so `Shift+R` is not actually free.
+   */
+  | { kind: 'resetAll' };
 
 /** `1..6` → the §7.5 3D camera presets, in A/P/L/R/S/I order. */
 export const PRESET_KEYS: Record<string, CameraPreset> = {
@@ -130,6 +137,8 @@ export function resolveKey(event: KeyEventLike): Command | null {
       return { kind: 'toggleMeasure' };
     case 'Escape':
       return { kind: 'cancelMeasurement' };
+    case 'Home':
+      return { kind: 'resetAll' };
     case ',':
       return { kind: 'stepVolumeIndex', delta: -1 };
     case '.':
@@ -159,7 +168,7 @@ export const KEYMAP_HELP =
   '[ / ] active layer · v visibility · Ctrl+↑/↓ reorder · x layout · c crosshair · m measure · ' +
   'Esc cancel a measurement · ' +
   'r reset · 1–6 A/P/L/R/S/I · o orthographic · , / . 4D index · ' +
-  '↑↓←→ nudge the cursor in-plane · PgUp/PgDn slice';
+  '↑↓←→ nudge the cursor in-plane · PgUp/PgDn slice · Home reset all views + cursor to origin';
 
 /**
  * The §7.5 **pointer** bindings, for the same help sheet. Handled in the engine's input layer, so

@@ -350,6 +350,40 @@ describe('views, screenshot and the rest of the toolbar (§8)', () => {
     expect(record?.bytes).toBeGreaterThan(8);
   });
 
+  it('resets every view and sends the cursor to world origin, but touches no layer (Reset / Home)', async () => {
+    const { engine, store, controller } = harness();
+    controller.open([pathRequest('/d/T1.nii.gz')]);
+    await settled(store);
+    controller.setLayout('2x2');
+
+    // Move things away from their defaults first, so "reset" is provably doing something.
+    controller.setActiveView('axial');
+    controller.runCommand({ kind: 'stepCursor', steps: 1 });
+    controller.runCommand({ kind: 'stepCursor', steps: 1 });
+    controller.runCommand({ kind: 'cameraPreset', preset: 'L' });
+    const layerIdBefore = store.getState().layers[0]?.id;
+    expect(store.getState().cursor).not.toEqual([0, 0, 0]);
+
+    controller.runCommand({ kind: 'resetAll' });
+
+    expect(store.getState().cursor).toEqual([0, 0, 0]);
+    expect(engine.scene.view3d.camera.distance).toBe(400);
+    for (const slice of engine.scene.slices) {
+      expect(slice.camera).toEqual({ center: [0, 0], mmPerPx: 0.5 });
+    }
+    // Datasets/layers are untouched — Reset is not "Close every dataset".
+    expect(store.getState().layers).toHaveLength(1);
+    expect(store.getState().layers[0]?.id).toBe(layerIdBefore);
+  });
+
+  it('resets from the keyboard on `Home`', async () => {
+    const { engine, store, controller } = harness();
+    controller.runCommand({ kind: 'nudgeCursor', dx: 1, dy: 0 });
+    controller.runCommand({ kind: 'resetAll' });
+    expect(store.getState().cursor).toEqual([0, 0, 0]);
+    expect(engine.scene.view3d.camera.rotation).toEqual([0, 0, 0, 1]);
+  });
+
   it('records frame samples so the status bar has fps and frame ms', () => {
     const { engine, store } = harness();
     for (let i = 0; i < 5; i++) engine.requestRender();

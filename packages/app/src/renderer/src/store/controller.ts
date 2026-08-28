@@ -808,6 +808,38 @@ export class ShellController {
     this.engine.requestRender();
   }
 
+  /**
+   * The toolbar's "Reset" — deliberately **not** {@link newScene}'s "Close every dataset" beside it.
+   *
+   * What "reset" means here, precisely, because nothing else names it:
+   *
+   *  1. Every view (every 2D slice pane **and** the 3D pane) goes through {@link resetActiveView}'s
+   *     `Engine.resetView` — camera/zoom/pan back to the fit-the-scene default (§7.5 `r`), for every
+   *     `viewId` in `engine.views`, not just the active one.
+   *  2. The cursor/crosshair — the world point every slice is cut through — goes to world origin
+   *     `(0, 0, 0)` via `Engine.setCursor`, the same call `CoordinateBar`'s `jumpToCoordinate` uses
+   *     to move it from typed input (§3, §8).
+   *  3. Any measurement being placed is abandoned (`Engine.cancelMeasurement`, the same call `Esc`
+   *     makes) — a half-placed point is transient UI, not scene content.
+   *  4. Transient UI overlays reset: the region-panel selection (`regionSelection`) is cleared and
+   *     the coordinate bar's in-progress edit (`coordDraft`) is dropped. `hover` is not touched here
+   *     — it is a live projection of the pointer position (§4.7's `hover` event) and clears itself
+   *     the instant the pointer leaves a pane, never something a click needs to reset for it.
+   *
+   * What it explicitly does **not** do: unload a dataset, hide/show/reorder a layer, or change any
+   * layer property (opacity, window/level, threshold, …). That is `newScene`'s job, and conflating
+   * the two would make "Reset" a data-loss button.
+   */
+  resetAll(): void {
+    this.markDirty();
+    for (const view of this.engine.views) this.engine.resetView(view.id);
+    this.engine.cancelMeasurement();
+    this.engine.setCursor([0, 0, 0]);
+    this.setCoordDraft(null);
+    this.store.setState({ regionSelection: {} });
+    this.engine.requestRender();
+  }
+
   toggleOrthographic(): void {
     this.markDirty();
     const view3d = this.engine.scene.view3d;
@@ -1072,6 +1104,8 @@ export class ShellController {
         return this.toggleMeasureMode();
       case 'cancelMeasurement':
         return this.cancelMeasurement();
+      case 'resetAll':
+        return this.resetAll();
     }
   }
 
