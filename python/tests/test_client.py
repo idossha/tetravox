@@ -5,14 +5,14 @@ Two halves, and the split is deliberate:
 * **Document tests** run everywhere, with no app and no data. They assert the JSON a `Job` builds,
   because that JSON is the contract with `packages/app/src/main/job.ts` — and the schema unit test on
   the TypeScript side asserts the other end of the same contract.
-* **An end-to-end test** runs one of `python/examples/` against a real build, and **skips** when
+* **An end-to-end test** runs one of `examples/capture/` against a real build, and **skips** when
   either is absent. That is the repository's rule for real-data tests (`docs/TESTING.md`): they skip,
   never fail, when `TETRAVOX_TESTDATA` is unset, so a checkout with no dataset and no packaged app is
   still green.
 
 Run it with:
 
-    TETRAVOX_TESTDATA=/…/sub-ernie \\
+    scripts/fetch-data.sh
     TETRAVOX_APP=$(pnpm exec which electron) TETRAVOX_APP_ARGS=$PWD/packages/app \\
       python -m unittest discover -s python/tests
 """
@@ -30,7 +30,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from tetravox import Job, JobError, find_app  # noqa: E402
 
-EXAMPLES = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "examples"))
+# The examples moved out of `python/` and into the repository's own `examples/capture/` — one copy,
+# next to the data they read (`data/ernie/`, `scripts/fetch-data.sh`).
+EXAMPLES = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "examples", "capture")
+)
 
 
 class TestJobDocument(unittest.TestCase):
@@ -140,28 +144,38 @@ def _app_available() -> bool:
         return False
 
 
-@unittest.skipUnless(os.environ.get("TETRAVOX_TESTDATA"), "TETRAVOX_TESTDATA is not set")
+def _data_available() -> bool:
+    """Whether `scripts/fetch-data.sh` has been run. The examples read `data/ernie/`, not the
+    subject directory, so that is what to look for — the same skip-never-fail rule
+    (`docs/TESTING.md`), applied to where the data now is."""
+    sys.path.insert(0, EXAMPLES)
+    from _data import T1  # noqa: PLC0415
+
+    return os.path.exists(T1)
+
+
+@unittest.skipUnless(_data_available(), "data/ernie is empty — run scripts/fetch-data.sh")
 @unittest.skipUnless(_app_available(), "no Tetravox build (set TETRAVOX_APP)")
 class TestExampleEndToEnd(unittest.TestCase):
     """Run a real example against a real build, and check the files it claims are there.
 
-    `sweep_axial_gif.py` is the one chosen: it is the fastest of the four (one 36 MB volume, no mesh)
-    and it exercises the whole chain — load, preset, sweep, PNG frames, the pure-JS GIF encoder, and
-    the result file the client parses.
+    `sweep.py` is the one chosen: it is the fastest of the four (two volumes, no mesh) and it
+    exercises the whole chain — load, preset, sweep, PNG frames, the pure-JS GIF encoder, and the
+    result file the client parses.
     """
 
     def test_sweep_example(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             # The example is a separate process, so it needs the package on its own path — the same
             # thing `pip install -e python/` does for a user.
-            root = os.path.dirname(EXAMPLES)
+            root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
             environment = {
                 **os.environ,
                 "TETRAVOX_EXAMPLE_OUT": tmp,
                 "PYTHONPATH": os.pathsep.join([root, os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep),
             }
             completed = subprocess.run(
-                [sys.executable, os.path.join(EXAMPLES, "sweep_axial_gif.py")],
+                [sys.executable, os.path.join(EXAMPLES, "sweep.py")],
                 capture_output=True,
                 text=True,
                 timeout=900,
@@ -170,7 +184,7 @@ class TestExampleEndToEnd(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
-            out = os.path.join(tmp, "sweep_axial_gif")
+            out = os.path.join(tmp, "sweep")
             with open(os.path.join(out, "job-result.json"), encoding="utf-8") as handle:
                 result = json.load(handle)
             self.assertTrue(result["ok"], result["errors"])
@@ -178,7 +192,7 @@ class TestExampleEndToEnd(unittest.TestCase):
             files = [os.path.join(out, n) for o in result["outputs"] for n in o["files"]]
             pngs = [f for f in files if f.endswith(".png")]
             gifs = [f for f in files if f.endswith(".gif")]
-            self.assertEqual(len(pngs), 24, "the example asked for 24 frames")
+            self.assertEqual(len(pngs), 32, "the example asked for 32 frames")
             self.assertEqual(len(gifs), 1)
             for path in files:
                 self.assertTrue(os.path.exists(path), path)
@@ -189,7 +203,7 @@ class TestExampleEndToEnd(unittest.TestCase):
     def test_run_returns_a_parsed_result(self) -> None:
         """The client's own return value, rather than the file on disk."""
         sys.path.insert(0, EXAMPLES)
-        from _data import T1  # noqa: PLC0415  — the examples' own path table, not a second copy
+        from _data import T1  # noqa: PLC0415  — the examples\' own path table, not a second copy
 
         with tempfile.TemporaryDirectory() as tmp:
             result = (

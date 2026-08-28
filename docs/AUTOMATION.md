@@ -45,7 +45,7 @@ print(result.files)
 ```
 
 That is the picture above, plus a 24-frame GIF and an MP4. Four runnable examples are in
-[`python/examples/`](../python/examples).
+[`examples/capture/`](../examples/capture).
 
 ---
 
@@ -59,7 +59,7 @@ figures from six launches would pay for it six times.
 {
   "version": 1,                                    // optional; must be 1 when present
   "scene": { "files": ["…/T1.nii.gz"], "preset": "ti-field-on-t1" },
-  "window": { "width": 1400, "height": 900 },      // optional; default 1400×900
+  "window": { "width": 1400, "height": 900 },      // optional; default 1400×900, no panels
   "actions": [
     { "type": "set", "cursor": [0, -18, 8], "mmPerPx": 0.3, "view": "axial" },
     { "type": "screenshot", "out": "axial.png", "view": "axial", "width": 800, "dpi": 300 },
@@ -88,6 +88,14 @@ checkout sits next to the data. Only `${NAME}` is expanded — a bare `$NAME` is
 **The window is the render target.** A job's window has no panels: the whole of it is the view grid,
 because a screenshot comes off the engine's canvas and never contains the panels anyway. A bigger
 window is a sharper picture, not a bigger crop.
+
+`"window": { "width": 1920, "height": 1080, "panels": true }` is the one exception, and it exists for
+the one job the engine cannot photograph: a **tour of the interface**. It keeps the §8 shell on
+screen — toolbar, layer panel, region list, tissue table, status bar — and `view: "window"` on a
+`screenshot` or a `tween` captures the whole window rather than the canvas, through `capturePage` in
+main. Every other capture still comes off the engine, which is what keeps a job's output honest;
+`panels` changes what is *in the window*, never what the engine draws. Note that the layer panel
+shows every layer the scene loaded, so a tour usually wants a **small** scene of its own.
 
 ### 2.1 `scene`
 
@@ -131,6 +139,7 @@ never invents a lookalike.
 |---|---|
 | `layer` | Which layer `patch` applies to: an index (bottom→top), a name (`"T1.nii.gz"`), a suffix of the dataset's path, or `"active"`. Default `"active"`. |
 | `patch` | A `Partial<Layer>` in the app's own vocabulary ([§4.4](ARCHITECTURE.md)) — `{"colormap": "viridis", "opacity": 0.6}` — passed to `Engine.updateLayer` untouched. |
+| `active` | Make a layer the **active** one, the same selector as `layer`. It is what clicking a row in the layer panel does, and it is invisible to an engine screenshot — it decides which controls a `view: "window"` capture has on screen. |
 | `cursor` | `[x, y, z]` in world RAS millimetres. The slice planes are derived from it (§4.5), so this is how you choose a slice. |
 | `layout` | `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`, `1+3`, `3d+1`. |
 | `view` | Which view `camera` / `reset` / `mmPerPx` / `center` / `distance` apply to. Default `view3d`. |
@@ -147,7 +156,7 @@ never invents a lookalike.
 | Key | Default | Meaning |
 |---|---|---|
 | `out` | — | File name under `--out`. `.png` is appended when missing. |
-| `view` | `grid` | `grid` for the whole view grid, or a view id for that pane. |
+| `view` | `grid` | `grid` for the whole view grid, a view id for that pane, or `window` for the whole window including the panels (needs `window.panels`). |
 | `width` / `height` | the pane's | The **output** size. The frame is *rendered* at this size rather than upscaled, so 2400 px is 2400 px of detail. Give one and the aspect ratio is kept. |
 | `scale` | 1 | Supersampling: render this much larger and average down. |
 | `dpi` | — | Written to the PNG's `pHYs` chunk. |
@@ -196,7 +205,7 @@ scene the job set up.
 moves anything a number can describe — the cursor, the 3D camera's distance and target, a pane's zoom
 and pan, and any numeric field of any layer: an opacity, a clip-plane offset, a threshold, an iso
 level, a glyph length — over `frames` frames with an ease. It is what a narrated shot needs, and it is
-how `docs/media/showcase.job.json` is written.
+what [`examples/capture/showcase.py`](../examples/capture/showcase.py) writes the showcase film out of.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -206,7 +215,7 @@ how `docs/media/showcase.job.json` is written.
 | `from` | the live scene | The start state. Omitted, each value is read off the scene at the moment the action runs, path by path, so a shot says where it is going and not also where it already is. |
 | `to` | — | The end state. |
 | `orbit` | — | `{ degrees, axis }`: an eased camera orbit about a **world** axis, run across the same frames and composed with `to.distance` / `to.target`, so one shot can dolly in while it turns. |
-| `view` | `grid` | The capture target, as `screenshot`. |
+| `view` | `grid` | The capture target, as `screenshot` — `window` included. |
 | `fps`, `format`, `colors`, `width`/`height`, `background`, `include`, `sequence`, `gif` | | As `sweep`. |
 
 A **state** — `from` and `to` both — is a subset of:
@@ -353,7 +362,9 @@ to submit to a cluster.
 
 Python's parameter names differ from the JSON in exactly three places, all forced: `sweep(start=, stop=)`
 and `tween(start=)` for `from` (a keyword), `sweep(stop=)` for `to`, and `mm_per_px` for `mmPerPx`
-(snake case).
+(snake case). `sequence`, `gif` and the `include` flags (`colorbar=`, `crosshair=`, …) are on all
+three frame methods, so a multi-shot video is expressible without hand-writing JSON;
+`Job(..., panels=True)` sets `window.panels`.
 
 ### Finding the app
 
@@ -373,20 +384,21 @@ the app directory:
 pnpm --filter @tetravox/app run build
 export TETRAVOX_APP="$PWD/node_modules/.bin/electron"
 export TETRAVOX_APP_ARGS="$PWD/packages/app"
-python python/examples/ti_field_preset.py
+python examples/capture/screenshot.py
 ```
 
 ### Examples
 
-All four run against `TETRAVOX_TESTDATA` (a SimNIBS subject directory) and stop with a clear message
-when it is unset.
+All four read `data/ernie/`, which [`scripts/fetch-data.sh`](../scripts/fetch-data.sh) fills from a
+SimNIBS subject directory; each stops with the list of files it could not find. See
+[`examples/capture/README.md`](../examples/capture/README.md) and [`data/README.md`](../data/README.md).
 
 | Example | What it shows |
 |---|---|
-| [`screenshot_t1_mesh.py`](../python/examples/screenshot_t1_mesh.py) | Two figures — an axial T1 and the head mesh — from **one** app launch. |
-| [`ti_field_preset.py`](../python/examples/ti_field_preset.py) | The `ti-field-on-t1` preset, then overriding one of its choices with `set(patch=…)`. |
-| [`sweep_axial_gif.py`](../python/examples/sweep_axial_gif.py) | A 24-frame axial sweep as a GIF and an MP4. |
-| [`orbit_mesh.py`](../python/examples/orbit_mesh.py) | A 24-frame turntable, with the palette and size knobs that keep a GIF shareable. |
+| [`screenshot.py`](../examples/capture/screenshot.py) | Two figures — an axial T1 and a pial surface over the T1's 3D planes — from **one** app launch. |
+| [`sweep.py`](../examples/capture/sweep.py) | A 32-frame axial sweep through a TI field as a GIF and an MP4. |
+| [`orbit.py`](../examples/capture/orbit.py) | A 36-frame turntable, with the palette and size knobs that keep a GIF shareable. |
+| [`showcase.py`](../examples/capture/showcase.py) | The whole showcase film: six jobs, ~2,900 frames, captions burned on with ffmpeg. |
 
 <p align="center">
   <img src="screenshots/directed-2026-08-28/automation-t1-axial.png" width="360"
@@ -425,5 +437,5 @@ path *is* the user naming it.
 | `packages/app/src/main/gif.test.ts` | The GIF encoder, round-tripped through an independently written reader. |
 | `packages/app/src/renderer/src/automation/frames.test.ts` | Sweep offsets and orbit quaternions, checked by rotating vectors rather than by comparing components; the tween's easing curves, its numeric interpolation, and the deep merge that keeps a nested layer field intact. |
 | `packages/app/src/renderer/src/automation/presets.test.ts` | The presets, over datasets with known distributions. |
-| `packages/app/e2e/automation-realdata.spec.ts` | The whole thing, offscreen, on ernie: a screenshot job, a 10-frame sweep, a 12-frame orbit and the TI preset — asserting that the images are the requested size, are not blank, and **differ frame to frame**. Skips when `TETRAVOX_TESTDATA` is unset. |
+| `packages/app/e2e/automation-realdata.spec.ts` | The whole thing, offscreen, on ernie: a screenshot job, a 10-frame sweep, a 12-frame orbit, the TI preset, and a `window.panels` + `view: "window"` capture asserted to differ from the same scene's `grid` — the images are the requested size, are not blank, and **differ frame to frame**. Skips when `TETRAVOX_TESTDATA` is unset. |
 | `python/tests/test_client.py` | The client's documents, and one example end to end against a dev build. Skips when either is missing. |

@@ -30,7 +30,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'no
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { BrowserWindow } from 'electron';
-import { app, ipcMain } from 'electron';
+import { BrowserWindow as BrowserWindowClass, app, ipcMain } from 'electron';
 import { encodeGif } from './gif';
 import type { GifFrame } from './gif';
 import { decodePng } from './png';
@@ -214,6 +214,25 @@ function log(message: string): void {
  */
 export function registerJobIpc(): void {
   ipcMain.handle('tetravox:job-spec', () => request);
+
+  // `view: "window"` — a picture of the whole window, panels and toolbar included, rather than of
+  // the engine's canvas. Only main can take it: `capturePage` is a `webContents` call, and the
+  // renderer has no handle on its own window. It comes back at the display's device pixel ratio, so
+  // it is resized down to the size the action asked for — which is supersampling, not upscaling, and
+  // is why a UI tour frame is as sharp as an engine frame beside it in the same video.
+  ipcMain.handle(
+    'tetravox:job-capture',
+    async (event, width: unknown, height: unknown): Promise<Uint8Array | null> => {
+      if (request === null) return null;
+      const win = BrowserWindowClass.fromWebContents(event.sender);
+      if (win === null) return null;
+      let image = await win.webContents.capturePage();
+      if (typeof width === 'number' && typeof height === 'number') {
+        image = image.resize({ width, height, quality: 'best' });
+      }
+      return new Uint8Array(image.toPNG());
+    }
+  );
 
   ipcMain.handle('tetravox:job-write', (_event, payload: unknown) => {
     if (request === null) return { ok: false, error: 'not a job run' };

@@ -233,6 +233,44 @@ test.describe('automation (--job) on real data', () => {
     expect(readPngDpi(readFileSync(join(outcome.outDir, 'axial.png')))).toBe(300);
   });
 
+  test('window.panels + view "window" photographs the interface, not the engine', async () => {
+    // The one capture in the whole surface that is not the engine's canvas (`docs/AUTOMATION.md`
+    // §2.3), and the only way a job can show what the app *looks like*. The claim is a difference,
+    // not a golden: the same scene captured as `grid` and as `window` must not be the same picture,
+    // and the window one must carry the §8 chrome down its left edge where the grid has none.
+    const outcome = await runJob(
+      {
+        scene: { files: [P.t1], preset: 'plain' },
+        window: { width: 1200, height: 800, panels: true },
+        actions: [
+          { type: 'set', cursor: [0, -18, 8], layout: '2x2' },
+          { type: 'set', active: 'T1.nii.gz' },
+          { type: 'screenshot', out: 'grid.png', view: 'grid', width: 1200, height: 800 },
+          { type: 'screenshot', out: 'window.png', view: 'window', width: 1200, height: 800 },
+        ],
+      },
+      'window-capture'
+    );
+
+    expect(outcome.result.errors).toEqual([]);
+    expect(outcome.result.ok).toBe(true);
+
+    const grid = readImage(outcome.outDir, 'grid.png');
+    const window = readImage(outcome.outDir, 'window.png');
+    expect(window.width).toBe(1200);
+    expect(window.height).toBe(800);
+    expectNotBlank(window, 'window.png');
+
+    // The panels occupy the left ~18 rem; the grid capture has view content there and the window
+    // capture has the layer panel, so the two disagree over most of the frame.
+    expect(differingFraction(grid, window)).toBeGreaterThan(0.3);
+
+    // And the top strip of the window capture is the toolbar: a row of controls, so it is neither
+    // flat nor black, which is what a captured *canvas* would be along its very top edge.
+    const strip = { ...window, height: 24, pixels: window.pixels.slice(0, 1200 * 24 * 4) };
+    expectNotBlank(strip as typeof window, 'the toolbar strip of window.png');
+  });
+
   test('a 10-frame axial sweep writes 10 PNGs and a GIF, and every frame differs from the last', async () => {
     const outcome = await runJob(
       {

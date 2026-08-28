@@ -64,6 +64,7 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
     // The `--job` half of the bridge: this window was not launched for one.
     jobSpec: async () => null,
     jobWrite: async () => ({ ok: false, error: 'not a job run' }),
+    jobCapture: async () => null,
     jobFrames: async () => ({ ok: false, error: 'not a job run' }),
     jobLog: () => {},
     jobDone: async () => false,

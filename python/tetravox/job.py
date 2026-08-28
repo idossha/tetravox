@@ -31,8 +31,20 @@ PRESETS: Tuple[str, ...] = (
 )
 
 VIEWS: Tuple[str, ...] = ("axial", "coronal", "sagittal", "view3d")
+# What a `screenshot` or a `tween` may photograph: a pane, the whole view grid, or the whole window
+# — panels, toolbar and status bar included. `window` needs `Job(panels=True)` to have anything to
+# show, and it is the only capture that does not come off the engine's canvas.
+CAPTURE_TARGETS: Tuple[str, ...] = VIEWS + ("grid", "window")
 SLICE_VIEWS: Tuple[str, ...] = ("axial", "coronal", "sagittal")
-LAYOUTS: Tuple[str, ...] = ("1x1", "1x3", "1x3-horizontal", "2x2", "3d-only")
+LAYOUTS: Tuple[str, ...] = (
+    "1x1",
+    "1x3",
+    "1x3-horizontal",
+    "2x2",
+    "3d-only",
+    "1+3",
+    "3d+1",
+)
 FORMATS: Tuple[str, ...] = ("png", "gif", "mp4")
 BACKGROUNDS: Tuple[str, ...] = ("scene", "white", "transparent")
 
@@ -87,6 +99,7 @@ class Job:
         preset: Preset = "plain",
         *,
         window: Optional[Tuple[int, int]] = None,
+        panels: bool = False,
     ) -> None:
         if files is None:
             raise JobError("Job(files=...) needs at least one file; use Job.from_scene(path) for a saved scene")
@@ -97,6 +110,7 @@ class Job:
             raise JobError(f"unknown preset {preset!r}; expected one of {', '.join(PRESETS)}")
         self._scene: Dict[str, Any] = {"files": paths, "preset": preset}
         self._window: Optional[Tuple[int, int]] = window
+        self._panels = bool(panels)
         self._actions: List[Dict[str, Any]] = []
 
     # -- construction ------------------------------------------------------------------------
@@ -107,6 +121,7 @@ class Job:
         path: Union[str, "os.PathLike[str]"],
         *,
         window: Optional[Tuple[int, int]] = None,
+        panels: bool = False,
     ) -> "Job":
         """A job over a scene saved from the app (`*.tetravox.json`, ARCHITECTURE §4.6).
 
@@ -117,13 +132,22 @@ class Job:
         job = cls.__new__(cls)
         job._scene = {"path": _abspath(path)}
         job._window = window
+        job._panels = bool(panels)
         job._actions = []
         return job
 
-    def window(self, width: int, height: int) -> "Job":
+    def window(self, width: int, height: int, *, panels: Optional[bool] = None) -> "Job":
         """The offscreen window's size. Screenshots are captured from panes of *this* window, so a
-        larger window is a sharper picture, not a bigger crop of the same one."""
+        larger window is a sharper picture, not a bigger crop of the same one.
+
+        `panels=True` draws the §8 shell — layer panel, region panel, tissue table, toolbar — in that
+        window, which is what a `view="window"` capture photographs. Off by default: an engine
+        screenshot never contains the panels, so a job that is not about the interface gives the
+        whole window to the view grid.
+        """
         self._window = (int(width), int(height))
+        if panels is not None:
+            self._panels = bool(panels)
         return self
 
     # -- actions -----------------------------------------------------------------------------
@@ -133,6 +157,7 @@ class Job:
         *,
         layer: Optional[Union[int, str]] = None,
         patch: Optional[Dict[str, Any]] = None,
+        active: Optional[Union[int, str]] = None,
         cursor: Optional[Vec3] = None,
         layout: Optional[str] = None,
         camera: Optional[str] = None,
@@ -160,6 +185,10 @@ class Job:
 
         `distance` is the same idea for the 3D view: the camera's distance from its target in
         millimetres (default 400, which frames about 250 mm at the default field of view).
+
+        `active` selects the layer the panels show — the same selector as `layer`, and the same
+        thing as clicking a row in the layer panel. It changes nothing an engine screenshot can see,
+        and everything a `view="window"` capture can.
         """
         if layout is not None and layout not in LAYOUTS:
             raise JobError(f"unknown layout {layout!r}; expected one of {', '.join(LAYOUTS)}")
@@ -170,6 +199,7 @@ class Job:
                 "type": "set",
                 "layer": layer,
                 "patch": patch,
+                "active": active,
                 "cursor": [float(v) for v in cursor] if cursor is not None else None,
                 "layout": layout,
                 "camera": str(camera) if camera is not None else None,
@@ -208,8 +238,8 @@ class Job:
         upscaled from the pane, so asking for 2400 px gives you 2400 px of detail. `dpi` is written
         into the PNG's `pHYs` chunk, which is what a journal's figure checker reads.
         """
-        if view not in VIEWS and view != "grid":
-            raise JobError(f"unknown view {view!r}; expected 'grid' or one of {', '.join(VIEWS)}")
+        if view not in CAPTURE_TARGETS:
+            raise JobError(f"unknown view {view!r}; expected one of {', '.join(CAPTURE_TARGETS)}")
         if background is not None and background not in BACKGROUNDS:
             raise JobError(f"unknown background {background!r}; expected one of {', '.join(BACKGROUNDS)}")
         self._actions.append(
@@ -242,6 +272,8 @@ class Job:
         fps: Optional[int] = None,
         format: Optional[Union[str, Sequence[str]]] = None,
         colors: Optional[int] = None,
+        sequence: Optional[str] = None,
+        gif: Optional[bool] = None,
         width: Optional[int] = None,
         height: Optional[int] = None,
         background: Optional[str] = None,
@@ -263,6 +295,8 @@ class Job:
         """
         if view not in SLICE_VIEWS:
             raise JobError(f"a sweep steps a slice: view must be one of {', '.join(SLICE_VIEWS)}")
+        if sequence is not None and sequence not in ("start", "continue", "end"):
+            raise JobError(f"unknown sequence {sequence!r}; expected start, continue or end")
         self._actions.append(
             _drop_none(
                 {
@@ -276,6 +310,8 @@ class Job:
                     "fps": fps,
                     "format": _formats(format),
                     "colors": colors,
+                    "sequence": sequence,
+                    "gif": gif,
                     "width": width,
                     "height": height,
                     "background": background,
@@ -295,9 +331,16 @@ class Job:
         fps: Optional[int] = None,
         format: Optional[Union[str, Sequence[str]]] = None,
         colors: Optional[int] = None,
+        sequence: Optional[str] = None,
+        gif: Optional[bool] = None,
         width: Optional[int] = None,
         height: Optional[int] = None,
         background: Optional[str] = None,
+        colorbar: Optional[bool] = None,
+        orientation_labels: Optional[bool] = None,
+        crosshair: Optional[bool] = None,
+        corner_info: Optional[bool] = None,
+        scale_bar: Optional[bool] = None,
     ) -> "Job":
         """Turntable the 3D view: a PNG sequence, a GIF, and an MP4 when asked for.
 
@@ -307,6 +350,8 @@ class Job:
         """
         if axis is not None and axis not in ("x", "y", "z"):
             raise JobError(f"unknown axis {axis!r}; expected x, y or z")
+        if sequence is not None and sequence not in ("start", "continue", "end"):
+            raise JobError(f"unknown sequence {sequence!r}; expected start, continue or end")
         self._actions.append(
             _drop_none(
                 {
@@ -318,9 +363,14 @@ class Job:
                     "fps": fps,
                     "format": _formats(format),
                     "colors": colors,
+                    "sequence": sequence,
+                    "gif": gif,
                     "width": width,
                     "height": height,
                     "background": background,
+                    "include": _include(
+                        colorbar, orientation_labels, crosshair, corner_info, scale_bar
+                    ),
                 }
             )
         )
@@ -344,6 +394,11 @@ class Job:
         width: Optional[int] = None,
         height: Optional[int] = None,
         background: Optional[str] = None,
+        colorbar: Optional[bool] = None,
+        orientation_labels: Optional[bool] = None,
+        crosshair: Optional[bool] = None,
+        corner_info: Optional[bool] = None,
+        scale_bar: Optional[bool] = None,
     ) -> "Job":
         """N eased frames between two scene states.
 
@@ -362,6 +417,8 @@ class Job:
             raise JobError(f"unknown ease {ease!r}; expected linear, in, out or inOut")
         if sequence is not None and sequence not in ("start", "continue", "end"):
             raise JobError(f"unknown sequence {sequence!r}; expected start, continue or end")
+        if view is not None and view not in CAPTURE_TARGETS:
+            raise JobError(f"unknown view {view!r}; expected one of {', '.join(CAPTURE_TARGETS)}")
         if to is None and orbit is None:
             raise JobError("a tween with no `to` and no `orbit` has nowhere to go")
         self._actions.append(
@@ -383,6 +440,9 @@ class Job:
                     "width": width,
                     "height": height,
                     "background": background,
+                    "include": _include(
+                        colorbar, orientation_labels, crosshair, corner_info, scale_bar
+                    ),
                 }
             )
         )
@@ -397,8 +457,11 @@ class Job:
                 "a job with no actions renders nothing; add a screenshot, sweep, orbit or tween"
             )
         job: Dict[str, Any] = {"version": 1, "scene": self._scene}
-        if self._window is not None:
-            job["window"] = {"width": self._window[0], "height": self._window[1]}
+        if self._window is not None or self._panels:
+            width, height = self._window or (1400, 900)
+            job["window"] = {"width": width, "height": height}
+            if self._panels:
+                job["window"]["panels"] = True
         job["actions"] = self._actions
         return job
 
