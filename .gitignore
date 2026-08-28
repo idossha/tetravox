@@ -59,3 +59,6 @@ docs/benchmarks/
 
 # Public sample volumes fetched by scripts/fetch-public-samples.sh
 /data/public/
+
+# Per-run job artefact, rewritten by every builder
+docs/screenshots/*/job-result.json
