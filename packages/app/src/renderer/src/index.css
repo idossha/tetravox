@@ -1,16 +1,79 @@
 @import 'tailwindcss';
 
-/* §8: dark theme. The window background matches `BrowserWindow.backgroundColor` so there is never a
-   white flash between `ready-to-show` and the first frame. */
+/**
+ * §8's two themes (directed task 9, 2026-08-28).
+ *
+ * `theme/tokens.ts` is the source of truth for every hex below and `theme/tokens.test.ts` parses
+ * this file to prove the two agree — edit one and the test names the other. The `@theme` block is
+ * the *dark* set, because it doubles as the fallback: it is what a window shows before
+ * `applyTheme()` has stamped `data-theme`, and it matches `BrowserWindow.backgroundColor` so there
+ * is never a white flash between `ready-to-show` and the first frame.
+ *
+ * The two override blocks are plain CSS, not `@theme`: Tailwind 4 compiles `bg-tvx-panel` to
+ * `background-color: var(--color-tvx-panel)`, so redefining the variable under a selector re-themes
+ * every utility in the app without generating a second set of classes. `data-theme` is always
+ * present in the running app — `system` resolves to one of the two, never to "neither" — and the
+ * `prefers-color-scheme` block underneath is only for the window's very first paint.
+ *
+ * **No neon.** The Phase-1 cyan accent is gone; one muted slate blue does every job it did, and `tokens.test.ts` holds every foreground/surface pair to WCAG 4.5:1 (text) or 3:1 (UI).
+ */
 @theme {
-  --color-tvx-bg: #0b0b0f;
-  --color-tvx-panel: #14141b;
-  --color-tvx-line: #262633;
-  --color-tvx-text: #d8d8e4;
-  --color-tvx-dim: #82829a;
-  --color-tvx-accent: #6ee7ff;
-  --color-tvx-danger: #ff6b6b;
-  --color-tvx-warn: #ffc857;
+  --color-tvx-bg: #16181c;
+  --color-tvx-panel: #1e2126;
+  --color-tvx-line: #333941;
+  --color-tvx-line-strong: #7d8794;
+  --color-tvx-text: #dfe3ea;
+  --color-tvx-dim: #99a1ae;
+  --color-tvx-accent: #93aae2;
+  --color-tvx-accent-strong: #aec0ee;
+  --color-tvx-accent-surface: #262d3b;
+  --color-tvx-danger: #f0a09a;
+  --color-tvx-warn: #d9b76e;
+}
+
+:root[data-theme='light'] {
+  --color-tvx-bg: #ffffff;
+  --color-tvx-panel: #eef1f5;
+  --color-tvx-line: #ccd2db;
+  --color-tvx-line-strong: #767f8d;
+  --color-tvx-text: #15181d;
+  --color-tvx-dim: #5a6473;
+  --color-tvx-accent: #3b5ba9;
+  --color-tvx-accent-strong: #2f4a8c;
+  --color-tvx-accent-surface: #dce4f4;
+  --color-tvx-danger: #b3261e;
+  --color-tvx-warn: #8a5a00;
+}
+
+:root[data-theme='dark'] {
+  --color-tvx-bg: #16181c;
+  --color-tvx-panel: #1e2126;
+  --color-tvx-line: #333941;
+  --color-tvx-line-strong: #7d8794;
+  --color-tvx-text: #dfe3ea;
+  --color-tvx-dim: #99a1ae;
+  --color-tvx-accent: #93aae2;
+  --color-tvx-accent-strong: #aec0ee;
+  --color-tvx-accent-surface: #262d3b;
+  --color-tvx-danger: #f0a09a;
+  --color-tvx-warn: #d9b76e;
+}
+
+/* Only until `applyTheme()` runs — see the block comment above. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --color-tvx-bg: #ffffff;
+    --color-tvx-panel: #eef1f5;
+    --color-tvx-line: #ccd2db;
+    --color-tvx-line-strong: #767f8d;
+    --color-tvx-text: #15181d;
+    --color-tvx-dim: #5a6473;
+    --color-tvx-accent: #3b5ba9;
+    --color-tvx-accent-strong: #2f4a8c;
+    --color-tvx-accent-surface: #dce4f4;
+    --color-tvx-danger: #b3261e;
+    --color-tvx-warn: #8a5a00;
+  }
 }
 
 html,
@@ -30,20 +93,26 @@ body {
     sans-serif;
 }
 
-/* The shell's three repeated controls, so a hundred class strings do not drift apart. Tailwind 4
+/* The shell's repeated controls, so a hundred class strings do not drift apart. Tailwind 4
    resolves `@apply` against the same theme tokens above. */
 @layer components {
   .tvx-btn {
     @apply rounded border border-tvx-line bg-tvx-bg/40 px-2 py-1 text-xs text-tvx-text
-      transition-colors hover:border-tvx-accent hover:text-tvx-accent
+      transition-colors hover:border-tvx-line-strong hover:text-tvx-accent-strong
       disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-tvx-line
       disabled:hover:text-tvx-text;
   }
   .tvx-btn-sm {
     @apply px-1.5 py-0.5 text-[10px];
   }
+  /**
+   * A pressed / active control. The accent is a **fill plus a border**, not saturated text on the
+   * panel: `#3b5ba9` text on `#eef1f5` passes 4.5:1 but still reads as a highlighter pen next to
+   * eight neighbours that do not. A tinted surface says "this one is on" quietly, and the label
+   * stays `text-tvx-text` so it is the same weight it was when off.
+   */
   .tvx-btn-on {
-    @apply border-tvx-accent text-tvx-accent;
+    @apply border-tvx-accent bg-tvx-accent-surface text-tvx-text;
   }
   /**
    * A one-line strip whose height never depends on its content.
@@ -67,4 +136,15 @@ body {
     @apply rounded border border-tvx-line bg-tvx-bg/60 px-2 py-1 text-tvx-text outline-none
       focus:border-tvx-accent;
   }
+}
+
+/**
+ * The one styled native control: `<input type="range">`.
+ *
+ * Chromium paints an unstyled slider in the platform's own accent — a saturated system blue that is
+ * exactly the neon this theme removes, and that does not flip with `data-theme`. `accent-color`
+ * hands it the token instead, in one rule, for every slider in the app.
+ */
+input[type='range'] {
+  accent-color: var(--color-tvx-accent);
 }

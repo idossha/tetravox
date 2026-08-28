@@ -751,6 +751,16 @@ export interface Engine {
   resetView(viewId: ViewId): void;              // §7.5 `r`: refit to the scene bounds
   cameraPreset(viewId: ViewId, preset: CameraPreset): void;        // §7.5 `1..6`
   setAnnotations(patch: Partial<Annotations>): void;               // §7.5 `c` + the §4.5 block
+  setTheme(patch: Partial<OverlayTheme>): void; // the colours §7.2 pass 3 draws its chrome in — letters,
+                                                //   corner info, badge, crosshair, colour-bar text/ticks/
+                                                //   frame, the label halo, the gizmo, and (forwarded to
+                                                //   Scene.background) the pane clear colour. Added
+                                                //   2026-08-28 — see docs/DECISIONS.md. The neighbour of
+                                                //   setAnnotations, which says *which* chrome is drawn.
+                                                //   NOT part of Scene: a theme belongs to the window, not
+                                                //   to the scene, so §4.6 never serialises one. Defaults
+                                                //   are DEFAULT_OVERLAY_THEME — the constants §11's
+                                                //   goldens were captured with, unchanged.
   heapBytes(id: DatasetId): number | undefined; // §8 status bar, from that dataset's last Res (§6.5.2)
   iso3dStatus(layerId: LayerId): { pending: number; total: number };
                                                 // §8's load-card progress for §4.4's `VolumeLayer.iso3d`
@@ -1992,6 +2002,15 @@ Rules:
    or outside the pane, and — in a 2D pane — every anchor further than one point radius from the slice, because a
    187-electrode net projected whole onto one axial slice is a smear of names belonging to slices 80 mm away.
    `SL` segments are pass-1 items and draw through the §7.0.6 contour program, at a constant screen width.
+
+3. **Overlay** — crosshair, cut-plane gizmo, contours on slices, glyph labels, annotations, orientation letters,
+   corner info, RAD/NEU badge, colour bars, scale bar, orientation cube. **All clip distances disabled** in this
+   pass, or the gizmo gets clipped by the plane it manipulates.
+   Every colour in this pass comes from `DrawInput.theme` (an `OverlayTheme`, added 2026-08-28), not from a
+   constant: the embedder has a theme, and chrome drawn in a fixed near-white with a fixed black halo is
+   unreadable the moment that theme is a light one. The **halo inverts** with the theme rather than shifting,
+   because its job is contrast against anatomy. The field is optional and absent means `DEFAULT_OVERLAY_THEME`,
+   which is exactly what the pass used before — so §11's goldens do not move.
 4. **Pick (on demand)** — §7.2.3.
 
 **Frame pump:**

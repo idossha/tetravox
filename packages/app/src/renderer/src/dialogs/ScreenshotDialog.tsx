@@ -309,7 +309,7 @@ export function ScreenshotDialog({
 
         <aside data-testid="screenshot-preview-pane" className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wider text-tvx-dim">Preview</span>
-          <div className="grid aspect-square place-items-center overflow-hidden rounded border border-tvx-line bg-[repeating-conic-gradient(#1b1b24_0_25%,#12121a_0_50%)] bg-[length:12px_12px]">
+          <div className="grid aspect-square place-items-center overflow-hidden rounded border border-tvx-line bg-[repeating-conic-gradient(var(--color-tvx-panel)_0_25%,var(--color-tvx-bg)_0_50%)] bg-[length:12px_12px]">
             {preview === null ? (
               <span
                 data-testid="screenshot-preview-empty"

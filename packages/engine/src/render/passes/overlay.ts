@@ -21,6 +21,7 @@ import type { GlState } from '../../gl/state';
 import type { FramePass, PassContext } from './pass';
 import { OVERLAY_FS, OVERLAY_VS } from '../../shaders';
 import {
+  DEFAULT_OVERLAY_THEME,
   FLOATS_PER_VERTEX,
   OverlayBuilder,
   badgeFor,
@@ -30,7 +31,7 @@ import {
   volumeColorbarSpec,
 } from '../../overlay';
 import { drawPointLabels, placePointLabels } from '../../overlay/point-labels';
-import type { ChromeInput, EdgeLetters } from '../../overlay';
+import type { ChromeInput, EdgeLetters, OverlayTheme } from '../../overlay';
 import { visibleIn } from '../../layers/runtime';
 import { isSliceView, topVolume } from '../../scene/store';
 import {
@@ -45,18 +46,16 @@ import type { DrawInput } from './pass';
 import type { ViewportRect } from '../../view/layout';
 import type { mat4, Scene, SliceView, vec3, vec4, View, VolumeDataset } from '../../scene/types';
 
-const TEXT_COLOR: vec4 = [0.92, 0.94, 0.98, 1];
-const CROSSHAIR_COLOR: vec4 = [1, 0.85, 0.2, 0.9];
-const ACTIVE_BORDER: vec4 = [0.35, 0.62, 1, 1];
 /**
- * The gizmo's two colours (appended by E-SCENE, §7.5's oblique affordances).
+ * Directed task 9 (2026-08-28): these six colours were `const`s here. They are now
+ * {@link OverlayTheme} fields, defaulted to exactly the values that used to live in this file — so
+ * §11's goldens are unmoved — and overridden per theme by the embedder through `Engine.setTheme`.
  *
- * Cyan, deliberately not the crosshair's amber and not the active border's blue: three overlay items
- * that can share a pane need three colours a test can tell apart, and `pointer.spec.ts` already
- * finds the crosshair by "bright in R and G, dark in B".
+ * The defaults, and why the gizmo is not the crosshair's amber: three overlay items that can share a
+ * pane need three colours a test can tell apart, and `pointer.spec.ts` finds the crosshair by
+ * "bright in R and G, dark in B". `DEFAULT_OVERLAY_THEME` in `overlay/theme.ts` carries the values
+ * and that reasoning.
  */
-const GIZMO_COLOR: vec4 = [0.25, 0.85, 0.95, 0.95];
-const GIZMO_HOT_COLOR: vec4 = [0.4, 1, 0.55, 1];
 
 export class OverlayPass implements FramePass {
   readonly name = 'overlay' as const;
@@ -87,7 +86,11 @@ export class OverlayPass implements FramePass {
     const { scene } = input;
     const a = scene.annotations;
     const b = this.#builder;
+    const theme: OverlayTheme = input.theme ?? DEFAULT_OVERLAY_THEME;
     b.begin(rect.width, rect.height);
+    // Every label in this pass gets the theme's halo. `begin` reset it to black one line ago, so a
+    // caller that assembles a `DrawInput` without a theme keeps the Phase-1 behaviour exactly.
+    b.setHalo(theme.halo);
 
     let letters: EdgeLetters | undefined;
     let crosshair: { x: number; y: number } | null = null;
@@ -128,7 +131,7 @@ export class OverlayPass implements FramePass {
         gizmo = {
           spec: input.gizmo,
           viewProj,
-          colors: { ring: GIZMO_COLOR, hot: GIZMO_HOT_COLOR },
+          colors: { ring: theme.gizmo, hot: theme.gizmoHot },
         };
       }
     }
@@ -144,16 +147,18 @@ export class OverlayPass implements FramePass {
       crosshair,
       crosshair3d,
       gizmo,
-      crosshairColor: CROSSHAIR_COLOR,
-      textColor: TEXT_COLOR,
+      crosshairColor: theme.crosshair,
+      textColor: theme.text,
       activeBorder:
-        input.activeViewId === view.id && input.activeViewId !== null ? ACTIVE_BORDER : undefined,
+        input.activeViewId === view.id && input.activeViewId !== null
+          ? theme.activeBorder
+          : undefined,
     });
 
     // Appended by E-SLICE (Phase 2): §8's colour bars, one per visible scalar layer. They go in
     // after `buildChrome` and before the draw, which is the slot `overlay/chrome.ts` reserves for
     // them — between the chrome and the active-pane border.
-    if (a.colorbars) drawColorbars(b, view, rect, input, TEXT_COLOR);
+    if (a.colorbars) drawColorbars(b, view, rect, input, theme.text);
 
     // Appended for parsed Gmsh views (task 6): a points layer's 3D text labels. They go after the
     // colour bars and before the draw, in the same reserved slot, and they are pass-3 items for

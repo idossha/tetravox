@@ -252,9 +252,9 @@ export function Phase0App(): React.JSX.Element {
         {failedWebgl ? (
           <div
             data-testid="webgl2-error"
-            className="max-w-lg rounded border border-red-500/50 bg-red-950/30 p-6 text-sm"
+            className="max-w-lg rounded border border-tvx-danger/50 bg-tvx-danger/10 p-6 text-sm"
           >
-            <h1 className="mb-2 text-base font-semibold text-red-300">No WebGL2 context</h1>
+            <h1 className="mb-2 text-base font-semibold text-tvx-danger">No WebGL2 context</h1>
             <p className="mb-2 text-tvx-dim">
               <code>getContext(&apos;webgl2&apos;)</code> returned <code>null</code>. Chromium M137
               removed the automatic SwiftShader fallback, so a blocklisted GPU driver disables

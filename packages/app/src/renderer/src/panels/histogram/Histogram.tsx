@@ -170,7 +170,7 @@ export function Histogram({
               y={box.height - h}
               width={1}
               height={h}
-              fill="#4b4b60"
+              fill="var(--color-tvx-line-strong)"
               shapeRendering="crispEdges"
             />
           ))}
@@ -183,7 +183,7 @@ export function Histogram({
           y={box.height}
           width={box.width}
           height={8}
-          fill={painted ? `url(#${gradientId})` : '#262633'}
+          fill={painted ? `url(#${gradientId})` : 'var(--color-tvx-line)'}
         />
 
         {(['windowLo', 'windowHi'] as const).map((id) => {
@@ -197,14 +197,17 @@ export function Histogram({
               x2={handleX(v)}
               y1={0}
               y2={box.height}
-              stroke="#6ee7ff"
+              stroke="var(--color-tvx-accent-strong)"
               strokeWidth={1.5}
               vectorEffect="non-scaling-stroke"
             />
           );
         })}
 
-        {/* Dashed, so a threshold reads as a cut and not as a second window. */}
+        {/* Dashed, so a threshold reads as a cut and not as a second window — the *shape*, not a
+          louder colour, is what tells the two pairs of handles apart now that neither is neon
+          (directed task 9). Both take theme tokens through `var()`, because an SVG `stroke` is not
+          a Tailwind utility and a hardcoded hex here would not flip with `data-theme`. */}
         {threshold !== null &&
           (['thresholdLo', 'thresholdHi'] as const).map((id) => {
             const v = id === 'thresholdLo' ? threshold.lo : threshold.hi;
@@ -217,7 +220,7 @@ export function Histogram({
                 x2={handleX(v)}
                 y1={0}
                 y2={box.height}
-                stroke="#ffc857"
+                stroke="var(--color-tvx-warn)"
                 strokeWidth={1.5}
                 strokeDasharray="3 3"
                 vectorEffect="non-scaling-stroke"

@@ -53,6 +53,15 @@ export interface TetravoxBridge {
   /** File-menu scene commands, pushed from main. The renderer owns the `Engine`, so it does the work. */
   onSceneCommand(listener: (command: SceneCommand) => void): () => void;
 
+  // -- App settings (directed task 9, 2026-08-28) ------------------------------------------------
+  // `main/settings.ts` owns the file; §5 keeps the filesystem there. Small JSON, like everything
+  // else on this bridge.
+
+  /** The persisted preferences. Never rejects: a missing or corrupt file yields the defaults. */
+  settings(): Promise<AppSettings>;
+  /** Merge a patch into the file and get the result back, so a caller knows the write landed. */
+  setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+
   // -- The automation surface (`--job`, `main/job-runner.ts`, `docs/AUTOMATION.md`) ---------------
   // The one place bytes cross this bridge, and they are **not** file bytes: a PNG the renderer just
   // rendered off its own canvas, bounded by the window size. §5 rule 3 keeps *dataset* bytes off the
@@ -114,6 +123,11 @@ export interface JobDonePayload {
   loadMs: number;
 }
 
+/** Mirrors `main/settings.ts`'s `AppSettings`; duplicated because preload must not import main. */
+export interface AppSettings {
+  theme: 'system' | 'light' | 'dark';
+}
+
 /** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
 export type SceneCommand = 'new' | 'open' | 'save' | 'saveAs';
 
@@ -143,6 +157,8 @@ const bridge: TetravoxBridge = {
   relocateDialog: (missingName) => ipcRenderer.invoke('tetravox:relocate-dialog', missingName),
   readSceneFile: (path) => ipcRenderer.invoke('tetravox:read-scene', path),
   writeSceneFile: (path, text) => ipcRenderer.invoke('tetravox:write-scene', path, text),
+  settings: () => ipcRenderer.invoke('tetravox:settings'),
+  setSettings: (patch) => ipcRenderer.invoke('tetravox:set-settings', patch),
   jobSpec: () => ipcRenderer.invoke('tetravox:job-spec'),
   jobWrite: (name, bytes) => ipcRenderer.invoke('tetravox:job-write', { name, bytes }),
   jobFrames: (payload) => ipcRenderer.invoke('tetravox:job-frames', payload),

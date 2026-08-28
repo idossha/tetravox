@@ -47,3 +47,7 @@ export type { ContourQuad } from './contours';
 // Appended for parsed Gmsh views (task 6): a points layer's screen-projected 3D text labels.
 export { drawPointLabels, labelHeightPx, placePointLabels } from './point-labels';
 export type { LabelPlacement, PlacedLabel } from './point-labels';
+// Directed task 9 (2026-08-28): the pass-3 chrome palette, so `setAnnotations`'s neighbour
+// `setTheme` has something to carry and the halo flips with the embedder's theme.
+export { DEFAULT_OVERLAY_THEME, resolveOverlayTheme } from './theme';
+export type { OverlayTheme } from './theme';
