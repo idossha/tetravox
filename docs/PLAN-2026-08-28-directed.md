@@ -14,3 +14,5 @@ surface: load + auto-configure visualization, load + capture screenshots, create
 Gate for each: offscreen E2E green (`scripts/e2e-quiet-check.sh`), a real-data test on ernie, screenshot(s) under
 `docs/screenshots/directed-2026-08-28/`, conventional commits, no Co-Authored-By. Integrator: merge in order 1 → 2/3 → 4,
 run the chain, push, rebuild `tetravox-builds/`.
+
+| 5 | `feat/edges-persist` | **Element edges must stay visible during orbit/pan/dolly.** The `interacting` quality level currently sets `edges:false` (§7.2 quality table), so edge lines vanish while the mesh moves and reappear on settle. Remove `edges` from the interaction quality knobs entirely (a user-enabled feature is never dropped mid-gesture); keep only knobs that don't change what is displayed (cap decimation / DPR, both still Phase 3). Update §7.2's table, DECISIONS, and invert the §11 test that asserted the edge pixel toggles — it must now assert the edge pixel is present at full quality *and* mid-interaction. |
