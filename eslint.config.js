@@ -18,6 +18,9 @@ export default tseslint.config(
       'packages/wasm/pkg/**',
       'test-results/**',
       'playwright-report/**',
+      // Jekyll site assets and any agent worktrees checked out under .claude/ are not ours to lint.
+      'docs/**',
+      '.claude/**',
     ],
   },
   js.configs.recommended,
