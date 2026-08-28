@@ -1,6 +1,11 @@
 # Decision log
 
-Format: `YYYY-MM-DD — decision — why — alternatives rejected`. Append-only.
+**How to read this.** Append-only and chronological: entries are `YYYY-MM-DD — decision — why —
+alternatives rejected`, newest at the bottom. It records *why*, not what is true now —
+`docs/ARCHITECTURE.md` is the only statement of the latter, and where the two disagree the contract wins
+and this file is the history of how it got there. A later entry may supersede an earlier one, and says so
+when it does. Every deviation from the contract, and every new dependency, lands here in the same commit as
+the change.
 
 - 2026-08-27 — Electron over Tauri — Chromium guarantees WebGL2 parity on macOS/Linux; WebKitGTK WebGL2 is inconsistent and lacks WebGPU — Tauri (smaller binary) rejected for GPU risk.
 - 2026-08-27 — Custom WebGL2 engine, no three.js/NiiVue — need one context + depth buffer for slices *and* tet meshes, integer 3D textures, exact caps; NiiVue cannot host tets and its clip planes ignore meshes (verified spike 2026-08-27); three.js API churn and abstraction fights — rejected.
@@ -712,19 +717,6 @@ measurement. `crates/tvx-nifti/src/lib.rs`'s module docs carry the first two.
 
 ## 2026-08-27 — Phase 1, `tvx-mesh-io` (§6.2)
 
-- 2026-08-27 — **§6.2 promises two pieces of data the frozen structs have no field for, so both got an
-  *additive* entry point rather than a struct change.** §6.2 says a `.label.gii`'s `<LabelTable>` "becomes a
-  `LabelTable`", but `read_gifti` returns a `Mesh`, which has no such field; and §6.2's name ladder ends at
-  "sibling `<mesh>.msh.opt` (`Physical Volume(" GM",2)` …)", but `MshOptions` carries only
-  `tag_color` / `tag_visible` / `views`. The second gap is not academic: `m2m_ernie/ernie.msh` has **no
-  `$PhysicalNames` section at all** `[DATA]`, so its `.msh.opt` is the *only* source of "WM", "GM", "CSF" …
-  for the flagship file, and a reader that drops those names leaves the tissue table unnamed. Changing
-  either struct is an ARCHITECTURE.md edit, which is not this agent's to make, and silently discarding the
-  data is worse than a two-line addition — so `tvx_mesh_io::read_gifti_labels(&[u8]) -> Result<LabelTable>`
-  and `tvx_mesh_io::read_msh_opt_names(&[u8]) -> Result<Vec<(i32, String)>>` exist beside the frozen
-  signatures, which are untouched. **The integrator should fold them into §6.2** — most naturally as
-  `Mesh.label_table: Option<LabelTable>` and `MshOptions.tag_name: Vec<(i32, String)>` — and then delete
-  them.
 - 2026-08-27 — **`Mesh.gmsh_elm_numbers` needs the element *kind* during parsing, and it rides in bit 63 of
   the transient id array.** §6.2 defines the array in (tris then tets) order while a file may write the
   blocks in any order, so the reader has to remember which kind each file-order id belonged to. A parallel
@@ -897,19 +889,6 @@ wasm-pack regenerates it from the crate's doc comments.
   **The integration step is flipping that constant.** Rejected: unfreezing `api.ts` to fill `MockEngine`
   in (needs an ARCHITECTURE edit for something no contract reader would call a contract change), and
   waiting for the real engine (which is the coupling Phase 1's split exists to avoid).
-- 2026-08-27 — **Two §8 behaviours have no member on the frozen §4.7 facade, and the app duck-types them
-  rather than editing it.** (a) §7.5's `r` (reset view) and `1..6` (A/P/L/R/S/I presets) need `fit()` and
-  the preset rotations, which are engine maths; `setView(id, patch)` could carry a whole `Camera3D`, but
-  computing one in the app would put scene-bounds fitting in React, which §8's last line forbids. §7.5's
-  `c` edits `Scene.annotations`, and `Scene` is exposed `Readonly` with no setter at all. (b) §8's status
-  bar owes "wasm `heapBytes` per dataset", which §6.5.2 stamps on every `Res` — and `EngineEvents` carries
-  none, so it stops at the engine. `engine/commands.ts` declares both as optional interfaces
-  (`resetView`/`cameraPreset`/`setAnnotations`, `heapBytes(id)`) and probes for them at runtime: an engine
-  that has them gets the behaviour, one that does not shows a disabled control. `NoGlEngine` implements
-  all four. **The integrator closes this one of two ways** — the real engine implements the same four
-  members (no contract change, since an implementation may exceed its interface), or §4.7 grows them in
-  an ARCHITECTURE edit. Leaving it duck-typed forever is not the third option: it is a gap, recorded so
-  it is not mistaken for a design.
 - 2026-08-27 — **Loads run one at a time.** `Engine.addDataset` resolves with a `Dataset` only at the end
   of a load, while `EngineEvents.progress` carries the `datasetId` from the first phase — so a load card
   exists before it knows its own id, and §8's Cancel can be pressed in that window. Sequencing makes
@@ -2367,34 +2346,6 @@ Each entry below names the problem, the fix, and the evidence.
   `'T1.nii.gz'` verbatim, which is the only form that can fail if this regresses.
 
 
-- 2026-08-28 — **`Scene.quality` was computed, stored, emitted and read by nothing, so the
-  `interacting` `QualityLevel` was inert and the status bar announced a degradation that never
-  happened.** §7.2's "never degrade silently" inverts when the bar is the only thing that changes:
-  the reader is told the picture got cheaper while every fragment was drawn exactly as before, and
-  §9.1 row 11's "≥ 30 fps sustained **at interacting quality**" was in fact a measurement of full
-  quality. §11's named E-SCENE obligation — *"the frame drawn then is full quality (assert a pixel
-  that the `interacting` level would have changed)"* — was unmeetable for the same reason, and was
-  not attempted.
-  `edges` is now consumed: `render/passes/mesh.ts` drops the `TVX_EDGES` branch for
-  `MeshLayer.edges.surface` / `.caps` while the level says so. It is the right one of the four to
-  make real first because it is a *shader variant*, so switching it costs a program bind and nothing
-  else — no re-upload, no cut, no field table — which is what makes it safe to flip inside a drag.
-  Deliberately **not** gated: `TVX_EMPHASIS` (R5's selected-region outline is a reading, like
-  `interpolation`) and the geometry variant a layer requested (swapping the de-indexed surface for
-  the indexed one mid-drag re-shades every fragment — a different picture, not a cheaper one;
-  measured on the 3×3×3 lattice, 82,200,97 against 58,169,71 at the same fragment).
-  The other three knobs are recorded in §7.2 as what they are rather than left to read as live:
-  `dprScale` is 1 at every level and has nothing to do; `msaa` is a **context** attribute
-  (`gl/context.ts`'s `antialias`) and cannot be changed per frame without an MSAA resolve target,
-  which is Phase 3's §7.0.7 accumulation buffer; `capDecimation` needs `plane_cut` to emit fewer cap
-  triangles and is Phase 3's §9 performance pass. `docs/benchmarks/phase2-mesh.md` already said so
-  in prose ("that is E-SCENE's P2-02 and does not exist yet"); it is now in the contract.
-  Two consequences worth naming. `whenSettled()` now raises the level to `full` before its last
-  frame, which §7.2 already required in words — *"every golden screenshot and every `screenshot()`
-  call awaits this and renders at full quality regardless of the current `QualityLevel`"* — and which
-  became load-bearing the moment `reduced` really dropped edges: without it a golden captured on a
-  slow machine would differ from the same golden on a fast one. And the status-bar tooltips now name
-  the one knob that moves rather than reciting the list.
 
 
 - 2026-08-28 — **§9.2's `buildTopology` memory bar was never measured, and measuring it moved the
