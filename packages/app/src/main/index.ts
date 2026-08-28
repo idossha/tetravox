@@ -15,7 +15,7 @@
  */
 
 import { BrowserWindow, app, dialog, ipcMain, nativeTheme, session, shell } from 'electron';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
@@ -101,6 +101,27 @@ if (SOFTWARE_GL) {
   app.commandLine.appendSwitch('use-gl', 'angle');
   app.commandLine.appendSwitch('use-angle', 'swiftshader');
   app.commandLine.appendSwitch('disable-gpu-compositing');
+}
+
+/**
+ * `Tetravox --version` — print the version and exit 0, before anything opens a window.
+ *
+ * Electron's own `--version` handling lives in the `electron` **CLI wrapper**, not in the runtime, so
+ * a packaged binary given `--version` does not print anything: it launches the app and sits there
+ * until something kills it (the Windows `package` leg died exactly that way, killed at its 180 s
+ * smoke timeout). The launch-and-exit smoke check §12.1 asks of the optional Windows leg needs this
+ * to exist in the app itself.
+ *
+ * `writeSync(1, …)` and not `console.log`: `app.exit()` terminates immediately and does not drain an
+ * async pipe write, so a buffered line would be lost on the way out.
+ */
+if (process.argv.slice(1).some((arg) => arg === '--version' || arg === '-v')) {
+  try {
+    writeSync(1, `Tetravox ${app.getVersion()} (electron ${process.versions.electron})\n`);
+  } catch {
+    // No stdout to write to (a detached GUI launch). Exiting 0 is still the right answer.
+  }
+  app.exit(0);
 }
 
 /**
