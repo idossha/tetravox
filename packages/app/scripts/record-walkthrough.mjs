@@ -120,5 +120,8 @@ if (made.status !== 0) {
 }
 console.log(`\n[walkthrough] GIF: ${gif}`);
 console.log(
-  '[walkthrough] Commit it under docs/ when the gate is assembled — this directory is ignored.'
+  `[walkthrough] The committed one is docs/media/walkthrough.gif (with its manifest beside it).\n` +
+    `[walkthrough] Refresh it with:\n` +
+    `[walkthrough]   cp ${gif} docs/media/walkthrough.gif\n` +
+    `[walkthrough]   cp ${join(OUT, 'manifest.json')} docs/media/walkthrough.manifest.json`
 );

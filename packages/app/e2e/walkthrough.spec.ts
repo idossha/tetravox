@@ -18,12 +18,13 @@
  *  * A **WebM** of the whole window, from Playwright's own `recordVideo`, which catches the motion
  *    between steps that a screenshot cannot.
  *
- * **What the walk covers, and what it does not yet.** ROADMAP's gate names "open, orbit, cut,
- * isolate, probe, screenshot". Orbit is E-SCENE's pointer layer (P2-01) and cut/isolate are E-MESH's;
- * neither is on `main` at the time of writing, and a recorder that faked them with `setView` calls
- * would be filming a thing the user cannot do. So `STEPS` below is a declarative list with those
- * three marked `pending`, skipped with their reason printed — the recorder is complete, the walk
- * grows as the owners land, and `manifest.json` records exactly which steps were filmed.
+ * **What the walk covers.** ROADMAP's gate names "open, orbit, cut, isolate, probe, screenshot", and
+ * all six are filmed. Orbit is E-SCENE's pointer layer (P2-01) and cut/isolate are E-MESH's; while
+ * those were unmerged the three steps were recorded in the manifest as `pending` rather than faked
+ * with `setView` calls, because a recorder that films a thing the user cannot do is worse than a
+ * short walk. They are merged now, so the walk performs them the way a user does: a real drag in the
+ * 3D pane, the clip-plane panel's Add, the isolation panel's tag toggle. `pending()` stays for the
+ * next feature that is filmed before it lands.
  */
 
 /* eslint-disable no-empty-pattern */
@@ -98,6 +99,48 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
       }
     };
 
+    /** Wait for the engine to be idle — §7.2's `whenSettled`, through the E2E handle. */
+    const settle = async (p: Page): Promise<void> => {
+      await p.evaluate(async () => {
+        await window.__tetravox?.engine?.whenSettled();
+      });
+    };
+
+    /** The id of the mesh layer, or `null` when the walk is running on volumes only. */
+    const meshLayerId = async (p: Page): Promise<string | null> =>
+      p.evaluate(
+        () => window.__tetravox?.store.getState().layers.find((l) => l.kind === 'mesh')?.id ?? null
+      );
+
+    /** Set a range/select the way a user's drag does: the native setter, then input + change. */
+    const setControl = async (p: Page, testId: string, value: string): Promise<void> => {
+      await p.evaluate(
+        ([id, v]) => {
+          const el = document.querySelector(`[data-testid="${id}"]`);
+          if (el === null) throw new Error(`no control [data-testid="${id}"]`);
+          const proto =
+            el instanceof HTMLSelectElement
+              ? HTMLSelectElement.prototype
+              : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          if (setter === undefined) throw new Error('no value setter');
+          setter.call(el, v);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        },
+        [testId, value] as const
+      );
+    };
+
+    /** Open one collapsed §8 property section, if it is not open already. */
+    const openSection = async (p: Page, testId: string): Promise<void> => {
+      const section = p.locator(`[data-testid="${testId}"]`);
+      if ((await section.getAttribute('data-open')) !== 'true') {
+        await p.click(`[data-testid="${testId}-toggle"]`);
+        await expect(section).toHaveAttribute('data-open', 'true');
+      }
+    };
+
     /** A step whose feature is not on `main` yet: recorded in the manifest, not filmed. */
     const pending = (name: string, caption: string, reason: string): void => {
       steps.push({ index, name, caption, file: null, pending: reason });
@@ -110,23 +153,20 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
         'Tetravox opens on an empty scene: layers left, views centre, info right.'
       );
 
-      // 1 — Open. The §8 path a user takes: the file arrives, a load card runs, a layer appears.
-      await page.evaluate(async (paths: string[]) => {
-        const tv = window.__tetravox;
-        if (tv?.controller == null) throw new Error('no controller');
-        const requests = [];
-        for (const path of paths) {
-          const allowed = await window.tetravox.allowPath(path);
-          if (allowed !== null) {
-            requests.push({
-              name: path.split('/').pop() ?? path,
-              path: allowed.path,
-              source: { kind: 'path' as const, path: allowed.path },
-            });
-          }
-        }
-        tv.controller.open(requests);
-      }, DATASETS);
+      // 1 — Open. **Through the Open… button**, with the OS dialog stubbed in main, so the walk
+      // takes the §8 path a user takes: `open/sources.ts` derives the §6.5.1 sidecars beside each
+      // file, and §7.6 seeds the tissue names and colours from `ernie.msh.opt`. Building the
+      // requests by hand here — which is what this step used to do — skipped that, and filmed a
+      // tissue table reading `tag 1` … `tag 1099` on a dataset whose names the product does show.
+      for (const dataset of DATASETS) {
+        await app.evaluate(async ({ dialog }, path) => {
+          dialog.showOpenDialog = (async () => ({
+            canceled: false,
+            filePaths: [path],
+          })) as typeof dialog.showOpenDialog;
+        }, dataset);
+        await page.click('[data-testid="open-button"]');
+      }
 
       await page.waitForFunction(
         () => (window.__tetravox?.store.getState().loads.length ?? 0) > 0,
@@ -178,18 +218,67 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
       );
       await page.keyboard.press('Escape');
 
-      // 6 — Gestures, cutting and isolation: other owners' features (see the header).
-      pending(
-        'orbit',
-        'Drag to orbit the 3D view; the crosshair follows.',
-        'E-SCENE P2-01 pointer layer'
-      );
-      pending(
-        'cut',
-        'A clip plane through the head, with exact caps.',
-        'E-MESH clip planes and caps'
-      );
-      pending('isolate', 'Isolate one tissue and everything else steps back.', 'E-MESH isolation');
+      // Back to the probe point. Step 5 clicks the view grid to take the keyboard back (§7.5), and
+      // a left-click in a 2D pane *is* "set the cursor" (R1) — at the grid's centre that lands on a
+      // pane corner, which put the walk 152 mm below the head and filmed two empty panes.
+      await input.click();
+      await input.fill('-42.0 18.0 6.0');
+      await input.press('Enter');
+      await settle(page);
+
+      // 6 — Gestures, cutting and isolation. All three are performed through the product's own
+      // controls: a real `pointerdown`/`move`/`up` in the 3D pane (§7.5's arcball) and the two mesh
+      // panels' buttons. Nothing here calls the engine directly.
+      const grid = page.locator('[data-testid="view-grid"]');
+      const box = await grid.boundingBox();
+      if (box === null) throw new Error('the view grid has no box');
+      // The 3D pane is the bottom-right cell of the 2×2 (`scene/defaults.ts`).
+      const orbitAt = { x: box.x + box.width * 0.75, y: box.y + box.height * 0.75 };
+      await page.mouse.move(orbitAt.x, orbitAt.y);
+      await page.mouse.down();
+      await page.mouse.move(orbitAt.x + 90, orbitAt.y - 40, { steps: 12 });
+      await page.mouse.up();
+      await settle(page);
+      await shoot('orbit', 'Drag to orbit the 3D view; the crosshair follows.', 2);
+
+      const meshLayer = await meshLayerId(page);
+      if (meshLayer !== null) {
+        await page.click(`[data-testid="layer-name-${meshLayer}"]`);
+        await openSection(page, `mesh-clip-${meshLayer}`);
+        await page.click(`[data-testid="mesh-clip-add-${meshLayer}"]`);
+        // The added plane's default normal is `+Z` (`ClipPlanes.tsx`) with an offset outside the
+        // scene, so it clips nothing — right for "added, not yet moved", wrong for a picture of a
+        // cut. Dragging the offset to 0 puts it through the middle of the head and shows §7.4's
+        // exact caps, which is what this frame is for.
+        await setControl(page, `mesh-clip-offset-${meshLayer}-0`, '0');
+        await settle(page);
+        // The plane really is clipping, not merely present: a picture cannot say so and a caption
+        // must not be the only evidence.
+        expect(
+          await page.evaluate((id: string) => {
+            const l = window.__tetravox?.store.getState().layers.find((x) => x.id === id);
+            return l?.kind === 'mesh' ? l.clip.planes[0]?.plane : null;
+          }, meshLayer)
+        ).toEqual({ normal: [0, 0, 1], offset: 0 });
+        await shoot('cut', 'A clip plane through the head, with exact caps.', 2);
+
+        await openSection(page, `mesh-isolate-${meshLayer}`);
+        // Tag 2 is GM on ernie and tet tag 2 on the synthetic lattice — present either way.
+        const tag = page.locator(`[data-testid="mesh-isolate-tag-${meshLayer}-2"]`);
+        if ((await tag.count()) > 0) {
+          await tag.click();
+          await settle(page);
+          await shoot('isolate', 'Isolate one tissue and everything else steps back.', 2);
+          await page.click(`[data-testid="mesh-isolate-clear-${meshLayer}"]`);
+        } else {
+          pending('isolate', 'Isolate one tissue and everything else steps back.', 'no tet tag 2');
+        }
+        await page.click(`[data-testid="mesh-clip-remove-${meshLayer}-0"]`);
+        await settle(page);
+      } else {
+        pending('cut', 'A clip plane through the head, with exact caps.', 'no mesh layer');
+        pending('isolate', 'Isolate one tissue and everything else steps back.', 'no mesh layer');
+      }
 
       // 7 — Screenshot, with the whole option set.
       await page.click('[data-testid="screenshot-options"]');
