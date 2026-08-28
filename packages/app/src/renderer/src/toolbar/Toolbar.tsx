@@ -1,17 +1,20 @@
 /**
  * §8 top toolbar: "Open, layout, radiological toggle, screenshot, save/load scene".
  *
- * Phase 1 shipped every one of those but the last, which the audit recorded as "absent rather than
- * present-and-dead" (§10). Phase 2 fills it in: **New · Open scene · Save · Save as**, writing
- * `*.tetravox.json` (§4.6), with the attached file's name shown so "Save" is never ambiguous about
- * where it is about to write.
+ * Consolidated (directed task: toolbar consolidation, 2026-08-28) from a rail that had grown three
+ * separate ways to reach roughly the same preferences into one:
  *
- * Two deliberate choices in here:
- *
- *  * **The screenshot button still shoots.** It captures with the options the dialog last left, and
- *    the `⚙` beside it opens the dialog. A single button that only opened a form would make the
- *    common case — "take a picture of this" — three clicks, and it would break the Phase-1 E2E that
- *    asserts a click produces a PNG.
+ *  * **One `⚙`.** The screenshot-options gear and the Sys/Light/Dark buttons are gone; `SettingsDialog`
+ *    is the single home for every standing preference (Appearance/Capture/Paths/Startup), and it is
+ *    the right-most control on the rail so "the gear is always in the same corner" holds regardless
+ *    of how many toggles sit to its left.
+ *  * **"Tetravox" is a menu**, not a label. `Open…` / `New` / `Open scene…` / `Save` / `Save as…` are
+ *    one accessible dropdown (`AppMenu.tsx`) instead of five buttons — see that file's header for
+ *    why "Open Recent" is deliberately not in it.
+ *  * **The screenshot button still shoots.** It captures with the options `SettingsDialog`'s Capture
+ *    tab last left. The small `▾` beside it opens `ScreenshotDialog` for the per-capture knobs
+ *    (target/size/scale/include) and the live preview — a capture action, not a setting, so it stays
+ *    one click away without being a second gear.
  *  * **The `?` opens the keyboard sheet**, and the one-line `KEYMAP_HELP` stays as the tooltip. The
  *    sheet is generated from `keymap.ts` (`keyboard/bindings.ts`), so it cannot drift from what the
  *    resolver implements.
@@ -24,7 +27,8 @@ import { useCallback } from 'react';
 import { LAYOUT_LABEL } from '../lib/layout';
 import { KEYMAP_HELP } from '../keyboard/keymap';
 import { useController, useUi } from '../ui/context';
-import { THEME_CHOICES } from '../theme/theme';
+import { AppMenu } from './AppMenu';
+import type { AppMenuAction } from './AppMenu';
 
 export function Toolbar(): React.JSX.Element {
   const controller = useController();
@@ -38,8 +42,6 @@ export function Toolbar(): React.JSX.Element {
   const sceneFile = useUi((s) => s.sceneFile);
   const sceneError = useUi((s) => s.sceneError);
   const dialog = useUi((s) => s.dialog);
-  const themeChoice = useUi((s) => s.themeChoice);
-  const theme = useUi((s) => s.theme);
   const hasContent = useUi((s) => s.layers.length > 0 || s.datasets.length > 0);
   const busy = useUi((s) => s.loads.some((c) => c.state === 'loading' || c.state === 'queued'));
 
@@ -48,62 +50,45 @@ export function Toolbar(): React.JSX.Element {
     void controller.saveScreenshot(controller.snapshotOptions());
   }, [controller]);
 
+  const menuActions: AppMenuAction[] = [
+    { id: 'open', label: 'Open…', onSelect: onOpen },
+    {
+      id: 'new',
+      label: 'New',
+      disabled: !hasContent,
+      title: 'Close every dataset and start an empty scene',
+      onSelect: () => controller.newScene(),
+    },
+    {
+      id: 'open-scene',
+      label: 'Open scene…',
+      title: 'Open a *.tetravox.json scene (§4.6)',
+      onSelect: () => void controller.openSceneDialog(),
+    },
+    {
+      id: 'save',
+      label: 'Save',
+      disabled: !hasContent,
+      title:
+        sceneFile === null
+          ? 'Save this scene to a new *.tetravox.json'
+          : `Save over ${sceneFile.path}`,
+      onSelect: () => void controller.saveScene(),
+    },
+    {
+      id: 'save-as',
+      label: 'Save as…',
+      disabled: !hasContent,
+      onSelect: () => void controller.saveSceneAs(),
+    },
+  ];
+
   return (
     <header
       data-testid="toolbar"
       className="flex items-center gap-2 border-b border-tvx-line bg-tvx-panel px-3 py-1.5"
     >
-      <span className="mr-1 text-sm font-semibold tracking-wide text-tvx-text">Tetravox</span>
-
-      <button type="button" data-testid="open-button" className="tvx-btn" onClick={onOpen}>
-        Open…
-      </button>
-
-      {/* Scene save/load (§4.6, §8). Grouped so the four verbs read as one control, not four. */}
-      <div className="flex items-center gap-0.5" role="group" aria-label="Scene">
-        <button
-          type="button"
-          data-testid="scene-new"
-          className="tvx-btn"
-          disabled={!hasContent}
-          title="Close every dataset and start an empty scene"
-          onClick={() => controller.newScene()}
-        >
-          New
-        </button>
-        <button
-          type="button"
-          data-testid="scene-open"
-          className="tvx-btn"
-          title="Open a *.tetravox.json scene (§4.6)"
-          onClick={() => void controller.openSceneDialog()}
-        >
-          Open scene…
-        </button>
-        <button
-          type="button"
-          data-testid="scene-save"
-          className="tvx-btn"
-          disabled={!hasContent}
-          title={
-            sceneFile === null
-              ? 'Save this scene to a new *.tetravox.json'
-              : `Save over ${sceneFile.path}`
-          }
-          onClick={() => void controller.saveScene()}
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          data-testid="scene-save-as"
-          className="tvx-btn"
-          disabled={!hasContent}
-          onClick={() => void controller.saveSceneAs()}
-        >
-          Save as…
-        </button>
-      </div>
+      <AppMenu actions={menuActions} />
 
       {sceneFile !== null && (
         <span
@@ -220,18 +205,6 @@ export function Toolbar(): React.JSX.Element {
         Cube
       </button>
 
-      {/*
-        The screenshot gear keeps opening `ScreenshotDialog` directly rather than the unified
-        settings dialog's Capture tab (directed task: unified settings, 2026-08-28). Several e2e
-        specs (`catalogue.spec.ts`, `shell-phase2.spec.ts`, `walkthrough.spec.ts`,
-        `cube-scalebar.spec.ts`) click `screenshot-options` and then drive `screenshot-*` testids —
-        target/width/height/scale/dpi/background/autotrim/include/preview/save — that only exist on
-        `ScreenshotDialog`, which also owns the live Preview against the real `Engine.screenshot`.
-        Folding it into a tab would mean re-deriving all of that inside `SettingsDialog` and
-        rewriting five specs for no behavioural gain. Instead `ScreenshotDialog` gained a
-        "Defaults…" button that jumps to the Capture tab for the *standing* preferences
-        (background/dpi/autoTrim), which is the part that actually belongs in Settings.
-      */}
       <div className="flex items-center gap-0.5" role="group" aria-label="Screenshot">
         <button
           type="button"
@@ -243,59 +216,20 @@ export function Toolbar(): React.JSX.Element {
         </button>
         <button
           type="button"
-          data-testid="screenshot-options"
+          data-testid="screenshot-menu"
           aria-label="Screenshot options"
           aria-pressed={dialog === 'screenshot'}
           className={dialog === 'screenshot' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
-          title="Target, size, scale, DPI, background, chrome and auto-trim (§4.7)"
+          title="Target, size, scale, DPI, background, chrome and auto-trim, with a live preview (§4.7)"
           onClick={() => controller.openDialogKind('screenshot')}
         >
-          ⚙
+          ▾
         </button>
       </div>
 
-      <button
-        type="button"
-        data-testid="settings-button"
-        title="Settings — appearance, capture defaults, paths and startup (§8)"
-        aria-label="Settings"
-        aria-pressed={dialog === 'settings'}
-        className={dialog === 'settings' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
-        onClick={() => controller.openDialogKind(dialog === 'settings' ? 'none' : 'settings')}
-      >
-        ⚙
-      </button>
-
-      {/* §8's theme switch. Three radio-ish buttons rather than a `<select>`: it is the same
-        control shape as the layout and RAD/NEU groups beside it, one click deep instead of two,
-        and `aria-pressed` makes the current one announceable. `data-theme-resolved` is what the
-        E2E reads to tell "System, which is dark right now" from "Dark". */}
-      <div
-        className="flex items-center gap-0.5"
-        role="group"
-        aria-label="Theme"
-        data-testid="theme-group"
-        data-theme-choice={themeChoice}
-        data-theme-resolved={theme}
-      >
-        {THEME_CHOICES.map((choice) => (
-          <button
-            key={choice}
-            type="button"
-            data-testid={`theme-${choice}`}
-            aria-pressed={themeChoice === choice}
-            className={themeChoice === choice ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
-            title={
-              choice === 'system'
-                ? 'Follow the operating system’s light/dark setting'
-                : `Always use the ${choice} theme`
-            }
-            onClick={() => controller.setThemeChoice(choice)}
-          >
-            {choice === 'system' ? 'Sys' : choice === 'light' ? 'Light' : 'Dark'}
-          </button>
-        ))}
-      </div>
+      <span data-testid="keymap-help" className="ml-auto truncate text-[11px] text-tvx-dim">
+        {busy ? 'loading…' : 'press ? for the key map'}
+      </span>
 
       <button
         type="button"
@@ -309,9 +243,17 @@ export function Toolbar(): React.JSX.Element {
         ?
       </button>
 
-      <span data-testid="keymap-help" className="ml-auto truncate text-[11px] text-tvx-dim">
-        {busy ? 'loading…' : 'press ? for the key map'}
-      </span>
+      <button
+        type="button"
+        data-testid="settings-button"
+        title="Settings — appearance, capture defaults, paths and startup (§8)"
+        aria-label="Settings"
+        aria-pressed={dialog === 'settings'}
+        className={dialog === 'settings' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+        onClick={() => controller.openDialogKind(dialog === 'settings' ? 'none' : 'settings')}
+      >
+        ⚙
+      </button>
     </header>
   );
 }

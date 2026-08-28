@@ -11,10 +11,23 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from '@playwright/test';
-import type { ElectronApplication } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const APP_ROOT = resolve(here, '..');
+
+/**
+ * The "Tetravox" wordmark's menu (`toolbar/AppMenu.tsx`, directed task: toolbar consolidation,
+ * 2026-08-28): `Open…` / `New` / `Open scene…` / `Save` / `Save as…` moved off the toolbar and into
+ * this dropdown, so every spec that used to click `open-button` / `scene-*` directly opens the menu
+ * first and clicks the `app-menu-<action>` item instead.
+ */
+export type AppMenuAction = 'open' | 'new' | 'open-scene' | 'save' | 'save-as';
+
+export async function clickAppMenu(page: Page, action: AppMenuAction): Promise<void> {
+  await page.click('[data-testid="app-menu"]');
+  await page.click(`[data-testid="app-menu-${action}"]`);
+}
 
 export type LaunchTarget = 'dev' | 'packaged';
 
