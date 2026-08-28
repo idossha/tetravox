@@ -334,16 +334,30 @@ the arm64 one — a leg that passes while proving the wrong thing.
 
 ## 8. Measured, on this hardware
 
-macOS artefacts from `pnpm package` on an M-series Mac, at 0.1.0:
+Every artefact below was built and verified locally at `0.1.0` — macOS with `pnpm package` on an
+M-series Mac, Linux with `scripts/package-linux.sh` (Docker), Windows with
+`electron-builder --win --x64` **from macOS**.
 
-| Artefact | Size |
-|---|---|
-| `Tetravox-<v>-mac-arm64.dmg` | 123 MB |
-| `Tetravox-<v>-mac-arm64.zip` | 123 MB |
-| `Tetravox-<v>-mac-x64.dmg` | 126 MB |
-| `Tetravox-<v>-mac-x64.zip` | 126 MB |
-| `Tetravox-<v>-win-x64.exe` | 107 MB (built on macOS) |
+| Artefact | Size | How it was verified |
+|---|---|---|
+| `Tetravox-<v>-mac-arm64.dmg` | 123 MB | built; the `.app` inside is what the two checks below run |
+| `Tetravox-<v>-mac-arm64.zip` | 123 MB | built |
+| `Tetravox-<v>-mac-x64.dmg` | 127 MB | built; smoke test passes under Rosetta |
+| `Tetravox-<v>-mac-x64.zip` | 127 MB | built |
+| `Tetravox-<v>-linux-x86_64.AppImage` | 120 MB | built in Docker; smoke test runs the unpacked payload under Xvfb (see §6) |
+| `Tetravox-<v>-linux-amd64.deb` | 95 MB | built in Docker |
+| `Tetravox-<v>-linux-x64.tar.gz` | 114 MB | built in Docker |
+| `Tetravox-<v>-win-x64.exe` | 107 MB | built from macOS with no wine; **not launched** — that is `windows-latest`'s job |
 
-The smoke test on the arm64 slice: `ok=true`, `smoke.png` 5,015 B, load 622 ms, 7.6 s wall. The same
-test against the x64 slice on the same machine loads in 3,879 ms — Rosetta, and the reason §7's
-discovery order matters.
+The two macOS checks, both on the arm64 slice:
+
+* `node scripts/smoke-artefact.mjs` → `ok=true`, `smoke.png` 5,015 B, load **354 ms**, 7.2 s wall.
+* `TETRAVOX_REQUIRE_PACKAGED=1 pnpm --filter @tetravox/app run e2e:packaged` → **130 passed, 70
+  skipped, 26.1 s**.
+
+The Linux check, inside the container under Xvfb: `ok=true`, `smoke.png` 3,427 B, load 1,373 ms.
+
+**The Rosetta number is the reason §7's discovery order exists.** The same packaged e2e against the
+x64 slice on this arm64 Mac took **4.9 minutes** instead of 26.1 seconds, and the same smoke test took
+3,879 ms to load instead of 354 ms. Before the fix, both ran against `release/mac` — the x64 build —
+and passed, so the leg was green and the arm64 artefact had never been launched.
