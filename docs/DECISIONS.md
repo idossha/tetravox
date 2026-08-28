@@ -2315,3 +2315,29 @@ Each entry below names the problem, the fix, and the evidence.
   became load-bearing the moment `reduced` really dropped edges: without it a golden captured on a
   slow machine would differ from the same golden on a fast one. And the status-bar tooltips now name
   the one knob that moves rather than reciting the list.
+
+
+- 2026-08-28 — **§9.2's `buildTopology` memory bar was never measured, and measuring it moved the
+  number.** `docs/PHASE2-OWNERSHIP.md` lists it as a Phase-2 gate item explicitly deferred from
+  Phase 1 ("nothing in Phase 1 clips or isolates"), owner E-MESH. The only `ernie_seeg.msh` heap
+  assertion on `main` was on the **load** path (≤ 1024 MB) — a different arena, which is why §9.2 has
+  two rows rather than one "< 2 ×" rule — so the 1.56 GB worst case shipped unmeasured.
+  Measured `[M2Max]`, in `packages/wasm/e2e/realdata.spec.ts`: `ernie_seeg.msh` load 912.4 MB →
+  after `buildTopology` **1,893.1 MB**; `ernie.msh` 341.8 → **846.1 MB**. The live-byte model is
+  right (the growth over the load path is 981 MB against a 1,096 MB model of `TetTopology` +
+  counting-sort transient), and the gap is §9.2's own rule read one step further: linear memory
+  **grows and never shrinks**, so the load path's freed input block — 492 MB / 184 MB — is still
+  mapped when the topology path allocates, and dlmalloc reuses only part of it. The observable peak
+  is `load resident + topology arena`, never the larger of the two.
+  §9.2 now carries both columns: the live-byte model, unchanged, and a **resident** bar per file,
+  which is what `wasm_heap_bytes()` reports and therefore the only thing a test can assert. Bars are
+  the measurement plus ~11–13 % (960 MB and 2,100 MB). Rejected: quoting the model as the assertion
+  and letting the test fail — the model is not wrong, it is measuring live bytes, and a bar nothing
+  can observe is the reason this was never measured in the first place. Also rejected: freeing the
+  input earlier to close the gap — §5 rule 5 already drops it before `read_msh` returns; wasm cannot
+  give the pages back. Shrinking the transient is §6.3's counting sort and belongs to Phase 3's
+  performance pass, where it is worth ~597 MB on this file.
+  The two tests cross-check the topology itself while they are there: `ernie.msh` yields exactly
+  9,509,557 unique faces and 128,614 boundary faces, which are §9.2's component table and §11's
+  Surface invariant respectively — a packed-key collision would flatter the memory number as well as
+  losing faces.

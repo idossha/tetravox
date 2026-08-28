@@ -2276,16 +2276,28 @@ every row it headed.
 | — `ernie_TDCS_1_scalar.msh` (420.2 MB) | ≤ 800 MB | 664 MB (`Mesh` 149.1 + `E` 70.8 + `magnE` 23.6) → 1.58 × |
 | — `flex_*_TI.msh` (396.6 MB) | ≤ 760 MB | same class as the row above |
 | — `ernie_seeg.msh` (492.1 MB) / `ernie-seeg.msh` (496.6 MB) | ≤ 1.0 GB | 893 MB / 901 MB → 1.81 × |
-| **`buildTopology` path**, per dataset worker | **< 3.2 × file size** | every reference mesh lands at 1.6–3.2 × |
-| — `ernie.msh` | ≤ 600 MB | 566 MB = `Mesh` 149.1 + transient 226.7 + `TetTopology` 190.2 → 3.07 × |
-| — `ernie_TDCS_1_scalar.msh` | ≤ 720 MB | 661 MB → 1.57 × (the fields dominate, not the topology) |
-| — `ernie_seeg.msh` / `ernie-seeg.msh` | ≤ **1.6 GB** | 1,548 MB / 1,564 MB → 3.15 × |
+| **`buildTopology` path**, per dataset worker | **< 3.2 × file size** *live*; see the resident rule below | every reference mesh lands at 1.6–3.2 × |
+| — `ernie.msh` | ≤ 600 MB live · ≤ 960 MB resident | 566 MB = `Mesh` 149.1 + transient 226.7 + `TetTopology` 190.2 → 3.07 ×; **846.1 MB resident** `[M2Max]` |
+| — `ernie_TDCS_1_scalar.msh` | ≤ 720 MB live | 661 MB → 1.57 × (the fields dominate, not the topology) |
+| — `ernie_seeg.msh` / `ernie-seeg.msh` | ≤ **1.6 GB** live · ≤ **2.1 GB** resident | 1,548 MB / 1,564 MB → 3.15 ×; **1,893.1 MB resident** `[M2Max]` |
+
+**Live bytes and resident bytes are two different numbers, and `wasm_heap_bytes()` reports the second.** The
+`[MODEL]` column above is *live* bytes — what the arena holds at its peak — and it is accurate: measured on
+`ernie_seeg.msh`, the growth over the load path is 981 MB against a 1,096 MB model of `TetTopology` (26,167,586
+faces × 20 B = 499 MB) plus the counting-sort transient (4 × 13,033,527 × 12 B = 597 MB) `[M2Max]`. What the model
+cannot include is the rule two paragraphs above: **linear memory grows and never shrinks**, so when the topology
+path allocates, the load path's freed input block — 492 MB for `ernie_seeg.msh`, 184 MB for `ernie.msh` — is still
+mapped, and dlmalloc reuses only part of it. The observable peak is therefore the load path's resident total plus
+the topology arena, not the larger of the two: 912.4 → 1,893.1 MB for `ernie_seeg.msh` and 341.8 → 846.1 MB for
+`ernie.msh` `[M2Max]`, both measured in `packages/wasm/e2e/realdata.spec.ts`. Both stay far inside the 4,032 MiB
+ceiling (47 % and 21 %), which is what the bar is ultimately about; the resident columns above are the numbers a
+regression would move, and they are the ones asserted.
 | Renderer JS heap (ernie scene) | ≤ 400 MB; **no single ArrayBuffer > 1 GB** | |
 | GPU (ernie scene) | ≤ 500 MB | |
 
-The SEEG worst case is therefore **≈ 900 MB on the load path and ≈ 1.56 GB once the user clips or isolates** —
-comfortably inside the 4032 MiB ceiling, but *not* inside a flat 1.5 GB bar, which is why the bar is scoped by
-path. `buildTopology` is not refused on any reference file. What keeps 1.56 GB from being the 2.8 GB the v1
+The SEEG worst case is therefore **≈ 900 MB on the load path and ≈ 1.9 GB resident once the user clips or
+isolates** (912.4 → 1,893.1 MB measured `[M2Max]`; 1.56 GB of that is live) — comfortably inside the 4032 MiB
+ceiling, but *not* inside a flat 1.5 GB bar, which is why the bar is scoped by path. `buildTopology` is not refused on any reference file. What keeps 1.56 GB from being the 2.8 GB the v1
 review measured is exactly the three v2 mitigations: lazy topology, counting-sort face extraction (transient
 1,251 → 632 MB), and `TetTopology` without `tet_faces` (730 → 528 MB).
 
