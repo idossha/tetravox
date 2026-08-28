@@ -24,6 +24,15 @@ import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
 import {
+  armWatchdog,
+  jobRequest,
+  isJobRun,
+  onRendererGone,
+  prepareJob,
+  registerJobIpc,
+  rememberInvocation,
+} from './job-runner';
+import {
   readSceneFile,
   showOpenSceneDialog,
   showRelocateDialog,
@@ -53,6 +62,19 @@ app.commandLine.appendSwitch('enable-webgl-developer-extensions');
  * `src/main/window.ts` has the measurements behind the choice.
  */
 const MODE = windowMode();
+
+/**
+ * `Tetravox --job job.json --out DIR [--quiet]` (`job-runner.ts`, `docs/AUTOMATION.md`).
+ *
+ * Parsed **before** `whenReady`, so a malformed job exits without ever creating a GPU context, and so
+ * `createWindow` can size the window from the job rather than from the interactive default. A launch
+ * with no `--job` gets `null` here and every line below behaves exactly as it did.
+ */
+const JOB = prepareJob(process.argv, process.cwd());
+if (JOB !== null) rememberInvocation(JOB);
+
+/** How long a job may run before it is declared hung. Ten minutes covers a 36-frame orbit on ernie. */
+const JOB_TIMEOUT_MS = Number(process.env['TETRAVOX_JOB_TIMEOUT_MS'] ?? 600_000);
 
 let mainWindow: BrowserWindow | null = null;
 const getWindow = (): BrowserWindow | null => mainWindow;
@@ -115,13 +137,19 @@ function phase0FixturePath(): string {
 }
 
 function createWindow(): BrowserWindow {
+  // A job renders at the size it asked for: the offscreen window IS the render target, and
+  // `ScreenshotOptions.width` scales *up* from the pane it captured, so a 400 px pane upscaled to
+  // 1400 is a blurrier picture than a 1400 px pane captured as it stands.
+  const jobWindow = jobRequest()?.job.window;
   const win = new BrowserWindow({
-    width: 1280,
-    height: 860,
+    width: jobWindow?.width ?? 1280,
+    height: jobWindow?.height ?? 860,
     // Below this the §8 three-column layout has nothing left for the view grid: the two side panels
     // are 18 rem and 20 rem, so a window narrower than ~960 px would show panels and no viewport.
-    minWidth: 960,
-    minHeight: 600,
+    // The interactive floor exists because below it the §8 three-column layout has no room for the
+    // view grid. A job has no panels to squeeze — it screenshots the engine — so it sets its own.
+    minWidth: jobWindow === undefined ? 960 : 1,
+    minHeight: jobWindow === undefined ? 600 : 1,
     show: false,
     backgroundColor: '#0b0b0f',
     title: 'Tetravox',
@@ -153,7 +181,12 @@ function createWindow(): BrowserWindow {
 }
 
 // Single instance, so a second `tetravox file.nii` hands its paths to the running window (§8).
-if (!app.requestSingleInstanceLock()) {
+//
+// **A `--job` run is exempt.** The lock's purpose is that opening a file joins the window you are
+// already looking at; a batch render has no such window and must not hand its argv to a developer's
+// running copy and then exit 0 having produced nothing. It is also what makes two jobs runnable at
+// once, which a CI matrix will do on its first day.
+if (!isJobRun() && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv, cwd) => {
@@ -195,6 +228,10 @@ if (!app.requestSingleInstanceLock()) {
     const real = allowPath(phase0FixturePath());
     return real === null ? null : { path: real, url: fileUrl(real) };
   });
+  // The `--job` channels (`job-runner.ts`). Registered unconditionally: a normal launch asks for a
+  // spec once, is told `null`, and takes the UI path.
+  registerJobIpc();
+
   ipcMain.on('tetravox:log', (_event, message: unknown) => {
     console.log(`[tetravox:renderer] ${String(message)}`);
   });
@@ -232,6 +269,18 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
+
+    if (isJobRun() && mainWindow !== null) {
+      // A job that never reports is a job that hung: without these two the process would sit alive
+      // with no window on screen and nothing to notice it by.
+      armWatchdog(mainWindow, JOB_TIMEOUT_MS);
+      mainWindow.webContents.on('render-process-gone', (_event, details) =>
+        onRendererGone(`renderer process gone: ${details.reason}`)
+      );
+      mainWindow.webContents.on('did-fail-load', (_event, code, description) =>
+        onRendererGone(`the renderer failed to load: ${description} (${code})`)
+      );
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

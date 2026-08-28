@@ -11,6 +11,7 @@ targets are macOS and Linux.
 | Path | What |
 | --- | --- |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | **The contract.** Layout (§2), coordinates (§3), data model (§4), threading (§5), Rust + worker-protocol APIs (§6), rendering (§7), budgets (§9), verification (§11), CI (§12). Read it first. |
+| [`docs/AUTOMATION.md`](docs/AUTOMATION.md) | **Scripting it.** `Tetravox --job job.json --out DIR`: screenshots, slice sweeps and 3D orbits from a job file or from Python, with no window and no stolen focus. |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | What is in flight, and the gate every phase must pass. |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Append-only decision log. Every deviation from the contract lands here. |
 | [`AGENTS.md`](AGENTS.md) | Commands, the reference dataset's measured numbers, and the working rules. |

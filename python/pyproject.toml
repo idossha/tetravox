@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tetravox"
+version = "0.1.0"
+description = "Automation client for Tetravox: load neuroimaging data, configure a visualisation, and capture screenshots, slice sweeps and 3D orbits from a script."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Tetravox contributors" }]
+keywords = ["neuroimaging", "visualization", "nifti", "gmsh", "simnibs", "screenshot"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
+# No dependencies, and that is a design decision, not an omission: this is meant to be dropped into an
+# analysis environment that already has its own pinned scientific stack (see `docs/AUTOMATION.md`).
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/tetravox/tetravox"
+Documentation = "https://github.com/tetravox/tetravox/blob/main/docs/AUTOMATION.md"
+
+[tool.setuptools]
+packages = ["tetravox"]

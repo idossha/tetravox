@@ -2522,3 +2522,23 @@ Each entry below names the problem, the fix, and the evidence.
   moved from the bottom of the old table into `FieldSection`, beside the colour-source selector it
   actually feeds.
 
+- 2026-08-28 — **The headless capture surface is `--job job.json --out DIR`, not `--scene … --screenshot …`.**
+  §8 sketched a Phase-3 CLI as `tetravox --scene s.tetravox.json --screenshot out.png --width 2400
+  --background white [--headless]`: one file in, one picture out. The maintainer's ask (4) is broader —
+  "load + auto-configure visualization, load + capture screenshots, create videos / sweeps through
+  slices" — and a flag-per-option CLI cannot express a *sequence* of captures over one loaded scene.
+  That matters for cost, not for taste: `ernie.msh` is 184 MB and about a second of parsing, so six
+  figures from six invocations pay for it six times, and a sweep is a hundred captures.
+  A job file is therefore a scene plus an ordered list of actions (`set` / `screenshot` / `sweep` /
+  `orbit`), validated before a window exists, with a `job-result.json` naming what was written. §8's
+  single-shot case is the one-action job. `--headless` does not exist: a `--job` run takes the
+  offscreen window mode unconditionally, and `TETRAVOX_E2E_HEADED` does not outrank it.
+  Two things follow that are worth stating. **PNG bytes cross IPC**: a screenshot the renderer just
+  rendered, bounded by the window, written by main because main owns the filesystem — §5 rule 3's
+  subject is raw *file* bytes, which still reach only the dataset's worker. And **a job window has no
+  §8 panels**: they are 18 rem + 20 rem of chrome that no screenshot contains, and on a 700 px window
+  they left the view grid about 100 px wide.
+  No frozen interface moved. The GIF encoder and the PNG decoder are written in-repo (`main/gif.ts`,
+  `main/png.ts`) rather than installed, per §12.3; ffmpeg stays optional and its absence is a warning,
+  never a failure. Python client: `python/`, standard library only.
+

@@ -80,6 +80,16 @@ export interface UiState {
   crosshair: boolean;
   /** §8's colour bars, mirrored from `Scene.annotations.colorbars` (appended; never renamed). */
   colorbars: boolean;
+  /**
+   * This window was launched for a `--job` (`automation/run.ts`), so the §8 panels are not drawn.
+   *
+   * The panels are 18 rem + 20 rem of chrome that no screenshot contains — a job's pictures come off
+   * the engine's canvas, not off the DOM — and on a 700 px window they left the view grid about
+   * 100 px wide, so a "300 px" sweep frame was a 300x1500 sliver with a thumbnail of a brain in it.
+   * Giving the whole window to the view grid is what makes a job's requested size the size of the
+   * picture. Appended, never renamed (`docs/PHASE2-OWNERSHIP.md`).
+   */
+  jobMode: boolean;
   cursor: vec3;
   cursorProbe: ProbeResult | null;
   hover: vec3 | null;
@@ -201,6 +211,7 @@ export const INITIAL_UI: UiState = {
   radiological: false,
   crosshair: true,
   colorbars: true,
+  jobMode: false,
   cursor: [0, 0, 0],
   cursorProbe: null,
   hover: null,

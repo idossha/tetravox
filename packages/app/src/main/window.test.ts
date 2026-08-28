@@ -28,4 +28,19 @@ describe('windowMode (AGENTS rule 9)', () => {
     // …and equally, a stray `TETRAVOX_E2E_HEADED=0` does not re-show a windowless run.
     expect(windowMode({ TETRAVOX_E2E_OFFSCREEN: '1', TETRAVOX_E2E_HEADED: '0' })).toBe('offscreen');
   });
+
+  it('every argv is checked against the env, not just the environment', () => {
+    // The env-only cases above all pass an empty argv, so they are also asserting that an ordinary
+    // argv does not accidentally look like a job.
+    expect(windowMode({}, ['electron', '.', '/data/T1.nii.gz'])).toBe('normal');
+  });
+
+  it('a --job launch is offscreen, and TETRAVOX_E2E_HEADED does NOT outrank it', () => {
+    expect(windowMode({}, ['Tetravox', '--job', 'j.json', '--out', 'o'])).toBe('offscreen');
+    expect(windowMode({}, ['Tetravox', '--job=j.json'])).toBe('offscreen');
+    // A batch render must not put a window on a user's screen halfway through, whatever is exported.
+    expect(windowMode({ TETRAVOX_E2E_HEADED: '1' }, ['Tetravox', '--job', 'j.json'])).toBe(
+      'offscreen'
+    );
+  });
 });
