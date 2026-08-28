@@ -53,6 +53,12 @@ SEAM = "#1b2029"
 #: Ink for the monochrome variant and the wordmark.
 INK = "#15181d"
 
+#: The wordmark's ink on a dark ground. GitHub renders a README on `#0d1117`, where
+#: `INK` is invisible — the mark survives (it carries its own graphite and accent),
+#: the type does not. Same geometry, one colour swapped; near-white rather than pure
+#: white so the letters do not out-glare the mark beside them.
+INK_ON_DARK = "#eef1f6"
+
 #: The macOS-style icon plate.
 PLATE_DARK = "#1b1f26"
 PLATE_LIGHT = "#2b313b"
@@ -385,8 +391,13 @@ WORDMARK_DESCENT = 375.0
 # WORDMARK-END
 
 
-def svg_wordmark() -> str:
-    """Mark on the left, `Tetravox` set in outlines on the right."""
+def svg_wordmark(dark: bool = False) -> str:
+    """Mark on the left, `Tetravox` set in outlines on the right.
+
+    `dark=True` is the same file with the type in `INK_ON_DARK` — every coordinate
+    is identical, so the light and dark PNGs are interchangeable inside a
+    `<picture>` and swapping themes does not move the header by a pixel.
+    """
     if not WORDMARK_PATH:
         raise SystemExit("wordmark outlines are empty — run --regen-wordmark FONT.ttf first")
     cap = SIZE * 0.46  # cap height of the type, relative to the mark's box
@@ -399,7 +410,7 @@ def svg_wordmark() -> str:
         HEADER.format(w=round(total_w, 3), h=SIZE, label="Tetravox")
         + mark_body(False)
         + f'\n  <g transform="translate({tx:.3f},{baseline:.3f}) scale({k:.6f},{-k:.6f})" '
-        f'fill="{INK}">\n    <path d="{WORDMARK_PATH}"/>\n  </g>\n</svg>\n'
+        f'fill="{INK_ON_DARK if dark else INK}">\n    <path d="{WORDMARK_PATH}"/>\n  </g>\n</svg>\n'
     )
 
 
@@ -577,6 +588,7 @@ def main() -> None:
     write(mark, svg_mark(mono=False))
     write(BRAND / "tetravox-mark-mono.svg", svg_mark(mono=True))
     write(BRAND / "tetravox-wordmark.svg", svg_wordmark())
+    write(BRAND / "tetravox-wordmark-dark.svg", svg_wordmark(dark=True))
     write(plate, svg_plate(inset=100 / 1024))
     write(WEB / "logo.svg", svg_mark(mono=False))
     # The favicon is the plate: a bare mark at 16 px has no ground to sit on and
@@ -604,6 +616,10 @@ def main() -> None:
     # — height follows from the SVG's own aspect ratio.
     rasterise(BRAND / "tetravox-wordmark.svg", DOCS / "logo.png", 1200)
     print(f"  {(DOCS / 'logo.png').relative_to(ROOT)} {png_size(DOCS / 'logo.png')}")
+    # The dark-theme twin. README.md picks between the two with `<picture>` +
+    # `prefers-color-scheme`, which GitHub honours.
+    rasterise(BRAND / "tetravox-wordmark-dark.svg", DOCS / "logo-dark.png", 1200)
+    print(f"  {(DOCS / 'logo-dark.png').relative_to(ROOT)} {png_size(DOCS / 'logo-dark.png')}")
 
     print("ico")
     frames_dir = BRAND / ".ico-frames"

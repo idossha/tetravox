@@ -27,6 +27,10 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # `contents: write` is for one thing only: the coverage-badge commit on the orphan `badges`
+    # branch below. Nothing else in this job writes to the repository.
+    permissions:
+      contents: write
     # A green `test` leg is ~8 min on ubuntu and ~5 min on macOS (measured, run 33125834965). The cap
     # is not for the happy path; it is for the one where the engine cannot start. Playwright's
     # per-test timeout is 30 s and the engine suite is ~120 tests over two projects, so a page that
@@ -225,12 +229,49 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         run: pnpm run test:coverage
 
+      # `lcov.info`, NOT `coverage-summary.json`: Codecov parses lcov/cobertura/clover and istanbul's
+      # `coverage-final.json`, and a `json-summary` file is none of those — it uploads, is rejected as
+      # an unusable report, and the shields badge stays "unknown" forever with nothing red to explain
+      # why. `vitest.config.ts` emits both reporters; the summary is what the badge fallback below
+      # reads, lcov is what Codecov reads.
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-24.04'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
-          files: ./coverage/coverage-summary.json
+          files: ./coverage/lcov.info
           fail_ci_if_error: false
+
+      # …and the badge the README actually shows, because the upload above cannot succeed on this
+      # repository: with no `CODECOV_TOKEN` the uploader answers
+      # `Token required - not valid tokenless upload` and, with `fail_ci_if_error: false`, stays
+      # green — so the shields badge read "coverage unknown" with nothing red to explain it. The
+      # number is published from this run's own summary to the orphan `badges` branch and rendered
+      # through `img.shields.io/endpoint`. Push to `main` only: a PR must not move the badge.
+      - name: Publish the coverage badge to the `badges` branch
+        if: ${{ matrix.os == 'ubuntu-24.04' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/coverage-badge.mjs --in coverage/coverage-summary.json --out "$RUNNER_TEMP/coverage.json"
+          cd "$RUNNER_TEMP"
+          rm -rf badges-branch
+          git clone --depth 1 --branch badges \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges-branch \
+            || { mkdir badges-branch && cd badges-branch && git init -q -b badges \
+                 && git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" && cd ..; }
+          cp coverage.json badges-branch/coverage.json
+          cd badges-branch
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add coverage.json
+          if git diff --cached --quiet; then
+            echo "coverage badge unchanged"
+            exit 0
+          fi
+          git commit -q -m "coverage: $(node -e "process.stdout.write(require('./coverage.json').message)") (${GITHUB_SHA:0:7})"
+          git push origin HEAD:badges
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Engine Playwright (§11 goldens + analytic pixels) and, once packages/app has an `e2e` script,
       # the Playwright-Electron app E2E — `pnpm e2e` is `pnpm -r --if-present run e2e`, so the app leg
@@ -465,8 +506,17 @@ jobs:
 
       # §12.1: "launch the packaged binary with a CLI arg pointing at a fixture and assert it exits 0
       # after rendering one frame." That is `scripts/smoke-artefact.mjs`.
+      # `TETRAVOX_SOFTWARE_GL=1`: hosted runners have no GPU, and the packaged app's GPU process dies
+      # on them — Linux under Xvfb exits it "due to errors during initialization" and the hosted Intel
+      # macOS image fails `GLDisplayEGL::Initialize`, after which every shader returns
+      # "failed to compile: (no log)" and the job writes no frame. `src/main/index.ts` reads this
+      # variable and adds `--disable-gpu`, the same thing `e2e/fixtures.ts` already does on Linux, so
+      # the render happens in SwiftShader in-process. What the leg proves is unchanged: the packaged
+      # binary starts, loads the fixtures and writes a real PNG.
       - name: Artefact smoke test
         shell: bash
+        env:
+          TETRAVOX_SOFTWARE_GL: '1'
         run: |
           if [ "${{ matrix.smoke }}" = "version" ]; then
             node scripts/smoke-artefact.mjs --version-only
