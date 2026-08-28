@@ -62,10 +62,12 @@ uniform int uFieldW;
 
 uniform int uFirst;                       // GlyphSpec.subsample: first triangle …
 uniform int uStride;                      // … and every uStride-th after it
-uniform float uLengthMm;                  // GlyphSpec.lengthMm
-uniform float uByMagnitude;               // 1 = scale 'byMagnitude', 0 = 'fixed'
+uniform float uLengthMm;                  // GlyphScaling.lengthMm
+uniform int uScaleMode;                   // 0 fixed, 1 linear, 2 sqrt, 3 log10 — GlyphScaling.mode
 uniform float uRefMag;                    // the magnitude that maps to uLengthMm
-uniform vec2 uLutRange;                   // colorBy 'magnitude': the baked LUT's (lo, hi)
+uniform float uLogFloor;                  // GlyphScaling.logFloor, in field units
+uniform vec4 uSlab;                       // onCutPlaneOnly: (normal.xyz, offset) in WORLD mm
+uniform float uSlabHalf;                  // half-thickness in mm; <= 0 disables the restriction
 
 out vec3 vNormal;
 out vec3 vWorld;
@@ -106,9 +108,35 @@ void main() {
   vec3 e = vec3(table1(uFx, uFieldW, fi), table1(uFy, uFieldW, fi), table1(uFz, uFieldW, fi));
   float mag = length(e);
   vAlpha = (style.a > 0.0 && mag > 0.0) ? 1.0 : 0.0;
-  vT = clamp((mag - uLutRange.x) / max(1e-20, uLutRange.y - uLutRange.x), 0.0, 1.0);
 
-  float len = uLengthMm * mix(1.0, mag / max(1e-20, uRefMag), uByMagnitude);
+  // The scaling model of \`derived/glyph-scale.ts\`, term for term. Both copies exist because one
+  // runs per instance on the GPU and one answers the legend, the colour bar and the app editor;
+  // \`glyph-scale.test.ts\` pins the maths and the \`glyph-length\` e2e measures the drawn arrow
+  // against it in pixels, so the two cannot drift without a test going red.
+  float R = max(1e-20, uRefMag);
+  float len = uLengthMm;
+  if (uScaleMode == 1) {
+    len = uLengthMm * mag / R;
+  } else if (uScaleMode == 2) {
+    len = uLengthMm * sqrt(mag / R);
+  } else if (uScaleMode == 3) {
+    float f = max(1e-20, uLogFloor);
+    float denom = log2(R / f);
+    len = (mag <= f) ? 0.0 : (denom > 0.0 ? uLengthMm * log2(mag / f) / denom : uLengthMm);
+  }
+  if (uScaleMode != 0 && mag <= 0.0) len = 0.0;
+  if (len <= 0.0) vAlpha = 0.0;
+
+  // The colour follows the same map as the length (\`glyphColorT\`), so a bar titled LOG10 describes
+  // the ramp it is over. \`fixed\` has no length information, so its colour is linear in |E|.
+  vT = clamp(uScaleMode == 0 ? mag / R : len / max(1e-20, uLengthMm), 0.0, 1.0);
+
+  // Density, third knob: only origins inside the slab about the layer's cut plane (§7.4).
+  if (uSlabHalf > 0.0) {
+    vec3 wo = (uModel * vec4(origin, 1.0)).xyz;
+    if (abs(dot(uSlab.xyz, wo) + uSlab.w) > uSlabHalf) vAlpha = 0.0;
+  }
+
   vec3 dir = mag > 0.0 ? e / mag : vec3(0.0, 0.0, 1.0);
   // An orthonormal frame with +Z on \`dir\`; the reference axis is whichever world axis \`dir\` is
   // least aligned with, so the cross product never degenerates.

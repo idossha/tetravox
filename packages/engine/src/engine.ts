@@ -57,6 +57,8 @@ import { createLayerRuntime } from './layers/registry';
 import { createIso3dRuntime, derivedIsoLayers } from './layers/iso3d';
 import type { Iso3dLayerRuntime } from './layers/iso3d';
 import { DerivedStore } from './derived/store';
+import { readGlyphInstances } from './derived/glyph-readback';
+import type { GlyphInstance } from './derived/glyph-readback';
 import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
 
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
@@ -1147,6 +1149,27 @@ export class TetravoxEngine implements Engine, PointerHost {
    * `VolumeDataset.stats` is volume 0's by contract (§6.5.1); at index k it is the wrong
    * distribution, and P2-05 is exactly the bug of not having anywhere else to ask.
    */
+  /**
+   * **Test-only** (§11): the glyph instances the next frame would draw, as numbers.
+   *
+   * `derived/glyph-readback.ts` explains why this exists — everything a glyph *is* happens in the
+   * vertex shader, so a golden PNG can only say that arrows appeared, not that they point where the
+   * field does. Returns `null` until {@link Engine.retainGlyphSources} has been on for long enough
+   * that the ops behind the draw have landed.
+   */
+  glyphInstances(layerId: LayerId): GlyphInstance[] | null {
+    const layer = this.#scene.layers.find((l) => l.id === layerId);
+    if (layer === undefined || layer.kind !== 'mesh') return null;
+    const ds = this.#scene.datasets.get(layer.datasetId);
+    if (ds === undefined || ds.kind !== 'mesh') return null;
+    return readGlyphInstances(this.#derived, layer, ds);
+  }
+
+  /** **Test-only**: keep the arrays behind the glyph tables so {@link Engine.glyphInstances} can. */
+  retainGlyphSources(on: boolean): void {
+    this.#derived.retainGlyphSources(on);
+  }
+
   layerStats(layerId: LayerId): Stats | undefined {
     const rt = this.#layers.get(layerId);
     return rt instanceof VolumeLayerRuntime ? rt.stats : undefined;

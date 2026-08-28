@@ -472,6 +472,27 @@ python3 -m unittest discover -s scripts/reference/tests        # 117 self-tests
 Only numpy, nibabel and scipy — the stack `AGENTS.md` already assumes. No Pillow (the PNG writer is
 60 lines of `zlib`), no pytest (`unittest`), and **no import from `packages/`**.
 
+### Reference glyphs (`scripts/reference/glyphs.py`)
+
+The same idea for §4.4's `GlyphSpec`, and the one script here that needs the **host SimNIBS**
+interpreter (it reads a `.msh`; everything after that is numpy):
+
+```
+/Users/idohaber/Applications/SimNIBS-4.6/bin/simnibs_python scripts/reference/glyphs.py \
+    --out packages/engine/test/fixtures/glyph-ref-ernie.json
+```
+
+For one plane and one stride it lists the elements a glyph draw should sample and, per element, the
+centroid, the `E` vector and |E|. `packages/engine/test/e2e/glyphs-real.spec.ts` asks the engine for
+the same set through `Engine.glyphInstances` — a **test-only** readback, gated on
+`Engine.retainGlyphSources`, that exists because everything a glyph *is* happens in the vertex shader
+and a golden PNG can only say that ink arrived — and asserts set equality on the element numbers,
+origins within 0.01 mm, directions within 1° and lengths equal to the scaling model's. Measured
+2026-08-28: 1,397 elements, worst origin 1.13e-5 mm, worst angle 2.83e-6°.
+
+Regenerate the fixture with the command above whenever the plane, the stride or the mesh changes;
+the committed JSON is the numpy answer, never a previous run of the suite.
+
 ### What it shares with the engine, and what it does not
 
 Say what this is precisely, because "independent implementation" claims more than it delivers and

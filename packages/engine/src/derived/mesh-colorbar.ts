@@ -17,6 +17,7 @@
  */
 
 import { bakeScale, isColormapName } from '../color/colormaps';
+import { glyphColorT, glyphScaling, glyphScalingWord, referenceMagnitude } from './glyph-scale';
 import type { ColorbarSpec, ColorbarTick } from '../overlay/colorbar';
 import type { ColormapName, MeshDataset, MeshLayer, Scale } from '../scene/types';
 
@@ -79,6 +80,59 @@ export function meshColorbarSpec(layer: MeshLayer, ds: MeshDataset): ColorbarSpe
     ramp: baked.rgba,
     ticks,
     notches,
+    position: 'right',
+  };
+}
+
+/**
+ * The **glyph** colour bar (added 2026-08-28 for directed task 7).
+ *
+ * `colorBy: 'magnitude'` has always sampled the layer's colormap over `[0, reference]`, and nothing
+ * on screen said so — the ramp had no bar, no numbers and no name, which on a field whose magnitude
+ * runs 8.56e-13 … 57.79 is a picture nobody can read a value off. This is the same
+ * {@link ColorbarSpec} the field bar uses, over the glyph's own range, with the **scaling named in
+ * the title** (`E |LOG10|`), because the length and the colour are two encodings of one quantity and
+ * a bar that describes only the colour invites reading the length off the wrong map.
+ *
+ * `null` when the layer is hidden, has no glyphs, or colours them solid — a solid colour is not a
+ * scale, exactly as `colorMode: 'solid'` gets no bar.
+ */
+export function glyphColorbarSpec(layer: MeshLayer, ds: MeshDataset): ColorbarSpec | null {
+  const spec = layer.glyphs;
+  if (spec === undefined || !layer.visible || !layer.showColorbar) return null;
+  if (spec.colorBy !== 'magnitude') return null;
+  const info = ds.fields.find((f) => f.name === spec.field.name && f.source === spec.field.source);
+  const ref = referenceMagnitude(glyphScaling(spec), info?.stats);
+
+  const name: ColormapName = isColormapName(layer.colormap) ? layer.colormap : 'gray';
+  const negative: ColormapName =
+    layer.colormapNegative !== undefined && isColormapName(layer.colormapNegative)
+      ? layer.colormapNegative
+      : 'blue-cyan';
+  // The renderer indexes its LUT by `glyphColorT`, so the bar is that map sampled at even *value*
+  // steps: position p along the bar is the value `ref·p`, painted the colour the arrow at that value
+  // gets. Under `log` the ramp is therefore compressed at the top exactly as the lengths are, which
+  // is what makes the `LOG10` in the title a description rather than a caption.
+  const baked = bakeScale({ kind: 'linear', lo: 0, hi: 1 }, name, negative);
+  const texels = baked.rgba.length / 4;
+  const ramp = new Uint8Array(baked.rgba.length);
+  for (let i = 0; i < texels; i += 1) {
+    const t = glyphColorT(glyphScaling(spec), (ref * (i + 0.5)) / texels, ref);
+    const src = Math.min(texels - 1, Math.max(0, Math.round(t * (texels - 1)))) * 4;
+    ramp.set(baked.rgba.subarray(src, src + 4), i * 4);
+  }
+
+  return {
+    layerId: `${layer.id}|glyphs`,
+    // `render/font.ts` has no `|`, so the magnitude is spelled `MAG` (see `glyphLegendLine`).
+    title: `MAG ${spec.field.name} ${glyphScalingWord(spec)}`,
+    ...(info?.units !== undefined ? { units: info.units } : {}),
+    ramp,
+    ticks: [
+      { t: 0, label: label(0) },
+      { t: 1, label: label(ref) },
+    ],
+    notches: [],
     position: 'right',
   };
 }

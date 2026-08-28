@@ -13,6 +13,7 @@
 import type {
   ClipPlane,
   ColormapName,
+  GlyphScaling,
   GlyphSpec,
   IsolateSpec,
   MeshDataset,
@@ -24,6 +25,7 @@ import type {
   vec3,
   vec4,
 } from '@tetravox/engine';
+import { DEFAULT_GLYPH_LENGTH_MM, glyphScaling } from '@tetravox/engine';
 
 // ------------------------------------------------------------------------------------------------
 // Small shared arithmetic
@@ -564,19 +566,65 @@ export function vectorFields(dataset: MeshDataset): MeshFieldInfo[] {
   return dataset.fields.filter((f) => f.ncomp === 3);
 }
 
+/**
+ * The defaults a new `GlyphSpec` opens with (revised 2026-08-28, directed task 7).
+ *
+ * **Linear, normalised to p99, 6 mm.** The previous default normalised to the field **maximum**,
+ * and on `ernie_TDCS_1_scalar.msh` the maximum is 57.7899 V/m against a 99th percentile of about
+ * 1.2 `[DATA]` — an electrode-gel outlier setting the scale for the whole brain, which drew every
+ * cortical arrow at under 2 % of `lengthMm` and looked like a bug in the field. p99 puts the useful
+ * range of the data across the useful range of lengths and leaves the outliers long, which is the
+ * honest picture of an outlier.
+ *
+ * `logFloor` starts at the 5th percentile: `log` has to bottom out somewhere, and the bottom 5 % of
+ * a head-mesh field is the far side of the skull.
+ */
 export function defaultGlyphs(dataset: MeshDataset): GlyphSpec | null {
   const field = vectorFields(dataset)[0];
   if (field === undefined) return null;
+  const p5 = field.stats.percentiles['5'];
+  const p99 = field.stats.percentiles['99'];
   return {
     field: { source: field.source, name: field.name },
     shape: 'arrow',
     subsample: { everyNth: 100 },
-    scale: 'byMagnitude',
-    lengthMm: 4,
+    scale: {
+      mode: 'linear',
+      lengthMm: DEFAULT_GLYPH_LENGTH_MM,
+      normalizeTo: 'p99',
+      logFloor: p5 > 0 ? p5 : Math.max(1e-12, p99 / 1000),
+    },
+    lengthMm: DEFAULT_GLYPH_LENGTH_MM,
     colorBy: 'magnitude',
     color: [1, 1, 1, 1],
     clipToCutPlane: false,
+    onCutPlaneOnly: false,
+    cutSlabMm: 1,
+    headProportion: 0.3,
   };
+}
+
+/**
+ * Patch the scaling, in object form, whatever form the spec was in.
+ *
+ * `lengthMm` is written in **both** places on purpose: the top-level field is what a scene saved
+ * before 2026-08-28 carries and what the legacy `'fixed'` / `'byMagnitude'` strings read, so leaving
+ * it stale would make a downgrade silently change the picture.
+ */
+export function setGlyphScaling(
+  layer: MeshLayer,
+  patch: Partial<GlyphScaling>
+): Partial<MeshLayer> {
+  if (layer.glyphs === undefined) return {};
+  const scale: GlyphScaling = { ...glyphScaling(layer.glyphs), ...patch };
+  return patchGlyphs(layer, { scale, lengthMm: scale.lengthMm });
+}
+
+/** `normalizeTo` as the selector's value; a number shows as `'value'` with its own field. */
+export function glyphNormalizeKey(spec: GlyphSpec): 'p99' | 'max' | 'value' | 'none' {
+  const n = glyphScaling(spec).normalizeTo;
+  if (n === null) return 'none';
+  return typeof n === 'number' ? 'value' : n;
 }
 
 export function enableGlyphs(dataset: MeshDataset, layer: MeshLayer): Partial<MeshLayer> {

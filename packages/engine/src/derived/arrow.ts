@@ -17,7 +17,10 @@
 export const SIDES = 8;
 export const SHAFT_R = 0.06;
 export const HEAD_R = 0.16;
+/** The default head fraction; `GlyphSpec.headProportion` overrides it per layer. */
 export const HEAD_LEN = 0.3;
+/** The head radius at {@link HEAD_LEN}; other head fractions keep this shaft-to-head ratio. */
+const HEAD_R_AT_DEFAULT = HEAD_R;
 
 export interface ArrowTemplate {
   positions: Float32Array;
@@ -25,11 +28,21 @@ export interface ArrowTemplate {
   vertexCount: number;
 }
 
-/** `shape: 'line'` is the same template with no head — a plain shaft to the tip. */
-export function buildArrow(withHead: boolean): ArrowTemplate {
+/**
+ * `shape: 'line'` is the same template with no head — a plain shaft to the tip.
+ *
+ * `headLen` is `GlyphSpec.headProportion`, the fraction of the unit length the cone occupies. The
+ * head **radius** follows it, so a stubbier head is also a wider one and the cone keeps its
+ * proportions instead of turning into a needle: at the 0.3 default this is the shape every golden
+ * before 2026-08-28 was captured with, bit for bit.
+ */
+export function buildArrow(withHead: boolean, headLen = HEAD_LEN): ArrowTemplate {
   const pos: number[] = [];
   const nrm: number[] = [];
-  const shaftTop = withHead ? 1 - HEAD_LEN : 1;
+  const head = withHead ? Math.min(0.9, Math.max(0, headLen)) : 0;
+  const headR = (HEAD_R_AT_DEFAULT * head) / HEAD_LEN;
+  const drawHead = head > 0;
+  const shaftTop = 1 - head;
   const push = (p: [number, number, number], n: [number, number, number]): void => {
     pos.push(p[0], p[1], p[2]);
     nrm.push(n[0], n[1], n[2]);
@@ -56,18 +69,18 @@ export function buildArrow(withHead: boolean): ArrowTemplate {
     push(p11, n1);
     push(p10, n0);
 
-    if (!withHead) continue;
+    if (!drawHead) continue;
 
     // Head base, facing back down -Z.
-    const b0: [number, number, number] = [c0 * HEAD_R, s0 * HEAD_R, shaftTop];
-    const b1: [number, number, number] = [c1 * HEAD_R, s1 * HEAD_R, shaftTop];
+    const b0: [number, number, number] = [c0 * headR, s0 * headR, shaftTop];
+    const b1: [number, number, number] = [c1 * headR, s1 * headR, shaftTop];
     const down: [number, number, number] = [0, 0, -1];
     push([0, 0, shaftTop], down);
     push(b1, down);
     push(b0, down);
 
     // Cone. The side normal tilts by the head's slope, so the tip is not lit as a flat disc.
-    const slope = HEAD_R / HEAD_LEN;
+    const slope = headR / head;
     const nc0: [number, number, number] = [c0, s0, slope];
     const nc1: [number, number, number] = [c1, s1, slope];
     push(b0, nc0);

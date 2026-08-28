@@ -40,7 +40,8 @@ import {
   POINTS_VS,
   POINT_QUAD_VERTICES,
 } from '../../shaders';
-import { buildArrow } from '../../derived/arrow';
+import { buildArrow, HEAD_LEN } from '../../derived/arrow';
+import { glyphPlan } from '../../derived/glyph-plan';
 import { visibleTetTags } from '../../derived/tag-lut';
 import type { DerivedStore } from '../../derived/store';
 import type { Table } from '../../derived/tables';
@@ -66,9 +67,16 @@ export class DerivedPass implements FramePass {
   readonly #glyph: ProgramVariants;
   readonly #iso: Program;
 
-  readonly #arrowVao: VertexArray;
-  readonly #arrowBuffers: Buffer[] = [];
-  #arrowVertices = 0;
+  /**
+   * The arrow templates, keyed by `shape` and `headProportion`.
+   *
+   * One shared 24-triangle template was always the §7.4 design; what changed on 2026-08-28 is that
+   * there is one per *shape*, because the pass built `buildArrow(true)` unconditionally and
+   * `shape: 'line'` — a documented `GlyphSpec` value since §4.4 was written — drew a head anyway.
+   * A template is 24 triangles of constant data and there are a handful of distinct keys in a
+   * session, so caching them is still nothing like per-element geometry (AGENTS rule 7).
+   */
+  readonly #arrows = new Map<string, { vao: VertexArray; buffers: Buffer[]; vertices: number }>();
 
   constructor(gl: WebGL2RenderingContext, state: GlState) {
     this.#gl = gl;
@@ -80,18 +88,26 @@ export class DerivedPass implements FramePass {
     // An isosurface is a `SurfacePayload`, so it draws through the §7.4 mesh program unchanged —
     // same attribute layout, same headlight, same two-sided lighting.
     this.#iso = new Program(gl, MESH_VS, MESH_FS);
+  }
 
-    const arrow = buildArrow(true);
-    this.#arrowVao = new VertexArray(gl);
+  /** The template for one `(shape, headProportion)`, built on first use and kept. */
+  #arrow(withHead: boolean, headFrac: number): { vao: VertexArray; vertices: number } {
+    const key = withHead ? `head:${headFrac.toFixed(3)}` : 'line';
+    const have = this.#arrows.get(key);
+    if (have !== undefined) return have;
+    const gl = this.#gl;
+    const arrow = buildArrow(withHead, headFrac);
+    const vao = new VertexArray(gl);
     const ap = new Buffer(gl, gl.ARRAY_BUFFER);
     ap.set(arrow.positions);
     const an = new Buffer(gl, gl.ARRAY_BUFFER);
     an.set(arrow.normals);
-    this.#arrowVao.attrib(0, ap, 3, gl.FLOAT);
-    this.#arrowVao.attrib(1, an, 3, gl.FLOAT);
+    vao.attrib(0, ap, 3, gl.FLOAT);
+    vao.attrib(1, an, 3, gl.FLOAT);
     VertexArray.unbind(gl);
-    this.#arrowBuffers.push(ap, an);
-    this.#arrowVertices = arrow.vertexCount;
+    const entry = { vao, buffers: [ap, an], vertices: arrow.vertexCount };
+    this.#arrows.set(key, entry);
+    return entry;
   }
 
   run(ctx: PassContext): void {
@@ -377,14 +393,9 @@ export class DerivedPass implements FramePass {
     const gl = this.#gl;
     const spec = layer.glyphs;
     if (spec === undefined) return;
-    const volume = spec.origins === 'volume';
-
-    // The stride's denominator is whatever the chosen source counts: surface triangles, or tets.
-    const population = volume ? ds.nTets : (store.surfaceTables(ds)?.triangleCount ?? 0);
-    const stride =
-      'everyNth' in spec.subsample
-        ? Math.max(1, Math.round(spec.subsample.everyNth))
-        : Math.max(1, Math.ceil(population / Math.max(1, spec.subsample.maxCount)));
+    const plan = glyphPlan(layer, ds, spec, store.surfaceTables(ds)?.triangleCount ?? 0);
+    const { volume, stride, scaling, slab } = plan;
+    const refMag = plan.refMag;
 
     // The origin table, and how many instances it is worth. `null` means "not here yet" for both —
     // the op is in flight and its `.then` will dirty the frame.
@@ -417,12 +428,12 @@ export class DerivedPass implements FramePass {
     if (fx === null || fy === null || fz === null) return;
 
     const lut = store.tagLut(layer, ds);
-    const info = ds.fields.find(
-      (f) => f.name === spec.field.name && f.source === spec.field.source
-    );
-    const refMag = info !== undefined ? Math.max(1e-20, info.stats.max) : 1;
+    // The reference magnitude is also the colour bar's top end, so an arrow at full length and an
+    // arrow at the top of the ramp are the same arrow (`derived/glyph-scale.ts`).
+    // The LUT is indexed by the scaling's own 0..1 position (`glyphColorT`), not by the magnitude,
+    // so it is baked over the unit interval and the mapping lives in one place.
     const baked = ctx.input.store.lut(
-      { kind: 'linear', lo: 0, hi: refMag },
+      { kind: 'linear', lo: 0, hi: 1 },
       layer.colormap,
       layer.colormapNegative
     );
@@ -438,10 +449,12 @@ export class DerivedPass implements FramePass {
     // The volume path's rows are already strided by the op; striding them twice would draw every
     // `stride`-th of a list that is one in `stride` already.
     prog.int('uStride', volume ? 1 : stride);
-    prog.float('uLengthMm', spec.lengthMm);
-    prog.float('uByMagnitude', spec.scale === 'byMagnitude' ? 1 : 0);
+    prog.float('uLengthMm', scaling.lengthMm);
+    prog.int('uScaleMode', SCALE_MODE[scaling.mode]);
     prog.float('uRefMag', refMag);
-    prog.vec2('uLutRange', [baked.lo, baked.hi]);
+    prog.float('uLogFloor', scaling.logFloor);
+    prog.vec4('uSlab', slab.plane);
+    prog.float('uSlabHalf', slab.half);
     prog.vec4('uSolidColor', spec.color);
     prog.float('uColorByMagnitude', spec.colorBy === 'magnitude' ? 1 : 0);
     prog.int('uTableW', ownerTable.width);
@@ -464,8 +477,9 @@ export class DerivedPass implements FramePass {
     bind(6, fz.texture, 'uFz');
     bind(7, baked.texture, 'uLut');
 
-    this.#arrowVao.bind();
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, this.#arrowVertices, count);
+    const template = this.#arrow(spec.shape === 'arrow', spec.headProportion ?? HEAD_LEN);
+    template.vao.bind();
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, template.vertices, count);
     VertexArray.unbind(gl);
   }
 
@@ -475,10 +489,21 @@ export class DerivedPass implements FramePass {
     this.#points.dispose();
     this.#glyph.dispose();
     this.#iso.dispose();
-    this.#arrowVao.dispose();
-    for (const b of this.#arrowBuffers) b.dispose();
+    for (const a of this.#arrows.values()) {
+      a.vao.dispose();
+      for (const b of a.buffers) b.dispose();
+    }
+    this.#arrows.clear();
   }
 }
+
+/** `GlyphScaling.mode` as the shader's `uScaleMode`. */
+const SCALE_MODE: Record<'fixed' | 'linear' | 'sqrt' | 'log', number> = {
+  fixed: 0,
+  linear: 1,
+  sqrt: 2,
+  log: 3,
+};
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 

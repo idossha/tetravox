@@ -43,3 +43,18 @@ export { defaultIso3d, derivedIsoLayers, iso3dLabels, iso3dLayerId } from './lay
  */
 export { sidecarPathsFor } from './scene/serialize';
 export type { SidecarPaths } from './scene/serialize';
+
+/**
+ * The glyph scaling model (§4.4's `GlyphScaling`) — exported because the app editor states the same
+ * sentence in its panel that the overlay legend states on the picture, and one of them being a
+ * re-implementation is how they end up disagreeing.
+ */
+export {
+  DEFAULT_GLYPH_LENGTH_MM,
+  glyphLegendLine,
+  glyphLengthMm,
+  glyphScaling,
+  glyphScalingWord,
+  referenceMagnitude,
+} from './derived/glyph-scale';
+export type { GlyphInstance } from './derived/glyph-readback';

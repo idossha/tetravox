@@ -397,16 +397,60 @@ export interface IsolateSpec {
   combine: 'all' | 'any';
 }
 
+/**
+ * How a magnitude becomes an arrow length (added 2026-08-28 — see `docs/DECISIONS.md`).
+ *
+ * The maths is `derived/glyph-scale.ts`; this is only the state. Every mode sends
+ * {@link GlyphScaling.normalizeTo}'s magnitude to exactly {@link GlyphScaling.lengthMm}, which is
+ * what the overlay legend line and the colour bar's scaling word both quote.
+ */
+export interface GlyphScaling {
+  /** `'log'` is log10 of |E| above {@link GlyphScaling.logFloor}. */
+  mode: 'fixed' | 'linear' | 'sqrt' | 'log';
+  /** The length, in **millimetres**, of an arrow at the reference magnitude. */
+  lengthMm: number;
+  /**
+   * The magnitude that maps to `lengthMm`: the field's 99th percentile, its maximum, an explicit
+   * value in field units, or `null` for "`lengthMm` per unit of |E|".
+   */
+  normalizeTo: 'p99' | 'max' | number | null;
+  /** `'log'` only, in field units: at and below it an arrow has zero length and is not drawn. */
+  logFloor: number;
+}
+
 export interface GlyphSpec {
   field: { source: 'node' | 'elm'; name: string };
   shape: 'arrow' | 'line';
   subsample: { everyNth: number } | { maxCount: number };
-  scale: 'fixed' | 'byMagnitude';
+  /**
+   * The legacy strings are still read (`'fixed'`; `'byMagnitude'` = linear, normalised to the field
+   * max) so a scene saved before 2026-08-28 round-trips unchanged; new specs carry the object.
+   */
+  scale: 'fixed' | 'byMagnitude' | GlyphScaling;
+  /** Superseded by `scale.lengthMm` when `scale` is an object; kept for the legacy strings. */
   lengthMm: number;
   colorBy: 'magnitude' | 'solid';
   /** 0..1 */
   color: vec4;
+  /**
+   * @deprecated The 2026-08-28 spelling is {@link GlyphSpec.onCutPlaneOnly}; either being `true`
+   * restricts the origins to the slab. It was never implemented under this name (the renderer
+   * ignored it outright), which is what the directed task 7 verification found.
+   */
   clipToCutPlane: boolean;
+  /**
+   * Density, third knob (added 2026-08-28): keep only origins within
+   * {@link GlyphSpec.cutSlabMm} of the layer's first enabled clip plane. Inert when the layer has
+   * none — there is no other "active cut plane" in a 3D pane, and the app's control says so.
+   */
+  onCutPlaneOnly?: boolean;
+  /** Half-thickness, in mm, of the {@link GlyphSpec.onCutPlaneOnly} slab. Default 1. */
+  cutSlabMm?: number;
+  /**
+   * Fraction of the arrow's length taken by the head, 0..0.9 (added 2026-08-28). `0` and
+   * `shape: 'line'` are the same picture. Default 0.3, the shape every earlier golden has.
+   */
+  headProportion?: number;
   /**
    * Where the origins come from (§7.4; added 2026-08-27 — see `docs/DECISIONS.md`).
    *

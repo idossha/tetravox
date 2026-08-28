@@ -381,14 +381,26 @@ export interface IsolateSpec {
   combine: 'all' | 'any';
 }
 
+/** How a magnitude becomes a length (§7.4; added 2026-08-28). Maths: `derived/glyph-scale.ts`. */
+export interface GlyphScaling {
+  mode: 'fixed' | 'linear' | 'sqrt' | 'log';   // 'log' is log10 of |E| above logFloor
+  lengthMm: number;                            // the length AT the reference magnitude
+  normalizeTo: 'p99' | 'max' | number | null;  // the reference; null = lengthMm per unit of |E|
+  logFloor: number;                            // field units; at or below it the arrow is dropped
+}
+
 export interface GlyphSpec {
   field: { source: 'node' | 'elm'; name: string };
   shape: 'arrow' | 'line';
   subsample: { everyNth: number } | { maxCount: number };
-  scale: 'fixed' | 'byMagnitude';
-  lengthMm: number;
+  /** The strings are legacy: 'fixed', and 'byMagnitude' = linear normalised to the field max. */
+  scale: 'fixed' | 'byMagnitude' | GlyphScaling;
+  lengthMm: number;                            // superseded by scale.lengthMm in the object form
   colorBy: 'magnitude' | 'solid'; color: vec4 /* 0..1 */;
-  clipToCutPlane: boolean;
+  clipToCutPlane: boolean;                     // @deprecated spelling of onCutPlaneOnly
+  onCutPlaneOnly?: boolean;                    // density: origins within cutSlabMm of the cut plane
+  cutSlabMm?: number;                          // half-thickness of that slab, mm. Default 1
+  headProportion?: number;                     // 0..0.9 of the length. Default 0.3
   /** Where the origins come from (§7.4). Absent = 'surface'. */
   origins?: 'surface' | 'volume';
 }
@@ -2138,7 +2150,19 @@ declare `invariant gl_Position;`.
   so `orient_surface` flips four of ten tags and marks all ten open.
 * **Glyphs** (`GlyphSpec`): one instanced draw of a shared cone+shaft VAO with per-instance origin/direction/
   magnitude, in the opaque pass. No new geometry from WASM. Origins restricted to visible tags and, when a cut
-  plane is active and `clipToCutPlane`, to elements the plane intersects.
+  plane is active and `onCutPlaneOnly` (`clipToCutPlane` is the old spelling of the same switch), to origins
+  within `cutSlabMm` of the layer's **first enabled clip plane** — the only cut plane a 3D pane has. There is
+  one template per `(shape, headProportion)`, built on first use: `shape: 'line'` is the same 24-triangle
+  template with no head.
+  **Length is `GlyphScaling`** (§4.4), and the shader carries the model term for term:
+  `fixed` → `lengthMm`; `linear` → `lengthMm·m/R`; `sqrt` → `lengthMm·sqrt(m/R)`; `log` →
+  `lengthMm·log10(m/f)/log10(R/f)` and 0 at or below the floor `f`, where `R` is `normalizeTo`'s magnitude
+  (`p99`, `max`, a number, or 1). Every mode sends `R` to exactly `lengthMm`, which is what makes the overlay
+  **legend line** ("E: LENGTH PROP TO LOG10 MAG E, 0 MM AT 2.7, 5 MM AT 28.47") and the **glyph colour bar**
+  (§8, titled with the scaling) true statements rather than labels. `derived/glyph-scale.ts` is the single
+  implementation; the app editor states the same sentence from it. **`normalizeTo` defaults to `p99`, not
+  `max`**: on `ernie_TDCS_1_scalar.msh` the maximum is 57.79 V/m against a p99 of 3.846 `[DATA]`, so an
+  electrode-gel outlier normalising the whole brain drew every cortical arrow at under 2 % of `lengthMm`.
   **`GlyphSpec.origins` names which of the two origin tables the instance reads, and it is a compile-time
   variant (`TVX_GLYPH_VOLUME` ∈ 0..1), never a uniform** — the two tables are indexed differently, so a runtime
   branch would cost a texture fetch per instance to decide something constant for the draw.

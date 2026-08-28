@@ -116,6 +116,21 @@ export interface CentroidTables {
   count: number;
 }
 
+/**
+ * The CPU side of a glyph draw's three inputs, kept **only** while
+ * {@link DerivedStore.retainGlyphSources} is on (§11's real-data glyph test; see
+ * `derived/glyph-readback.ts`).
+ *
+ * Off by default and off in the app: retaining ernie's GM centroids at stride 1 is 16 MB of
+ * positions and 5 MB of owners that the renderer has no use for once they are texture rows.
+ */
+export interface GlyphSources {
+  positions: Float32Array;
+  owner: Uint32Array;
+  /** Surface path only: the per-triangle `faceTag` the tag LUT is indexed with. */
+  faceTag?: Uint32Array;
+}
+
 /** The `ComputeClient` slice this store needs, plus the mesh handle behind a dataset id. */
 export interface DerivedTarget {
   client: ComputeClient;
@@ -123,6 +138,10 @@ export interface DerivedTarget {
 }
 
 export class DerivedStore {
+  /** §11's glyph readback; see {@link DerivedStore.retainGlyphSources}. */
+  #retain = false;
+  readonly #sources = new Map<string, GlyphSources | Float32Array>();
+
   readonly #gl: WebGL2RenderingContext;
   readonly #cuts: CutSource;
   readonly #target: (id: DatasetId) => DerivedTarget | undefined;
@@ -401,6 +420,38 @@ export class DerivedStore {
    * Uploaded once per (dataset, field, component) and shared by every pane, which is what §7.4 means
    * by a field switch being "a texture swap, always free".
    */
+  /**
+   * Keep the arrays behind the glyph tables so a test can read back what was drawn (§11).
+   *
+   * Test-only, and it changes nothing about the draw: the tables are uploaded from the same arrays
+   * either way. Turn it on **before** the ops are requested — an already-cached table has no array
+   * to hand back, and the readback returns `null` rather than guessing.
+   */
+  retainGlyphSources(on: boolean): void {
+    this.#retain = on;
+    if (!on) this.#sources.clear();
+  }
+
+  /** The retained arrays for one key, or `null`. Keys are the private ones below. */
+  glyphSources(key: string): GlyphSources | Float32Array | null {
+    return this.#sources.get(key) ?? null;
+  }
+
+  /** The `meshCentroids` key {@link DerivedStore.centroidTables} caches under. */
+  static centroidKey(ds: MeshDataset, stride: number, tags: readonly number[]): string {
+    return `${ds.id}|${stride}|${[...tags].sort((a, b) => a - b).join(',')}`;
+  }
+
+  /** The `field` key {@link DerivedStore.fieldTable} caches under. */
+  static fieldKey(
+    ds: MeshDataset,
+    source: 'node' | 'elm',
+    name: string,
+    component: ComponentSel
+  ): string {
+    return `${ds.id}|${source}|${name}|${String(component)}`;
+  }
+
   fieldTable(
     ds: MeshDataset,
     source: 'node' | 'elm',
@@ -423,6 +474,7 @@ export class DerivedStore {
       })
     )
       .then((res) => {
+        if (this.#retain) this.#sources.set(key, res.values);
         fresh.table = createTable(this.#gl, 'f32', res.values, res.values.length);
         fresh.pending = false;
         this.#requestRender();
@@ -459,6 +511,21 @@ export class DerivedStore {
     )
       .then((payload: SurfacePayload) => {
         const gl = this.#gl;
+        if (this.#retain) {
+          this.#sources.set(`surface|${ds.id}`, {
+            positions: payload.positions,
+            owner: new Uint32Array(
+              payload.ownerElm.buffer,
+              payload.ownerElm.byteOffset,
+              payload.ownerElm.length
+            ),
+            faceTag: new Uint32Array(
+              payload.faceTag.buffer,
+              payload.faceTag.byteOffset,
+              payload.faceTag.length
+            ),
+          });
+        }
         this.#surfaces.set(ds.id, {
           positions: createTable(gl, 'f32', payload.positions, payload.positions.length),
           owner: createTable(gl, 'u32', payload.ownerElm, payload.ownerElm.length),
@@ -505,6 +572,9 @@ export class DerivedStore {
       .then((payload) => {
         const gl = this.#gl;
         const count = payload.ownerTet.length;
+        if (this.#retain) {
+          this.#sources.set(key, { positions: payload.positions, owner: payload.ownerTet });
+        }
         this.#centroids.set(key, {
           positions: createTable(gl, 'f32', payload.positions, payload.positions.length),
           owner: createTable(gl, 'u32', payload.ownerTet, count),

@@ -409,7 +409,19 @@ describe('glyphs', () => {
   it('defaults to the mesh’s vector field, and offers nothing when there is none', () => {
     const spec = defaultGlyphs(dataset());
     expect(spec?.field).toEqual({ source: 'elm', name: 'E' });
-    expect(spec?.scale).toBe('byMagnitude');
+    // Directed task 7's defaults: **linear, normalised to p99, 6 mm**. `'byMagnitude'` normalised to
+    // the field *maximum*, and on the reference mesh the maximum is electrode gel — see
+    // `docs/DECISIONS.md`, 2026-08-28.
+    expect(spec?.scale).toEqual({
+      mode: 'linear',
+      lengthMm: 6,
+      normalizeTo: 'p99',
+      // `log` bottoms out at the vector field's own 5th percentile, or — as here, where the
+      // fixture's p5 is its minimum of 0 — a thousandth of p99, because log has no zero.
+      logFloor: 57.79 / 1000,
+    });
+    expect(spec?.headProportion).toBe(0.3);
+    expect(spec?.onCutPlaneOnly).toBe(false);
     // `Thalamus_TI.msh` carries `TI_max` alone: ncomp 1, so no glyphs.
     const scalarOnly = dataset({ fields: [dataset().fields[0] as MeshDataset['fields'][number]] });
     expect(defaultGlyphs(scalarOnly)).toBeNull();
