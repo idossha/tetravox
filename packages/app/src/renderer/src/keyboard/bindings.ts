@@ -146,6 +146,21 @@ const CANDIDATES: readonly {
   { key: 'ArrowDown', label: '↓', section: 'Cursor', description: 'Nudge the cursor' },
   { key: 'ArrowRight', label: '→', section: 'Cursor', description: 'Nudge the cursor' },
   { key: 'ArrowLeft', label: '←', section: 'Cursor', description: 'Nudge the cursor' },
+  // Panels (directed task: collapsible panels)
+  {
+    key: '[',
+    modifier: 'ctrl' as const,
+    label: '⌃[',
+    section: 'Panels',
+    description: 'Collapse/expand the left layer panel',
+  },
+  {
+    key: ']',
+    modifier: 'ctrl' as const,
+    label: '⌃]',
+    section: 'Panels',
+    description: 'Collapse/expand the right info panel',
+  },
 ];
 
 /**

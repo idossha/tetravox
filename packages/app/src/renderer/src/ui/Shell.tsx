@@ -42,6 +42,81 @@ import { Toasts } from './Toasts';
 import { Toolbar } from '../toolbar/Toolbar';
 import { ViewGrid } from './ViewGrid';
 import { Webgl2Error } from './Webgl2Error';
+import { NARROW_BREAKPOINT_PX } from '../lib/panels';
+
+/**
+ * A collapsed sidebar's thin rail — a chevron and nothing else, `data-testid` per side. §8 gives the
+ * sidebars no rail of their own, so this is where "collapsed" gets its 1.5rem of chrome.
+ */
+function PanelRail({
+  side,
+  testId,
+  label,
+  onClick,
+}: {
+  side: 'left' | 'right';
+  testId: string;
+  label: string;
+  onClick: () => void;
+}): React.JSX.Element {
+  return (
+    <div
+      data-testid={`${side}-panel-rail`}
+      className={
+        'flex w-6 flex-shrink-0 flex-col items-center bg-tvx-panel/40 py-1 ' +
+        (side === 'left' ? 'border-r border-tvx-line' : 'border-l border-tvx-line')
+      }
+    >
+      <button
+        type="button"
+        data-testid={testId}
+        aria-label={label}
+        title={label}
+        className="tvx-btn tvx-btn-sm"
+        onClick={onClick}
+      >
+        {side === 'left' ? '›' : '‹'}
+      </button>
+    </div>
+  );
+}
+
+/** The right `<aside>`, unchanged in content — only which container renders it moved. */
+function RightPanel({ onCollapse }: { onCollapse: () => void }): React.JSX.Element {
+  return (
+    <aside
+      data-testid="right-panel"
+      className="flex w-80 min-w-64 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
+    >
+      <div className="flex items-center justify-end border-b border-tvx-line px-1 py-0.5">
+        <button
+          type="button"
+          data-testid="right-panel-collapse"
+          aria-label="Collapse the info panel"
+          title="Collapse the info panel (⌃])"
+          className="tvx-btn tvx-btn-sm"
+          onClick={onCollapse}
+        >
+          ›
+        </button>
+      </div>
+      <CoordinateBar />
+      {/* §7.6's chip is mounted here rather than inside the mesh property editor, which
+        is A-PROPS's directory. It renders nothing unless the active layer is a mesh
+        that had a `.msh.opt` beside it — see `MshOptChip.tsx`. */}
+      <MshOptChip />
+      {/* Directed task 11: the measurement list, above the info panel — it is about
+        the picture rather than about the layer under the cursor, and it renders
+        nothing at all while the mode is off and nothing has been placed. */}
+      <MeasurePanel />
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <InfoPanel />
+        <div className="border-t border-tvx-line" />
+        <HeaderPanel />
+      </div>
+    </aside>
+  );
+}
 
 export interface ShellProps {
   /** Tests mount against their own store; the app uses the singleton. */
@@ -61,9 +136,39 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
   const status = useStore(store, (s) => s.status);
   // A `--job` window draws the view grid and nothing else: see `UiState.jobMode`.
   const jobMode = useStore(store, (s) => s.jobMode);
+  const leftPanelCollapsed = useStore(store, (s) => s.leftPanelCollapsed);
+  const rightPanelCollapsed = useStore(store, (s) => s.rightPanelCollapsed);
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
   const startedRef = useRef(false);
   const startedJobRef = useRef(false);
+
+  // ---- adaptive layout: a narrow window auto-collapses both sidebars to a rail, and the rail's
+  // chevron opens the panel as a temporary overlay rather than pushing `ViewGrid` — the grid still
+  // reflows on its own either way, because collapsing a sidebar is a flex-layout change to the same
+  // host `ViewGrid`'s `ResizeObserver` already watches. --------------------------------------------
+  const [narrow, setNarrow] = useState(
+    typeof window === 'undefined'
+      ? false
+      : (window.matchMedia?.(`(max-width: ${NARROW_BREAKPOINT_PX}px)`)?.matches ?? false)
+  );
+  const [leftOverlayOpen, setLeftOverlayOpen] = useState(false);
+  const [rightOverlayOpen, setRightOverlayOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia(`(max-width: ${NARROW_BREAKPOINT_PX}px)`);
+    const onChange = (): void => setNarrow(query.matches);
+    onChange();
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+  // The overlay is a "narrow window" affordance only — leaving narrow mode (a resize back to a wide
+  // window) is what a user expects to restore the pushed layout, not a temporary overlay left open.
+  useEffect(() => {
+    if (!narrow) {
+      setLeftOverlayOpen(false);
+      setRightOverlayOpen(false);
+    }
+  }, [narrow]);
 
   const canvas = useMemo(() => {
     const element = document.createElement('canvas');
@@ -284,28 +389,65 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
           <>
             {jobMode ? null : <Toolbar />}
             <div className="flex min-h-0 flex-1">
-              {jobMode ? null : <LayerPanel />}
+              {jobMode ? null : (
+                <div className="relative flex" data-testid="left-panel-region">
+                  {narrow || leftPanelCollapsed ? (
+                    // The rail stays in flow even while the overlay sits open above it — the whole
+                    // point of "overlaid rather than pushing the view grid" is that opening it must
+                    // not change how much flex-row width the grid gets.
+                    <PanelRail
+                      side="left"
+                      testId="left-panel-expand"
+                      label="Expand the layer panel"
+                      onClick={() =>
+                        narrow ? setLeftOverlayOpen(true) : controller.toggleLeftPanel()
+                      }
+                    />
+                  ) : (
+                    <LayerPanel />
+                  )}
+                  {narrow && leftOverlayOpen && (
+                    <>
+                      <div
+                        data-testid="left-panel-backdrop"
+                        className="fixed inset-0 z-20 bg-black/30"
+                        onClick={() => setLeftOverlayOpen(false)}
+                      />
+                      <div className="absolute inset-y-0 left-0 z-30 shadow-xl">
+                        <LayerPanel />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               <ViewGrid canvas={canvas} dpr={dpr} />
               {jobMode ? null : (
-                <aside
-                  data-testid="right-panel"
-                  className="flex w-80 min-w-64 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
-                >
-                  <CoordinateBar />
-                  {/* §7.6's chip is mounted here rather than inside the mesh property editor, which
-                    is A-PROPS's directory. It renders nothing unless the active layer is a mesh
-                    that had a `.msh.opt` beside it — see `MshOptChip.tsx`. */}
-                  <MshOptChip />
-                  {/* Directed task 11: the measurement list, above the info panel — it is about
-                    the picture rather than about the layer under the cursor, and it renders
-                    nothing at all while the mode is off and nothing has been placed. */}
-                  <MeasurePanel />
-                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                    <InfoPanel />
-                    <div className="border-t border-tvx-line" />
-                    <HeaderPanel />
-                  </div>
-                </aside>
+                <div className="relative flex" data-testid="right-panel-region">
+                  {narrow || rightPanelCollapsed ? (
+                    <PanelRail
+                      side="right"
+                      testId="right-panel-expand"
+                      label="Expand the info panel"
+                      onClick={() =>
+                        narrow ? setRightOverlayOpen(true) : controller.toggleRightPanel()
+                      }
+                    />
+                  ) : (
+                    <RightPanel onCollapse={() => controller.toggleRightPanel()} />
+                  )}
+                  {narrow && rightOverlayOpen && (
+                    <>
+                      <div
+                        data-testid="right-panel-backdrop"
+                        className="fixed inset-0 z-20 bg-black/30"
+                        onClick={() => setRightOverlayOpen(false)}
+                      />
+                      <div className="absolute inset-y-0 right-0 z-30 shadow-xl">
+                        <RightPanel onCollapse={() => setRightOverlayOpen(false)} />
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
             {jobMode ? null : <StatusBar />}

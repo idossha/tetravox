@@ -211,6 +211,16 @@ export function LayerPanel(): React.JSX.Element {
         Layers
         <button
           type="button"
+          data-testid="left-panel-collapse"
+          aria-label="Collapse the layer panel"
+          title="Collapse the layer panel (⌃[)"
+          className="tvx-btn tvx-btn-sm"
+          onClick={() => controller.toggleLeftPanel()}
+        >
+          ‹
+        </button>
+        <button
+          type="button"
           data-testid="layer-collapse-all"
           data-action={anyExpanded ? 'collapse' : 'expand'}
           aria-label={anyExpanded ? 'Collapse all layers' : 'Expand all layers'}

@@ -1,0 +1,212 @@
+/**
+ * §8's collapsible sidebars, end to end (directed task: collapsible panels).
+ *
+ * Against the stand-in engine (`?engine=mock`), like `layer-collapse.spec.ts` — this is chrome, not
+ * a pixel, so nothing here needs the real renderer. Three things are asserted:
+ *
+ *  * the toolbar/panel chevrons and the `Ctrl+[` / `Ctrl+]` chords both collapse and expand a
+ *    sidebar, and `view-grid` really gets wider when one does — `ViewGrid`'s own `ResizeObserver`
+ *    is what makes that true, so this is also a regression test for the reflow;
+ *  * the preference survives a relaunch (it is kept in `localStorage`, not the scene);
+ *  * a narrow window auto-collapses both sidebars to a rail, and the rail's chevron opens the panel
+ *    as an overlay rather than pushing `view-grid` — asserted by `view-grid`'s width **not**
+ *    changing while the overlay is open, the whole point of it being an overlay.
+ */
+
+/* eslint-disable no-empty-pattern */
+
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import type { LaunchTarget } from './fixtures';
+
+const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
+const VOLUME = join(TESTDATA, 'vol_u8.nii.gz');
+
+async function gridWidth(page: Page): Promise<number> {
+  const box = await page.locator('[data-testid="view-grid"]').boundingBox();
+  if (box === null) throw new Error('view-grid has no box');
+  return box.width;
+}
+
+test.describe('collapsible sidebars (stand-in engine)', () => {
+  let app: ElectronApplication;
+  let page: Page;
+
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeAll(async ({}, workerInfo) => {
+    const target = workerInfo.project.name as LaunchTarget;
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
+    app = await launchApp(target, { search: 'engine=mock&mockStepMs=0', args: [VOLUME] });
+    page = await app.firstWindow();
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860);
+    });
+    await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });
+  });
+
+  test.afterAll(async () => {
+    await app?.close();
+  });
+
+  test('both panels start expanded, and the toggle collapses/expands the left one', async () => {
+    await expect(page.locator('[data-testid="layer-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="right-panel"]')).toBeVisible();
+
+    const before = await gridWidth(page);
+    await page.click('[data-testid="left-panel-collapse"]');
+    await expect(page.locator('[data-testid="layer-panel"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="left-panel-rail"]')).toBeVisible();
+    const afterCollapse = await gridWidth(page);
+    expect(afterCollapse).toBeGreaterThan(before);
+
+    await page.click('[data-testid="left-panel-expand"]');
+    await expect(page.locator('[data-testid="layer-panel"]')).toBeVisible();
+    const afterExpand = await gridWidth(page);
+    expect(afterExpand).toBeCloseTo(before, 0);
+  });
+
+  test('the right panel toggle does the same, and the grid widens further with both shut', async () => {
+    const bothOpen = await gridWidth(page);
+    await page.click('[data-testid="right-panel-collapse"]');
+    await expect(page.locator('[data-testid="right-panel"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="right-panel-rail"]')).toBeVisible();
+
+    await page.click('[data-testid="left-panel-collapse"]');
+    const bothShut = await gridWidth(page);
+    expect(bothShut).toBeGreaterThan(bothOpen);
+
+    // Put both back for the tests below.
+    await page.click('[data-testid="left-panel-expand"]');
+    await page.click('[data-testid="right-panel-expand"]');
+    await expect(page.locator('[data-testid="layer-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="right-panel"]')).toBeVisible();
+  });
+
+  test('Ctrl+[ / Ctrl+] toggle the same state as the buttons', async () => {
+    await page.locator('[data-testid="view-grid"]').click();
+    await page.keyboard.press('Control+[');
+    await expect(page.locator('[data-testid="layer-panel"]')).toHaveCount(0);
+    await page.keyboard.press('Control+[');
+    await expect(page.locator('[data-testid="layer-panel"]')).toBeVisible();
+
+    await page.keyboard.press('Control+]');
+    await expect(page.locator('[data-testid="right-panel"]')).toHaveCount(0);
+    await page.keyboard.press('Control+]');
+    await expect(page.locator('[data-testid="right-panel"]')).toBeVisible();
+
+    // The plain `[` / `]` binding (cycle the active layer) is unharmed by the new chord.
+    const before = await page.evaluate(() => window.__tetravox?.store.getState().activeLayerId);
+    await page.keyboard.press(']');
+    const after = await page.evaluate(() => window.__tetravox?.store.getState().activeLayerId);
+    expect(after).toBe(before); // one layer loaded: cycling it is a no-op, but it must not throw
+  });
+
+  test('the keyboard help sheet lists the panel chords', async () => {
+    await page.keyboard.press('?');
+    await expect(page.locator('[data-testid="keyboard-help"]')).toBeVisible();
+    await expect(page.getByText('⌃[')).toBeVisible();
+    await expect(page.getByText('⌃]')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-testid="keyboard-help"]')).toHaveCount(0);
+  });
+
+  test('the preference survives a relaunch — it lives in localStorage, not the scene', async () => {
+    // Every ordinary E2E launch gets a **fresh** `--user-data-dir` (`fixtures.ts`, and the same
+    // reason `docs/ARCHITECTURE.md` §8 keeps `theme` out of `localStorage`), so this test asks for
+    // the one launchApp offers for exactly this: reuse one profile across two launches, the way
+    // `theme.spec.ts` proves its own `settings.json` round trip survives a relaunch.
+    const profile = mkdtempSync(join(tmpdir(), 'tetravox-e2e-panels-'));
+
+    const first = await launchApp('dev', {
+      search: 'engine=mock&mockStepMs=0',
+      args: [VOLUME],
+      userDataDir: profile,
+    });
+    const firstPage = await first.firstWindow();
+    await firstPage.waitForSelector('[data-testid="shell"][data-ready="true"]', {
+      timeout: 30_000,
+    });
+    await firstPage.click('[data-testid="left-panel-collapse"]');
+    await expect(firstPage.locator('[data-testid="layer-panel"]')).toHaveCount(0);
+    // localStorage writes are synchronous, but give main a moment before killing the process, as
+    // `theme.spec.ts` does for its own (bridge-mediated) write.
+    await firstPage.waitForTimeout(200);
+    await first.close();
+
+    const second = await launchApp('dev', {
+      search: 'engine=mock&mockStepMs=0',
+      args: [VOLUME],
+      userDataDir: profile,
+    });
+    const secondPage = await second.firstWindow();
+    await secondPage.waitForSelector('[data-testid="shell"][data-ready="true"]', {
+      timeout: 30_000,
+    });
+    await expect(secondPage.locator('[data-testid="layer-panel"]')).toHaveCount(0);
+    await expect(secondPage.locator('[data-testid="left-panel-rail"]')).toBeVisible();
+    await second.close();
+  });
+});
+
+test.describe('collapsible sidebars — narrow window (stand-in engine)', () => {
+  let app: ElectronApplication;
+  let page: Page;
+
+  test.beforeAll(async ({}, workerInfo) => {
+    const target = workerInfo.project.name as LaunchTarget;
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
+    app = await launchApp(target, { search: 'engine=mock&mockStepMs=0', args: [VOLUME] });
+    page = await app.firstWindow();
+    await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });
+  });
+
+  test.afterAll(async () => {
+    await app?.close();
+  });
+
+  test('a narrow window auto-collapses both sidebars to a rail', async () => {
+    await app.evaluate(({ BrowserWindow }) => {
+      // The main window's own floor is `minWidth: 960` (`main/index.ts`) — narrower than that is
+      // unreachable by a real drag-resize, so this is as narrow as the window ever gets.
+      BrowserWindow.getAllWindows()[0]?.setContentSize(700, 860);
+    });
+    await expect(page.locator('[data-testid="left-panel-rail"]')).toBeVisible();
+    await expect(page.locator('[data-testid="right-panel-rail"]')).toBeVisible();
+    await expect(page.locator('[data-testid="layer-panel"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="right-panel"]')).toHaveCount(0);
+  });
+
+  test('the rail opens the panel as an overlay, without moving view-grid', async () => {
+    const before = await gridWidth(page);
+    await page.click('[data-testid="left-panel-expand"]');
+    await expect(page.locator('[data-testid="layer-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="left-panel-backdrop"]')).toBeVisible();
+    const during = await gridWidth(page);
+    // The overlay sits on top of the grid rather than pushing it — the whole point of "overlaid
+    // rather than pushing the view grid".
+    expect(during).toBeCloseTo(before, 0);
+
+    await page.click('[data-testid="left-panel-backdrop"]');
+    await expect(page.locator('[data-testid="layer-panel"]')).toHaveCount(0);
+  });
+
+  test('widening the window back out drops the overlay and restores the pushed layout', async () => {
+    await page.click('[data-testid="right-panel-expand"]');
+    await expect(page.locator('[data-testid="right-panel"]')).toBeVisible();
+
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 860);
+    });
+    await expect(page.locator('[data-testid="left-panel-rail"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="right-panel-rail"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="layer-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="right-panel"]')).toBeVisible();
+  });
+});
