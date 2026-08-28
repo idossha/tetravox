@@ -71,6 +71,14 @@ const CANDIDATES: readonly {
     description: 'Toggle the 3D camera between perspective and orthographic',
   },
   { key: 'c', label: 'c', section: 'View', description: 'Toggle the crosshair' },
+  {
+    key: 'Home',
+    label: 'Home',
+    section: 'View',
+    description:
+      'Reset: refit every view, send the cursor to world (0, 0, 0), cancel any measurement in ' +
+      'progress — layers and loaded datasets are untouched',
+  },
   // Measurements (directed task 11)
   {
     key: 'm',

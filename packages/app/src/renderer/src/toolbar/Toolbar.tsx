@@ -150,6 +150,19 @@ export function Toolbar(): React.JSX.Element {
         {radiological ? 'RAD' : 'NEU'}
       </button>
 
+      {/* `ShellController.resetAll` (`Home`): refit every view, send the cursor to world (0, 0, 0)
+        and cancel any measurement in progress — deliberately not `scene-new` beside it, so it
+        never unloads a dataset or touches a layer property. */}
+      <button
+        type="button"
+        data-testid="reset-all"
+        className="tvx-btn"
+        title="Reset: refit every view and jump the cursor to world (0, 0, 0). Datasets and layers are untouched. (Home)"
+        onClick={() => controller.runCommand({ kind: 'resetAll' })}
+      >
+        Reset
+      </button>
+
       <button
         type="button"
         data-testid="crosshair-toggle"
