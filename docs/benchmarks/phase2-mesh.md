@@ -85,26 +85,26 @@ this cost during a drag. That is E-SCENE's P2-02 and does not exist yet.
 
 | Quantity | Value |
 |---|---|
-| Parse + boundary + upload + first frame | 605 ms |
-| `extract_boundary` + upload alone (de-indexed variant) | **231 ms** |
+| Parse + boundary + upload + first frame | 578 ms |
+| `extract_boundary` + upload alone (de-indexed variant) | **223 ms** |
 | Gate | 1500 ms |
 <!-- end boundary chromium-swiftshader -->
 
 <!-- begin chromium-angle -->
 ### Clip-plane drag — `chromium-angle`
 
-Measured 2026-08-27 on M2 Max / macOS 15.7.
+Measured 2026-08-28 on M2 Max / macOS 15.7.
 `m2m_ernie/ernie.msh`, 4,722,625 tets, one axial plane swept ±20 mm about the
 bounding box's mid-`z` for 2.0 s, moved on every frame.
 
 | Quantity | Value |
 |---|---|
-| Drag frame rate | **60.3 fps** (121 frames) |
-| Frame interval, median · p95 | 16.7 ms · 17.5 ms |
+| Drag frame rate | **121.3 fps** (243 frames) |
+| Frame interval, median · p95 | 8.3 ms · 9.5 ms |
 | Budget | 33.3 ms (30 fps) |
-| New cross-section on screen, median · p95 | 17 ms · 18 ms |
-| New cross-sections per second | 58.3 Hz (117 in the drag) |
-| Cap triangles at the last plane | 62,874 |
+| New cross-section on screen, median · p95 | 16 ms · 18 ms |
+| New cross-sections per second | 73.9 Hz (148 in the drag) |
+| Cap triangles at the last plane | 62,455 |
 
 This is the shipping renderer, so the frame rate here is the one §7.4 gates on. The cut latency is sampled once per frame, so it cannot read below one frame interval.
 <!-- end chromium-angle -->
@@ -112,18 +112,18 @@ This is the shipping renderer, so the frame rate here is the one §7.4 gates on.
 <!-- begin chromium-swiftshader -->
 ### Clip-plane drag — `chromium-swiftshader`
 
-Measured 2026-08-27 on M2 Max / macOS 15.7.
+Measured 2026-08-28 on M2 Max / macOS 15.7.
 `m2m_ernie/ernie.msh`, 4,722,625 tets, one axial plane swept ±20 mm about the
 bounding box's mid-`z` for 2.1 s, moved on every frame.
 
 | Quantity | Value |
 |---|---|
-| Drag frame rate | 3.7 fps (8 frames) |
-| Frame interval, median · p95 | 270.3 ms · 496.4 ms |
+| Drag frame rate | 3.9 fps (8 frames) |
+| Frame interval, median · p95 | 263.7 ms · 478.2 ms |
 | Budget | 33.3 ms (30 fps) — not gated on this leg |
-| New cross-section on screen, median · p95 | 270 ms · 497 ms |
-| New cross-sections per second | 3.3 Hz (7 in the drag) |
-| Cap triangles at the last plane | 50,920 |
+| New cross-section on screen, median · p95 | 264 ms · 479 ms |
+| New cross-sections per second | 3.4 Hz (7 in the drag) |
+| Cap triangles at the last plane | 52,257 |
 
 SwiftShader. The frame rate here is the software rasteriser, not this feature, and the cut latency is sampled once per frame — so on this leg it is quantised by the frame interval and reads as an upper bound. The renderer-independent number is the table above.
 <!-- end chromium-swiftshader -->
