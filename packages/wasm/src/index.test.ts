@@ -75,8 +75,12 @@ describe('§6.4 wasm export surface', () => {
  */
 describe('§6.5.2 loadMesh carries the parsed-view format', () => {
   it('adds no op — a `.geo` is a `loadMesh` with a different format string', () => {
-    expect(OP_NAMES).toHaveLength(18);
+    // The invariant is that the parsed-view format bought NO new op, not that the op table has
+    // some fixed size: an unrelated feature may legitimately add one, and pinning the count here
+    // made this a tripwire that fires on somebody else's work while saying nothing about this one.
     expect(OP_TO_EXPORT.loadMesh).toBe('load_mesh');
+    const geoOps = OP_NAMES.filter((op) => /geo|\.pos|parsedview/i.test(op));
+    expect(geoOps, 'a parsed view is loaded through `loadMesh`, never its own op').toEqual([]);
   });
 
   it("declares load_mesh's format as a string, which is where 'geo' is accepted", () => {
