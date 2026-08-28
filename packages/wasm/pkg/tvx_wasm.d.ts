@@ -156,10 +156,36 @@ export function mesh_locate(handle: number, x: number, y: number, z: number): an
 export function mesh_marching_tets(handle: number, source: string, name: string, component: string, iso: number, mask_id: number | null | undefined, on_progress: Function): any;
 
 /**
+ * The mesh node nearest a world point (directed task 8e): `{ vertex, coord }`, or
+ * `{ vertex: null }` for a mesh with no nodes. `vertex` is the **internal 0-based node index** —
+ * the row in `Mesh::nodes`, the same numbering `SurfaceBuffers::node_index` uses and the one a
+ * FreeSurfer/GIfTI surface's vertex ids are — not a Gmsh node number.
+ */
+export function mesh_nearest_vertex(handle: number, x: number, y: number, z: number): any;
+
+/**
  * [`tvx_geom::tag_surfaces`] when the mesh has tris, else [`tvx_geom::extract_boundary`].
  * `variant` is `'indexed' | 'deindexed'`.
  */
 export function mesh_surface(handle: number, mask_id: number | null | undefined, variant: string, on_progress: Function): any;
+
+/**
+ * Node coordinates by index: `{ positions }`, 3 f32 per requested index, world mm with the file's
+ * transform already applied (§3). `indices = undefined` returns **every** node in file order.
+ */
+export function mesh_vertices(handle: number, indices?: Uint32Array | null): any;
+
+/**
+ * Subject `sphere.reg` vertex -> nearest fsaverage `sphere` vertex, on the **unit sphere**
+ * (directed task 8e). `handle` is the subject's registered sphere; `target` is the fsaverage
+ * sphere's coordinates as flat xyz triples, obtained with `mesh_vertices` from the worker that
+ * owns that file — §5 rule 1 gives one worker one dataset, so this cannot take two handles.
+ * Returns `{ map }`, one `u32` per subject node. Both sides are normalised before the search:
+ * fsaverage's sphere has a 0.0157 radius spread, which swamps the ~0.003 chord between true
+ * neighbours, so the un-normalised nearest neighbour is a different vertex almost every time
+ * `[DATA]`.
+ */
+export function surface_sphere_map(handle: number, target: Float32Array): any;
 
 /**
  * Phase-0 liveness: a pure 32-bit avalanche of `x` (the murmur3 finalizer with a
@@ -242,7 +268,10 @@ export interface InitOutput {
     readonly mesh_isolate: (a: number, b: number, c: number, d: number, e: number, f: any) => [number, number, number];
     readonly mesh_locate: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly mesh_marching_tets: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: any) => [number, number, number];
+    readonly mesh_nearest_vertex: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly mesh_surface: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly mesh_vertices: (a: number, b: number, c: number) => [number, number, number];
+    readonly surface_sphere_map: (a: number, b: number, c: number) => [number, number, number];
     readonly tvx_ping: (a: number) => number;
     readonly tvx_ping_bytes: (a: number, b: number) => number;
     readonly tvx_version: () => [number, number];

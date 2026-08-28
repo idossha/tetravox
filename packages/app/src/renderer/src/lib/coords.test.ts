@@ -37,6 +37,14 @@ describe('formatTriple / formatNumber', () => {
     expect(formatTriple([-42, 18, 6])).toBe('-42.0 18.0 6.0');
   });
 
+  it('formats a Float32Array too — TypedArray.map returns a typed array, not strings', () => {
+    // The failure this pins had no crash and no type error: a `vec3` that really came off the §6.5
+    // wire as a `Float32Array` mapped to numbers again, and `join` printed
+    // `-28.700000762939453` where §8 promised `-28.7` (directed task 8).
+    const wire = Float32Array.from([-28.7, 22, -26.6]) as unknown as [number, number, number];
+    expect(formatTriple(wire)).toBe('-28.7 22.0 -26.6');
+  });
+
   it('never prints a signed zero — a sign on zero is a laterality question', () => {
     expect(formatNumber(-0)).toBe('0.0');
     expect(formatNumber(-0.04)).toBe('0.0');

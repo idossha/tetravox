@@ -885,3 +885,80 @@ pub fn marching_tets(
         Ok(surface::to_js(&s))
     })
 }
+
+/// The mesh node nearest a world point (§6.4's `mesh_nearest_vertex`).
+///
+/// `{ vertex, coord }`, or `{ vertex: null }` for a mesh with no nodes — the same "no hit is not an
+/// error" shape [`locate`] uses, because a click in empty space is not a failure.
+pub fn nearest_vertex(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue> {
+    handles::with_mesh(handle, |st| {
+        let o = jsv::obj();
+        match geom::nearest_vertex(&st.mesh.nodes, [x, y, z])? {
+            None => jsv::set(&o, "vertex", &JsValue::NULL),
+            Some((i, c)) => {
+                jsv::set_u32(&o, "vertex", i);
+                jsv::set(&o, "coord", &jsv::f32s(&c).into());
+            }
+        }
+        Ok(o.into())
+    })
+}
+
+/// Node coordinates by index — `{ positions }`, 3 f32 per requested index (§6.4's `mesh_vertices`).
+///
+/// `indices = None` means **every** node, in file order, which is how the fsaverage sphere's
+/// 163,842 directions reach the subject's worker for [`sphere_map`]: 2.0 MB as one transferable,
+/// against a second wasm instance that would have to hold a whole second surface. An index past the
+/// end is [`Error::Parse`], never a silently zeroed coordinate — a wrong vertex coordinate in a
+/// readout is exactly the class of bug §8's laterality rules exist to prevent.
+pub fn vertices(handle: u32, indices: Option<Vec<u32>>) -> Result<JsValue> {
+    handles::with_mesh(handle, |st| {
+        let nodes = &st.mesh.nodes;
+        let mut out: Vec<f32> = Vec::new();
+        match indices {
+            None => {
+                out.reserve(nodes.len() * 3);
+                for n in nodes {
+                    out.extend_from_slice(n);
+                }
+            }
+            Some(ix) => {
+                out.reserve(ix.len() * 3);
+                for &i in &ix {
+                    let n = nodes.get(i as usize).ok_or_else(|| {
+                        Error::Parse(format!(
+                            "vertex index {i} is past this mesh's {} nodes",
+                            nodes.len()
+                        ))
+                    })?;
+                    out.extend_from_slice(n);
+                }
+            }
+        }
+        let o = jsv::obj();
+        jsv::set(&o, "positions", &jsv::f32s(&out).into());
+        Ok(o.into())
+    })
+}
+
+/// Subject `sphere.reg` vertex → nearest fsaverage `sphere` vertex (§6.4's `surface_sphere_map`).
+///
+/// `handle` is the **subject's** registered sphere; `target` is the fsaverage sphere's node
+/// coordinates, flat `xyz` triples, fetched with [`vertices`] from the worker that owns that file.
+/// Two handles would need both surfaces inside one wasm instance, which §5 rule 1 does not allow —
+/// one worker, one dataset. Returns `{ map }`, one `u32` per subject node.
+pub fn sphere_map(handle: u32, target: &[f32]) -> Result<JsValue> {
+    if !target.len().is_multiple_of(3) {
+        return Err(Error::Parse(format!(
+            "target sphere has {} floats, which is not a whole number of xyz triples",
+            target.len()
+        )));
+    }
+    let target: Vec<[f32; 3]> = target.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+    handles::with_mesh(handle, |st| {
+        let map = geom::sphere_map(&st.mesh.nodes, &target)?;
+        let o = jsv::obj();
+        jsv::set(&o, "map", &jsv::u32s(&map).into());
+        Ok(o.into())
+    })
+}

@@ -6,16 +6,16 @@ describe('§6.5.2 op table', () => {
   it('has exactly the 19 ops §6.5 declares', () => {
     // 17 through Phase 1; `meshCentroids` is the eighteenth (§6.5.2, W-WASM Phase-2 gap 2), and
     // `marchingCubesLabel` the nineteenth (2026-08-28, for §4.4's `VolumeLayer.iso3d`).
-    expect(OP_NAMES).toHaveLength(19);
-    expect(new Set(OP_NAMES).size).toBe(19);
+    expect(OP_NAMES).toHaveLength(22);
+    expect(new Set(OP_NAMES).size).toBe(22);
   });
 
   it('maps every op to a §6.4 wasm export, one-to-one and exhaustive', () => {
     // `satisfies Record<OpName, string>` already makes a missing op a compile error; this pins the
     // other direction — no export is reused, and no op is silently pointed at the wrong one.
     const exports = OP_NAMES.map((op) => OP_TO_EXPORT[op]);
-    expect(exports).toHaveLength(19);
-    expect(new Set(exports).size).toBe(19);
+    expect(exports).toHaveLength(22);
+    expect(new Set(exports).size).toBe(22);
     expect(OP_TO_EXPORT.elmToNode).toBe('mesh_convert_field');
     expect(OP_TO_EXPORT.marchingCubes).toBe('volume_marching_cubes');
     // Two volume-isosurface ops, two different exports: a level set of the ids is not a region.
@@ -27,6 +27,12 @@ describe('§6.5.2 op table', () => {
     // export type-checks and fails only at run time, which is what this table exists to stop.
     expect(OP_TO_EXPORT.labelCentroids).toBe('volume_label_centroids');
     expect(OP_TO_EXPORT.meshCentroids).toBe('mesh_centroids');
+    // The three surface-space ops (directed task 8e). `nearestVertex` is NOT `locate`: `locate`
+    // finds the containing tet and a surface has none, so pointing them at one another would make
+    // every surface probe return "outside the mesh".
+    expect(OP_TO_EXPORT.nearestVertex).toBe('mesh_nearest_vertex');
+    expect(OP_TO_EXPORT.vertices).toBe('mesh_vertices');
+    expect(OP_TO_EXPORT.sphereMap).toBe('surface_sphere_map');
   });
 
   it('names every export in snake_case, as wasm-bindgen emits them', () => {

@@ -2637,6 +2637,84 @@ what a saved scene meets.
 pane and is now `3d+1`: the same zoomed oblique slice, with the 3D pane beside it. `1x1` is no longer a button
 to click.
 
+---
+
+## 2026-08-28 — Coordinate systems (directed task 8, `feat/coordinate-systems`)
+
+- 2026-08-28 — **`toTemplate` grows a nonlinear form, and §3's "nonlinear warps are out of scope" is
+  withdrawn.** Phase 2 derived `toTemplate` from `sform_code`/`qform_code == 4` and offered an affine
+  matrix only. On the reference dataset that means the MNI readout is permanently greyed out with
+  "not in a template space": every `m2m_ernie` volume is `sform_code = 2`, and SimNIBS 4's `charm`
+  writes **no** `MNI2conform_12DOF.txt` or `MNI2conform_6DOF.txt` at all — those are a SimNIBS-3 /
+  `headreco` artefact, and `subject2mni_coords(..., '12dof')` raises `FileNotFoundError` on ernie
+  `[DATA]`. The transform that exists is the pair of warps in `toMNI/`. Affine-only was therefore a
+  correct answer to the wrong question. `TemplateSpace` (§4.3) is the widened form; Phase 2's shape is
+  still assignable.
+- 2026-08-28 — **The two MNI answers are reported separately, never merged.** `MNI152 (affine)` and
+  `MNI152 (nonlinear)` are two selector entries and two info-panel lines. They disagree by centimetres
+  where the warp is doing work, and a single "MNI" row would not say which number a user copied into
+  a paper.
+- 2026-08-28 — **The inverse of a warp is the other file, not an iteration.** SimNIBS ships
+  `Conform2MNI_nonl.nii.gz` *and* `MNI2Conform_nonl.nii.gz`, and `mni2subject_coords` samples the
+  second exactly the way `subject2mni_coords` samples the first. So typed entry in the nonlinear space
+  is a forward trilinear sample, exact to the same tolerance as the outbound direction — no
+  fixed-point steps, and no "not supported". Round-tripping five ernie landmarks through both fields,
+  SimNIBS itself returns to 2.0e-2 mm `[DATA]`; our forward and return samples match
+  `subject2mni_coords` / `mni2subject_coords` to **1e-3 mm** `[DATA]`.
+- 2026-08-28 — **The deformation fields are ordinary datasets, loaded on demand.** They go through
+  `addDataset` — same worker, same `tetravox://file/…` fetch, same fingerprint — but get **no layer**:
+  nobody wants to look at a warp, and `view/coord-spaces.ts` filters a *referenced* field out of the
+  space menu (by reference, not by filename, because a user may have renamed it). They are 97 MB and
+  230 MB on ernie, so they are loaded the first time the nonlinear space is **selected**, not when the
+  subject volume opens: paying for a second dataset's worth of load before the first picture is on
+  screen would be a worse default than a two-second wait on a menu the user just chose. The cost of
+  reusing `addDataset` is one GPU texture per field that nothing draws; a separate no-upload load path
+  would have been a second volume reader, which §6.1 exists to prevent.
+- 2026-08-28 — **The nonlinear space is enabled by the *file existing*, not by the field having
+  loaded** (`TemplateSpace.nonlinearAvailable`). Selecting the space is what starts the 97 MB load,
+  and an HTML `<select>` cannot select a disabled `<option>` — so gating the option on "the field is
+  in the scene" made the load unreachable from the UI. The e2e caught exactly that. The option is
+  offered as soon as `toMNI/Conform2MNI_nonl.nii.gz` is known to exist, reads "loading…" for the
+  seconds it takes, and `toSpace` still returns null until the samples are there.
+- 2026-08-28 — **A `toMNI/` folder is discovered in the main process, and only text crosses the
+  bridge.** §5 keeps the filesystem in main, and the folder is *beside* the volume, so nothing on the
+  load path sees it. `main/subject-spaces.ts` walks up to three ancestors of the opened volume, reads
+  the ≤ 64 kB affine text, and returns the two warps as **allow-listed URLs** — never their bytes
+  (§5 rule 3, AGENTS rule 7).
+- 2026-08-28 — **`tkr-RAS` is always reported with the volume it belongs to.** `vox2ras-tkr` is built
+  from dims and spacing alone, so one subject's 1 mm `T1.nii.gz` and 0.5 mm
+  `label_prep/T1_upsampled.nii.gz` are *different* tkr spaces. A bare tkr triple is not a coordinate,
+  it is a guess; `ProbeResult.tkrVolume` and the selector's `tkr-RAS · <name>` label are the fix. The
+  matrix reproduces `nibabel`'s `MGHHeader.get_vox2ras_tkr()` on ernie's T1 with **max abs error 0.0**
+  `[DATA]`.
+- 2026-08-28 — **The space selector is a `CoordSpaceRef`, not a string.** Phase 2's
+  `'ras' | 'voxel' | 'mni'` could not name a per-volume space, and "Voxel (active layer)" silently
+  re-pointed when the active layer changed. Every entry now carries its `datasetId`, so a chosen menu
+  entry keeps meaning the same thing; a ref whose dataset has been closed resolves to null and the bar
+  falls back to world RAS in **both** directions — it has to, because it is displaying a world triple
+  and rejecting the number it is showing would be worse.
+- 2026-08-28 — **The fsaverage correspondence is built in the subject's worker from a flat coordinate
+  array, not from a second handle.** §5 rule 1 gives one worker one dataset, so no wasm instance ever
+  holds both spheres. `mesh_vertices` reads the fsaverage sphere's 163,842 directions out of its own
+  worker as one 2.0 MB transferable and `surface_sphere_map` takes them as `&[f32]`. The alternative —
+  loading both surfaces into one worker — would have made a cross-dataset op the only op in §6.5 that
+  violates the one-dataset rule, to save a 2 MB copy that happens once per session.
+- 2026-08-28 — **`sphere_map` normalises both spheres before the nearest-neighbour search.**
+  `lh.sphere.reg.gii` is radius 1.0000000 ± 8.2e-8 and `fsaverage/surf/lh.sphere` is 99.9923 …
+  100.0080 `[DATA]`. The radius spread perturbs the squared Euclidean distance by ~3.1 against a ~9e-4
+  angular signal, so the un-normalised argmin is a **different vertex on all seven** sampled ernie
+  vertices — subject vertex 0 → 40,188 normalised, 161,546 raw. The real-data test asserts both
+  values, the second as the answer it must not give.
+- 2026-08-28 — **`nearest_vertex` is a linear scan and stays one.** One query per pick, 0.31 ms over
+  245,762 nodes `[M2Max]`, against a permanent 3.4–9.2 MB index that nothing else would read.
+  `sphere_map` is the case that needed a structure — 4.0e10 evaluations, ~50 s brute force against
+  **42 ms** — and it builds a throwaway 64³ direction grid with an exact expanding-ring stop, so its
+  output is bit-identical to brute force rather than approximate.
+- 2026-08-28 — **A surface layer has a probe row for the first time.** `locate` is a
+  point-in-tetrahedron search, so a 0-tet `.gii` produced no `ProbeRow` at all. `nearestVertex` runs
+  for *every* mesh on its own latest-wins key, so `lh.central.gii` now answers with a vertex index and
+  that vertex's own coordinate — which is deliberately **not** the probe point.
+
 
 
 - 2026-08-28 — **Gmsh parsed post-processing views (`.geo` / `.pos`) load through `loadMesh`, not
@@ -2731,3 +2809,48 @@ cannot collide over the single-instance lock, which also discards anything per-p
 JSON file, `e2e/fixtures.ts` gains a `userDataDir` option, and `theme.spec.ts` launches twice against one
 directory. Main also reads the file to choose `BrowserWindow.backgroundColor`, so a light-theme launch does not
 open on a black rectangle.
+
+---
+
+## 2026-08-28 — the fsaverage read-out, app half (directed task 8, `feat/coordinate-systems`)
+
+- 2026-08-28 — **The FreeSurfer subjects directory is an app setting, and nothing is bundled.**
+  `fsaverage` is FreeSurfer's, ~6 MB per surface and ~50 MB per hemisphere of them, and every machine
+  that wants this feature already has a copy. `AppSettings.freesurferSubjectsDir` (`''` = unset) sits
+  beside the theme in `settings.json`; it describes the **machine**, not the data, so it is not a
+  `ViewSpec` field. When it is empty, or the files under it are not there, the readout omits the
+  fsaverage row rather than reporting anything — the same shape as a subject with no `toMNI/`.
+- 2026-08-28 — **`coercePatch` exists because a patch is not a settings object.** `writeSettings` ran
+  `coerceSettings({ ...readSettings(), ...coerceSettings(patch) })`, and `coerceSettings` fills every
+  absent field with its default — correct for a file, data loss for a partial write. With one key it
+  was invisible; the moment a second key existed, setting the subjects directory would have silently
+  reset the user's theme. `coercePatch` keeps absent keys absent, and a field of the wrong **type** is
+  dropped rather than defaulted, because defaulting is indistinguishable from the user asking for the
+  default.
+- 2026-08-28 — **The hemisphere comes from the file name.** A SimNIBS GIfTI pointset carries no
+  `AnatomicalStructurePrimary`, so `lh.` / `rh.` is the only place it is written down. A surface that
+  declares none — `ernie.msh` — simply has no correspondence, which is the same answer as an unset
+  setting. Both spellings of the subject sphere are looked for (`lh.sphere.reg.gii` from SimNIBS,
+  the extensionless `lh.sphere.reg` from FreeSurfer's own `surf/`); the reader sniffs the format by
+  magic either way, so the only question is which name is on disk.
+- 2026-08-28 — **The correspondence is built by the engine, from four ordinary datasets.**
+  `Engine.attachFsaverage` composes `vertices` → `sphereMap` → `vertices`; the app only discovers the
+  paths (in main, §5) and loads the files. The three helpers get **no layer** — nobody wants to look
+  at a sphere — exactly like the `toMNI/` warps, and they are cached by path, so `fsaverage/lh.sphere`
+  is read once however many surfaces of that hemisphere are open. The engine checks that the
+  `sphere.reg` and the displayed surface have the same node count rather than trusting it: the map is
+  indexed by the sphere's numbering and read with an index off the surface, and a mismatch would point
+  the readout at a random gyrus instead of showing nothing.
+- 2026-08-28 — **`EngineEvents` gains `probe`, and it fixes a hole that predates this branch.** §4.7
+  has always said a mesh probe is "at most one round trip stale", but nothing told the app when the
+  real row arrived, so §8's info panel showed a mesh row only after a *second* interaction — and for a
+  surface, whose only row is the vertex, it showed nothing at all. `LayerRuntimeContext.probeLanded`
+  now announces an async row and the engine re-emits it as `probe` when that point is still the cursor
+  or the hover. A second `cursor` emit would have been the smaller change and the wrong one: the app's
+  `cursor` handler clears the coordinate bar's draft, and a probe landing must not delete what a user
+  is typing.
+- 2026-08-28 — **An fsaverage coordinate is quoted in fsaverage's own tkr-RAS**, labelled with the
+  surface it came from (`fsaverage lh.pial`) rather than called "RAS". §3 loads a FreeSurfer binary
+  surface as-is when no companion volume is named, and tkr-RAS is the space `mris_info` and
+  `nibabel.freesurfer.read_geometry` report — so the number in the panel is the number a FreeSurfer
+  user expects, and the label says which space it is rather than leaving them to guess.

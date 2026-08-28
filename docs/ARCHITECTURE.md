@@ -129,8 +129,61 @@ Rules:
   the only definition; it is what makes the flag well-defined for oblique planes. The parenthetical is the
   *definition* and the formula is the *mechanism*: where a preset makes them disagree, the preset is wrong.
 * Cursor = one world point shared by all views. `hover` is a second, transient world point (§8).
-* Optional per-dataset `toTemplate?: { name, kind:'affine', matrix }` adds an MNI column to the readout. Affine
-  only; nonlinear warps are out of scope.
+* Optional per-dataset `toTemplate?: TemplateSpace` (§4.3) adds MNI to the readout. **Directed task 8
+  (2026-08-28) widened this**: it was "affine only; nonlinear warps are out of scope", and on the
+  reference dataset that meant the MNI readout could never be anything but greyed out. SimNIBS 4's
+  `charm` writes **no** `MNI2conform_12DOF.txt` / `MNI2conform_6DOF.txt` at all — the m2m folder holds
+  only `toMNI/Conform2MNI_nonl.nii.gz` and `toMNI/MNI2Conform_nonl.nii.gz` `[DATA]`, and
+  `simnibs.utils.transformations.subject2mni_coords(..., '12dof')` raises `FileNotFoundError` on
+  ernie. So both are supported and reported **separately**, never merged:
+  * **Affine.** `MNI2conform_*DOF.txt` is a whitespace-separated, row-major 4×4 mapping **MNI → the
+    subject**. `warp_coordinates` reads it verbatim for `mni2subject` and `np.linalg.inv()`s it for
+    `subject2mni`, so world → MNI is the **inverse of the file**. 12-DOF is preferred over 6-DOF.
+  * **Nonlinear.** A deformation field's voxel values *are* the target space's coordinates. Subject →
+    MNI is therefore: subject mm → the field's voxel index through `inv(field.affine)`, then
+    **trilinear** interpolation of its three volumes, clamped at the edge — `scipy.ndimage.
+    map_coordinates(order=1, mode='nearest')`, which is what SimNIBS uses. MNI → subject is not an
+    inversion: it is the same forward sample of the *other* file, `MNI2Conform_nonl.nii.gz`, so typed
+    entry is exact rather than a fixed-point iteration. Verified against `subject2mni_coords` /
+    `mni2subject_coords` on five ernie landmarks to **1e-3 mm** `[DATA]`
+    (`packages/engine/src/view/spaces.realdata.test.ts`, reference values from
+    `scripts/refvalues/mni_refvalues.py`).
+* **FreeSurfer `tkr-RAS` is a fourth space, and it is derived from dims and spacing alone** (directed
+  task 8). `vox2ras-tkr` throws the file's affine away and rebuilds one with the volume centre at the
+  origin and FreeSurfer's fixed direction cosines `Mdc_tkr = [[-1,0,0],[0,0,1],[0,-1,0]]`:
+  ```
+  vox2ras_tkr = [[-dx,  0,  0,  dx*Nx/2],
+                 [  0,  0, dz, -dz*Nz/2],
+                 [  0,-dy,  0,  dy*Ny/2],
+                 [  0,  0,  0,        1]]
+  ```
+  It reproduces `nibabel.freesurfer.mghformat.MGHHeader.get_vox2ras_tkr()` on `m2m_ernie/T1.nii.gz`
+  with **max abs error 0.0** `[DATA]`, and `worldToTkr = vox2ras_tkr · inv(affine)`. Because it needs
+  nothing but dims and spacing it is defined for **every** volume — which is also its trap: the 1 mm
+  `T1.nii.gz` and the 0.5 mm `label_prep/T1_upsampled.nii.gz` of one subject are *different* tkr
+  spaces, so a tkr triple is always reported **with the volume it belongs to** and never for "the
+  scene".
+* A surface's **vertex index** is the row in the file's own pointset, and it is shared by every
+  surface of one hemisphere from one subject — `lh.central.gii`, `lh.pial.gii` and `lh.sphere.reg.gii`
+  all carry 245,762 nodes in one numbering `[DATA]`. That is what makes a `sphere.reg` → fsaverage
+  `sphere` lookup a property of the *hemisphere* rather than of the displayed surface, and what lets
+  the readout report an fsaverage vertex for a pick on any of them.
+* **fsaverage is a lookup, not a transform.** With a subject `sphere.reg` and an fsaverage `sphere`
+  both on disk, the correspondence is the nearest fsaverage vertex to each subject vertex **on the
+  unit sphere** — both files are normalised first, because their radii are 1 and ~100 and the ~0.016
+  radius spread of the fsaverage sphere swamps the ~0.003 chord between true neighbours (§6.3).
+  Nothing is bundled; the fsaverage subject comes from the FreeSurfer subjects directory named in app
+  settings (`AppSettings.freesurferSubjectsDir`, §8), and the readout simply omits the fsaverage row
+  when it is not there. Four files take part — the surface on screen, its hemisphere's `sphere.reg`
+  beside it, `<subjects>/fsaverage/surf/<hemi>.sphere` and `<hemi>.pial` — and the **hemisphere comes
+  from the file name** (`lh.` / `rh.`), because a SimNIBS GIfTI pointset carries no
+  `AnatomicalStructurePrimary`. Verified end to end against nibabel on four ernie vertices: subject
+  vertex 0 → fsaverage 40,188 at (−42.985291, −10.803907, −44.410835), 1,000 → 152,958,
+  100,000 → 68,099, 245,761 → 48,810 `[DATA]`.
+* **An fsaverage coordinate is quoted in fsaverage's own tkr-RAS**, and labelled with the surface it
+  came from (`fsaverage lh.pial`) rather than called "RAS". A FreeSurfer binary surface *is* in
+  tkr-RAS and this rule already loads one as-is when no companion volume is named, so the number the
+  readout shows is the number `mris_info` and `nibabel.freesurfer.read_geometry` show.
 
 ---
 
@@ -238,8 +291,23 @@ export interface VolumeDataset {
   units?: string;
   gpu: GpuFormatInfo;                 // GPU *description*; the WebGLTexture lives in engine-private GpuResources
   headerJson: string;                 // every raw header field, for the UI header panel
-  toTemplate?: { name: 'MNI152' | 'MNI305'; kind: 'affine'; matrix: mat4 };
+  toTemplate?: TemplateSpace;   // widened by directed task 8; see below
   worker: WorkerRef; handle: Handle;
+}
+
+/**
+ * Directed task 8 (2026-08-28). Phase 2's `{ name, kind: 'affine', matrix }` is still assignable:
+ * `kind` gains `'simnibs'` and every new field is optional.
+ */
+export interface TemplateSpace {
+  name: 'MNI152' | 'MNI305';
+  kind: 'affine' | 'simnibs';       // 'affine' = derived from sform/qform_code 4; 'simnibs' = a toMNI/ folder
+  matrix: mat4;                     // WORLD -> TEMPLATE. Identity when hasAffine is false.
+  hasAffine?: boolean;              // false => `matrix` is a placeholder and the affine space is disabled
+  affineFile?: string;              // e.g. 'MNI2conform_12DOF.txt', for the readout's label
+  nonlinearAvailable?: boolean;     // a warp exists ON DISK — the space is offered before it loads
+  forwardFieldId?: DatasetId;       // Conform2MNI_nonl.nii.gz as a dataset: subject -> template
+  inverseFieldId?: DatasetId;       // MNI2Conform_nonl.nii.gz as a dataset: template -> subject
 }
 
 export interface MeshFieldInfo {
@@ -636,6 +704,77 @@ the container. A mesh's sidecars (`.msh.opt`, `_LUT.txt`) are **not** digested: 
 make the file look like a different one.
 
 ### 4.7 Engine facade
+
+**Directed task 8 (2026-08-28) appended four members and eight optional fields**, each additive, with
+a `docs/DECISIONS.md` line in the same commit:
+
+```ts
+export type CoordSpaceRef =
+  | { space: 'world' }
+  | { space: 'voxel'; datasetId: DatasetId }
+  | { space: 'tkr'; datasetId: DatasetId }
+  | { space: 'mni-affine'; datasetId: DatasetId }
+  | { space: 'mni-nonlinear'; datasetId: DatasetId };
+
+export interface CoordSpaceOption {
+  ref: CoordSpaceRef; label: string; decimals: number;
+  enabled: boolean; reason?: string; loading?: boolean;
+}
+
+export interface FsaverageSpec {
+  surfaceId: DatasetId;         // the subject surface being looked at
+  subjectSphereId: DatasetId;   // that hemisphere's sphere.reg
+  fsavgSphereId: DatasetId;     // fsaverage/surf/<hemi>.sphere
+  fsavgSurfaceId?: DatasetId;   // fsaverage/surf/<hemi>.pial — the coordinate that is quoted
+  targetName?: string;          // what to call it in the read-out
+}
+
+coordinateSpaces(): CoordSpaceOption[];
+toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null;
+fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null;
+setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void;
+attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean>;
+
+// ProbeResult, appended
+tkr?: vec3; tkrVolume?: string; mniNonlinear?: vec3;
+// ProbeRow, appended
+vertex?: number; vertexWorld?: vec3;
+fsavgVertex?: number; fsavgWorld?: vec3; fsavgSpace?: string;
+// EngineEvents, appended
+probe: { world: vec3; result: ProbeResult };
+```
+
+**The `probe` event closes a hole §4.7 has always described.** "A mesh probe is at most one round
+trip stale": `probe` is synchronous, `locate` and `nearestVertex` are worker calls, so the row the
+`cursor` event's probe returns is the one from *before* the click, and nothing told the app when the
+real one arrived. §8's info panel therefore showed a mesh row only after a second interaction — and
+for a **surface**, whose only row is the vertex, it showed nothing at all. A runtime now calls
+`LayerRuntimeContext.probeLanded(world)` when an async row lands, and the engine re-emits it as
+`probe` if that point is still the cursor or the hover. It is its own event and not a second `cursor`
+because the app's `cursor` handler also clears the coordinate bar's draft, and a probe landing must
+not delete what a user is typing.
+
+`attachFsaverage` composes three §6.5 ops — `vertices` on the fsaverage sphere, `sphereMap` on the
+subject's, `vertices` on the fsaverage surface — and caches all three, so a second surface of the
+same hemisphere costs nothing. It is on the facade because those are worker calls and §5 rule 3 keeps
+the app off that path. It resolves `false` rather than throwing on every miss, including a node-count
+mismatch between the `sphere.reg` and the displayed surface: nothing about fsaverage is bundled, so
+"there is none here" is the ordinary answer.
+
+They are facade members rather than app code for the reason §8 already gives: every one of them is
+engine geometry — which volume is active, what its `vox2ras-tkr` is, whether a warp has finished
+loading — and "everything the UI can do must be reachable from the `Engine` API alone. No logic in
+React". `setTemplateSpace` exists because the engine **cannot** find a registration itself: §5 keeps
+the filesystem in Electron's main process, and a `toMNI/` folder is *beside* the volume rather than
+inside it, so nothing on the load path ever sees it. The host discovers it, loads the two warps
+through the ordinary `addDataset`, and hands the result back.
+
+`toSpace` / `fromSpace` return **null** rather than a fallback whenever the reference does not
+resolve — a closed dataset, a singular registration, a warp that is not loaded. Jumping to the wrong
+place is worse than refusing to jump; the coordinate bar reads the null as "fall back to world RAS",
+which is a space it is simultaneously *naming* in the selector.
+
+
 
 `packages/engine/src/api.ts` is exactly this interface. Frozen at the end of Phase 0. **Two members were added in
 Phase 2**, each with this section and a `docs/DECISIONS.md` line in its own commit: `nudgeCursor`
@@ -1359,6 +1498,9 @@ pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&Bi
                      p: &mut dyn ProgressSink) -> Result<SurfaceBuffers>;
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
 pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
+// §8's surface coordinate spaces (added 2026-08-28 — see docs/DECISIONS.md).
+pub fn nearest_vertex(nodes: &[[f32; 3]], p: [f32; 3]) -> Option<(u32, [f32; 3])>;
+pub fn sphere_map(source: &[[f32; 3]], target: &[[f32; 3]]) -> Vec<u32>;
 pub fn label_centroids(vol: &Volume, vol_index: usize) -> Result<Vec<LabelCentroid>>;
 pub fn tet_centroids(mesh: &Mesh, mask: Option<&BitMask>, stride: usize,
                      tags: Option<&[i32]>) -> Result<Centroids>;
@@ -1431,6 +1573,21 @@ Rules:
   tag and every node/element field value at the point; splitting the gather across a second op would double the
   latency and leave the field data on the wrong side of the boundary. `ProbeHit.gmsh_elm` is what the wire
   carries as `elementId`; `tet_index` is internal and never crosses.
+* **`nearest_vertex` is a linear scan, and `sphere_map` is not.** One is a single query per pick — 245,762
+  distance evaluations on `lh.central.gii`, **0.31 ms** native release `[M2Max]`, against a permanent index
+  nothing else would read — and the other is 245,762 queries against 163,842 targets, i.e. 4.0e10 evaluations
+  and ~50 s. `sphere_map` buckets the target directions into a uniform 64³ grid over `[-1, 1]³` and scans rings
+  outward from the query's cell, stopping when the best distance found is no larger than the distance from the
+  query to the boundary of the scanned box. That stop is **exact**, so the output is bit-identical to brute
+  force — asserted on every vertex of a synthetic pair and on a sweep of the real one. Measured
+  `lh.sphere.reg.gii` → `fsaverage/lh.sphere`: **42 ms** `[M2Max]`. Both tie-break to the lowest index.
+* **`sphere_map` normalises both sides, and that is a correctness requirement.** `lh.sphere.reg.gii` has radius
+  1.0000000 ± 8.2e-8; `fsaverage/surf/lh.sphere` has radius 99.9923 … 100.0080 `[DATA]`. On exactly concentric
+  spheres the Euclidean argmin would equal the angular argmin, but the 0.0157 radius spread perturbs `|a − b|²`
+  by ~3.1 while the angular term at the ~0.003 chord separating true neighbours is ~9e-4 — three orders of
+  magnitude of noise over the signal. Raw and normalised disagree on **all seven** sampled ernie vertices:
+  subject vertex 0 → fsaverage 40,188 normalised (chord 0.00183), 161,546 raw `[DATA]`. The real-data test
+  asserts both, so a regression that drops the normalisation lands on the values it names as wrong.
 * **Determinism.** Geometry outputs are byte-identical across native and wasm builds; they use only
   `+ − × ÷ sqrt` and integer ops, which are correctly rounded and identical on both. Any function using a
   transcendental (`sin/cos/exp/pow`) is marked `#[doc(hidden)] // non-portable` and excluded from cross-build
@@ -1479,6 +1636,14 @@ present wherever an op can exceed one frame, and `js_sys::Function` is called at
 #[wasm_bindgen] pub fn mesh_convert_field(handle: u32, direction: &str, source_name: &str)
                                          -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_locate(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsValue>;
+// §8's surface coordinate spaces (added 2026-08-28). `mesh_nearest_vertex` returns
+// `{ vertex, coord }` or `{ vertex: null }`; `vertex` is the INTERNAL 0-based node index, not a
+// Gmsh node number. `mesh_vertices` with `indices = undefined` returns every node in file order.
+// `surface_sphere_map` takes the fsaverage sphere's coordinates as a flat `&[f32]` rather than a
+// second handle: §5 rule 1 gives one worker one dataset, so no wasm instance holds both surfaces.
+pub fn mesh_nearest_vertex(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsValue>;
+pub fn mesh_vertices(handle: u32, indices: Option<Vec<u32>>) -> Result<JsValue, JsValue>;
+pub fn surface_sphere_map(handle: u32, target: &[f32]) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_marching_cubes(handle: u32, vol_index: u32, iso: f32, smooth: bool,
                                              on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_marching_cubes_label(handle: u32, vol_index: u32, label: f32, smooth: bool,
@@ -1589,7 +1754,9 @@ export interface WorkerError { code: ErrorCode; message: string }
 export type OpName =
   | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
   | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingCubesLabel' | 'marchingTets' | 'contours'
-  | 'labelCentroids' | 'meshCentroids' | 'free' | 'freeMask';       // 19 ops
+  | 'labelCentroids' | 'meshCentroids'
+  | 'nearestVertex' | 'vertices' | 'sphereMap'                     // added 2026-08-28
+  | 'free' | 'freeMask';                                           // 22 ops
 // `marchingCubesLabel` was appended 2026-08-28 for §4.4's `VolumeLayer.iso3d` (see docs/DECISIONS.md):
 //   marchingCubesLabel: { handle: number; volumeIndex: number; label: number; smooth: boolean }
 //                     → SurfacePayload
@@ -1807,6 +1974,9 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `contours` | `{ handle: number; plane: PlaneT; maskId?: number }` | `{ segments: Float32Array }` | 6 floats per segment. **Stored triangles only.** A tri-less tet mesh (`grey_Thalamus_TI.msh`: 1,340,029 tets, 0 tris `[DATA]`) answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
 | `labelCentroids` | `{ handle: number; volumeIndex: number }` | `{ centroids: { id: number; centroid: [number,number,number]; count: number }[] }` | |
 | `meshCentroids` | `{ handle: number; maskId?: number; stride: number; tags?: number[] }` | `{ positions: Float32Array; ownerTet: Uint32Array }` | glyph origins for a **volumetric** `GlyphSpec` (§7.4): 3 floats and one Gmsh element number per origin, Morton order, no geometry. `maskId`/`tags` filter first, then every `stride`-th survivor; `stride: 0` is `Error::Parse`. Also serves the region panel's jump-to-centroid for a **mesh tissue tag** — the mean of a strided sample is 0.0156 mm off the true one on ernie's GM `[M2Max]` |
+| `nearestVertex` | `{ handle: number; world: [number,number,number] }` | `{ vertex: number \| null; coord?: [number,number,number] }` | the mesh **node** nearest a world point, for §8's surface spaces. Not `locate`: that finds the containing tet, and a surface has none. `vertex` is the INTERNAL 0-based node index — what a GIfTI/FreeSurfer file's vertex ids are — not a Gmsh node number |
+| `vertices` | `{ handle: number; indices?: Uint32Array }` | `{ positions: Float32Array }` | 3 floats per requested index, world mm. `indices` omitted = **every** node in file order (2.0 MB for fsaverage ico7), which is how one surface's coordinates reach another dataset's worker. An index past the end is `Error::Parse`, never a zeroed coordinate |
+| `sphereMap` | `{ handle: number; target: Float32Array }` | `{ map: Uint32Array }` | subject `sphere.reg` vertex → nearest fsaverage `sphere` vertex, one `u32` per subject node. `handle` is the **subject's** sphere; `target` is the fsaverage sphere's flat xyz triples, read from its own worker with `vertices`. Not two handles — §5 rule 1 gives one worker one dataset. **Cloned, not transferred**: the caller keeps the directions to map the other hemisphere without re-reading the file |
 | `free` | `{ handle: number }` | `{}` | the client then calls `worker.terminate()` |
 | `freeMask` | `{ handle: number; maskId: number }` | `{}` | masks are also dropped when the mesh handle is freed |
 
@@ -1825,7 +1995,9 @@ export interface OpResult { loadVolume: {…}; loadMesh: {…}; volumeFrame: Vol
 `elmToNode`→`mesh_convert_field` · `locate`→`mesh_locate` · `marchingCubes`→`volume_marching_cubes` ·
 `marchingCubesLabel`→`volume_marching_cubes_label` (added 2026-08-28) ·
 `marchingTets`→`mesh_marching_tets` · `contours`→`mesh_contours` ·
-`labelCentroids`→`volume_label_centroids` · `meshCentroids`→`mesh_centroids` · `free`→`free` ·
+`labelCentroids`→`volume_label_centroids` · `meshCentroids`→`mesh_centroids` ·
+`nearestVertex`→`mesh_nearest_vertex` · `vertices`→`mesh_vertices` ·
+`sphereMap`→`surface_sphere_map` (all three added 2026-08-28) · `free`→`free` ·
 `freeMask`→`free_mask`.
 `wasm_heap_bytes()` is the only export without an op; it is read after every call and stamped onto `Res`.
 This table and the `OpName` order above are the two things `packages/protocol/src/index.ts` also carries as
@@ -2382,9 +2554,38 @@ resolve on the UI thread from the retained typed array (zero latency); mesh elem
 op as latest-wins on its own key so a hover never queues behind a cut. Targets: **volume hover ≤ 16 ms, mesh hover
 ≤ 50 ms.**
 
-**Coordinate bar** above the info panel: editable `x y z` with a space selector (`World RAS` | `Voxel (active
-layer)` | `MNI`), Enter jumps the cursor, a copy button yields `-42.0 18.0 6.0`, paste accepts comma- or
-space-separated triples. The MNI column appears when the dataset has `toTemplate`.
+**Coordinate bar** above the info panel: editable `x y z` with a space selector, Enter jumps the cursor, a copy
+button yields `-42.0 18.0 6.0`, paste accepts comma- or space-separated triples.
+
+**The selector is `Engine.coordinateSpaces()`** (directed task 8, 2026-08-28), not a fixed list: `World RAS`,
+then `Voxel · <name>` and `tkr-RAS · <name>` **per loaded volume**, then — when a SimNIBS `toMNI/` was found
+beside the subject — `MNI152 (affine)` and `MNI152 (nonlinear)` as **two separate entries**. They are two
+different numbers and a reader has to be able to say which one they wrote down. Phase 2 had three fixed cases,
+which could not name a per-volume space at all: `Voxel · T1` and `Voxel · final_tissues` are different spaces.
+
+A space that cannot be used is **listed, disabled, with the reason on it** — never hidden. That was already the
+rule for the MNI column and it now applies to all of them: "this subject has no `MNI2conform_*DOF` affine —
+SimNIBS 4 writes only the warp" and "loading `Conform2MNI_nonl.nii.gz`…" are both things a user needs told. The
+97 MB forward warp and the 230 MB return warp are loaded **on demand**, the first time the nonlinear space is
+selected; nothing else on screen needs them. Copy yields the triple **in the selected space**, and Enter
+converts back through `Engine.fromSpace` — including the nonlinear direction, which is a forward sample of
+`MNI2Conform_nonl.nii.gz` rather than an inversion.
+
+Under the field, every *derived* space is shown at once, each labelled, so none of them needs a click.
+
+**Info panel: every value carries its space.** The world triple beside each block heading is labelled `RAS`;
+`tkr-RAS · <volume>`, `MNI (affine)` and `MNI (nonlinear)` get their own labelled lines. A mesh row adds
+`vertex <index> · RAS <x y z>` — the nearest node's index and **its own** coordinate, not the probe point —
+and a row labelled with the fsaverage surface (`fsaverage lh.pial`) carrying `vertex <index> · <x y z>` when
+a correspondence has been built.
+
+**Settings dialog** (`⚙` in the toolbar): preferences for the *machine*, not for the scene, persisted by
+`main/settings.ts` in `settings.json`. One field today — the **FreeSurfer subjects directory**, typed or
+browsed through a native directory picker, which is what turns the fsaverage row on. Setting it re-attaches
+every surface already open, because a user sets it *because* they are looking at one. Clearing it drops every
+correspondence. `AppSettings` gained a second key, and with it `coercePatch`: a patch is not a settings
+object, and filling a patch's absent fields with defaults before merging would silently reset the user's
+theme every time they set the directory.
 
 **Colour bars** (Phase 2, required in screenshots): one per visible scalar layer — colormap, numeric ticks at the
 scale endpoints and at `mid` for heat, the threshold cut drawn as a notch, the field name, and units from

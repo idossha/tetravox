@@ -40,8 +40,13 @@ export type OpName =
   | 'contours'
   | 'labelCentroids'
   | 'meshCentroids'
+  // Appended 2026-08-28 for §8's surface coordinate spaces (directed task 8e) — see
+  // `docs/DECISIONS.md`. Appended, never reordered: `OP_NAMES` below is iterated.
+  | 'nearestVertex'
+  | 'vertices'
+  | 'sphereMap'
   | 'free'
-  | 'freeMask'; // 19 ops
+  | 'freeMask'; // 22 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -411,6 +416,27 @@ export interface OpArgs {
   field: { handle: number; source: FieldSource; name: string; component: ComponentSel };
   elmToNode: { handle: number; direction: 'elmToNode' | 'nodeToElm'; name: string };
   locate: { handle: number; world: [number, number, number] };
+  /**
+   * The mesh node nearest a world point (§8's surface spaces). Distinct from `locate`, which finds
+   * the containing **tet**: a surface has no tets, and "which vertex is this" is what a
+   * `sphere.reg` lookup keys on.
+   */
+  nearestVertex: { handle: number; world: [number, number, number] };
+  /**
+   * Node coordinates by index, world mm (§3). `indices` omitted = **every** node in file order,
+   * which is how an fsaverage sphere's directions reach another dataset's worker for `sphereMap`.
+   */
+  vertices: { handle: number; indices?: Uint32Array };
+  /**
+   * Subject `sphere.reg` vertex -> nearest fsaverage `sphere` vertex, on the unit sphere.
+   *
+   * `handle` is the **subject's** registered sphere; `target` is the fsaverage sphere's node
+   * coordinates as flat xyz triples, read out of that file's own worker with `vertices`. It is not
+   * a second handle because §5 rule 1 gives one worker one dataset, so no single wasm instance ever
+   * holds both surfaces. Cloned, not transferred: the caller keeps the fsaverage directions to map
+   * a second hemisphere or a second subject without re-reading the file.
+   */
+  sphereMap: { handle: number; target: Float32Array };
   marchingCubes: { handle: number; volumeIndex: number; iso: number; smooth: boolean };
   /**
    * One **region** of a label volume, isolated at the sample (§6.3's `marching_cubes_label`;
@@ -478,6 +504,16 @@ export interface OpResult {
   /** `nodeToElm`'s values follow the same element order as `field`'s. */
   elmToNode: { name: string; values: Float32Array; stats: StatsT };
   locate: { hit: ProbeHitT | null };
+  /**
+   * `vertex` is the **internal 0-based node index** (the row in `Mesh::nodes`, the numbering
+   * `SurfacePayload.nodeIndex` carries and the one a GIfTI/FreeSurfer surface's vertex ids are) —
+   * **not** a Gmsh node number. `null` for a mesh with no nodes; a miss is not an error.
+   */
+  nearestVertex: { vertex: number | null; coord?: [number, number, number] };
+  /** 3 floats per requested index, world mm. */
+  vertices: { positions: Float32Array };
+  /** One entry per node of the subject sphere, in its own vertex order. */
+  sphereMap: { map: Uint32Array };
   marchingCubes: SurfacePayload;
   marchingCubesLabel: SurfacePayload;
   marchingTets: SurfacePayload;
@@ -519,6 +555,9 @@ export const OP_NAMES = [
   'contours',
   'labelCentroids',
   'meshCentroids',
+  'nearestVertex',
+  'vertices',
+  'sphereMap',
   'free',
   'freeMask',
 ] as const satisfies readonly OpName[];
@@ -545,6 +584,9 @@ export const OP_TO_EXPORT = {
   contours: 'mesh_contours',
   labelCentroids: 'volume_label_centroids',
   meshCentroids: 'mesh_centroids',
+  nearestVertex: 'mesh_nearest_vertex',
+  vertices: 'mesh_vertices',
+  sphereMap: 'surface_sphere_map',
   free: 'free',
   freeMask: 'free_mask',
 } as const satisfies Record<OpName, string>;

@@ -300,27 +300,28 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
   });
 
   test('the coordinate bar’s MNI column is live when a dataset carries a toTemplate', async () => {
-    await expect(page.locator('[data-testid="coord-bar"]')).toHaveAttribute(
-      'data-has-template',
-      'true'
-    );
-    await expect(page.locator('[data-testid="coord-space-mni"]')).not.toBeDisabled();
+    // Directed task 8: the selector is `Engine.coordinateSpaces()`, so entries are picked by their
+    // label — a `CoordSpaceRef`'s value carries a generated `DatasetId`, which no spec can predict.
+    const select = page.locator('[data-testid="coord-space"]');
+    await expect(select.locator('option', { hasText: 'MNI152 (affine)' })).not.toBeDisabled();
 
     const input = page.locator('[data-testid="coord-input"]');
     await input.click();
     await input.fill('-42 18 6');
     await input.press('Enter');
     // The read-out is the cursor through `toTemplate.matrix`: a 12 mm anterior shift.
-    await expect(page.locator('[data-testid="coord-mni"]')).toHaveText('-42.0 30.0 6.0');
+    await expect(
+      page.locator('[data-testid="coord-readout"] [data-space="mni-affine"]')
+    ).toHaveText('-42.0 30.0 6.0');
 
     // Switching space edits in the template's frame and jumps back through the inverse.
-    await page.selectOption('[data-testid="coord-space"]', 'mni');
+    await select.selectOption({ label: 'MNI152 (affine)' });
     await expect(input).toHaveValue('-42.0 30.0 6.0');
     await input.click();
     await input.fill('0 42 0');
     await input.press('Enter');
     expect((await ui(page)).cursor).toEqual([0, 30, 0]);
-    await page.selectOption('[data-testid="coord-space"]', 'ras');
+    await select.selectOption({ label: 'World RAS' });
   });
 
   test('the header panel shows the raw header, including the on-disk scl_slope', async () => {
@@ -414,9 +415,12 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     await expect(page.locator('[data-testid="header-panel-empty"]')).toBeVisible();
     await expect(page.locator('[data-testid="info-cursor-empty"]')).toBeVisible();
     await expect(page.locator('[data-testid="info-mouse-empty"]')).toBeVisible();
-    // With no volume left, nothing is in a template space and the column says so.
-    await expect(page.locator('[data-testid="coord-mni-absent"]')).toBeVisible();
-    await expect(page.locator('[data-testid="coord-space-mni"]')).toBeDisabled();
+    // With no volume left there are no per-volume spaces at all: the selector collapses to the one
+    // space that always exists (directed task 8), and the derived readout rows disappear with the
+    // volumes they belonged to.
+    await expect(page.locator('[data-testid="coord-space"] option')).toHaveCount(1);
+    await expect(page.locator('[data-testid="coord-space"] option')).toHaveText('World RAS');
+    await expect(page.locator('[data-testid="coord-readout"]')).toHaveCount(0);
   });
 });
 

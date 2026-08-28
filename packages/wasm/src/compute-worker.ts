@@ -252,6 +252,21 @@ async function runOp<K extends OpName>(
       const tags = a.tags === undefined ? undefined : Int32Array.from(a.tags);
       return call(a.handle, a.maskId, a.stride, tags) as OpResult[K];
     }
+    // -- §8's surface coordinate spaces (directed task 8e), appended 2026-08-28 ------------------
+    case 'nearestVertex': {
+      const a = args as OpArgs['nearestVertex'];
+      return call(a.handle, a.world[0], a.world[1], a.world[2]) as OpResult[K];
+    }
+    case 'vertices': {
+      const a = args as OpArgs['vertices'];
+      // `Option<Vec<u32>>` reads a typed array or `undefined`, never a plain JS array — the same
+      // wasm-bindgen rule `meshCentroids`'s `tags` obeys just above.
+      return call(a.handle, a.indices) as OpResult[K];
+    }
+    case 'sphereMap': {
+      const a = args as OpArgs['sphereMap'];
+      return call(a.handle, a.target) as OpResult[K];
+    }
     case 'free': {
       const a = args as OpArgs['free'];
       call(a.handle);

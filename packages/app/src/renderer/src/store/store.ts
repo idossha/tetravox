@@ -18,6 +18,7 @@ import { createStore } from 'zustand/vanilla';
 import type { StoreApi } from 'zustand/vanilla';
 import type {
   Capabilities,
+  CoordSpaceRef,
   Dataset,
   DatasetId,
   DatasetRef,
@@ -41,12 +42,45 @@ import type { ThemeChoice } from '../theme/theme';
 import type { ThemeName } from '../theme/tokens';
 
 /**
- * §8's coordinate bar: `World RAS` | `Voxel (active layer)` | `MNI`.
+ * §8's coordinate bar space, as a `CoordSpaceRef` (directed task 8, 2026-08-28).
  *
- * `'mni'` is Phase 2's (audit P2-10). The option is offered only when a volume dataset carries a
- * `toTemplate`, and rendered **greyed** otherwise, so its absence is visible rather than silent.
+ * Phase 2 had three string cases — `'ras' | 'voxel' | 'mni'` — which could not express the four
+ * spaces task 8 adds, because three of them are *per volume*: `Voxel · T1` and `Voxel ·
+ * final_tissues` are different spaces, and so are their tkr-RAS. The selector is now built from
+ * `Engine.coordinateSpaces()` and the chosen entry is stored by reference, so a menu entry keeps
+ * meaning the same thing when the active layer changes under it.
+ *
+ * `WORLD_SPACE` is the default and the fallback: a ref whose dataset has been closed resolves to
+ * null in `Engine.toSpace`, and the bar falls back to world RAS rather than showing a stale triple.
  */
-export type CoordSpace = 'ras' | 'voxel' | 'mni';
+export type CoordSpace = CoordSpaceRef;
+
+/** The one space that always exists, whatever is loaded. */
+export const WORLD_SPACE: CoordSpaceRef = { space: 'world' };
+
+/** Two refs name the same space — used to keep the `<select>`'s value stable across re-renders. */
+export function sameSpace(a: CoordSpaceRef, b: CoordSpaceRef): boolean {
+  if (a.space !== b.space) return false;
+  return a.space === 'world' || b.space === 'world' || a.datasetId === b.datasetId;
+}
+
+/** A stable string key for a ref, for `<option value>` and `data-testid`. */
+export function spaceKey(ref: CoordSpaceRef): string {
+  return ref.space === 'world' ? 'world' : `${ref.space}:${ref.datasetId}`;
+}
+
+/** The inverse of {@link spaceKey}, for reading a `<select>` back. Null for an unknown key. */
+export function spaceFromKey(key: string): CoordSpaceRef | null {
+  if (key === 'world') return WORLD_SPACE;
+  const at = key.indexOf(':');
+  if (at < 0) return null;
+  const space = key.slice(0, at);
+  const datasetId = key.slice(at + 1);
+  if (space !== 'voxel' && space !== 'tkr' && space !== 'mni-affine' && space !== 'mni-nonlinear') {
+    return null;
+  }
+  return { space, datasetId };
+}
 
 export type EngineStatus = 'pending' | 'ready' | 'webgl2-null' | 'failed';
 
@@ -101,6 +135,11 @@ export interface UiState {
   // -- chrome ------------------------------------------------------------------------------------
   activeViewId: ViewId | null;
   coordSpace: CoordSpace;
+  /**
+   * §8's settings dialog: the FreeSurfer subjects directory, mirrored from `settings.json` so the
+   * dialog can render it without a round trip (directed task 8). `''` = unset.
+   */
+  freesurferSubjectsDir: string;
   /** `null` = the field follows the cursor; a string = the user is editing. */
   coordDraft: string | null;
   loads: LoadCard[];
@@ -189,7 +228,7 @@ export interface SceneFileRecord {
   savedAt: number | null;
 }
 
-export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard';
+export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard' | 'settings';
 
 /** One row of the relocate dialog: the ref, what was tried for it, and what the user picked. */
 export interface RelocateRow {
@@ -241,7 +280,8 @@ export const INITIAL_UI: UiState = {
   hoverProbe: null,
   quality: 'full',
   activeViewId: null,
-  coordSpace: 'ras',
+  coordSpace: WORLD_SPACE,
+  freesurferSubjectsDir: '',
   coordDraft: null,
   loads: [],
   toasts: [],

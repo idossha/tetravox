@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Engine } from '@tetravox/engine';
+import type { CoordSpaceRef, Engine } from '@tetravox/engine';
 import { NoGlEngine } from '../engine/mockEngine';
 import { ShellController } from './controller';
 import { activeLayer, createUiStore } from './store';
@@ -287,7 +287,10 @@ describe('the coordinate bar (§8)', () => {
     const { store, controller } = harness();
     controller.open([pathRequest('/d/T1.nii.gz')]);
     await settled(store);
-    controller.setCoordSpace('voxel');
+    // Directed task 8: the space is a `CoordSpaceRef`, so it names the volume it belongs to.
+    const voxel = controller.coordinateSpaces().find((o) => o.ref.space === 'voxel')
+      ?.ref as CoordSpaceRef;
+    controller.setCoordSpace(voxel);
     expect(controller.jumpToCoordinate('128 128 104')).toBe(true);
     // The stand-in's affine is 1 mm isotropic with origin (-99.737457, -128.1875, -143.642273).
     expect(store.getState().cursor[0]).toBeCloseTo(-99.737457 + 128, 3);

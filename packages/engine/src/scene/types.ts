@@ -181,9 +181,60 @@ export interface VolumeDataset {
   gpu: GpuFormatInfo;
   /** Every raw header field, for the UI header panel. */
   headerJson: string;
-  toTemplate?: { name: 'MNI152' | 'MNI305'; kind: 'affine'; matrix: mat4 };
+  toTemplate?: TemplateSpace;
   worker: WorkerRef;
   handle: Handle;
+}
+
+/**
+ * §4.3's `toTemplate`, widened for directed task 8 (2026-08-28 — `docs/DECISIONS.md`).
+ *
+ * Phase 2 shipped this as `{ name, kind: 'affine', matrix }`, and §3 said in one line that
+ * "nonlinear warps are out of scope". They are not any more: on a SimNIBS subject the affine is the
+ * transform that **does not exist** — `charm` writes no `MNI2conform_12DOF.txt` at all `[DATA]` —
+ * while the nonlinear pair `toMNI/Conform2MNI_nonl.nii.gz` / `toMNI/MNI2Conform_nonl.nii.gz` is
+ * always there. Keeping the readout affine-only meant that on the reference dataset, the MNI column
+ * was permanently greyed out with "not in a template space", which is the honest answer to the
+ * question Phase 2 asked and the wrong answer to the question a user asks.
+ *
+ * The Phase-2 shape is still assignable: `kind` gains `'simnibs'`, everything else is optional and
+ * additive.
+ *
+ * **Directions, once.** `matrix` is **world → template**, as it always was. The two field ids point
+ * at ordinary `VolumeDataset`s (4-D, three volumes) loaded through the normal §5 worker path;
+ * `forwardFieldId` is subject → template and `inverseFieldId` template → subject. A deformation
+ * field's voxel values *are* the target-space coordinates, so both directions are a forward
+ * trilinear sample of the appropriate field and neither is an iterative inversion
+ * (`view/spaces.ts` derives all of this from `simnibs/utils/transformations.py`).
+ */
+export interface TemplateSpace {
+  name: 'MNI152' | 'MNI305';
+  /** `'affine'` = the Phase-2 header-derived form; `'simnibs'` = a `toMNI/` folder on disk. */
+  kind: 'affine' | 'simnibs';
+  /** World RAS mm → template mm. Identity when {@link TemplateSpace.hasAffine} is false. */
+  matrix: mat4;
+  /**
+   * False when no affine transform was found and `matrix` is a placeholder identity — the readout
+   * then offers only the nonlinear space, rather than reporting the cursor unchanged as "MNI".
+   */
+  hasAffine?: boolean;
+  /** The file `matrix` came from, e.g. `MNI2conform_12DOF.txt`, for the readout's label. */
+  affineFile?: string;
+  /**
+   * True when a `Conform2MNI_nonl.nii.gz` was **found on disk** for this subject, whether or not it
+   * has been loaded yet.
+   *
+   * Separate from {@link TemplateSpace.forwardFieldId} because the warp is loaded *on demand*, the
+   * first time the nonlinear space is selected — and a `<select>` cannot select a disabled option,
+   * so an option that is only enabled once the field has loaded can never be the thing that starts
+   * the load. The space is therefore offered as soon as the file is known to exist; the readout row
+   * says "loading…" for the seconds it takes, and `toSpace` still returns null until it lands.
+   */
+  nonlinearAvailable?: boolean;
+  /** `Conform2MNI_nonl.nii.gz` as a dataset: subject → template. */
+  forwardFieldId?: DatasetId;
+  /** `MNI2Conform_nonl.nii.gz` as a dataset: template → subject, for typed entry. */
+  inverseFieldId?: DatasetId;
 }
 
 export interface MeshFieldInfo {

@@ -261,7 +261,11 @@ test.describe('the §8 shell', () => {
     const state = await ui(page);
     // The row's centre is the opacity slider, which stops propagation — click the name.
     await page.click(`[data-testid="layer-name-${state.layers[0]?.id}"]`);
-    await page.selectOption('[data-testid="coord-space"]', 'voxel');
+    // Directed task 8: entries are per volume and named after it, and a ref's `<option value>`
+    // carries a generated `DatasetId` — so the spec picks by label, as a user does.
+    const select = page.locator('[data-testid="coord-space"]');
+    await select.selectOption({ index: 1 });
+    await expect(select.locator('option:checked')).toHaveText(/^Voxel · /);
     const input = page.locator('[data-testid="coord-input"]');
     await input.click();
     await input.fill('128 128 104');
@@ -269,7 +273,7 @@ test.describe('the §8 shell', () => {
     await expect(input).toHaveValue('128 128 104');
     // Voxel → world → voxel is the round trip; the world value is the stand-in's own affine.
     expect((await ui(page)).cursor[0]).toBeCloseTo(-99.737457 + 128, 3);
-    await page.selectOption('[data-testid="coord-space"]', 'ras');
+    await select.selectOption({ label: 'World RAS' });
   });
 
   /**

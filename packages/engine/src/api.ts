@@ -28,6 +28,7 @@ import type {
   QualityLevel,
   Scene,
   SliceView,
+  TemplateSpace,
   View,
   View3D,
   ViewId,
@@ -81,12 +82,117 @@ export interface ProbeRow {
   tag?: number;
   tagName?: string;
   fields?: { name: string; value: number | number[] }[];
+
+  // -- surfaces: vertex identity (directed task 8; §3, `docs/DECISIONS.md` 2026-08-28) ----------
+  /**
+   * The **0-based node index** of the vertex nearest the probe — the row in the file's own pointset,
+   * which is what a GIfTI or FreeSurfer vertex id means. Not a Gmsh element number.
+   *
+   * Present for any mesh layer, and it is the only probe answer a *surface* has: `locate` is a
+   * point-in-tetrahedron search, so a 0-tet `.gii` produced no row at all before this.
+   */
+  vertex?: number;
+  /**
+   * That vertex's **own** coordinate in world mm — deliberately not the probe point. The two differ
+   * by up to half an edge length, and a user quoting "vertex 40188" needs the vertex's coordinate,
+   * not where their mouse was.
+   */
+  vertexWorld?: vec3;
+  /**
+   * The fsaverage vertex {@link ProbeRow.vertex} corresponds to, and that vertex's coordinate on the
+   * fsaverage surface — present only when a subject `sphere.reg` and an fsaverage `sphere` both
+   * resolved. The correspondence is nearest-neighbour on the **unit** sphere (§6.3's `sphere_map`).
+   */
+  fsavgVertex?: number;
+  fsavgWorld?: vec3;
+  /** Which fsaverage surface {@link ProbeRow.fsavgWorld} is on, e.g. `fsaverage lh.pial`. */
+  fsavgSpace?: string;
 }
 
 export interface ProbeResult {
   world: vec3;
+  /**
+   * The **affine** template coordinate, unchanged since Phase 2: `toTemplate.matrix · world`.
+   * Present only when some volume carries an affine `toTemplate` ({@link TemplateSpace.hasAffine}).
+   */
   mni?: vec3;
   rows: ProbeRow[];
+
+  // -- directed task 8, appended (§3 / §4.7; `docs/DECISIONS.md` 2026-08-28) --------------------
+  /**
+   * FreeSurfer **tkr-RAS** of the cursor, in the space of {@link ProbeResult.tkrVolume}.
+   *
+   * Named alongside its volume because `vox2ras-tkr` is built from dims and spacing alone: the same
+   * subject's 1 mm `T1.nii.gz` and 0.5 mm `T1_upsampled.nii.gz` are *different* tkr spaces, so a
+   * tkr triple with no volume attached is not a coordinate, it is a guess.
+   */
+  tkr?: vec3;
+  /** The volume whose tkr space {@link ProbeResult.tkr} is in — the active layer's, else the top one. */
+  tkrVolume?: string;
+  /**
+   * MNI through the **nonlinear** SimNIBS field (`toMNI/Conform2MNI_nonl.nii.gz`), when one is
+   * loaded. Distinct from {@link ProbeResult.mni}, which is the affine answer: the two disagree by
+   * centimetres in the temporal lobes and a readout that merged them would be lying about which one
+   * the user is quoting.
+   */
+  mniNonlinear?: vec3;
+}
+
+/**
+ * A coordinate space the cursor can be **read in and typed in** (§8's space selector, directed
+ * task 8).
+ *
+ * Every space except `'world'` is relative to something: a voxel index and a tkr-RAS triple belong
+ * to one *volume*, and an MNI triple belongs to one *subject's* registration. That is why the ids
+ * are part of the reference rather than implied by "the active layer" — the app renders a menu of
+ * these, and a menu entry has to survive the active layer changing under it.
+ */
+export type CoordSpaceRef =
+  | { space: 'world' }
+  | { space: 'voxel'; datasetId: DatasetId }
+  | { space: 'tkr'; datasetId: DatasetId }
+  /** `toTemplate.matrix · world` — the affine registration. */
+  | { space: 'mni-affine'; datasetId: DatasetId }
+  /** A trilinear sample of the SimNIBS deformation field. */
+  | { space: 'mni-nonlinear'; datasetId: DatasetId };
+
+/** One entry of the space selector: what to call it, whether it can be used, and why not. */
+export interface CoordSpaceOption {
+  ref: CoordSpaceRef;
+  /** Menu label, e.g. `World RAS`, `Voxel · T1`, `tkr-RAS · T1`, `MNI (nonlinear)`. */
+  label: string;
+  /** How many decimals the readout uses — 0 for a voxel index, 1 for millimetres (§8's format). */
+  decimals: number;
+  /**
+   * False when the space is offered but not usable yet — its deformation field is still loading, or
+   * the subject has no affine at all. `reason` says which, and §8's selector shows the option greyed
+   * with the reason on it rather than hiding it: a column that silently disappears reads as a bug.
+   */
+  enabled: boolean;
+  reason?: string;
+  /** True while the space's deformation field is being loaded, so the app can show a spinner. */
+  loading?: boolean;
+}
+
+/**
+ * What {@link Engine.attachFsaverage} needs (directed task 8).
+ *
+ * Every id is an ordinary loaded dataset. The subject's `sphere.reg` and the displayed surface must
+ * share a node numbering — they do, for every surface of one hemisphere of one subject
+ * (`lh.central.gii`, `lh.pial.gii` and `lh.sphere.reg.gii` all carry 245,762 nodes `[DATA]`) — and
+ * the engine checks it rather than trusting it.
+ */
+export interface FsaverageSpec {
+  /** The subject surface being looked at, e.g. `lh.central.gii`. */
+  surfaceId: DatasetId;
+  /** That hemisphere's registered sphere, e.g. `lh.sphere.reg.gii`. */
+  subjectSphereId: DatasetId;
+  /** The fsaverage sphere, e.g. `fsaverage/surf/lh.sphere`. */
+  fsavgSphereId: DatasetId;
+  /** The fsaverage surface whose coordinate is quoted, e.g. `fsaverage/surf/lh.pial`. */
+  fsavgSurfaceId?: DatasetId;
+  /** What to call the target in the readout, e.g. `fsaverage lh.pial`. */
+  targetName?: string;
 }
 
 /**
@@ -145,6 +251,20 @@ export interface EngineEvents {
   cursor: vec3;
   hover: vec3 | null;
   pick: PickResult | null;
+  /**
+   * An **asynchronous** probe row landed for a point that is still the cursor or the hover
+   * (directed task 8).
+   *
+   * §4.7 has always said a mesh probe is "at most one round trip stale": `probe` is synchronous,
+   * `locate` and `nearestVertex` are worker calls, so the row the `cursor` event's `probe` returned
+   * is the one from *before* the click. Until now nothing told the app when the real one arrived, so
+   * §8's info panel showed a mesh row only after a second interaction — and for a surface, whose
+   * only row is the vertex, it showed nothing at all.
+   *
+   * Deliberately its own event rather than a second `cursor`: the app's `cursor` handler also
+   * clears the coordinate bar's draft, and a probe landing must not delete what a user is typing.
+   */
+  probe: { world: vec3; result: ProbeResult };
   layers: Layer[];
   datasets: Dataset[];
   progress: LoadProgress;
@@ -202,6 +322,54 @@ export interface Engine {
   pick(viewId: ViewId, px: number, py: number): PickResult | null;
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean;
   probe(world: vec3): ProbeResult;
+
+  // -- coordinate spaces (directed task 8; §3, §8; `docs/DECISIONS.md` 2026-08-28) --------------
+  /**
+   * Every space the cursor can currently be read in, in menu order (§8's space selector).
+   *
+   * On the facade rather than in the app because every entry is engine geometry: which volume is
+   * active, what its `vox2ras-tkr` is, and whether a subject's deformation field has finished
+   * loading. §8's "everything the UI can do must be reachable from the `Engine` API alone. No logic
+   * in React" is the rule this exists to keep.
+   */
+  coordinateSpaces(): CoordSpaceOption[];
+  /**
+   * World RAS mm → `ref`'s space. `null` when the reference no longer resolves (the dataset was
+   * closed, the field is still loading) — never a silently wrong triple.
+   */
+  toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null;
+  /** `ref`'s space → world RAS mm, for typed entry and paste. `null` on the same terms. */
+  fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null;
+  /**
+   * Attach (or clear, with `null`) a template registration to a volume — a SimNIBS `toMNI/` folder
+   * the host discovered on disk, with its deformation fields already loaded as datasets.
+   *
+   * The engine cannot find these itself: §5 keeps the filesystem in the Electron main process, and
+   * a `toMNI/` folder is *beside* the volume rather than inside it, so nothing on the load path ever
+   * sees it. The host discovers, loads the fields through the ordinary `addDataset`, and hands the
+   * result back here.
+   */
+  setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void;
+  /**
+   * Build the **fsaverage correspondence** for a subject surface, so a pick on it reports an
+   * fsaverage vertex as well as its own (§3, directed task 8).
+   *
+   * Four datasets, all already loaded through the ordinary `addDataset`: the surface being looked
+   * at, the subject hemisphere's registered sphere, the fsaverage sphere, and (optionally) the
+   * fsaverage surface whose coordinates are quoted. Resolves `true` when a correspondence was
+   * built, `false` when it could not be — a node-count mismatch between the sphere and the surface,
+   * a dataset that is not a mesh, a worker that has gone. **Never throws**: nothing is bundled, so
+   * "there is no fsaverage here" is the ordinary case and must not be an error.
+   *
+   * It is an engine member rather than app code because the three ops it composes (`vertices`,
+   * `sphereMap`, `vertices`) are §6.5 worker calls, and §5 rule 3 keeps the app off that path
+   * entirely. The fsaverage sphere's directions and the resulting map are cached per dataset pair,
+   * so a second surface of the same hemisphere costs nothing.
+   *
+   * `{ surfaceId, clear: true }` drops the correspondence attached to that surface.
+   */
+  attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean>;
+
   /**
    * §8's region panel: every label of a label-volume layer, with its voxel count and world centroid
    * (§4.7 / §6.5.2's `labelCentroids`, added 2026-08-27 — see `docs/DECISIONS.md`).
@@ -373,6 +541,28 @@ export class MockEngine implements Engine {
   }
   probe(world: vec3): ProbeResult {
     void world;
+    throw new Error('phase 1');
+  }
+  coordinateSpaces(): CoordSpaceOption[] {
+    throw new Error('phase 1');
+  }
+  toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null {
+    void ref;
+    void world;
+    throw new Error('phase 1');
+  }
+  fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null {
+    void ref;
+    void value;
+    throw new Error('phase 1');
+  }
+  setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void {
+    void datasetId;
+    void space;
+    throw new Error('phase 1');
+  }
+  attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean> {
+    void spec;
     throw new Error('phase 1');
   }
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {

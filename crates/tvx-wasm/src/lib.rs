@@ -244,6 +244,35 @@ pub fn mesh_locate(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsVal
     mesh::locate(handle, x, y, z).map_err(err::map)
 }
 
+/// The mesh node nearest a world point (directed task 8e): `{ vertex, coord }`, or
+/// `{ vertex: null }` for a mesh with no nodes. `vertex` is the **internal 0-based node index** —
+/// the row in `Mesh::nodes`, the same numbering `SurfaceBuffers::node_index` uses and the one a
+/// FreeSurfer/GIfTI surface's vertex ids are — not a Gmsh node number.
+#[wasm_bindgen]
+pub fn mesh_nearest_vertex(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsValue> {
+    mesh::nearest_vertex(handle, x, y, z).map_err(err::map)
+}
+
+/// Node coordinates by index: `{ positions }`, 3 f32 per requested index, world mm with the file's
+/// transform already applied (§3). `indices = undefined` returns **every** node in file order.
+#[wasm_bindgen]
+pub fn mesh_vertices(handle: u32, indices: Option<Vec<u32>>) -> Result<JsValue, JsValue> {
+    mesh::vertices(handle, indices).map_err(err::map)
+}
+
+/// Subject `sphere.reg` vertex -> nearest fsaverage `sphere` vertex, on the **unit sphere**
+/// (directed task 8e). `handle` is the subject's registered sphere; `target` is the fsaverage
+/// sphere's coordinates as flat xyz triples, obtained with `mesh_vertices` from the worker that
+/// owns that file — §5 rule 1 gives one worker one dataset, so this cannot take two handles.
+/// Returns `{ map }`, one `u32` per subject node. Both sides are normalised before the search:
+/// fsaverage's sphere has a 0.0157 radius spread, which swamps the ~0.003 chord between true
+/// neighbours, so the un-normalised nearest neighbour is a different vertex almost every time
+/// `[DATA]`.
+#[wasm_bindgen]
+pub fn surface_sphere_map(handle: u32, target: &[f32]) -> Result<JsValue, JsValue> {
+    mesh::sphere_map(handle, target).map_err(err::map)
+}
+
 #[wasm_bindgen]
 pub fn volume_marching_cubes(
     handle: u32,

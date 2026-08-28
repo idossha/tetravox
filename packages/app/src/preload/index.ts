@@ -18,6 +18,31 @@ export interface OpenedPath {
   url: string;
 }
 
+/** What `subjectSpaces` returns. Mirrors `main/subject-spaces.ts`, with the warps admitted. */
+export interface SubjectSpacesReply {
+  subjectDir: string;
+  toMniDir: string;
+  /** `MNI2conform_*DOF.txt` verbatim — MNI → subject; subject → MNI is its inverse. */
+  affine?: { file: string; text: string };
+  /** `Conform2MNI_nonl.nii.gz` — subject → MNI. */
+  forwardField?: OpenedPath;
+  /** `MNI2Conform_nonl.nii.gz` — MNI → subject. */
+  inverseField?: OpenedPath;
+}
+
+/** What `surfaceSpaces` returns. Mirrors `main/surface-spaces.ts`, with each file admitted. */
+export interface SurfaceSpacesReply {
+  hemisphere: 'lh' | 'rh';
+  /** What to call the target in the readout, e.g. `fsaverage lh.pial`. */
+  targetName: string;
+  /** The subject hemisphere's registered sphere, beside the opened surface. */
+  subjectSphere: OpenedPath;
+  /** `<subjects>/fsaverage/surf/<hemi>.sphere`. */
+  fsavgSphere: OpenedPath;
+  /** `<subjects>/fsaverage/surf/<hemi>.pial`, when there is one. */
+  fsavgSurface?: OpenedPath;
+}
+
 export interface TetravoxBridge {
   /** File ▸ Open… / ⌘O. Returns paths, never bytes. */
   openDialog(): Promise<OpenedPath[]>;
@@ -27,6 +52,20 @@ export interface TetravoxBridge {
   allowPath(path: string): Promise<OpenedPath | null>;
   /** Paths from CLI argv / a launch-time `open-file`, drained once. Pulled, not pushed: see main. */
   startupPaths(): Promise<OpenedPath[]>;
+  /**
+   * §8's MNI spaces (directed task 8): the SimNIBS `toMNI/` registration governing an opened volume,
+   * or null when there is none. The affine comes back as text; the two warps come back as
+   * allow-listed URLs, so their bytes never cross this bridge (§5 rule 3).
+   */
+  subjectSpaces(path: string, explicitDir?: string): Promise<SubjectSpacesReply | null>;
+  /**
+   * §3's fsaverage lookup (directed task 8): the files a pick on an opened **surface** needs, or
+   * null when the hemisphere is undeclared, the subject's `sphere.reg` is not beside it, or the
+   * `freesurferSubjectsDir` setting is empty or points somewhere without an `fsaverage/surf`.
+   */
+  surfaceSpaces(path: string): Promise<SurfaceSpacesReply | null>;
+  /** §8's settings dialog: pick one directory. Null when the user cancelled. */
+  chooseDirectory(): Promise<string | null>;
   /** Phase-0 gate 3: an allow-listed fixture the worker fetches over `tetravox://file/…`. */
   phase0Fixture(): Promise<OpenedPath | null>;
   /** Paths pushed from main: menu Open, CLI argv, macOS `open-file`, second instance. */
@@ -126,6 +165,8 @@ export interface JobDonePayload {
 /** Mirrors `main/settings.ts`'s `AppSettings`; duplicated because preload must not import main. */
 export interface AppSettings {
   theme: 'system' | 'light' | 'dark';
+  /** The FreeSurfer subjects directory for §3's fsaverage lookup; `''` = unset (directed task 8). */
+  freesurferSubjectsDir: string;
 }
 
 /** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
@@ -144,6 +185,10 @@ const bridge: TetravoxBridge = {
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
   allowPath: (path) => ipcRenderer.invoke('tetravox:allow-path', path),
   startupPaths: () => ipcRenderer.invoke('tetravox:startup-paths'),
+  subjectSpaces: (path, explicitDir) =>
+    ipcRenderer.invoke('tetravox:subject-spaces', path, explicitDir),
+  surfaceSpaces: (path) => ipcRenderer.invoke('tetravox:surface-spaces', path),
+  chooseDirectory: () => ipcRenderer.invoke('tetravox:choose-directory'),
   phase0Fixture: () => ipcRenderer.invoke('tetravox:phase0-fixture'),
   onOpened: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, paths: OpenedPath[]): void =>
