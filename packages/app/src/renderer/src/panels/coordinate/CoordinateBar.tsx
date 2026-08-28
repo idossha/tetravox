@@ -1,24 +1,64 @@
 /**
- * §8 coordinate bar, above the info panel: "editable `x y z` with a space selector (`World RAS` |
- * `Voxel (active layer)` | `MNI`), Enter jumps the cursor, a copy button yields `-42.0 18.0 6.0`,
- * paste accepts comma- or space-separated triples."
+ * §8 coordinate bar, above the info panel: "editable `x y z` with a space selector, Enter jumps the
+ * cursor, a copy button yields `-42.0 18.0 6.0`, paste accepts comma- or space-separated triples."
  *
- * **The MNI column is Phase 2's** (audit P2-10): §8 says it "appears when the dataset has
- * `toTemplate`", and E-SCENE derives that field in `scene/fromMeta.ts` from the NIfTI header
- * (`sform_code`/`qform_code` = 4 is MNI152). Absent is the *common* case on subject data — a SimNIBS
- * `m2m` T1 is `sform_code = 2` — so the option is rendered **greyed, with the reason on it**, rather
- * than hidden: a column that silently disappears reads as a bug, while one that says "not in a
- * template space" is telling the user something true about their data.
+ * **Directed task 8 widened the selector.** Phase 2 offered three fixed entries — World RAS, Voxel
+ * (active), MNI — with the MNI one greyed and a reason on it, because on a SimNIBS subject nothing
+ * carries an MNI `sform_code`. The menu is now whatever `Engine.coordinateSpaces()` says: world RAS,
+ * a voxel and a **tkr-RAS** entry per loaded volume, and — when a `toMNI/` folder was found beside
+ * the subject — `MNI152 (affine)` and `MNI152 (nonlinear)` as two separate entries, because they are
+ * two different answers and a readout that merged them would not say which one the user is quoting.
  *
- * A live read-out in the template's space sits under the field whenever a `toTemplate` exists, so
- * the value is visible without switching space to see it.
+ * Phase 2's rule survives intact and is now applied to all of them: a space that cannot be used is
+ * **listed, disabled, with the reason on it**, never hidden. A column that silently disappears reads
+ * as a bug; one that says "this subject has no MNI2conform_*DOF affine" is telling the user
+ * something true about their data.
+ *
+ * No conversion happens in this file. The label, the decimals, the enabled state, the value and the
+ * parse all come from the controller and the facade (§8: "no logic in React").
  */
 
 import { useCallback, useState } from 'react';
-import { formatTriple, worldToTemplate } from '../../lib/coords';
-import type { CoordSpace } from '../../store/store';
-import { templateSource } from '../../store/store';
+import type { CoordSpaceOption } from '@tetravox/engine';
+import { sameSpace, spaceFromKey, spaceKey } from '../../store/store';
 import { useController, useUi } from '../../ui/context';
+
+/** The live rows under the field: every derived space at once, so none of them needs a click. */
+function Readout({ options }: { options: CoordSpaceOption[] }): React.JSX.Element | null {
+  const controller = useController();
+  const cursor = useUi((s) => s.cursor);
+  // Only the *derived* spaces get a row — world RAS is already in the field above and a voxel index
+  // is on every info-panel row. What earns a permanent line is what a user copies into a paper.
+  const rows = options.filter((o) => o.ref.space === 'tkr' || o.ref.space.startsWith('mni'));
+  if (rows.length === 0) return null;
+  return (
+    <div className="flex w-full flex-col gap-0.5" data-testid="coord-readout">
+      {rows.map((option) => {
+        const value = option.enabled ? controller.coordInSpace(option.ref) : null;
+        return (
+          <div key={spaceKey(option.ref)} className="flex items-baseline gap-1.5">
+            <span className="min-w-[8.5rem] shrink-0 text-[10px] uppercase tracking-wider text-tvx-dim">
+              {option.label}
+            </span>
+            <span
+              data-testid={`coord-readout-${spaceKey(option.ref)}`}
+              data-space={option.ref.space}
+              title={option.reason}
+              className={
+                'truncate font-mono text-[11px] ' +
+                (value === null ? 'text-tvx-dim/60' : 'text-tvx-text')
+              }
+            >
+              {value ?? `— ${option.reason ?? 'not available'}`}
+            </span>
+          </div>
+        );
+      })}
+      {/* `cursor` is read so the rows follow the crosshair; the values themselves are the engine's. */}
+      <span className="hidden">{cursor.length}</span>
+    </div>
+  );
+}
 
 export function CoordinateBar(): React.JSX.Element {
   const controller = useController();
@@ -26,18 +66,18 @@ export function CoordinateBar(): React.JSX.Element {
   const draft = useUi((s) => s.coordDraft);
   const cursor = useUi((s) => s.cursor);
   const activeLayerId = useUi((s) => s.activeLayerId);
-  const hasVoxelSpace = useUi((s) => {
-    const layer = s.layers.find((l) => l.id === s.activeLayerId);
-    if (layer === undefined) return false;
-    return s.datasets.find((d) => d.id === layer.datasetId)?.kind === 'volume';
-  });
-  const template = useUi(templateSource);
+  const datasets = useUi((s) => s.datasets);
   const [rejected, setRejected] = useState(false);
 
-  // `cursor` and `activeLayerId` are read so the field re-renders when either moves; the text itself
-  // comes from the controller, which owns every space conversion (§8: no logic in React).
+  // `cursor`, `activeLayerId` and `datasets` are read so the bar re-renders when any of them moves:
+  // the menu is derived from the scene, the text from the cursor. Neither is computed here —
+  // `coordinateSpaces()` and `coordText()` are the controller's (§8).
+  void cursor;
   void activeLayerId;
+  void datasets;
+  const options = controller.coordinateSpaces();
   const text = controller.coordText();
+  const current = options.find((o) => sameSpace(o.ref, space) && o.enabled) ?? options[0];
 
   const commit = useCallback(
     (value: string) => {
@@ -51,32 +91,31 @@ export function CoordinateBar(): React.JSX.Element {
   return (
     <div
       data-testid="coord-bar"
-      data-has-template={template !== null}
+      data-space={current === undefined ? 'world' : current.ref.space}
       className="flex flex-wrap items-center gap-1.5 border-b border-tvx-line bg-tvx-panel/60 px-3 py-1.5"
     >
       <select
         data-testid="coord-space"
         aria-label="Coordinate space"
-        value={space}
-        onChange={(e) => controller.setCoordSpace(e.currentTarget.value as CoordSpace)}
-        className="tvx-input w-[8.5rem] text-[11px]"
+        value={current === undefined ? 'world' : spaceKey(current.ref)}
+        onChange={(e) => {
+          const ref = spaceFromKey(e.currentTarget.value);
+          if (ref !== null) controller.setCoordSpace(ref);
+        }}
+        className="tvx-input w-[11rem] text-[11px]"
       >
-        <option value="ras">World RAS</option>
-        <option value="voxel" disabled={!hasVoxelSpace}>
-          Voxel (active)
-        </option>
-        <option
-          value="mni"
-          data-testid="coord-space-mni"
-          disabled={template === null}
-          title={
-            template === null
-              ? 'No loaded volume carries a toTemplate (§4.3) — nothing here is in a template space'
-              : `${template.toTemplate.name} via ${template.name}`
-          }
-        >
-          {template === null ? 'MNI (none)' : template.toTemplate.name}
-        </option>
+        {options.map((option) => (
+          <option
+            key={spaceKey(option.ref)}
+            value={spaceKey(option.ref)}
+            data-testid={`coord-space-${spaceKey(option.ref)}`}
+            disabled={!option.enabled}
+            title={option.reason}
+          >
+            {option.label}
+            {option.enabled ? '' : option.loading === true ? ' — loading…' : ' — unavailable'}
+          </option>
+        ))}
       </select>
 
       <input
@@ -135,24 +174,7 @@ export function CoordinateBar(): React.JSX.Element {
         </span>
       )}
 
-      <div className="flex w-full items-baseline gap-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-tvx-dim">
-          {template === null ? 'MNI' : template.toTemplate.name}
-        </span>
-        {template === null ? (
-          <span
-            data-testid="coord-mni-absent"
-            className="font-mono text-[11px] text-tvx-dim/60"
-            title="No loaded volume carries a toTemplate (§4.3, audit P2-10)"
-          >
-            — not in a template space
-          </span>
-        ) : (
-          <span data-testid="coord-mni" className="font-mono text-[11px] text-tvx-text">
-            {formatTriple(worldToTemplate(template.toTemplate.matrix, cursor))}
-          </span>
-        )}
-      </div>
+      <Readout options={options} />
     </div>
   );
 }

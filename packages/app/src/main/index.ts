@@ -22,6 +22,7 @@ import { collectCliPaths } from './cli';
 import { buildMenu, sendOpened, showOpenDialog, toOpened } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
+import { discoverSubjectSpaces } from './subject-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
 import {
   armWatchdog,
@@ -218,6 +219,33 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     if (typeof path !== 'string') return null;
     const real = allowPath(path);
     return real === null ? null : { path: real, url: fileUrl(real) };
+  });
+  /**
+   * §8's MNI spaces (directed task 8): what registration, if any, governs a volume the user opened.
+   *
+   * The reply carries the affine as **text** (≤ 64 kB) and the warps as allow-listed
+   * `tetravox://file/…` URLs — never their bytes, which the dataset worker fetches for itself.
+   */
+  ipcMain.handle('tetravox:subject-spaces', (_event, path: unknown, explicit: unknown) => {
+    if (typeof path !== 'string') return null;
+    const found = discoverSubjectSpaces(path, typeof explicit === 'string' ? explicit : undefined);
+    if (found === null) return null;
+    const admit = (p: string | undefined): { path: string; url: string } | undefined => {
+      if (p === undefined) return undefined;
+      const real = allowPath(p);
+      return real === null ? undefined : { path: real, url: fileUrl(real) };
+    };
+    return {
+      subjectDir: found.subjectDir,
+      toMniDir: found.toMniDir,
+      ...(found.affine !== undefined ? { affine: found.affine } : {}),
+      ...(admit(found.forwardField) !== undefined
+        ? { forwardField: admit(found.forwardField) }
+        : {}),
+      ...(admit(found.inverseField) !== undefined
+        ? { inverseField: admit(found.inverseField) }
+        : {}),
+    };
   });
   ipcMain.handle('tetravox:startup-paths', () => {
     const opened = startupPaths;

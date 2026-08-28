@@ -76,6 +76,24 @@ function Row({ row }: { row: ProbeRow }): React.JSX.Element {
             </dd>
           </>
         )}
+        {row.vertex !== undefined && (
+          <>
+            <dt>vertex</dt>
+            <dd data-testid="probe-vertex">
+              {row.vertex}
+              {row.vertexWorld === undefined ? '' : ` · RAS ${formatTriple(row.vertexWorld)}`}
+            </dd>
+          </>
+        )}
+        {row.fsavgVertex !== undefined && (
+          <>
+            <dt>fsaverage</dt>
+            <dd data-testid="probe-fsavg">
+              {row.fsavgVertex}
+              {row.fsavgWorld === undefined ? '' : ` · ${formatTriple(row.fsavgWorld)}`}
+            </dd>
+          </>
+        )}
         {row.fields !== undefined &&
           row.fields.map((field) => (
             <div key={field.name} className="col-span-2 truncate" data-testid="probe-field">
@@ -102,13 +120,45 @@ function Block({
     <section data-testid={testId} className="px-3 py-2">
       <div className="flex items-baseline gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">{title}</h3>
-        <span data-testid={`${testId}-ras`} className="ml-auto font-mono text-[11px] text-tvx-text">
+        <span className="ml-auto text-[10px] uppercase tracking-wider text-tvx-dim">RAS</span>
+        <span data-testid={`${testId}-ras`} className="font-mono text-[11px] text-tvx-text">
           {probe === null ? '—' : formatTriple(probe.world)}
         </span>
       </div>
+      {/*
+        Directed task 8: **every value is labelled with its space.** The world triple beside the
+        heading is `RAS`, and each derived space gets its own line naming itself — `tkr-RAS · T1`
+        rather than a bare triple, and `MNI152 (affine)` and `MNI152 (nonlinear)` as two lines
+        rather than one merged "MNI", because they are two different numbers and a reader has to be
+        able to say which one they wrote down.
+      */}
+      {probe !== null && probe.tkr !== undefined && (
+        <div
+          data-testid={`${testId}-tkr`}
+          className="mt-0.5 text-right font-mono text-[10px] text-tvx-dim"
+        >
+          <span className="mr-1 uppercase tracking-wider">
+            tkr-RAS{probe.tkrVolume === undefined ? '' : ` · ${probe.tkrVolume}`}
+          </span>
+          {formatTriple(probe.tkr)}
+        </div>
+      )}
       {probe !== null && probe.mni !== undefined && (
-        <div className="mt-0.5 text-right font-mono text-[10px] text-tvx-dim">
-          MNI {formatTriple(probe.mni)}
+        <div
+          data-testid={`${testId}-mni`}
+          className="mt-0.5 text-right font-mono text-[10px] text-tvx-dim"
+        >
+          <span className="mr-1 uppercase tracking-wider">MNI (affine)</span>
+          {formatTriple(probe.mni)}
+        </div>
+      )}
+      {probe !== null && probe.mniNonlinear !== undefined && (
+        <div
+          data-testid={`${testId}-mni-nonlinear`}
+          className="mt-0.5 text-right font-mono text-[10px] text-tvx-dim"
+        >
+          <span className="mr-1 uppercase tracking-wider">MNI (nonlinear)</span>
+          {formatTriple(probe.mniNonlinear)}
         </div>
       )}
       {probe === null || probe.rows.length === 0 ? (

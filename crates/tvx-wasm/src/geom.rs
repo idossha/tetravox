@@ -291,3 +291,29 @@ pub fn label_centroids(vol: &Volume, vol_index: usize) -> Result<Vec<LabelCentro
         Err(unavailable("label_centroids"))
     }
 }
+
+/// §6.3's [`tvx_geom::nearest_vertex`] — the picked vertex, for the surface coordinate spaces.
+pub fn nearest_vertex(nodes: &[[f32; 3]], p: [f32; 3]) -> Result<Option<(u32, [f32; 3])>> {
+    #[cfg(feature = "geom")]
+    {
+        Ok(tvx_geom::nearest_vertex(nodes, p))
+    }
+    #[cfg(not(feature = "geom"))]
+    {
+        let _ = (nodes, p);
+        Err(unavailable("nearest_vertex"))
+    }
+}
+
+/// §6.3's [`tvx_geom::sphere_map`] — subject `sphere.reg` vertex → fsaverage `sphere` vertex.
+pub fn sphere_map(source: &[[f32; 3]], target: &[[f32; 3]]) -> Result<Vec<u32>> {
+    #[cfg(feature = "geom")]
+    {
+        Ok(tvx_geom::sphere_map(source, target))
+    }
+    #[cfg(not(feature = "geom"))]
+    {
+        let _ = (source, target);
+        Err(unavailable("sphere_map"))
+    }
+}

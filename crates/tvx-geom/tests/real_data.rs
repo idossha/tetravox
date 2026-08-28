@@ -875,3 +875,177 @@ fn marching_cubes_label_isolates_one_region_where_a_level_cannot() {
          were a faithful contour of `id >= 7`, the isolation argument would need revisiting"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// `sphere_map` / `nearest_vertex` — the surface coordinate spaces (§6.3, directed task 8e)
+// ---------------------------------------------------------------------------------------------
+
+/// fsaverage is **not** inside `TETRAVOX_TESTDATA` — it is whatever FreeSurfer subjects directory
+/// the user has (§8's setting; nothing is bundled). This is the machine's copy, and the test skips
+/// rather than fails when it is absent, exactly like the `TETRAVOX_TESTDATA` gate itself.
+fn fsaverage_surf() -> Option<PathBuf> {
+    let p = PathBuf::from(
+        std::env::var("TETRAVOX_FSAVERAGE")
+            .unwrap_or_else(|_| "/Users/idohaber/mne_data/MNE-fsaverage-data/fsaverage".into()),
+    )
+    .join("surf");
+    p.is_dir().then_some(p)
+}
+
+/// The whole point of `sphere_map`, on the real pair, against a brute force computed **here**.
+///
+/// The reference indices in the assertions were produced independently by nibabel + numpy on the
+/// same two files (`nib.load(...).agg_data('NIFTI_INTENT_POINTSET')` for the GIfTI,
+/// `nib.freesurfer.read_geometry` for the binary), 2026-08-28 — §11's rule that an expected number
+/// never comes from the code that produces it.
+#[test]
+fn sphere_map_matches_brute_force_on_ernie_to_fsaverage() {
+    let Some(root) = root() else {
+        eprintln!("skipping: TETRAVOX_TESTDATA is unset");
+        return;
+    };
+    let Some(fsdir) = fsaverage_surf() else {
+        eprintln!("skipping: no fsaverage subjects dir (set TETRAVOX_FSAVERAGE)");
+        return;
+    };
+    let sub_p = root.join("m2m_ernie/surfaces/lh.sphere.reg.gii");
+    let Ok(sub_bytes) = std::fs::read(&sub_p) else {
+        eprintln!("skipping: {}", sub_p.display());
+        return;
+    };
+    let Ok(fs_bytes) = std::fs::read(fsdir.join("lh.sphere")) else {
+        eprintln!("skipping: fsaverage lh.sphere");
+        return;
+    };
+    let subject = tvx_mesh_io::read_gifti(sub_bytes, &mut NoProgress).expect("sphere.reg parses");
+    let fsavg = tvx_mesh_io::read_fs_surface(fs_bytes).expect("fsaverage lh.sphere parses");
+    assert_eq!(subject.nodes.len(), 245_762, "SimNIBS lh.sphere.reg.gii");
+    assert_eq!(fsavg.nodes.len(), 163_842, "fsaverage ico7 lh.sphere");
+
+    // The two files are on **different spheres** — radius 1.0 and radius 100 `[DATA]` — which is
+    // why `sphere_map` normalises. Assert that here so a future file that is not spherical at all
+    // fails on the premise rather than on the answer.
+    let radius = |m: &Mesh| -> (f32, f32) {
+        let mut lo = f32::INFINITY;
+        let mut hi = 0.0f32;
+        for n in &m.nodes {
+            let r = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            lo = lo.min(r);
+            hi = hi.max(r);
+        }
+        (lo, hi)
+    };
+    let (slo, shi) = radius(&subject);
+    let (flo, fhi) = radius(&fsavg);
+    assert!((shi - slo) < 1e-4 * shi, "subject sphere.reg is not a sphere");
+    assert!((fhi - flo) < 1e-3 * fhi, "fsaverage sphere is not a sphere");
+    eprintln!("[sphere_map] subject radius ~{slo:.6}, fsaverage radius ~{flo:.4}");
+
+    let t0 = std::time::Instant::now();
+    let map = tvx_geom::sphere_map(&subject.nodes, &fsavg.nodes);
+    let ms = t0.elapsed().as_secs_f64() * 1e3;
+    eprintln!("[sphere_map] 245,762 -> 163,842 in {ms:.0} ms");
+    assert_eq!(map.len(), 245_762);
+    assert!(
+        ms < 5_000.0,
+        "sphere_map took {ms:.0} ms; the budget is 5 s (debug builds are ~10x the release cost)"
+    );
+
+    // nibabel + numpy, 2026-08-28, on the **unit-normalised** directions. Vertex 0 of
+    // `lh.sphere.reg.gii` is (-0.30849877, 0.15114133, -0.93914044) and its nearest fsaverage
+    // sphere vertex is 40,188, a chord of 0.00183 away. The subject's `lh.central.gii` shares this
+    // vertex numbering (245,762 nodes as well), so this is also the answer for "lh.central vertex
+    // 0", and `fsaverage/surf/lh.pial[40188]` = (-42.9853, -10.8039, -44.4108) is the coordinate
+    // the coordinate bar reports for it.
+    //
+    // The third column is what the SAME reference computes without normalising, and it is here to
+    // be disagreed with: fsaverage's sphere has a 0.0157 radius spread, which swamps the ~0.003
+    // chord between true neighbours (see `spheremap.rs`'s header). A regression that dropped the
+    // normalisation would land on those values, and they are wrong.
+    for (v, want, raw_and_wrong) in [
+        (0usize, 40_188u32, 161_546u32),
+        (1, 23_001, 128_588),
+        (100, 158_750, 158_757),
+        (1_000, 152_958, 37_333),
+        (50_000, 96_296, 60_649),
+        (123_456, 124_073, 82_384),
+        (245_761, 48_810, 145_976),
+    ] {
+        assert_eq!(map[v], want, "subject vertex {v}");
+        assert_ne!(
+            map[v], raw_and_wrong,
+            "subject vertex {v} took the un-normalised nearest neighbour"
+        );
+    }
+
+    // And every one of those, plus a 1-in-5,000 sweep of the rest, against a brute force over all
+    // 163,842 fsaverage vertices on the unit sphere. The grid's stop is exact, so this is equality,
+    // not a tolerance.
+    let unit = |p: [f32; 3]| {
+        let l = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+        [p[0] / l, p[1] / l, p[2] / l]
+    };
+    let targets: Vec<[f32; 3]> = fsavg.nodes.iter().copied().map(unit).collect();
+    let mut checked = 0usize;
+    for i in (0..subject.nodes.len()).step_by(5_000) {
+        let q = unit(subject.nodes[i]);
+        let mut best = f32::INFINITY;
+        let mut bi = 0u32;
+        for (j, t) in targets.iter().enumerate() {
+            let d = (t[0] - q[0]).powi(2) + (t[1] - q[1]).powi(2) + (t[2] - q[2]).powi(2);
+            if d < best {
+                best = d;
+                bi = j as u32;
+            }
+        }
+        assert_eq!(map[i], bi, "subject vertex {i} disagrees with brute force");
+        checked += 1;
+    }
+    eprintln!("[sphere_map] {checked} vertices verified against a full brute force");
+}
+
+/// `nearest_vertex` on a real surface: the node it names must really be the closest one, and it must
+/// be exact at a node's own coordinate.
+#[test]
+fn nearest_vertex_on_lh_central() {
+    let Some(root) = root() else {
+        eprintln!("skipping: TETRAVOX_TESTDATA is unset");
+        return;
+    };
+    let p = root.join("m2m_ernie/surfaces/lh.central.gii");
+    let Ok(bytes) = std::fs::read(&p) else {
+        eprintln!("skipping: {}", p.display());
+        return;
+    };
+    let m = tvx_mesh_io::read_gifti(bytes, &mut NoProgress).expect("lh.central parses");
+    assert_eq!(m.nodes.len(), 245_762);
+
+    // nibabel, 2026-08-28: `lh.central.gii` vertex 0 is (-28.724436, 22.045265, -26.645943).
+    let v0 = m.nodes[0];
+    assert!((v0[0] - -28.724_436).abs() < 1e-4, "{v0:?}");
+    assert!((v0[1] - 22.045_265).abs() < 1e-4, "{v0:?}");
+    assert!((v0[2] - -26.645_943).abs() < 1e-4, "{v0:?}");
+
+    let t0 = std::time::Instant::now();
+    let (idx, coord) = tvx_geom::nearest_vertex(&m.nodes, v0).expect("a hit");
+    eprintln!(
+        "[nearest_vertex] 245,762 nodes in {:.2} ms",
+        t0.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(idx, 0, "a node's own coordinate must return that node");
+    assert_eq!(coord, v0);
+
+    // A point off the surface: brute force must agree with brute force, so instead assert the
+    // invariant — nothing is closer than what it returned.
+    for probe in [[0.0f32, 0.0, 0.0], [-30.0, 20.0, -25.0], [-64.0, 100.0, 81.0]] {
+        let (i, c) = tvx_geom::nearest_vertex(&m.nodes, probe).expect("a hit");
+        let d2 = |a: [f32; 3]| {
+            (a[0] - probe[0]).powi(2) + (a[1] - probe[1]).powi(2) + (a[2] - probe[2]).powi(2)
+        };
+        let best = d2(c);
+        assert!(
+            m.nodes.iter().all(|n| d2(*n) >= best),
+            "vertex {i} is not the nearest to {probe:?}"
+        );
+    }
+}

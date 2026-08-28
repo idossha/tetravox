@@ -98,6 +98,18 @@ export interface LayerRuntimeContext {
    * detach the array §4.3 keeps on the UI thread for probes.
    */
   dataset(id: DatasetId): Dataset | undefined;
+  /**
+   * **Directed task 8**: the fsaverage vertex a subject vertex maps to, when a correspondence has
+   * been built for that dataset's hemisphere (§6.3's `sphere_map`, §3).
+   *
+   * Optional, and returning `undefined` is the normal case: the correspondence needs a subject
+   * `sphere.reg` and an fsaverage `sphere` *both* on disk, and nothing is bundled. The probe row
+   * then simply has no fsaverage line — an absent registration is not an error.
+   */
+  fsaverageFor?(
+    id: DatasetId,
+    vertex: number
+  ): { fsavgVertex: number; fsavgWorld?: vec3 } | undefined;
 }
 
 /** One (layer, plane) slice draw: §7.3's "one draw per (layer, plane)". */

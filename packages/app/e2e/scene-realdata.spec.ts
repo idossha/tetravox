@@ -302,14 +302,12 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
       // The header panel is on real data now: §6.1 reads the raw 348-byte header, so `scl_slope`
       // is the **on-disk 1.0** and not the NaN `nib.load(p).header` reports (AGENTS.md).
       await expect(page.locator('[data-testid="header-value-scl_slope"]')).toHaveText('1');
-      // A SimNIBS m2m T1 is `sform_code = 2`, not 4, so nothing here is in a template space and
-      // the MNI column says so rather than disappearing.
-      await expect(page.locator('[data-testid="coord-bar"]')).toHaveAttribute(
-        'data-has-template',
-        'false'
-      );
-      await expect(page.locator('[data-testid="coord-mni-absent"]')).toBeVisible();
-      await expect(page.locator('[data-testid="coord-space-mni"]')).toBeDisabled();
+      // A SimNIBS m2m T1 is `sform_code = 2`, not 4, so the *header* puts nothing in a template
+      // space — the MNI entries here come from the `toMNI/` folder beside it (directed task 8),
+      // and the coordinate bar always offers world RAS plus this volume's voxel and tkr-RAS.
+      const select = page.locator('[data-testid="coord-space"]');
+      await expect(select.locator('option', { hasText: 'World RAS' })).toHaveCount(1);
+      await expect(select.locator('option', { hasText: 'tkr-RAS' })).toHaveCount(1);
     } finally {
       await app.close();
     }

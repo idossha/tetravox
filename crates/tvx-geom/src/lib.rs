@@ -48,6 +48,7 @@ mod locator;
 mod march;
 mod morton;
 mod normals;
+mod spheremap;
 mod surface;
 mod util;
 mod voxel;
@@ -61,6 +62,7 @@ pub use locator::{build_point_locator, locate_point};
 pub use march::{marching_cubes, marching_cubes_label, marching_tets};
 pub use morton::{build_tet_blocks, morton_reorder};
 pub use normals::{face_normals, orient_surface, vertex_normals};
+pub use spheremap::{nearest_vertex, sphere_map};
 pub use surface::{build_topology, extract_boundary, tag_surfaces};
 
 use tvx_core::Aabb;

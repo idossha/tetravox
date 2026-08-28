@@ -18,6 +18,8 @@
 import { ComputeClient } from '@tetravox/wasm';
 import type { GpuCapsT, MeshMeta, SurfacePayload, VolumeMeta } from '@tetravox/protocol';
 import type {
+  CoordSpaceOption,
+  CoordSpaceRef,
   DatasetSource,
   Engine,
   EngineEvents,
@@ -61,6 +63,12 @@ import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
 
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
 import { transformPoint } from './view/m4';
+import {
+  coordinateSpaceOptions,
+  fromSpace as fromCoordSpace,
+  probeSpaces,
+  toSpace as toCoordSpace,
+} from './view/coord-spaces';
 import { viewports } from './view/layout';
 import type { ViewportRect } from './view/layout';
 import {
@@ -129,6 +137,7 @@ import type {
   SliceMode,
   SliceView,
   Stats,
+  TemplateSpace,
   vec3,
   vec4,
   View,
@@ -248,6 +257,11 @@ export class TetravoxEngine implements Engine, PointerHost {
    * so it can never describe a point the cursor has left.
    */
   readonly #cursorRows = new Map<LayerId, ProbeRow>();
+  /**
+   * Deformation-field dataset ids a `TemplateSpace` names that have not arrived yet, so §8's space
+   * selector can distinguish "still loading" from "this subject has no warp" (directed task 8).
+   */
+  readonly #pendingFields = new Set<DatasetId>();
   /** The view-projection each pane last rendered with, so a pick reuses it exactly (§7.2.3). */
   readonly #lastViewProj = new Map<ViewId, mat4>();
   readonly #lastRects = new Map<ViewId, ViewportRect>();
@@ -1206,8 +1220,57 @@ export class TetravoxEngine implements Engine, PointerHost {
       }
       return this.#cursorRows.get(row.layerId) ?? row;
     });
-    const mni = this.#toTemplate(world);
-    return mni !== null ? { world, mni, rows } : { world, rows };
+    // Directed task 8: tkr-RAS and the nonlinear MNI join the affine column that Phase 2 shipped.
+    // `probeSpaces` owns which volume each is relative to (`view/coord-spaces.ts`); `#toTemplate`
+    // stays as the affine fallback so a scene whose only template lives on a hidden layer still
+    // answers, exactly as it did before.
+    const spaces = probeSpaces(this.#scene, world);
+    const mni = spaces.mni ?? this.#toTemplate(world) ?? undefined;
+    return {
+      world,
+      rows,
+      ...(mni !== undefined ? { mni } : {}),
+      ...(spaces.tkr !== undefined ? { tkr: spaces.tkr, tkrVolume: spaces.tkrVolume } : {}),
+      ...(spaces.mniNonlinear !== undefined ? { mniNonlinear: spaces.mniNonlinear } : {}),
+    };
+  }
+
+  /**
+   * §8's space selector, §4.7's `coordinateSpaces` / `toSpace` / `fromSpace` / `setTemplateSpace`
+   * (directed task 8; `docs/DECISIONS.md` 2026-08-28).
+   *
+   * All four are thin: the policy is in `view/coord-spaces.ts` over a plain `Scene`, so the app's
+   * `NoGlEngine` gives the same answers as this one without a GL context, and the unit tests assert
+   * the policy without either.
+   */
+  coordinateSpaces(): CoordSpaceOption[] {
+    return coordinateSpaceOptions(this.#scene, this.#pendingFields);
+  }
+
+  toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null {
+    return toCoordSpace(this.#scene, ref, world);
+  }
+
+  fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null {
+    return fromCoordSpace(this.#scene, ref, value);
+  }
+
+  setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void {
+    const ds = this.#scene.datasets.get(datasetId);
+    if (ds === undefined || ds.kind !== 'volume') return;
+    if (space === null) delete ds.toTemplate;
+    else ds.toTemplate = space;
+    // The field ids may name datasets that are still loading; remember which, so the selector can
+    // say "loading" rather than "not available" for the seconds a 97 MB warp takes.
+    this.#pendingFields.clear();
+    for (const other of this.#scene.datasets.values()) {
+      const t = other.kind === 'volume' ? other.toTemplate : undefined;
+      if (t === undefined) continue;
+      for (const id of [t.forwardFieldId, t.inverseFieldId]) {
+        if (id !== undefined && !this.#scene.datasets.has(id)) this.#pendingFields.add(id);
+      }
+    }
+    this.#emit('datasets', [...this.#scene.datasets.values()]);
   }
 
   /**
@@ -1219,11 +1282,18 @@ export class TetravoxEngine implements Engine, PointerHost {
    * nothing claims a template the field is absent and §8's MNI column does not appear.
    */
   #toTemplate(world: vec3): vec3 | null {
+    // `hasAffine === false` means `matrix` is a placeholder identity (directed task 8): a SimNIBS
+    // subject whose only registration is the warp. Applying it would report the cursor **unchanged**
+    // as an MNI coordinate — a wrong number that looks exactly like a right one.
+    const usable = (ds: { toTemplate?: TemplateSpace }): boolean =>
+      ds.toTemplate !== undefined && ds.toTemplate.hasAffine !== false;
     const top = this.#store.topVolume();
-    if (top?.ds.toTemplate !== undefined) return applyAffine(top.ds.toTemplate.matrix, world);
+    if (top !== undefined && usable(top.ds)) {
+      return applyAffine((top.ds.toTemplate as TemplateSpace).matrix, world);
+    }
     for (const ds of this.#scene.datasets.values()) {
-      if (ds.kind === 'volume' && ds.toTemplate !== undefined) {
-        return applyAffine(ds.toTemplate.matrix, world);
+      if (ds.kind === 'volume' && usable(ds)) {
+        return applyAffine((ds.toTemplate as TemplateSpace).matrix, world);
       }
     }
     return null;

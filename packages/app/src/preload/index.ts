@@ -18,6 +18,18 @@ export interface OpenedPath {
   url: string;
 }
 
+/** What `subjectSpaces` returns. Mirrors `main/subject-spaces.ts`, with the warps admitted. */
+export interface SubjectSpacesReply {
+  subjectDir: string;
+  toMniDir: string;
+  /** `MNI2conform_*DOF.txt` verbatim — MNI → subject; subject → MNI is its inverse. */
+  affine?: { file: string; text: string };
+  /** `Conform2MNI_nonl.nii.gz` — subject → MNI. */
+  forwardField?: OpenedPath;
+  /** `MNI2Conform_nonl.nii.gz` — MNI → subject. */
+  inverseField?: OpenedPath;
+}
+
 export interface TetravoxBridge {
   /** File ▸ Open… / ⌘O. Returns paths, never bytes. */
   openDialog(): Promise<OpenedPath[]>;
@@ -27,6 +39,12 @@ export interface TetravoxBridge {
   allowPath(path: string): Promise<OpenedPath | null>;
   /** Paths from CLI argv / a launch-time `open-file`, drained once. Pulled, not pushed: see main. */
   startupPaths(): Promise<OpenedPath[]>;
+  /**
+   * §8's MNI spaces (directed task 8): the SimNIBS `toMNI/` registration governing an opened volume,
+   * or null when there is none. The affine comes back as text; the two warps come back as
+   * allow-listed URLs, so their bytes never cross this bridge (§5 rule 3).
+   */
+  subjectSpaces(path: string, explicitDir?: string): Promise<SubjectSpacesReply | null>;
   /** Phase-0 gate 3: an allow-listed fixture the worker fetches over `tetravox://file/…`. */
   phase0Fixture(): Promise<OpenedPath | null>;
   /** Paths pushed from main: menu Open, CLI argv, macOS `open-file`, second instance. */
@@ -130,6 +148,8 @@ const bridge: TetravoxBridge = {
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
   allowPath: (path) => ipcRenderer.invoke('tetravox:allow-path', path),
   startupPaths: () => ipcRenderer.invoke('tetravox:startup-paths'),
+  subjectSpaces: (path, explicitDir) =>
+    ipcRenderer.invoke('tetravox:subject-spaces', path, explicitDir),
   phase0Fixture: () => ipcRenderer.invoke('tetravox:phase0-fixture'),
   onOpened: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, paths: OpenedPath[]): void =>

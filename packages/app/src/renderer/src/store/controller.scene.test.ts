@@ -13,7 +13,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import type { DatasetRef, MeshLayer, ScreenshotOptions } from '@tetravox/engine';
+import type { CoordSpaceRef, DatasetRef, MeshLayer, ScreenshotOptions } from '@tetravox/engine';
 import type { TetravoxBridge } from '../../../preload/index';
 import { NoGlEngine } from '../engine/mockEngine';
 import { ShellController } from './controller';
@@ -60,6 +60,7 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
     allowPath: async (path: string) =>
       fs.files.has(path) ? { path, url: `tetravox://file/${encodeURIComponent(path)}` } : null,
     startupPaths: async () => [],
+    subjectSpaces: async () => null,
     phase0Fixture: async () => null,
     onOpened: () => () => {},
     log: () => {},
@@ -430,12 +431,18 @@ describe('the screenshot spec (§4.7, audit P2-06)', () => {
 
 describe('the MNI column (audit P2-10)', () => {
   it('is absent when no volume carries a toTemplate — the common case on subject data', async () => {
-    const { controller } = await loadedScene();
+    const { store, controller } = await loadedScene();
     expect(controller.templateSource()).toBeNull();
-    controller.setCoordSpace('mni');
-    // Nothing to convert with, so the field falls back to world rather than showing a wrong number.
+    // No `toTemplate` anywhere, so the selector offers no MNI entry at all; asking for one by hand
+    // falls back to world rather than showing a wrong number.
+    controller.setCoordSpace({ space: 'mni-affine', datasetId: 'nope' });
+    expect(controller.coordinateSpaces().some((o) => o.ref.space === 'mni-affine')).toBe(false);
     expect(controller.coordText()).toBe('0.0 0.0 0.0');
-    expect(controller.jumpToCoordinate('10 10 10')).toBe(false);
+    // Directed task 8: a ref that does not resolve falls back to world RAS in **both** directions,
+    // rather than reading in world and refusing to write. The field is showing world — so Enter has
+    // to mean world, or the bar would reject the very number it is displaying.
+    expect(controller.jumpToCoordinate('10 10 10')).toBe(true);
+    expect(store.getState().cursor).toEqual([10, 10, 10]);
   });
 
   it('converts both ways when a volume carries one', async () => {
@@ -445,9 +452,11 @@ describe('the MNI column (audit P2-10)', () => {
     await settled(store);
 
     expect(controller.templateSource()?.toTemplate.name).toBe('MNI152');
-    controller.setCoordSpace('ras');
+    controller.setCoordSpace({ space: 'world' });
     controller.jumpToCoordinate('-42 18 6');
-    controller.setCoordSpace('mni');
+    const mni = controller.coordinateSpaces().find((o) => o.ref.space === 'mni-affine')
+      ?.ref as CoordSpaceRef;
+    controller.setCoordSpace(mni);
     // The stand-in's transform is a 12 mm anterior shift.
     expect(controller.coordText()).toBe('-42.0 30.0 6.0');
 

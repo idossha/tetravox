@@ -17,6 +17,8 @@ import type {
   CameraPreset,
   Dataset,
   DatasetId,
+  CoordSpaceOption,
+  CoordSpaceRef,
   DatasetRef,
   Engine,
   Layer,
@@ -26,13 +28,22 @@ import type {
   MeshLayer,
   ScreenshotOptions,
   ViewId,
+  TemplateSpace,
   ViewSpec,
   VolumeLayer,
   vec3,
 } from '@tetravox/engine';
-import { sidecarPathsFor } from '@tetravox/engine';
+import { parseTextAffine, sidecarPathsFor, subjectToMniAffine } from '@tetravox/engine';
 import type { CoordSpace, DialogKind, RelocateRow, UiStore } from './store';
-import { activeLayer, collapseAllAction, datasetOf, pruneCollapsed, templateSource } from './store';
+import {
+  activeLayer,
+  collapseAllAction,
+  datasetOf,
+  pruneCollapsed,
+  sameSpace,
+  templateSource,
+  WORLD_SPACE,
+} from './store';
 import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import type { Command } from '../keyboard/keymap';
@@ -40,8 +51,7 @@ import { LAYOUT_CYCLE, layoutCells, migrateSpecLayout, nextLayout } from '../lib
 import * as loads from '../lib/loads';
 import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
-import { formatTriple, parseTriple, roundVoxel, voxelToWorld, worldToVoxel } from '../lib/coords';
-import { templateToWorld, worldToTemplate } from '../lib/coords';
+import { formatTriple, parseTriple } from '../lib/coords';
 import { readPngInfo } from '../lib/png';
 import { baseName } from '../lib/sidecars';
 import {
@@ -64,6 +74,17 @@ import {
 } from '../panels/layers/mesh/state';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
 import type { SceneCommand } from '../bridge';
+import type { SubjectSpacesReply } from '../../../preload/index';
+
+/** A fresh identity `mat4`, for a `TemplateSpace` that carries only a warp (directed task 8). */
+function identityMat4(): Float32Array {
+  const m = new Float32Array(16);
+  m[0] = 1;
+  m[5] = 1;
+  m[10] = 1;
+  m[15] = 1;
+  return m;
+}
 
 function errorCode(error: unknown): string {
   const code = (error as { code?: unknown } | null)?.code;
@@ -82,6 +103,10 @@ export class ShellController {
   private queue: QueuedRequest[] = [];
   private draining = false;
   private inflight: { ticket: number; datasetId: DatasetId | null } | null = null;
+  /** Directed task 8: what main found beside each volume, so the warps can be loaded on demand. */
+  private readonly subjectSpaceFiles = new Map<DatasetId, SubjectSpacesReply>();
+  /** In-flight (or finished) deformation-field loads, so selecting the space twice loads once. */
+  private readonly fieldLoads = new Map<DatasetId, Promise<void>>();
   private ticketSeq = 0;
   private toastSeq = 0;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
@@ -274,6 +299,9 @@ export class ShellController {
         kind: dataset.kind === 'volume' ? 'volume' : 'mesh',
       });
       engine.requestRender();
+      // Directed task 8: ask main whether a SimNIBS `toMNI/` governs this volume. Fire-and-forget —
+      // a registration that is not there, or a bridge that is not there, must not fail the load.
+      if (dataset.kind === 'volume') void this.attachSubjectSpaces(dataset.id, dataset.path);
     } catch (error: unknown) {
       const code = errorCode(error);
       const message = errorMessage(error);
@@ -510,55 +538,155 @@ export class ShellController {
   // Coordinate bar (§8)
   // ------------------------------------------------------------------------------------------
 
-  /** Widened in Phase 2 to include `'mni'` (audit P2-10); `'ras'` and `'voxel'` are unchanged. */
+  /**
+   * Directed task 8: the space is a `CoordSpaceRef`, and every conversion is an `Engine` call.
+   *
+   * Phase 2's three string cases could not name a per-volume space, and §8 forbids React computing
+   * one anyway ("everything the UI can do must be reachable from the `Engine` API alone"). So the
+   * selector is `engine.coordinateSpaces()`, the readout is `engine.toSpace`, and Enter is
+   * `engine.fromSpace` — this controller only decides what to do when one of them says null.
+   */
   setCoordSpace(space: CoordSpace): void {
     this.store.setState({ coordSpace: space, coordDraft: null });
+    // Selecting the nonlinear MNI space is the trigger that loads the 97 MB warp: nothing else in
+    // the app needs it, and paying for it on every subject volume opened would be a second load of
+    // the dataset's own size before the first picture is on screen.
+    if (space.space === 'mni-nonlinear') void this.ensureDeformationFields(space.datasetId);
+  }
+
+  /** §8's selector, straight off the facade. */
+  coordinateSpaces(): CoordSpaceOption[] {
+    return this.engine.coordinateSpaces();
   }
 
   setCoordDraft(text: string | null): void {
     this.store.setState({ coordDraft: text });
   }
 
+  /** The space the bar is actually reading in — the chosen one, or world when it stopped resolving. */
+  private effectiveSpace(): { ref: CoordSpaceRef; decimals: number } {
+    const state = this.store.getState();
+    const options = this.engine.coordinateSpaces();
+    const match = options.find((o) => sameSpace(o.ref, state.coordSpace) && o.enabled);
+    if (match !== undefined) return { ref: match.ref, decimals: match.decimals };
+    return { ref: WORLD_SPACE, decimals: 1 };
+  }
+
   /** What the field shows when the user is not editing: the cursor, in the selected space. */
   coordText(): string {
     const state = this.store.getState();
     if (state.coordDraft !== null) return state.coordDraft;
-    if (state.coordSpace === 'ras') return formatTriple(state.cursor);
-    if (state.coordSpace === 'mni') {
-      // The column is offered only when a `toTemplate` exists (§8), so falling back to world here is
-      // the "the user switched space and then closed that dataset" case, not a normal one.
-      const source = templateSource(state);
-      if (source === null) return formatTriple(state.cursor);
-      return formatTriple(worldToTemplate(source.toTemplate.matrix, state.cursor));
-    }
-    const dataset = datasetOf(state, activeLayer(state));
-    if (dataset === null || dataset.kind !== 'volume') return formatTriple(state.cursor);
-    return formatTriple(roundVoxel(worldToVoxel(dataset.inverseAffine, state.cursor)), 0);
+    const { ref, decimals } = this.effectiveSpace();
+    const value = this.engine.toSpace(ref, state.cursor);
+    // A ref that stopped resolving falls back to world rather than to a stale or blank triple: the
+    // bar is a laterality-safety readout, and an empty one is worse than a correct one in a
+    // different space, which the selector is already showing the name of.
+    return formatTriple(value ?? state.cursor, decimals);
   }
 
   /** Enter in the coordinate bar. Returns false when the text is not a triple (§8: paste rules). */
   jumpToCoordinate(text: string): boolean {
     const triple = parseTriple(text);
     if (triple === null) return false;
-    const state = this.store.getState();
-    if (state.coordSpace === 'ras') {
-      this.engine.setCursor(triple);
-      return true;
-    }
-    if (state.coordSpace === 'mni') {
-      const source = templateSource(state);
-      if (source === null) return false;
-      // A singular `toTemplate` cannot be inverted, and jumping to the wrong place would be worse
-      // than refusing (`lib/coords.ts`), so the field rejects instead of guessing.
-      const world = templateToWorld(source.toTemplate.matrix, triple);
-      if (world === null) return false;
-      this.engine.setCursor(world);
-      return true;
-    }
-    const dataset = datasetOf(state, activeLayer(state));
-    if (dataset === null || dataset.kind !== 'volume') return false;
-    this.engine.setCursor(voxelToWorld(dataset.affine, triple));
+    const world = this.engine.fromSpace(this.effectiveSpace().ref, triple);
+    // Null is a transform that cannot accept input (a singular registration, a warp that is not
+    // loaded). Jumping to the wrong place is worse than refusing to jump.
+    if (world === null) return false;
+    this.engine.setCursor(world);
     return true;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // Template registration (§8's MNI spaces, directed task 8)
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * Attach the SimNIBS `toMNI/` registration beside a volume, when there is one.
+   *
+   * The **affine only**, at this point. The two warps are 97 MB and 230 MB on the reference subject
+   * and nothing on screen needs them until the user asks for the nonlinear space, so they are named
+   * here and loaded by {@link Controller.ensureDeformationFields}. Until then the selector lists
+   * `MNI152 (nonlinear)` disabled, with "no Conform2MNI_nonl.nii.gz loaded for this subject" on it —
+   * §8's rule that an unavailable space is greyed with the reason, never hidden.
+   */
+  private async attachSubjectSpaces(datasetId: DatasetId, path: string | undefined): Promise<void> {
+    if (path === undefined) return;
+    let reply: SubjectSpacesReply | null;
+    try {
+      reply = await bridge().subjectSpaces(path);
+    } catch {
+      return;
+    }
+    if (reply === null) return;
+    this.subjectSpaceFiles.set(datasetId, reply);
+
+    // `MNI2conform_*DOF.txt` is MNI → subject; the readout wants subject → MNI, which is its
+    // inverse (`simnibs/utils/transformations.py`, `warp_coordinates`).
+    const parsed = reply.affine === undefined ? null : parseTextAffine(reply.affine.text);
+    const space: TemplateSpace = {
+      name: 'MNI152',
+      kind: 'simnibs',
+      matrix: parsed === null ? identityMat4() : subjectToMniAffine(parsed),
+      hasAffine: parsed !== null,
+      nonlinearAvailable: reply.forwardField !== undefined,
+      ...(parsed !== null && reply.affine !== undefined ? { affineFile: reply.affine.file } : {}),
+    };
+    this.engine.setTemplateSpace(datasetId, space);
+  }
+
+  /**
+   * Load the two deformation fields for a subject, once, on demand.
+   *
+   * They go through `engine.addDataset` like any other volume — same worker, same `tetravox://file/…`
+   * fetch, same fingerprint — but deliberately get **no layer**: nobody wants to look at a warp, and
+   * `view/coord-spaces.ts` filters a referenced field out of the space menu for the same reason.
+   */
+  private async ensureDeformationFields(datasetId: DatasetId): Promise<void> {
+    const files = this.subjectSpaceFiles.get(datasetId);
+    if (files === undefined || this.fieldLoads.has(datasetId)) return;
+    const dataset = this.store.getState().datasets.find((d) => d.id === datasetId);
+    const existing = dataset?.kind === 'volume' ? dataset.toTemplate : undefined;
+    if (existing?.forwardFieldId !== undefined) return;
+
+    // Each field is attached **as it lands**, not after both. The forward warp is what the readout
+    // needs, and it is the smaller of the two (97 MB against 230 MB); making the whole space wait
+    // for the return warp would hold the number the user asked for behind one they have not asked
+    // for yet.
+    const attach = (patch: { forwardFieldId?: DatasetId; inverseFieldId?: DatasetId }): void => {
+      const current = this.store.getState().datasets.find((d) => d.id === datasetId);
+      const base = current?.kind === 'volume' ? current.toTemplate : undefined;
+      if (base === undefined) return;
+      this.engine.setTemplateSpace(datasetId, { ...base, ...patch });
+    };
+
+    const load = (async (): Promise<void> => {
+      try {
+        if (files.forwardField !== undefined) {
+          const ds = await this.engine.addDataset({ kind: 'path', path: files.forwardField.path });
+          attach({ forwardFieldId: ds.id });
+        }
+        if (files.inverseField !== undefined) {
+          const ds = await this.engine.addDataset({ kind: 'path', path: files.inverseField.path });
+          attach({ inverseFieldId: ds.id });
+        }
+      } catch (error: unknown) {
+        this.toast(errorCode(error), 'toMNI warp', errorMessage(error));
+      }
+    })();
+    this.fieldLoads.set(datasetId, load);
+    await load;
+  }
+
+  /**
+   * The cursor in one named space, already formatted — for the bar's permanent readout rows.
+   *
+   * Null when the space does not resolve, which the row renders as its `reason` rather than as a
+   * blank: "MNI152 (nonlinear) — loading Conform2MNI_nonl.nii.gz…" is information, "—" is not.
+   */
+  coordInSpace(ref: CoordSpaceRef): string | null {
+    const option = this.engine.coordinateSpaces().find((o) => sameSpace(o.ref, ref));
+    const value = this.engine.toSpace(ref, this.store.getState().cursor);
+    return value === null ? null : formatTriple(value, option?.decimals ?? 1);
   }
 
   /** §8: the copy button yields `-42.0 18.0 6.0`. */

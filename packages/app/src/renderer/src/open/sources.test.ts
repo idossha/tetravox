@@ -35,6 +35,7 @@ function stubBridge(existing: readonly string[], droppedPath = ''): Stub {
         return { path, url: `tetravox://file/${encodeURIComponent(path)}` };
       },
       startupPaths: async () => [],
+      subjectSpaces: async () => null,
       phase0Fixture: async () => null,
       onOpened: () => () => {},
       log: () => {},

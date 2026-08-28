@@ -27,6 +27,9 @@
  */
 
 import type {
+  CoordSpaceOption,
+  CoordSpaceRef,
+  TemplateSpace,
   Iso3dStatus,
   Annotations,
   Camera3D,
@@ -55,7 +58,13 @@ import type {
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
-import { iso3dLabels } from '@tetravox/engine';
+import {
+  coordinateSpaceOptions,
+  fromSpace as fromCoordSpace,
+  iso3dLabels,
+  probeSpaces,
+  toSpace as toCoordSpace,
+} from '@tetravox/engine';
 import type { CameraPreset } from '../keyboard/keymap';
 import { PHASES } from '../lib/loads';
 import { encodePng } from '../lib/png';
@@ -124,6 +133,8 @@ export class NoGlEngine implements Engine {
   private readonly clock: () => number;
   private readonly withTemplate: boolean;
   private readonly heap = new Map<DatasetId, number>();
+  /** Deformation-field ids a `TemplateSpace` names that have not arrived (directed task 8). */
+  private readonly pendingFields = new Set<DatasetId>();
   private readonly cancelled = new Set<DatasetId>();
   private seq = 0;
   private destroyed = false;
@@ -581,7 +592,41 @@ export class NoGlEngine implements Engine {
         });
       }
     }
-    return { world, rows };
+    // Directed task 8: the same `view/coord-spaces.ts` policy the real engine uses, over the same
+    // plain `Scene` — so the app developed against this stand-in cannot drift from the engine's
+    // answers for a coordinate a user copies out.
+    const spaces = probeSpaces(this.state, world);
+    return {
+      world,
+      rows,
+      ...(spaces.mni !== undefined ? { mni: spaces.mni } : {}),
+      ...(spaces.tkr !== undefined ? { tkr: spaces.tkr, tkrVolume: spaces.tkrVolume } : {}),
+      ...(spaces.mniNonlinear !== undefined ? { mniNonlinear: spaces.mniNonlinear } : {}),
+    };
+  }
+
+  coordinateSpaces(): CoordSpaceOption[] {
+    return coordinateSpaceOptions(this.state, this.pendingFields);
+  }
+
+  toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null {
+    return toCoordSpace(this.state, ref, world);
+  }
+
+  fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null {
+    return fromCoordSpace(this.state, ref, value);
+  }
+
+  setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void {
+    const ds = this.state.datasets.get(datasetId);
+    if (ds === undefined || ds.kind !== 'volume') return;
+    if (space === null) delete ds.toTemplate;
+    else ds.toTemplate = space;
+    this.pendingFields.clear();
+    for (const id of [space?.forwardFieldId, space?.inverseFieldId]) {
+      if (id !== undefined && !this.state.datasets.has(id)) this.pendingFields.add(id);
+    }
+    this.emit('datasets', [...this.state.datasets.values()]);
   }
 
   /**

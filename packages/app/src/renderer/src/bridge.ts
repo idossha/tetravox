@@ -20,6 +20,9 @@ const ABSENT: TetravoxBridge = {
   getDroppedFilePath: () => '',
   allowPath: async () => null,
   startupPaths: async () => [],
+  // No bridge means no filesystem, so no `toMNI/` can be found — the MNI spaces stay greyed out
+  // with their reason, which is the same thing they do for a subject that really has none.
+  subjectSpaces: async () => null,
   phase0Fixture: async () => null,
   onOpened: () => () => {},
   log: () => {},

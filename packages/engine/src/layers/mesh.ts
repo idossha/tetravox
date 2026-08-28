@@ -356,6 +356,18 @@ export class MeshLayerRuntime implements LayerRuntime {
 
   /** The most recent `locate` result, and the world point it answered for. */
   #located: { world: vec3; row: ProbeRow } | null = null;
+  /**
+   * The nearest-vertex answer for the last probe (directed task 8). Separate from `#located` because
+   * it comes from a different op, resolves for surfaces that `locate` cannot answer at all, and
+   * carries the fsaverage correspondence when one has been built.
+   */
+  #vertexHit: {
+    world: vec3;
+    vertex: number;
+    coord: vec3;
+    fsavgVertex?: number;
+    fsavgWorld?: vec3;
+  } | null = null;
   /** R5's per-session selection (see {@link MeshEmphasis}). */
   #emphasis: { tags: Set<number>; labels: Set<number> } = { tags: new Set(), labels: new Set() };
   /** Surface variants already asked for, so a lazy build is issued once. */
@@ -448,9 +460,21 @@ export class MeshLayerRuntime implements LayerRuntime {
   }
 
   probeRow(world: vec3): ProbeRow {
+    const base: ProbeRow = { layerId: this.#layer.id, layerName: this.#layer.name, kind: 'mesh' };
     const cached = this.#located;
-    if (cached !== null && dist3(cached.world, world) < 1e-3) return cached.row;
-    return { layerId: this.#layer.id, layerName: this.#layer.name, kind: 'mesh' };
+    const located = cached !== null && dist3(cached.world, world) < 1e-3 ? cached.row : base;
+    // Directed task 8: the nearest **vertex** is a second, independent round trip, because it is the
+    // only answer a surface has — `locate` is a point-in-tetrahedron search and a `.gii` has no
+    // tetrahedra, so before this a surface layer produced no probe row at all.
+    const v = this.#vertexHit;
+    if (v === null || dist3(v.world, world) >= 1e-3) return located;
+    return {
+      ...located,
+      vertex: v.vertex,
+      vertexWorld: v.coord,
+      ...(v.fsavgVertex !== undefined ? { fsavgVertex: v.fsavgVertex } : {}),
+      ...(v.fsavgWorld !== undefined ? { fsavgWorld: v.fsavgWorld } : {}),
+    };
   }
 
   /**
@@ -462,9 +486,30 @@ export class MeshLayerRuntime implements LayerRuntime {
    */
   refreshProbe(world: vec3): void {
     const ds = this.#ds;
-    if (ds.nTets === 0) return;
     const client = this.#ctx.client(ds.id);
     if (client === undefined) return;
+
+    // The vertex probe runs for every mesh, tets or not, on its own latest-wins key.
+    void client
+      .call(`vertex:${this.#layer.id}`, 'nearestVertex', { handle: ds.handle, world })
+      .then((res) => {
+        if (res.vertex === null || res.coord === undefined) {
+          this.#vertexHit = null;
+          return;
+        }
+        const fsavg = this.#ctx.fsaverageFor?.(ds.id, res.vertex);
+        this.#vertexHit = {
+          world,
+          vertex: res.vertex,
+          coord: res.coord,
+          ...(fsavg ?? {}),
+        };
+      })
+      .catch(() => {
+        // Superseded under latest-wins, exactly like `locate` below.
+      });
+
+    if (ds.nTets === 0) return;
     void client
       .call(`locate:${this.#layer.id}`, 'locate', { handle: ds.handle, world })
       .then((res) => {

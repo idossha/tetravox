@@ -43,3 +43,31 @@ export { defaultIso3d, derivedIsoLayers, iso3dLabels, iso3dLayerId } from './lay
  */
 export { sidecarPathsFor } from './scene/serialize';
 export type { SidecarPaths } from './scene/serialize';
+
+/**
+ * §8's coordinate spaces (directed task 8, 2026-08-28): the arithmetic and the selector policy.
+ *
+ * Exported for the same reason the colormaps are — the app's `NoGlEngine` has to give the *same*
+ * answers as the real engine without a GL context, and a second implementation of `vox2ras-tkr` in
+ * the app would be a second source of truth for a coordinate a user pastes into a paper. §8's "no
+ * logic in React" then means React calls `Engine.coordinateSpaces` / `toSpace` / `fromSpace`, and
+ * these are what both engines implement them with.
+ */
+export {
+  coordinateSpaceOptions,
+  fromSpace,
+  isDeformationField,
+  probeSpaces,
+  referenceVolume,
+  toSpace,
+  volumesInMenuOrder,
+} from './view/coord-spaces';
+export {
+  parseTextAffine,
+  sampleDeformation,
+  subjectToMniAffine,
+  tkrToWorldMatrix,
+  vox2rasTkr,
+  worldToTkr,
+  worldToTkrMatrix,
+} from './view/spaces';
