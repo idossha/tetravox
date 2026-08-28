@@ -1489,3 +1489,8 @@ Each entry below names the problem, the fix, and the evidence.
   slowest legitimate golden, and shrinking it to bound the *job* would trade real coverage for a
   billing property. A shorter step-level cap on `pnpm e2e` alone — rejected as strictly weaker: the
   cache, install and packaging steps can wedge too, and one job-level cap covers all of them.
+- 2026-08-28 — macOS CI leg is **workflow_dispatch only** (was: push-to-main + dispatch) — the first push's macOS run took
+  3 h 14 m at the private-repo 10× rate and exhausted the account's Actions spending limit; the maintainer's Mac runs the
+  full macOS suite locally on every phase, so automatic macOS CI buys nothing; ubuntu-24.04 (the golden authority) stays
+  automatic on push and PR. Alternatives rejected: keeping macOS on push (cost), dropping macOS entirely (still useful for
+  a manual pre-release check).

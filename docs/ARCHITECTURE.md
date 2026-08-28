@@ -2228,15 +2228,15 @@ to prove the `.msh.opt` parses. Reference values for the *real* dataset come fro
 | Job | Runner | Does | Notes |
 |---|---|---|---|
 | `test` | `ubuntu-24.04` | `cargo test --workspace`, `cargo clippy -- -D warnings`, `pnpm wasm`, `pnpm test`, `pnpm e2e` | **Golden authority** (§11) |
-| `test` | `macos-latest` (macOS 26 arm64) | same | goldens compared with a looser ratio; **push-to-`main` and `workflow_dispatch` only** |
+| `test` | `macos-latest` (macOS 26 arm64) | same | goldens compared with a looser ratio; **`workflow_dispatch` only** (the maintainer's Mac runs this suite locally on every phase) |
 | `package` | `macos-latest` | `.dmg` arm64 | |
 | `package` | `macos-26-intel` | `.dmg` x64 | `macos-latest` is arm64 only |
 | `package` | `ubuntu-24.04` | `.AppImage` + `.deb` x64 | **Linux artefacts are never built on macOS** |
 | `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | |
 
 **When each `test` leg runs.** `ubuntu-24.04` runs on `push`, `pull_request` and `workflow_dispatch`;
-`macos-latest` is gated to `push` and `workflow_dispatch` by the **matrix itself** —
-`os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') || fromJSON('[…, "macos-latest"]') }}`.
+`macos-latest` is gated to `workflow_dispatch` by the **matrix itself** —
+`os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[…, "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}`.
 Not by a job-level `if:`: the `matrix` context does not exist in `jobs.<id>.if` (only `github`, `needs`, `vars`,
 `inputs` do), so an `if:` reading `matrix.os` is an **invalid workflow**, not a false condition — the run fails
 in 0 s with no jobs at all. GitHub bills macOS

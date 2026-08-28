@@ -50,7 +50,7 @@ jobs:
         # "This run likely failed because of a workflow file issue" and no jobs at all (measured,
         # run 33122604659). `matrix` itself, by contrast, is evaluated early enough to read
         # `github.event_name`, so the leg is dropped from the matrix rather than skipped inside it.
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') || fromJSON('["ubuntu-24.04", "macos-latest"]') }}
+        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-24.04", "macos-latest"]') || fromJSON('["ubuntu-24.04"]') }}
     steps:
       - uses: actions/checkout@v5
 
