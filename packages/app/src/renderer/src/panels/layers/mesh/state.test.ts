@@ -29,6 +29,7 @@ import {
   planesThroughCursor,
   setClipFollowsCursor,
   selectField,
+  setColorMode,
   setClipNormal,
   setContoursIn2D,
   setCutColorSource,
@@ -218,6 +219,13 @@ describe('the field selector', () => {
 
   it('ignores a field the dataset does not have', () => {
     expect(selectField(dataset(), meshLayer(), 'node:nope')).toEqual({});
+  });
+
+  it('colouring by a field turns the colour bar on — a mesh opens without one (tag palette)', () => {
+    expect(selectField(dataset(), meshLayer(), 'elm:TI_max').showColorbar).toBe(true);
+    expect(setColorMode(meshLayer(), 'field')).toEqual({ colorMode: 'field', showColorbar: true });
+    expect(setColorMode(meshLayer(), 'tag')).toEqual({ colorMode: 'tag' });
+    expect(setColorMode(meshLayer(), 'solid')).toEqual({ colorMode: 'solid' });
   });
 
   it('converts linear ⇄ heat without losing the window', () => {

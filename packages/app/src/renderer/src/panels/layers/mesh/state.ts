@@ -132,11 +132,18 @@ export function componentsOf(field: MeshFieldInfo): ('mag' | 0 | 1 | 2)[] {
   return field.ncomp === 1 ? ['mag'] : ['mag', 0, 1, 2];
 }
 
+/**
+ * Switching the colour source. Choosing `'field'` also turns the layer's colour bar on:
+ * `scene/defaults.ts` opens a mesh with `showColorbar: false` because a tag palette is a table, not
+ * a ramp — but a field *is* a ramp, and §8's "one bar per visible scalar layer" is what a volume
+ * gets for free. The app offers no per-layer bar switch (the toolbar's `Bars` is global), so this
+ * is the only place the bit could ever be set for a mesh a `.msh.opt` did not seed.
+ */
 export function setColorMode(
   _layer: MeshLayer,
   colorMode: MeshLayer['colorMode']
 ): Partial<MeshLayer> {
-  return { colorMode };
+  return colorMode === 'field' ? { colorMode, showColorbar: true } : { colorMode };
 }
 
 /**
@@ -156,6 +163,7 @@ export function selectField(
     field.ncomp === 1 ? 'mag' : (layer.field?.component ?? 'mag');
   return {
     colorMode: 'field',
+    showColorbar: true,
     field: { source: field.source, name: field.name, component },
     scale: { kind: 'linear', lo: field.stats.min, hi: field.stats.max },
     threshold: { ...layer.threshold, lo: field.stats.min, hi: field.stats.max },

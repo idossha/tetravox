@@ -49,7 +49,7 @@ import type {
   PickItem,
 } from './runtime';
 import { isSliceView } from '../scene/store';
-import type { ColorbarSpec } from '../overlay/colorbar';
+import { formatTick, type ColorbarSpec } from '../overlay/colorbar';
 import type { ProbeRow } from '../api';
 import type { IsolateCriteriaT } from '@tetravox/protocol';
 import type {
@@ -652,13 +652,14 @@ export class MeshLayerRuntime implements LayerRuntime {
     const ticks =
       s.scale.kind === 'heat'
         ? [
-            { t: at(s.scale.min), label: String(s.scale.min) },
-            { t: at(s.scale.mid), label: String(s.scale.mid) },
-            { t: at(s.scale.max), label: String(s.scale.max) },
+            { t: at(s.scale.min), label: formatTick(s.scale.min) },
+            { t: at(s.scale.mid), label: formatTick(s.scale.mid) },
+            { t: at(s.scale.max), label: formatTick(s.scale.max) },
           ]
         : [
-            { t: 0, label: String(s.scale.lo) },
-            { t: 1, label: String(s.scale.hi) },
+            // The volume bar's formatter, so `0.5450851917266846` reads `0.545` on both.
+            { t: 0, label: formatTick(s.scale.lo) },
+            { t: 1, label: formatTick(s.scale.hi) },
           ];
     const notches = [s.threshold.lo, s.threshold.hi]
       .filter((v) => Number.isFinite(v))
