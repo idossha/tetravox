@@ -156,9 +156,47 @@
   --vp-shadow-3: 0 12px 32px var(--t-shadow);
 }
 
-/* --------------------------------------------------------------------- chrome */
-.VPNav {
+/* --------------------------------------------------------------------- chrome
+   The nav bar is one full-bleed surface with one hairline under it. VitePress's default draws
+   it as three things — a title cell with its own underline stub, a content cell whose
+   background stops at the layout max-width, and a `.divider` line that starts at the sidebar
+   edge — plus vertical separators around the theme toggle. Each of those read as a seam. */
+.VPNavBar:not(.home.top) {
+  background-color: var(--t-bg-alt) !important;
   border-bottom: 1px solid var(--t-border);
+}
+
+.VPNavBar .content-body,
+.VPNavBar.has-sidebar .title {
+  background-color: transparent !important;
+}
+
+/* The bottom line is the nav bar's own border above; neither the title stub nor the
+   sidebar-offset divider adds anything but a second, misaligned line. */
+.VPNavBarTitle.has-sidebar .title {
+  border-bottom-color: transparent !important;
+}
+
+.VPNavBar .divider {
+  display: none;
+}
+
+/* No vertical rules between search, the theme toggle and GitHub — spacing is enough. */
+.VPNavBar .menu + .appearance::before,
+.VPNavBar .menu + .social-links::before,
+.VPNavBar .translations + .appearance::before,
+.VPNavBar .appearance + .social-links::before {
+  display: none;
+}
+
+.VPNavBar .appearance + .social-links {
+  margin-left: 12px;
+}
+
+/* Home page at the top: transparent over the hero, as VitePress intends; the hairline
+   arrives with the background once the page scrolls. */
+.VPNavBar.home.top {
+  border-bottom-color: transparent;
 }
 
 .VPNavBar .title {
