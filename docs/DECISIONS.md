@@ -131,7 +131,9 @@ dataset.
   `mmPerPx`; CI, a few ms slower after the wasm rebuild, printed `ZOOM 2.50X` under the same
   scene. `setView` with a `camera.mmPerPx` now records that value as the pane's fit: the readout
   is for a gesture off a place the caller chose, `r` still returns to it, and a restored scene does
-  not open claiming to be zoomed. No golden moves.
+  not open claiming to be zoomed. Four `derived-*` 2×2 goldens had that race baked in as a
+  `ZOOM 0.70X` line under panes whose camera the spec had set; they are re-blessed without it,
+  from the authority's own renders.
 - 2026-08-29 — **2D panes composite in layer order across kinds** — `renderer.ts` ran the slice pass
   (every volume) and then the derived pass (every mesh fill), so a mesh cut always painted over a
   volume above it in the panel. The 2D path now interleaves `SlicePass.draw2D` and
