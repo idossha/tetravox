@@ -124,6 +124,14 @@ dataset.
   reading nibabel's in-memory header. The NaN guard stays, exercised by a synthetic fixture.
 - 2026-08-27 — `is_label` must not require an integer dtype — `segmentation/labeling.nii.gz` is float32 with 57
   integral unique values 0…530 `[DATA]` and is a genuine atlas.
+- 2026-08-29 — **A programmatic `setView` camera is the `ZOOM` readout's reference** — the fit
+  `#onFirstDataset` records comes from `#lastRects`, which exist only once a frame has rendered,
+  so it was the real pane size on a slow machine and the 512 px fallback on a fast one. The
+  `slice-scale` goldens happened to pass only because the fallback fit equals their explicit
+  `mmPerPx`; CI, a few ms slower after the wasm rebuild, printed `ZOOM 2.50X` under the same
+  scene. `setView` with a `camera.mmPerPx` now records that value as the pane's fit: the readout
+  is for a gesture off a place the caller chose, `r` still returns to it, and a restored scene does
+  not open claiming to be zoomed. No golden moves.
 - 2026-08-29 — **2D panes composite in layer order across kinds** — `renderer.ts` ran the slice pass
   (every volume) and then the derived pass (every mesh fill), so a mesh cut always painted over a
   volume above it in the panel. The 2D path now interleaves `SlicePass.draw2D` and

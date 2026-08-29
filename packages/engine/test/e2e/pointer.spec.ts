@@ -1487,3 +1487,51 @@ test('§11 golden: scene-crosshair-after-drag', async ({ page }) => {
   expect(errors).toEqual([]);
   await expectGolden(page, 'scene-crosshair-after-drag');
 });
+
+test('@angle R2: a camera set through setView is the ZOOM reference; a gesture off it is not', async ({
+  page,
+}) => {
+  // Regression for a CI-only race (DECISIONS 2026-08-29): the auto-fit on the first dataset reads
+  // `#lastRects`, which exist only after a frame has rendered, so whether it was the real pane
+  // size or the 512 px fallback depended on timing — and so did whether `ZOOM` printed under a
+  // scene whose camera a spec had set explicitly. A programmatic camera is now the reference.
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  await load(page, fixture('vol_asym.nii'), 'volume', ['axial']);
+  const corner = async (lines: number): Promise<string[]> =>
+    await readCornerInfo(page, {
+      canvasHeight: CANVAS,
+      pane: { x: 0, y: 0, width: CANVAS, height: CANVAS },
+      lineCount: lines,
+      length: 'RAS -00.0 -00.0 -00.0'.length,
+    });
+
+  // Far from any fit the auto-fit could have computed (fallback or real), on purpose.
+  await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    engine.setView('axial', { camera: { center: [0, 0], mmPerPx: 0.37 } });
+    await engine.whenSettled();
+  });
+  const placed = await corner(3);
+  expect(placed[0]?.trim()).toBe('AXIAL');
+  expect(placed[2]?.trim(), 'no ZOOM line under a camera the caller placed').toMatch(/^SLICE /);
+
+  // A gesture off that camera reports against it.
+  await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    engine.zoomView('axial', 2);
+    await engine.whenSettled();
+  });
+  const zoomed = await corner(4);
+  expect(zoomed[3]?.trim()).toBe('ZOOM 2.00X');
+
+  // `r` returns to the fit and the readout goes away.
+  await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    engine.resetView('axial');
+    await engine.whenSettled();
+  });
+  const reset = await corner(3);
+  expect(reset[2]?.trim()).toMatch(/^SLICE /);
+  expect(errors).toEqual([]);
+});

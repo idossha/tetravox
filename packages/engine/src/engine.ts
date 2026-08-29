@@ -1167,6 +1167,18 @@ export class TetravoxEngine implements Engine, PointerHost {
   /** P2-03: a view's own camera or plane changes that pane and no other. */
   setView(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void {
     this.#store.setView(id, patch);
+    // A camera placed **programmatically** — a spec, a §4.6 scene restore, the app — is the
+    // reference the corner `ZOOM` readout measures from: the readout is for a *gesture* off a
+    // known place (`zoomViewAt`, `zoomView`), and `resetView` returns to it. Without this the
+    // reference was whatever `#onFirstDataset` computed, which depends on whether a frame had
+    // rendered (and filled `#lastRects`) before the dataset landed — a race, and one CI lost
+    // (2026-08-29): the same scene printed `ZOOM 2.50X` on one machine and nothing on another.
+    if (id !== VIEW3D_ID) {
+      const camera = (patch as Partial<SliceView>).camera;
+      if (camera !== undefined && Number.isFinite(camera.mmPerPx) && camera.mmPerPx > 0) {
+        this.#viewFit.set(id, camera.mmPerPx);
+      }
+    }
     this.requestRender(id);
   }
 
