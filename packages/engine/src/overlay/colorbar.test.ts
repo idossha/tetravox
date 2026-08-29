@@ -250,6 +250,13 @@ describe('drawColorbar — placement', () => {
     expect(rows[rows.length - 1]?.rgba[0]).toBeGreaterThan(0.98);
   });
 
+  it('clears the RAD/NEU badge: nothing of the bar reaches the top text line', () => {
+    // The badge is drawn on the first line under the top edge (`overlay/letters.ts`); the bar's
+    // title is the highest thing it draws, and it starts one full line below that.
+    const badgeBottom = PANE.h - m.pad - m.lineH;
+    for (const v of vertices(bar())) expect(toPx(v.y, PANE.h)).toBeLessThan(badgeBottom);
+  });
+
   it('stacking moves the bar down by one pitch and nothing else', () => {
     const layout = colorbarLayout(m, 'right');
     const first = vertices(bar(0)).filter((v) => v.u < 0);

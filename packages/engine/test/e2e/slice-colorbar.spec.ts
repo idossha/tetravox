@@ -38,7 +38,7 @@ const M = overlayMetrics(PANE, PANE, 1);
 const BAR = colorbarLayout(M, 'right');
 /** `drawColorbar`'s right-hand column, in pane pixels (bottom-left origin, as the builder works). */
 const BAR_X = PANE - M.pad - 2 * 6 * M.scale - BAR.thickness; // 2 characters of gutter, CELL_W = 6
-const BAR_TOP = PANE - M.pad - 7 * M.scale - M.lineH; // GLYPH_H = 7
+const BAR_TOP = PANE - M.pad - 7 * M.scale - 2 * M.lineH; // GLYPH_H = 7; one clear line under the badge
 const barY0 = (slot: number): number => BAR_TOP - slot * BAR.pitch - BAR.length;
 
 /** Top-left-origin canvas pixel of bar `slot`'s ramp row `p`. */

@@ -127,9 +127,8 @@ export function ViewGrid({ canvas, dpr }: ViewGridProps): React.JSX.Element {
               (id === activeViewId ? 'border-tvx-accent' : 'border-tvx-line/60')
             }
           >
-            <span className="absolute left-1 top-1 font-mono text-[10px] uppercase text-tvx-dim">
-              {id}
-            </span>
+            {/* No title here: the engine's corner info already names the view (bottom-left), and
+                a second copy top-left was the one piece of chrome that said nothing new. */}
           </div>
         ))}
       </div>

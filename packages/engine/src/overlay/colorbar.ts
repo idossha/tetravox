@@ -117,9 +117,11 @@ export function drawColorbar(
   }
 
   // Right: the bar column sits inside the two-character gutter, with ticks right-aligned to its
-  // left and the title above it. Bars stack downward from just under the RAD/NEU badge.
+  // left and the title above it. Bars stack downward from **two** text lines under the top edge:
+  // the RAD/NEU badge owns the first line, and the title used to sit on it — `TI MAX` against
+  // `NEU` in the same corner (2026-08-29). One clear line between them.
   const x0 = m.widthPx - m.pad - 2 * CELL_W * m.scale - layout.thickness;
-  const top = m.heightPx - m.pad - glyphH - m.lineH - slot * layout.pitch;
+  const top = m.heightPx - m.pad - glyphH - 2 * m.lineH - slot * layout.pitch;
   const y0 = top - layout.length;
   drawBacking(b, x0, y0, layout.thickness, layout.length, m.scale, textColor);
   for (let p = 0; p < layout.length; p += 1) {

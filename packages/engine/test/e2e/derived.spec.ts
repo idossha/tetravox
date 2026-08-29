@@ -748,7 +748,7 @@ const CB_M = overlayMetrics(PANE, PANE, 1);
 const CB = colorbarLayout(CB_M, 'right');
 /** `drawColorbar`'s right-hand column, in pane pixels (bottom-left origin, as the builder works). */
 const CB_X = PANE - CB_M.pad - 2 * 6 * CB_M.scale - CB.thickness; // 2 characters of gutter, CELL_W 6
-const CB_TOP = PANE - CB_M.pad - 7 * CB_M.scale - CB_M.lineH; // GLYPH_H = 7
+const CB_TOP = PANE - CB_M.pad - 7 * CB_M.scale - 2 * CB_M.lineH; // GLYPH_H = 7; a line under the badge
 
 function meshBarPixel(p: number): [number, number] {
   const y0 = CB_TOP - CB.length;
