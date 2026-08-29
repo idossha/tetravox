@@ -152,6 +152,51 @@ pub(crate) fn integral_range(
     Ok((ok.get() && n.get() > 0).then(|| (min.get(), max.get())))
 }
 
+/// §6.1's `is_label` second pass, for volumes with more than 255 distinct values: the fraction of
+/// adjacent same-row sample pairs, at least one of which is non-zero, whose **raw** samples are
+/// equal. A label map is piecewise constant — every interior voxel of a region equals its
+/// neighbour — so this sits near 1; an intensity image with hundreds of grey levels changes value
+/// almost every voxel and sits near 0. Background-to-background pairs are excluded so a scan with a
+/// large zero field outside the body does not score as constant. Returns 0 when no pair qualifies.
+pub(crate) fn run_agreement(v: &Volume, vol: Option<usize>) -> f64 {
+    let Some((lo, hi)) = range(v, vol) else {
+        return 0.0;
+    };
+    let row = v.dims[0];
+    if row < 2 {
+        return 0.0;
+    }
+    macro_rules! agree {
+        ($d:expr) => {{
+            let (mut same, mut pairs) = (0u64, 0u64);
+            for r in $d[lo..hi].chunks_exact(row) {
+                for w in r.windows(2) {
+                    let (a, b) = (w[0] as f64, w[1] as f64);
+                    if a == 0.0 && b == 0.0 {
+                        continue;
+                    }
+                    pairs += 1;
+                    if a == b {
+                        same += 1;
+                    }
+                }
+            }
+            if pairs == 0 { 0.0 } else { same as f64 / pairs as f64 }
+        }};
+    }
+    match &v.data {
+        VolumeData::U8(d) => agree!(d),
+        VolumeData::I8(d) => agree!(d),
+        VolumeData::U16(d) => agree!(d),
+        VolumeData::I16(d) => agree!(d),
+        VolumeData::U32(d) => agree!(d),
+        VolumeData::I32(d) => agree!(d),
+        VolumeData::F32(d) => agree!(d),
+        VolumeData::F64(d) => agree!(d),
+        VolumeData::Rgb24(_) | VolumeData::Rgba32(_) => 0.0,
+    }
+}
+
 /// What one pass over the physical samples learns. `min`/`max` ignore non-finite samples.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Scan {

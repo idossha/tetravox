@@ -1024,7 +1024,10 @@ Rules:
   exercises it, so the fixture must. (Reading `nib.load(p).header` reports NaN for files whose on-disk value
   is 1.0: `Nifti1Image.from_file_map` calls `set_slope_inter(None, None)` after handing scaling to the array
   proxy. Read the raw 348-byte header.)
-* **`is_label`** = all sample values integral ∧ min ≥ 0 ∧ (`intent_code == 1002` ∨ unique count ≤ 4096).
+* **`is_label`** = all sample values integral ∧ min ≥ 0 ∧ (`intent_code == 1002` ∨ (unique count ≤ 4096 ∧
+  (unique count ≤ 255 ∨ piecewise constant))). *Piecewise constant*: at least 50 % of adjacent same-row
+  sample pairs, excluding background–background pairs, are equal — an atlas repeats its value voxel to
+  voxel, a non-negative integer MRI with hundreds of grey levels does not.
   **The dtype must not be part of the test**: `segmentation/labeling.nii.gz` is float32 with 57 integral
   unique values spanning 0…530 and is a genuine atlas.
 * **Stats** are exact: one O(n) pass into a 65536-bin histogram over `[min, max]` gives the percentiles

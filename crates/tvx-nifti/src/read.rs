@@ -379,9 +379,13 @@ pub fn read_nifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume> {
     Ok(vol)
 }
 
-/// §6.1: `is_label` = all sample values integral ∧ min ≥ 0 ∧ (`intent_code == 1002` ∨ unique
-/// count ≤ 4096). **The dtype is not part of the test** — `segmentation/labeling.nii.gz` is a
-/// float32 atlas `[DATA]`.
+/// §6.1: `is_label` = all sample values integral ∧ min ≥ 0 ∧ (`intent_code == 1002` ∨ (unique
+/// count ≤ 4096 ∧ (unique count ≤ 255 ∨ piecewise constant))). **The dtype is not part of the
+/// test** — `segmentation/labeling.nii.gz` is a float32 atlas `[DATA]`. The piecewise-constancy
+/// clause is what separates a 1000-parcel atlas from a non-negative 16-bit MRI: both are integral
+/// with a thousand distinct values, but only the atlas repeats its value from one voxel to the next
+/// (`scan::run_agreement` ≥ 0.5). An AMOS22 abdominal T1 (1014 grey levels in 0…1027) scored 0.11
+/// and was being painted with a label palette before this clause existed.
 fn label_test(v: &Volume, p: &mut dyn ProgressSink) -> Result<bool> {
     if v.datatype.is_color() {
         return Ok(false);
@@ -392,5 +396,8 @@ fn label_test(v: &Volume, p: &mut dyn ProgressSink) -> Result<bool> {
     if v.intent_code == 1002 {
         return Ok(true);
     }
-    Ok(crate::stats::unique_count_at_most(v, None, min, max, 4096, p)?.is_some())
+    let Some(n) = crate::stats::unique_count_at_most(v, None, min, max, 4096, p)? else {
+        return Ok(false);
+    };
+    Ok(n <= 255 || crate::scan::run_agreement(v, None) >= 0.5)
 }

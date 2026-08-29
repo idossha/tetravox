@@ -13,7 +13,8 @@
 //!   `slope.is_finite() && slope != 0.0 && inter.is_finite() && (slope != 1.0 || inter != 0.0)`;
 //!   otherwise normalise to `(1.0, 0.0)`. It is carried in [`GpuPayload::scale`] / [`GpuPayload::offset`]
 //!   and applied as `v = raw*scale + offset` in the fragment shader and in the probe path.
-//! * **`is_label`** = all sample values integral ∧ min ≥ 0 ∧ (`intent_code == 1002` ∨ unique count ≤ 4096).
+//! * **`is_label`** = all sample values integral ∧ min ≥ 0 ∧ (`intent_code == 1002` ∨ (unique count ≤ 4096 ∧
+//!   (unique count ≤ 255 ∨ piecewise constant: ≥ 50 % of adjacent non-background sample pairs equal))).
 //!   **The dtype must not be part of the test**: `segmentation/labeling.nii.gz` is float32 with 57
 //!   integral unique values spanning 0…530 `[DATA]` and is a genuine atlas.
 //! * The affine comes from sform when `sform_code > 0`, else the qform with **`qfac` applied to the third
