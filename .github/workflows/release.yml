@@ -100,31 +100,35 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS: one runner per slice. `macos-latest` is arm64-only, and `--x64` on it would produce
-          # an app only Rosetta can launch — a weaker smoke test than a native one, and the difference
-          # is measurable (the same packaged e2e takes 7.6 s native and 4.9 min under Rosetta).
-          - name: macOS arm64 (dmg + zip)
+          # macOS: ONE runner for BOTH slices, and that is not a shortcut — it is the stronger test.
+          # `electron-builder.yml` declares `arch: [arm64, x64]`, so this leg emits all six mac assets
+          # whatever the `--mac` line asks for; the v0.2.0 draft was in fact filled entirely by the
+          # arm64 leg while the Intel one was still failing. What the Intel runner added was a smoke
+          # claim it could not make: `macos-26-intel` has no Metal device, and macOS has no working
+          # software fallback either — ANGLE there allows only `metal` and `swiftshader`, and
+          # SwiftShader's Vulkan backend fails to initialise (`Internal Vulkan error (-3)`,
+          # reproduced identically on an M2 Mac against eight flag combinations). So the x64 slice is
+          # smoke-tested HERE, under Rosetta 2, on the arm64 runner's real GPU — measured at 14 s for
+          # the smoke job on an M2 (against 3 s native), which is nothing next to a leg that cannot
+          # render at all. `--all` is what runs both.
+          - name: macOS arm64 + x64 (dmg + zip)
             os: macos-latest
-            builder: --mac --arm64
-            smoke: job
+            builder: --mac
+            smoke: --all
             required: 'yes'
             artefacts: |
               packages/app/release/*.dmg
               packages/app/release/*.zip
               packages/app/release/*.blockmap
-          - name: macOS x64 (dmg + zip)
-            os: macos-26-intel
-            builder: --mac --x64
-            smoke: job
-            required: 'yes'
-            artefacts: |
-              packages/app/release/*.dmg
-              packages/app/release/*.zip
-              packages/app/release/*.blockmap
+          # Linux hosted runners have no GPU: the GPU process dies during initialisation under Xvfb
+          # and the renderer then reports `vertex shader failed to compile: (no log)` from a context
+          # that is already gone. `--software-gl` names ANGLE's SwiftShader backend explicitly rather
+          # than hoping for a fallback (`src/main/index.ts` §2), and the smoke test then *asserts*
+          # that the renderer it got really was a software one.
           - name: Linux x64 (AppImage + deb + tar.gz)
             os: ubuntu-24.04
             builder: --linux --x64
-            smoke: job
+            smoke: --software-gl
             required: 'yes'
             artefacts: |
               packages/app/release/*.AppImage
@@ -139,7 +143,7 @@ jobs:
           - name: Windows x64 (nsis, optional)
             os: windows-latest
             builder: --win --x64
-            smoke: version
+            smoke: --version-only
             required: 'no'
             artefacts: |
               packages/app/release/*.exe
@@ -238,25 +242,71 @@ jobs:
       - name: pnpm build
         run: pnpm -r --if-present run build
 
-      # `--publish never`, and it is load-bearing: electron-builder reads `CI=true` as consent to
-      # publish, and without the flag it builds every artefact and *then* dies with
-      # `⨯ GitHub Personal Access Token is not set`. Attaching assets is the explicit
-      # `softprops/action-gh-release` step below, never a side effect of the build.
+      # `scripts/electron-builder.sh`, not electron-builder directly: it owns `--publish never` (which
+      # is load-bearing — electron-builder reads `CI=true` as consent to publish and otherwise dies
+      # with `⨯ GitHub Personal Access Token is not set` after building everything) and the one
+      # macOS signing conditional.
+      #
+      # **The four signing secrets are passed on every leg and are allowed to be empty.** With them,
+      # the mac leg produces a Developer ID-signed, hardened, notarised and stapled app; without them
+      # — a fork, or this repository until the maintainer runs the `gh secret set` lines in
+      # docs/RELEASING.md §4 — the script falls back to an unsigned build rather than failing. That
+      # fallback is the difference between a release that is merely unsigned and no release at all.
+      # `APPLE_TEAM_ID` is public information and is written here rather than kept as a secret.
       - name: electron-builder ${{ matrix.builder }}
         shell: bash
-        run: pnpm --filter @tetravox/app exec electron-builder --config electron-builder.yml ${{ matrix.builder }} --publish never
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: 3BMY24SA43
+        run: bash scripts/electron-builder.sh ${{ matrix.builder }}
+
+      # What the signature actually says, on the runner that made it — and a GATE when there was a
+      # certificate to sign with. With no `CSC_LINK` the build is legitimately unsigned (a fork, or
+      # this repository before the secrets existed) and the checks only report; with one, an app that
+      # is not accepted by Gatekeeper as a notarised Developer ID build, or a `.dmg` with no stapled
+      # ticket, fails the leg here rather than on a user's machine. Both slices, since only one of
+      # them would otherwise be looked at.
+      - name: Signature, Gatekeeper and staple
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+        run: |
+          set -uo pipefail
+          signed=1
+          [ -n "${CSC_LINK:-}" ] || signed=0
+          [ "$signed" = "1" ] || echo "no CSC_LINK: this build is unsigned, reporting only"
+          rc=0
+          for app in packages/app/release/mac-arm64/Tetravox.app packages/app/release/mac/Tetravox.app; do
+            [ -d "$app" ] || continue
+            echo "=== $app"
+            codesign -dv --verbose=4 "$app" 2>&1 || rc=$((rc + signed))
+            codesign --verify --deep --strict --verbose=2 "$app" 2>&1 || rc=$((rc + signed))
+            # "accepted" plus "source=Notarized Developer ID" is the whole claim; `spctl` exits 0 for
+            # an accepted-but-not-notarised app too, so the source line is checked, not just the code.
+            out="$(spctl -a -vv -t install "$app" 2>&1)" || rc=$((rc + signed))
+            echo "$out"
+            if [ "$signed" = "1" ] && ! echo "$out" | grep -q 'Notarized Developer ID'; then
+              echo "spctl did not report a Notarized Developer ID" >&2
+              rc=$((rc + 1))
+            fi
+          done
+          for dmg in packages/app/release/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "=== stapler $dmg"
+            xcrun stapler validate "$dmg" 2>&1 || rc=$((rc + signed))
+          done
+          exit "$rc"
 
       # §12.1: "launch the packaged binary with a CLI arg pointing at a fixture and assert it exits 0
       # after rendering one frame." macOS and Linux do exactly that; Windows asserts launch-and-exit,
       # for the reason scripts/smoke-artefact.mjs documents at length.
       - name: Artefact smoke test
         shell: bash
-        run: |
-          if [ "${{ matrix.smoke }}" = "version" ]; then
-            node scripts/smoke-artefact.mjs --version-only
-          else
-            node scripts/smoke-artefact.mjs
-          fi
+        run: node scripts/smoke-artefact.mjs ${{ matrix.smoke }}
 
       - name: Upload the workflow artefacts
         uses: actions/upload-artifact@v4

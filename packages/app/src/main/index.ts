@@ -76,21 +76,30 @@ app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 app.commandLine.appendSwitch('enable-webgl-developer-extensions');
 
 /**
- * `TETRAVOX_SOFTWARE_GL=1` — render entirely in SwiftShader, in-process, with no GPU process.
+ * **Software-GL mode** — `--software-gl` or `TETRAVOX_SOFTWARE_GL=1`, and never on by default.
  *
- * On a hosted CI runner there is no GPU: the GPU process starts, fails to initialise a display
- * (`Exiting GPU process due to errors during initialization` on Linux under Xvfb,
- * `GLDisplayEGL::Initialize failed` on a hosted Intel macOS runner) and every shader the renderer
- * hands it comes back as `vertex shader failed to compile: (no log)` — a frame is never produced,
- * even though `enable-unsafe-swiftshader` above is set, because that switch is the *fallback* for a
- * blocklisted driver and not a way past a GPU process that is already dead. `--disable-gpu` skips
- * that process entirely and is exactly what `e2e/fixtures.ts` passes on Linux for the same reason.
+ * `enable-unsafe-swiftshader` above only *permits* a fallback to SwiftShader; it does not conjure
+ * one where Chromium cannot bring up a GL/EGL display at all, and a hosted CI runner with no GPU is
+ * exactly that case. Both failures the v0.2.0 release run hit are this:
  *
- * Opt-in by environment rather than always-on: a Linux or macOS user running a `--job` render on a
- * real GPU should keep it. CI sets the variable for its packaged-artefact smoke test.
+ *   - Linux under Xvfb: the GPU process has a display but no usable driver, so shader compilation
+ *     dies with `vertex shader failed to compile: (no log)` — a lost context, not a bad shader.
+ *   - macOS x64 with no Metal device (`macos-26-intel`): `Initialization of all (1) EGL display
+ *     types failed ... Exiting GPU process`, so there is no context to fall back *from*.
+ *
+ * Naming ANGLE's SwiftShader backend explicitly gives the GPU process a display it can always
+ * create, and `disable-gpu-compositing` keeps the (already offscreen) compositor off the same
+ * missing device. `--disable-gpu` is deliberately NOT in this set: it disables the GPU process
+ * wholesale and takes WebGL2 with it, so the smoke test could not render at all.
+ *
+ * The mode is opt-in because it is a *weaker* claim — a SwiftShader frame proves the pipeline, not
+ * the platform driver — so the mac arm64 leg, which has a real GPU, stays off it (docs/RELEASING.md).
  */
-if (process.env['TETRAVOX_SOFTWARE_GL'] === '1') {
-  app.commandLine.appendSwitch('disable-gpu');
+const SOFTWARE_GL =
+  process.argv.includes('--software-gl') || process.env['TETRAVOX_SOFTWARE_GL'] === '1';
+if (SOFTWARE_GL) {
+  app.commandLine.appendSwitch('use-gl', 'angle');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
   app.commandLine.appendSwitch('disable-gpu-compositing');
 }
 

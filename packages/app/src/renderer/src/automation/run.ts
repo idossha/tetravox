@@ -14,6 +14,7 @@
 import type {
   Aabb,
   Camera3D,
+  Capabilities,
   Engine,
   Layer,
   LayerId,
@@ -175,6 +176,15 @@ export class JobRunner {
 
   async run(): Promise<void> {
     try {
+      // Which renderer actually answered, first thing and unconditionally. A `--job` run is the only
+      // way to exercise the packaged app with no screen, so its log is the only place a smoke test
+      // can learn whether it got the platform driver or SwiftShader (§7.1, `--software-gl`).
+      // Optional-chained because the vitest env's fake engine has no `caps`, and a smoke-test log
+      // line must never be the thing that fails a job.
+      const caps = this.env.engine.caps as Capabilities | undefined;
+      if (caps !== undefined) {
+        this.log(`gl: ${caps.renderer} (${caps.isSoftware ? 'software' : 'hardware'})`);
+      }
       const startedLoad = this.now();
       await this.loadScene();
       // **Nothing is framed for you.** A job's picture is the picture the app would show for the same

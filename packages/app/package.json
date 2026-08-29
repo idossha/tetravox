@@ -20,7 +20,7 @@
     "e2e": "electron-vite build && playwright test",
     "e2e:packaged": "playwright test --project=packaged",
     "walkthrough": "electron-vite build && node scripts/record-walkthrough.mjs",
-    "package": "electron-builder --config electron-builder.yml --publish never"
+    "package": "bash ../../scripts/electron-builder.sh"
   },
   "dependencies": {
     "@tetravox/engine": "workspace:*",
