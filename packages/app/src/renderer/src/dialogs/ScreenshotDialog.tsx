@@ -23,8 +23,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { ScreenshotOptions, ViewId } from '@tetravox/engine';
+import {
+  COLUMN_WIDTHS_MM,
+  DEFAULT_FIGURE,
+  EXPORT_PRESETS,
+  mmForPixels,
+  pixelsForMm,
+  type FigureOptions,
+} from '../lib/figure';
 import { readPngInfo } from '../lib/png';
 import { DialogFrame, Field } from './dialog';
+
+/** The dialog's own target: §4.7's two, plus the app-level multi-panel figure (`lib/figure.ts`). */
+type Target = ScreenshotOptions['target'] | 'figure';
 
 export interface ScreenshotPreview {
   blob: Blob;
@@ -42,9 +53,12 @@ export interface ScreenshotDialogProps {
   views: readonly ViewId[];
   /** The starting options. */
   initial: ScreenshotOptions;
-  /** Runs `Engine.screenshot` — the controller's, so the dialog never holds an `Engine` (§8). */
-  capture(opts: ScreenshotOptions): Promise<Blob>;
-  onConfirm(opts: ScreenshotOptions): void;
+  /**
+   * Runs `Engine.screenshot` — the controller's, so the dialog never holds an `Engine` (§8). With a
+   * `figure`, the controller captures every panel and assembles them (`captureFigure`).
+   */
+  capture(opts: ScreenshotOptions, figure: FigureOptions | null): Promise<Blob>;
+  onConfirm(opts: ScreenshotOptions, figure: FigureOptions | null): void;
   onCancel(): void;
   /**
    * Opens the unified settings dialog's Capture tab (directed task: unified settings /
@@ -83,6 +97,9 @@ export function ScreenshotDialog({
   onOpenDefaults,
 }: ScreenshotDialogProps): React.JSX.Element {
   const [opts, setOpts] = useState<ScreenshotOptions>(initial);
+  const [target, setTarget] = useState<Target>(initial.target);
+  const [figure, setFigure] = useState<FigureOptions>({ ...DEFAULT_FIGURE, panels: [...views] });
+  const [mmText, setMmText] = useState('');
   const [widthText, setWidthText] = useState(initial.width?.toString() ?? '');
   const [heightText, setHeightText] = useState(initial.height?.toString() ?? '');
   const [scaleText, setScaleText] = useState(initial.scale?.toString() ?? '');
@@ -110,18 +127,49 @@ export function ScreenshotDialog({
     const dpi = numberOrUndefined(dpiText);
     return {
       ...opts,
+      // A figure captures pane by pane; the controller sets `viewId` per panel.
+      target: target === 'figure' ? 'view' : target,
       ...(width === undefined ? {} : { width }),
       ...(height === undefined ? {} : { height }),
       ...(scale === undefined ? {} : { scale }),
       ...(dpi === undefined ? {} : { dpi }),
     };
-  }, [dpiText, heightText, opts, scaleText, widthText]);
+  }, [dpiText, heightText, opts, scaleText, target, widthText]);
+
+  /** The figure page, or `null` when the target is a single capture. */
+  const currentFigure = useCallback(
+    (): FigureOptions | null => (target === 'figure' ? figure : null),
+    [figure, target]
+  );
+
+  /** A preset patches the options object *and* the text fields that mirror it. */
+  const applyPreset = useCallback(
+    (id: string) => {
+      const preset = EXPORT_PRESETS.find((p) => p.id === id);
+      if (preset === undefined) return;
+      const next = preset.apply(current());
+      setOpts(next);
+      setDpiText(next.dpi === undefined ? '' : String(next.dpi));
+    },
+    [current]
+  );
+
+  /** A physical width: mm at the DPI in the field → the width field, in pixels. */
+  const applyMm = useCallback(
+    (mm: number) => {
+      const dpi = numberOrUndefined(dpiText) ?? 144;
+      if (!(mm > 0)) return;
+      setMmText(String(mm));
+      setWidthText(String(pixelsForMm(mm, dpi)));
+    },
+    [dpiText]
+  );
 
   const onPreview = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      const blob = await capture(current());
+      const blob = await capture(current(), currentFigure());
       const bytes = new Uint8Array(await blob.arrayBuffer());
       const info = readPngInfo(bytes);
       if (info === null) {
@@ -144,7 +192,7 @@ export function ScreenshotDialog({
     } finally {
       setBusy(false);
     }
-  }, [capture, current]);
+  }, [capture, current, currentFigure]);
 
   const requestedDpi = numberOrUndefined(dpiText);
   // §11: parse the chunk, do not eyeball the image. `null` = nothing to say yet.
@@ -159,7 +207,7 @@ export function ScreenshotDialog({
     <DialogFrame
       testId="screenshot-dialog"
       title="Screenshot"
-      subtitle="§4.7 ScreenshotOptions — target, size, dpi (PNG pHYs), background, chrome, auto-trim"
+      subtitle="PNG export — presets, physical size, dpi (PNG pHYs), background, chrome, or a labelled multi-panel figure"
       width="42rem"
       onCancel={onCancel}
       footer={
@@ -199,9 +247,9 @@ export function ScreenshotDialog({
             type="button"
             data-testid="screenshot-save"
             className="tvx-btn tvx-btn-on"
-            onClick={() => onConfirm(current())}
+            onClick={() => onConfirm(current(), currentFigure())}
           >
-            Save PNG
+            {target === 'figure' ? 'Save figure PNG' : 'Save PNG'}
           </button>
         </>
       }
@@ -212,15 +260,18 @@ export function ScreenshotDialog({
             <select
               data-testid="screenshot-target"
               className="tvx-input text-[11px]"
-              value={opts.target}
-              onChange={(e) =>
-                patch({ target: e.currentTarget.value as ScreenshotOptions['target'] })
-              }
+              value={target}
+              onChange={(e) => {
+                const next = e.currentTarget.value as Target;
+                setTarget(next);
+                if (next !== 'figure') patch({ target: next });
+              }}
             >
               <option value="grid">Whole grid</option>
               <option value="view">One view</option>
+              <option value="figure">Figure — panels with A/B/C labels</option>
             </select>
-            {opts.target === 'view' && (
+            {target === 'view' && (
               <select
                 data-testid="screenshot-view"
                 aria-label="View to capture"
@@ -237,6 +288,52 @@ export function ScreenshotDialog({
             )}
           </Field>
 
+          <Field label="Preset" hint="One click sets dpi, background, trim and chrome for the use">
+            <span className="flex flex-wrap gap-1">
+              {EXPORT_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  data-testid={`screenshot-preset-${p.id}`}
+                  className="tvx-btn tvx-btn-sm whitespace-nowrap"
+                  title={p.hint}
+                  onClick={() => applyPreset(p.id)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </span>
+          </Field>
+
+          <Field
+            label="Width (mm)"
+            hint="A physical width at the DPI below — sets the pixel width; journal columns as chips"
+          >
+            <input
+              data-testid="screenshot-mm"
+              className="tvx-input w-20 font-mono text-[11px]"
+              inputMode="decimal"
+              value={mmText}
+              placeholder="—"
+              onChange={(e) => {
+                setMmText(e.currentTarget.value);
+                const mm = numberOrUndefined(e.currentTarget.value);
+                if (mm !== undefined) applyMm(mm);
+              }}
+            />
+            {COLUMN_WIDTHS_MM.map((c) => (
+              <button
+                key={c.mm}
+                type="button"
+                data-testid={`screenshot-mm-${c.mm}`}
+                className="tvx-btn tvx-btn-sm whitespace-nowrap"
+                onClick={() => applyMm(c.mm)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </Field>
+
           <Field label="Width (px)" hint="Empty = the pane's own size">
             <input
               data-testid="screenshot-width"
@@ -244,8 +341,24 @@ export function ScreenshotDialog({
               inputMode="numeric"
               value={widthText}
               placeholder="auto"
-              onChange={(e) => setWidthText(e.currentTarget.value)}
+              onChange={(e) => {
+                setWidthText(e.currentTarget.value);
+                setMmText('');
+              }}
             />
+            {numberOrUndefined(widthText) !== undefined && (
+              <span
+                data-testid="screenshot-width-mm"
+                className="font-mono text-[10px] text-tvx-dim"
+              >
+                ={' '}
+                {mmForPixels(
+                  numberOrUndefined(widthText) as number,
+                  numberOrUndefined(dpiText) ?? 144
+                ).toFixed(1)}{' '}
+                mm at {numberOrUndefined(dpiText) ?? 144} dpi
+              </span>
+            )}
           </Field>
           <Field label="Height (px)" hint="Empty = derived from the aspect ratio">
             <input
@@ -302,6 +415,116 @@ export function ScreenshotDialog({
               onChange={(e) => patch({ autoTrim: e.currentTarget.checked })}
             />
           </Field>
+
+          {target === 'figure' && (
+            <fieldset
+              data-testid="screenshot-figure"
+              className="mt-2 border-t border-tvx-line pt-2"
+            >
+              <legend className="px-1 text-[10px] uppercase tracking-wider text-tvx-dim">
+                Figure
+              </legend>
+              <Field label="Panels" hint="Each pane is captured on its own and becomes one panel">
+                <span className="flex flex-wrap gap-2">
+                  {views.map((id) => (
+                    <label key={id} className="flex items-center gap-1 text-[11px]">
+                      <input
+                        type="checkbox"
+                        data-testid={`screenshot-figure-panel-${id}`}
+                        checked={figure.panels.includes(id)}
+                        onChange={(e) =>
+                          setFigure((f) => ({
+                            ...f,
+                            panels: e.currentTarget.checked
+                              ? views.filter((v) => v === id || f.panels.includes(v))
+                              : f.panels.filter((v) => v !== id),
+                          }))
+                        }
+                      />
+                      {id}
+                    </label>
+                  ))}
+                </span>
+              </Field>
+              <Field label="Columns">
+                <select
+                  data-testid="screenshot-figure-columns"
+                  className="tvx-input text-[11px]"
+                  value={figure.columns}
+                  onChange={(e) =>
+                    setFigure((f) => ({ ...f, columns: Number(e.currentTarget.value) }))
+                  }
+                >
+                  <option value={0}>auto</option>
+                  {[1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Labels">
+                <select
+                  data-testid="screenshot-figure-labels"
+                  className="tvx-input text-[11px]"
+                  value={figure.labels}
+                  onChange={(e) =>
+                    setFigure((f) => ({
+                      ...f,
+                      labels: e.currentTarget.value as FigureOptions['labels'],
+                    }))
+                  }
+                >
+                  <option value="upper">A, B, C</option>
+                  <option value="lower">a, b, c</option>
+                  <option value="none">none</option>
+                </select>
+                <input
+                  data-testid="screenshot-figure-labelpt"
+                  className="tvx-input w-14 font-mono text-[11px]"
+                  inputMode="decimal"
+                  value={figure.labelPt}
+                  title="Label size in points"
+                  onChange={(e) =>
+                    setFigure((f) => ({
+                      ...f,
+                      labelPt: numberOrUndefined(e.currentTarget.value) ?? f.labelPt,
+                    }))
+                  }
+                />
+                <span className="text-[10px] text-tvx-dim">pt</span>
+              </Field>
+              <Field label="Gutter (mm)" hint="Between panels and around the page">
+                <input
+                  data-testid="screenshot-figure-gutter"
+                  className="tvx-input w-14 font-mono text-[11px]"
+                  inputMode="decimal"
+                  value={figure.gutterMm}
+                  onChange={(e) =>
+                    setFigure((f) => ({
+                      ...f,
+                      gutterMm: numberOrUndefined(e.currentTarget.value) ?? 0,
+                    }))
+                  }
+                />
+                <select
+                  data-testid="screenshot-figure-background"
+                  className="tvx-input text-[11px]"
+                  value={figure.background}
+                  title="The page behind the panels"
+                  onChange={(e) =>
+                    setFigure((f) => ({
+                      ...f,
+                      background: e.currentTarget.value as FigureOptions['background'],
+                    }))
+                  }
+                >
+                  <option value="white">white page</option>
+                  <option value="transparent">transparent page</option>
+                </select>
+              </Field>
+            </fieldset>
+          )}
 
           <fieldset className="mt-2 border-t border-tvx-line pt-2">
             <legend className="px-1 text-[10px] uppercase tracking-wider text-tvx-dim">

@@ -27,6 +27,7 @@ import type { ShellController } from '../store/controller';
 import type { UiStore } from '../store/store';
 import { bridge } from '../bridge';
 import type { JobSpec } from '../bridge';
+import { DEFAULT_FIGURE, type FigureOptions } from '../lib/figure';
 import { isActive } from '../lib/loads';
 import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
@@ -80,7 +81,8 @@ function fullScreenshotOptions(action: Bag, fallbackView?: ViewId): ScreenshotOp
   const requested = (action['view'] as string | undefined) ?? fallbackView ?? 'grid';
   // `window` is not a pane: it is captured by main, and the options below are only ever the
   // fallback path's, so it collapses to the grid rather than naming a view that does not exist.
-  const view = requested === 'window' ? 'grid' : requested;
+  // `figure` captures pane by pane (`runFigure`); the options here are each panel's.
+  const view = requested === 'window' || requested === 'figure' ? 'grid' : requested;
   const include = (action['include'] ?? {}) as Bag;
   const options: ScreenshotOptions = {
     target: view === 'grid' ? 'grid' : 'view',
@@ -288,7 +290,10 @@ export class JobRunner {
         return;
       case 'screenshot': {
         const name = withExtension(String(action['out']), '.png');
-        const bytes = await captureFrame(this.env.engine, action, fullScreenshotOptions(action));
+        const bytes =
+          action['view'] === 'figure'
+            ? await this.captureFigure(action, fullScreenshotOptions(action))
+            : await captureFrame(this.env.engine, action, fullScreenshotOptions(action));
         const written = await bridge().jobWrite(name, bytes);
         if (!written.ok) throw new Error(`writing ${name}: ${written.error ?? 'unknown error'}`);
         this.record(index, type, [name], started);
@@ -306,6 +311,31 @@ export class JobRunner {
       default:
         throw new Error(`actions[${index}]: unknown type ${type}`);
     }
+  }
+
+  /**
+   * `view: "figure"` — every pane in `figure.panels` (default: all of them) captured separately and
+   * assembled with A/B/C labels by `lib/figure.ts`, the same path the screenshot dialog's Figure
+   * target takes. The `figure` bag mirrors `FigureOptions`; `dpi` is the action's.
+   */
+  private async captureFigure(action: Bag, options: ScreenshotOptions): Promise<Uint8Array> {
+    const bag = (action['figure'] ?? {}) as Bag;
+    const all = this.env.engine.views.map((v) => v.id);
+    const wanted = Array.isArray(bag['panels']) ? (bag['panels'] as unknown[]).map(String) : all;
+    const panels = wanted.filter((id) => all.includes(id));
+    if (panels.length === 0) throw new Error('figure.panels names no pane of the current layout');
+    const figure: FigureOptions = {
+      ...DEFAULT_FIGURE,
+      panels,
+      columns: typeof bag['columns'] === 'number' ? bag['columns'] : DEFAULT_FIGURE.columns,
+      gutterMm: typeof bag['gutterMm'] === 'number' ? bag['gutterMm'] : DEFAULT_FIGURE.gutterMm,
+      labels: (bag['labels'] as FigureOptions['labels'] | undefined) ?? DEFAULT_FIGURE.labels,
+      labelPt: typeof bag['labelPt'] === 'number' ? bag['labelPt'] : DEFAULT_FIGURE.labelPt,
+      background:
+        (bag['background'] as FigureOptions['background'] | undefined) ?? DEFAULT_FIGURE.background,
+    };
+    const blob = await this.env.controller.captureFigure(options, figure);
+    return new Uint8Array(await blob.arrayBuffer());
   }
 
   private record(index: number, type: string, files: string[], started: number): void {

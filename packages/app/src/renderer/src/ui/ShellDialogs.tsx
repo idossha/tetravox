@@ -16,6 +16,7 @@ import type { DatasetRef, ScreenshotOptions } from '@tetravox/engine';
 import { KeyboardHelp } from '../keyboard/KeyboardHelp';
 import { RelocateDialog } from '../dialogs/RelocateDialog';
 import { ScreenshotDialog } from '../dialogs/ScreenshotDialog';
+import type { FigureOptions } from '../lib/figure';
 import { SettingsDialog } from '../dialogs/SettingsDialog';
 import { useController, useUi } from './context';
 
@@ -33,7 +34,8 @@ export function ShellDialogs(): React.JSX.Element | null {
   const configPath = useUi((s) => s.configPath);
 
   const capture = useCallback(
-    (opts: ScreenshotOptions) => controller.captureScreenshot(opts),
+    (opts: ScreenshotOptions, figure: FigureOptions | null) =>
+      figure === null ? controller.captureScreenshot(opts) : controller.captureFigure(opts, figure),
     [controller]
   );
   const pick = useCallback((ref: DatasetRef) => controller.pickRelocation(ref), [controller]);
@@ -69,7 +71,7 @@ export function ShellDialogs(): React.JSX.Element | null {
         views={controller.viewIds()}
         initial={screenshotOptions}
         capture={capture}
-        onConfirm={(opts) => void controller.saveScreenshot(opts)}
+        onConfirm={(opts, figure) => void controller.saveScreenshot(opts, figure)}
         onCancel={close}
         onOpenDefaults={() => controller.openSettingsTab('capture')}
       />

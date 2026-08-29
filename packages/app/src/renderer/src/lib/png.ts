@@ -127,6 +127,49 @@ export function encodePng({ width, height, pixels, dpi }: EncodePngOptions): Uin
   return concat(parts);
 }
 
+/**
+ * Return `bytes` with a `pHYs` chunk carrying `dpi` — replacing one that is already there, or
+ * inserting one right after `IHDR`. A canvas's `convertToBlob` writes no `pHYs` at all, and a figure
+ * assembled on one (`lib/figure.ts`) still owes §4.7's "written to the PNG `pHYs` chunk".
+ */
+export function withPngDpi(bytes: Uint8Array, dpi: number): Uint8Array {
+  if (!Number.isFinite(dpi) || dpi <= 0) return bytes;
+  const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length < 8 + 25 || !SIGNATURE.every((b, i) => bytes[i] === b)) return bytes;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const phys = new Uint8Array(9);
+  const perMetre = Math.round(dpi / 0.0254);
+  const pv = new DataView(phys.buffer);
+  pv.setUint32(0, perMetre);
+  pv.setUint32(4, perMetre);
+  phys[8] = 1;
+  const physChunk = chunk('pHYs', phys);
+
+  const parts: Uint8Array[] = [bytes.subarray(0, 8)];
+  let at = 8;
+  let inserted = false;
+  while (at + 8 <= bytes.length) {
+    const length = view.getUint32(at);
+    const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+    const end = at + 8 + length + 4;
+    if (end > bytes.length) break;
+    if (type === 'pHYs') {
+      if (!inserted) {
+        parts.push(physChunk);
+        inserted = true;
+      }
+    } else {
+      parts.push(bytes.subarray(at, end));
+      if (type === 'IHDR' && !inserted) {
+        parts.push(physChunk);
+        inserted = true;
+      }
+    }
+    at = end;
+  }
+  return concat(parts);
+}
+
 // ------------------------------------------------------------------------------------------------
 // Reading a PNG back — the screenshot dialog's own assertion. `lib/png.ts`
 // is where the screenshot dialog's **pHYs** parse/assert lives.

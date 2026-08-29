@@ -124,6 +124,25 @@ dataset.
   reading nibabel's in-memory header. The NaN guard stays, exercised by a synthetic fixture.
 - 2026-08-27 — `is_label` must not require an integer dtype — `segmentation/labeling.nii.gz` is float32 with 57
   integral unique values 0…530 `[DATA]` and is a genuine atlas.
+- 2026-08-29 — **Publication export is PNG-only** — asked for vector (SVG/PDF) output, the decision
+  was to stay raster: the panes are raster by nature and a hybrid "raster image + vector overlay"
+  file was judged not worth its own writer yet. What figure assembly needs from a PNG shipped instead
+  (`lib/figure.ts`): presets (Web 144 · Print 300 · Print 600 · Transparent 300), a width typed in
+  **mm** with the 85/114/174 mm journal-column chips, and a **Figure** target that captures each pane
+  as its own `Engine.screenshot` and assembles them with A/B/C labels, a mm gutter and `pHYs` DPI —
+  in the dialog and as `view: "figure"` in a job. §4.7's `ScreenshotOptions` is untouched: the
+  figure is an app-level wrapper around ordinary single-view screenshots.
+- 2026-08-29 — **The toolbar centres its controls over the view grid, not the window** — a
+  three-column grid whose outer columns are the sidebars' widths (18 rem / 20 rem, 1.5 rem when
+  collapsed), read from the store, so the cluster sits over the panes and follows a collapse.
+- 2026-08-29 — **`is_label` needs a piecewise-constancy clause above 255 distinct values** — a
+  non-negative 16-bit MRI satisfies "integral ∧ min ≥ 0 ∧ ≤ 4096 unique" verbatim: AMOS22
+  `amos_0584_mri.nii.gz` (int16, 1014 grey levels in 0…1027) loaded as a 1014-label atlas and was
+  painted with a label palette. Above 255 distinct values the rule now also asks that ≥ 50 % of
+  adjacent same-row sample pairs (excluding background–background) be equal — 0.11 for that MRI,
+  > 0.9 for every atlas in `data/`. Below 256 the old rule stands untouched, so `vol_u8.nii`'s
+  frozen `is_label` and `gpu_payload` expectations do not move, and `labeling.nii.gz` (57 values)
+  never reaches the new clause.
 - 2026-08-27 — Hardware `gl_ClipDistance` (`WEBGL_clip_cull_distance`) primary, `discard` shader as a *tested*
   fallback — 6-plane discard 2.89 ms vs `gl_ClipDistance` 2.07 ms `[M2Max]`; discard defeats early-Z on TBDR and
   the cost compounds across the transparent and pick passes. Programs are specialised per active plane count:

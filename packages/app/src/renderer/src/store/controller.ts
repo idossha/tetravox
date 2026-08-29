@@ -56,6 +56,7 @@ import type { OpenRequest } from '../open/sources';
 import type { Command } from '../keyboard/keymap';
 import { LAYOUT_CYCLE, layoutCells, migrateSpecLayout, nextLayout } from '../lib/layout';
 import { savePanelPrefs } from '../lib/panels';
+import { composeFigure, type FigureOptions, type FigurePanel } from '../lib/figure';
 import * as loads from '../lib/loads';
 import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
@@ -786,19 +787,32 @@ export class ShellController {
   setLeftPanelCollapsed(collapsed: boolean): void {
     if (this.store.getState().leftPanelCollapsed === collapsed) return;
     this.store.setState({ leftPanelCollapsed: collapsed });
+    this.savePanels();
+  }
+
+  private savePanels(): void {
+    const s = this.store.getState();
     savePanelPrefs({
-      leftPanelCollapsed: collapsed,
-      rightPanelCollapsed: this.store.getState().rightPanelCollapsed,
+      leftPanelCollapsed: s.leftPanelCollapsed,
+      rightPanelCollapsed: s.rightPanelCollapsed,
+      mouseBlockCollapsed: s.mouseBlockCollapsed,
     });
   }
 
   setRightPanelCollapsed(collapsed: boolean): void {
     if (this.store.getState().rightPanelCollapsed === collapsed) return;
     this.store.setState({ rightPanelCollapsed: collapsed });
-    savePanelPrefs({
-      leftPanelCollapsed: this.store.getState().leftPanelCollapsed,
-      rightPanelCollapsed: collapsed,
-    });
+    this.savePanels();
+  }
+
+  setMouseBlockCollapsed(collapsed: boolean): void {
+    if (this.store.getState().mouseBlockCollapsed === collapsed) return;
+    this.store.setState({ mouseBlockCollapsed: collapsed });
+    this.savePanels();
+  }
+
+  toggleMouseBlock(): void {
+    this.setMouseBlockCollapsed(!this.store.getState().mouseBlockCollapsed);
   }
 
   toggleLeftPanel(): void {
@@ -1414,14 +1428,37 @@ export class ShellController {
   }
 
   /**
+   * A multi-panel figure (publication export, 2026-08-29): one `Engine.screenshot` per chosen pane
+   * — so every panel keeps its own colour bar, letters and scale bar — assembled by `lib/figure.ts`
+   * into one PNG with A/B/C labels and the DPI in `pHYs`. `options` is the per-panel capture
+   * (`target`/`viewId` are overridden per pane); `figure` is the page.
+   */
+  async captureFigure(options: ScreenshotOptions, figure: FigureOptions): Promise<Blob> {
+    const panels = figure.panels.length > 0 ? figure.panels : this.viewIds();
+    const pngs: FigurePanel[] = [];
+    for (const id of panels) {
+      const blob = await this.engine.screenshot({ ...options, target: 'view', viewId: id });
+      pngs.push({ id, png: new Uint8Array(await blob.arrayBuffer()) });
+    }
+    const bytes = await composeFigure(pngs, { ...figure, panels }, options.dpi ?? 144);
+    return new Blob([bytes.slice()], { type: 'image/png' });
+  }
+
+  /**
    * Render and save. §11's obligation lives here rather than only in a test: the PNG's own `pHYs`
    * chunk is **parsed** and compared with the requested DPI, and what was found is recorded on
    * `lastScreenshot`, so a `dpi` the engine silently dropped is visible in the product.
    */
-  async saveScreenshot(options: ScreenshotOptions): Promise<boolean> {
+  async saveScreenshot(
+    options: ScreenshotOptions,
+    figure: FigureOptions | null = null
+  ): Promise<boolean> {
     this.screenshotOptionsTouched = true;
     this.store.setState({ screenshotOptions: options, dialog: 'none' });
-    const blob = await this.engine.screenshot(options);
+    const blob =
+      figure === null
+        ? await this.engine.screenshot(options)
+        : await this.captureFigure(options, figure);
     // Reading back a blob this process just produced is not "raw file bytes on the UI thread"
     // (§5 rule 3): nothing was read from disk, and a screenshot is bounded by the canvas.
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -1438,7 +1475,8 @@ export class ShellController {
         ...(options.dpi === undefined ? {} : { requestedDpi: options.dpi }),
       },
     });
-    if (isPng) this.download(blob, `tetravox-${timestamp()}.png`);
+    if (isPng)
+      this.download(blob, `tetravox-${figure === null ? '' : 'figure-'}${timestamp()}.png`);
     return isPng;
   }
 

@@ -163,13 +163,23 @@ never invents a lookalike.
 | Key | Default | Meaning |
 |---|---|---|
 | `out` | — | File name under `--out`. `.png` is appended when missing. |
-| `view` | `grid` | `grid` for the whole view grid, a view id for that pane, or `window` for the whole window including the panels (needs `window.panels`). |
+| `view` | `grid` | `grid` for the whole view grid, a view id for that pane, `window` for the whole window including the panels (needs `window.panels`), or `figure` for a labelled multi-panel figure (below). |
 | `width` / `height` | the pane's | The **output** size. The frame is *rendered* at this size rather than upscaled, so 2400 px is 2400 px of detail. Give one and the aspect ratio is kept. |
 | `scale` | 1 | Supersampling: render this much larger and average down. |
 | `dpi` | — | Written to the PNG's `pHYs` chunk. |
 | `background` | `scene` | `scene`, `white`, or `transparent`. |
 | `autoTrim` | `false` | Crop the border away. |
 | `include` | see below | `colorbar`, `orientationLabels`, `crosshair`, `cornerInfo`, `scaleBar`. Defaults: colour bar, orientation labels and corner info **on**, crosshair and scale bar off. The `RAD`/`NEU` badge is never optional (§8) — a screenshot that could drop it would be a laterality hazard the moment it left the application. |
+
+| `figure` | — | With `view: "figure"`: `panels` (view ids, default every pane of the layout, in reading order), `columns` (`0` = auto: 4 → 2×2, 3 → 2+1), `gutterMm` (2), `labels` (`upper` A/B/C · `lower` · `none`), `labelPt` (10), `background` (`white` page or `transparent`). Each panel is its own capture at `width`/`dpi` — so each keeps its own colour bar, letters and scale bar — and the page's `pHYs` carries `dpi`. |
+
+A publication figure in one action — every pane at 85 mm (1004 px at 300 dpi) on a white page:
+
+```json
+{ "type": "screenshot", "out": "figure-1.png", "view": "figure", "width": 1004, "dpi": 300,
+  "background": "white", "autoTrim": true, "include": { "crosshair": false, "cornerInfo": false },
+  "figure": { "columns": 2, "gutterMm": 3, "labels": "upper" } }
+```
 
 #### `sweep` — step a 2D view through the volume
 
