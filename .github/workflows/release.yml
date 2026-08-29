@@ -253,6 +253,37 @@ jobs:
       # docs/RELEASING.md §4 — the script falls back to an unsigned build rather than failing. That
       # fallback is the difference between a release that is merely unsigned and no release at all.
       # `APPLE_TEAM_ID` is public information and is written here rather than kept as a secret.
+      # Check the notarisation credentials BEFORE the build, not after it. A bad or revoked
+      # app-specific password fails here in seconds with Apple's own message; the same failure inside
+      # electron-builder costs the whole build first — and every retry is another failed sign-in
+      # against the Apple ID. Three of those in a row on 2026-08-29 locked the account
+      # (`HTTP status code: 401. Your Apple ID has been locked`), which no re-run can fix. Runs with
+      # no secrets skip this and build unsigned, exactly as the builder step does.
+      - name: Notarisation credentials must be accepted (macOS, signed builds only)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: 3BMY24SA43
+        run: |
+          set -euo pipefail
+          if [ -z "${CSC_LINK:-}" ]; then echo "no CSC_LINK: unsigned build, nothing to check"; exit 0; fi
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
+            echo "CSC_LINK is set but APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD are not: the app would sign but not notarise." >&2
+            echo "Set both (docs/RELEASING.md §4) or unset CSC_LINK for an unsigned build." >&2
+            exit 1
+          fi
+          if ! out="$(xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" 2>&1)"; then
+            echo "$out" >&2
+            echo >&2
+            echo "notarytool rejected the credentials. Do NOT re-run this leg until they are fixed:" >&2
+            echo "every failed attempt counts against the Apple ID and can lock it (docs/RELEASING.md §4.1)." >&2
+            exit 1
+          fi
+          echo "notarytool accepted the credentials for $APPLE_TEAM_ID"
+
       - name: electron-builder ${{ matrix.builder }}
         shell: bash
         env:

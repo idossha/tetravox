@@ -9,7 +9,7 @@
 <p align="center"><b>A fast desktop viewer for brain volumes and meshes.</b></p>
 
 <!--
-  Six badges, short labels, `style=flat` on all of them: any more and GitHub wraps the row onto a
+  Five badges, short labels, `style=flat` on all of them: any more and GitHub wraps the row onto a
   second line at README width. The CI badge covers the release workflow too — release.yml builds the
   same matrix as ci.yml's `package` legs, so a separate "release workflow" badge said the same thing
   twice and cost a line break.
@@ -19,18 +19,10 @@
   v0.2.0 (or any later tag) is published rather than left as a draft, switch the URL back to:
       https://img.shields.io/github/v/release/idossha/tetravox?style=flat
   which then also tracks pre-release/latest properly.
-
-  Coverage is a shields *endpoint* badge, not the Codecov one, because Codecov cannot serve this
-  repository: with no CODECOV_TOKEN in CI the uploader answers "Token required - not valid tokenless
-  upload" and the badge stays "unknown" forever. `scripts/coverage-badge.mjs` writes the number from
-  vitest's own summary and CI publishes it to the orphan `badges` branch on every push to main. If a
-  CODECOV_TOKEN is ever added, this can go back to:
-      https://img.shields.io/codecov/c/github/idossha/tetravox?style=flat
 -->
 <p align="center">
   <a href="https://github.com/idossha/tetravox/releases"><img src="https://img.shields.io/github/v/tag/idossha/tetravox?label=release&sort=semver&style=flat" alt="Latest release"></a>
   <a href="https://github.com/idossha/tetravox/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/idossha/tetravox/ci.yml?branch=main&label=CI&style=flat" alt="CI status"></a>
-  <a href="https://github.com/idossha/tetravox/actions/workflows/ci.yml"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fidossha%2Ftetravox%2Fbadges%2Fcoverage.json&style=flat" alt="Coverage"></a>
   <a href="https://idossha.github.io/tetravox/"><img src="https://img.shields.io/badge/docs-website-blue?style=flat" alt="Documentation"></a>
   <img src="https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux-lightgrey?style=flat" alt="Platforms: macOS, Linux">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat" alt="License: MIT"></a>

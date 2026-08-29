@@ -3146,3 +3146,13 @@ settings dialog's Capture tab — several e2e specs drive that dialog's own test
 background/include/preview/save) and its live Preview needs the real `Engine.screenshot` call, which the
 settings dialog has no business holding — but `ScreenshotDialog` gained a "Defaults…" button that jumps to
 Capture for the standing preferences.
+
+## 2026-08-29 — no coverage badge, no `badges` branch
+
+The README's coverage badge was served from an orphan `badges` branch that every push to `main`
+rewrote with a `coverage.json` for `img.shields.io/endpoint` — a workaround for Codecov refusing
+tokenless uploads. The owner does not want a bot-maintained branch as the mechanism. Removed: the
+badge, `scripts/coverage-badge.mjs`, the `test:coverage` script and vitest `coverage` block, the
+Codecov upload, the CI publish step, and the branch itself. `ci.yml`'s `test` job is back to
+`contents: read`. Coverage is not tracked until there is a mechanism that does not need a bot branch
+(a Codecov token, or a reporter with no external service).
