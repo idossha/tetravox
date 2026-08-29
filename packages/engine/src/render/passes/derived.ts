@@ -231,6 +231,20 @@ export class DerivedPass implements FramePass {
         contourColor(layer)
       );
     }
+    // `GlyphSpec.in2D`: the pane's own cut is the origin table, so the arrows lie on the slice.
+    // After the fills and contours and under the points, like everything else that annotates a cut.
+    for (const { layer, ds, geom } of this.#cuts2D) {
+      if (layer.glyphs?.in2D !== true || geom.triangleCount === 0) continue;
+      const origins = store.paneGlyphOrigins(layer.id, view.id);
+      if (origins === null || geom.tagTable === null || geom.ownerTable === null) continue;
+      this.#drawGlyphs(ctx, store, layer, ds, {
+        positions: origins,
+        owner: geom.ownerTable,
+        tag: geom.tagTable,
+        triangleCount: geom.triangleCount,
+        normal: plane.normal,
+      });
+    }
     for (const item of collectDrawItems(input, view)) {
       if (item.kind !== 'points') continue;
       this.#drawPointLines(ctx, item.layer, store);
@@ -477,12 +491,29 @@ export class DerivedPass implements FramePass {
    * `'volume'` reads one `meshCentroids` point and its `ownerTet`, with the stride and the visible
    * tags applied by the op instead of by the shader (§6.5.2, and `docs/DECISIONS.md`).
    */
-  #drawGlyphs(ctx: PassContext, store: DerivedStore, layer: MeshLayer, ds: MeshDataset): void {
+  #drawGlyphs(
+    ctx: PassContext,
+    store: DerivedStore,
+    layer: MeshLayer,
+    ds: MeshDataset,
+    /**
+     * `GlyphSpec.in2D`: draw from a 2D pane's cut instead of the layer's 3D origins. The cut is a
+     * de-indexed triangle set with `tag` and `ownerTet` per triangle — the surface path's exact
+     * shape — and `normal` is the slice's world normal the vector is projected into.
+     */
+    slice?: { positions: Table; owner: Table; tag: Table; triangleCount: number; normal: vec3 }
+  ): void {
     const gl = this.#gl;
     const spec = layer.glyphs;
     if (spec === undefined) return;
-    const plan = glyphPlan(layer, ds, spec, store.surfaceTables(ds)?.triangleCount ?? 0);
-    const { volume, stride, scaling, slab } = plan;
+    const plan =
+      slice === undefined
+        ? glyphPlan(layer, ds, spec, store.surfaceTables(ds)?.triangleCount ?? 0)
+        : glyphPlan(layer, ds, { ...spec, origins: 'surface' }, slice.triangleCount);
+    const { volume, scaling } = plan;
+    const stride = plan.stride;
+    // A 2D pane has no clip-plane slab: the cut already is the plane.
+    const slab = slice === undefined ? plan.slab : { plane: [0, 0, 1, 0] as vec4, half: 0 };
     const refMag = plan.refMag;
 
     // The origin table, and how many instances it is worth. `null` means "not here yet" for both —
@@ -491,7 +522,12 @@ export class DerivedPass implements FramePass {
     let ownerTable: Table;
     let tagTable: Table | null = null;
     let count: number;
-    if (volume) {
+    if (slice !== undefined) {
+      posTable = slice.positions;
+      ownerTable = slice.owner;
+      tagTable = slice.tag;
+      count = Math.max(0, Math.floor((slice.triangleCount - 1) / stride) + 1);
+    } else if (volume) {
       const tags = visibleTetTags(layer, ds);
       // Every tet tag hidden: an absent `tags` would mean "no filter" to the op, so do not ask.
       if (tags.length === 0) return;
@@ -531,7 +567,12 @@ export class DerivedPass implements FramePass {
     prog.mat4('uViewProj', ctx.viewProj);
     prog.mat4('uModel', ds.transform);
     prog.vec3('uEye', ctx.eye);
-    prog.float('uAmbient', ctx.input.scene.lighting.ambient);
+    // A slice is a drawing, not a lit scene: flat colour there, so the ramp reads as the colour bar.
+    prog.float('uAmbient', slice === undefined ? ctx.input.scene.lighting.ambient : 1);
+    prog.vec3(
+      'uProjectN',
+      slice === undefined ? [0, 0, 0] : modelNormal(ds.transform, slice.normal)
+    );
     prog.float('uOpacity', layer.opacity);
     prog.int('uFirst', 0);
     // The volume path's rows are already strided by the op; striding them twice would draw every
@@ -594,6 +635,20 @@ const SCALE_MODE: Record<'fixed' | 'linear' | 'sqrt' | 'log', number> = {
 };
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+
+/**
+ * A world-space unit normal in the dataset's **model** space: `transpose(M3) · n`, normalised — the
+ * exact inverse-transpose for the rigid / uniformly scaled edits `MeshDataset.transform` carries.
+ * The glyph shader projects the field (a model-space quantity) with it, so a translated or rotated
+ * mesh still loses exactly its out-of-slice component.
+ */
+export function modelNormal(transform: Float32Array, n: vec3): vec3 {
+  const m = transform;
+  const x = (m[0] ?? 1) * n[0] + (m[1] ?? 0) * n[1] + (m[2] ?? 0) * n[2];
+  const y = (m[4] ?? 0) * n[0] + (m[5] ?? 1) * n[1] + (m[6] ?? 0) * n[2];
+  const z = (m[8] ?? 0) * n[0] + (m[9] ?? 0) * n[1] + (m[10] ?? 1) * n[2];
+  return normalize([x, y, z]);
+}
 
 function normalize(v: vec3): vec3 {
   const l = Math.hypot(v[0], v[1], v[2]);

@@ -301,6 +301,18 @@ export function Glyphs({
               {glyphStrideText(spec)}
             </span>
           </Row>
+          <Row label="Slices">
+            <Toggle
+              testId={`mesh-glyph-in2d-${layer.id}`}
+              label="in 2D panes"
+              on={spec.in2D === true}
+              title="Draw the arrows on the 2D slices too, from each pane's own cut. A slice shows the in-plane component: length and colour follow it, and a vector normal to the slice draws nothing"
+              onChange={(in2D) => patch(patchGlyphs(layer, { in2D }))}
+            />
+            {spec.in2D === true ? (
+              <span className="ml-auto shrink-0 font-mono text-[9px] text-tvx-dim">in-plane</span>
+            ) : null}
+          </Row>
           <p
             data-testid={`mesh-glyph-legend-${layer.id}`}
             className="font-mono text-[9px] leading-tight text-tvx-dim"

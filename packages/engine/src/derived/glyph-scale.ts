@@ -124,22 +124,29 @@ function clamp01(v: number): number {
  * `LENGTH   E    6 MM`: the words that carry the meaning, silently gone. Hence `MAG E`, `PROP TO`
  * and `AT`, which are spelled in glyphs that exist. The app editor shows the same sentence.
  */
-export function glyphLegendLine(spec: GlyphSpec, info: MeshFieldInfo | undefined): string {
+export function glyphLegendLine(
+  spec: GlyphSpec,
+  info: MeshFieldInfo | undefined,
+  /** `GlyphSpec.in2D`: the drawn vector is the in-plane component, and the key says so. */
+  inPlane = false
+): string {
   const scaling = glyphScaling(spec);
   const ref = referenceMagnitude(scaling, info?.stats);
   const name = spec.field.name.toUpperCase();
+  // The key's label says where the vector was projected; the map itself is still "MAG E".
+  const label = (inPlane ? 'IN-PLANE ' : '') + name;
   const units = info?.units !== undefined ? ` ${info.units.toUpperCase()}` : '';
   const L = scaling.lengthMm;
   switch (scaling.mode) {
     case 'fixed':
-      return `${name}: DIRECTION ONLY, ${fmt(L)} MM ARROWS`;
+      return `${label}: DIRECTION ONLY, ${fmt(L)} MM ARROWS`;
     case 'linear':
-      return `${name}: LENGTH PROP TO MAG ${name}, ${fmt(L)} MM AT ${fmt(ref)}${units}`;
+      return `${label}: LENGTH PROP TO MAG ${name}, ${fmt(L)} MM AT ${fmt(ref)}${units}`;
     case 'sqrt':
-      return `${name}: LENGTH PROP TO SQRT MAG ${name}, ${fmt(L)} MM AT ${fmt(ref)}${units}`;
+      return `${label}: LENGTH PROP TO SQRT MAG ${name}, ${fmt(L)} MM AT ${fmt(ref)}${units}`;
     case 'log': {
       const f = Math.max(TINY, scaling.logFloor);
-      return `${name}: LENGTH PROP TO LOG10 MAG ${name}, 0 MM AT ${fmt(f)}, ${fmt(L)} MM AT ${fmt(ref)}${units}`;
+      return `${label}: LENGTH PROP TO LOG10 MAG ${name}, 0 MM AT ${fmt(f)}, ${fmt(L)} MM AT ${fmt(ref)}${units}`;
     }
   }
 }

@@ -125,6 +125,9 @@ export class OverlayPass implements FramePass {
       }
       if (a.cornerInfo)
         cornerLines.push(...sliceCornerLines(view, scene, input.viewFit?.get(view.id)));
+      // `GlyphSpec.in2D`: the same key as the 3D pane's, marked IN-PLANE, because a length that
+      // encodes a number needs its key on the picture it is drawn on.
+      cornerLines.push(...glyphLegendLines(input, view, true));
     } else {
       // A 3D pane's letters come from the camera basis — which anatomical direction is screen-right
       // and screen-up. Same derivation, same safety property, no hardcoding.
@@ -388,17 +391,19 @@ function sliceIndex(view: SliceView, ds: VolumeDataset, voxel: vec3): number {
  * One legend line per visible mesh layer whose glyphs are on — `derived/glyph-scale.ts` writes the
  * sentence, this only decides which layers get one and in what order.
  */
-function glyphLegendLines(input: DrawInput, view: View): string[] {
+function glyphLegendLines(input: DrawInput, view: View, inPlane = false): string[] {
   const out: string[] = [];
   for (const layer of input.scene.layers) {
     if (layer.kind !== 'mesh' || layer.glyphs === undefined || !visibleIn(layer, view)) continue;
+    if (inPlane && layer.glyphs.in2D !== true) continue;
     const ds = input.scene.datasets.get(layer.datasetId);
     if (ds === undefined || ds.kind !== 'mesh') continue;
     const spec = layer.glyphs;
     out.push(
       glyphLegendLine(
         spec,
-        ds.fields.find((f) => f.name === spec.field.name && f.source === spec.field.source)
+        ds.fields.find((f) => f.name === spec.field.name && f.source === spec.field.source),
+        inPlane
       )
     );
   }

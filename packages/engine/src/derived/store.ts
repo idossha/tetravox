@@ -57,6 +57,17 @@ export interface PaneCutGeometry {
   triangleCount: number;
   tagTable: Table | null;
   ownerTable: Table | null;
+  /**
+   * `GlyphSpec.in2D`: the cut's positions as an `R32F` table, the same layout `surfaceTables`
+   * gives the 3D surface path, so the glyph shader reads a cut triangle's centroid the way it reads
+   * a surface triangle's. Built on first use by {@link DerivedStore.paneGlyphOrigins} from
+   * {@link positionSource}, never per frame, and only for a layer that asks.
+   */
+  posTable: Table | null;
+  /** The generation {@link posTable} was built from, so a new cut rebuilds it once. */
+  posTableGeneration: number;
+  /** The worker's own positions array of the current cut, kept for {@link posTable}. */
+  positionSource: Float32Array | null;
   /** `contoursIn2D`: the per-instance segment endpoints, 6 floats each. */
   contourVao: VertexArray;
   contourStrip: Buffer;
@@ -293,6 +304,9 @@ export class DerivedStore {
       triangleCount: 0,
       tagTable: null,
       ownerTable: null,
+      posTable: null,
+      posTableGeneration: -1,
+      positionSource: null,
       contourVao,
       contourStrip,
       contourBuffer,
@@ -309,6 +323,7 @@ export class DerivedStore {
     const g = this.#panes.get(key) ?? this.#createPaneGeometry(key, false);
     const tris = snap.tag.length;
     g.positions.update(snap.positions);
+    g.positionSource = snap.positions;
     g.vertexCount = snap.positions.length / 3;
     g.triangleCount = tris;
     if (tris > 0) {
@@ -385,6 +400,27 @@ export class DerivedStore {
       g.contoursFromSurfaceOp = true;
     }
     return g;
+  }
+
+  /**
+   * The cut's positions as a table for `GlyphSpec.in2D` (`render/passes/derived.ts`), or `null`
+   * while the pane has no cut. Uploaded once per landed cut and only when asked, so a layer without
+   * 2D glyphs never pays for it.
+   */
+  paneGlyphOrigins(layerId: LayerId, viewId: ViewId): Table | null {
+    const g = this.#panes.get(`${layerId}|${viewId}`);
+    if (g === undefined || g.positionSource === null || g.triangleCount === 0) return null;
+    if (g.posTable === null || g.posTableGeneration !== g.generation) {
+      g.posTable = updateTable(
+        this.#gl,
+        g.posTable,
+        'f32',
+        g.positionSource,
+        g.positionSource.length
+      );
+      g.posTableGeneration = g.generation;
+    }
+    return g.posTable;
   }
 
   /**
@@ -811,5 +847,6 @@ export class DerivedStore {
     g.contourBuffer.dispose();
     if (g.tagTable !== null) gl.deleteTexture(g.tagTable.texture);
     if (g.ownerTable !== null) gl.deleteTexture(g.ownerTable.texture);
+    if (g.posTable !== null) gl.deleteTexture(g.posTable.texture);
   }
 }

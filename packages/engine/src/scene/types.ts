@@ -513,6 +513,15 @@ export interface GlyphSpec {
    */
   headProportion?: number;
   /**
+   * Draw the glyphs in the 2D slice panes too (added 2026-08-29). Each pane's own cut supplies the
+   * origins — one per cut triangle, so the arrows lie exactly on the slice — and the vector is
+   * **projected into the slice plane** before it is scaled and coloured: an arrow's length and
+   * colour there read the in-plane component, and a vector normal to the slice draws nothing. The
+   * pane's corner legend says `IN-PLANE`. Density is `subsample` over the cut's triangles, so
+   * `maxCount` means the same thing per pane as it does in 3D. Default off.
+   */
+  in2D?: boolean;
+  /**
    * Where the origins come from (§7.4; added 2026-08-27 — see `docs/DECISIONS.md`).
    *
    * `'surface'` — the default, and what an absent field means — reads them off the de-indexed

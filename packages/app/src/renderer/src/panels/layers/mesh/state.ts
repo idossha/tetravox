@@ -626,6 +626,7 @@ export function defaultGlyphs(dataset: MeshDataset): GlyphSpec | null {
     color: [1, 1, 1, 1],
     clipToCutPlane: false,
     onCutPlaneOnly: false,
+    in2D: false,
     cutSlabMm: 1,
     headProportion: 0.3,
   };

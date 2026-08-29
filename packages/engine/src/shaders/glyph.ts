@@ -68,6 +68,7 @@ uniform float uRefMag;                    // the magnitude that maps to uLengthM
 uniform float uLogFloor;                  // GlyphScaling.logFloor, in field units
 uniform vec4 uSlab;                       // onCutPlaneOnly: (normal.xyz, offset) in WORLD mm
 uniform float uSlabHalf;                  // half-thickness in mm; <= 0 disables the restriction
+uniform vec3 uProjectN;                   // GlyphSpec.in2D: the slice normal in MODEL space, unit; zero = off
 
 out vec3 vNormal;
 out vec3 vWorld;
@@ -106,6 +107,9 @@ void main() {
   int fi = max(int(elm) - 1, 0);
 #endif
   vec3 e = vec3(table1(uFx, uFieldW, fi), table1(uFy, uFieldW, fi), table1(uFz, uFieldW, fi));
+  // In a 2D pane the vector is its in-plane component: what the slice can show. Length and colour
+  // follow, so an arrow normal to the slice is no arrow (GlyphSpec.in2D).
+  if (dot(uProjectN, uProjectN) > 0.5) e -= dot(e, uProjectN) * uProjectN;
   float mag = length(e);
   vAlpha = (style.a > 0.0 && mag > 0.0) ? 1.0 : 0.0;
 

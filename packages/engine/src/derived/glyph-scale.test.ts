@@ -196,6 +196,12 @@ describe('glyphLegendLine', () => {
     );
   });
 
+  it('marks a 2D pane’s key IN-PLANE: the drawn vector there is the in-plane component', () => {
+    expect(glyphLegendLine(spec({ scale: scaling({ mode: 'linear' }) }), info, true)).toBe(
+      'IN-PLANE E: LENGTH PROP TO MAG E, 6 MM AT 3.85 V/M'
+    );
+  });
+
   it('is spelled in glyphs the overlay font actually has (`render/font.ts`)', () => {
     // No lowercase, and no `|`, `~` or `=`: a missing glyph decodes as a space, so a legend written
     // with them would lose exactly the words that carry the meaning.
