@@ -12,6 +12,7 @@
 import type { ColormapName, MeshDataset, MeshLayer } from '@tetravox/engine';
 import { useController, useUi } from '../../../ui/context';
 import { NumberField, Pending, Row, Section, Select, Slider, Swatch, Toggle } from './controls';
+import { clearPaintOverrides, paintOverrideCount } from '../../regions/regions';
 import {
   componentsOf,
   fieldKey,
@@ -77,6 +78,8 @@ export function FieldSection({
   const hi = scale.kind === 'linear' ? scale.hi : scale.max;
   const span = hi - lo === 0 ? 1 : hi - lo;
 
+  const overrides = paintOverrideCount(layer, dataset);
+
   const colorModes: { value: MeshLayer['colorMode']; label: string }[] = [
     { value: 'tag', label: 'tissue tag' },
     { value: 'field', label: 'field' },
@@ -109,6 +112,26 @@ export function FieldSection({
           <Pending testId={`mesh-pending-label-${layer.id}`} label="label" />
         ) : null}
       </Row>
+      {overrides > 0 ? (
+        <div
+          data-testid={`mesh-paint-overrides-${layer.id}`}
+          className="-mt-0.5 mb-1 flex items-center gap-1 pl-[calc(5rem+0.375rem)] text-[10px] text-tvx-dim"
+        >
+          <span>
+            {overrides} {overrides === 1 ? 'tissue paints' : 'tissues paint'} differently — the ramp
+            / swatch chips in the tissue list.
+          </span>
+          <button
+            type="button"
+            data-testid={`mesh-paint-reset-${layer.id}`}
+            className="tvx-btn tvx-btn-sm ml-auto shrink-0"
+            title="Every tissue follows “Colour by” again"
+            onClick={() => patch(clearPaintOverrides(layer))}
+          >
+            Reset
+          </button>
+        </div>
+      ) : null}
 
       {/* The solid colour lived on the bottom of the old `TissueTable`; it belongs beside the
           colour-source selector it feeds, not under a list of tissues it has nothing to do with. */}

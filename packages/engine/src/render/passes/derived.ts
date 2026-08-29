@@ -43,6 +43,7 @@ import {
 import { buildArrow, HEAD_LEN } from '../../derived/arrow';
 import { glyphPlan } from '../../derived/glyph-plan';
 import { visibleTetTags } from '../../derived/tag-lut';
+import { usesField } from './mesh';
 import type { DerivedStore } from '../../derived/store';
 import type { Table } from '../../derived/tables';
 import type { IsoDrawItem, PointsDrawItem } from '../../layers/runtime';
@@ -178,7 +179,7 @@ export class DerivedPass implements FramePass {
       if (!layer.fillIn2D && !layer.contoursIn2D) continue;
       const ds = scene.datasets.get(layer.datasetId);
       if (ds === undefined || ds.kind !== 'mesh') continue;
-      const wantField = layer.colorMode === 'field' && layer.field !== undefined;
+      const wantField = usesField(layer);
       const geom = store.paneCut(layer, ds, view.id, plane, {
         fields: wantField && layer.field !== undefined ? [layer.field] : undefined,
         maskId: null,
@@ -256,7 +257,7 @@ export class DerivedPass implements FramePass {
 
     let mode: number = FILL_MODE.tag;
     let fieldTable = null;
-    if (layer.colorMode === 'field' && layer.field !== undefined) {
+    if (usesField(layer) && layer.field !== undefined) {
       if (layer.field.source === 'elm') {
         fieldTable = store.fieldTable(
           ds,

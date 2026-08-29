@@ -28,10 +28,13 @@ import { useController, useUi } from '../../ui/context';
 import {
   EMPTY_SELECTION,
   bulkVisible,
+  canPaintPerTag,
   colorPatch,
   filterRows,
   fromHex,
+  layerPaint,
   opacityPatch,
+  paintPatch,
   partVisibilityPatch,
   probedRegionId,
   regionSourceFor,
@@ -138,6 +141,10 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
 
   const selected = new Set(selection.ids);
   const visibleCount = source.rows.filter((r) => r.visible).length;
+  // The per-tissue paint chip needs a field to paint with; on a layer with none (or a `.annot`
+  // label on top) there is nothing to choose between, and the row stays as it was.
+  const paintable = source.kind === 'meshTag' && layer.kind === 'mesh' && canPaintPerTag(layer);
+  const inheritedPaint = layer.kind === 'mesh' ? layerPaint(layer) : 'color';
 
   return (
     <section data-testid={`region-panel-${layerId}`} data-kind={source.kind} className="mt-2">
@@ -275,6 +282,69 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
                 }}
               >
                 ↺
+              </button>
+            ) : null}
+
+            {/* Per-tissue paint (`tagStyle[t].colorMode`). One tissue can show the field while its
+                neighbour keeps a fixed colour — the thalamus on TI_max inside a plain grey cortex.
+                The chip is a glyph of what the tissue is painted with: a colormap ramp for the field,
+                a bar of its own colour otherwise. Dim when that is simply the layer's "Colour by",
+                accented when it is this row's override. A click flips it; a flip back to the layer's
+                mode drops the override rather than pinning it. Icon-only on purpose: the row is
+                already eye · swatch · name · Vol · Surf · count · opacity, and a word here is what
+                truncated the tissue names. */}
+            {paintable && row.paint !== undefined ? (
+              <button
+                type="button"
+                data-testid={`region-paint-${layerId}-${row.id}`}
+                data-paint={row.paint}
+                data-overridden={row.paintOverridden === true}
+                aria-pressed={row.paintOverridden === true}
+                aria-label={
+                  row.paint === 'field'
+                    ? `Paint ${row.name} with its colour instead of the field`
+                    : `Paint ${row.name} with the field instead of its colour`
+                }
+                title={
+                  (row.paint === 'field' ? 'Painted by the field' : 'Painted with its own colour') +
+                  (row.paintOverridden === true
+                    ? ' — this tissue only. Click to follow the layer again'
+                    : ' — the layer’s setting. Click to change this tissue only')
+                }
+                className={
+                  'tvx-btn tvx-btn-sm flex h-5 w-6 shrink-0 items-center justify-center px-0 ' +
+                  (row.paintOverridden === true
+                    ? 'ring-1 ring-tvx-accent'
+                    : 'opacity-70 hover:opacity-100')
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const next = row.paint === 'field' ? 'color' : 'field';
+                  const p = paintPatch(
+                    source,
+                    layer,
+                    row.id,
+                    next === inheritedPaint ? null : next
+                  );
+                  if (p !== null) controller.patchLayer(layerId, p);
+                }}
+              >
+                {row.paint === 'field' ? (
+                  <span
+                    aria-hidden
+                    className="block h-[7px] w-[14px] rounded-[2px]"
+                    style={{
+                      background:
+                        'linear-gradient(90deg, #2b3cc4 0%, #22c1e8 30%, #f4e04d 65%, #d4262a 100%)',
+                    }}
+                  />
+                ) : (
+                  <span
+                    aria-hidden
+                    className="block h-[7px] w-[14px] rounded-[2px] border border-tvx-line"
+                    style={row.color === null ? undefined : { backgroundColor: toHex(row.color) }}
+                  />
+                )}
               </button>
             ) : null}
 

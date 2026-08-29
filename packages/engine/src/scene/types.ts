@@ -546,7 +546,18 @@ export interface MeshLayer extends LayerBase {
   colormapNegative?: ColormapName | string;
   scale: Scale;
   threshold: Threshold;
-  tagStyle: Record<number, { visible: boolean; opacity: number; color?: vec4 /* 0..1 */ }>;
+  /**
+   * Per-tag overrides of the layer's look. `colorMode` is the **per-tissue colour source**: absent
+   * follows the layer's `colorMode`; `'field'` paints this tag by the layer's `field` even when the
+   * layer colours by tag or solid; `'color'` paints it with its fixed colour (`color`, else the
+   * dataset's tag colour) even when the layer colours by field. One mesh can therefore show the
+   * field inside the grey matter and a fixed skull colour around it, in 3D, in the 2D cut and on a
+   * clip cap alike.
+   */
+  tagStyle: Record<
+    number,
+    { visible: boolean; opacity: number; color?: vec4 /* 0..1 */; colorMode?: 'field' | 'color' }
+  >;
   edges: { surface: boolean; caps: boolean };
   /** 0..1 */
   edgeColor: vec4;

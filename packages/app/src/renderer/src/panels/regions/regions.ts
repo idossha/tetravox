@@ -66,6 +66,26 @@ export interface RegionRow {
    * keeps its override in `VolumeLayer.labelColors`; a mesh tag in `tagStyle[t].color`.
    */
   overridden?: boolean;
+  /**
+   * Mesh tags only: what this tissue is painted with — the layer's `field`, or its fixed colour.
+   * `tagStyle[t].colorMode` when the user set one, else what the layer's `colorMode` implies.
+   */
+  paint?: TagPaint;
+  /** Mesh tags only: `paint` is a per-tissue override rather than the layer's own mode. */
+  paintOverridden?: boolean;
+}
+
+/** How one tissue is painted. `'color'` is its own colour (`tagStyle[t].color`, else the file's). */
+export type TagPaint = 'field' | 'color';
+
+/** The paint the layer's own `colorMode` gives every tissue that has no override. */
+export function layerPaint(layer: MeshLayer): TagPaint {
+  return layer.colorMode === 'field' && layer.field !== undefined ? 'field' : 'color';
+}
+
+/** Whether the per-tissue paint choice means anything on this layer: it needs a field to paint. */
+export function canPaintPerTag(layer: MeshLayer): boolean {
+  return layer.field !== undefined && layer.colorMode !== 'label';
 }
 
 /** One half of a tissue row: the tag itself, its element count, and its own eye state. */
@@ -194,6 +214,7 @@ function meshTagRows(layer: MeshLayer, ds: MeshDataset): RegionRow[] {
     const anchor = vol ?? (surf as MeshTag);
     const volStyle = vol === undefined ? undefined : layer.tagStyle[vol.id];
     const surfStyle = surf === undefined ? undefined : layer.tagStyle[surf.id];
+    const paintOverride = volStyle?.colorMode ?? surfStyle?.colorMode;
     const parts: TissueParts = {};
     if (vol !== undefined) parts.vol = part(vol);
     if (surf !== undefined) parts.surf = part(surf);
@@ -211,6 +232,8 @@ function meshTagRows(layer: MeshLayer, ds: MeshDataset): RegionRow[] {
       tags: [vol?.id, surf?.id].filter((t): t is number => t !== undefined),
       parts,
       overridden: volStyle?.color !== undefined || surfStyle?.color !== undefined,
+      paint: paintOverride ?? layerPaint(layer),
+      paintOverridden: paintOverride !== undefined,
     });
   }
   // Tissue order, not file order: §6.2 delivers the tri block before the tet block, so the raw
@@ -481,16 +504,55 @@ export function opacityPatch(
   return null;
 }
 
+/**
+ * Per-tissue paint: `'field'` shows the layer's field on this tissue alone, `'color'` keeps its
+ * fixed colour while the rest of the mesh shows the field, `null` follows the layer again.
+ *
+ * A choice equal to what the layer already does is stored as **no override**: the chip then reads
+ * as inherited, and switching the layer's "Colour by" later moves that tissue with it, which is
+ * what a user who never touched the row expects.
+ */
+export function paintPatch(
+  source: RegionSource,
+  layer: Layer,
+  id: number,
+  paint: TagPaint | null
+): Partial<Layer> | null {
+  if (source.kind !== 'meshTag' || layer.kind !== 'mesh') return null;
+  const inherited = layerPaint(layer);
+  return {
+    tagStyle: editTags(source, layer, id, (s) => {
+      const next = { ...s };
+      if (paint === null || paint === inherited) delete next.colorMode;
+      else next.colorMode = paint;
+      return next;
+    }),
+  };
+}
+
+/** Drop every per-tissue paint override on the layer — the "Colour by" row's reset. */
+export function clearPaintOverrides(layer: MeshLayer): Partial<MeshLayer> {
+  const next: MeshLayer['tagStyle'] = {};
+  for (const [k, s] of Object.entries(layer.tagStyle)) {
+    const { colorMode: _dropped, ...rest } = s;
+    next[Number(k)] = rest;
+  }
+  return { tagStyle: next };
+}
+
+/** How many tissues on the layer carry a paint override (both halves of a tissue count once). */
+export function paintOverrideCount(layer: MeshLayer, ds: MeshDataset): number {
+  return meshTagRows(layer, ds).filter((r) => r.paintOverridden === true).length;
+}
+
+type TagStyleEntry = MeshLayer['tagStyle'][number];
+
 /** Apply an edit to **every tag of one row** — a tissue's tets and tris are styled together. */
 function editTags(
   source: RegionSource,
   layer: MeshLayer,
   rowId: number,
-  edit: (style: { visible: boolean; opacity: number; color?: vec4 }) => {
-    visible: boolean;
-    opacity: number;
-    color?: vec4;
-  }
+  edit: (style: TagStyleEntry) => TagStyleEntry
 ): MeshLayer['tagStyle'] {
   const tags = source.rows.find((r) => r.id === rowId)?.tags ?? [rowId];
   const next: MeshLayer['tagStyle'] = { ...layer.tagStyle };

@@ -19,14 +19,19 @@
  * colour" asserts.
  */
 
-import { tagColor } from '../render/passes/mesh';
+import { tagColor, tagPaint } from '../render/passes/mesh';
 import type { MeshDataset, MeshLayer } from '../scene/types';
 
 /** Tags above this are dropped rather than sized into a multi-megabyte table. */
 export const MAX_TAG = 65535;
 
 export interface TagLut {
-  /** RGBA8, `4 · count` bytes, indexed by tag. */
+  /**
+   * RGBA8, two blocks of `count` texels. Block 0 (`tag`) is the colour with visibility/opacity in
+   * alpha; block 1 (`count + tag`) is the per-tag **paint flag**: red 255 where the tag draws its
+   * flat colour instead of the field (`tagStyle[tag].colorMode`), so a field-coloured cut can paint
+   * one tissue solid in the same draw.
+   */
   rgba: Uint8Array;
   /** `maxTag + 1`. */
   count: number;
@@ -54,7 +59,7 @@ export function buildTagLut(layer: MeshLayer, ds: MeshDataset): TagLut {
     if (Number.isFinite(id) && id > maxTag && id <= MAX_TAG) maxTag = id;
   }
   const count = maxTag + 1;
-  const rgba = new Uint8Array(count * 4);
+  const rgba = new Uint8Array(count * 2 * 4);
   const parts: string[] = [];
   for (const t of ds.tags) {
     if (t.id < 0 || t.id > maxTag) continue;
@@ -67,7 +72,9 @@ export function buildTagLut(layer: MeshLayer, ds: MeshDataset): TagLut {
     rgba[o + 1] = byte(c[1]);
     rgba[o + 2] = byte(c[2]);
     rgba[o + 3] = alpha;
-    parts.push(`${t.id}:${rgba[o]},${rgba[o + 1]},${rgba[o + 2]},${alpha}`);
+    const flat = tagPaint(layer, t.id) !== 'field';
+    rgba[(count + t.id) * 4] = flat ? 255 : 0;
+    parts.push(`${t.id}:${rgba[o]},${rgba[o + 1]},${rgba[o + 2]},${alpha},${flat ? 'c' : 'f'}`);
   }
   return { rgba, count, key: `${layer.colorMode}|${parts.join(';')}` };
 }

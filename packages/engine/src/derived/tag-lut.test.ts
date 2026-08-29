@@ -122,6 +122,44 @@ describe('buildTagLut', () => {
     expect(at(rgba, 3)).toEqual([10, 20, 30, 255]);
   });
 
+  it('carries the per-tag paint flag in a second block: 255 = flat colour, 0 = the field', () => {
+    const field = { source: 'elm' as const, name: 'TI_max', component: 'mag' as const };
+    const flag = (lut: Uint8Array, count: number, tag: number): number =>
+      lut[(count + tag) * 4] as number;
+    // A tag-coloured layer paints every tissue flat; one override puts the thalamus on the field.
+    const a = buildTagLut(
+      layer({
+        field,
+        tagStyle: { ...layer().tagStyle, 2: { visible: true, opacity: 1, colorMode: 'field' } },
+      }),
+      dataset()
+    );
+    expect(a.rgba.length).toBe(a.count * 2 * 4);
+    expect(flag(a.rgba, a.count, 1)).toBe(255);
+    expect(flag(a.rgba, a.count, 2)).toBe(0);
+    // A field-coloured layer with one tissue held at its colour is the mirror image.
+    const b = buildTagLut(
+      layer({
+        field,
+        colorMode: 'field',
+        tagStyle: { ...layer().tagStyle, 5: { visible: true, opacity: 1, colorMode: 'color' } },
+      }),
+      dataset()
+    );
+    expect(flag(b.rgba, b.count, 1)).toBe(0);
+    expect(flag(b.rgba, b.count, 5)).toBe(255);
+    // The flag is part of the key: flipping it must re-upload the texture.
+    expect(a.key).not.toBe(buildTagLut(layer({ field }), dataset()).key);
+    // A per-tag 'field' with no field on the layer has nothing to paint with and stays flat.
+    const c = buildTagLut(
+      layer({
+        tagStyle: { ...layer().tagStyle, 2: { visible: true, opacity: 1, colorMode: 'field' } },
+      }),
+      dataset()
+    );
+    expect(flag(c.rgba, c.count, 2)).toBe(255);
+  });
+
   it('keys on the bytes, so an unrelated layer edit does not re-upload the texture', () => {
     const a = buildTagLut(layer(), dataset());
     const b = buildTagLut(layer({ opacity: 0.3 }), dataset());

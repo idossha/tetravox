@@ -412,12 +412,13 @@ export class DerivedStore {
     if (existing !== undefined && existing.key === built.key) {
       return { table: existing.table, count: existing.count };
     }
+    // Two blocks of `count` texels: colour + alpha, then the per-tag paint flag (`tag-lut.ts`).
     const table = updateTable(
       this.#gl,
       existing?.table ?? null,
       'rgba8',
       built.rgba,
-      Math.max(1, built.count)
+      Math.max(1, built.count) * 2
     );
     const entry: TagLutEntry = { table, key: built.key, count: Math.max(1, built.count) };
     this.#tagLuts.set(layer.id, entry);

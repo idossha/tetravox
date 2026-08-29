@@ -26,10 +26,14 @@ import type {
 import {
   EMPTY_SELECTION,
   bulkVisible,
+  canPaintPerTag,
+  clearPaintOverrides,
   colorPatch,
   filterRows,
   fromHex,
   opacityPatch,
+  paintOverrideCount,
+  paintPatch,
   partVisibilityPatch,
   probedRegionId,
   regionSourceFor,
@@ -39,7 +43,7 @@ import {
   toggledVisible,
   visibilityPatch,
 } from './regions';
-import type { RegionStat } from './regions';
+import type { RegionSource, RegionStat } from './regions';
 
 // ------------------------------------------------------------------------------------------------
 // Fixtures — shaped after ernie: sparse ids, tag 4 absent, tri and tet tags in one id space.
@@ -557,5 +561,93 @@ describe('a layer with no dataset of its own kind', () => {
   it('reports no regions rather than crossing a volume layer with a mesh dataset', () => {
     expect(regionSourceFor(volumeLayer() as Layer, meshDataset())).toBeNull();
     expect(regionSourceFor(meshLayer() as Layer, labelVolume())).toBeNull();
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Per-tissue paint — `tagStyle[t].colorMode`
+// ------------------------------------------------------------------------------------------------
+
+describe('paintPatch — one tissue on the field, another at its colour', () => {
+  const FIELD = { source: 'elm' as const, name: 'TI_max', component: 'mag' as const };
+  const src = (layer: MeshLayer) => regionSourceFor(layer, meshDataset()) as RegionSource;
+
+  it('needs a field to paint with, and no annot on top', () => {
+    expect(canPaintPerTag(meshLayer({ colorMode: 'tag' }))).toBe(false);
+    expect(canPaintPerTag(meshLayer({ colorMode: 'tag', field: FIELD }))).toBe(true);
+    expect(canPaintPerTag(meshLayer({ colorMode: 'field', field: FIELD }))).toBe(true);
+    expect(canPaintPerTag(annotLayer())).toBe(false);
+  });
+
+  it('reads the layer’s own mode as the inherited paint on every row', () => {
+    const rows = src(meshLayer({ colorMode: 'field', field: FIELD })).rows;
+    expect(rows.every((r) => r.paint === 'field' && r.paintOverridden === false)).toBe(true);
+    const flat = src(meshLayer({ colorMode: 'tag', field: FIELD })).rows;
+    expect(flat.every((r) => r.paint === 'color' && r.paintOverridden === false)).toBe(true);
+  });
+
+  it('writes the override to both halves of a tissue, and the row reports it', () => {
+    const layer = meshLayer({ colorMode: 'field', field: FIELD });
+    const patch = paintPatch(src(layer), layer, 2, 'color') as Partial<MeshLayer>;
+    expect(patch.tagStyle?.[2]?.colorMode).toBe('color');
+    expect(patch.tagStyle?.[1002]?.colorMode).toBe('color');
+    expect(patch.tagStyle?.[1]?.colorMode).toBeUndefined();
+    const after = meshLayer({ ...layer, ...patch });
+    const row = src(after).rows.find((r) => r.id === 2);
+    expect(row?.paint).toBe('color');
+    expect(row?.paintOverridden).toBe(true);
+    expect(paintOverrideCount(after, meshDataset())).toBe(1);
+  });
+
+  it('stores a choice equal to the layer’s mode as no override at all', () => {
+    const layer = meshLayer({
+      colorMode: 'field',
+      field: FIELD,
+      tagStyle: { ...meshLayer().tagStyle, 2: { visible: true, opacity: 1, colorMode: 'color' } },
+    });
+    const back = paintPatch(src(layer), layer, 2, 'field') as Partial<MeshLayer>;
+    expect(back.tagStyle?.[2]).toEqual({ visible: true, opacity: 1 });
+    const cleared = paintPatch(src(layer), layer, 2, null) as Partial<MeshLayer>;
+    expect(cleared.tagStyle?.[2]?.colorMode).toBeUndefined();
+  });
+
+  it('keeps the other per-tag state — visibility, opacity, colour — through a paint edit', () => {
+    const layer = meshLayer({
+      colorMode: 'tag',
+      field: FIELD,
+      tagStyle: {
+        ...meshLayer().tagStyle,
+        5: { visible: false, opacity: 0.4, color: [1, 0, 0, 1] },
+      },
+    });
+    const patch = paintPatch(src(layer), layer, 5, 'field') as Partial<MeshLayer>;
+    expect(patch.tagStyle?.[5]).toEqual({
+      visible: false,
+      opacity: 0.4,
+      color: [1, 0, 0, 1],
+      colorMode: 'field',
+    });
+  });
+
+  it('clearPaintOverrides drops every colorMode and nothing else', () => {
+    const layer = meshLayer({
+      colorMode: 'field',
+      field: FIELD,
+      tagStyle: {
+        1: { visible: true, opacity: 1, colorMode: 'color' },
+        2: { visible: false, opacity: 0.5, colorMode: 'color', color: [0, 1, 0, 1] },
+        5: { visible: true, opacity: 1 },
+      },
+    });
+    const { tagStyle } = clearPaintOverrides(layer) as { tagStyle: MeshLayer['tagStyle'] };
+    expect(tagStyle[1]).toEqual({ visible: true, opacity: 1 });
+    expect(tagStyle[2]).toEqual({ visible: false, opacity: 0.5, color: [0, 1, 0, 1] });
+    expect(tagStyle[5]).toEqual({ visible: true, opacity: 1 });
+  });
+
+  it('is a no-op on a label volume or an annot', () => {
+    const vol = volumeLayer();
+    const vsrc = regionSourceFor(vol, labelVolume()) as RegionSource;
+    expect(paintPatch(vsrc, vol, 1, 'field')).toBeNull();
   });
 });

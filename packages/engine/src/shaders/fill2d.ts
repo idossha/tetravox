@@ -61,7 +61,10 @@ uniform int uFieldW;
 uniform vec2 uLutRange;                   // the baked LUT's (lo, hi) in physical units
 #endif
 
-flat out vec4 vFlatColor;                 // FILL_MODE 0: the tag colour; 1/2: rgb unused, a = alpha
+flat out vec4 vFlatColor;                 // FILL_MODE 0: the tag colour; 1/2: the tag's flat colour, a = alpha
+#if FILL_MODE != 0
+flat out float vFlat;                     // 1 = this tag paints its flat colour, not the field
+#endif
 #if FILL_MODE == 1
 flat out float vT;                        // normalised position along the colormap
 #elif FILL_MODE == 2
@@ -80,10 +83,11 @@ void main() {
   int ti = int(min(tag, uint(uTagLutN - 1)));
   vec4 style = fetchRgba8(uTagLut, uTagLutW, ti);
 
-#if FILL_MODE == 0
   vFlatColor = vec4(style.rgb, style.a * uOpacity);
-#else
-  vFlatColor = vec4(0.0, 0.0, 0.0, style.a * uOpacity);
+#if FILL_MODE != 0
+  // Block 1 of the LUT is the per-tag paint flag (derived/tag-lut.ts): a tissue whose
+  // tagStyle[tag].colorMode is 'color' keeps its flat colour inside a field-coloured cut.
+  vFlat = fetchRgba8(uTagLut, uTagLutW, uTagLutN + ti).r;
 #endif
 
 #if FILL_MODE == 1
@@ -102,6 +106,9 @@ void main() {
 export const FILL2D_FS = `${VERSION}
 ${PRECISION_FLOAT}
 flat in vec4 vFlatColor;
+#if FILL_MODE != 0
+flat in float vFlat;
+#endif
 #if FILL_MODE == 1
 flat in float vT;
 uniform sampler2D uLut;
@@ -118,10 +125,12 @@ void main() {
 #if FILL_MODE == 0
   fragColor = vFlatColor;
 #elif FILL_MODE == 1
+  if (vFlat > 0.5) { fragColor = vFlatColor; return; }
   vec4 c = texture(uLut, vec2(vT, 0.5));
   if (c.a <= 0.0) discard;
   fragColor = vec4(c.rgb, c.a * vFlatColor.a);
 #else
+  if (vFlat > 0.5) { fragColor = vFlatColor; return; }
   float t = clamp((vValue - uLutRange.x) / max(1e-20, uLutRange.y - uLutRange.x), 0.0, 1.0);
   vec4 c = texture(uLut, vec2(t, 0.5));
   if (c.a <= 0.0) discard;

@@ -24,6 +24,7 @@
  * | `TVX_CLIP_PLANES` | N ∈ 0..6 active clip planes (§7.4). N = 0 emits no `#extension` and no redeclaration |
  * | `TVX_CLIP_DISCARD` | 1 = the `vec4`-uniform + `discard` fallback instead of `gl_ClipDistance` |
  * | `TVX_CAP` | this draw is a `plane_cut` cap: attributes and normal come from the cut, not the surface |
+ * | `TVX_CAP_MIX` | a field-coloured cap whose layer mixes paints (`tagStyle[tag].colorMode`): reads the tet-tag palette, paints 'color' tags flat, hides alpha-0 ones |
  *
  * ## Clipping — two paths, one geometry, pixel-identical (§7.4, §11)
  *
@@ -135,6 +136,9 @@ export const MESH_THRESHOLD = {
 } as const;
 
 export const MESH_VS = `${VERSION}
+#ifndef TVX_CAP_MIX
+#define TVX_CAP_MIX 0
+#endif
 #ifndef TVX_COLOR_SOURCE
 #define TVX_COLOR_SOURCE 0
 #endif
@@ -172,7 +176,7 @@ layout(location = 4) in uint aNodeIndex;
 layout(location = 5) in uvec2 aInterpNodes;
 layout(location = 6) in float aInterpT;
 #endif
-#if TVX_COLOR_SOURCE == 4
+#if TVX_COLOR_SOURCE == 4 || TVX_CAP_MIX
 layout(location = 7) in int aCapTag;      // dense index into the tag palette
 #endif
 #if TVX_COLOR_SOURCE == 2
@@ -198,8 +202,8 @@ uniform int uOwnerWidth;
 uniform usampler2D uEdgeMaskTex;  // R8UI, §7.4's 3-bit mask, one texel per triangle
 uniform int uEdgeMaskWidth;
 #endif
-#if TVX_COLOR_SOURCE == 3 || TVX_COLOR_SOURCE == 4
-uniform sampler2D uPalette;       // N x 2 RGBA8: row 0 colour+visibility, row 1 selection
+#if TVX_COLOR_SOURCE == 3 || TVX_COLOR_SOURCE == 4 || TVX_CAP_MIX
+uniform sampler2D uPalette;       // N x 2 RGBA8: row 0 colour+visibility, row 1 (r selection, g flat paint)
 uniform int uPaletteSize;
 #endif
 #if TVX_CLIP_PLANES > 0 && TVX_CLIP_DISCARD == 0
@@ -215,6 +219,10 @@ out vec4 vLabelColor;
 #if TVX_EMPHASIS
 out float vLabelSelected;
 #endif
+#endif
+#if TVX_CAP_MIX
+flat out vec4 vCapFlatColor;      // the tet tag's own colour + visibility
+flat out float vCapFlat;          // 1 = this tag paints flat, not by the field (tagStyle.colorMode)
 #endif
 #if TVX_EDGES
 out vec3 vBary;
@@ -278,6 +286,13 @@ void main() {
   vLabelSelected = texelFetch(uPalette, ivec2(k, 1), 0).r;
 #endif
 #endif
+#if TVX_CAP_MIX
+  {
+    int mk = clamp(aCapTag, 0, uPaletteSize - 1);
+    vCapFlatColor = texelFetch(uPalette, ivec2(mk, 0), 0);
+    vCapFlat = texelFetch(uPalette, ivec2(mk, 1), 0).g;
+  }
+#endif
 #if TVX_EDGES
 #if TVX_CAP
   int corner = gl_VertexID % 3;
@@ -319,6 +334,9 @@ export const MESH_FS = `${VERSION}
 #ifndef TVX_EMPHASIS
 #define TVX_EMPHASIS 0
 #endif
+#ifndef TVX_CAP_MIX
+#define TVX_CAP_MIX 0
+#endif
 ${CLIP_DEFINES}
 ${PRECISION_FLOAT}
 ${PRECISION_INT}
@@ -342,6 +360,10 @@ in vec4 vLabelColor;
 #if TVX_EMPHASIS
 in float vLabelSelected;
 #endif
+#endif
+#if TVX_CAP_MIX
+flat in vec4 vCapFlatColor;
+flat in float vCapFlat;
 #endif
 #if TVX_THRESHOLD
 uniform float uThreshLo;
@@ -388,8 +410,18 @@ ${CLIP_DISCARD}
 #else
   vec4 base = vLabelColor;
 #endif
+#if TVX_CAP_MIX
+  // A hidden tet tag has palette alpha 0 and contributes nothing; a 'color'-painted one takes its
+  // flat colour and skips the field threshold, exactly as its surface sub-draw does.
+  if (vCapFlatColor.a <= 0.0) discard;
+  bool capFlat = vCapFlat > 0.5;
+  if (capFlat) base = vec4(vCapFlatColor.rgb, 1.0);
+#endif
   float alpha = base.a * uOpacity;
 #if TVX_THRESHOLD
+#if TVX_CAP_MIX
+  if (!capFlat) {
+#endif
 #if TVX_THRESHOLD == 2
   float tv = abs(vScalar);          // §4.2: a symmetric threshold compares |v|
 #else
@@ -400,6 +432,9 @@ ${CLIP_DISCARD}
   // degenerate smoothstep(e, e, x) never appears.
   alpha *= smoothstep(uThreshLo, uThreshLo + uThreshSoft, tv);
   alpha *= 1.0 - smoothstep(uThreshHi - uThreshSoft, uThreshHi, tv);
+#if TVX_CAP_MIX
+  }
+#endif
 #endif
   vec3 rgb = base.rgb * (uAmbient + (1.0 - uAmbient) * diff) + vec3(spec);
 #if TVX_EDGES

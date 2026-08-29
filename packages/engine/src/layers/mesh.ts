@@ -31,7 +31,7 @@
 import { MESH_COLOR_SOURCE } from '../shaders';
 import { capKey, surfaceKey } from '../render/gpu';
 import type { CapGeometry } from '../render/gpu';
-import { activeClipPlanes } from '../render/passes/mesh';
+import { activeClipPlanes, mixesPaint, tagPaint, usesField } from '../render/passes/mesh';
 import { CUT_KEY_3D_CLIP, MAX_CUT_PLANES } from '../compute/cut-manager';
 import type { CutSnapshot } from '../compute/cut-manager';
 import { IsolateManager } from '../compute/isolate-manager';
@@ -180,8 +180,10 @@ export function fieldKey(
  */
 export function wantedVariant(layer: MeshLayer, emphasisedTags = 0): SurfaceVariant {
   if (layer.colorMode === 'label') return 'indexed';
-  if (layer.colorMode === 'field' && layer.field?.source === 'node') return 'indexed';
-  if (layer.colorMode === 'field' && layer.field?.source === 'elm') return 'deindexed';
+  // A per-tag `tagStyle[tag].colorMode:'field'` needs the field's geometry exactly as the layer-wide
+  // mode does: one tissue on the element field makes the whole surface de-indexed.
+  if (usesField(layer) && layer.field?.source === 'node') return 'indexed';
+  if (usesField(layer) && layer.field?.source === 'elm') return 'deindexed';
   if (layer.edges.surface || emphasisedTags > 0) return 'deindexed';
   return 'indexed';
 }
@@ -236,6 +238,8 @@ export function buildCapPalette(
     out[k * 4 + 2] = Math.round((rgba[2] ?? 0) * 255);
     out[k * 4 + 3] = style === undefined || style.visible ? 255 : 0;
     out[(n + k) * 4] = selected.has(tag) ? 255 : 0;
+    // Row 1 green: this tag paints its flat colour rather than the field (`tagStyle.colorMode`).
+    out[(n + k) * 4 + 1] = tagPaint(layer, tag) === 'field' ? 0 : 255;
   }
   return out;
 }
@@ -254,7 +258,8 @@ export function capPaletteKey(
       const color = style?.color ?? ds.tags.find((t) => t.id === tag && t.kind === 'tet')?.color;
       const rgba = color ?? layer.solidColor;
       const hex = rgba.map((c) => Math.round(c * 255)).join(',');
-      return `${tag}:${hex}:${style === undefined || style.visible ? 1 : 0}:${selected.has(tag) ? 1 : 0}`;
+      const flat = tagPaint(layer, tag) === 'field' ? 'f' : 'c';
+      return `${tag}:${hex}:${style === undefined || style.visible ? 1 : 0}:${selected.has(tag) ? 1 : 0}:${flat}`;
     })
     .join(';');
   return `${layerId}|cappalette|${body}`;
@@ -270,13 +275,17 @@ export function capPaletteKey(
  */
 export function capColorSourceOf(layer: MeshLayer): 0 | 1 | 2 | 4 {
   if (layer.clip.capColorMode === 'tag') return MESH_COLOR_SOURCE.capTag;
+  // Any tag on the field puts the cap on the field variant; the tags that paint flat are then
+  // the shader's `TVX_CAP_MIX` reading the palette's paint flag (`buildCapPalette`).
+  if (usesField(layer)) {
+    return layer.field?.source === 'elm' ? MESH_COLOR_SOURCE.elmField : MESH_COLOR_SOURCE.nodeField;
+  }
   switch (layer.colorMode) {
     case 'solid':
       return MESH_COLOR_SOURCE.uniform;
     case 'field':
-      return layer.field?.source === 'elm'
-        ? MESH_COLOR_SOURCE.elmField
-        : MESH_COLOR_SOURCE.nodeField;
+      // No field on the layer to read: `usesField` was false above.
+      return MESH_COLOR_SOURCE.capTag;
     case 'tag':
     case 'label':
     default:
@@ -328,7 +337,7 @@ export function toIsolateCriteria(
 
 /** The node/element field a layer reads, if any. */
 export function fieldRefOf(layer: MeshLayer, datasetId: DatasetId): MeshFieldRef | null {
-  if (layer.colorMode === 'field' && layer.field !== undefined) {
+  if (usesField(layer) && layer.field !== undefined) {
     const { source, name, component } = layer.field;
     return { source, name, component, key: fieldKey(datasetId, source, name, component) };
   }
@@ -620,8 +629,7 @@ export class MeshLayerRuntime implements LayerRuntime {
    */
   colorbarScale(): MeshScaleInfo | null {
     const layer = this.#layer;
-    if (!layer.showColorbar || layer.colorMode !== 'field' || layer.field === undefined)
-      return null;
+    if (!layer.showColorbar || !usesField(layer) || layer.field === undefined) return null;
     const field = layer.field;
     const info = this.#ds.fields.find((f) => f.name === field.name && f.source === field.source);
     const baked = bakeScale(
@@ -998,12 +1006,13 @@ export class MeshLayerRuntime implements LayerRuntime {
       labelEmphasis = this.#emphasis.labels.size > 0;
     }
 
+    // The layer-wide source; `variantOf` re-resolves it per tag for `tagStyle[tag].colorMode`.
     const colorSource =
       layer.colorMode === 'label'
         ? MESH_COLOR_SOURCE.label
-        : layer.colorMode === 'field' && layer.field?.source === 'node'
+        : usesField(layer) && layer.field?.source === 'node'
           ? MESH_COLOR_SOURCE.nodeField
-          : layer.colorMode === 'field' && layer.field?.source === 'elm'
+          : usesField(layer) && layer.field?.source === 'elm'
             ? MESH_COLOR_SOURCE.elmField
             : MESH_COLOR_SOURCE.uniform;
 
@@ -1011,7 +1020,12 @@ export class MeshLayerRuntime implements LayerRuntime {
     // unclipped layer pays nothing for it.
     const capColorSource = capColorSourceOf(layer);
     let capPalette: MeshTableTex | undefined;
-    if (capColorSource === MESH_COLOR_SOURCE.capTag && activeClipPlanes(layer).length > 0) {
+    const capWantsPalette =
+      capColorSource === MESH_COLOR_SOURCE.capTag ||
+      ((capColorSource === MESH_COLOR_SOURCE.nodeField ||
+        capColorSource === MESH_COLOR_SOURCE.elmField) &&
+        mixesPaint(layer));
+    if (capWantsPalette && activeClipPlanes(layer).length > 0) {
       const key = capPaletteKey(this.id, layer, this.#ds, this.#tagIndex, this.#emphasis.tags);
       if (this.#capPaletteKey !== null && this.#capPaletteKey !== key) {
         gpu.dropMeshTable(this.#capPaletteKey);

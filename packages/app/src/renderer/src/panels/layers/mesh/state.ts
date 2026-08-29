@@ -81,6 +81,8 @@ export interface TagStyleEntry {
   visible: boolean;
   opacity: number;
   color?: vec4;
+  /** Per-tissue paint (`regions.ts`'s `paintPatch`): the field, or the fixed colour. */
+  colorMode?: 'field' | 'color';
 }
 
 const DEFAULT_STYLE: TagStyleEntry = { visible: true, opacity: 1 };

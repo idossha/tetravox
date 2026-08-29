@@ -108,6 +108,11 @@ export interface MeshVariant {
   TVX_CLIP_DISCARD: 0 | 1;
   /** 1 selects the cap attribute set and the uniform cap normal. */
   TVX_CAP: 0 | 1;
+  /**
+   * 1 on a field-coloured cap whose layer mixes paints (`tagStyle[tag].colorMode`): the cap reads
+   * the tet-tag palette too, and paints a 'color' tissue flat instead of by the field.
+   */
+  TVX_CAP_MIX?: 0 | 1;
 }
 
 /**
@@ -237,11 +242,46 @@ export function culls(layer: MeshLayer, ds: MeshDataset): boolean {
  * representation, which §11's "the cap pixel is the tag colour" test pins.
  */
 export function tagColor(layer: MeshLayer, ds: MeshDataset, tag: number): vec4 {
-  if (layer.colorMode === 'solid') return layer.solidColor;
   const style = layer.tagStyle[tag];
+  // A per-tag 'color' override under a solid layer means "this tissue's own colour": the solid
+  // colour is what the layer already paints, so an override to it would be no override at all.
+  if (layer.colorMode === 'solid' && style?.colorMode !== 'color') return layer.solidColor;
   if (style?.color !== undefined) return style.color;
   const t = ds.tags.find((x) => x.id === tag);
   return t?.color ?? layer.solidColor;
+}
+
+/** How one tag is painted: `tagStyle[tag].colorMode` when set, else the layer's `colorMode`. */
+export type TagPaint = 'field' | 'color' | 'label';
+
+/**
+ * The colour source one tag resolves to, before checking whether the field it needs has landed.
+ *
+ * `'field'` needs a `layer.field`; a per-tag `'field'` without one is a fixed colour. A labelled
+ * layer (`colorMode:'label'`) keeps its label everywhere — the label table and the field table
+ * share one slot, so a tag cannot ask for the field under a label without dropping the label.
+ */
+export function tagPaint(layer: MeshLayer, tag: number): TagPaint {
+  if (layer.colorMode === 'label') return 'label';
+  const wanted = layer.tagStyle[tag]?.colorMode;
+  if (wanted === 'field') return layer.field === undefined ? 'color' : 'field';
+  if (wanted === 'color') return 'color';
+  return layer.colorMode === 'field' && layer.field !== undefined ? 'field' : 'color';
+}
+
+/** Whether **any** tag of the layer paints the field — the layer's own mode or a per-tag override. */
+export function usesField(layer: MeshLayer): boolean {
+  if (layer.field === undefined || layer.colorMode === 'label') return false;
+  if (layer.colorMode === 'field') return true;
+  return Object.values(layer.tagStyle).some((s) => s.colorMode === 'field');
+}
+
+/** Whether the layer paints **both** ways at once, which is what the cut and cap mix path serves. */
+export function mixesPaint(layer: MeshLayer): boolean {
+  if (!usesField(layer)) return false;
+  return Object.values(layer.tagStyle).some(
+    (s) => (s.colorMode ?? (layer.colorMode === 'field' ? 'field' : 'color')) === 'color'
+  );
 }
 
 /**
@@ -270,10 +310,11 @@ export function thresholdVariant(layer: MeshLayer, colorSource: number): 0 | 1 |
  */
 export function effectiveColorSource(
   style: MeshDrawStyle | undefined,
-  geom: SurfaceGeometry
+  geom: SurfaceGeometry,
+  wanted: 0 | 1 | 2 | 3 | undefined = style?.colorSource
 ): 0 | 1 | 2 | 3 {
-  if (style === undefined) return MESH_COLOR_SOURCE.uniform;
-  switch (style.colorSource) {
+  if (style === undefined || wanted === undefined) return MESH_COLOR_SOURCE.uniform;
+  switch (wanted) {
     case MESH_COLOR_SOURCE.nodeField:
       return style.fieldTable !== undefined && geom.hasNodeIndex
         ? MESH_COLOR_SOURCE.nodeField
@@ -314,7 +355,18 @@ export function variantOf(
   input: { clipDistance?: boolean; forceDiscardClip?: boolean } = {}
 ): MeshVariant {
   const { layer, geom, style } = d.item;
-  const colorSource = effectiveColorSource(style, geom);
+  // Per-tag paint (`tagStyle[tag].colorMode`): a sub-draw is one tag, so the override is simply a
+  // different variant for that range — the field's own variant, or the uniform one.
+  const paint = tagPaint(layer, d.tag);
+  const wanted: 0 | 1 | 2 | 3 =
+    paint === 'label'
+      ? MESH_COLOR_SOURCE.label
+      : paint === 'color'
+        ? MESH_COLOR_SOURCE.uniform
+        : layer.field?.source === 'elm'
+          ? MESH_COLOR_SOURCE.elmField
+          : MESH_COLOR_SOURCE.nodeField;
+  const colorSource = effectiveColorSource(style, geom, wanted);
   // Edges need the de-indexed variant's `corner` attribute — §7.4's masked barycentric mechanism is
   // the only one, for surfaces and caps alike, so an indexed draw simply has no edges yet.
   // `MeshLayer.edges.surface` is the ONLY input: §7.2's quality ladder has no `edges` knob, because
@@ -375,6 +427,12 @@ export function capVariantOf(
     TVX_EMPHASIS: 0,
     ...clipVariant(layer, input),
     TVX_CAP: 1,
+    TVX_CAP_MIX:
+      (colorSource === MESH_COLOR_SOURCE.nodeField || colorSource === MESH_COLOR_SOURCE.elmField) &&
+      c.item.style?.capPalette !== undefined &&
+      mixesPaint(layer)
+        ? 1
+        : 0,
   };
 }
 
@@ -708,7 +766,8 @@ export class MeshPass implements FramePass {
         prog.float('uThreshHi', hi);
         prog.float('uThreshSoft', Math.max(t.softEdge * span, span * 1e-6, 1e-30));
       }
-    } else if (source === MESH_COLOR_SOURCE.capTag) {
+    }
+    if (source === MESH_COLOR_SOURCE.capTag || variant.TVX_CAP_MIX === 1) {
       const palette = style?.capPalette;
       if (palette !== undefined) {
         gl.activeTexture(gl.TEXTURE0 + UNIT.palette);
