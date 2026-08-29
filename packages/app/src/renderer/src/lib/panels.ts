@@ -27,6 +27,12 @@ const STORAGE_KEY = 'tetravox.panels.v1';
 export interface PanelPrefs {
   leftPanelCollapsed: boolean;
   rightPanelCollapsed: boolean;
+  /**
+   * The info panel's live `Mouse` block, which starts **collapsed**: it rewrites itself on every
+   * pointer move, and a reader who wants the cursor's numbers is better served by a block that does
+   * not churn under them. One click on its header opens it, and that choice is remembered here.
+   */
+  mouseBlockCollapsed: boolean;
 }
 
 /**
@@ -66,6 +72,7 @@ function storage(): KeyValueStore {
 export const DEFAULT_PANEL_PREFS: PanelPrefs = {
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
+  mouseBlockCollapsed: true,
 };
 
 export function loadPanelPrefs(): PanelPrefs {
@@ -79,6 +86,8 @@ export function loadPanelPrefs(): PanelPrefs {
     return {
       leftPanelCollapsed: p.leftPanelCollapsed === true,
       rightPanelCollapsed: p.rightPanelCollapsed === true,
+      // Absent (a pref written before the block was collapsible) means the default, not `false`.
+      mouseBlockCollapsed: p.mouseBlockCollapsed !== false,
     };
   } catch {
     return DEFAULT_PANEL_PREFS;

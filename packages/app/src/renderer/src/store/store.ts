@@ -281,6 +281,8 @@ export interface UiState {
    */
   leftPanelCollapsed: boolean;
   rightPanelCollapsed: boolean;
+  /** The info panel's `Mouse` block, collapsed by default (`lib/panels.ts`). Same persistence. */
+  mouseBlockCollapsed: boolean;
 }
 
 /** Where this scene lives on disk, and when it was last written there. */
@@ -393,6 +395,7 @@ export const INITIAL_UI: UiState = {
   theme: 'dark',
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
+  mouseBlockCollapsed: true,
 };
 
 export type UiStore = StoreApi<UiState>;

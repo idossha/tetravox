@@ -218,7 +218,8 @@ test.describe('the §8 shell', () => {
     // A **synthetic engine event**, not a fabricated store write: this is the same `cursor` the
     // engine raises from its own pointer handling, and the panel is downstream of it.
     await page.evaluate(() => window.__tetravox?.engine?.emit?.('cursor', [12, -8, 20]));
-    await expect(page.locator('[data-testid="info-cursor-ras"]')).toHaveText('12.0 -8.0 20.0');
+    // The cursor's triple lives in the coordinate bar; the Cursor block below it carries the rows.
+    await expect(page.locator('[data-testid="coord-input"]')).toHaveValue('12.0 -8.0 20.0');
     // Two layers ⇒ two rows, one per layer, with per-layer voxel/value and element/tag/field.
     await expect(
       page.locator('[data-testid="info-cursor"] [data-testid^="probe-row-"]')
@@ -230,7 +231,9 @@ test.describe('the §8 shell', () => {
       page.locator('[data-testid="info-cursor"] [data-testid="probe-element"]').first()
     ).not.toBeEmpty();
 
-    // The Mouse block is live, and blank when the pointer leaves a view (§8).
+    // The Mouse block is live, and blank when the pointer leaves a view (§8). It starts collapsed
+    // (`lib/panels.ts`), so open it first.
+    await page.click('[data-testid="info-mouse-toggle"]');
     await expect(page.locator('[data-testid="info-mouse-empty"]')).toBeVisible();
     await page.evaluate(() => window.__tetravox?.engine?.emit?.('hover', [1, 2, 3]));
     await expect(page.locator('[data-testid="info-mouse-ras"]')).toHaveText('1.0 2.0 3.0');
@@ -247,7 +250,6 @@ test.describe('the §8 shell', () => {
     expect((await ui(page)).cursor).toEqual([-42, 18, 6]);
     // The field snaps back to the §8 copy format once the cursor has moved.
     await expect(input).toHaveValue('-42.0 18.0 6.0');
-    await expect(page.locator('[data-testid="info-cursor-ras"]')).toHaveText('-42.0 18.0 6.0');
 
     // A non-triple is refused and the cursor does not move.
     await input.fill('nonsense');

@@ -159,7 +159,9 @@ export function Slider({
       <input
         type="range"
         data-testid={testId}
-        className="h-1 flex-1 accent-tvx-accent"
+        // `min-w-0`: a range input has an intrinsic width (~130 px) it will not shrink below on
+        // its own, which pushed the readout and its unit past the card's edge in a narrow panel.
+        className="h-1 min-w-0 flex-1 accent-tvx-accent"
         min={min}
         max={max}
         step={step}

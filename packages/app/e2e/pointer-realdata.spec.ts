@@ -303,6 +303,9 @@ test.describe('R1–R3 through the app shell (real data)', () => {
       };
       return engine.paneRect('coronal');
     });
+    // The block starts collapsed (`lib/panels.ts`); open it *before* hovering the pane, since the
+    // click that opens it is itself a pointer move off the canvas.
+    await page.click('[data-testid="info-mouse-toggle"]');
     await page.mouse.move(
       box.x + (rect!.x + rect!.width * 0.45) / box.dpr,
       box.y + (rect!.y + rect!.height * 0.45) / box.dpr

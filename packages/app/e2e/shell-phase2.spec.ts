@@ -424,6 +424,8 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     // Empty states, not blank boxes.
     await expect(page.locator('[data-testid="header-panel-empty"]')).toBeVisible();
     await expect(page.locator('[data-testid="info-cursor-empty"]')).toBeVisible();
+    // The Mouse block starts collapsed; its empty state is behind the disclosure.
+    await page.click('[data-testid="info-mouse-toggle"]');
     await expect(page.locator('[data-testid="info-mouse-empty"]')).toBeVisible();
     // With no volume left there are no per-volume spaces at all: the selector collapses to the one
     // space that always exists (directed task 8), and the derived readout rows disappear with the

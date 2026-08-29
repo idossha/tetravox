@@ -374,13 +374,11 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
       const fmt = (v: readonly number[]): string =>
         v.map((c) => (c === 0 ? 0 : c).toFixed(1).replace(/^-0\.0$/, '0.0')).join(' ');
       const bar = document.querySelector<HTMLInputElement>('[data-testid="coord-input"]');
-      const ras = document.querySelector('[data-testid="info-cursor-ras"]');
       return {
         sceneCursor: [...engine.scene.cursor],
         storeCursor: [...tv.store.getState().cursor],
         expected: fmt(engine.scene.cursor),
         barText: bar?.value ?? null,
-        rasText: ras?.textContent?.trim() ?? null,
         probeWorld: tv.store.getState().cursorProbe?.world ?? null,
       };
     });
@@ -388,7 +386,6 @@ test.describe('Phase-1 gate item 1 — progress and cancel on the 492 MB mesh', 
     expect(seen.sceneCursor, 'the auto-centre must have moved the cursor').not.toEqual([0, 0, 0]);
     expect(seen.storeCursor, 'the store follows the engine').toEqual(seen.sceneCursor);
     expect(seen.barText, 'the coordinate bar shows the cursor, not the origin').toBe(seen.expected);
-    expect(seen.rasText, 'and so does the Cursor block').toBe(seen.expected);
     expect(seen.probeWorld, 'the probed values belong to that same point').toEqual(
       seen.sceneCursor
     );

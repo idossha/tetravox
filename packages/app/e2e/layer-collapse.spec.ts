@@ -110,8 +110,7 @@ test.describe('the layer disclosure (stand-in engine)', () => {
       'data-collapsed',
       'true'
     );
-    // The header line survives intact — kind icon, name, eye, opacity slider (§8's row).
-    await expect(page.locator(`[data-testid="layer-icon-${id}"]`)).toBeVisible();
+    // The header line survives intact — name, eye, opacity slider (§8's row).
     await expect(page.locator(`[data-testid="layer-name-${id}"]`)).toBeVisible();
     await expect(page.locator(`[data-testid="layer-eye-${id}"]`)).toBeVisible();
     await expect(page.locator(`[data-testid="layer-opacity-${id}"]`)).toBeVisible();

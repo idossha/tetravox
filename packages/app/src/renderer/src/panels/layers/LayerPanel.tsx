@@ -7,32 +7,18 @@
  *
  * The per-kind property editor is Phase 2's (histogram widget, tissue table, region panel), and it
  * lives one directory down per kind — `volume/`, `mesh/`, `iso/`, `points/` — behind the registry in
- * `properties.tsx`. What ships here is the row itself plus the read-only summary a Phase-1 user needs
- * to tell two layers apart.
+ * `properties.tsx`. What ships here is the row itself.
  */
 
 import type { Layer } from '@tetravox/engine';
-import { formatBytes } from '../../lib/metrics';
 import { LoadCards } from './LoadCards';
-import { LayerProperties, layerSummary } from './properties';
+import { LayerProperties } from './properties';
 import { useController, useUi } from '../../ui/context';
-
-/**
- * The §8 "kind icon" of the header line. A row that is collapsed shows nothing but this line, so the
- * kind has to be legible at a glance rather than only in the summary the disclosure hides.
- */
-const KIND_ICON: Record<Layer['kind'], string> = {
-  volume: '▦',
-  mesh: '◈',
-  iso: '◐',
-  points: '⁙',
-};
 
 function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
   const controller = useController();
   const active = useUi((s) => s.activeLayerId === layer.id);
   const dataset = useUi((s) => s.datasets.find((d) => d.id === layer.datasetId));
-  const heap = useUi((s) => s.heapBytes[layer.datasetId]);
   const collapsed = useUi((s) => s.collapsedLayers[layer.id] === true);
 
   return (
@@ -75,6 +61,12 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
         controller.setLayerCollapsed(layer.id, e.key === 'ArrowLeft');
       }}
     >
+      {/*
+        Two lines. The first is identity — disclosure, visibility, **the name at full width**, and
+        the kind spelled out (`VOLUME` / `MESH`; no glyph beside it, the word is enough) — the second is the opacity slider with the order/close controls. The name
+        used to share its line with three more buttons and was cut to "Thalam…" in a 300 px panel,
+        which is the one thing a layer row must never do.
+      */}
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -90,13 +82,6 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
         >
           {collapsed ? '▸' : '▾'}
         </button>
-        <span
-          data-testid={`layer-icon-${layer.id}`}
-          aria-hidden="true"
-          className="shrink-0 text-xs text-tvx-dim"
-        >
-          {KIND_ICON[layer.kind]}
-        </span>
         <button
           type="button"
           data-testid={`layer-eye-${layer.id}`}
@@ -112,13 +97,31 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
         </button>
         <span
           data-testid={`layer-name-${layer.id}`}
-          className="truncate text-xs"
+          className="min-w-0 flex-1 truncate text-xs font-medium"
           title={dataset?.path ?? layer.name}
         >
           {layer.name}
         </span>
         <span className="ml-auto shrink-0 font-mono text-[10px] uppercase text-tvx-dim">
           {layer.kind}
+        </span>
+      </div>
+
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          type="range"
+          data-testid={`layer-opacity-${layer.id}`}
+          aria-label="Layer opacity"
+          min={0}
+          max={1}
+          step={0.01}
+          value={layer.opacity}
+          onPointerDown={(e) => e.stopPropagation()}
+          onChange={(e) => controller.setOpacity(layer.id, Number(e.currentTarget.value))}
+          className="h-1 flex-1 accent-tvx-accent"
+        />
+        <span className="w-8 shrink-0 text-right font-mono text-[10px] text-tvx-dim">
+          {Math.round(layer.opacity * 100)}%
         </span>
         <button
           type="button"
@@ -159,35 +162,13 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
         </button>
       </div>
 
-      <div className="mt-1 flex items-center gap-2">
-        <input
-          type="range"
-          data-testid={`layer-opacity-${layer.id}`}
-          aria-label="Layer opacity"
-          min={0}
-          max={1}
-          step={0.01}
-          value={layer.opacity}
-          onPointerDown={(e) => e.stopPropagation()}
-          onChange={(e) => controller.setOpacity(layer.id, Number(e.currentTarget.value))}
-          className="h-1 flex-1 accent-tvx-accent"
-        />
-        <span className="w-8 shrink-0 text-right font-mono text-[10px] text-tvx-dim">
-          {Math.round(layer.opacity * 100)}%
-        </span>
-      </div>
-
       {/*
-        Everything below the header line is what the disclosure hides: the summary and the per-kind
-        editor — which is where the region panel lives, for both volume and mesh layers, so it
+        Everything below the header line is what the disclosure hides: the per-kind editor (the
+        old dims/nodes/heap summary line is gone — the header panel and status bar carry it) — which is where the region panel lives, for both volume and mesh layers, so it
         collapses with its layer without needing a second switch.
       */}
       {collapsed ? null : (
         <div data-testid={`layer-body-${layer.id}`}>
-          <p className="mt-0.5 truncate font-mono text-[10px] text-tvx-dim">
-            {layerSummary(dataset, layer)}
-            {heap === undefined ? '' : ` · heap ${formatBytes(heap)}`}
-          </p>
           <LayerProperties layer={layer} dataset={dataset} />
         </div>
       )}

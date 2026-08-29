@@ -9,7 +9,12 @@ import { NoGlEngine } from '../engine/mockEngine';
 import { ShellController } from './controller';
 import { createUiStore } from './store';
 import type { UiStore } from './store';
-import { DEFAULT_PANEL_PREFS, loadPanelPrefs, savePanelPrefs } from '../lib/panels';
+import {
+  DEFAULT_PANEL_PREFS,
+  loadPanelPrefs,
+  savePanelPrefs,
+  type PanelPrefs,
+} from '../lib/panels';
 import { resolveKey } from '../keyboard/keymap';
 
 function harness(): { engine: NoGlEngine; store: UiStore; controller: ShellController } {
@@ -131,9 +136,22 @@ describe('lib/panels persistence', () => {
   });
 
   it('round-trips a saved preference', () => {
-    savePanelPrefs({ leftPanelCollapsed: true, rightPanelCollapsed: false });
-    expect(loadPanelPrefs()).toEqual({ leftPanelCollapsed: true, rightPanelCollapsed: false });
-    savePanelPrefs({ leftPanelCollapsed: false, rightPanelCollapsed: true });
-    expect(loadPanelPrefs()).toEqual({ leftPanelCollapsed: false, rightPanelCollapsed: true });
+    const a = { leftPanelCollapsed: true, rightPanelCollapsed: false, mouseBlockCollapsed: false };
+    savePanelPrefs(a);
+    expect(loadPanelPrefs()).toEqual(a);
+    const b = { leftPanelCollapsed: false, rightPanelCollapsed: true, mouseBlockCollapsed: true };
+    savePanelPrefs(b);
+    expect(loadPanelPrefs()).toEqual(b);
+  });
+
+  it('the Mouse block starts collapsed, and a pref written before it existed keeps that default', () => {
+    expect(DEFAULT_PANEL_PREFS.mouseBlockCollapsed).toBe(true);
+    // A v1 record from before the key existed — written through the same store the loader reads.
+    savePanelPrefs({ leftPanelCollapsed: true, rightPanelCollapsed: false } as PanelPrefs);
+    expect(loadPanelPrefs()).toEqual({
+      leftPanelCollapsed: true,
+      rightPanelCollapsed: false,
+      mouseBlockCollapsed: true,
+    });
   });
 });

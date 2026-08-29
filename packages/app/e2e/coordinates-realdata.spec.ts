@@ -128,8 +128,9 @@ test('the affine MNI space is listed disabled, with the reason, because charm wr
 test('tkr-RAS reads the triple nibabel reads, and typed entry comes back to the same world point', async () => {
   await setCursor(WORLD);
   await expect(page.locator('[data-testid="coord-readout"] [data-space="tkr"]')).toHaveText(TKR);
-  // The info panel labels it with the volume it belongs to — a bare tkr triple is not a coordinate.
-  await expect(page.locator('[data-testid="info-cursor-tkr"]')).toContainText('tkr-RAS · T1');
+  // The bar labels it with the volume it belongs to — a bare tkr triple is not a coordinate. (The
+  // Cursor block no longer repeats it: the bar directly above it is the cursor.)
+  await expect(page.locator('[data-testid="coord-readout"] [data-space="tkr"]')).toBeVisible();
 
   await selectSpace('tkr-RAS · T1');
   const input = page.locator('[data-testid="coord-input"]');
@@ -178,9 +179,6 @@ test('selecting MNI (nonlinear) loads the warp and reads what SimNIBS reads', as
   await expect(
     page.locator('[data-testid="coord-readout"] [data-space="mni-nonlinear"]')
   ).toHaveText(MNI_NONL);
-  await expect(page.locator('[data-testid="info-cursor-mni-nonlinear"]')).toContainText(
-    'MNI (nonlinear)'
-  );
 
   // Loading a warp must not put a layer on screen, and must not appear in the menu as a volume.
   const layers = await page.evaluate(() => window.__tetravox?.store.getState().layers.length ?? 0);
