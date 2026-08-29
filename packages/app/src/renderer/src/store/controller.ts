@@ -867,6 +867,30 @@ export class ShellController {
   }
 
   /**
+   * `Shift+Backspace` / `Shift+Delete`: delete the newest measurement — the last click, undone.
+   *
+   * "Newest" is the store's order, which is the engine's (`Scene.measurements` is newest-last and
+   * the event copies it verbatim), so no timestamp is needed. A measurement still being extended
+   * into an angle is already in the list, so this drops it too — the engine forgets its draft when
+   * the id goes.
+   */
+  removeLastMeasurement(): void {
+    const last = this.store.getState().measurements.at(-1);
+    if (last !== undefined) this.engine.removeMeasurement(last.id);
+  }
+
+  /**
+   * §8's panel "Clear all" — and what "New scene" does to measurements.
+   *
+   * One `removeMeasurement` per row rather than a new §4.7 member: the facade is frozen (§12.3),
+   * and `removeMeasurement` already keeps the scene, the draft and `serialize()` (§4.6) honest for
+   * each one, so a loop is the additive form of "clear" with nothing new to get wrong.
+   */
+  clearMeasurements(): void {
+    for (const m of [...this.store.getState().measurements]) this.engine.removeMeasurement(m.id);
+  }
+
+  /**
    * §8's panel row jump-to: put the cursor on the measurement, so every pane slices through it.
    *
    * The midpoint for a segment and the **vertex** for an angle (`measurementFocus`) — the point the
@@ -1225,6 +1249,8 @@ export class ShellController {
         return this.toggleMeasureMode();
       case 'cancelMeasurement':
         return this.cancelMeasurement();
+      case 'removeLastMeasurement':
+        return this.removeLastMeasurement();
       case 'resetAll':
         return this.resetAll();
     }
@@ -1543,7 +1569,7 @@ export class ShellController {
     // "New" is an empty scene, and §4.5's measurements are scene state like everything else here —
     // removing the datasets drops their layers but says nothing about a measurement, which has no
     // dataset to be dropped with (directed task 11).
-    for (const m of [...this.store.getState().measurements]) this.engine.removeMeasurement(m.id);
+    this.clearMeasurements();
     this.setMeasureMode(false);
     this.syncTitle();
     this.engine.requestRender();

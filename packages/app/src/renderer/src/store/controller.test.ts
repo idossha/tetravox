@@ -391,6 +391,47 @@ describe('views, screenshot and the rest of the toolbar (§8)', () => {
   });
 });
 
+describe('deleting measurements (§8 panel, §7.5 Shift+⌫)', () => {
+  const place = (engine: NoGlEngine, x: number): string =>
+    engine.addMeasurement({
+      kind: 'distance',
+      points: [
+        [0, 0, 0],
+        [x, 0, 0],
+      ],
+    }).id;
+
+  it('Shift+⌫ removes the newest measurement only, and is a no-op on an empty list', () => {
+    const { engine, store, controller } = harness();
+    const first = place(engine, 1);
+    const second = place(engine, 2);
+    expect(store.getState().measurements.map((m) => m.id)).toEqual([first, second]);
+
+    controller.runCommand({ kind: 'removeLastMeasurement' });
+    // Newest-last is the engine's order, so "last" is the second one placed, never the first.
+    expect(store.getState().measurements.map((m) => m.id)).toEqual([first]);
+    controller.runCommand({ kind: 'removeLastMeasurement' });
+    expect(store.getState().measurements).toEqual([]);
+    // Nothing left: the key must not throw — a keyboard user leans on it.
+    expect(() => controller.runCommand({ kind: 'removeLastMeasurement' })).not.toThrow();
+  });
+
+  it('Clear all empties the list, the engine, and what `serialize()` writes (§4.6)', () => {
+    const { engine, store, controller } = harness();
+    place(engine, 1);
+    place(engine, 2);
+    place(engine, 3);
+    expect(store.getState().measurements).toHaveLength(3);
+
+    controller.clearMeasurements();
+    expect(store.getState().measurements).toEqual([]);
+    expect(engine.scene.measurements).toEqual([]);
+    expect(engine.serialize().measurements ?? []).toEqual([]);
+    // Nothing to clear: still not an error.
+    expect(() => controller.clearMeasurements()).not.toThrow();
+  });
+});
+
 describe('requestRender (the sidebar-collapse-black-panes fix)', () => {
   // `ViewGrid`'s `ResizeObserver` fires whenever collapsing/expanding a sidebar changes the host's
   // size. Resizing the canvas element reallocates its WebGL drawing buffer to transparent black per

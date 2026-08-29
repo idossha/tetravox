@@ -92,6 +92,20 @@ const CANDIDATES: readonly {
     section: 'Measure',
     description: 'Cancel the measurement being placed',
   },
+  {
+    key: 'Backspace',
+    modifier: 'shift' as const,
+    label: '⇧⌫',
+    section: 'Measure',
+    description: 'Delete the most recently placed measurement (Clear all is in the panel)',
+  },
+  {
+    key: 'Delete',
+    modifier: 'shift' as const,
+    label: '⇧Del',
+    section: 'Measure',
+    description: 'Delete the most recently placed measurement',
+  },
   // Camera presets, one row per §7.5 `1..6`
   ...Object.entries(PRESET_KEYS).map(([key, preset]) => ({
     key,

@@ -1,8 +1,9 @@
 /**
  * §8's **Measurements** panel — directed task 11 (2026-08-28).
  *
- * One row per `Scene.measurement` (§4.5): its name, its value, a jump-to and a delete. That is the
- * whole list, and it is deliberately small — a measurement is a note, not a layer, so it gets a
+ * One row per `Scene.measurement` (§4.5): its name, its value, a jump-to and a delete, plus one
+ * "Clear all" in the header once there is anything to clear. That is the whole list, and it is
+ * deliberately small — a measurement is a note, not a layer, so it gets a
  * strip rather than an editor.
  *
  * Every control here is one controller call and every controller call is one §4.7 member (§8: "no
@@ -35,8 +36,22 @@ export function MeasurePanel(): React.JSX.Element | null {
         <h2 className="text-[11px] font-semibold uppercase tracking-wide text-tvx-dim">
           Measurements
         </h2>
-        <span data-testid="measure-count" className="text-[10px] text-tvx-dim">
-          {measurements.length}
+        <span className="flex items-center gap-1.5">
+          <span data-testid="measure-count" className="text-[10px] text-tvx-dim">
+            {measurements.length}
+          </span>
+          {/* Only when there is something to clear: a disabled button on an empty list is noise. */}
+          {measurements.length > 0 && (
+            <button
+              type="button"
+              data-testid="measure-clear-all"
+              className="tvx-btn tvx-btn-sm"
+              title="Delete every measurement (Shift+⌫ deletes only the last one)"
+              onClick={() => controller.clearMeasurements()}
+            >
+              Clear all
+            </button>
+          )}
         </span>
       </header>
 

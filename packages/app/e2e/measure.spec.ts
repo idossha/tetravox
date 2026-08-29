@@ -185,6 +185,68 @@ test.describe('the measurement panel (stand-in engine)', () => {
     await page.locator('[data-testid="measure-toggle"]').click();
     await expect(page.locator('[data-testid="measure-panel"]')).toHaveCount(0);
   });
+
+  test('a row’s ✕ removes that one measurement', async () => {
+    await page.locator('[data-testid="measure-toggle"]').click();
+    const placed = await page.evaluate(() =>
+      window.__tetravox?.engine?.addMeasurement({
+        kind: 'distance',
+        points: [
+          [0, 0, 0],
+          [0, 6, 0],
+        ],
+      })
+    );
+    const row = page.locator(`[data-testid="measure-row-${placed!.id}"]`);
+    await expect(row).toBeVisible();
+    await expect(page.locator('[data-testid="measure-clear-all"]')).toBeVisible();
+
+    await page.click(`[data-testid="measure-delete-${placed!.id}"]`);
+    await expect(row).toHaveCount(0);
+    expect(await measurements(page)).toEqual([]);
+    // Nothing left to clear, so the button goes with the rows.
+    await expect(page.locator('[data-testid="measure-clear-all"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="measure-empty"]')).toBeVisible();
+  });
+
+  test('Clear all removes every measurement, and Shift+Backspace only the newest', async () => {
+    const place = (): Promise<{ id: string } | undefined> =>
+      page.evaluate(() =>
+        window.__tetravox?.engine?.addMeasurement({
+          kind: 'distance',
+          points: [
+            [0, 0, 0],
+            [0, 0, 7],
+          ],
+        })
+      );
+    const a = await place();
+    const b = await place();
+    await expect(page.locator('[data-testid="measure-count"]')).toHaveText('2');
+
+    // The key: newest goes, the older one stays — the one mistake a keyboard user makes is the
+    // last click, and a key without a confirmation must not take the rest with it.
+    await page.locator('[data-testid="shell"]').click({ position: { x: 5, y: 400 } });
+    await page.keyboard.press('Shift+Backspace');
+    await expect(page.locator(`[data-testid="measure-row-${b!.id}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="measure-row-${a!.id}"]`)).toBeVisible();
+
+    await place();
+    await expect(page.locator('[data-testid="measure-count"]')).toHaveText('2');
+    await page.click('[data-testid="measure-clear-all"]');
+    expect(await measurements(page)).toEqual([]);
+    await expect(page.locator('[data-testid="measure-count"]')).toHaveText('0');
+    await expect(page.locator('[data-testid="measure-empty"]')).toBeVisible();
+    // Gone from the scene file too (§4.6), not just from the list.
+    const after = await page.evaluate(
+      () =>
+        JSON.parse(JSON.stringify(window.__tetravox?.engine?.serialize())) as {
+          measurements?: unknown[];
+        }
+    );
+    expect(after.measurements).toEqual([]);
+    await page.locator('[data-testid="measure-toggle"]').click();
+  });
 });
 
 // -------------------------------------------------------------------------------------------------

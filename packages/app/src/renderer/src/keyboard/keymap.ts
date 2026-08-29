@@ -60,6 +60,16 @@ export type Command =
    */
   | { kind: 'cancelMeasurement' }
   /**
+   * `Shift+Backspace` / `Shift+Delete` — delete the **most recently placed** measurement.
+   *
+   * The newest rather than all of them: a key with no confirmation should never be able to throw
+   * away a whole session's notes, and the mistake a keyboard user actually makes is the *last*
+   * click — pressing it twice undoes two. "Clear all" is a button in §8's panel, where it is
+   * visible and deliberate. The plain keys are left unbound so a stray `Backspace` outside a text
+   * field stays harmless (`resolveKey` ignores `shiftKey` everywhere else, so the chord is free).
+   */
+  | { kind: 'removeLastMeasurement' }
+  /**
    * `Home` — the toolbar's "Reset" (directed task, 2026-08-28): every view refit, the cursor sent
    * to world `(0, 0, 0)`, any in-progress measurement abandoned. See `ShellController.resetAll`
    * for the exact contract. Bound to `Home` rather than `Shift+R` because `r`/`R` already resolve
@@ -147,6 +157,9 @@ export function resolveKey(event: KeyEventLike): Command | null {
       return { kind: 'toggleMeasure' };
     case 'Escape':
       return { kind: 'cancelMeasurement' };
+    case 'Backspace':
+    case 'Delete':
+      return event.shiftKey ? { kind: 'removeLastMeasurement' } : null;
     case 'Home':
       return { kind: 'resetAll' };
     case ',':
@@ -176,7 +189,7 @@ export function resolveKey(event: KeyEventLike): Command | null {
 /** One-line help, shown in the toolbar's title attribute so the map is discoverable. */
 export const KEYMAP_HELP =
   '[ / ] active layer · v visibility · Ctrl+↑/↓ reorder · x layout · c crosshair · m measure · ' +
-  'Esc cancel a measurement · ' +
+  'Esc cancel a measurement · Shift+⌫/Del delete the last measurement · ' +
   'r reset · 1–6 A/P/L/R/S/I · o orthographic · , / . 4D index · ' +
   '↑↓←→ nudge the cursor in-plane · PgUp/PgDn slice · Home reset all views + cursor to origin · ' +
   'Ctrl+[ / Ctrl+] sidebars';
