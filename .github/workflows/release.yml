@@ -294,6 +294,31 @@ jobs:
           APPLE_TEAM_ID: 3BMY24SA43
         run: bash scripts/electron-builder.sh ${{ matrix.builder }}
 
+      # electron-builder notarises and staples the .app, but it never submits the .dmg itself, so the
+      # disk image carries no ticket of its own (run 33222399227: both apps `Notarization
+      # Ticket=stapled`, both dmgs "does not have a ticket stapled to it"). A dmg without a ticket
+      # still opens — Gatekeeper finds the app's stapled ticket once it is mounted — but it fails an
+      # offline `spctl -t open` on the image and the stapler gate below. Submit each dmg and staple
+      # it, with the same credentials the builder used. Signed builds only.
+      - name: Notarise and staple the dmg (macOS, signed builds only)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: 3BMY24SA43
+        run: |
+          set -euo pipefail
+          if [ -z "${CSC_LINK:-}" ]; then echo "no CSC_LINK: unsigned build, nothing to staple"; exit 0; fi
+          for dmg in packages/app/release/*.dmg; do
+            [ -f "$dmg" ] || continue
+            echo "=== notarytool submit $dmg"
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" --wait --timeout 30m
+            xcrun stapler staple "$dmg"
+          done
+
       # What the signature actually says, on the runner that made it — and a GATE when there was a
       # certificate to sign with. With no `CSC_LINK` the build is legitimately unsigned (a fork, or
       # this repository before the secrets existed) and the checks only report; with one, an app that

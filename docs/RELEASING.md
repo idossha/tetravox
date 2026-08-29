@@ -219,6 +219,14 @@ ad-hoc-signs the arm64 slice whether or not you have a certificate, and an ad-ho
 `pnpm package` deterministic between two developers, one of whom happens to have a Developer ID in
 their login keychain.
 
+**The `.dmg` is stapled by the workflow, not by electron-builder.** electron-builder notarises and
+staples the `.app`; it never submits the disk image, so the dmg itself carries no ticket (release run
+33222399227: both apps `Notarization Ticket=stapled`, both dmgs "does not have a ticket stapled to
+it"). release.yml's "Notarise and staple the dmg" step runs `notarytool submit --wait` and
+`stapler staple` on each dmg after the build, and the "Signature, Gatekeeper and staple" gate then
+holds. A local `pnpm package` skips that step: its dmgs open fine (Gatekeeper reads the app's
+stapled ticket once the image is mounted) but `stapler validate` on them reports no ticket.
+
 ### The four secrets
 
 `release.yml`'s build step passes these on every leg and tolerates all of them being empty. Only the
