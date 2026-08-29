@@ -7,12 +7,14 @@ nav_order: 3
 
 # Tetravox — user guide
 
-A viewer for **voxel volumes** (NIfTI) and **finite-element / surface meshes** (Gmsh `.msh`, GIfTI,
-FreeSurfer, STL/PLY/OBJ), with a 3D view and sagittal / axial / coronal slices that all follow one crosshair.
-This guide is split by topic; for install and dev-build instructions see the website's
+A viewer for **voxel volumes** (NIfTI — MRI, CT, label maps) and **finite-element / surface meshes** (Gmsh
+`.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ), with a 3D view and sagittal / axial / coronal slices that all follow
+one crosshair. Head models and neuroimaging are what it was built for first, but every control in this guide
+works the same on a chest CT or a lumbar MRI — where that matters, it is said in place. This guide is split
+by topic; for install and dev-build instructions see the website's
 [Get started](https://tetravox.dev/get-started) page or this repo's `README.md`.
 
-![The 1+3 layout: the 3D head beside three linked slices](screenshots/directed-2026-08-28/layout-1plus3.png)
+![The 1+3 layout: a 3D head model beside three linked slices](screenshots/2026-08-29/features/feat-layouts-1plus3.png)
 
 ## Opening data & formats
 
@@ -49,17 +51,30 @@ it the tissue table reads `tag 1`, `tag 2`, … and the head is drawn in a fallb
 | In the **3D pane**: left-drag orbits, right-drag pans, wheel dollies, **double-click** puts the crosshair on what you clicked | |
 
 `x` cycles the pane layout (1+3, 2×2, single pane, …); `r` resets the active view, or Alt + double-click.
-Zoom is per pane: `+` / `-` zoom about the pane centre.
+Zoom is per pane: `+` / `-` zoom about the pane centre. Zoom is real resampling of the volume, not a scaled
+bitmap — the detail view below is the same slice at 0.12 mm per pixel.
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-zoom-overview.png" width="45%" alt="An axial slice at overview zoom">
+  <img src="screenshots/2026-08-29/features/feat-zoom-detail.png" width="45%" alt="The same slice zoomed onto one structure">
+</p>
 
 Every 2D pane carries orientation letters on all four edges, a corner block (view, slice index, world RAS)
 and a persistent **RAD** / **NEU** badge — the neurological/radiological convention is never implicit. The
 **Scale** toggle adds a scale bar in millimetres, and **Cube** adds an orientation cube to the 3D pane whose
 faces you can click to snap the camera (also `1`–`6` for A/P/L/R/S/I). Toggle the radiological convention
-from the toolbar; it mirrors the image about the vertical axis and nothing else. `o` toggles orthographic
-projection in the 3D pane, `c` toggles the crosshair, `Home` resets every pane and sends the cursor to world
+from the toolbar; it mirrors the image about the vertical axis and nothing else — the badge says which you
+are in, always.
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-convention-neu.png" width="45%" alt="Neurological convention, NEU badge">
+  <img src="screenshots/2026-08-29/features/feat-convention-rad.png" width="45%" alt="Radiological convention, RAD badge">
+</p>
+
+`o` toggles orthographic projection in the 3D pane, `c` toggles the crosshair, `Home` resets every pane and sends the cursor to world
 origin.
 
-![Coordinate read-out in four spaces at once](screenshots/directed-2026-08-28/coordinates.png)
+![Coordinate read-out in four spaces at once](screenshots/2026-08-29/features/feat-coordinates.png)
 
 The **info panel** near the coordinate bar has two blocks with the same rows: `Cursor` (the last click, it
 stays) and `Mouse` (live). Each names its layer and gives the voxel index and value, the region name, or the
@@ -73,8 +88,27 @@ on; `[` / `]` cycle which layer is active, `v` toggles its visibility, `Ctrl+↑
 
 Each volume layer has a colormap and a negative-branch colormap, `linear` or `heat` scaling, a threshold with
 a soft edge, and nearest/linear interpolation. The **histogram** under the controls has draggable window and
-threshold handles and presets (`min–max`, `2–98 %`, `p50–p99.9`, `symmetric ±p99`). A label volume (an atlas
-or tissue map) gets fill / outline / both instead of a window — see [Atlases & regions]({{ site.baseurl }}/guide/atlases-regions.html).
+threshold handles and presets (`min–max`, `2–98 %`, `p50–p99.9`, `symmetric ±p99`). This is the same control
+whether the data is an MRI, a CT (where the presets stand in for the usual bone / soft-tissue / lung windows)
+or a scalar field.
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-window-minmax.png" width="45%" alt="A volume windowed min to max">
+  <img src="screenshots/2026-08-29/features/feat-window-p2-98.png" width="45%" alt="The same volume windowed 2 to 98 percent">
+</p>
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-colormap-hot.png" width="45%" alt="A hot colormap">
+  <img src="screenshots/2026-08-29/features/feat-colormap-viridis.png" width="45%" alt="A viridis colormap">
+</p>
+
+An overlay of a **simulated field** — tES (`TI_max`, a tDCS or tACS magnitude) or a TMS E-field — is an
+ordinary volume layer on a `hot` scale with its threshold set from its own percentiles, drawn over the
+anatomy with a colour bar.
+
+![A simulated field thresholded at its 90th percentile over a T1](screenshots/2026-08-29/features/feat-threshold-field-on-t1.png)
+
+A label volume (an atlas or tissue map) gets fill / outline / both instead of a window — see [Atlases & regions]({{ site.baseurl }}/guide/atlases-regions.html).
 A 4D volume gets a frame index you step with `,` / `.`.
 
 **3D surface** turns a volume into isosurfaces in the 3D pane directly from its layer editor — one per
@@ -85,13 +119,23 @@ field on a mesh instead, see [Isosurfaces]({{ site.baseurl }}/guide/isosurfaces.
 
 A label volume (an atlas or a tissue segmentation) is loaded like any other volume, and reads its region
 names and colours from a `<volume>_LUT.txt` sidecar when one sits beside it. In the volume layer's own
-editor it can be drawn as **fill**, **outline**, or both instead of the usual window/level controls.
+editor it can be drawn as **fill**, **outline**, or both instead of the usual window/level controls. An
+anatomical atlas, a SimNIBS tissue segmentation and an organ or per-vertebra segmentation of a CT are all
+the same kind of layer here.
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-labels-fill.png" width="31%" alt="Labels drawn filled">
+  <img src="screenshots/2026-08-29/features/feat-labels-outline.png" width="31%" alt="Labels drawn as outlines">
+  <img src="screenshots/2026-08-29/features/feat-labels-both.png" width="31%" alt="Labels drawn as fill plus outline">
+</p>
 
 The **region panel** lists everything labelled — atlas and tissue-map regions, mesh tissue tags, and surface
 annotations — with the same rows: eye, colour swatch, name, id, count. Search as you type. Click to select
 and emphasise, ⇧/⌘-click for several, **Alt-click to solo** (mute all others), and double-click to jump the
 crosshair to that region's centroid. Show all / Hide all / Invert are at the top. Clicking a labelled voxel
 or tissue in a pane selects its row.
+
+![One region soloed, every other label muted](screenshots/2026-08-29/features/feat-labels-solo-thalamus.png)
 
 Colours you override and regions you hide are **saved in the scene**. Your edits sit on top of the file's own
 table, so a per-row Reset restores the original, and *Save LUT…* writes the merged result out.
@@ -101,16 +145,37 @@ table, so a per-row Reset restores the original, and *Save LUT…* writes the me
 A tissue table (name, colour swatch, eye, opacity) rather than a list of checkboxes. Colour by tag, by a
 solid colour, by a node or element field with a component selector, or by a `.annot` label.
 
+![Tissue surfaces of a head mesh in the 3D pane](screenshots/2026-08-29/features/feat-mesh-tissues-3d.png)
+
+Per-tissue opacity is a real paint, not a global fade: one tissue can carry a field's colouring while the
+others stay in their own fixed colours, so an outer surface can be made translucent without washing out what
+it is covering.
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-mesh-translucent.png" width="45%" alt="Scalp and skull translucent over the brain">
+  <img src="screenshots/2026-08-29/features/feat-mesh-per-tissue-paint.png" width="45%" alt="One tissue coloured by a field, the rest fixed">
+</p>
+
 **Element edges** draw the real element boundaries — including on cut caps — and stay visible while you
 orbit. **Clip planes** — up to six, with a drag gizmo and a "follow cursor" option — cut the mesh and cap it
 with exact per-element polygons rather than a hollow shell. **Isolation** keeps only the elements matching
 tags, a field range, a sphere, a box, or the regions of a label volume.
 
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-mesh-clip-caps.png" width="45%" alt="A clip plane with exact per-element caps">
+  <img src="screenshots/2026-08-29/features/feat-mesh-isolate-brain.png" width="45%" alt="Only the brain tissues kept">
+</p>
+
+A scalar field carried by the mesh — `TI_max`, an `E` magnitude from a tDCS run, a TMS E-field — colours the
+surface directly, with the colour bar reading that field's own units.
+
+![A tDCS E-field magnitude on the grey-matter surface](screenshots/2026-08-29/features/feat-mesh-field-tdcs-3d.png)
+
 **In the 2D panes**, a tet mesh shows its cross-section — filled tissue polygons and boundary contours — and
 it sweeps with the slice, with or without a volume loaded. See [Surfaces & annotations]({{ site.baseurl }}/guide/surfaces-annotations.html)
 for how surface meshes appear in the 2D panes.
 
-![A mesh's tissue cross-section against a T1 volume](screenshots/directed-2026-08-28/layout-1plus3.png)
+![A mesh's tissue cross-section against a T1 volume](screenshots/2026-08-29/features/feat-mesh-cut-2d.png)
 
 ## Surfaces & annotations
 
@@ -122,14 +187,24 @@ A FreeSurfer `.annot` file colours a surface by its own region labels rather tha
 — pick it from the same "colour by" control the tissue table uses for mesh layers, and its regions appear in
 the [region panel]({{ site.baseurl }}/guide/atlases-regions.html) alongside atlases and tissue tags.
 
-![A pial surface as contours in all three planes, and in 3D](screenshots/directed-2026-08-28/surface-contours-2x2.png)
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-surface-pial-3d.png" width="45%" alt="A pial surface shaded in the 3D pane">
+  <img src="screenshots/2026-08-29/features/feat-surface-contours-2x2.png" width="45%" alt="The same surface as contours in all three planes">
+</p>
 
 ## Isosurfaces
 
 An isosurface layer extracts a level surface from a scalar source — a volume, or a scalar field on a mesh —
 at an iso value you set with a slider ranged to that source's own data. Marching cubes runs on a volume,
 marching tets on a mesh, so the mesh case gets an exact surface rather than a resampled approximation.
-Controls: source, iso level, colour, opacity, smoothing, and flat vs. smooth face shading.
+Controls: source, iso level, colour, opacity, smoothing, and flat vs. smooth face shading. A label volume
+gives one isosurface per visible region, in that region's own colour — brain structures, or the organs of an
+abdominal CT.
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-labels-iso-brainstem.png" width="45%" alt="A brainstem label as an isosurface">
+  <img src="screenshots/2026-08-29/features/feat-isosurface-organs-abdomen.png" width="45%" alt="Abdominal organ labels as isosurfaces">
+</p>
 
 ## Vector fields
 
@@ -140,7 +215,10 @@ scaling as a full sentence, so the arrows' lengths mean something specific rathe
 scalar field (no direction) never appears in the glyph selector — only fields with more than one component
 can drive an arrow.
 
-![Vector-field glyphs on a mesh](screenshots/directed-2026-08-28/vector-glyphs.png)
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-glyphs-arrows.png" width="45%" alt="Vector-field glyphs drawn as arrows">
+  <img src="screenshots/2026-08-29/features/feat-glyphs-lines.png" width="45%" alt="The same field drawn as lines">
+</p>
 
 ## Points & electrodes
 
@@ -152,6 +230,13 @@ button and a per-point colour/radius override (with a reset back to the layer de
 carries per-point values (a parsed Gmsh view with data attached), the layer can colour by value instead of a
 solid colour, with the same colormap choices as mesh field colouring, and a label-size control appears for
 sources that actually have labels to size.
+
+<p align="center">
+  <img src="screenshots/2026-08-29/features/feat-points-eeg-3d.png" width="45%" alt="An EEG net as labelled points in 3D">
+  <img src="screenshots/2026-08-29/features/feat-seeg-contacts-axial.png" width="45%" alt="sEEG lead contacts over an axial slice">
+</p>
+
+![sEEG leads as mesh geometry in the 3D pane](screenshots/2026-08-29/features/feat-seeg-mesh-3d.png)
 
 ## Measurements
 
@@ -167,7 +252,7 @@ Lengths are world millimetres, so they are the same number at any zoom and in ei
 measurement is drawn in every pane that actually contains its points, listed in the measurements panel with
 a jump-to and a delete, and saved with the scene.
 
-![Distance and angle measurements across the panes](screenshots/directed-2026-08-28/measure.png)
+![Distance and angle measurements across the panes](screenshots/2026-08-29/features/feat-measure.png)
 
 ## Coordinates
 
@@ -180,16 +265,15 @@ than hidden. Copy yields the triple in the space you selected; Enter converts it
 
 ## Themes & settings
 
-**Sys / Light / Dark** in the toolbar, remembered between launches and applied with no reload. `Sys` follows
+**System / Light / Dark** under `⚙` Settings, remembered between launches and applied with no reload. `Sys` follows
 the operating system live. **The view panes stay dark in both themes** — that is deliberate, not an
 oversight: a light viewport changes what a greyscale T1 and a heat overlay look like, and the chrome drawn
 over the image (letters, crosshair, colour-bar text) takes its palette from the pane rather than from the
 theme name, so its halo inverts to stay legible.
 
-<p align="center">
-  <img src="screenshots/directed-2026-08-28/theme-light.png" width="45%" alt="Light theme">
-  <img src="screenshots/directed-2026-08-28/theme-dark.png" width="45%" alt="Dark theme">
-</p>
+![The window in the dark theme](screenshots/2026-08-29/ui/ui-window-dark.png)
+
+![The Settings dialog](screenshots/2026-08-29/ui/ui-settings.png)
 
 `⚙` in the toolbar opens Settings. These are preferences for the *machine*, not for the scene: the
 **FreeSurfer subjects directory** (which is what turns on the fsaverage vertex read-out for surfaces) and
@@ -241,7 +325,10 @@ remembered scene.
 The toolbar's screenshot button saves one pane or the whole grid as a PNG, at a size or scale you choose,
 with the DPI written into the file so it drops into a manuscript at the right physical size. Choose which
 chrome to include — colour bar, orientation letters, crosshair, corner info, scale bar, cube — and whether
-the background is the scene's, white, or transparent.
+the background is the scene's, white, or transparent. The **figure** presets go further: a labelled
+multi-panel export on white, sized in millimetres at the DPI a journal asks for.
+
+![A 2×2 export on a white page at 300 dpi, chrome off, auto-trimmed](screenshots/2026-08-29/features/feat-figure-export-2x2.png)
 
 For a batch of figures, or a video, drive the app from a script instead: it runs with no window and never
 takes the focus, so a sweep through 200 slices can render while you work. See
@@ -250,7 +337,9 @@ takes the focus, so a sweep through 200 slices can render while you work. See
 ## Keyboard shortcuts
 
 Every shortcut is suppressed while a text field has focus. The toolbar's **?** button shows this list in
-the app.
+the app, grouped in tabs by what each binding acts on.
+
+![The key-map dialog, bindings grouped in tabs](screenshots/2026-08-29/ui/ui-keymap-tabs.png)
 
 **Layout, camera and layers**
 

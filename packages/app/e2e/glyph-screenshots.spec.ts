@@ -1,5 +1,6 @@
 /**
- * The two screenshots directed task 7 owes (`docs/screenshots/directed-2026-08-28/`), and the app's
+ * Two glyph captures, written to the shared evidence directory `packages/app/test-results/shots/`
+ * (`SHOTS_DIR`, git-ignored) — not part of the committed `docs/screenshots/2026-08-29/` set — and the app's
  * own coverage of the new glyph controls.
  *
  * Captured from the **real** app over `ernie_TDCS_1_scalar.msh` — the only reference file carrying a
@@ -21,16 +22,16 @@
 /* eslint-disable no-empty-pattern */
 
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, clickAppMenu, launchApp } from './fixtures';
+import { SHOTS_DIR, clickAppMenu, launchApp } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 import { decodePng } from './png';
 
 const ENABLED = process.env['TETRAVOX_SHOTS'] === '1';
 const ROOT = process.env['TETRAVOX_TESTDATA'] ?? '';
-const OUT = resolve(APP_ROOT, '..', '..', 'docs', 'screenshots', 'directed-2026-08-28');
+const OUT = SHOTS_DIR;
 const WINDOW = { width: 1100, height: 700 };
 const MAX_BYTES = 400_000;
 
@@ -53,7 +54,7 @@ let layerId = '';
 test.beforeAll(async ({}, workerInfo) => {
   // A hook has its own timeout, and this one loads a 420 MB mesh.
   test.setTimeout(1_200_000);
-  test.skip(!ENABLED, 'set TETRAVOX_SHOTS=1 to capture the directed-2026-08-28 screenshots');
+  test.skip(!ENABLED, 'set TETRAVOX_SHOTS=1 to capture these screenshots');
   test.skip(ROOT === '', 'TETRAVOX_TESTDATA is unset');
   mkdirSync(OUT, { recursive: true });
   app = await launchApp(workerInfo.project.name as LaunchTarget, { search: 'engine=real' });

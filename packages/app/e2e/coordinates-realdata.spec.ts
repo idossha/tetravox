@@ -11,7 +11,8 @@
  * Runs against the real engine, offscreen (AGENTS rule 9 — never set `TETRAVOX_E2E_HEADED`).
  * Skips, never fails, when `TETRAVOX_TESTDATA` is unset (AGENTS rule 2).
  *
- * The screenshot the brief owes — `docs/screenshots/directed-2026-08-28/coordinates.png` — is taken
+ * The evidence screenshot — `coordinates.png` in `SHOTS_DIR` (`packages/app/test-results/shots/`,
+ * git-ignored) — is taken
  * at the end of the same session, behind `TETRAVOX_SHOTS=1`, because it is the only run that has the
  * warp loaded and there is no reason to pay for that twice.
  */
@@ -19,16 +20,16 @@
 /* eslint-disable no-empty-pattern */
 
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { SHOTS_DIR, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const ROOT = process.env['TETRAVOX_TESTDATA'] ?? '';
 const T1 = join(ROOT, 'm2m_ernie', 'T1.nii.gz');
 const WARP = join(ROOT, 'm2m_ernie', 'toMNI', 'Conform2MNI_nonl.nii.gz');
-const OUT = resolve(APP_ROOT, '..', '..', 'docs', 'screenshots', 'directed-2026-08-28');
+const OUT = SHOTS_DIR;
 
 /**
  * One landmark and its answers, all produced by something other than this code:

@@ -234,6 +234,28 @@ message; "the GM surface is now lit by a headlight rather than a fixed light, so
 `*-actual.png` and `*-diff.png` are git-ignored; on a failure the whole `playwright-report/` and
 `test-results/` tree is uploaded as a CI artefact.
 
+### Where a spec's screenshots go
+
+Two different things, and they never share a directory:
+
+* **Evidence** — the picture a passing app spec takes as a side effect of proving something with
+  numbers (§11 rule 0 / AGENTS rule 1). It goes to `SHOTS_DIR` from `packages/app/e2e/fixtures.ts`,
+  which is `packages/app/test-results/shots/`: inside Playwright's own `outputDir`, so it is already
+  covered by the `test-results/` line in `.gitignore` and by the CI artefact upload above. Playwright
+  clears `outputDir` at the start of every run — these are per-run artefacts, nothing more. Every
+  such spec (`theme`, `measure`, `cube-scalebar`, `layer-collapse`, `coordinates-realdata`,
+  `fsaverage-realdata`, and the `TETRAVOX_SHOTS=1` captures `iso3d-screenshots`,
+  `glyph-screenshots`, `surface-contours-screenshot`) writes there. **Do not add a second output
+  directory**, and do not point a spec at `docs/`.
+* **Documentation** — the committed capture set, `docs/screenshots/2026-08-29/`
+  (`docs/reports/2026-08-29-visual-refresh/PLAN.md`). Its engine stills come from `--job` capture
+  jobs; the UI states a job cannot reach come from `e2e/ui-tour-gallery.spec.ts`. The motion clips
+  are `docs/media/` (`docs/media/SHOWCASE.md`, `examples/capture/showcase.py`).
+
+`e2e/catalogue.spec.ts` is the one deliberate exception: it *is* the report it writes, into
+`docs/reports/2026-08-28-visualization-scenarios/`, which `scripts/build-plates-report.py` then
+assembles into a single HTML page.
+
 ## 4. Adding an analytic pixel test
 
 The harness is two functions in `packages/engine/test/helpers/pixels.ts`:

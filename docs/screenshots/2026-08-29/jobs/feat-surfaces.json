@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/surfaces/lh.pial.gii"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 420,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false
+      },
+      "type": "screenshot",
+      "out": "feat-surface-pial-3d"
+    },
+    {
+      "layer": "lh.pial.gii",
+      "patch": {
+        "contoursIn2D": true,
+        "contourWidthPx": 2
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        0,
+        -18,
+        8
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "grid",
+      "width": 1400,
+      "height": 1140,
+      "include": {
+        "crosshair": true,
+        "colorbar": false
+      },
+      "type": "screenshot",
+      "out": "feat-surface-contours-2x2"
+    }
+  ]
+}

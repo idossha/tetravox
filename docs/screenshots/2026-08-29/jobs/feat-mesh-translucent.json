@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/ernie.msh"
+    ],
+    "preset": "mesh-tissues-translucent"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 520,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false
+      },
+      "type": "screenshot",
+      "out": "feat-mesh-translucent"
+    }
+  ]
+}

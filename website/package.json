@@ -6,7 +6,7 @@
   "description": "Tetravox documentation site",
   "scripts": {
     "dev": "node scripts/sync.mjs && node scripts/gallery.mjs && vitepress dev",
-    "build": "node scripts/sync.mjs && node scripts/gallery.mjs && vitepress build",
+    "build": "node scripts/sync.mjs && node scripts/gallery.mjs && node scripts/check-images.mjs && vitepress build",
     "preview": "vitepress preview"
   },
   "devDependencies": {

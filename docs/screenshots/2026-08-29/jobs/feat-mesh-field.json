@@ -1,0 +1,269 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "colorMode": "field",
+        "field": {
+          "source": "elm",
+          "name": "E",
+          "component": "mag"
+        },
+        "colormap": "hot",
+        "scale": {
+          "kind": "linear",
+          "lo": 0.0,
+          "hi": 0.12
+        },
+        "threshold": {
+          "lo": 0,
+          "hi": 0,
+          "symmetric": false,
+          "mode": "clamp",
+          "softEdge": 0
+        },
+        "showColorbar": true,
+        "isolate": {
+          "tags": [
+            2
+          ],
+          "combine": "all"
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 400,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": true,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "feat-mesh-field-tdcs-3d"
+    },
+    {
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "isolate": {
+          "tags": [
+            1,
+            2
+          ],
+          "combine": "all"
+        },
+        "colorMode": "tag",
+        "tagStyle": {
+          "2": {
+            "visible": true,
+            "opacity": 1.0,
+            "colorMode": "field"
+          },
+          "1": {
+            "visible": true,
+            "opacity": 1.0,
+            "colorMode": "color"
+          }
+        },
+        "clip": {
+          "planes": [
+            {
+              "plane": {
+                "normal": [
+                  -1,
+                  0,
+                  0
+                ],
+                "offset": 0
+              },
+              "enabled": true
+            }
+          ],
+          "caps": true,
+          "capColorMode": "inherit"
+        }
+      },
+      "type": "set"
+    },
+    {
+      "camera": "R",
+      "distance": 400,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": true,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "feat-mesh-per-tissue-paint"
+    },
+    {
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "isolate": null,
+        "clip": {
+          "planes": [],
+          "caps": true,
+          "capColorMode": "inherit"
+        },
+        "colorMode": "tag",
+        "opacity": 0.12,
+        "tagStyle": {
+          "1": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "2": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "3": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "4": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "5": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "6": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "7": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "8": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "9": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "10": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "11": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "12": {
+            "visible": true,
+            "opacity": 1.0
+          }
+        },
+        "glyphs": {
+          "field": {
+            "source": "elm",
+            "name": "E"
+          },
+          "shape": "arrow",
+          "subsample": {
+            "everyNth": 400
+          },
+          "scale": {
+            "mode": "log",
+            "lengthMm": 8.0,
+            "normalizeTo": 1.0,
+            "logFloor": 0.05
+          },
+          "lengthMm": 8.0,
+          "colorBy": "magnitude",
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "clipToCutPlane": false
+        }
+      },
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": true,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "feat-glyphs-arrows"
+    },
+    {
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "glyphs": {
+          "field": {
+            "source": "elm",
+            "name": "E"
+          },
+          "shape": "line",
+          "subsample": {
+            "everyNth": 400
+          },
+          "scale": {
+            "mode": "log",
+            "lengthMm": 8.0,
+            "normalizeTo": 1.0,
+            "logFloor": 0.05
+          },
+          "lengthMm": 8.0,
+          "colorBy": "magnitude",
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "clipToCutPlane": false
+        }
+      },
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": true,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "feat-glyphs-lines"
+    }
+  ]
+}

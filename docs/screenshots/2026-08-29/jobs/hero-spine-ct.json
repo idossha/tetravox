@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/ctspine1k/volume-covid19-A-0377_ct.nii.gz",
+      "${TETRAVOX_PUBLIC}/ctspine1k/volume-covid19-A-0377_ct_seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 900
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "volume-covid19-A-0377_ct.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -450,
+          "hi": 1050
+        },
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "volume-covid19-A-0377_ct_seg.nii.gz",
+      "patch": {
+        "labelMode": "fill",
+        "opacity": 0.7,
+        "interpolation": "nearest"
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        1.6,
+        -35.2,
+        -74.4
+      ],
+      "layout": "2x2",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": true,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.48,
+      "center": [
+        5.4,
+        -35.300000000000004
+      ]
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.48,
+      "center": [
+        5.4,
+        -2.5
+      ]
+    },
+    {
+      "type": "set",
+      "view": "sagittal",
+      "mmPerPx": 0.34,
+      "center": [
+        20.1,
+        -2.5
+      ]
+    },
+    {
+      "type": "set",
+      "layer": "volume-covid19-A-0377_ct_seg.nii.gz",
+      "patch": {
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true,
+          "opacity": 1.0,
+          "smooth": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d",
+      "distance": 460
+    },
+    {
+      "type": "screenshot",
+      "out": "hero-spine-ct-2x2",
+      "view": "grid",
+      "width": 1400,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": true
+      }
+    }
+  ]
+}

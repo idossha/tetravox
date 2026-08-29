@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/totalsegmentator-mr/s0375/mri.nii.gz",
+      "${TETRAVOX_PUBLIC}/totalsegmentator-mr/s0375/seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 760,
+    "height": 880
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "s0375/mri.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": 0,
+          "hi": 340
+        },
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "s0375/seg.nii.gz",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        11.8,
+        -10.9,
+        72.4
+      ],
+      "layout": "1x3",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": true
+      }
+    },
+    {
+      "type": "set",
+      "view": "sagittal",
+      "mmPerPx": 0.34,
+      "center": [
+        1.3000000000000007,
+        0.0
+      ]
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-spine-mri-sagittal",
+      "view": "sagittal",
+      "width": 760,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "scaleBar": true
+      }
+    },
+    {
+      "type": "set",
+      "layer": "s0375/seg.nii.gz",
+      "patch": {
+        "visible": true,
+        "labelMode": "fill",
+        "opacity": 0.5,
+        "interpolation": "nearest"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-spine-mri-labels-sagittal",
+      "view": "sagittal",
+      "width": 760,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "scaleBar": true
+      }
+    }
+  ]
+}

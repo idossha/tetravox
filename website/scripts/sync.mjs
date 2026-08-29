@@ -99,7 +99,7 @@ function stripFrontmatter(source) {
 function rewriteLinks(body) {
   let out = body;
   // Screenshots referenced relative to docs/ -> the copies this script makes.
-  out = out.replaceAll('screenshots/directed-2026-08-28/', '/shots/');
+  out = out.replaceAll('screenshots/2026-08-29/', '/shots/');
   // Jekyll cross-doc links. Must run before the generic `{{ }}` escape below,
   // since it matches these exact `{{ site.baseurl }}` strings.
   out = out.replaceAll('{{ site.baseurl }}/AUTOMATION.html', '/automation');
@@ -142,13 +142,26 @@ rmSync(SRC_OUT, { recursive: true, force: true });
 mkdirSync(SRC_OUT, { recursive: true });
 
 // -------------------------------------------------------------------- assets
+// The whole capture set, subdirectories and all (hero/, modalities/, features/,
+// motion/, ui/), so a doc's `screenshots/2026-08-29/hero/x.png` becomes
+// `/shots/hero/x.png` on the site - see rewriteLinks() above.
+const SHOTS_SRC = join(DOCS, 'screenshots', '2026-08-29');
+rmSync(join(PUBLIC, 'shots'), { recursive: true, force: true });
 mkdirSync(join(PUBLIC, 'shots'), { recursive: true });
-cpSync(join(DOCS, 'screenshots', 'directed-2026-08-28'), join(PUBLIC, 'shots'), {
-  recursive: true,
-});
+if (existsSync(SHOTS_SRC)) {
+  // Markdown is filtered out: VitePress' srcDir is the website root, so a
+  // .md file landing under public/ is picked up as a page and its
+  // repo-relative links fail the dead-link check.
+  cpSync(SHOTS_SRC, join(PUBLIC, 'shots'), {
+    recursive: true,
+    filter: (src) => !src.endsWith('.md'),
+  });
+} else {
+  console.warn('sync.mjs: ' + SHOTS_SRC + ' does not exist yet - no screenshots copied');
+}
 
 mkdirSync(join(PUBLIC, 'media'), { recursive: true });
-for (const asset of ['showcase.mp4', 'showcase-preview.gif', 'walkthrough.gif']) {
+for (const asset of ['showcase.mp4', 'showcase-preview.gif']) {
   const from = join(DOCS, 'media', asset);
   if (existsSync(from)) cpSync(from, join(PUBLIC, 'media', asset));
 }

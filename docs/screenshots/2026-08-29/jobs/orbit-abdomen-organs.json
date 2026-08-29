@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/amos22-ct/amos_0004_ct.nii.gz",
+      "${TETRAVOX_PUBLIC}/amos22-ct/amos_0004_seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 560,
+    "height": 560
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "amos_0004_ct.nii.gz",
+      "patch": {
+        "visible": false,
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "amos_0004_seg.nii.gz",
+      "patch": {
+        "visibleLabels": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        "interpolation": "nearest",
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true,
+          "opacity": 1.0,
+          "smooth": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        9.2,
+        -4.1,
+        1396.0
+      ],
+      "layout": "3d-only"
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d"
+    },
+    {
+      "type": "tween",
+      "out": "_aim",
+      "frames": 1,
+      "to": {
+        "target": [
+          9.2,
+          -4.1,
+          1396.0
+        ],
+        "distance": 430
+      },
+      "view": "view3d",
+      "gif": false,
+      "width": 64,
+      "height": 64
+    },
+    {
+      "type": "orbit",
+      "out": "orbit-abdomen-organs",
+      "degrees": 360,
+      "frames": 36,
+      "axis": "z",
+      "fps": 12,
+      "format": "mp4",
+      "colors": 64,
+      "width": 560,
+      "height": 560,
+      "include": {
+        "colorbar": false
+      }
+    }
+  ]
+}

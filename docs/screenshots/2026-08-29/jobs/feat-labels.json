@@ -1,0 +1,350 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/segmentation/labeling.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "cursor": [
+        0,
+        -18,
+        8
+      ],
+      "layout": "1x1",
+      "view": "axial",
+      "mmPerPx": 0.21,
+      "type": "set"
+    },
+    {
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "labelMode": "fill",
+        "opacity": 0.75,
+        "visibleLabels": [
+          2,
+          3,
+          4,
+          5,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          24,
+          26,
+          28,
+          29,
+          30,
+          31,
+          41,
+          42,
+          43,
+          44,
+          46,
+          47,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          58,
+          60,
+          62,
+          63,
+          72,
+          77,
+          80,
+          85,
+          501,
+          502,
+          506,
+          507,
+          508,
+          509,
+          511,
+          512,
+          514,
+          515,
+          516,
+          520,
+          525,
+          530
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false,
+        "orientationLabels": true,
+        "cornerInfo": true
+      },
+      "type": "screenshot",
+      "out": "feat-labels-fill"
+    },
+    {
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "labelMode": "outline",
+        "opacity": 1.0,
+        "visibleLabels": [
+          2,
+          3,
+          4,
+          5,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          24,
+          26,
+          28,
+          29,
+          30,
+          31,
+          41,
+          42,
+          43,
+          44,
+          46,
+          47,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          58,
+          60,
+          62,
+          63,
+          72,
+          77,
+          80,
+          85,
+          501,
+          502,
+          506,
+          507,
+          508,
+          509,
+          511,
+          512,
+          514,
+          515,
+          516,
+          520,
+          525,
+          530
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false,
+        "orientationLabels": true,
+        "cornerInfo": true
+      },
+      "type": "screenshot",
+      "out": "feat-labels-outline"
+    },
+    {
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "labelMode": "both",
+        "opacity": 0.6,
+        "visibleLabels": [
+          2,
+          3,
+          4,
+          5,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          24,
+          26,
+          28,
+          29,
+          30,
+          31,
+          41,
+          42,
+          43,
+          44,
+          46,
+          47,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          58,
+          60,
+          62,
+          63,
+          72,
+          77,
+          80,
+          85,
+          501,
+          502,
+          506,
+          507,
+          508,
+          509,
+          511,
+          512,
+          514,
+          515,
+          516,
+          520,
+          525,
+          530
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false,
+        "orientationLabels": true,
+        "cornerInfo": true
+      },
+      "type": "screenshot",
+      "out": "feat-labels-both"
+    },
+    {
+      "cursor": [
+        -11,
+        -19,
+        16
+      ],
+      "type": "set"
+    },
+    {
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "labelMode": "fill",
+        "opacity": 1.0,
+        "visibleLabels": [
+          10,
+          49
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false,
+        "orientationLabels": true,
+        "cornerInfo": true
+      },
+      "type": "screenshot",
+      "out": "feat-labels-solo-thalamus"
+    },
+    {
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "visibleLabels": [
+          16
+        ],
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true,
+          "iso": 0,
+          "color": [
+            0.47,
+            0.62,
+            0.69,
+            1
+          ],
+          "opacity": 1.0,
+          "smooth": true,
+          "faceMode": "both"
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showIn3D": true
+      },
+      "type": "set"
+    },
+    {
+      "cursor": [
+        0,
+        -28,
+        -24
+      ],
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 420,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "feat-labels-iso-brainstem"
+    }
+  ]
+}

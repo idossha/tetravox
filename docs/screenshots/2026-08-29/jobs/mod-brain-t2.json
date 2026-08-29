@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_TESTDATA}/m2m_ernie/T2_reg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "cursor": [
+        0,
+        -18,
+        8
+      ],
+      "layout": "2x2",
+      "view": "coronal",
+      "mmPerPx": 0.21,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false,
+        "orientationLabels": true,
+        "cornerInfo": true
+      },
+      "type": "screenshot",
+      "out": "mod-brain-t2-coronal"
+    }
+  ]
+}

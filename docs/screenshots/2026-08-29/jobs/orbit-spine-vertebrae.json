@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/ctspine1k/volume-covid19-A-0377_ct.nii.gz",
+      "${TETRAVOX_PUBLIC}/ctspine1k/volume-covid19-A-0377_ct_seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 560,
+    "height": 560
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "volume-covid19-A-0377_ct.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -450,
+          "hi": 1050
+        },
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "volume-covid19-A-0377_ct_seg.nii.gz",
+      "patch": {
+        "visible": true,
+        "interpolation": "nearest",
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true,
+          "opacity": 1.0,
+          "smooth": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        1.6,
+        -35.2,
+        -74.4
+      ],
+      "layout": "3d-only"
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d",
+      "distance": 400
+    },
+    {
+      "type": "orbit",
+      "out": "orbit-spine-vertebrae",
+      "degrees": 360,
+      "frames": 36,
+      "axis": "z",
+      "fps": 12,
+      "format": "mp4",
+      "colors": 64,
+      "width": 560,
+      "height": 560,
+      "include": {
+        "colorbar": false
+      }
+    }
+  ]
+}

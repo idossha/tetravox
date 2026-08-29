@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/Simulations/Thalamus/TI/niftis/grey_Thalamus_TI_subject_TI_max.nii.gz",
+      "${TETRAVOX_DATA}/Simulations/Thalamus/TI/mesh/Thalamus_TI.msh",
+      "${TETRAVOX_DATA}/Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh"
+    ],
+    "preset": "ti-field-on-t1"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showColorbar": false
+      },
+      "type": "set"
+    },
+    {
+      "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
+      "patch": {
+        "name": "TI_max (V/m)",
+        "colormap": "hot",
+        "opacity": 0.85,
+        "showColorbar": true,
+        "scale": {
+          "kind": "heat",
+          "min": 0.1151,
+          "mid": 0.1421,
+          "max": 0.2399,
+          "truncate": false,
+          "inverse": false,
+          "negative": "hide"
+        },
+        "threshold": {
+          "lo": 0.1151,
+          "hi": 1000000000.0,
+          "symmetric": false,
+          "mode": "hide",
+          "softEdge": 0
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layer": "Thalamus_TI.msh",
+      "patch": {
+        "colorMode": "solid",
+        "solidColor": [
+          0.8,
+          0.79,
+          0.76,
+          1
+        ],
+        "opacity": 0.3,
+        "faceMode": "both",
+        "isolate": {
+          "tags": [
+            2
+          ],
+          "box": {
+            "min": [
+              -120,
+              -140,
+              -58
+            ],
+            "max": [
+              120,
+              120,
+              120
+            ]
+          },
+          "combine": "all"
+        },
+        "showColorbar": false,
+        "contoursIn2D": false,
+        "fillIn2D": false
+      },
+      "type": "set"
+    },
+    {
+      "layer": "grey_Thalamus_TI.msh",
+      "patch": {
+        "colorMode": "field",
+        "field": {
+          "source": "elm",
+          "name": "TI_max",
+          "component": "mag"
+        },
+        "colormap": "hot",
+        "isolate": {
+          "box": {
+            "min": [
+              -120,
+              -140,
+              -58
+            ],
+            "max": [
+              120,
+              120,
+              120
+            ]
+          },
+          "combine": "all"
+        },
+        "faceMode": "both",
+        "showColorbar": false,
+        "contoursIn2D": false,
+        "fillIn2D": false,
+        "opacity": 1.0,
+        "scale": {
+          "kind": "heat",
+          "min": 0.1151,
+          "mid": 0.1421,
+          "max": 0.2399,
+          "truncate": false,
+          "inverse": false,
+          "negative": "hide"
+        },
+        "threshold": {
+          "lo": 0.1151,
+          "hi": 1000000000.0,
+          "symmetric": false,
+          "mode": "hide",
+          "softEdge": 0
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layout": "1+3",
+      "cursor": [
+        -11,
+        -19,
+        8
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.46,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.46,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.46,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 460,
+      "type": "set"
+    },
+    {
+      "type": "tween",
+      "out": "_camera-oblique",
+      "frames": 1,
+      "view": "view3d",
+      "width": 64,
+      "height": 64,
+      "gif": false,
+      "orbit": {
+        "degrees": -30,
+        "axis": "z"
+      },
+      "to": {
+        "distance": 460
+      }
+    },
+    {
+      "view": "grid",
+      "width": 1400,
+      "height": 1140,
+      "include": {
+        "crosshair": true,
+        "colorbar": true
+      },
+      "type": "screenshot",
+      "out": "hero-field-on-mesh"
+    }
+  ]
+}

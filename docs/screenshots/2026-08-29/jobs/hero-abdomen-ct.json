@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/amos22-ct/amos_0004_ct.nii.gz",
+      "${TETRAVOX_PUBLIC}/amos22-ct/amos_0004_seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 900
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "amos_0004_ct.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -160,
+          "hi": 240
+        },
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "amos_0004_seg.nii.gz",
+      "patch": {
+        "labelMode": "fill",
+        "opacity": 0.55,
+        "interpolation": "nearest"
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        7.6,
+        -4.7,
+        1420.3
+      ],
+      "layout": "2x2",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": true,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.46,
+      "center": [
+        11.5,
+        -5.0
+      ]
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.54,
+      "center": [
+        11.5,
+        70.0
+      ]
+    },
+    {
+      "type": "set",
+      "view": "sagittal",
+      "mmPerPx": 0.42,
+      "center": [
+        -20.0,
+        90.0
+      ]
+    },
+    {
+      "type": "set",
+      "layer": "amos_0004_seg.nii.gz",
+      "patch": {
+        "visibleLabels": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true,
+          "opacity": 1.0,
+          "smooth": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d"
+    },
+    {
+      "type": "tween",
+      "out": "_aim",
+      "frames": 1,
+      "to": {
+        "target": [
+          9.2,
+          -4.1,
+          1396.0
+        ],
+        "distance": 340
+      },
+      "view": "view3d",
+      "gif": false,
+      "width": 64,
+      "height": 64
+    },
+    {
+      "type": "screenshot",
+      "out": "hero-abdomen-ct-2x2",
+      "view": "grid",
+      "width": 1400,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": true
+      }
+    }
+  ]
+}

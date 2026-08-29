@@ -351,6 +351,86 @@ body:has(.VPSidebarItem.is-active a[href*='/developers/']) .VPSidebar::before {
   color: var(--t-text-faint);
 }
 
+.gallery-card video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  border-bottom: 1px solid var(--t-border);
+}
+
+.gallery-card__meta {
+  margin: 0.45rem 0 0;
+  font-size: 0.75rem;
+  color: var(--t-text-faint);
+  opacity: 0.8;
+}
+
+/* ------------------------------------------- modality strip / motion row */
+/* Three shapes over the same card vocabulary as the gallery: a wide row of
+   short clips (motion-row), a dense strip of small stills (modality-strip),
+   and an overview/detail pairing (shot-pair). All auto-fill, so they reflow
+   to one column on a phone without a media query. */
+.motion-row,
+.modality-strip,
+.shot-pair {
+  display: grid;
+  gap: 1rem;
+  margin: 1.75rem 0;
+}
+
+.motion-row {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.modality-strip {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+
+.shot-pair {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.motion-row figure,
+.modality-strip figure,
+.shot-pair figure {
+  margin: 0;
+}
+
+.motion-row img,
+.motion-row video,
+.modality-strip img,
+.shot-pair img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--t-border);
+  border-radius: 6px;
+  background: #000;
+  box-shadow: var(--vp-shadow-1);
+}
+
+.motion-row video {
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.modality-strip img {
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.motion-row figcaption,
+.modality-strip figcaption,
+.shot-pair figcaption {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--t-text-faint);
+}
+
 /* --------------------------------------------------------------- home hero */
 .VPHero .name {
   color: var(--t-text) !important;

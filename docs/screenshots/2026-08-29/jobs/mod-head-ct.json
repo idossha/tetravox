@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "../../../../data/public/niivue-images/CT_Philips.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "cursor": [
+        0,
+        10,
+        20
+      ],
+      "layout": "1x1",
+      "view": "axial",
+      "mmPerPx": 0.2,
+      "type": "set"
+    },
+    {
+      "layer": 0,
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -20,
+          "hi": 100
+        }
+      },
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false,
+        "orientationLabels": true,
+        "cornerInfo": true
+      },
+      "type": "screenshot",
+      "out": "mod-head-ct-axial"
+    },
+    {
+      "layer": 0,
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": 150,
+          "hi": 1500
+        },
+        "colormap": "bone",
+        "showIn3D": true
+      },
+      "type": "set"
+    },
+    {
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "A",
+      "distance": 480,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "mod-head-ct-bone-3d"
+    }
+  ]
+}

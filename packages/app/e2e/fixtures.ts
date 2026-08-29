@@ -17,6 +17,21 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const APP_ROOT = resolve(here, '..');
 
 /**
+ * The one directory every spec writes *evidence* PNGs to — the picture a passing test took as a side
+ * effect of proving something with numbers (AGENTS rule 1: numbers first, pictures second).
+ *
+ * It is `packages/app/test-results/shots/`, i.e. inside Playwright's own `outputDir`, so it is
+ * covered by the existing `test-results/` line in `.gitignore` and by the CI artefact upload
+ * (`docs/TESTING.md` §3) — there is deliberately no second convention. Playwright clears
+ * `outputDir` at the start of every run, so these are per-run artefacts and nothing else.
+ *
+ * **Documentation** screenshots are a different thing and do not come here: the committed set lives
+ * in `docs/screenshots/2026-08-29/` and is produced by `ui-tour-gallery.spec.ts` plus the `--job`
+ * capture jobs (`docs/reports/2026-08-29-visual-refresh/PLAN.md`).
+ */
+export const SHOTS_DIR = resolve(here, '..', 'test-results', 'shots');
+
+/**
  * The "Tetravox" wordmark's menu (`toolbar/AppMenu.tsx`, directed task: toolbar consolidation,
  * 2026-08-28): `Open…` / `New` / `Open scene…` / `Save` / `Save as…` moved off the toolbar and into
  * this dropdown, so every spec that used to click `open-button` / `scene-*` directly opens the menu

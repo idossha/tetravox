@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/final_tissues.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/ernie.msh"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "final_tissues.nii.gz",
+      "patch": {
+        "labelMode": "fill",
+        "opacity": 1.0,
+        "labelOpacity": {
+          "0": 0
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layer": "ernie.msh",
+      "patch": {
+        "tagStyle": {
+          "1": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "2": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "3": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "4": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "5": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "6": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "7": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "8": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "9": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "10": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "11": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "12": {
+            "visible": false,
+            "opacity": 1.0
+          }
+        },
+        "contoursIn2D": false,
+        "fillIn2D": false
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        -0.5,
+        21.9,
+        -14.5
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "A",
+      "distance": 430,
+      "type": "set"
+    },
+    {
+      "view": "grid",
+      "width": 1400,
+      "height": 1140,
+      "include": {
+        "crosshair": true,
+        "colorbar": false
+      },
+      "type": "screenshot",
+      "out": "hero-tissues-2x2"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/totalsegmentator-mr/s0132/mri.nii.gz",
+      "${TETRAVOX_PUBLIC}/totalsegmentator-mr/s0132/seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1000,
+    "height": 900
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "s0132/mri.nii.gz",
+      "patch": {
+        "visible": false,
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "s0132/seg.nii.gz",
+      "patch": {
+        "visibleLabels": [
+          16,
+          18,
+          19,
+          20,
+          26,
+          27,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          48,
+          49
+        ],
+        "showIn3D": true,
+        "interpolation": "nearest",
+        "iso3d": {
+          "enabled": true,
+          "opacity": 1.0,
+          "smooth": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        -22.5,
+        -50.9,
+        -127.6
+      ],
+      "layout": "3d-only"
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "camera": "1",
+      "view": "view3d",
+      "distance": 480
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-pelvis-mri-labels-3d",
+      "view": "view3d",
+      "width": 900,
+      "height": 810,
+      "include": {
+        "colorbar": false
+      }
+    }
+  ]
+}

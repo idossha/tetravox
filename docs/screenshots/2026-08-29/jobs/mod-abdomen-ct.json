@@ -1,0 +1,156 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/amos22-ct/amos_0004_ct.nii.gz",
+      "${TETRAVOX_PUBLIC}/amos22-ct/amos_0004_seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1000,
+    "height": 700
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "amos_0004_ct.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -160,
+          "hi": 240
+        },
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "amos_0004_seg.nii.gz",
+      "patch": {
+        "visible": false
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        7.6,
+        -4.7,
+        1420.3
+      ],
+      "layout": "1x3",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "center": [
+        11.5,
+        -8.0
+      ]
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-abdomen-ct-soft-axial",
+      "view": "axial",
+      "width": 900,
+      "height": 630,
+      "include": {
+        "colorbar": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "amos_0004_seg.nii.gz",
+      "patch": {
+        "visible": true,
+        "labelMode": "outline",
+        "outlineWidthPx": 2,
+        "opacity": 1.0,
+        "interpolation": "nearest"
+      }
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-abdomen-ct-labels-axial",
+      "view": "axial",
+      "width": 900,
+      "height": 630,
+      "include": {
+        "colorbar": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "amos_0004_seg.nii.gz",
+      "patch": {
+        "visibleLabels": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true,
+          "opacity": 1.0,
+          "smooth": true
+        }
+      }
+    },
+    {
+      "type": "set",
+      "layout": "3d-only"
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d"
+    },
+    {
+      "type": "tween",
+      "out": "_aim",
+      "frames": 1,
+      "to": {
+        "target": [
+          9.2,
+          -4.1,
+          1396.0
+        ],
+        "distance": 400
+      },
+      "view": "view3d",
+      "gif": false,
+      "width": 64,
+      "height": 64
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-abdomen-ct-labels-3d",
+      "view": "view3d",
+      "width": 900,
+      "height": 760,
+      "include": {
+        "colorbar": false
+      }
+    }
+  ]
+}

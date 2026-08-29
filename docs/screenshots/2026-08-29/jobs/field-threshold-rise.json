@@ -1,0 +1,194 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/Simulations/Thalamus/TI/niftis/grey_Thalamus_TI_subject_TI_max.nii.gz",
+      "${TETRAVOX_DATA}/Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh"
+    ],
+    "preset": "ti-field-on-t1"
+  },
+  "window": {
+    "width": 560,
+    "height": 560
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showColorbar": false,
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "grey_Thalamus_TI.msh",
+      "patch": {
+        "colorMode": "solid",
+        "solidColor": [
+          0.72,
+          0.72,
+          0.75,
+          1
+        ],
+        "fillIn2D": false,
+        "contoursIn2D": false,
+        "showColorbar": false,
+        "opacity": 1.0
+      }
+    },
+    {
+      "type": "set",
+      "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
+      "patch": {
+        "showColorbar": true
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        0.0,
+        9.0,
+        18.0
+      ],
+      "layout": "2x2",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": true,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.66,
+      "center": [
+        -1.5,
+        -15.5
+      ]
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.66,
+      "center": [
+        -1.5,
+        32.0
+      ]
+    },
+    {
+      "type": "set",
+      "view": "sagittal",
+      "mmPerPx": 0.66,
+      "center": [
+        15.5,
+        32.0
+      ]
+    },
+    {
+      "type": "set",
+      "camera": "L",
+      "view": "view3d"
+    },
+    {
+      "type": "tween",
+      "out": "_aim",
+      "frames": 1,
+      "to": {
+        "target": [
+          2.3,
+          11.2,
+          15.9
+        ],
+        "distance": 300
+      },
+      "view": "view3d",
+      "gif": false,
+      "width": 64,
+      "height": 64
+    },
+    {
+      "type": "tween",
+      "out": "field-threshold-rise",
+      "frames": 15,
+      "from": {
+        "layers": [
+          {
+            "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
+            "patch": {
+              "threshold": {
+                "lo": 0.081
+              }
+            }
+          }
+        ]
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
+            "patch": {
+              "threshold": {
+                "lo": 0.1325
+              }
+            }
+          }
+        ]
+      },
+      "view": "grid",
+      "fps": 12,
+      "format": "mp4",
+      "colors": 40,
+      "sequence": "start",
+      "width": 560,
+      "height": 560,
+      "include": {
+        "colorbar": true
+      }
+    },
+    {
+      "type": "tween",
+      "out": "field-threshold-rise",
+      "frames": 13,
+      "from": {
+        "layers": [
+          {
+            "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
+            "patch": {
+              "threshold": {
+                "lo": 0.1288214285714286
+              }
+            }
+          }
+        ]
+      },
+      "to": {
+        "layers": [
+          {
+            "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
+            "patch": {
+              "threshold": {
+                "lo": 0.08467857142857144
+              }
+            }
+          }
+        ]
+      },
+      "view": "grid",
+      "fps": 12,
+      "format": "mp4",
+      "colors": 40,
+      "sequence": "end",
+      "width": 560,
+      "height": 560,
+      "include": {
+        "colorbar": true
+      }
+    }
+  ]
+}

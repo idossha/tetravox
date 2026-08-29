@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/ernie.msh"
+    ],
+    "preset": "mesh-tissues-translucent"
+  },
+  "window": {
+    "width": 560,
+    "height": 560
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layout": "3d-only"
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d",
+      "distance": 290
+    },
+    {
+      "type": "orbit",
+      "out": "orbit-head-translucent",
+      "degrees": 360,
+      "frames": 36,
+      "axis": "z",
+      "fps": 12,
+      "format": "mp4",
+      "colors": 64,
+      "width": 560,
+      "height": 560,
+      "include": {
+        "colorbar": false
+      }
+    }
+  ]
+}

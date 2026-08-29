@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/niivue-images/CT_Abdo.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1000,
+    "height": 800
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "CT_Abdo.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -1350,
+          "hi": 150
+        },
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        -36.7,
+        -30.0,
+        -20.0
+      ],
+      "layout": "1x3",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": true
+      }
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.22,
+      "center": [
+        -68.3,
+        -19.3
+      ]
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-chest-ct-lung-zoom",
+      "view": "coronal",
+      "width": 900,
+      "height": 800,
+      "include": {
+        "colorbar": false,
+        "scaleBar": true
+      }
+    }
+  ]
+}

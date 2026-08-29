@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/eeg_positions/GSN-HydroCel-185.geo"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showIn3D": true
+      },
+      "type": "set"
+    },
+    {
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "S",
+      "distance": 460,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 900,
+      "height": 900,
+      "include": {
+        "colorbar": false
+      },
+      "type": "screenshot",
+      "out": "feat-points-eeg-3d"
+    }
+  ]
+}

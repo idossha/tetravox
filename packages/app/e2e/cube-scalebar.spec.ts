@@ -22,7 +22,7 @@ import { mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, SHOTS_DIR, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
@@ -32,15 +32,7 @@ const ROOT = process.env.TETRAVOX_TESTDATA ?? '';
 const T1 = join(ROOT, 'm2m_ernie', 'T1.nii.gz');
 
 /** Where the plan wants the picture. */
-const SHOT = resolve(
-  APP_ROOT,
-  '..',
-  '..',
-  'docs',
-  'screenshots',
-  'directed-2026-08-28',
-  'cube-scalebar.png'
-);
+const SHOT = join(SHOTS_DIR, 'cube-scalebar.png');
 
 /** The §4.5 block as the engine holds it — the one place both items really live. */
 async function annotations(page: Page): Promise<Record<string, unknown>> {

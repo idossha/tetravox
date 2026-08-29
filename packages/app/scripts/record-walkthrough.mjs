@@ -120,8 +120,8 @@ if (made.status !== 0) {
 }
 console.log(`\n[walkthrough] GIF: ${gif}`);
 console.log(
-  `[walkthrough] The committed one is docs/media/walkthrough.gif (with its manifest beside it).\n` +
-    `[walkthrough] Refresh it with:\n` +
-    `[walkthrough]   cp ${gif} docs/media/walkthrough.gif\n` +
-    `[walkthrough]   cp ${join(OUT, 'manifest.json')} docs/media/walkthrough.manifest.json`
+  `[walkthrough] Nothing in the repo commits this GIF. The published motion clips are the showcase\n` +
+    `[walkthrough] set in docs/media/ (docs/media/SHOWCASE.md, made by examples/capture/showcase.py),\n` +
+    `[walkthrough] and the still set is docs/screenshots/2026-08-29/. This run is a local artefact:\n` +
+    `[walkthrough]   frames + captions: ${join(OUT, 'manifest.json')}`
 );

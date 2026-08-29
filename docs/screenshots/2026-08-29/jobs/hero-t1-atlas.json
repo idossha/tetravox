@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/segmentation/labeling.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/surfaces/lh.pial.gii"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "labelMode": "both",
+        "opacity": 0.35,
+        "visibleLabels": [
+          2,
+          3,
+          4,
+          5,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          24,
+          26,
+          28,
+          29,
+          30,
+          31,
+          41,
+          42,
+          43,
+          44,
+          46,
+          47,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          58,
+          60,
+          62,
+          63,
+          72,
+          77,
+          80,
+          85,
+          501,
+          502,
+          506,
+          507,
+          508,
+          509,
+          511,
+          512,
+          514,
+          515,
+          516,
+          520,
+          525,
+          530
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "layer": "lh.pial.gii",
+      "patch": {
+        "contoursIn2D": false
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        0,
+        -18,
+        8
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.32,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 330,
+      "type": "set"
+    },
+    {
+      "view": "grid",
+      "width": 1400,
+      "height": 1140,
+      "include": {
+        "crosshair": true,
+        "colorbar": false
+      },
+      "type": "screenshot",
+      "out": "hero-t1-atlas-2x2"
+    }
+  ]
+}

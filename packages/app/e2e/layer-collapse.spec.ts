@@ -21,7 +21,7 @@ import { mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, SHOTS_DIR, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
@@ -33,15 +33,7 @@ const T1 = join(ROOT, 'm2m_ernie', 'T1.nii.gz');
 const ERNIE = join(ROOT, 'm2m_ernie', 'ernie.msh');
 
 /** Where the plan wants the picture. */
-const SHOT = resolve(
-  APP_ROOT,
-  '..',
-  '..',
-  'docs',
-  'screenshots',
-  'directed-2026-08-28',
-  'layer-collapse.png'
-);
+const SHOT = join(SHOTS_DIR, 'layer-collapse.png');
 
 /** The store's disclosure map, which is the only place this state exists. */
 async function collapsed(page: Page): Promise<Record<string, boolean>> {

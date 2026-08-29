@@ -1,0 +1,569 @@
+[
+  {
+    "file": "hero/hero-abdomen-ct-2x2.png",
+    "group": "hero",
+    "title": "Abdominal CT with organ labels",
+    "what_it_shows": "A 2x2 of an abdominal CT in a soft-tissue window (W400/L40) with the 15 AMOS organ labels filled at 0.55, the crosshair driving all three planes, and the organs as marching-cubes surfaces in the 3D pane.",
+    "dataset": "AMOS22 CT `amos_0004` — abdominal CT, 0.78 x 0.78 x 5 mm, with the 15-organ label map (CC-BY-4.0)"
+  },
+  {
+    "file": "hero/hero-field-on-mesh.png",
+    "group": "hero",
+    "title": "A simulated field in the brain",
+    "what_it_shows": "The TI_max field of a thalamic montage, thresholded at its own 90th percentile with the scale running p90 -> p97 -> p99.9: in the big 3D pane of a 1+3 layout the field on grey_Thalamus_TI.msh inside a translucent grey-matter surface, seen 30 degrees off left-lateral; in the slice panes the same field as a localised heat overlay on the T1. One colour bar.",
+    "dataset": "ernie — Simulations/Thalamus/TI (Thalamus_TI.msh + grey_Thalamus_TI.msh + grey_Thalamus_TI_subject_TI_max.nii.gz) over T1.nii.gz"
+  },
+  {
+    "file": "hero/hero-spine-ct-2x2.png",
+    "group": "hero",
+    "title": "Chest CT with per-vertebra labels",
+    "what_it_shows": "A 2x2 of a chest CT in a bone window (W1500/L300) with every vertebra separately labelled, and the whole labelled column rebuilt as one surface per vertebra in the 3D pane.",
+    "dataset": "CTSpine1K / COVID-19 `A-0377` — chest CT, 0.74 x 0.74 x 5 mm, every vertebra labelled (CC-BY-NC-SA)"
+  },
+  {
+    "file": "hero/hero-t1-atlas-2x2.png",
+    "group": "hero",
+    "title": "T1 with the atlas",
+    "what_it_shows": "The labeling atlas as outline+fill at 0.35 over the T1, 2x2 with the crosshair on, the left pial surface in 3D.",
+    "dataset": "ernie — T1.nii.gz + segmentation/labeling.nii.gz + surfaces/lh.pial.gii"
+  },
+  {
+    "file": "hero/hero-tissues-2x2.png",
+    "group": "hero",
+    "title": "Tissue segmentation, four panes",
+    "what_it_shows": "final_tissues.nii.gz filled at full opacity with its SimNIBS LUT, 2x2 with the crosshair on, and the head mesh's scalp alone in the 3D pane.",
+    "dataset": "ernie — m2m_ernie/final_tissues.nii.gz + ernie.msh"
+  },
+  {
+    "file": "modalities/mod-abdomen-ct-labels-3d.png",
+    "group": "modalities",
+    "title": "Abdominal organs as surfaces",
+    "what_it_shows": "The thoraco-abdominal organs (labels 1-13) as one isosurface per region, anterior camera.",
+    "dataset": "AMOS22 CT `amos_0004` — abdominal CT, 0.78 x 0.78 x 5 mm, with the 15-organ label map (CC-BY-4.0)"
+  },
+  {
+    "file": "modalities/mod-abdomen-ct-labels-axial.png",
+    "group": "modalities",
+    "title": "Abdominal CT with organ outlines",
+    "what_it_shows": "The same slice with the organ label map in outline mode at full opacity — the anatomy stays readable under the segmentation.",
+    "dataset": "AMOS22 CT `amos_0004` — abdominal CT, 0.78 x 0.78 x 5 mm, with the 15-organ label map (CC-BY-4.0)"
+  },
+  {
+    "file": "modalities/mod-abdomen-ct-soft-axial.png",
+    "group": "modalities",
+    "title": "Abdominal CT, soft-tissue window",
+    "what_it_shows": "One axial pane at W400/L40 through the kidneys and pancreas, framed to the patient rather than to the scanner bore.",
+    "dataset": "AMOS22 CT `amos_0004` — abdominal CT, 0.78 x 0.78 x 5 mm, with the 15-organ label map (CC-BY-4.0)"
+  },
+  {
+    "file": "modalities/mod-abdomen-mri-labels-2x2.png",
+    "group": "modalities",
+    "title": "Abdominal MRI with organ labels",
+    "what_it_shows": "A 2x2 with the 13 organ labels filled at 0.55 and the organ surfaces in 3D: the same segmentation workflow on MRI as on CT.",
+    "dataset": "AMOS22 MRI `amos_0555` — T1-weighted abdominal MRI, 1.4 x 1.4 x 3 mm, same 15 organ labels (CC-BY-4.0)"
+  },
+  {
+    "file": "modalities/mod-abdomen-mri-t1-coronal.png",
+    "group": "modalities",
+    "title": "Abdominal MRI, T1-weighted coronal",
+    "what_it_shows": "A coronal pane of a T1w abdominal MRI through the liver, aorta and left kidney — the same controls as the CT, no Hounsfield units.",
+    "dataset": "AMOS22 MRI `amos_0555` — T1-weighted abdominal MRI, 1.4 x 1.4 x 3 mm, same 15 organ labels (CC-BY-4.0)"
+  },
+  {
+    "file": "modalities/mod-brain-t1-axial-zoom.png",
+    "group": "modalities",
+    "title": "Brain MRI — hippocampal detail",
+    "what_it_shows": "The same axial slice at 0.13 mm/px centred on the left hippocampus, scale bar on — the zoomed half of the overview/detail pair.",
+    "dataset": "ernie — m2m_ernie/T1.nii.gz"
+  },
+  {
+    "file": "modalities/mod-brain-t1-axial.png",
+    "group": "modalities",
+    "title": "Brain MRI — T1 axial",
+    "what_it_shows": "A single axial pane of the T1 filling the frame, orientation letters, corner info and the NEU badge.",
+    "dataset": "ernie — m2m_ernie/T1.nii.gz"
+  },
+  {
+    "file": "modalities/mod-brain-t2-coronal.png",
+    "group": "modalities",
+    "title": "Brain MRI — T2 coronal",
+    "what_it_shows": "The registered second contrast in a coronal pane; the same viewer, a different sequence.",
+    "dataset": "sub-ernie — m2m_ernie/T2_reg.nii.gz"
+  },
+  {
+    "file": "modalities/mod-chest-ct-lung-2x2.png",
+    "group": "modalities",
+    "title": "Chest CT, lung window",
+    "what_it_shows": "The same scan in three planes at W1500/L-600, plus the body surface as an isosurface of the CT at -300 HU in the 3D pane — the ECG leads and lines are on it.",
+    "dataset": "niivue-images `CT_Abdo` — contrast chest / upper-abdomen CT, 1.49 mm isotropic (BSD-2-Clause)"
+  },
+  {
+    "file": "modalities/mod-chest-ct-lung-zoom.png",
+    "group": "modalities",
+    "title": "Chest CT, lung base in detail",
+    "what_it_shows": "The zoomed half of the pair: the left lung base and the diaphragm at 0.22 mm/px (2.5x the overview) with a scale bar and no crosshair.",
+    "dataset": "niivue-images `CT_Abdo` — contrast chest / upper-abdomen CT, 1.49 mm isotropic (BSD-2-Clause)"
+  },
+  {
+    "file": "modalities/mod-head-ct-axial.png",
+    "group": "modalities",
+    "title": "Head CT — brain window",
+    "what_it_shows": "A clinical head CT windowed to soft tissue (-20 to 100 HU): window/level works the same on CT as on MRI.",
+    "dataset": "niivue CT_Philips.nii.gz (data/public/niivue-images)"
+  },
+  {
+    "file": "modalities/mod-head-ct-bone-3d.png",
+    "group": "modalities",
+    "title": "Head CT — bone window in 3D",
+    "what_it_shows": "The same CT on a bone window with showIn3D on, so its three slice planes stand in the 3D pane.",
+    "dataset": "niivue CT_Philips.nii.gz"
+  },
+  {
+    "file": "modalities/mod-pelvis-mri-labels-3d.png",
+    "group": "modalities",
+    "title": "Pelvic structures as surfaces",
+    "what_it_shows": "Hips, femurs, sacrum, vertebrae, bladder, iliac vessels and the gluteal and iliopsoas muscles as isosurfaces, narrowed to 18 of the 26 structures so the set stays readable.",
+    "dataset": "TotalSegmentator-MR `s0132` — 2 mm pelvis GRE with 26 structures (CC-BY-NC-SA)"
+  },
+  {
+    "file": "modalities/mod-spine-ct-labels-3d.png",
+    "group": "modalities",
+    "title": "Vertebrae as surfaces",
+    "what_it_shows": "The labelled column rebuilt as one surface per vertebra, seen from the left, so the kyphosis is visible.",
+    "dataset": "CTSpine1K / COVID-19 `A-0377` — chest CT, 0.74 x 0.74 x 5 mm, every vertebra labelled (CC-BY-NC-SA)"
+  },
+  {
+    "file": "modalities/mod-spine-ct-labels-sagittal.png",
+    "group": "modalities",
+    "title": "Spine CT with per-vertebra labels",
+    "what_it_shows": "The same pane with the vertebra label map in fill+outline mode at 0.75 — one colour per vertebral level.",
+    "dataset": "CTSpine1K / COVID-19 `A-0377` — chest CT, 0.74 x 0.74 x 5 mm, every vertebra labelled (CC-BY-NC-SA)"
+  },
+  {
+    "file": "modalities/mod-spine-ct-sagittal.png",
+    "group": "modalities",
+    "title": "Spine CT, sagittal bone window",
+    "what_it_shows": "A single sagittal pane of the thoracic column in a bone window, with a scale bar.",
+    "dataset": "CTSpine1K / COVID-19 `A-0377` — chest CT, 0.74 x 0.74 x 5 mm, every vertebra labelled (CC-BY-NC-SA)"
+  },
+  {
+    "file": "modalities/mod-spine-mri-labels-sagittal.png",
+    "group": "modalities",
+    "title": "Lumbar spine MRI with labels",
+    "what_it_shows": "The same slice with vertebrae, intervertebral discs, the spinal cord and the sacrum filled at 0.5.",
+    "dataset": "TotalSegmentator-MR `s0375` — sagittal lumbar-spine MRI, 0.67 mm in plane, with vertebrae / discs / cord / sacrum (CC-BY-NC-SA)"
+  },
+  {
+    "file": "modalities/mod-spine-mri-sagittal.png",
+    "group": "modalities",
+    "title": "Lumbar spine MRI, sagittal",
+    "what_it_shows": "A sagittal lumbar MRI at 0.34 mm/px with a scale bar — the plain contrast, before any segmentation.",
+    "dataset": "TotalSegmentator-MR `s0375` — sagittal lumbar-spine MRI, 0.67 mm in plane, with vertebrae / discs / cord / sacrum (CC-BY-NC-SA)"
+  },
+  {
+    "file": "modalities/mod-wholebody-mri-coronal.png",
+    "group": "modalities",
+    "title": "Whole-body MRI with 49 structures",
+    "what_it_shows": "A single coronal pane covering 1,050 mm of subject from the brain to mid-thigh, with all 49 TotalSegmentator-MR structures filled at 0.45 and a scale bar.",
+    "dataset": "TotalSegmentator-MR `s0175` — 3 mm whole-body GRE with 49 structures (CC-BY-NC-SA)"
+  },
+  {
+    "file": "features/feat-colormap-hot.png",
+    "group": "features",
+    "title": "Colormap — hot",
+    "what_it_shows": "A colormap applied to anatomy, with the layer's colour bar.",
+    "dataset": "ernie — T1.nii.gz"
+  },
+  {
+    "file": "features/feat-colormap-viridis.png",
+    "group": "features",
+    "title": "Colormap — viridis",
+    "what_it_shows": "The same window under a perceptually uniform ramp.",
+    "dataset": "ernie — T1.nii.gz"
+  },
+  {
+    "file": "features/feat-convention-neu.png",
+    "group": "features",
+    "title": "Neurological convention",
+    "what_it_shows": "Left on the left; the NEU badge says so and is never optional.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-convention-rad.png",
+    "group": "features",
+    "title": "Radiological convention",
+    "what_it_shows": "The same slice mirrored, L and R swapped, badge reading RAD.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-coordinates.png",
+    "group": "features",
+    "title": "Coordinates and template spaces",
+    "what_it_shows": "The coordinate bar with the space selector on MNI152 (nonlinear) and the TKR-RAS and MNI readouts populated from the subject's toMNI/ warp.",
+    "dataset": "sub-ernie — T1.nii.gz + m2m_ernie/toMNI/"
+  },
+  {
+    "file": "features/feat-figure-export-2x2.png",
+    "group": "features",
+    "title": "A publication export",
+    "what_it_shows": "The 2x2 exported on a white page at 300 dpi with the chrome off and the border trimmed away.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-glyphs-arrows.png",
+    "group": "features",
+    "title": "Vector glyphs — arrows",
+    "what_it_shows": "The E vector field as arrows over a translucent head, coloured by magnitude, log-scaled so the electrode peak does not swamp the brain.",
+    "dataset": "ernie — ernie_TDCS_1_scalar.msh"
+  },
+  {
+    "file": "features/feat-glyphs-lines.png",
+    "group": "features",
+    "title": "Vector glyphs — lines",
+    "what_it_shows": "The same field drawn as headless lines.",
+    "dataset": "ernie — ernie_TDCS_1_scalar.msh"
+  },
+  {
+    "file": "features/feat-isosurface-organs-abdomen.png",
+    "group": "features",
+    "title": "Isosurfaces, off the head",
+    "what_it_shows": "The isosurface feature on a non-brain volume: one marching-cubes surface per organ label of an abdominal CT, no anatomy planes behind them.",
+    "dataset": "AMOS22 CT `amos_0004` — abdominal CT, 0.78 x 0.78 x 5 mm, with the 15-organ label map (CC-BY-4.0)"
+  },
+  {
+    "file": "features/feat-labels-both.png",
+    "group": "features",
+    "title": "Labels — fill and outline",
+    "what_it_shows": "Both modes at once at 0.6 opacity.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-labels-fill.png",
+    "group": "features",
+    "title": "Labels — fill",
+    "what_it_shows": "The atlas as filled regions in its LUT colours over the T1.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-labels-iso-brainstem.png",
+    "group": "features",
+    "title": "A region as a 3D surface",
+    "what_it_shows": "The brain stem (id 16) built as an isosurface from the label volume, standing among the T1's slice planes.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-labels-outline.png",
+    "group": "features",
+    "title": "Labels — outline",
+    "what_it_shows": "The same atlas as boundaries only, so the anatomy underneath stays readable.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-labels-solo-thalamus.png",
+    "group": "features",
+    "title": "One region, soloed",
+    "what_it_shows": "visibleLabels reduced to the left and right thalamus (ids 10 and 49); every other region is hidden.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-layouts-1plus3.png",
+    "group": "features",
+    "title": "Layout — 1+3",
+    "what_it_shows": "One large 3D pane and the three slices beside it.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-layouts-1x1.png",
+    "group": "features",
+    "title": "Layout — 1x1",
+    "what_it_shows": "One pane, T1 with the atlas outlined, crosshair on.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-layouts-1x3.png",
+    "group": "features",
+    "title": "Layout — 1x3",
+    "what_it_shows": "The three slice views stacked, one cursor driving all of them.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-layouts-2x2.png",
+    "group": "features",
+    "title": "Layout — 2x2",
+    "what_it_shows": "Axial, coronal, sagittal and the 3D pane with the T1's slice planes.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-layouts-3dplus1.png",
+    "group": "features",
+    "title": "Layout — 3D+1",
+    "what_it_shows": "The 3D pane beside a single slice pane.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-measure.png",
+    "group": "features",
+    "title": "Measurements",
+    "what_it_shows": "An angle in the axial pane and a length in the coronal one, listed in the Measurements panel with Clear all.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz + ernie.msh"
+  },
+  {
+    "file": "features/feat-mesh-clip-caps.png",
+    "group": "features",
+    "title": "Clip plane with caps",
+    "what_it_shows": "A sagittal clip through the head mesh with capped, tag-coloured cut faces.",
+    "dataset": "ernie — m2m_ernie/ernie.msh"
+  },
+  {
+    "file": "features/feat-mesh-cut-2d.png",
+    "group": "features",
+    "title": "A mesh cut in a slice pane",
+    "what_it_shows": "The tet mesh's cross-section filled and outlined in an axial pane — a mesh is not only a 3D object.",
+    "dataset": "ernie — m2m_ernie/ernie.msh"
+  },
+  {
+    "file": "features/feat-mesh-field-tdcs-3d.png",
+    "group": "features",
+    "title": "tDCS E-field on grey matter",
+    "what_it_shows": "|E| from a tDCS simulation on the cortical surface, scaled 0 to 0.12 V/m with the colour bar.",
+    "dataset": "ernie — ernie_TDCS_1_scalar.msh"
+  },
+  {
+    "file": "features/feat-mesh-isolate-brain.png",
+    "group": "features",
+    "title": "Isolation — brain only",
+    "what_it_shows": "The same mesh isolated to the white and grey matter tags.",
+    "dataset": "ernie — m2m_ernie/ernie.msh"
+  },
+  {
+    "file": "features/feat-mesh-per-tissue-paint.png",
+    "group": "features",
+    "title": "Per-tissue paint",
+    "what_it_shows": "One mesh, two colour sources on a sagittal cut: the grey matter painted by the E-field, the white matter in its own tissue colour.",
+    "dataset": "ernie — Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh"
+  },
+  {
+    "file": "features/feat-mesh-tissues-3d.png",
+    "group": "features",
+    "title": "A tissue mesh in 3D",
+    "what_it_shows": "ernie.msh with every tissue opaque in its .msh.opt colour.",
+    "dataset": "ernie — m2m_ernie/ernie.msh"
+  },
+  {
+    "file": "features/feat-mesh-translucent.png",
+    "group": "features",
+    "title": "Translucent tissues",
+    "what_it_shows": "The mesh-tissues-translucent preset: scalp at 0.3, skull at 0.5, grey and white matter opaque.",
+    "dataset": "ernie — m2m_ernie/ernie.msh"
+  },
+  {
+    "file": "features/feat-points-eeg-3d.png",
+    "group": "features",
+    "title": "EEG electrode positions",
+    "what_it_shows": "A 185-channel HydroCel montage read from a Gmsh .geo view, labelled, over the T1's slice planes.",
+    "dataset": "ernie — eeg_positions/GSN-HydroCel-185.geo"
+  },
+  {
+    "file": "features/feat-seeg-contacts-axial.png",
+    "group": "features",
+    "title": "sEEG contacts on a slice",
+    "what_it_shows": "The same implantation in an axial pane of the T1.",
+    "dataset": "sub-ernie — T1.nii.gz + ernie_seeg.msh"
+  },
+  {
+    "file": "features/feat-seeg-mesh-3d.png",
+    "group": "features",
+    "title": "sEEG leads in a head model",
+    "what_it_shows": "The sEEG head mesh with translucent tissues so the implanted contacts are visible.",
+    "dataset": "sub-ernie — m2m_ernie/ernie_seeg.msh + ernie_seeg_views.pos"
+  },
+  {
+    "file": "features/feat-surface-contours-2x2.png",
+    "group": "features",
+    "title": "Surface contours over the slices",
+    "what_it_shows": "The same surface as a coloured contour in every 2D pane, with the surface itself in 3D.",
+    "dataset": "ernie — T1.nii.gz + lh.pial.gii"
+  },
+  {
+    "file": "features/feat-surface-pial-3d.png",
+    "group": "features",
+    "title": "A GIfTI surface in 3D",
+    "what_it_shows": "The left pial surface loaded from a GIfTI file.",
+    "dataset": "ernie — m2m_ernie/surfaces/lh.pial.gii"
+  },
+  {
+    "file": "features/feat-threshold-field-on-t1.png",
+    "group": "features",
+    "title": "A field thresholded on anatomy",
+    "what_it_shows": "The ti-field-on-t1 preset: TI_max over a grey T1, thresholded at the field's own 90th percentile with the scale running p90 to p99.9, colour bar on.",
+    "dataset": "ernie — grey_Thalamus_TI_subject_TI_max.nii.gz over T1.nii.gz"
+  },
+  {
+    "file": "features/feat-window-minmax.png",
+    "group": "features",
+    "title": "Window — full range",
+    "what_it_shows": "The T1 scaled 0 to 65535: a correct but useless window, and why presets exist.",
+    "dataset": "ernie — T1.nii.gz"
+  },
+  {
+    "file": "features/feat-window-p2-98.png",
+    "group": "features",
+    "title": "Window — 2 to 98 %",
+    "what_it_shows": "The same volume windowed to its own percentiles.",
+    "dataset": "ernie — T1.nii.gz"
+  },
+  {
+    "file": "features/feat-zoom-detail.png",
+    "group": "features",
+    "title": "Zoom — detail",
+    "what_it_shows": "The same slice at 0.13 mm/px centred on the hippocampus, scale bar on, crosshair off.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "features/feat-zoom-overview.png",
+    "group": "features",
+    "title": "Zoom — overview",
+    "what_it_shows": "An axial pane at 0.21 mm/px: the whole head, crosshair on.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz"
+  },
+  {
+    "file": "motion/clip-head-sagittal.gif",
+    "group": "motion",
+    "title": "Sagittal clip through the head",
+    "what_it_shows": "A sagittal clip plane driven across the head mesh from the left scalp to just past the midline and back, filmed from the left so the capped cut face is what the viewer sees: each tissue's cut face is painted in its own colour. 48 frames at 12 fps, 560 px square; `motion/clip-head-sagittal.mp4` is the same clip as H.264.",
+    "dataset": "SimNIBS reference subject `ernie` — `ernie.msh`"
+  },
+  {
+    "file": "motion/field-threshold-rise.gif",
+    "group": "motion",
+    "title": "A simulated field's threshold",
+    "what_it_shows": "A 2x2 with the grey-matter surface in 3D and a simulated TI field over the T1, its threshold climbing from the field's own p50 (0.081 V/m) to its p97 (0.133 V/m) and falling back. Colour bar on, because a field is on screen. 28 frames at 12 fps, 560 px square; `motion/field-threshold-rise.mp4` is the same clip as H.264.",
+    "dataset": "SimNIBS `ernie` — `T1.nii.gz` with the Thalamus TI simulation (`grey_Thalamus_TI_subject_TI_max.nii.gz`, `grey_Thalamus_TI.msh`)"
+  },
+  {
+    "file": "motion/orbit-abdomen-organs.gif",
+    "group": "motion",
+    "title": "Abdominal organ turntable",
+    "what_it_shows": "The 13 thoraco-abdominal organ surfaces of an AMOS22 CT turning through 360 deg. 36 frames at 12 fps, 560 px square; `motion/orbit-abdomen-organs.mp4` is the same clip as H.264.",
+    "dataset": "AMOS22 CT `amos_0004` — abdominal CT, 0.78 x 0.78 x 5 mm, with the 15-organ label map (CC-BY-4.0)"
+  },
+  {
+    "file": "motion/orbit-head-translucent.gif",
+    "group": "motion",
+    "title": "Head model turntable",
+    "what_it_shows": "A full 360 deg turn of the SimNIBS head mesh about the superior axis with the `mesh-tissues-translucent` preset — scalp at 0.3, skull at 0.5, opaque brain. 36 frames at 12 fps, 560 px square; `motion/orbit-head-translucent.mp4` is the same clip as H.264.",
+    "dataset": "SimNIBS reference subject `ernie` — `m2m_ernie/T1.nii.gz`, `segmentation/labeling.nii.gz`, `ernie.msh`"
+  },
+  {
+    "file": "motion/orbit-spine-vertebrae.gif",
+    "group": "motion",
+    "title": "Vertebra turntable",
+    "what_it_shows": "The per-vertebra isosurfaces of a chest CT turning through 360 deg. 36 frames at 12 fps, 560 px square; `motion/orbit-spine-vertebrae.mp4` is the same clip as H.264.",
+    "dataset": "CTSpine1K / COVID-19 `A-0377` — chest CT, 0.74 x 0.74 x 5 mm, every vertebra labelled (CC-BY-NC-SA)"
+  },
+  {
+    "file": "motion/sweep-axial-t1-atlas.gif",
+    "group": "motion",
+    "title": "Axial sweep with the atlas",
+    "what_it_shows": "An axial sweep from z = -45 to z = +70 mm with the 41 intracranial atlas labels outlined, and back — inferior to superior and down again, so the loop has no snap. 32 frames at 12 fps, 560 px square; `motion/sweep-axial-t1-atlas.mp4` is the same clip as H.264.",
+    "dataset": "SimNIBS reference subject `ernie` — `m2m_ernie/T1.nii.gz`, `segmentation/labeling.nii.gz`, `ernie.msh`"
+  },
+  {
+    "file": "motion/sweep-coronal-abdomen-ct.gif",
+    "group": "motion",
+    "title": "Coronal sweep of the abdomen",
+    "what_it_shows": "A coronal sweep from the front of the abdominal wall to behind the kidneys with the organ labels filled, and back. 32 frames at 12 fps, 560 px square; `motion/sweep-coronal-abdomen-ct.mp4` is the same clip as H.264.",
+    "dataset": "AMOS22 CT `amos_0004` — abdominal CT, 0.78 x 0.78 x 5 mm, with the 15-organ label map (CC-BY-4.0)"
+  },
+  {
+    "file": "motion/zoom-axial-detail.gif",
+    "group": "motion",
+    "title": "Zoom into the hippocampus",
+    "what_it_shows": "One axial pane moving from a whole-head overview at 0.40 mm/px to the left hippocampus at 0.20 mm/px, zoom and pan on the same clock, with a scale bar; and back out. 36 frames at 12 fps, 560 px square; `motion/zoom-axial-detail.mp4` is the same clip as H.264.",
+    "dataset": "SimNIBS reference subject `ernie` — `m2m_ernie/T1.nii.gz`, `segmentation/labeling.nii.gz`, `ernie.msh`"
+  },
+  {
+    "file": "ui/ui-app-menu.png",
+    "group": "ui",
+    "title": "The app menu",
+    "what_it_shows": "Open, New, Open scene, Save and Save as.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-info-panel.png",
+    "group": "ui",
+    "title": "The cursor readout",
+    "what_it_shows": "Voxel, value and label under the cursor for every loaded dataset, volumes and mesh alike.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-keymap-mouse.png",
+    "group": "ui",
+    "title": "Keyboard & mouse — Mouse",
+    "what_it_shows": "The pointer gestures of the 2D panes and the 3D pane, listed rather than generated.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-keymap-tabs.png",
+    "group": "ui",
+    "title": "Keyboard & mouse — View",
+    "what_it_shows": "The tabbed key map generated from the key resolver: the View tab with camera presets and panel chords.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-layer-panel.png",
+    "group": "ui",
+    "title": "The layer panel",
+    "what_it_shows": "A mesh layer expanded: its tissue table, colour source, shading, edges and the 2D cross-section controls.",
+    "dataset": "ernie — ernie.msh"
+  },
+  {
+    "file": "ui/ui-measure-panel.png",
+    "group": "ui",
+    "title": "The measurement panel",
+    "what_it_shows": "Two measurements with their values, a Go button each, and Clear all.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-region-panel.png",
+    "group": "ui",
+    "title": "The region list",
+    "what_it_shows": "All 57 atlas regions, named from the LUT, each with visibility and opacity.",
+    "dataset": "ernie — labeling.nii.gz + labeling_LUT.txt"
+  },
+  {
+    "file": "ui/ui-screenshot-dialog.png",
+    "group": "ui",
+    "title": "The screenshot export dialog",
+    "what_it_shows": "Target, dpi presets, physical width in millimetres, background, auto-trim and the per-capture chrome toggles, with a rendered preview and its byte size.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-settings-capture.png",
+    "group": "ui",
+    "title": "Settings — Capture",
+    "what_it_shows": "The screenshot defaults kept per machine: background, DPI and auto-trim.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-settings.png",
+    "group": "ui",
+    "title": "Settings — Appearance",
+    "what_it_shows": "The Settings dialog: tabs for Appearance, Capture, Paths and Startup, with the theme choice and the config file path.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-toolbar-rail.png",
+    "group": "ui",
+    "title": "The toolbar rail",
+    "what_it_shows": "Layouts, convention, reset, the annotation toggles, Measure and the Screenshot export menu.",
+    "dataset": "ernie"
+  },
+  {
+    "file": "ui/ui-window-dark.png",
+    "group": "ui",
+    "title": "The window, dark",
+    "what_it_shows": "The whole application at 1600x1000 in the 1+3 layout: toolbar rail, layer panel with the mesh's tissue table, the info panel, the status bar.",
+    "dataset": "ernie — T1.nii.gz + labeling.nii.gz + ernie.msh"
+  }
+]

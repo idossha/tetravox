@@ -1,5 +1,7 @@
 /**
- * The three screenshots directed tasks 2 and 3 owe (`docs/screenshots/directed-2026-08-28/`).
+ * Three engine captures — the T1 isosurface, one surface per tissue, and the `1+3` layout — written
+ * to the shared evidence directory `packages/app/test-results/shots/` (`SHOTS_DIR`, git-ignored).
+ * The committed documentation set is `docs/screenshots/2026-08-29/`; these are not part of it.
  *
  * Captured from the **real** app over the real reference dataset, offscreen (AGENTS rule 9 — the
  * window is built and never shown, and this spec must never set `TETRAVOX_E2E_HEADED`). Opt-in
@@ -18,17 +20,17 @@
 /* eslint-disable no-empty-pattern */
 
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, clickAppMenu, launchApp } from './fixtures';
+import { SHOTS_DIR, clickAppMenu, launchApp } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 import { decodePng } from './png';
 
 const ENABLED = process.env['TETRAVOX_SHOTS'] === '1';
 const ROOT = process.env['TETRAVOX_TESTDATA'] ?? '';
 
-const OUT = resolve(APP_ROOT, '..', '..', 'docs', 'screenshots', 'directed-2026-08-28');
+const OUT = SHOTS_DIR;
 
 /**
  * The window every capture is taken at, and the per-PNG budget the brief set.
@@ -50,7 +52,7 @@ let app: ElectronApplication;
 let page: Page;
 
 test.beforeAll(async ({}, workerInfo) => {
-  test.skip(!ENABLED, 'set TETRAVOX_SHOTS=1 to capture the directed-2026-08-28 screenshots');
+  test.skip(!ENABLED, 'set TETRAVOX_SHOTS=1 to capture these screenshots');
   test.skip(ROOT === '', 'TETRAVOX_TESTDATA is unset');
   mkdirSync(OUT, { recursive: true });
   const target = workerInfo.project.name as LaunchTarget;

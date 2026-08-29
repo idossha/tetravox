@@ -25,8 +25,8 @@ Exit status is `0` when every action succeeded and `1` otherwise, and `figures/j
 what was written, how long it took, and what went wrong.
 
 <p align="center">
-  <img src="screenshots/directed-2026-08-28/automation-ti-field-preset.png" width="480"
-       alt="A TI field as a thresholded heat overlay on a T1, produced by a four-line job">
+  <img src="screenshots/2026-08-29/features/feat-threshold-field-on-t1.png" width="480"
+       alt="A simulated field as a thresholded heat overlay on a T1, produced by a four-line job">
 </p>
 
 ---
@@ -131,7 +131,7 @@ next.
 | Preset | What it does |
 |---|---|
 | `plain` | Loads the files and leaves them alone. |
-| `ti-field-on-t1` | Grey T1 underneath; the TI field over it on a `hot` scale, thresholded at the field's own **90th percentile** with the scale running p90 → p97 → p99.9, colour bar on. The field is a `*_TI_max.nii.gz` volume, or a mesh carrying a field (`TI_max` when it has one). p99.9 rather than the maximum because `Thalamus_TI.msh` peaks at 10.29 V/m against a p99.9 two orders of magnitude below it, and a max-anchored scale renders the whole brain in the bottom colour. |
+| `ti-field-on-t1` | The field-over-anatomy preset. Grey anatomy underneath; a simulated field over it on a `hot` scale, thresholded at the field's own **90th percentile** with the scale running p90 → p97 → p99.9, colour bar on. It is not specific to one stimulation paradigm: the field can be any `*_max.nii.gz` volume (a tES `TI_max`, a tDCS or tACS magnitude, a TMS E-field) or a mesh carrying a scalar field — `TI_max` when it has one, otherwise the mesh's own field. The id is kept for compatibility with existing jobs. p99.9 rather than the maximum because `Thalamus_TI.msh` peaks at 10.29 V/m against a p99.9 two orders of magnitude below it, and a max-anchored scale renders everything below the peak in the bottom colour. |
 | `mesh-tissues-translucent` | Scalp at 0.3, skull at 0.5, opaque grey and white matter, both faces drawn. Only tags the mesh actually has are styled. |
 | `atlas-outline` | The label volume as outlines (`nearest` interpolation — interpolating a label volume invents ids that are not in the file) over whatever anatomy is loaded. |
 
@@ -184,8 +184,8 @@ A publication figure in one action — every pane at 85 mm (1004 px at 300 dpi) 
 #### `sweep` — step a 2D view through the volume
 
 <p align="center">
-  <img src="screenshots/directed-2026-08-28/automation-axial-sweep.gif" width="360"
-       alt="A 24-frame axial sweep through a T1">
+  <img src="screenshots/2026-08-29/motion/sweep-axial-t1-atlas.gif" width="360"
+       alt="An axial sweep through a T1 with the atlas outlined">
 </p>
 
 | Key | Meaning |
@@ -202,8 +202,8 @@ A publication figure in one action — every pane at 85 mm (1004 px at 300 dpi) 
 #### `orbit` — turntable the 3D view
 
 <p align="center">
-  <img src="screenshots/directed-2026-08-28/automation-head-orbit.gif" width="320"
-       alt="A 24-frame turntable of the head mesh with translucent scalp and skull">
+  <img src="screenshots/2026-08-29/motion/orbit-head-translucent.gif" width="320"
+       alt="A turntable of the head mesh with translucent scalp and skull">
 </p>
 
 | Key | Default | Meaning |
@@ -332,7 +332,7 @@ no ffmpeg on PATH — sweep.mp4 was not written (the GIF was)
 in `warnings`. `TETRAVOX_FFMPEG` names a specific binary.
 
 The GIF's palette is one global table quantised over every frame, and it is not dithered — a shared
-palette is what stops consecutive slices of the same brain shimmering between two different greys, and
+palette is what stops consecutive slices of the same volume shimmering between two different greys, and
 dithering a medical image invents texture that is not in the data. For a dense 3D render, `colors: 32`
 and a smaller `width` are the two knobs that matter: the turntable above is 1.9 MB at 256 colours and
 250 kB at 32. An MP4 is a fifth the size of either, at full resolution.
@@ -413,15 +413,15 @@ SimNIBS subject directory; each stops with the list of files it could not find. 
 | Example | What it shows |
 |---|---|
 | [`screenshot.py`](../examples/capture/screenshot.py) | Two figures — an axial T1 and a pial surface over the T1's 3D planes — from **one** app launch. |
-| [`sweep.py`](../examples/capture/sweep.py) | A 32-frame axial sweep through a TI field as a GIF and an MP4. |
+| [`sweep.py`](../examples/capture/sweep.py) | A 32-frame axial sweep through a simulated field as a GIF and an MP4. |
 | [`orbit.py`](../examples/capture/orbit.py) | A 36-frame turntable, with the palette and size knobs that keep a GIF shareable. |
 | [`showcase.py`](../examples/capture/showcase.py) | The whole showcase film: six jobs, ~2,900 frames, captions burned on with ffmpeg. |
 
 <p align="center">
-  <img src="screenshots/directed-2026-08-28/automation-t1-axial.png" width="360"
-       alt="An axial T1 slice captured by screenshot_t1_mesh.py">
-  <img src="screenshots/directed-2026-08-28/automation-head-3d.png" width="360"
-       alt="The head mesh with translucent scalp and skull, captured by screenshot_t1_mesh.py">
+  <img src="screenshots/2026-08-29/modalities/mod-brain-t1-axial.png" width="360"
+       alt="An axial T1 slice captured by screenshot.py">
+  <img src="screenshots/2026-08-29/features/feat-mesh-translucent.png" width="360"
+       alt="The head mesh with translucent scalp and skull, captured by screenshot.py">
 </p>
 
 ---
@@ -454,5 +454,5 @@ path *is* the user naming it.
 | `packages/app/src/main/gif.test.ts` | The GIF encoder, round-tripped through an independently written reader. |
 | `packages/app/src/renderer/src/automation/frames.test.ts` | Sweep offsets and orbit quaternions, checked by rotating vectors rather than by comparing components; the tween's easing curves, its numeric interpolation, and the deep merge that keeps a nested layer field intact. |
 | `packages/app/src/renderer/src/automation/presets.test.ts` | The presets, over datasets with known distributions. |
-| `packages/app/e2e/automation-realdata.spec.ts` | The whole thing, offscreen, on ernie: a screenshot job, a 10-frame sweep, a 12-frame orbit, the TI preset, and a `window.panels` + `view: "window"` capture asserted to differ from the same scene's `grid` — the images are the requested size, are not blank, and **differ frame to frame**. Skips when `TETRAVOX_TESTDATA` is unset. |
+| `packages/app/e2e/automation-realdata.spec.ts` | The whole thing, offscreen, on ernie: a screenshot job, a 10-frame sweep, a 12-frame orbit, the field-over-anatomy preset, and a `window.panels` + `view: "window"` capture asserted to differ from the same scene's `grid` — the images are the requested size, are not blank, and **differ frame to frame**. Skips when `TETRAVOX_TESTDATA` is unset. |
 | `python/tests/test_client.py` | The client's documents, and one example end to end against a dev build. Skips when either is missing. |

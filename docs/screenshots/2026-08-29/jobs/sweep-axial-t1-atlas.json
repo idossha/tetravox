@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/segmentation/labeling.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 560,
+    "height": 560
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "labelMode": "outline",
+        "outlineWidthPx": 2,
+        "opacity": 0.9,
+        "interpolation": "nearest",
+        "visibleLabels": [
+          2,
+          3,
+          4,
+          5,
+          7,
+          8,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          24,
+          26,
+          28,
+          29,
+          30,
+          31,
+          41,
+          42,
+          43,
+          44,
+          46,
+          47,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          58,
+          60,
+          62,
+          63,
+          72,
+          77,
+          80,
+          85
+        ]
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "layout": "1x3",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.36,
+      "center": [
+        -3.8,
+        -18.7
+      ]
+    },
+    {
+      "type": "sweep",
+      "out": "sweep-axial-t1-atlas",
+      "view": "axial",
+      "from": -45.0,
+      "to": 70.0,
+      "count": 17,
+      "fps": 12,
+      "format": "mp4",
+      "colors": 64,
+      "sequence": "start",
+      "width": 560,
+      "height": 560,
+      "include": {
+        "colorbar": false
+      }
+    },
+    {
+      "type": "sweep",
+      "out": "sweep-axial-t1-atlas",
+      "view": "axial",
+      "from": 62.8125,
+      "to": -37.8125,
+      "count": 15,
+      "fps": 12,
+      "format": "mp4",
+      "colors": 64,
+      "sequence": "end",
+      "width": 560,
+      "height": 560,
+      "include": {
+        "colorbar": false
+      }
+    }
+  ]
+}

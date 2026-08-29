@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/totalsegmentator-mr/s0175/mri.nii.gz",
+      "${TETRAVOX_PUBLIC}/totalsegmentator-mr/s0175/seg.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 620,
+    "height": 1400
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "s0175/mri.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": 0,
+          "hi": 340
+        },
+        "showIn3D": false
+      }
+    },
+    {
+      "type": "set",
+      "layer": "s0175/seg.nii.gz",
+      "patch": {
+        "labelMode": "fill",
+        "opacity": 0.45,
+        "interpolation": "nearest"
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        0.0,
+        -15.0,
+        -330.0
+      ],
+      "layout": "1x3",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": false,
+        "colorbar": false,
+        "scaleBar": true
+      }
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.76,
+      "center": [
+        -0.6,
+        -9.0
+      ]
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-wholebody-mri-coronal",
+      "view": "coronal",
+      "width": 620,
+      "height": 1400,
+      "include": {
+        "colorbar": false,
+        "scaleBar": true
+      }
+    }
+  ]
+}

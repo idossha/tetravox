@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_PUBLIC}/niivue-images/CT_Abdo.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 900
+  },
+  "actions": [
+    {
+      "type": "set",
+      "layer": "CT_Abdo.nii.gz",
+      "patch": {
+        "scale": {
+          "kind": "linear",
+          "lo": -1350,
+          "hi": 150
+        },
+        "showIn3D": false,
+        "iso3d": {
+          "enabled": true,
+          "iso": -300,
+          "color": [
+            0.82,
+            0.72,
+            0.64,
+            1
+          ],
+          "opacity": 1.0,
+          "smooth": true,
+          "faceMode": "cull"
+        }
+      }
+    },
+    {
+      "type": "set",
+      "cursor": [
+        -36.7,
+        -20.0,
+        60.0
+      ],
+      "layout": "2x2",
+      "radiological": false
+    },
+    {
+      "type": "set",
+      "annotations": {
+        "crosshair": true,
+        "colorbar": false,
+        "scaleBar": false
+      }
+    },
+    {
+      "type": "set",
+      "view": "axial",
+      "mmPerPx": 0.55,
+      "center": [
+        0.0,
+        -10.7
+      ]
+    },
+    {
+      "type": "set",
+      "view": "coronal",
+      "mmPerPx": 0.55,
+      "center": [
+        0.0,
+        20.7
+      ]
+    },
+    {
+      "type": "set",
+      "view": "sagittal",
+      "mmPerPx": 0.4,
+      "center": [
+        10.7,
+        20.7
+      ]
+    },
+    {
+      "type": "set",
+      "camera": "A",
+      "view": "view3d",
+      "distance": 600
+    },
+    {
+      "type": "screenshot",
+      "out": "mod-chest-ct-lung-2x2",
+      "view": "grid",
+      "width": 1400,
+      "height": 900,
+      "include": {
+        "colorbar": false,
+        "crosshair": true
+      }
+    }
+  ]
+}

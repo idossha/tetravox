@@ -22,17 +22,17 @@
 
 import { mkdirSync, mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { SHOTS_DIR, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const ROOT = process.env.TETRAVOX_TESTDATA ?? '';
 const T1 = join(ROOT, 'm2m_ernie', 'T1.nii.gz');
 const ERNIE = join(ROOT, 'm2m_ernie', 'ernie.msh');
 
-const SHOTS = resolve(APP_ROOT, '..', '..', 'docs', 'screenshots', 'directed-2026-08-28');
+const SHOTS = SHOTS_DIR;
 
 /**
  * The token values `renderer/src/theme/tokens.ts` ships, as the browser reports them. Duplicated

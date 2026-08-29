@@ -31,10 +31,10 @@
 /* eslint-disable no-empty-pattern */
 
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
+import { SHOTS_DIR, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const ROOT = process.env['TETRAVOX_TESTDATA'] ?? '';
@@ -43,7 +43,7 @@ const SPHERE_REG = join(ROOT, 'm2m_ernie', 'surfaces', 'lh.sphere.reg.gii');
 /** The fsaverage that ships with MNE's sample data — the one on this machine (AGENTS.md). */
 const SUBJECTS = '/Users/idohaber/mne_data/MNE-fsaverage-data';
 const FSAVG_SPHERE = join(SUBJECTS, 'fsaverage', 'surf', 'lh.sphere');
-const OUT = resolve(APP_ROOT, '..', '..', 'docs', 'screenshots', 'directed-2026-08-28');
+const OUT = SHOTS_DIR;
 
 /** `[subject vertex, its world mm on lh.central, fsaverage vertex, its mm on fsaverage lh.pial]`. */
 const LANDMARKS: [number, [number, number, number], number, [number, number, number]][] = [

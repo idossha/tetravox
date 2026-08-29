@@ -2,7 +2,7 @@
 # Fetch the small public, non-head NIfTI samples the docs/screenshots gallery renders.
 #
 # Everything lands in data/public/<name>/ (git-ignored). Each file's sha256 is checked after
-# download; docs/screenshots/gallery-2026-08-28/DATASETS.md carries the URL, licence and hash
+# download; docs/screenshots/2026-08-29/DATASETS.md carries the URL, licence and hash
 # for every entry. Total is ~190 MB (the AMOS22 and TotalSegmentator-MR abdomen/spine cases are the bulk).
 #
 # Usage:  scripts/fetch-public-samples.sh            # fetch what is missing, verify all

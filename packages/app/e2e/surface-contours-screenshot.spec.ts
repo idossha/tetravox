@@ -1,5 +1,7 @@
 /**
- * The screenshot directed task 12 owes: `docs/screenshots/directed-2026-08-28/surface-contours-2x2.png`.
+ * `surface-contours-2x2.png`, written to the shared evidence directory
+ * `packages/app/test-results/shots/` (`SHOTS_DIR`, git-ignored). The committed documentation set is
+ * `docs/screenshots/2026-08-29/`; this is not part of it.
  *
  * The maintainer's reference is a Freeview window — `T1.nii.gz` under the pial surface, the
  * surface's intersection with each plane drawn as a thin yellow outline on the axial, sagittal and
@@ -22,17 +24,17 @@
 /* eslint-disable no-empty-pattern */
 
 import { existsSync, readFileSync, mkdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, clickAppMenu, launchApp } from './fixtures';
+import { SHOTS_DIR, clickAppMenu, launchApp } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 import { decodePng } from './png';
 
 const ENABLED = process.env['TETRAVOX_SHOTS'] === '1';
 const ROOT = process.env['TETRAVOX_TESTDATA'] ?? '';
 
-const OUT = resolve(APP_ROOT, '..', '..', 'docs', 'screenshots', 'directed-2026-08-28');
+const OUT = SHOTS_DIR;
 const WINDOW = { width: 1100, height: 700 };
 const MAX_BYTES = 400_000;
 
@@ -46,7 +48,7 @@ let app: ElectronApplication;
 let page: Page;
 
 test.beforeAll(async ({}, workerInfo) => {
-  test.skip(!ENABLED, 'set TETRAVOX_SHOTS=1 to capture the directed-2026-08-28 screenshots');
+  test.skip(!ENABLED, 'set TETRAVOX_SHOTS=1 to capture these screenshots');
   test.skip(ROOT === '', 'TETRAVOX_TESTDATA is unset');
   mkdirSync(OUT, { recursive: true });
   const target = workerInfo.project.name as LaunchTarget;
