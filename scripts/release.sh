@@ -13,6 +13,7 @@
 #   * `package.json` × 5 — the root and the four workspace packages. `packages/app/package.json` is
 #     the one electron-builder reads for `${version}` in every artefact name, so a partial bump ships
 #     `Tetravox-0.1.0-mac-arm64.dmg` out of a 0.2.0 tree.
+#   * `CITATION.cff` — `version` and `date-released`, which GitHub's "Cite this repository" reads.
 #   * `Cargo.toml` — `[workspace.package] version`, which all five crates inherit via
 #     `version.workspace = true`. Bumping it moves `Cargo.lock`, so the lock is regenerated here with
 #     `cargo update --workspace` (an offline, path-only update — it does NOT touch any dependency
@@ -100,6 +101,20 @@ if (next === text) { console.error('no [workspace.package] version in Cargo.toml
 writeFileSync(file, next);
 NODE
   echo "    Cargo.toml [workspace.package]"
+
+  # CITATION.cff: `version` and `date-released`, which GitHub's "Cite this repository" reads.
+  node - CITATION.cff "$VERSION" <<'NODE'
+const { readFileSync, writeFileSync } = require('node:fs');
+const [file, version] = process.argv.slice(2);
+const today = new Date().toISOString().slice(0, 10);
+const text = readFileSync(file, 'utf8');
+const next = text
+  .replace(/^version: .*$/m, `version: ${version}`)
+  .replace(/^date-released: .*$/m, `date-released: '${today}'`);
+if (next === text) { console.error('no version / date-released in CITATION.cff'); process.exit(1); }
+writeFileSync(file, next);
+NODE
+  echo "    CITATION.cff"
 
   # CHANGELOG: turn `## [Unreleased]` into the released section, dated, and open a fresh Unreleased.
   node - CHANGELOG.md "$VERSION" <<'NODE'

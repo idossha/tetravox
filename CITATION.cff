@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: 'Tetravox'
+message: 'If you use this software, please cite it as below.'
+type: software
+version: 0.2.0
+date-released: '2026-08-29'
+url: 'https://idossha.github.io/tetravox/'
+repository-code: 'https://github.com/idossha/tetravox'
+license: MIT
+abstract: 'High-performance viewer for medical imaging volumes and meshes (NIfTI, Gmsh, GIfTI, FreeSurfer, STL/PLY/OBJ), built in Rust, WebGL2 and Electron.'
+authors:
+  - family-names: Haber
+    given-names: Ido
+keywords:
+  - neuroimaging
+  - medical imaging
+  - visualization
+  - NIfTI
+  - mesh
