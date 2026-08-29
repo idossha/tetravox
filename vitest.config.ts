@@ -14,10 +14,5 @@ export default defineConfig({
       'packages/app/vitest.config.ts',
     ],
     passWithNoTests: true,
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json-summary', 'lcov', 'html'],
-      reportsDirectory: 'coverage',
-    },
   },
 });

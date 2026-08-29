@@ -247,6 +247,22 @@ secrets are in place, `stapler validate` reporting `The validate action worked!`
 notarisation ticket is stapled — and the smoke test still runs against the signed, stapled app, so a
 signature that breaks the launch is caught in the same job that made it.
 
+The mac leg checks these credentials with `xcrun notarytool history` *before* it builds. If that step
+fails, fix the secret first and only then re-run — do not just press re-run.
+
+#### 4.1 "Your Apple ID has been locked" (HTTP 401)
+
+Every failed notarytool sign-in counts as a failed login on the Apple ID; a few in a row (a stale or
+mistyped app-specific password, re-run three times) lock the account, and after that *every* run
+fails with `HTTP status code: 401. Your Apple ID has been locked` no matter what the secret holds.
+This happened on the v0.2.0 runs of 2026-08-29. Recovery is entirely outside CI:
+
+1. Unlock the account at <https://iforgot.apple.com> (or appleid.apple.com → Sign-In and Security).
+2. Generate a **new** app-specific password — the old one is invalidated by the lock.
+3. `gh secret set APPLE_APP_SPECIFIC_PASSWORD --repo idossha/tetravox`
+4. Re-run only the failed mac leg of the release run (`gh run rerun <id> --failed`), then the
+   `Verify the Release assets` job runs again on its own.
+
 Notarisation is slow (minutes, occasionally tens of minutes on a first submission); the mac leg's
 `timeout-minutes: 60` covers it. When signing is live, drop the unsigned-build paragraph from
 `scripts/changelog-section.mjs` and the `xattr -dr com.apple.quarantine` walkthrough from

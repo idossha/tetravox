@@ -6,8 +6,7 @@ and tests. `docs/ROADMAP.md` says what is open. `docs/DECISIONS.md` is append-on
 ## Commands
 
 - `pnpm install` · `pnpm wasm` (builds `crates/tvx-wasm` → `packages/wasm/pkg`) · `pnpm build` ·
-  `pnpm test` (cargo test + wasm + vitest) · `pnpm test:coverage` (wasm + vitest with v8 coverage,
-  writing `coverage/coverage-summary.json`) · `pnpm e2e` (Playwright) · `pnpm dev` · `pnpm package`
+  `pnpm test` (cargo test + wasm + vitest) · `pnpm e2e` (Playwright) · `pnpm dev` · `pnpm package`
 - Rust only: `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo bench -p <crate>`
 - `pnpm lint` is `eslint .` + `prettier --check .`. **Prettier does not format `docs/`** — keep it that way.
