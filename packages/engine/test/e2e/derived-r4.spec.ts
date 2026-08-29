@@ -611,3 +611,84 @@ test('§11 golden: oblique slice + mesh contours', async ({ page }) => {
   expect(errors).toEqual([]);
   await expectGolden(page, 'derived-contours-oblique');
 });
+
+// -------------------------------------------------------------------------------------------
+// 2D compositing is layer order **across kinds** (2026-08-29)
+// -------------------------------------------------------------------------------------------
+
+test('a volume layer above a filled mesh paints over its cut in 2D; reordering flips it', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const errors = await openScene(page);
+
+  const info = await page.evaluate(
+    async ([mesh, opt, t1]) => {
+      const engine = window.__tvxEngine!;
+      const meshDs = await engine.addDataset({
+        kind: 'path',
+        path: mesh as string,
+        sidecars: { opt: opt as string },
+      });
+      const meshLayer = engine.addLayer({ datasetId: meshDs.id, kind: 'mesh' });
+      // Tag colours only, no outline: the pixel under test is a fill, not a contour.
+      engine.updateLayer(meshLayer.id, { contoursIn2D: true, colorMode: 'tag' });
+      engine.updateLayer(meshLayer.id, { contoursIn2D: false });
+      const volDs = await engine.addDataset({ kind: 'path', path: t1 as string });
+      // Added second ⇒ on top of the mesh in `scene.layers`. Opaque grey ramp.
+      const volLayer = engine.addLayer({ datasetId: volDs.id, kind: 'volume' });
+      engine.updateLayer(volLayer.id, { opacity: 1, colormap: 'gray' });
+      engine.setLayout({ kind: '1x1', cells: ['axial'] });
+      engine.setCursor([0, 0, 20]);
+      engine.setView('axial', { camera: { center: [0, 0], mmPerPx: 0.5 } });
+      engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+      await engine.whenSettled();
+      const order = engine.scene.layers.map((l) => l.id);
+      return {
+        meshId: meshLayer.id,
+        volId: volLayer.id,
+        order,
+        bounds: 'bounds' in meshDs ? meshDs.bounds : null,
+        tagColors:
+          'tags' in meshDs
+            ? meshDs.tags.map((t) => ({ id: t.id, kind: t.kind, color: t.color }))
+            : [],
+      };
+    },
+    [fsUrl(ERNIE), fsUrl(ERNIE_OPT), fsUrl(T1)] as const
+  );
+  expect(info.order).toEqual([info.meshId, info.volId]);
+
+  // A point inside the head at z = 20 — well inside white matter, where the T1 is bright and the
+  // tag fill would be tag 1's colour. Same pixel arithmetic as the tissue test above.
+  const b = info.bounds!;
+  const anchor = [(b.min[0]! + b.max[0]!) / 2, (b.min[1]! + b.max[1]!) / 2];
+  const at = paneCentrePixel(0 - anchor[0]!, 8 - anchor[1]!, 0.5);
+
+  const [volumeOnTop] = await readCanvasPixels(page, [at]);
+  // Mesh above the volume: the same pixel is the tag's fill colour.
+  await page.evaluate(
+    async ([meshId, volId]) => {
+      const engine = window.__tvxEngine!;
+      engine.reorderLayers([volId as string, meshId as string]);
+      await engine.whenSettled();
+    },
+    [info.meshId, info.volId] as const
+  );
+  const [meshOnTop] = await readCanvasPixels(page, [at]);
+
+  // With the mesh on top the pixel is one of the tissue colours, exactly (opaque fill).
+  const isTag = info.tagColors.some(
+    (t) =>
+      t.kind === 'tet' &&
+      Math.abs(Math.round(t.color[0] * 255) - meshOnTop![0]) <= 1 &&
+      Math.abs(Math.round(t.color[1] * 255) - meshOnTop![1]) <= 1 &&
+      Math.abs(Math.round(t.color[2] * 255) - meshOnTop![2]) <= 1
+  );
+  expect(isTag, `mesh-on-top pixel ${String(meshOnTop)} should be a tissue colour`).toBe(true);
+  // With the volume on top it is the T1's grey — neutral, and not the tissue colour.
+  expect(volumeOnTop).not.toEqual(meshOnTop);
+  expect(Math.abs(volumeOnTop![0] - volumeOnTop![1])).toBeLessThanOrEqual(2);
+  expect(Math.abs(volumeOnTop![1] - volumeOnTop![2])).toBeLessThanOrEqual(2);
+  expect(errors).toEqual([]);
+});

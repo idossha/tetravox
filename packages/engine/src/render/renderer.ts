@@ -93,11 +93,31 @@ export class Renderer {
     const camera = this.#camera(view, rect, input.scene);
     const ctx: PassContext = { gl, view, rect, viewProj: camera.viewProj, eye: camera.eye, input };
 
-    // §7.2's order. Each pass is a no-op in the pane kind it does not apply to.
-    this.#slice.run(ctx);
-    this.#mesh.run(ctx);
-    this.#derived.run(ctx);
-    this.#overlay.run(ctx);
+    if (isSliceView(view)) {
+      // §7.3: a 2D pane composites in **layer order, bottom → top, across kinds** — a volume slice
+      // and a mesh fill are two sheets in one order, so the layer the panel shows on top is the one
+      // on top of the picture. Running the slice pass and then the derived pass put every mesh
+      // fill over every volume regardless of the panel (2026-08-29). Contours and points stay
+      // above everything (`DerivedPass.finish2D`), and pass 3 is unchanged.
+      this.#slice.begin2D(ctx);
+      this.#derived.begin2D(ctx);
+      const volumes = SlicePass.volumeItems(input, view);
+      for (const layer of input.scene.layers) {
+        if (layer.kind === 'volume') {
+          for (const item of volumes) if (item.layer.id === layer.id) this.#slice.draw2D(ctx, item);
+        } else if (layer.kind === 'mesh') {
+          this.#derived.drawFill2D(ctx, layer.id);
+        }
+      }
+      this.#derived.finish2D(ctx);
+      this.#overlay.run(ctx);
+    } else {
+      // §7.2's order. Each pass is a no-op in the pane kind it does not apply to.
+      this.#slice.run(ctx);
+      this.#mesh.run(ctx);
+      this.#derived.run(ctx);
+      this.#overlay.run(ctx);
+    }
 
     gl.disable(gl.SCISSOR_TEST);
     return camera.viewProj;

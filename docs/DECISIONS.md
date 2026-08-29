@@ -124,6 +124,11 @@ dataset.
   reading nibabel's in-memory header. The NaN guard stays, exercised by a synthetic fixture.
 - 2026-08-27 — `is_label` must not require an integer dtype — `segmentation/labeling.nii.gz` is float32 with 57
   integral unique values 0…530 `[DATA]` and is a genuine atlas.
+- 2026-08-29 — **2D panes composite in layer order across kinds** — `renderer.ts` ran the slice pass
+  (every volume) and then the derived pass (every mesh fill), so a mesh cut always painted over a
+  volume above it in the panel. The 2D path now interleaves `SlicePass.draw2D` and
+  `DerivedPass.drawFill2D` in `scene.layers` order; contours and points still draw last
+  (`finish2D`). No golden moves: none photographs a volume *above* a filled mesh.
 - 2026-08-29 — **Publication export is PNG-only** — asked for vector (SVG/PDF) output, the decision
   was to stay raster: the panes are raster by nature and a hybrid "raster image + vector overlay"
   file was judged not worth its own writer yet. What figure assembly needs from a PNG shipped instead

@@ -118,7 +118,7 @@ export class DerivedPass implements FramePass {
     if (derived === undefined) return;
     const store = derived.store;
     if (isSliceView(ctx.view)) {
-      this.#run2D(ctx, store);
+      this.#run2D(ctx);
     } else {
       this.#run3D(ctx, store);
     }
@@ -131,9 +131,31 @@ export class DerivedPass implements FramePass {
   // 2D panes — R4
   // -------------------------------------------------------------------------------------------
 
-  #run2D(ctx: PassContext, store: DerivedStore): void {
-    const { view, rect, viewProj, input } = ctx;
-    if (!isSliceView(view)) return;
+  #run2D(ctx: PassContext): void {
+    // Standalone form: `render/renderer.ts` normally drives `begin2D` / `drawFill2D` / `finish2D`
+    // itself so mesh fills interleave with volume slices in layer order (2026-08-29).
+    this.begin2D(ctx);
+    for (const layer of ctx.input.scene.layers) {
+      if (layer.kind === 'mesh') this.drawFill2D(ctx, layer.id);
+    }
+    this.finish2D(ctx);
+  }
+
+  /** The cuts of the pane being drawn, prepared by `begin2D` and consumed by the two draws below. */
+  #cuts2D: { layer: MeshLayer; ds: MeshDataset; geom: PaneGeom }[] = [];
+  #plane2D: { normal: [number, number, number]; offset: number } | null = null;
+
+  /**
+   * 2D pane set-up: derive the plane from the cursor, request every visible mesh layer's cut, and
+   * put the pane into §7.3's blend state. Nothing is drawn yet.
+   */
+  begin2D(ctx: PassContext): void {
+    const { view, input } = ctx;
+    this.#cuts2D = [];
+    this.#plane2D = null;
+    const derived = input.derived;
+    if (derived === undefined || !isSliceView(view)) return;
+    const store = derived.store;
     const scene = input.scene;
     // §4.5: the plane is DERIVED from the cursor, never stored. One source of truth means an oblique
     // pane's cut is the same code path as a canonical one's.
@@ -142,19 +164,14 @@ export class DerivedPass implements FramePass {
       normal: [p.normal[0], p.normal[1], p.normal[2]] as [number, number, number],
       offset: p.offset,
     };
+    this.#plane2D = plane;
 
     // §7.3: 2D panes composite in layer order with depth off; a mesh cut is one more sheet in that
-    // order, above the volume slices the slice pass just drew.
+    // order — **interleaved** with the volume slices by `render/renderer.ts`, so a volume layer
+    // above a mesh layer paints over its fill, exactly as the layer panel's order reads.
     this.#state.apply(GL_STATE.blend2d);
     this.#state.clipDistances(0);
 
-    // **Two loops, fills then contours** (directed task 12). Within one layer the order was always
-    // fill-under-contour; across layers it was not, so a surface opened before a tissue mesh had
-    // its outline buried under that mesh's fill. §7.4 puts a contour *above* the volumes and the
-    // mesh fills — a line one and a half pixels wide is unreadable the moment anything is painted
-    // over it — and one layer's two draws are still in the same relative order, so no single-mesh
-    // R4 golden moves.
-    const cuts: { layer: MeshLayer; ds: MeshDataset; geom: PaneGeom }[] = [];
     for (const layer of scene.layers) {
       if (layer.kind !== 'mesh') continue;
       if (!visibleIn(layer, view)) continue;
@@ -169,12 +186,38 @@ export class DerivedPass implements FramePass {
         wantBoundary: layer.contoursIn2D,
       });
       if (geom === null) continue;
-      cuts.push({ layer, ds, geom });
+      this.#cuts2D.push({ layer, ds, geom });
     }
-    for (const { layer, ds, geom } of cuts) {
-      if (layer.fillIn2D && geom.triangleCount > 0) this.#drawFill(ctx, store, layer, ds, geom);
-    }
-    for (const { layer, ds, geom } of cuts) {
+  }
+
+  /** One mesh layer's cut **fill**, in its place in the layer order. */
+  drawFill2D(ctx: PassContext, layerId: string): void {
+    const derived = ctx.input.derived;
+    if (derived === undefined) return;
+    const cut = this.#cuts2D.find((c) => c.layer.id === layerId);
+    if (cut === undefined) return;
+    const { layer, ds, geom } = cut;
+    if (!layer.fillIn2D || geom.triangleCount === 0) return;
+    this.#state.apply(GL_STATE.blend2d);
+    this.#state.clipDistances(0);
+    this.#drawFill(ctx, derived.store, layer, ds, geom);
+  }
+
+  /**
+   * Everything that sits **above** every fill and every slice: the contours (directed task 12 — a
+   * line one and a half pixels wide is unreadable the moment anything is painted over it), then
+   * points on the plane they intersect (§4.4: electrodes over anatomy), with a parsed view's `SL`
+   * segments under them, like a montage's wires under its electrodes.
+   */
+  finish2D(ctx: PassContext): void {
+    const { view, rect, viewProj, input } = ctx;
+    const derived = input.derived;
+    if (derived === undefined || !isSliceView(view) || this.#plane2D === null) return;
+    const store = derived.store;
+    const plane = this.#plane2D;
+    this.#state.apply(GL_STATE.blend2d);
+    this.#state.clipDistances(0);
+    for (const { layer, ds, geom } of this.#cuts2D) {
       if (!layer.contoursIn2D || geom.contourInstances === 0) continue;
       this.#drawContours(
         viewProj,
@@ -187,15 +230,17 @@ export class DerivedPass implements FramePass {
         contourColor(layer)
       );
     }
-
-    // Points draw on the plane they intersect, above the cut (§4.4: electrodes over anatomy).
-    // A parsed view's `SL` segments go under them, like a montage's wires under its electrodes.
     for (const item of collectDrawItems(input, view)) {
       if (item.kind !== 'points') continue;
       this.#drawPointLines(ctx, item.layer, store);
       const inst = store.pointInstances(item.layer);
       if (inst !== null) this.#drawPoints2D(ctx, item, inst, plane);
     }
+    this.#cuts2D = [];
+    this.#plane2D = null;
+    // Depth writes back on: `render/renderer.ts` clears the next pane's depth buffer and
+    // `gl.clear(DEPTH_BUFFER_BIT)` is masked by `depthMask`.
+    this.#state.apply(GL_STATE.opaque3d);
   }
 
   #drawFill(

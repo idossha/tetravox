@@ -1942,7 +1942,9 @@ at scene scale — so identical geometry is the correctness mechanism, not an op
 shaders declare `invariant gl_Position;`.
 
 * **2D views:** `DEPTH_TEST` disabled for the whole slice-layer pass; compositing order is layer order
-  (bottom→top) with `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`.
+  (bottom→top) with `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` — **across kinds**: a mesh layer's 2D fill is one
+  more sheet in that order, interleaved with the volume slices by `render/renderer.ts`, so the layer the
+  panel shows on top is on top of the picture. Contours and points sit above every sheet (§7.4).
 * **3D views (`showIn3D`):** `DEPTH_TEST` on, `depthFunc(LEQUAL)`, `depthMask(true)` for every slice layer of
   that plane. Shared geometry + shared vertex shader ⇒ bit-identical depth ⇒ LEQUAL passes for all layers.
   **Do not use a separate full-plane depth prepass** — it would occlude meshes behind the plane where no

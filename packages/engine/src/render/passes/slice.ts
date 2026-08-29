@@ -147,12 +147,10 @@ export class SlicePass implements FramePass {
 
     if (isSliceView(view)) {
       // §7.3: depth test OFF for the whole 2D slice-layer pass; order is layer order, bottom -> top.
-      this.#state.apply(GL_STATE.blend2d);
-      const basis = sliceBasis(view, scene.radiological);
-      this.#writeQuad(scene.cursor, basis.right, basis.up, this.quadHalfFor(view, rect, scene));
-      this.#quadVao.bind();
-      for (const item of items) this.#draw(item, viewProj, input);
-      VertexArray.unbind(gl);
+      // `render/renderer.ts` interleaves this with the derived pass's mesh fills (2026-08-29) and
+      // calls `begin2D` / `draw2D` itself; this branch is the standalone form of the same thing.
+      this.begin2D(ctx);
+      for (const item of items) this.draw2D(ctx, item);
       return;
     }
 
@@ -172,6 +170,34 @@ export class SlicePass implements FramePass {
       for (const item of onPlane) this.#draw(item, viewProj, input);
     }
     VertexArray.unbind(gl);
+  }
+
+  /**
+   * 2D pane set-up: blend state and the pane's one quad, written once. After this, `draw2D` may be
+   * called any number of times, interleaved with other passes' 2D draws — the quad buffer is not
+   * shared, and `draw2D` rebinds what it needs.
+   */
+  begin2D(ctx: PassContext): void {
+    const { view, rect, input } = ctx;
+    const { scene } = input;
+    if (!isSliceView(view)) return;
+    this.#state.apply(GL_STATE.blend2d);
+    const basis = sliceBasis(view, scene.radiological);
+    this.#writeQuad(scene.cursor, basis.right, basis.up, this.quadHalfFor(view, rect, scene));
+  }
+
+  /** One volume layer's slice in a 2D pane. Sets its own state so it composes with a mesh fill. */
+  draw2D(ctx: PassContext, item: VolumeDrawItem): void {
+    const gl = this.#gl;
+    this.#state.apply(GL_STATE.blend2d);
+    this.#quadVao.bind();
+    this.#draw(item, ctx.viewProj, ctx.input);
+    VertexArray.unbind(gl);
+  }
+
+  /** The volume draw items of one pane, in layer order — for the renderer's 2D compositing loop. */
+  static volumeItems(input: DrawInput, view: View): VolumeDrawItem[] {
+    return collectDrawItems(input, view).filter((i): i is VolumeDrawItem => i.kind === 'volume');
   }
 
   /** One draw per (layer, plane) — §7.3's "one draw per (layer, plane)", and the only one. */
