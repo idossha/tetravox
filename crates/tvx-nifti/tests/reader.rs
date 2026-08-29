@@ -624,7 +624,16 @@ fn label_index_refuses_what_is_not_an_index() {
 fn nifti_u16(dims: [usize; 3], f: impl Fn(usize, usize, usize) -> u16) -> Vec<u8> {
     let mut h = vec![0u8; 352];
     h[0..4].copy_from_slice(&348i32.to_le_bytes());
-    let dim: [i16; 8] = [3, dims[0] as i16, dims[1] as i16, dims[2] as i16, 1, 1, 1, 1];
+    let dim: [i16; 8] = [
+        3,
+        dims[0] as i16,
+        dims[1] as i16,
+        dims[2] as i16,
+        1,
+        1,
+        1,
+        1,
+    ];
     for (i, d) in dim.iter().enumerate() {
         h[40 + i * 2..42 + i * 2].copy_from_slice(&d.to_le_bytes());
     }
@@ -649,7 +658,9 @@ fn nifti_u16(dims: [usize; 3], f: impl Fn(usize, usize, usize) -> u16) -> Vec<u8
 fn a_non_negative_integer_mri_with_a_thousand_grey_levels_is_not_a_label_map() {
     // The AMOS22 shape: int16 ≥ 0, ~1000 distinct values, and a value that changes almost every
     // voxel. Integral ∧ non-negative ∧ ≤ 4096 unique all hold, and it is still not an atlas.
-    let b = nifti_u16([64, 64, 8], |i, j, k| ((i * 7 + j * 13 + k * 3) % 1000 + 1) as u16);
+    let b = nifti_u16([64, 64, 8], |i, j, k| {
+        ((i * 7 + j * 13 + k * 3) % 1000 + 1) as u16
+    });
     let v = read_nifti(b, &mut NoProgress).unwrap();
     assert!(!v.is_label, "an intensity image is not an atlas");
     assert_eq!(
@@ -661,8 +672,13 @@ fn a_non_negative_integer_mri_with_a_thousand_grey_levels_is_not_a_label_map() {
 #[test]
 fn a_parcellation_with_thousands_of_regions_is_still_a_label_map() {
     // 2048 distinct ids in blocks of 4×2×2 voxels: more than 255 values, and piecewise constant.
-    let b = nifti_u16([64, 64, 8], |i, j, k| (i / 4 + 16 * (j / 2) + 512 * (k / 2)) as u16);
+    let b = nifti_u16([64, 64, 8], |i, j, k| {
+        (i / 4 + 16 * (j / 2) + 512 * (k / 2)) as u16
+    });
     let v = read_nifti(b, &mut NoProgress).unwrap();
-    assert!(v.is_label, "a fine parcellation must keep its label palette");
+    assert!(
+        v.is_label,
+        "a fine parcellation must keep its label palette"
+    );
     assert_eq!(v.label_index(0).unwrap().ids.len(), 2048);
 }

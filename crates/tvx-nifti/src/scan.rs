@@ -181,7 +181,11 @@ pub(crate) fn run_agreement(v: &Volume, vol: Option<usize>) -> f64 {
                     }
                 }
             }
-            if pairs == 0 { 0.0 } else { same as f64 / pairs as f64 }
+            if pairs == 0 {
+                0.0
+            } else {
+                same as f64 / pairs as f64
+            }
         }};
     }
     match &v.data {
