@@ -1519,7 +1519,7 @@ test('@angle R2: a camera set through setView is the ZOOM reference; a gesture o
   // A gesture off that camera reports against it.
   await page.evaluate(async () => {
     const engine = window.__tvxEngine!;
-    engine.zoomView('axial', 2);
+    engine.zoomView('axial', 0.5); // mmPerPx halves: twice the magnification
     await engine.whenSettled();
   });
   const zoomed = await corner(4);

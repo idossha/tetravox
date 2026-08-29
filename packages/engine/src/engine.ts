@@ -1182,6 +1182,16 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.requestRender(id);
   }
 
+  /**
+   * A **gesture's** camera move — pan, zoom, orbit, dolly. The store write and the repaint of
+   * `setView`, without its reference update: a gesture is exactly what the `ZOOM` readout
+   * measures *from* the reference, so it must not move it.
+   */
+  #moveCamera(id: ViewId, patch: Partial<SliceView> | Partial<View3D>): void {
+    this.#store.setView(id, patch);
+    this.requestRender(id);
+  }
+
   setRadiological(on: boolean): void {
     this.#store.setRadiological(on);
     this.requestRender();
@@ -2099,7 +2109,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       this.pan3DView(viewId, dxPx, dyPx);
       return;
     }
-    this.setView(viewId, { camera: panBy(view.camera, dxPx, dyPx) });
+    this.#moveCamera(viewId, { camera: panBy(view.camera, dxPx, dyPx) });
   }
 
   /** R2: zoom a pane about a point in it, keeping the world point under that point fixed. */
@@ -2113,7 +2123,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     }
     const offsetX = x + 0.5 - rect.width / 2;
     const offsetY = rect.height / 2 - y - 0.5;
-    this.setView(viewId, { camera: zoomAbout(view.camera, offsetX, offsetY, factor) });
+    this.#moveCamera(viewId, { camera: zoomAbout(view.camera, offsetX, offsetY, factor) });
   }
 
   /** R2: `+` / `-` — the same zoom, about the pane centre. */
@@ -2124,7 +2134,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       this.dollyView(viewId, (Math.log(factor) / Math.log(1.2)) * 100);
       return;
     }
-    this.setView(viewId, { camera: zoomAboutCentre(view.camera, factor) });
+    this.#moveCamera(viewId, { camera: zoomAboutCentre(view.camera, factor) });
   }
 
   /**
@@ -2180,7 +2190,7 @@ export class TetravoxEngine implements Engine, PointerHost {
   orbitView(viewId: ViewId, dxPx: number, dyPx: number): void {
     const view = this.#store.view(viewId);
     if (view === undefined || isSliceView(view)) return;
-    this.setView(viewId, { camera: orbit(view.camera, dxPx, dyPx) });
+    this.#moveCamera(viewId, { camera: orbit(view.camera, dxPx, dyPx) });
   }
 
   /** §7.5's 3D right-drag: slide the camera target. */
@@ -2188,14 +2198,14 @@ export class TetravoxEngine implements Engine, PointerHost {
     const view = this.#store.view(viewId);
     const rect = this.paneRect(viewId);
     if (view === undefined || isSliceView(view) || rect === null) return;
-    this.setView(viewId, { camera: pan3D(view.camera, dxPx, dyPx, rect.height) });
+    this.#moveCamera(viewId, { camera: pan3D(view.camera, dxPx, dyPx, rect.height) });
   }
 
   /** §7.5's 3D wheel: dolly. */
   dollyView(viewId: ViewId, deltaY: number): void {
     const view = this.#store.view(viewId);
     if (view === undefined || isSliceView(view)) return;
-    this.setView(viewId, { camera: dolly(view.camera, deltaY) });
+    this.#moveCamera(viewId, { camera: dolly(view.camera, deltaY) });
   }
 
   /**
