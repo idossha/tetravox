@@ -4,8 +4,7 @@ title: Get started
 
 # Get started
 
-Install the app first — the [Install](/install) page has the official macOS, Linux and Windows builds
-and the two-line setup for each. This page is what you see once it opens.
+Install the app first — the [Install](/install) page has the official macOS, Linux and Windows instructions.
 
 ## A first look
 

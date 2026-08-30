@@ -4,11 +4,10 @@ title: Install
 
 # Install
 
-Tetravox ships as a desktop app for **macOS**, **Linux** and **Windows**. Every release is built,
-smoke-tested and published by CI from a version tag — the artefacts on the
-[**Releases page**](https://github.com/idossha/tetravox/releases/latest) are the official builds, and
-the only ones you should need. Nothing here requires a toolchain; building from source is a
-[developer topic](/developers/building).
+Tetravox ships as a desktop app for **macOS**, **Linux** and **Windows**.
+
+Every release is built, smoke-tested and published by CI from a version tag.
+The artefacts on the [**Releases page**](https://github.com/idossha/tetravox/releases/latest) are the official builds. Nothing here requires a toolchain; building from source is a [developer topic](/developers/building).
 
 ## Download
 
@@ -22,9 +21,6 @@ Pick the file for your machine. Names follow `Tetravox-<version>-<os>-<arch>.<ex
 | Linux, Debian / Ubuntu | `Tetravox-<version>-linux-amd64.deb`       | Installs to `/opt/Tetravox` with a menu entry and file associations. |
 | Linux, anything else   | `Tetravox-<version>-linux-x64.tar.gz`      | Unpack and run `Tetravox` from the folder.                           |
 | Windows, x86-64        | `Tetravox-<version>-win-x64.exe`           | NSIS installer. Unsigned — see below.                                |
-
-The `.zip` files beside the macOS disk images are the same app for people who prefer to unzip; the
-`.blockmap` files are build metadata you can ignore.
 
 **macOS and Linux are the primary platforms.** Both are built, launched and rendered by CI on every
 release. The Windows installer is built and launch-tested on every release too, but CI cannot render
