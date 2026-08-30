@@ -346,8 +346,8 @@ What the operation returned comes back in the result file, so a job can *ask* as
   "files": [], "ms": 412, "result": { "moved": 96, "meanShiftMm": 0.42 } }
 ```
 
-The operations each module offers are listed in [§2.7](#27-module-operations), which is generated
-from the manifests themselves.
+The operations each module offers are listed in §2.7 below, which is generated from the manifests
+themselves.
 
 ### 2.4 `job-result.json`
 
