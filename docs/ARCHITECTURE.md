@@ -925,6 +925,15 @@ Rules:
     for an anchor path and probes each candidate with `bridge().allowPath` — the `open/sources.ts#firstAllowed`
     precedent, where `allowPath` returning null *is* the existence check. A main-side resolver would add no
     admission-policy gain over that status quo, and no listing or glob IPC exists or is wanted.
+12. **Unsaved module edits interrupt a window close.** The renderer pushes `tetravox:set-document-edited`
+    (from a module's `ui.setDirty`, never from `sceneDirty`, which any cursor click sets); main calls
+    `win.setDocumentEdited` with it and keeps the flag per window. A `BrowserWindow 'close'` on a window
+    holding that flag is `preventDefault`ed and answered with a two-button `dialog.showMessageBox`
+    **{Discard, Cancel}** — and no Save: saving is the module's own Save sheet and `module-write-text`, and a
+    Save button here would be a second write path driven from main. Discard clears the flag and destroys the
+    window; Cancel leaves it open. The handler is **not installed on a `--job` window** — a batch render has
+    nobody to answer a box and would hang to the watchdog — and it is inert under `TETRAVOX_E2E_DISCARD=1`,
+    which is how a windowless e2e tears down a window it deliberately made dirty (AGENTS rule 8).
 
 ---
 

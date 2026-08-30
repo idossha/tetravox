@@ -38,6 +38,7 @@ import {
   moduleReadText,
   moduleSaveDialog,
   moduleWriteText,
+  shouldPromptOnClose,
   stampNow,
   stemOf,
   substituteSibling,
@@ -334,5 +335,30 @@ describe('module-write-text', () => {
     expect(moduleWriteText(SEEG, path, 42, {}).ok).toBe(false);
     expect(moduleWriteText(SEEG, 42, 'x', {}).ok).toBe(false);
     expect(existsSync(path)).toBe(false);
+  });
+});
+
+describe('the close guard', () => {
+  it('prompts only for an edited, interactive window outside the E2E seam', () => {
+    const env = {} as NodeJS.ProcessEnv;
+    expect(shouldPromptOnClose({ edited: true, isJob: false, env })).toBe(true);
+    expect(shouldPromptOnClose({ edited: false, isJob: false, env })).toBe(false);
+    // A `--job` window has nobody to answer the box; it would hang until the CI cap.
+    expect(shouldPromptOnClose({ edited: true, isJob: true, env })).toBe(false);
+    // The seam an e2e sets so its own teardown can close a window it deliberately made dirty.
+    expect(
+      shouldPromptOnClose({
+        edited: true,
+        isJob: false,
+        env: { TETRAVOX_E2E_DISCARD: '1' } as NodeJS.ProcessEnv,
+      })
+    ).toBe(false);
+    expect(
+      shouldPromptOnClose({
+        edited: true,
+        isJob: false,
+        env: { TETRAVOX_E2E_DISCARD: '0' } as NodeJS.ProcessEnv,
+      })
+    ).toBe(true);
   });
 });

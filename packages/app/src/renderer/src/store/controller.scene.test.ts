@@ -122,6 +122,7 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
     moduleOpenDialog: async () => [],
     moduleSaveDialog: async () => null,
     moduleWriteText: async () => ({ ok: false as const, error: 'no module io in this test' }),
+    setDocumentEdited: () => {},
   };
   (globalThis as { tetravox?: TetravoxBridge }).tetravox = fs.bridge;
   return fs;

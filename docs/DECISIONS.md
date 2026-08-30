@@ -3273,3 +3273,33 @@ and is not answered here.
 `sample-data.test.ts` is the nearest template): accepted and rejected templates, a traversal that only
 appears after substitution, cross-module isolation, the read cap and extension filter, `.bak` naming,
 `.part` cleanup, and every write that must be refused.
+
+## 2026-08-30 — the window asks before closing on unsaved module edits, and offers no Save
+
+**Decision.** `installCloseGuard` (`main/module-io.ts`) adds the codebase's first `BrowserWindow
+'close'` handler — until today only `'closed'` was listened for. When the window carries the
+module-edited flag, the close is `preventDefault`ed and a two-button `dialog.showMessageBox`
+**{Discard, Cancel}** decides it. The flag arrives on `tetravox:set-document-edited`, which main also
+hands to `win.setDocumentEdited` so macOS draws the dot in the close button.
+
+**Why the flag is pushed and not derived.** `sceneDirty` is set by any cursor click, any layer or
+dataset event and any interacting frame (`controller.ts`), so it cannot mean "a module has edits that
+are not on disk"; a guard keyed on it would stop every close of every session. `UiState.moduleDirty`
+is fed by a module's own `ui.setDirty`, and this channel is the one bit of it main needs.
+
+**Why there is no Save button.** Saving a module's file means its Save sheet, its writer's filters and
+its siblings, and `module-write-text` — all of which live in the renderer and the module. A Save here
+would be a second write path driven from main, on a window that is halfway through closing, and §5's
+write rule exists to keep there being exactly one. The renderer's own five-site guard (New, Open,
+Open Recent, drop, close-dataset) is where a three-button "Save…, Discard, Cancel" belongs, because
+that is where the module is still alive to save.
+
+**Two ways it must stay out of the way.** A `--job` window never installs it: a batch render has
+nobody to answer the box and would sit until the watchdog fires, spending the 45-minute CI cap on a
+hung window. And `TETRAVOX_E2E_DISCARD=1` disables it entirely, read at close time so a spec can set
+it per launch — the seam a windowless e2e needs to tear down a window it deliberately made dirty
+(AGENTS rule 8). Both are asserted: `shouldPromptOnClose` is a pure function with a unit test for all
+four cases, and `e2e/module-guard.spec.ts` closes a real window three times — Cancel keeps it,
+Discard closes it, a cleared flag and the E2E seam close it with no box at all — with
+`dialog.showMessageBox` stubbed in main, because an OS-modal box no click can reach would otherwise
+hang the run.

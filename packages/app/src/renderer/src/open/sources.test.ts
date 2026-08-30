@@ -85,6 +85,7 @@ function stubBridge(existing: readonly string[], droppedPath = ''): Stub {
       moduleOpenDialog: async () => [],
       moduleSaveDialog: async () => null,
       moduleWriteText: async () => ({ ok: false as const, error: 'no module io in this test' }),
+      setDocumentEdited: () => {},
     },
   };
   (globalThis as { tetravox?: TetravoxBridge }).tetravox = stub.bridge;

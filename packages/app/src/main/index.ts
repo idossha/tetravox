@@ -29,7 +29,7 @@ import {
 } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
-import { registerModuleIpc } from './module-io';
+import { installCloseGuard, registerModuleIpc } from './module-io';
 import { discoverSubjectSpaces } from './subject-spaces';
 import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
@@ -539,6 +539,10 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
+    // §5 rule 12: unsaved **module** edits interrupt a close. Inert for a `--job` window, which has
+    // nobody to answer the box and would hang until the watchdog, and inert under
+    // `TETRAVOX_E2E_DISCARD=1`, which is how a windowless e2e closes a window it made dirty.
+    installCloseGuard(mainWindow, { isJob: isJobRun() });
 
     if (isJobRun() && mainWindow !== null) {
       // A job that never reports is a job that hung: without these two the process would sit alive
@@ -558,6 +562,7 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
         mainWindow.on('closed', () => {
           mainWindow = null;
         });
+        installCloseGuard(mainWindow, { isJob: isJobRun() });
       }
     });
   });

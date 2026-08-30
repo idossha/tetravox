@@ -1,6 +1,6 @@
 /**
  * File IO for §13 modules (§5 rule 11): four channels, registered from here the way
- * `registerJobIpc()` registers the `--job` group.
+ * `registerJobIpc()` registers the `--job` group, plus §5 rule 12's unsaved-edits close guard.
  *
  * The shape is the one A-SHELL's decision 1 (DECISIONS 2026-08-27) laid down for scene IO, applied
  * to a second kind of small text file:
@@ -36,7 +36,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { BrowserWindow as BrowserWindowClass, dialog, ipcMain } from 'electron';
-import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
+import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { allowPath, allowPaths, resolveAllowed } from './paths';
 import { fileUrl } from './protocol';
 import type { OpenedPath } from './menu';
@@ -435,10 +435,106 @@ export function moduleWriteText(
 }
 
 // ------------------------------------------------------------------------------------------------
+// Unsaved module edits and the window's close guard
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * Which windows a module has reported unsaved edits in.
+ *
+ * `sceneDirty` cannot answer this — it is set by any cursor click (`controller.ts`) — so the flag is
+ * pushed from the renderer over `tetravox:set-document-edited` and kept per window id, which is also
+ * the granularity `win.setDocumentEdited` works at.
+ */
+const editedWindows = new Set<number>();
+/** Windows already showing the discard box, so a second `close` cannot stack a second sheet. */
+const prompting = new Set<number>();
+
+export function setDocumentEdited(win: BrowserWindow | null, edited: unknown): void {
+  if (win === null) return;
+  const flag = edited === true;
+  if (flag) editedWindows.add(win.id);
+  else editedWindows.delete(win.id);
+  try {
+    // macOS draws the dot in the close button from this; it is a no-op elsewhere and must not be
+    // allowed to throw a renderer message into main's uncaught handler on a platform that lacks it.
+    win.setDocumentEdited(flag);
+  } catch {
+    // Nothing to do: the flag above is what the close guard reads.
+  }
+}
+
+export function documentEdited(win: BrowserWindow | null): boolean {
+  return win !== null && editedWindows.has(win.id);
+}
+
+/**
+ * Should a `close` be interrupted?
+ *
+ * Pure, because the two cases that must never prompt are the ones a Playwright run and a `--job`
+ * render depend on and neither is convenient to reach through a real window: a job has no user to
+ * answer the box (it would hang until the 45-minute CI cap), and an e2e teardown closes a window it
+ * deliberately made dirty. `TETRAVOX_E2E_DISCARD=1` is that seam, read at close time so a spec can
+ * set it per launch.
+ */
+export function shouldPromptOnClose(opts: {
+  edited: boolean;
+  isJob: boolean;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  if (!opts.edited || opts.isJob) return false;
+  return (opts.env ?? process.env)['TETRAVOX_E2E_DISCARD'] !== '1';
+}
+
+/**
+ * The codebase's first `BrowserWindow 'close'` handler (only `'closed'` existed).
+ *
+ * Two buttons, Discard and Cancel — and deliberately no Save. Saving is the module's own write path
+ * through the Save sheet and `module-write-text`; a Save button here would be a second write path
+ * driven from main, which is the one thing §5's write rule exists to prevent.
+ */
+export function installCloseGuard(win: BrowserWindow, opts: { isJob: boolean }): void {
+  if (opts.isJob) return;
+  win.on('close', (event) => {
+    if (!shouldPromptOnClose({ edited: documentEdited(win), isJob: false })) return;
+    event.preventDefault();
+    if (prompting.has(win.id)) return;
+    prompting.add(win.id);
+    void dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        noLink: true,
+        title: 'Unsaved changes',
+        message: 'Discard unsaved edits?',
+        detail:
+          'A module in this window has edits that have not been written to disk. Closing the ' +
+          'window discards them.',
+        buttons: ['Discard', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        prompting.delete(win.id);
+        if (response !== 0 || win.isDestroyed()) return;
+        editedWindows.delete(win.id);
+        // `destroy()` rather than `close()`: the flag is already cleared, but destroying is what
+        // makes "Discard" unambiguous even if a module re-marks the window in the same tick.
+        win.destroy();
+      })
+      .catch(() => {
+        prompting.delete(win.id);
+      });
+  });
+  win.on('closed', () => {
+    editedWindows.delete(win.id);
+    prompting.delete(win.id);
+  });
+}
+
+// ------------------------------------------------------------------------------------------------
 // Registration
 // ------------------------------------------------------------------------------------------------
 
-function windowOf(event: IpcMainInvokeEvent): BrowserWindow | null {
+function windowOf(event: IpcMainInvokeEvent | IpcMainEvent): BrowserWindow | null {
   return BrowserWindowClass.fromWebContents(event.sender);
 }
 
@@ -460,5 +556,8 @@ export function registerModuleIpc(): void {
     'tetravox:module-write-text',
     (_event, moduleId: unknown, path: unknown, text: unknown, opts: unknown) =>
       moduleWriteText(moduleId, path, text, opts)
+  );
+  ipcMain.on('tetravox:set-document-edited', (event, edited: unknown) =>
+    setDocumentEdited(windowOf(event), edited)
   );
 }

@@ -194,6 +194,13 @@ export interface TetravoxBridge {
     text: string,
     opts: { backup: boolean }
   ): Promise<ModuleWriteResult>;
+  /**
+   * Tell main this window has (or no longer has) unsaved module edits.
+   *
+   * Main calls `win.setDocumentEdited` with it and keeps the flag for §5 rule 12's `close` guard.
+   * `send`, not `invoke`: it is a fact about the window, and nothing waits on the answer.
+   */
+  setDocumentEdited(edited: boolean): void;
 }
 
 /** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
@@ -408,6 +415,7 @@ const bridge: TetravoxBridge = {
     ipcRenderer.invoke('tetravox:module-save-dialog', moduleId, opts),
   moduleWriteText: (moduleId, path, text, opts) =>
     ipcRenderer.invoke('tetravox:module-write-text', moduleId, path, text, opts),
+  setDocumentEdited: (edited) => ipcRenderer.send('tetravox:set-document-edited', edited),
 };
 
 contextBridge.exposeInMainWorld('tetravox', bridge);
