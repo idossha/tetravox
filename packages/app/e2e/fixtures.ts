@@ -37,7 +37,7 @@ export const SHOTS_DIR = resolve(here, '..', 'test-results', 'shots');
  * this dropdown, so every spec that used to click `open-button` / `scene-*` directly opens the menu
  * first and clicks the `app-menu-<action>` item instead.
  */
-export type AppMenuAction = 'open' | 'new' | 'open-scene' | 'save' | 'save-as';
+export type AppMenuAction = 'open' | 'sample-data' | 'new' | 'open-scene' | 'save' | 'save-as';
 
 export async function clickAppMenu(page: Page, action: AppMenuAction): Promise<void> {
   await page.click('[data-testid="app-menu"]');

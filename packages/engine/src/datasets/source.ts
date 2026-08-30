@@ -10,9 +10,14 @@
 import type { LoadSource, MeshFormatSel } from '@tetravox/protocol';
 import type { DatasetSource } from '../api';
 
-/** `.nii` / `.nii.gz` is a volume; everything else goes to the mesh loader (§6.2's `sniff`). */
+/**
+ * A volume by name — NIfTI (`.nii`, `.nii.gz`), FreeSurfer (`.mgh`, `.mgz`), NRRD (`.nrrd`, `.nhdr`)
+ * or MetaImage (`.mha`, `.mhd`) — goes to `loadVolume`, whose reader sniffs the bytes (§6.1); everything
+ * else goes to the mesh loader (§6.2's `sniff`). The detached-header spellings (`.nhdr`, `.mhd`) are
+ * routed here on purpose: the volume reader is the one that can say *why* they are unsupported.
+ */
 export function looksLikeVolume(name: string): boolean {
-  return /\.nii(\.gz)?$/i.test(name);
+  return /\.(nii(\.gz)?|mgh|mgz|nrrd|nhdr|mha|mhd)$/i.test(name);
 }
 
 /**

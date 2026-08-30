@@ -14,8 +14,9 @@
 
 use tvx_core::NoProgress;
 use tvx_mesh_io::{
-    read_fs_annot, read_fs_curv, read_fs_surface, read_geo_view, read_gifti, read_msh,
-    read_msh_opt, read_obj, read_ply, read_stl, sniff, Format,
+    read_fs_annot, read_fs_curv, read_fs_surface, read_geo_view, read_gifti, read_medit, read_msh,
+    read_msh_opt, read_obj, read_off, read_ply, read_stl, read_vtk, read_vtk_xml, sniff, Format,
+    Mesh,
 };
 
 mod common;
@@ -35,13 +36,62 @@ const MSH_ALL: [&str; 6] = [
     "mesh_v41_ascii.msh",
 ];
 
+/// §6.2's general-purpose formats: the SAME lattice as the `.msh` fixtures (six encodings) and
+/// the SAME 16-vertex / 9-quad patch as `patch_quad.obj` (three encodings).
+const MESH_FORMATS: [&str; 9] = [
+    "lattice_ascii.vtk",
+    "lattice_binary.vtk",
+    "patch_polydata.vtk",
+    "lattice_ascii.vtu",
+    "lattice_b64.vtu",
+    "lattice_appended_zlib.vtu",
+    "patch.vtp",
+    "patch_quad.off",
+    "lattice.mesh",
+];
+
+/// The §6.2 reader for a general-purpose fixture, chosen by extension as `load_mesh` would.
+fn read_general(name: &str) -> Mesh {
+    let b = fx::bytes(name);
+    let r = if name.ends_with(".vtk") {
+        read_vtk(b, &mut NoProgress)
+    } else if name.ends_with(".vtu") || name.ends_with(".vtp") {
+        read_vtk_xml(b, &mut NoProgress)
+    } else if name.ends_with(".off") {
+        read_off(b)
+    } else {
+        read_medit(b)
+    };
+    r.unwrap_or_else(|e| panic!("{name}: {e}"))
+}
+
+#[track_caller]
+fn assert_bbox(name: &str, m: &Mesh, bb: &serde_json::Value) {
+    for (i, want) in fx::nums(&bb["min"]).iter().enumerate() {
+        fx::close(
+            &format!("{name}: min[{i}]"),
+            m.bounds.min[i] as f64,
+            *want,
+            1e-4,
+        );
+    }
+    for (i, want) in fx::nums(&bb["max"]).iter().enumerate() {
+        fx::close(
+            &format!("{name}: max[{i}]"),
+            m.bounds.max[i] as f64,
+            *want,
+            1e-4,
+        );
+    }
+}
+
 // -------------------------------------------------------------------------------------
 // live today
 // -------------------------------------------------------------------------------------
 
 #[test]
 fn manifest_and_fixtures_are_present() {
-    for section in ["msh", "surfaces", "gifti"] {
+    for section in ["msh", "surfaces", "gifti", "meshFormats"] {
         for (name, rec) in fx::entries(section) {
             assert_eq!(
                 fx::bytes(name).len(),
@@ -94,6 +144,12 @@ fn manifest_and_fixtures_are_present() {
     for required in ["lh.fixture.surf", "lh.fixture.curv", "lh.fixture.annot"] {
         assert!(
             fx::section("freesurfer").contains_key(required),
+            "missing {required}"
+        );
+    }
+    for required in MESH_FORMATS {
+        assert!(
+            fx::section("meshFormats").contains_key(required),
             "missing {required}"
         );
     }
@@ -754,6 +810,244 @@ fn n_gon_loaders_emit_a_matching_tri_edge_mask() {
     assert!(tri.tri_edge_mask.is_none() || tri.tri_edge_mask.unwrap().iter().all(|m| m & 7 == 7));
 }
 
+// -------------------------------------------------------------------------------------
+// VTK legacy / VTK XML / OFF / MEDIT (§6.2)
+// -------------------------------------------------------------------------------------
+
+#[test]
+fn every_general_format_fixture_matches_meshio() {
+    // meshio is the independent reader for every lattice encoding (Gmsh 4.14 reads none of
+    // the VTK XML files and no binary legacy VTK); its `cellsByType` census, bounds, field
+    // statistics and `material` / `medit:ref` tag census are the expectation.
+    for name in MESH_FORMATS {
+        let rec = &fx::section("meshFormats")[name];
+        let Some(mi) = rec.get("meshio") else {
+            continue;
+        };
+        let m = read_general(name);
+        assert_eq!(
+            m.nodes.len() as u64,
+            fx::u64_of(&mi["nodes"]),
+            "{name}: nodes"
+        );
+        let by = &mi["cellsByType"];
+        let want = |k: &str| by.get(k).map(fx::u64_of).unwrap_or(0);
+        assert_eq!(m.tris.len() as u64, want("triangle"), "{name}: tris");
+        assert_eq!(m.tets.len() as u64, want("tetra"), "{name}: tets");
+        assert_bbox(name, &m, &mi["bbox"]);
+        // No n-gon in the lattice files ⇒ no mask (§6.2).
+        assert!(
+            m.tri_edge_mask.is_none(),
+            "{name}: a triangle-only file has no mask"
+        );
+        assert_eq!(m.tet_perm.len(), m.tets.len(), "{name}: identity tet_perm");
+        assert!(
+            m.gmsh_elm_numbers.is_none() && m.gmsh_node_numbers.is_none(),
+            "{name}"
+        );
+
+        for (fname, want) in mi["pointData"].as_object().unwrap() {
+            if fname == "medit:ref" {
+                // meshio also surfaces MEDIT's per-vertex references; §6.2 keeps only the
+                // element ones (as tags and as the `medit:ref` element field).
+                continue;
+            }
+            let f = m
+                .node_fields
+                .iter()
+                .find(|f| f.name == *fname)
+                .unwrap_or_else(|| panic!("{name}: no node field {fname}"));
+            let ncomp = fx::u64_of(&want["ncomp"]) as usize;
+            assert_eq!(f.ncomp, ncomp, "{name}/{fname}: ncomp");
+            assert_eq!(f.data.len(), m.nodes.len() * ncomp, "{name}/{fname}: len");
+            assert!(!f.partial, "{name}/{fname}");
+            let stats = if ncomp > 1 {
+                &want["magnitudeStats"]
+            } else {
+                &want["stats"]
+            };
+            fx::close(
+                &format!("{name}/{fname}: min"),
+                f.stats.min as f64,
+                fx::num(&stats["min"]),
+                1e-4,
+            );
+            fx::close(
+                &format!("{name}/{fname}: max"),
+                f.stats.max as f64,
+                fx::num(&stats["max"]),
+                1e-4,
+            );
+        }
+        for (fname, want) in mi["cellData"].as_object().unwrap() {
+            let f = m
+                .elm_fields
+                .iter()
+                .find(|f| f.name == *fname)
+                .unwrap_or_else(|| panic!("{name}: no elm field {fname}"));
+            let ncomp = fx::u64_of(&want["ncomp"]) as usize;
+            assert_eq!(f.ncomp, ncomp, "{name}/{fname}: ncomp");
+            assert_eq!(
+                f.tri.len(),
+                m.tris.len() * ncomp,
+                "{name}/{fname}: tri rows"
+            );
+            assert_eq!(
+                f.tet.len(),
+                m.tets.len() * ncomp,
+                "{name}/{fname}: tet rows"
+            );
+            // A dropped cell (the MEDIT `Edges`) takes its row with it — the kept rows are
+            // exactly the tris + tets, and the stats are over those.
+            if fx::u64_of(&want["n"]) as usize == m.tris.len() + m.tets.len() {
+                fx::close(
+                    &format!("{name}/{fname}: min"),
+                    f.stats.min as f64,
+                    fx::num(&want["stats"]["min"]),
+                    1e-4,
+                );
+                fx::close(
+                    &format!("{name}/{fname}: max"),
+                    f.stats.max as f64,
+                    fx::num(&want["stats"]["max"]),
+                    1e-4,
+                );
+            }
+            // §6.2's tag rule: `material` / `medit:ref` land in tri_tags / tet_tags too.
+            if let Some(counts) = want.get("tagCountsByCellType") {
+                for (tag, n) in counts["tetra"].as_object().unwrap() {
+                    let t: i32 = tag.parse().unwrap();
+                    assert_eq!(
+                        m.tet_tags.iter().filter(|x| **x == t).count() as u64,
+                        fx::u64_of(n),
+                        "{name}: tet tag {t}"
+                    );
+                }
+                for (tag, n) in counts["triangle"].as_object().unwrap() {
+                    let t: i32 = tag.parse().unwrap();
+                    assert_eq!(
+                        m.tri_tags.iter().filter(|x| **x == t).count() as u64,
+                        fx::u64_of(n),
+                        "{name}: tri tag {t}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn every_general_format_fixture_gmsh_reads_agrees_with_gmsh() {
+    for name in MESH_FORMATS {
+        let rec = &fx::section("meshFormats")[name];
+        let Some(g) = rec.get("gmsh") else {
+            continue;
+        };
+        let m = read_general(name);
+        assert_eq!(
+            m.nodes.len() as u64,
+            fx::u64_of(&g["nodes"]),
+            "{name}: nodes"
+        );
+        let by = &g["elementsByGmshType"];
+        let want = |k: &str| by.get(k).map(fx::u64_of).unwrap_or(0);
+        // Gmsh keeps quads as type 3; the reader fans each into two triangles.
+        assert_eq!(
+            m.tris.len() as u64,
+            want("2") + 2 * want("3"),
+            "{name}: tris"
+        );
+        assert_eq!(m.tets.len() as u64, want("4"), "{name}: tets");
+        assert_bbox(name, &m, &g["bbox"]);
+        // Everything Gmsh saw that is not tri/tet/quad must be in `skipped`, never lost.
+        let skipped: u64 = m.skipped.iter().map(|(_, n)| *n).sum();
+        let other: u64 = by
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(k, _)| !matches!(k.as_str(), "2" | "3" | "4"))
+            .map(|(_, v)| fx::u64_of(v))
+            .sum();
+        assert_eq!(skipped, other, "{name}: skipped census");
+    }
+}
+
+#[test]
+fn the_medit_edges_are_counted_under_gmsh_type_1() {
+    let n = fx::u64_of(&fx::manifest()["writerNotes"]["meshFormats"]["meditEdges"]);
+    let m = read_general("lattice.mesh");
+    assert_eq!(m.skipped, vec![(1, n)]);
+    // MEDIT's `medit:ref` field is the tag array too (§6.2), so both agree row for row.
+    let f = m
+        .elm_fields
+        .iter()
+        .find(|f| f.name == "medit:ref")
+        .expect("medit:ref");
+    assert!(f.tet.iter().zip(&m.tet_tags).all(|(v, t)| *v as i32 == *t));
+}
+
+#[test]
+fn general_format_quad_fixtures_emit_the_quad_mask() {
+    // patch_polydata.vtk, patch.vtp and patch_quad.off hold the same 16 vertices and 9 quads
+    // as patch_quad.obj; Gmsh reads the first and the last (type 3), and the manifest copies
+    // that record onto the .vtp (meshio has no .vtp reader).
+    for name in ["patch_polydata.vtk", "patch.vtp", "patch_quad.off"] {
+        let rec = &fx::section("meshFormats")[name];
+        let g = rec
+            .get("gmsh")
+            .or_else(|| rec.get("expectedFromEquivalentLegacy"))
+            .unwrap_or_else(|| panic!("{name}: no expectation"));
+        let quads = fx::u64_of(&g["elementsByGmshType"]["3"]) as usize;
+        assert_eq!(quads, 9);
+        let m = read_general(name);
+        assert_eq!(m.nodes.len() as u64, fx::u64_of(&g["nodes"]), "{name}");
+        assert_eq!(m.tris.len(), 2 * quads, "{name}");
+        assert_bbox(name, &m, &g["bbox"]);
+        let mask = m
+            .tri_edge_mask
+            .as_ref()
+            .unwrap_or_else(|| panic!("{name}: an n-gon loader must emit tri_edge_mask"));
+        assert_eq!(mask.len(), m.tris.len());
+        for pair in mask.chunks(2) {
+            assert_eq!(pair[0] & 0b111, 0b101, "{name}: first half of a quad");
+            assert_eq!(pair[1] & 0b111, 0b011, "{name}: second half of a quad");
+        }
+        assert!(
+            m.tri_tags.iter().all(|t| *t == 0),
+            "{name}: no tag array ⇒ tag 0"
+        );
+    }
+    // The two VTK patch files carry a point scalar; OFF carries none.
+    assert_eq!(
+        read_general("patch_polydata.vtk").node_fields[0].name,
+        "height"
+    );
+    assert_eq!(read_general("patch.vtp").node_fields[0].name, "height");
+    assert!(read_general("patch_quad.off").node_fields.is_empty());
+}
+
+#[test]
+fn the_three_vtu_encodings_and_the_legacy_files_are_byte_identical_meshes() {
+    let base = read_general("lattice_ascii.vtu");
+    for other in [
+        "lattice_b64.vtu",
+        "lattice_appended_zlib.vtu",
+        "lattice_ascii.vtk",
+        "lattice_binary.vtk",
+    ] {
+        let m = read_general(other);
+        assert_eq!(m.nodes, base.nodes, "{other}: nodes");
+        assert_eq!(m.tris, base.tris, "{other}: tris");
+        assert_eq!(m.tets, base.tets, "{other}: tets");
+        assert_eq!(m.tet_tags, base.tet_tags, "{other}: tet tags");
+        assert_eq!(m.tri_tags, base.tri_tags, "{other}: tri tags");
+        for (a, b) in m.node_fields.iter().zip(&base.node_fields) {
+            assert_eq!(a.name, b.name, "{other}");
+            assert_eq!(a.data, b.data, "{other}: {}", a.name);
+        }
+    }
+}
+
 #[test]
 fn sniff_identifies_every_fixture_from_its_bytes() {
     let cases: &[(&str, Format)] = &[
@@ -770,6 +1064,14 @@ fn sniff_identifies_every_fixture_from_its_bytes() {
         ("patch_tri_binary.ply", Format::Ply),
         ("patch_tri.obj", Format::Obj),
         ("view_electrodes.geo", Format::Geo),
+        ("lattice_ascii.vtk", Format::Vtk),
+        ("lattice_binary.vtk", Format::Vtk),
+        ("patch_polydata.vtk", Format::Vtk),
+        ("lattice_ascii.vtu", Format::VtkXml),
+        ("lattice_appended_zlib.vtu", Format::VtkXml),
+        ("patch.vtp", Format::VtkXml),
+        ("patch_quad.off", Format::Off),
+        ("lattice.mesh", Format::Medit),
     ];
     for (name, want) in cases {
         let b = fx::bytes(name);

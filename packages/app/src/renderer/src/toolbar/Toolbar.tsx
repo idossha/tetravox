@@ -54,6 +54,12 @@ export function Toolbar(): React.JSX.Element {
   const menuActions: AppMenuAction[] = [
     { id: 'open', label: 'Open…', onSelect: onOpen },
     {
+      id: 'sample-data',
+      label: 'Sample data…',
+      title: 'Public datasets to download and open (File ▸ Sample Data…)',
+      onSelect: () => void controller.openSampleData(),
+    },
+    {
       id: 'new',
       label: 'New',
       disabled: !hasContent,

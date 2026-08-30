@@ -89,6 +89,7 @@ export default defineConfig({
           { text: 'Home', link: '/' },
           { text: 'Install', link: '/install' },
           { text: 'Get started', link: '/get-started' },
+          { text: 'Sample data', link: '/sample-data' },
           {
             text: 'The wiki',
             collapsed: false,

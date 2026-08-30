@@ -1,6 +1,6 @@
 [package]
 name = "tvx-mesh-io"
-description = "Gmsh .msh v2/v4.1, .msh.opt, GIfTI, FreeSurfer surf/curv/annot, STL/PLY/OBJ (ARCHITECTURE.md §6.2)"
+description = "Gmsh .msh v2/v4.1, .msh.opt, GIfTI, FreeSurfer surf/curv/annot, STL/PLY/OBJ, VTK legacy + XML, OFF, MEDIT (ARCHITECTURE.md §6.2)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

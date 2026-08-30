@@ -82,7 +82,7 @@ fn raw_samples(d: &VolumeData) -> js_sys::ArrayBuffer {
 /// `LoadSource` (§6.5.2) — `load_volume` is handed bytes, not a path.
 ///
 /// `fingerprint` is §4.6's `tvxfp1` digest, taken by [`load`] over the input bytes **before**
-/// `read_nifti` consumes and frees them (§5 rule 5); it cannot be recomputed from the parsed
+/// `read_volume` consumes and frees them (§5 rule 5); it cannot be recomputed from the parsed
 /// `Volume`, which is why it is threaded in as an argument.
 fn meta(
     handle: u32,
@@ -120,8 +120,11 @@ fn meta(
     o.into()
 }
 
-/// `load_volume`'s body (§6.4). `read_nifti` reports `Read`/`Inflate`/`Parse`/`Index` itself, so
-/// nothing here double-reports; the input `Vec<u8>` is dropped inside `read_nifti` before it
+/// `load_volume`'s body (§6.4). The format is sniffed **by content** through
+/// [`tvx_nifti::read_volume`] — NIfTI-1/2, FreeSurfer MGH/MGZ, NRRD or MetaImage all land in the
+/// same `Volume` — which keeps the frozen `load_volume` signature and reproduces the NIfTI-only
+/// behaviour for NIfTI bytes. The reader reports `Read`/`Inflate`/`Parse`/`Index` itself, so
+/// nothing here double-reports; the input `Vec<u8>` is dropped inside the reader before it
 /// returns (§5 rule 5).
 pub fn load(
     bytes: Vec<u8>,
@@ -131,10 +134,10 @@ pub fn load(
     p: &mut dyn tvx_core::ProgressSink,
 ) -> Result<JsValue> {
     // §4.6 / §5 rule 3: the digest is taken here, in the worker, over the bytes the loader was
-    // handed — `read_nifti` takes ownership of the `Vec` and frees it before it returns (§5 rule 5),
-    // and the UI thread never sees a byte of it, so there is nowhere else it could be taken.
+    // handed — `read_volume` takes ownership of the `Vec` and frees it before it returns (§5 rule
+    // 5), and the UI thread never sees a byte of it, so there is nowhere else it could be taken.
     let fingerprint = tvx_core::fingerprint(&bytes);
-    let vol = tvx_nifti::read_nifti(bytes, p)?;
+    let vol = tvx_nifti::read_volume(bytes, None, p)?;
     let lut = match &lut_bytes {
         Some(b) => Some(crate::lut::parse(&String::from_utf8_lossy(b))?),
         None => None,

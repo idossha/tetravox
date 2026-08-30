@@ -4,11 +4,12 @@
   "colors": "rgba255 = 0..255 bytes, the \u00a74.1 wire form",
   "gmshElementTypes": "2 = tri3, 4 = tet4, 3 = quad4 (n-gon, exercises tri_edge_mask)",
   "meshElementNumbers": "1-based Gmsh element numbers (\u00a76.2); tris are the first block",
+  "meshFormats": "\u00a76.2's VTK legacy / VTK XML / OFF / MEDIT fixtures; `gmsh` = the Gmsh 4.14 Python API (legacy .vtk, .off, .mesh only), `meshio` = meshio (all nine)",
   "nonFinite": "\"NaN\" / \"Infinity\" / \"-Infinity\" appear as JSON strings",
   "spotValues": "raw = on-disk sample; physical = raw*sclSlope+sclInter (never folded, \u00a76.1)",
   "voxelOrder": "i fastest, then j, then k, then volume index"
  },
- "description": "Ground truth for the committed synthetic fixtures in testdata/. Every number here was produced by an INDEPENDENT reader \u2014 nibabel for NIfTI/GIfTI/FreeSurfer, simnibs.mesh_io.read_msh for Gmsh v2.2, the Gmsh 4.14 Python API for Gmsh v4.1 and for STL/PLY/OBJ \u2014 never by the writer in scripts/gen-fixtures.py. Regenerate with `python3 scripts/gen-fixtures.py`.",
+ "description": "Ground truth for the committed synthetic fixtures in testdata/. Every number here was produced by an INDEPENDENT reader \u2014 nibabel for NIfTI/GIfTI/FreeSurfer (MGH/MGZ included), SimpleITK for NRRD/MetaImage (loaded in LPS, stored here as RAS), simnibs.mesh_io.read_msh for Gmsh v2.2, the Gmsh 4.14 Python API for Gmsh v4.1, for STL/PLY/OBJ and for legacy VTK/OFF/MEDIT, meshio for VTK legacy+XML/OFF/MEDIT \u2014 never by the writer in scripts/gen-fixtures.py. Regenerate with `python3 scripts/gen-fixtures.py`.",
  "freesurfer": {
   "lh.fixture.annot": {
    "bytes": 280,
@@ -982,6 +983,877 @@
      ]
     }
    ]
+  }
+ },
+ "meshFormats": {
+  "lattice.mesh": {
+   "bytes": 1782,
+   "gmsh": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "bytes": 1782,
+    "connectivity1Based": {
+     "1": {
+      "first": [
+       1,
+       2
+      ],
+      "last": [
+       2,
+       3
+      ]
+     },
+     "2": {
+      "first": [
+       1,
+       5,
+       2
+      ],
+      "last": [
+       26,
+       23,
+       27
+      ]
+     },
+     "4": {
+      "first": [
+       1,
+       2,
+       5,
+       14
+      ],
+      "last": [
+       14,
+       24,
+       15,
+       27
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 106,
+     "first": 1,
+     "last": 106,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "1": 2,
+     "2": 56,
+     "4": 48
+    },
+    "fields": [],
+    "firstNodeByNumber": [
+     -10.0,
+     -10.0,
+     -10.0
+    ],
+    "lastNodeByNumber": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 27
+    },
+    "nodes": 27,
+    "physicalNames": [],
+    "physicalTagCountsDim2": {},
+    "physicalTagCountsDim3": {},
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "meshio": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "cellData": {
+     "medit:ref": {
+      "n": 106,
+      "ncomp": 1,
+      "stats": {
+       "max": 1002.0,
+       "mean": 529.943396226,
+       "min": 1.0,
+       "n": 106,
+       "nFinite": 106,
+       "sum": 56174.0
+      },
+      "tagCountsByCellType": {
+       "line": {
+        "7": 2
+       },
+       "tetra": {
+        "1": 24,
+        "2": 24
+       },
+       "triangle": {
+        "1001": 24,
+        "1002": 32
+       }
+      }
+     }
+    },
+    "cellsByType": {
+     "line": 2,
+     "tetra": 48,
+     "triangle": 56
+    },
+    "nodes": 27,
+    "pointData": {
+     "medit:ref": {
+      "magnitudeStats": null,
+      "ncomp": 1,
+      "stats": {
+       "max": 0.0,
+       "mean": 0.0,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     }
+    },
+    "reader": "meshio 5.3.5"
+   }
+  },
+  "lattice_appended_zlib.vtu": {
+   "bytes": 3033,
+   "meshio": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "cellData": {
+     "elm_scalar": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 48.5,
+       "mean": 22.75,
+       "min": -3.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 2366.0
+      }
+     },
+     "material": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 1002.0,
+       "mean": 540.0,
+       "min": 1.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 56160.0
+      },
+      "tagCountsByCellType": {
+       "tetra": {
+        "1": 24,
+        "2": 24
+       },
+       "triangle": {
+        "1001": 24,
+        "1002": 32
+       }
+      }
+     }
+    },
+    "cellsByType": {
+     "tetra": 48,
+     "triangle": 56
+    },
+    "nodes": 27,
+    "pointData": {
+     "node_scalar": {
+      "magnitudeStats": null,
+      "ncomp": 1,
+      "stats": {
+       "max": 1.110000014,
+       "mean": 0.0,
+       "min": -1.110000014,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     },
+     "node_vector": {
+      "magnitudeStats": {
+       "max": 5.728219619,
+       "mean": 4.351196472,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 117.48230474
+      },
+      "ncomp": 3,
+      "stats": {
+       "max": 5.0,
+       "mean": 0.0,
+       "min": -5.0,
+       "n": 81,
+       "nFinite": 81,
+       "sum": 0.0
+      }
+     }
+    },
+    "reader": "meshio 5.3.5"
+   }
+  },
+  "lattice_ascii.vtk": {
+   "bytes": 3192,
+   "gmsh": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "bytes": 3192,
+    "connectivity1Based": {
+     "2": {
+      "first": [
+       1,
+       5,
+       2
+      ],
+      "last": [
+       26,
+       23,
+       27
+      ]
+     },
+     "4": {
+      "first": [
+       1,
+       2,
+       5,
+       14
+      ],
+      "last": [
+       14,
+       24,
+       15,
+       27
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 104,
+     "first": 1,
+     "last": 104,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "2": 56,
+     "4": 48
+    },
+    "fields": [],
+    "firstNodeByNumber": [
+     -10.0,
+     -10.0,
+     -10.0
+    ],
+    "lastNodeByNumber": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 27
+    },
+    "nodes": 27,
+    "physicalNames": [],
+    "physicalTagCountsDim2": {},
+    "physicalTagCountsDim3": {},
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "meshio": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "cellData": {
+     "elm_scalar": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 48.5,
+       "mean": 22.75,
+       "min": -3.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 2366.0
+      }
+     },
+     "material": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 1002.0,
+       "mean": 540.0,
+       "min": 1.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 56160.0
+      },
+      "tagCountsByCellType": {
+       "tetra": {
+        "1": 24,
+        "2": 24
+       },
+       "triangle": {
+        "1001": 24,
+        "1002": 32
+       }
+      }
+     }
+    },
+    "cellsByType": {
+     "tetra": 48,
+     "triangle": 56
+    },
+    "nodes": 27,
+    "pointData": {
+     "node_scalar": {
+      "magnitudeStats": null,
+      "ncomp": 1,
+      "stats": {
+       "max": 1.110000014,
+       "mean": 0.0,
+       "min": -1.110000014,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     },
+     "node_vector": {
+      "magnitudeStats": {
+       "max": 5.728219619,
+       "mean": 4.351196472,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 117.48230474
+      },
+      "ncomp": 3,
+      "stats": {
+       "max": 5.0,
+       "mean": 0.0,
+       "min": -5.0,
+       "n": 81,
+       "nFinite": 81,
+       "sum": 0.0
+      }
+     }
+    },
+    "reader": "meshio 5.3.5"
+   }
+  },
+  "lattice_ascii.vtu": {
+   "bytes": 3930,
+   "meshio": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "cellData": {
+     "elm_scalar": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 48.5,
+       "mean": 22.75,
+       "min": -3.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 2366.0
+      }
+     },
+     "material": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 1002.0,
+       "mean": 540.0,
+       "min": 1.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 56160.0
+      },
+      "tagCountsByCellType": {
+       "tetra": {
+        "1": 24,
+        "2": 24
+       },
+       "triangle": {
+        "1001": 24,
+        "1002": 32
+       }
+      }
+     }
+    },
+    "cellsByType": {
+     "tetra": 48,
+     "triangle": 56
+    },
+    "nodes": 27,
+    "pointData": {
+     "node_scalar": {
+      "magnitudeStats": null,
+      "ncomp": 1,
+      "stats": {
+       "max": 1.110000014,
+       "mean": 0.0,
+       "min": -1.110000014,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     },
+     "node_vector": {
+      "magnitudeStats": {
+       "max": 5.728219619,
+       "mean": 4.351196472,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 117.48230474
+      },
+      "ncomp": 3,
+      "stats": {
+       "max": 5.0,
+       "mean": 0.0,
+       "min": -5.0,
+       "n": 81,
+       "nFinite": 81,
+       "sum": 0.0
+      }
+     }
+    },
+    "reader": "meshio 5.3.5"
+   }
+  },
+  "lattice_b64.vtu": {
+   "bytes": 8722,
+   "meshio": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "cellData": {
+     "elm_scalar": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 48.5,
+       "mean": 22.75,
+       "min": -3.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 2366.0
+      }
+     },
+     "material": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 1002.0,
+       "mean": 540.0,
+       "min": 1.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 56160.0
+      },
+      "tagCountsByCellType": {
+       "tetra": {
+        "1": 24,
+        "2": 24
+       },
+       "triangle": {
+        "1001": 24,
+        "1002": 32
+       }
+      }
+     }
+    },
+    "cellsByType": {
+     "tetra": 48,
+     "triangle": 56
+    },
+    "nodes": 27,
+    "pointData": {
+     "node_scalar": {
+      "magnitudeStats": null,
+      "ncomp": 1,
+      "stats": {
+       "max": 1.110000014,
+       "mean": 0.0,
+       "min": -1.110000014,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     },
+     "node_vector": {
+      "magnitudeStats": {
+       "max": 5.728219619,
+       "mean": 4.351196472,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 117.48230474
+      },
+      "ncomp": 3,
+      "stats": {
+       "max": 5.0,
+       "mean": 0.0,
+       "min": -5.0,
+       "n": 81,
+       "nFinite": 81,
+       "sum": 0.0
+      }
+     }
+    },
+    "reader": "meshio 5.3.5"
+   }
+  },
+  "lattice_binary.vtk": {
+   "bytes": 4192,
+   "meshio": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "cellData": {
+     "elm_scalar": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 48.5,
+       "mean": 22.75,
+       "min": -3.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 2366.0
+      }
+     },
+     "material": {
+      "n": 104,
+      "ncomp": 1,
+      "stats": {
+       "max": 1002.0,
+       "mean": 540.0,
+       "min": 1.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 56160.0
+      },
+      "tagCountsByCellType": {
+       "tetra": {
+        "1": 24,
+        "2": 24
+       },
+       "triangle": {
+        "1001": 24,
+        "1002": 32
+       }
+      }
+     }
+    },
+    "cellsByType": {
+     "tetra": 48,
+     "triangle": 56
+    },
+    "nodes": 27,
+    "pointData": {
+     "node_scalar": {
+      "magnitudeStats": null,
+      "ncomp": 1,
+      "stats": {
+       "max": 1.110000014,
+       "mean": 0.0,
+       "min": -1.110000014,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 0.0
+      }
+     },
+     "node_vector": {
+      "magnitudeStats": {
+       "max": 5.728219619,
+       "mean": 4.351196472,
+       "min": 0.0,
+       "n": 27,
+       "nFinite": 27,
+       "sum": 117.48230474
+      },
+      "ncomp": 3,
+      "stats": {
+       "max": 5.0,
+       "mean": 0.0,
+       "min": -5.0,
+       "n": 81,
+       "nFinite": 81,
+       "sum": 0.0
+      }
+     }
+    },
+    "reader": "meshio 5.3.5"
+   },
+   "readerNote": "Gmsh 4.14 cannot load a BINARY legacy .vtk (not even one it wrote itself), so meshio is the only independent reader here; lattice_ascii.vtk is the same lattice and carries the Gmsh record."
+  },
+  "patch.vtp": {
+   "bytes": 1032,
+   "expectedFromEquivalentLegacy": {
+    "bbox": {
+     "max": [
+      30.0,
+      20.0,
+      6.732051
+     ],
+     "min": [
+      -30.0,
+      -20.0,
+      -5.0
+     ]
+    },
+    "elementsByGmshType": {
+     "3": 9
+    },
+    "nodes": 16
+   },
+   "readerNote": "meshio refused the file (meshio has no .vtp reader); patch_polydata.vtk holds the same 16 vertices and 9 quads and Gmsh reads that one \u2014 its record is copied here as expectedFromEquivalentLegacy."
+  },
+  "patch_polydata.vtk": {
+   "bytes": 647,
+   "gmsh": {
+    "bbox": {
+     "max": [
+      30.0,
+      20.0,
+      6.732051
+     ],
+     "min": [
+      -30.0,
+      -20.0,
+      -5.0
+     ]
+    },
+    "bytes": 647,
+    "connectivity1Based": {
+     "3": {
+      "first": [
+       1,
+       2,
+       6,
+       5
+      ],
+      "last": [
+       11,
+       12,
+       16,
+       15
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 9,
+     "first": 1,
+     "last": 9,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "3": 9
+    },
+    "fields": [],
+    "firstNodeByNumber": [
+     -30.0,
+     -20.0,
+     5.0
+    ],
+    "lastNodeByNumber": [
+     30.0,
+     20.0,
+     -5.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 16
+    },
+    "nodes": 16,
+    "physicalNames": [],
+    "physicalTagCountsDim2": {},
+    "physicalTagCountsDim3": {},
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "readerNote": "meshio refused the file (meshio's legacy reader supports UNSTRUCTURED_GRID only, not POLYDATA); the Gmsh record is the ground truth."
+  },
+  "patch_quad.off": {
+   "bytes": 393,
+   "gmsh": {
+    "bbox": {
+     "max": [
+      30.0,
+      20.0,
+      6.732051
+     ],
+     "min": [
+      -30.0,
+      -20.0,
+      -5.0
+     ]
+    },
+    "bytes": 393,
+    "connectivity1Based": {
+     "3": {
+      "first": [
+       1,
+       2,
+       6,
+       5
+      ],
+      "last": [
+       11,
+       12,
+       16,
+       15
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 9,
+     "first": 1,
+     "last": 9,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "3": 9
+    },
+    "fields": [],
+    "firstNodeByNumber": [
+     -30.0,
+     -20.0,
+     5.0
+    ],
+    "lastNodeByNumber": [
+     30.0,
+     20.0,
+     -5.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 16
+    },
+    "nodes": 16,
+    "physicalNames": [],
+    "physicalTagCountsDim2": {},
+    "physicalTagCountsDim3": {},
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "readerNote": "meshio refused the file (meshio's OFF reader reads triangular faces only); the Gmsh record is the ground truth."
   }
  },
  "msh": {
@@ -3085,6 +3957,11 @@
    "why": "\u00a76.1 rejects it by name (Error::Unsupported(\"two-file NIfTI\")); no valid fixture is needed to assert a rejection."
   },
   {
+   "instead": "the Rust tests rewrite an attached fixture's header in memory.",
+   "what": "a detached-header NRRD (.nhdr) or MetaImage (.mhd), or a bzip2 NRRD",
+   "why": "\u00a76.1 rejects them by name; the byte-slice signature has no sibling-file access and bzip2 is not a dependency."
+  },
+  {
    "instead": "the Rust test rewrites surf_ascii.surf.gii's Encoding attribute in memory.",
    "what": "GIfTI ExternalFileBinary",
    "why": "\u00a76.2 rejects it by name; the byte-slice signature has no sibling-file access."
@@ -3845,7 +4722,7 @@
    "reader": "gmsh 4.14.0 python api"
   }
  },
- "totalFixtureBytes": 83372,
+ "totalFixtureBytes": 117137,
  "version": 1,
  "volumes": {
   "labels_float32.nii.gz": {
@@ -10700,6 +11577,2504 @@
    "uniqueCount": 60
   }
  },
+ "voxelFormats": {
+  "vol_4d_list.nrrd": {
+   "affine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": false,
+   "bytes": 1191,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f32",
+   "format": "nrrd",
+   "groundTruth": "SimpleITK 2.5.5 sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+   "itk": {
+    "componentsPerPixel": 3,
+    "dimension": 3,
+    "direction": [
+     -0.866025404,
+     0.433012702,
+     -0.25,
+     -0.5,
+     -0.75,
+     0.433012702,
+     0.0,
+     0.5,
+     0.866025404
+    ],
+    "lpsAffine": [
+     [
+      -1.299038106,
+      0.866025404,
+      -0.75,
+      7.25
+     ],
+     [
+      -0.75,
+      -1.5,
+      1.299038106,
+      -11.5
+     ],
+     [
+      0.0,
+      1.0,
+      2.598076211,
+      -3.75
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "origin": [
+     7.25,
+     -11.5,
+     -3.75
+    ],
+    "pixelType": "vector of 32-bit float",
+    "size": [
+     5,
+     4,
+     3
+    ],
+    "spacing": [
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   "nvols": 3,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": -3.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 246.5,
+     "volume": 1,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 496.5,
+     "volume": 2,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -2.5,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 247.5,
+     "volume": 1,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 497.5,
+     "volume": 2,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 254.0,
+     "volume": 1,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 504.0,
+     "volume": 2,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 46.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 296.5,
+     "volume": 1,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 546.5,
+     "volume": 2,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 24.5,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "raw": 274.5,
+     "volume": 1,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "raw": 524.5,
+     "volume": 2,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "raw": 55.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 305.0,
+     "volume": 1,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 555.0,
+     "volume": 2,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 555.0,
+    "mean": 275.75,
+    "min": -3.5,
+    "n": 180,
+    "nFinite": 180,
+    "sum": 49635.0
+   },
+   "uniqueCount": 180,
+   "volumeStats": [
+    {
+     "max": 55.0,
+     "mean": 25.75,
+     "min": -3.5,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 1545.0
+    },
+    {
+     "max": 305.0,
+     "mean": 275.75,
+     "min": 246.5,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 16545.0
+    },
+    {
+     "max": 555.0,
+     "mean": 525.75,
+     "min": 496.5,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 31545.0
+    }
+   ]
+  },
+  "vol_f32.mgz": {
+   "Mdc": [
+    [
+     0.0,
+     -1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0
+    ],
+    [
+     -1.0,
+     0.0,
+     0.0
+    ]
+   ],
+   "Pxyz_c": [
+    -11.75,
+    7.75,
+    0.25
+   ],
+   "affine": [
+    [
+     0.0,
+     0.0,
+     -3.0,
+     -7.25
+    ],
+    [
+     -1.5,
+     0.0,
+     0.0,
+     11.5
+    ],
+    [
+     0.0,
+     2.0,
+     0.0,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": false,
+   "bytes": 203,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f32",
+   "format": "mgh",
+   "goodRASFlag": 1,
+   "groundTruth": "nibabel 5.4.2 nib.load (MGHImage.affine)",
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": -3.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -2.5,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      5.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      2.25,
+      1.0
+     ]
+    },
+    {
+     "raw": 46.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -13.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 24.5,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -10.25,
+      8.5,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 55.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -13.25,
+      5.5,
+      2.25,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 55.0,
+    "mean": 25.75,
+    "min": -3.5,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 1545.0
+   },
+   "uniqueCount": 60,
+   "volumeStats": [
+    {
+     "max": 55.0,
+     "mean": 25.75,
+     "min": -3.5,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 1545.0
+    }
+   ],
+   "vox2rasTkr": [
+    [
+     -1.5,
+     0.0,
+     0.0,
+     3.75
+    ],
+    [
+     0.0,
+     0.0,
+     3.0,
+     -4.5
+    ],
+    [
+     0.0,
+     -2.0,
+     0.0,
+     4.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ]
+  },
+  "vol_f32_ascii.nrrd": {
+   "affine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": false,
+   "bytes": 757,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "f32",
+   "format": "nrrd",
+   "groundTruth": "SimpleITK 2.5.5 sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+   "itk": {
+    "componentsPerPixel": 1,
+    "dimension": 3,
+    "direction": [
+     -0.866025404,
+     0.433012702,
+     -0.25,
+     -0.5,
+     -0.75,
+     0.433012702,
+     0.0,
+     0.5,
+     0.866025404
+    ],
+    "lpsAffine": [
+     [
+      -1.299038106,
+      0.866025404,
+      -0.75,
+      7.25
+     ],
+     [
+      -0.75,
+      -1.5,
+      1.299038106,
+      -11.5
+     ],
+     [
+      0.0,
+      1.0,
+      2.598076211,
+      -3.75
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "origin": [
+     7.25,
+     -11.5,
+     -3.75
+    ],
+    "pixelType": "32-bit float",
+    "size": [
+     5,
+     4,
+     3
+    ],
+    "spacing": [
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": -3.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -2.5,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 46.5,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 24.5,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "raw": 55.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 55.0,
+    "mean": 25.75,
+    "min": -3.5,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 1545.0
+   },
+   "uniqueCount": 60,
+   "volumeStats": [
+    {
+     "max": 55.0,
+     "mean": 25.75,
+     "min": -3.5,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 1545.0
+    }
+   ]
+  },
+  "vol_i16_4d.mgz": {
+   "Mdc": [
+    [
+     0.866025388,
+     0.5,
+     0.0
+    ],
+    [
+     -0.433012694,
+     0.75,
+     0.5
+    ],
+    [
+     0.25,
+     -0.433012694,
+     0.866025388
+    ]
+   ],
+   "Pxyz_c": [
+    -4.609455585,
+    14.4264431,
+    2.147114277
+   ],
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": false,
+   "bytes": 465,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "format": "mgh",
+   "goodRASFlag": 1,
+   "groundTruth": "nibabel 5.4.2 nib.load (MGHImage.affine)",
+   "nvols": 3,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": -11700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 22764.0,
+     "volume": 1,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -8308.0,
+     "volume": 2,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -11300.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 23164.0,
+     "volume": 1,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -7908.0,
+     "volume": 2,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -8700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 25764.0,
+     "volume": 1,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -5308.0,
+     "volume": 2,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 8300.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "raw": -22772.0,
+     "volume": 1,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "raw": 11692.0,
+     "volume": 2,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "raw": -500.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "raw": -31572.0,
+     "volume": 1,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "raw": 2892.0,
+     "volume": 2,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "raw": 11700.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "raw": -19372.0,
+     "volume": 1,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    },
+    {
+     "raw": 15092.0,
+     "volume": 2,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 32764.0,
+    "mean": -1580.8,
+    "min": -32672.0,
+    "n": 180,
+    "nFinite": 180,
+    "sum": -284544.0
+   },
+   "uniqueCount": 180,
+   "volumeStats": [
+    {
+     "max": 11700.0,
+     "mean": 0.0,
+     "min": -11700.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 0.0
+    },
+    {
+     "max": 32764.0,
+     "mean": -8134.4,
+     "min": -32672.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": -488064.0
+    },
+    {
+     "max": 15092.0,
+     "mean": 3392.0,
+     "min": -8308.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 203520.0
+    }
+   ],
+   "vox2rasTkr": [
+    [
+     -1.5,
+     0.0,
+     0.0,
+     3.75
+    ],
+    [
+     0.0,
+     0.0,
+     3.0,
+     -4.5
+    ],
+    [
+     0.0,
+     -2.0,
+     0.0,
+     4.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ]
+  },
+  "vol_i16_gzip_lps.nrrd": {
+   "affine": [
+    [
+     0.0,
+     -0.0,
+     3.0,
+     -7.25
+    ],
+    [
+     -1.5,
+     0.0,
+     -0.0,
+     11.5
+    ],
+    [
+     0.0,
+     2.0,
+     -0.0,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": false,
+   "bytes": 483,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "format": "nrrd",
+   "groundTruth": "SimpleITK 2.5.5 sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+   "itk": {
+    "componentsPerPixel": 1,
+    "dimension": 3,
+    "direction": [
+     -0.0,
+     0.0,
+     -1.0,
+     1.0,
+     -0.0,
+     0.0,
+     0.0,
+     1.0,
+     -0.0
+    ],
+    "lpsAffine": [
+     [
+      -0.0,
+      0.0,
+      -3.0,
+      7.25
+     ],
+     [
+      1.5,
+      -0.0,
+      0.0,
+      -11.5
+     ],
+     [
+      0.0,
+      2.0,
+      -0.0,
+      -3.75
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "origin": [
+     7.25,
+     -11.5,
+     -3.75
+    ],
+    "pixelType": "16-bit signed integer",
+    "size": [
+     5,
+     4,
+     3
+    ],
+    "spacing": [
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": -11700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -11300.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      5.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -8700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      2.25,
+      1.0
+     ]
+    },
+    {
+     "raw": 8300.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -1.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -500.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.25,
+      8.5,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 11700.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -1.25,
+      5.5,
+      2.25,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 11700.0,
+    "mean": 0.0,
+    "min": -11700.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60,
+   "volumeStats": [
+    {
+     "max": 11700.0,
+     "mean": 0.0,
+     "min": -11700.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 0.0
+    }
+   ]
+  },
+  "vol_i16_zlib.mha": {
+   "affine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": false,
+   "bytes": 610,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "i16",
+   "format": "metaimage",
+   "groundTruth": "SimpleITK 2.5.5 sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+   "itk": {
+    "componentsPerPixel": 1,
+    "dimension": 3,
+    "direction": [
+     -0.866025404,
+     0.433012702,
+     -0.25,
+     -0.5,
+     -0.75,
+     0.433012702,
+     0.0,
+     0.5,
+     0.866025404
+    ],
+    "lpsAffine": [
+     [
+      -1.299038106,
+      0.866025404,
+      -0.75,
+      7.25
+     ],
+     [
+      -0.75,
+      -1.5,
+      1.299038106,
+      -11.5
+     ],
+     [
+      0.0,
+      1.0,
+      2.598076211,
+      -3.75
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "origin": [
+     7.25,
+     -11.5,
+     -3.75
+    ],
+    "pixelType": "16-bit signed integer",
+    "size": [
+     5,
+     4,
+     3
+    ],
+    "spacing": [
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": -11700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -11300.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": -8700.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 8300.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": -500.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "raw": 11700.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 11700.0,
+    "mean": 0.0,
+    "min": -11700.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 0.0
+   },
+   "uniqueCount": 60,
+   "volumeStats": [
+    {
+     "max": 11700.0,
+     "mean": 0.0,
+     "min": -11700.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 0.0
+    }
+   ]
+  },
+  "vol_rgb.mha": {
+   "affine": [
+    [
+     -0.0,
+     -0.0,
+     -3.0,
+     -7.25
+    ],
+    [
+     -1.5,
+     -0.0,
+     -0.0,
+     11.5
+    ],
+    [
+     0.0,
+     2.0,
+     0.0,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": null,
+   "bytes": 539,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "rgb24",
+   "format": "metaimage",
+   "groundTruth": "SimpleITK 2.5.5 sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+   "itk": {
+    "componentsPerPixel": 3,
+    "dimension": 3,
+    "direction": [
+     0.0,
+     0.0,
+     1.0,
+     1.0,
+     0.0,
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    "lpsAffine": [
+     [
+      0.0,
+      0.0,
+      3.0,
+      7.25
+     ],
+     [
+      1.5,
+      0.0,
+      0.0,
+      -11.5
+     ],
+     [
+      0.0,
+      2.0,
+      0.0,
+      -3.75
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "origin": [
+     7.25,
+     -11.5,
+     -3.75
+    ],
+    "pixelType": "vector of 8-bit unsigned integer",
+    "size": [
+     5,
+     4,
+     3
+    ],
+    "spacing": [
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": [
+      0.0,
+      255.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": [
+      4.0,
+      251.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      5.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": [
+      30.0,
+      225.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      2.25,
+      1.0
+     ]
+    },
+    {
+     "raw": [
+      200.0,
+      55.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -13.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": [
+      112.0,
+      143.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -10.25,
+      8.5,
+      -1.75,
+      1.0
+     ]
+    },
+    {
+     "raw": [
+      234.0,
+      21.0,
+      64.0
+     ],
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -13.25,
+      5.5,
+      2.25,
+      1.0
+     ]
+    }
+   ],
+   "stats": null,
+   "uniqueCount": null,
+   "volumeStats": null
+  },
+  "vol_u8.mgh": {
+   "Mdc": [
+    [
+     0.866025388,
+     0.5,
+     0.0
+    ],
+    [
+     -0.433012694,
+     0.75,
+     0.5
+    ],
+    [
+     0.25,
+     -0.433012694,
+     0.866025388
+    ]
+   ],
+   "Pxyz_c": [
+    -4.609455585,
+    14.4264431,
+    2.147114277
+   ],
+   "affine": [
+    [
+     1.299038053,
+     -0.866025388,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038053,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076105,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": true,
+   "bytes": 364,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u8",
+   "format": "mgh",
+   "goodRASFlag": 1,
+   "groundTruth": "nibabel 5.4.2 nib.load (MGHImage.affine)",
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.05384779,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 30.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076165,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 200.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923895,
+      1.44615221,
+      1.0
+     ]
+    },
+    {
+     "raw": 112.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949283,
+      13.200961947,
+      -0.151923895,
+      1.0
+     ]
+    },
+    {
+     "raw": 234.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923954,
+      16.401923895,
+      4.44615221,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 234.0,
+    "mean": 117.0,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 7020.0
+   },
+   "uniqueCount": 60,
+   "volumeStats": [
+    {
+     "max": 234.0,
+     "mean": 117.0,
+     "min": 0.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 7020.0
+    }
+   ],
+   "vox2rasTkr": [
+    [
+     -1.5,
+     0.0,
+     0.0,
+     3.75
+    ],
+    [
+     0.0,
+     0.0,
+     3.0,
+     -4.5
+    ],
+    [
+     0.0,
+     -2.0,
+     0.0,
+     4.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ]
+  },
+  "vol_u8_raw.mha": {
+   "affine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": true,
+   "bytes": 515,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u8",
+   "format": "metaimage",
+   "groundTruth": "SimpleITK 2.5.5 sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+   "itk": {
+    "componentsPerPixel": 1,
+    "dimension": 3,
+    "direction": [
+     -0.866025404,
+     0.433012702,
+     -0.25,
+     -0.5,
+     -0.75,
+     0.433012702,
+     0.0,
+     0.5,
+     0.866025404
+    ],
+    "lpsAffine": [
+     [
+      -1.299038106,
+      0.866025404,
+      -0.75,
+      7.25
+     ],
+     [
+      -0.75,
+      -1.5,
+      1.299038106,
+      -11.5
+     ],
+     [
+      0.0,
+      1.0,
+      2.598076211,
+      -3.75
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "origin": [
+     7.25,
+     -11.5,
+     -3.75
+    ],
+    "pixelType": "8-bit unsigned integer",
+    "size": [
+     5,
+     4,
+     3
+    ],
+    "spacing": [
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 30.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 200.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 112.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "raw": 234.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 234.0,
+    "mean": 117.0,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 7020.0
+   },
+   "uniqueCount": 60,
+   "volumeStats": [
+    {
+     "max": 234.0,
+     "mean": 117.0,
+     "min": 0.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 7020.0
+    }
+   ]
+  },
+  "vol_u8_raw.nrrd": {
+   "affine": [
+    [
+     1.299038106,
+     -0.866025404,
+     0.75,
+     -7.25
+    ],
+    [
+     0.75,
+     1.5,
+     -1.299038106,
+     11.5
+    ],
+    [
+     0.0,
+     1.0,
+     2.598076211,
+     -3.75
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "allIntegralNonNegative": true,
+   "bytes": 519,
+   "dims": [
+    5,
+    4,
+    3
+   ],
+   "dtype": "u8",
+   "format": "nrrd",
+   "groundTruth": "SimpleITK 2.5.5 sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+   "itk": {
+    "componentsPerPixel": 1,
+    "dimension": 3,
+    "direction": [
+     -0.866025404,
+     0.433012702,
+     -0.25,
+     -0.5,
+     -0.75,
+     0.433012702,
+     0.0,
+     0.5,
+     0.866025404
+    ],
+    "lpsAffine": [
+     [
+      -1.299038106,
+      0.866025404,
+      -0.75,
+      7.25
+     ],
+     [
+      -0.75,
+      -1.5,
+      1.299038106,
+      -11.5
+     ],
+     [
+      0.0,
+      1.0,
+      2.598076211,
+      -3.75
+     ],
+     [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    ],
+    "origin": [
+     7.25,
+     -11.5,
+     -3.75
+    ],
+    "pixelType": "8-bit unsigned integer",
+    "size": [
+     5,
+     4,
+     3
+    ],
+    "spacing": [
+     1.5,
+     2.0,
+     3.0
+    ]
+   },
+   "nvols": 1,
+   "spacing": [
+    1.5,
+    2.0,
+    3.0
+   ],
+   "spotValues": [
+    {
+     "raw": 0.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.25,
+      11.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 4.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -2.053847577,
+      14.5,
+      -3.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 30.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -9.848076211,
+      16.0,
+      -0.75,
+      1.0
+     ]
+    },
+    {
+     "raw": 200.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -5.75,
+      8.901923789,
+      1.446152423,
+      1.0
+     ]
+    },
+    {
+     "raw": 112.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -4.767949192,
+      13.200961894,
+      -0.151923789,
+      1.0
+     ]
+    },
+    {
+     "raw": 234.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.151923789,
+      16.401923789,
+      4.446152423,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 234.0,
+    "mean": 117.0,
+    "min": 0.0,
+    "n": 60,
+    "nFinite": 60,
+    "sum": 7020.0
+   },
+   "uniqueCount": 60,
+   "volumeStats": [
+    {
+     "max": 234.0,
+     "mean": 117.0,
+     "min": 0.0,
+     "n": 60,
+     "nFinite": 60,
+     "sum": 7020.0
+    }
+   ]
+  }
+ },
  "writerNotes": {
   "lattice": {
    "exteriorFaces": 48,
@@ -10707,6 +14082,25 @@
    "tagDifferingInteriorFaces": 8,
    "tets": 48,
    "tris": 56
+  },
+  "meshFormats": {
+   "cellOrder": "tris then tets, matching mesh_fields()'s elm_scalar rows",
+   "lattice": [
+    "lattice_ascii.vtk",
+    "lattice_binary.vtk",
+    "lattice_ascii.vtu",
+    "lattice_b64.vtu",
+    "lattice_appended_zlib.vtu",
+    "lattice.mesh"
+   ],
+   "meditEdges": 2,
+   "meshioAvailable": true,
+   "patch": [
+    "patch_polydata.vtk",
+    "patch.vtp",
+    "patch_quad.off"
+   ],
+   "vtuAppendedZlibBlockBytes": 256
   },
   "noncontig": {
    "firstElementNumber": 10,
@@ -10718,6 +14112,9 @@
    "quads": 9,
    "triangles": 18,
    "vertices": 16
+  },
+  "voxelFormats": {
+   "lps": "NRRD (space: left-posterior-superior) and MetaImage store the x/y-negated affine; the manifest's `affine` is RAS, as the reader must produce it"
   }
  }
 }

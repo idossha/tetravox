@@ -7,6 +7,7 @@ test reads back. Re-run them instead of retyping numbers.
 /Users/idohaber/Applications/SimNIBS-4.6/bin/simnibs_python scripts/refvalues/mesh_refvalues.py > scripts/refvalues/mesh_refvalues.json
 python3 scripts/refvalues/nifti_refvalues.py                                                   > scripts/refvalues/nifti_refvalues.json
 python3 scripts/refvalues/contour_refvalues.py                                                 > scripts/refvalues/contour_refvalues.json
+python3 scripts/refvalues/mgz_refvalues.py                                                     > scripts/refvalues/mgz_refvalues.json
 ```
 
 Both take an optional testdata root as `argv[1]`, defaulting to `$TETRAVOX_TESTDATA` and then to
@@ -32,3 +33,9 @@ Both take an optional testdata root as `argv[1]`, defaulting to `$TETRAVOX_TESTD
 
 The committed `*.json` files are the 2026-08-27 output on this machine; a diff against a fresh run is a dataset
 change, not a test failure.
+
+* `mgz_refvalues.py` needs nibabel + numpy only. It takes the `.mgz` path as `argv[1]`, defaulting to
+  `$TETRAVOX_MGZ` and then to nibabel's own `tests/data/test.mgz` inside the SimNIBS environment — the only
+  `.mgz` on the reference machine. It reports dims, frames, the FreeSurfer type code, `delta`, nibabel's
+  `MGHImage.affine`, `vox2ras-tkr`, per-frame min/max/mean and spot values; the file's name and size are
+  recorded so `tests/realdata.rs::mgz_matches_nibabel` skips rather than misjudges another file.

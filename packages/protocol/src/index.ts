@@ -344,7 +344,20 @@ export interface GpuCapsT {
   max3d: number;
 }
 
-export type MeshFormatSel = 'auto' | 'msh' | 'gii' | 'fs' | 'stl' | 'ply' | 'obj' | 'geo';
+export type MeshFormatSel =
+  | 'auto'
+  | 'msh'
+  | 'gii'
+  | 'fs'
+  | 'stl'
+  | 'ply'
+  | 'obj'
+  | 'geo'
+  | 'vtk'
+  | 'vtu'
+  | 'vtp'
+  | 'off'
+  | 'medit';
 
 /**
  * One `View "name" { … };` block's census, for the layer panel and the info panel.

@@ -483,3 +483,316 @@ fn a_volume_larger_than_max_3d_fails_loudly() {
         "8^3 must not fit a max_3d of 4"
     );
 }
+
+// -------------------------------------------------------------------------------------
+// the other voxel formats: MGH/MGZ, NRRD, MetaImage (§6.1)
+// -------------------------------------------------------------------------------------
+
+use tvx_nifti::{read_metaimage, read_mgh, read_nrrd, read_volume, sniff_volume, VolumeFormat};
+
+fn format_of(rec: &serde_json::Value) -> VolumeFormat {
+    match rec["format"].as_str().unwrap() {
+        "mgh" => VolumeFormat::Mgh,
+        "nrrd" => VolumeFormat::Nrrd,
+        "metaimage" => VolumeFormat::MetaImage,
+        other => panic!("unknown manifest format {other}"),
+    }
+}
+
+#[test]
+fn other_format_fixtures_are_present() {
+    let recs = fx::entries("voxelFormats");
+    for (name, rec) in &recs {
+        assert_eq!(
+            fx::bytes(name).len(),
+            rec["bytes"].as_u64().unwrap() as usize,
+            "{name} changed on disk without the manifest being regenerated"
+        );
+    }
+    for required in [
+        "vol_u8.mgh",
+        "vol_f32.mgz",
+        "vol_i16_4d.mgz",
+        "vol_u8_raw.nrrd",
+        "vol_i16_gzip_lps.nrrd",
+        "vol_f32_ascii.nrrd",
+        "vol_4d_list.nrrd",
+        "vol_u8_raw.mha",
+        "vol_i16_zlib.mha",
+        "vol_rgb.mha",
+    ] {
+        assert!(
+            fx::section("voxelFormats").contains_key(required),
+            "manifest is missing {required}"
+        );
+    }
+}
+
+#[test]
+fn sniff_volume_identifies_every_fixture_by_content() {
+    for (name, rec) in fx::entries("voxelFormats") {
+        let b = fx::bytes(name);
+        assert_eq!(sniff_volume(&b, None).unwrap(), format_of(rec), "{name}");
+        // ... and the extension hint does not override the content.
+        assert_eq!(
+            sniff_volume(&b, Some("nii")).unwrap(),
+            format_of(rec),
+            "{name}"
+        );
+    }
+    for (name, _) in fx::entries("volumes") {
+        assert_eq!(
+            sniff_volume(&fx::bytes(name), None).unwrap(),
+            VolumeFormat::Nifti,
+            "{name}"
+        );
+    }
+    // Unrecognisable bytes fall back to the extension, then fail.
+    assert_eq!(
+        sniff_volume(b"garbage", Some(".mgz")).unwrap(),
+        VolumeFormat::Mgh
+    );
+    assert_eq!(
+        sniff_volume(b"garbage", Some("x.nhdr")).unwrap(),
+        VolumeFormat::Nrrd
+    );
+    assert!(sniff_volume(b"garbage", None).is_err());
+}
+
+#[test]
+fn other_formats_match_their_independent_readers() {
+    // MGH via nibabel, NRRD and MetaImage via SimpleITK (LPS, stored as RAS) — see the
+    // manifest's `groundTruth` per record. Every reader must produce the same `Volume`.
+    for (name, rec) in fx::entries("voxelFormats") {
+        let fmt = format_of(rec);
+        let auto = read_volume(fx::bytes(name), None, &mut NoProgress)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let direct = match fmt {
+            VolumeFormat::Mgh => read_mgh(fx::bytes(name), &mut NoProgress),
+            VolumeFormat::Nrrd => read_nrrd(fx::bytes(name), &mut NoProgress),
+            VolumeFormat::MetaImage => read_metaimage(fx::bytes(name), &mut NoProgress),
+            VolumeFormat::Nifti => unreachable!(),
+        }
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+        let explicit = read_volume(fx::bytes(name), Some(fmt), &mut NoProgress).unwrap();
+        for v in [&auto, &direct, &explicit] {
+            assert_eq!(v.dims.to_vec(), fx::usizes(&rec["dims"]), "{name}: dims");
+            assert_eq!(
+                v.nvols,
+                rec["nvols"].as_u64().unwrap() as usize,
+                "{name}: nvols"
+            );
+            assert_eq!(
+                dtype_name(v.datatype),
+                rec["dtype"].as_str().unwrap(),
+                "{name}"
+            );
+            fx::close_mat(&format!("{name}: affine"), &v.affine, &rec["affine"], 1e-4);
+            for (i, s) in fx::nums(&rec["spacing"]).iter().enumerate() {
+                fx::close(&format!("{name}: spacing[{i}]"), v.spacing[i], *s, 1e-6);
+            }
+            // §6.1: the three new formats carry no scaling, no calibration, no intent.
+            assert_eq!((v.scl_slope, v.scl_inter), (1.0, 0.0), "{name}");
+            assert_eq!((v.cal_min, v.cal_max), (0.0, 0.0), "{name}");
+            assert_eq!(v.intent_code, 0, "{name}");
+            assert!(!v.descrip.is_empty(), "{name}: descrip");
+            assert_eq!(
+                v.xyz_units.space,
+                tvx_nifti::SpaceUnit::Millimeter,
+                "{name}"
+            );
+            let hj: serde_json::Value =
+                serde_json::from_str(&v.header_json).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(
+                hj["affineSource"].is_string(),
+                "{name}: header_json.affineSource"
+            );
+        }
+        assert_eq!(auto.affine, direct.affine, "{name}");
+
+        if !rec["stats"].is_null() {
+            for (t, want) in rec["volumeStats"].as_array().unwrap().iter().enumerate() {
+                let s = auto.stats(t);
+                fx::close(
+                    &format!("{name}[{t}]: min"),
+                    s.min as f64,
+                    fx::num(&want["min"]),
+                    1e-3,
+                );
+                fx::close(
+                    &format!("{name}[{t}]: max"),
+                    s.max as f64,
+                    fx::num(&want["max"]),
+                    1e-3,
+                );
+                fx::close(
+                    &format!("{name}[{t}]: mean"),
+                    s.mean,
+                    fx::num(&want["mean"]),
+                    1e-3,
+                );
+            }
+        }
+        let dims = auto.dims;
+        for spot in rec["spotValues"].as_array().unwrap() {
+            let ijk = fx::usizes(&spot["voxel"]);
+            let t = spot["volume"].as_u64().unwrap() as usize;
+            let linear = ijk[0] + dims[0] * (ijk[1] + dims[1] * (ijk[2] + dims[2] * t));
+            let got = raw_at(&auto.data, linear);
+            let want = expected_components(&spot["raw"]);
+            assert_eq!(got.len(), want.len(), "{name} at {ijk:?}: components");
+            for (c, (g, w)) in got.iter().zip(&want).enumerate() {
+                fx::close(&format!("{name} raw{ijk:?}[{c}]"), *g, *w, 1e-9);
+            }
+            let world = fx::nums(&spot["world"]);
+            for (r, row) in auto.affine.iter().take(3).enumerate() {
+                let w = row[0] * ijk[0] as f64
+                    + row[1] * ijk[1] as f64
+                    + row[2] * ijk[2] as f64
+                    + row[3];
+                fx::close(&format!("{name} world{ijk:?}[{r}]"), w, world[r], 1e-4);
+            }
+        }
+    }
+}
+
+#[test]
+fn other_formats_share_the_label_heuristic() {
+    // The same ramps as the NIfTI fixtures, so the verdict must be the NIfTI fixture's verdict:
+    // not a label for anything with a negative or fractional sample ...
+    let nifti_u8 = read_nifti(fx::bytes("vol_u8.nii"), &mut NoProgress).unwrap();
+    for (name, rec) in fx::entries("voxelFormats") {
+        let v = read_volume(fx::bytes(name), None, &mut NoProgress).unwrap();
+        match rec["allIntegralNonNegative"].as_bool() {
+            Some(false) | None => assert!(!v.is_label, "{name}: not a label (§6.1)"),
+            // ... and the u8 ramp is whatever `vol_u8.nii` is — the heuristic is one function.
+            Some(true) => assert_eq!(v.is_label, nifti_u8.is_label, "{name}"),
+        }
+    }
+}
+
+#[test]
+fn mgz_and_the_same_ramp_as_nifti_agree_on_geometry() {
+    // vol_u8.mgh and vol_u8.nii were written from the same array and the same oblique affine.
+    let mgh = read_mgh(fx::bytes("vol_u8.mgh"), &mut NoProgress).unwrap();
+    let nii = read_nifti(fx::bytes("vol_u8.nii"), &mut NoProgress).unwrap();
+    assert_eq!(mgh.dims, nii.dims);
+    fx::close_mat(
+        "mgh vs nii",
+        &mgh.affine,
+        &fx::section("volumes")["vol_u8.nii"]["affine"],
+        1e-4,
+    );
+    assert_eq!(mgh.stats(0).mean, nii.stats(0).mean);
+    // A 4D MGZ exposes every frame.
+    let v = read_mgh(fx::bytes("vol_i16_4d.mgz"), &mut NoProgress).unwrap();
+    assert_eq!(v.nvols, 3);
+    for t in 0..3 {
+        assert!(v.stats(t).min <= v.stats(t).max);
+    }
+}
+
+#[test]
+fn malformed_other_formats_fail_by_name() {
+    use tvx_core::Error;
+    fn replace(b: &[u8], from: &str, to: &str) -> Vec<u8> {
+        let s = String::from_utf8_lossy(b).into_owned();
+        assert!(s.contains(from), "fixture header lacks {from:?}");
+        s.replacen(from, to, 1).into_bytes()
+    }
+    let unsupported = |what: &str, r: tvx_core::Result<tvx_nifti::Volume>, needle: &str| match r {
+        Err(Error::Unsupported(m)) => {
+            assert!(m.to_lowercase().contains(needle), "{what}: got {m:?}")
+        }
+        other => panic!("{what}: expected Unsupported({needle}), got {other:?}"),
+    };
+    let parse = |what: &str, r: tvx_core::Result<tvx_nifti::Volume>, needle: &str| match r {
+        Err(Error::Parse(m)) => assert!(m.to_lowercase().contains(needle), "{what}: got {m:?}"),
+        other => panic!("{what}: expected Parse({needle}), got {other:?}"),
+    };
+
+    // truncated data, every format (the .mgh has nibabel's 20-byte footer after the samples)
+    let mut b = fx::bytes("vol_u8.mgh");
+    b.truncate(b.len() - 25);
+    parse("mgh", read_mgh(b, &mut NoProgress), "truncated");
+    let mut b = fx::bytes("vol_u8_raw.nrrd");
+    b.truncate(b.len() - 5);
+    parse("nrrd", read_nrrd(b, &mut NoProgress), "truncated");
+    let mut b = fx::bytes("vol_u8_raw.mha");
+    b.truncate(b.len() - 5);
+    parse("mha", read_metaimage(b, &mut NoProgress), "truncated");
+    let b = fx::bytes("vol_f32_ascii.nrrd");
+    let cut = b.len() - 40;
+    parse(
+        "ascii nrrd",
+        read_nrrd(b[..cut].to_vec(), &mut NoProgress),
+        "truncated",
+    );
+
+    // detached headers: the reason names the sibling file
+    let nhdr = replace(
+        &fx::bytes("vol_u8_raw.nrrd"),
+        "encoding: raw",
+        "encoding: raw\ndata file: vol_u8.raw",
+    );
+    unsupported("nhdr", read_nrrd(nhdr, &mut NoProgress), "detached");
+    let mhd = replace(
+        &fx::bytes("vol_u8_raw.mha"),
+        "ElementDataFile = LOCAL",
+        "ElementDataFile = vol_u8.raw",
+    );
+    unsupported("mhd", read_metaimage(mhd, &mut NoProgress), "detached");
+
+    // bzip2 and unknown type strings
+    let bz = replace(
+        &fx::bytes("vol_u8_raw.nrrd"),
+        "encoding: raw",
+        "encoding: bzip2",
+    );
+    unsupported("bzip2", read_nrrd(bz, &mut NoProgress), "bzip2");
+    let t = replace(
+        &fx::bytes("vol_u8_raw.nrrd"),
+        "type: uchar",
+        "type: octuple",
+    );
+    parse("nrrd type", read_nrrd(t, &mut NoProgress), "octuple");
+    let t = replace(&fx::bytes("vol_u8_raw.nrrd"), "type: uchar", "type: int64");
+    unsupported("nrrd int64", read_nrrd(t, &mut NoProgress), "int64");
+    let t = replace(
+        &fx::bytes("vol_u8_raw.mha"),
+        "ElementType = MET_UCHAR",
+        "ElementType = MET_OCTUPLE",
+    );
+    parse(
+        "mha type",
+        read_metaimage(t, &mut NoProgress),
+        "met_octuple",
+    );
+
+    // a channel-first NRRD that is not a colour image
+    let cf = replace(
+        &fx::bytes("vol_4d_list.nrrd"),
+        "sizes: 5 4 3 3\n",
+        "sizes: 3 5 4 3\n",
+    );
+    let cf = replace(
+        &cf,
+        "kinds: domain domain domain list",
+        "kinds: vector domain domain domain",
+    );
+    let cf = replace(&cf, " none\n", "\n");
+    let cf = replace(&cf, "space directions: ", "space directions: none ");
+    unsupported(
+        "channel-first",
+        read_nrrd(cf, &mut NoProgress),
+        "channel-first",
+    );
+
+    // an MGH that is not version 1, and one whose type code is not FreeSurfer's
+    let mut b = fx::bytes("vol_u8.mgh");
+    b[3] = 2;
+    parse("mgh version", read_mgh(b, &mut NoProgress), "version");
+    let mut b = fx::bytes("vol_u8.mgh");
+    b[23] = 6;
+    unsupported("mgh tensor", read_mgh(b, &mut NoProgress), "tensor");
+}

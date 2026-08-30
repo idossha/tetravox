@@ -22,6 +22,10 @@ fn dispatch(bytes: Vec<u8>, chosen: Format, p: &mut dyn ProgressSink) -> Result<
         Format::Stl => tvx_mesh_io::read_stl(bytes),
         Format::Ply => tvx_mesh_io::read_ply(bytes),
         Format::Obj => tvx_mesh_io::read_obj(bytes),
+        Format::Vtk => tvx_mesh_io::read_vtk(bytes, p),
+        Format::VtkXml => tvx_mesh_io::read_vtk_xml(bytes, p),
+        Format::Off => tvx_mesh_io::read_off(bytes),
+        Format::Medit => tvx_mesh_io::read_medit(bytes),
         // Unreachable: `load` peels the parsed-view format off first, because a `GeoView` is not
         // a `Mesh` and the conversion needs the whole view, not just its triangles.
         Format::Geo => Err(Error::Unsupported(
@@ -42,8 +46,12 @@ fn chosen_format(bytes: &[u8], format: &str) -> Result<Format> {
         "ply" => Ok(Format::Ply),
         "obj" => Ok(Format::Obj),
         "geo" => Ok(Format::Geo),
+        "vtk" => Ok(Format::Vtk),
+        "vtu" | "vtp" => Ok(Format::VtkXml),
+        "off" => Ok(Format::Off),
+        "medit" => Ok(Format::Medit),
         other => Err(Error::Unsupported(format!(
-            "load_mesh format {other:?}; expected auto|msh|gii|fs|stl|ply|obj|geo"
+            "load_mesh format {other:?}; expected auto|msh|gii|fs|stl|ply|obj|geo|vtk|vtu|vtp|off|medit"
         ))),
     }
 }

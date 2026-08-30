@@ -1,55 +1,12 @@
 //! `read_nifti` — magic sniff, inflate, header, samples (ARCHITECTURE.md §6.1).
 
-use std::io::Read;
+use tvx_core::{Error, ProgressSink, Result};
 
-use byteorder::ByteOrder;
-use tvx_core::{Error, Phase, ProgressSink, Result};
-
+use crate::common::{
+    data_slice, decode_samples, finish, jnum, jnums, take_inflated, voxel_count, Meta,
+};
 use crate::header::RawHeader;
-use crate::{DataType, SpaceUnit, TimeUnit, Units, Volume, VolumeData};
-
-/// Progress is reported (and cancellation polled) once per chunk of this many samples/bytes.
-const CHUNK: usize = 1 << 20;
-
-/// Refuse to pre-reserve more than this from a gzip trailer, which is attacker-controlled and only
-/// 32 bits wide anyway.
-const MAX_RESERVE: usize = 1 << 30;
-
-fn is_gzip(b: &[u8]) -> bool {
-    b.len() >= 2 && b[0] == 0x1f && b[1] == 0x8b
-}
-
-/// gzip's trailer carries the uncompressed size mod 2^32 — a hint for `Vec::reserve` and for the
-/// progress bar's denominator, never trusted as a length.
-fn isize_hint(b: &[u8]) -> u64 {
-    if b.len() < 4 {
-        return 0;
-    }
-    let t = &b[b.len() - 4..];
-    u32::from_le_bytes([t[0], t[1], t[2], t[3]]) as u64
-}
-
-fn inflate(src: &[u8], p: &mut dyn ProgressSink) -> Result<Vec<u8>> {
-    let hint = isize_hint(src);
-    let mut out: Vec<u8> = Vec::new();
-    out.reserve_exact((hint as usize).min(MAX_RESERVE));
-    let mut dec = flate2::read::GzDecoder::new(src);
-    let mut buf = vec![0u8; CHUNK];
-    loop {
-        let n = dec
-            .read(&mut buf)
-            .map_err(|e| Error::Parse(format!("gzip: {e}")))?;
-        if n == 0 {
-            break;
-        }
-        out.extend_from_slice(&buf[..n]);
-        p.report(Phase::Inflate, out.len() as u64, hint);
-        if p.aborted() {
-            return Err(Error::Cancelled);
-        }
-    }
-    Ok(out)
-}
+use crate::{DataType, SpaceUnit, TimeUnit, Units, Volume};
 
 /// §6.1's accepted datatypes, and the rejections *by name*.
 fn datatype_of(code: i16) -> Result<DataType> {
@@ -174,20 +131,6 @@ fn affine_of(h: &RawHeader) -> ([[f64; 4]; 4], &'static str) {
     (m, "pixdim")
 }
 
-/// A JSON number that survives NaN/Inf, encoded exactly as `testdata/manifest.json` does.
-fn jnum(v: f64) -> serde_json::Value {
-    match serde_json::Number::from_f64(v) {
-        Some(n) => serde_json::Value::Number(n),
-        None if v.is_nan() => serde_json::Value::String("NaN".into()),
-        None if v > 0.0 => serde_json::Value::String("Infinity".into()),
-        None => serde_json::Value::String("-Infinity".into()),
-    }
-}
-
-fn jnums(v: &[f64]) -> serde_json::Value {
-    serde_json::Value::Array(v.iter().copied().map(jnum).collect())
-}
-
 fn header_json(h: &RawHeader, affine_source: &str) -> String {
     use serde_json::{json, Map, Value};
     let mut m = Map::new();
@@ -247,66 +190,20 @@ fn header_json(h: &RawHeader, affine_source: &str) -> String {
     Value::Object(m).to_string()
 }
 
-/// A fallible allocation: a 512x512x416 float64 volume is 872 MB, and wasm32's linear memory tops
-/// out at 4032 MiB (§9.2), so this has to be an `Error`, not an abort.
-fn alloc<T: Copy + Default>(n: usize, size: usize) -> Result<Vec<T>> {
-    let mut v: Vec<T> = Vec::new();
-    v.try_reserve_exact(n)
-        .map_err(|_| Error::OutOfMemory(format!("{n} samples x {size} B")))?;
-    v.resize(n, T::default());
-    Ok(v)
-}
-
-/// Decode `n` fixed-width samples in either byte order, chunked so progress and cancellation are
-/// observable on a 54 MB volume.
-macro_rules! decode_scalar {
-    ($src:expr, $n:expr, $le:expr, $p:expr, $t:ty, $sz:expr, $read:ident) => {{
-        let mut out = alloc::<$t>($n, $sz)?;
-        let mut i = 0usize;
-        while i < $n {
-            let end = (i + CHUNK).min($n);
-            let src = &$src[i * $sz..end * $sz];
-            if $le {
-                byteorder::LittleEndian::$read(src, &mut out[i..end]);
-            } else {
-                byteorder::BigEndian::$read(src, &mut out[i..end]);
-            }
-            i = end;
-            $p.report(Phase::Parse, i as u64, $n as u64);
-            if $p.aborted() {
-                return Err(Error::Cancelled);
-            }
-        }
-        out
-    }};
-}
-
 /// Parse a `.nii` / `.nii.gz` byte vector. Takes ownership and frees it before returning (§5 rule 5).
 pub fn read_nifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume> {
-    let n_in = bytes.len() as u64;
-    p.report(Phase::Read, n_in, n_in);
-    if p.aborted() {
-        return Err(Error::Cancelled);
-    }
+    let raw = take_inflated(bytes, p)?;
+    read_nifti_raw(raw, p)
+}
 
-    let raw: Vec<u8> = if is_gzip(&bytes) {
-        let out = inflate(&bytes, p)?;
-        drop(bytes);
-        out
-    } else {
-        bytes
-    };
-
+/// The NIfTI reader proper, over already-inflated bytes — `read_volume` (§6.1) lands here after its
+/// own single inflate. Frees `raw` before returning.
+pub(crate) fn read_nifti_raw(raw: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume> {
     let h = RawHeader::parse(&raw)?;
     let datatype = datatype_of(h.datatype)?;
     let dims = h.spatial_dims()?;
     let nvols = h.nvols()?;
-
-    let n_vox = dims[0]
-        .checked_mul(dims[1])
-        .and_then(|v| v.checked_mul(dims[2]))
-        .and_then(|v| v.checked_mul(nvols))
-        .ok_or_else(|| Error::Parse("voxel count overflows".into()))?;
+    let n_vox = voxel_count(dims, nvols)?;
 
     let hdr_len = if h.version == 1 { 348 } else { 540 };
     let off = if h.vox_offset < hdr_len as i64 {
@@ -314,90 +211,21 @@ pub fn read_nifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume> {
     } else {
         h.vox_offset as usize
     };
-    let need = n_vox
-        .checked_mul(datatype.size())
-        .ok_or_else(|| Error::Parse("data size overflows".into()))?;
-    let end = off
-        .checked_add(need)
-        .ok_or_else(|| Error::Parse("data extent overflows".into()))?;
-    if raw.len() < end {
-        return Err(Error::Parse(format!(
-            "truncated: {} voxels of {} need {need} B at offset {off}, file has {}",
-            n_vox,
-            datatype.name(),
-            raw.len()
-        )));
-    }
-    let src = &raw[off..end];
-    let le = h.little_endian;
-
-    let data = match datatype {
-        DataType::U8 => VolumeData::U8(src.to_vec()),
-        DataType::I8 => VolumeData::I8(src.iter().map(|&b| b as i8).collect()),
-        DataType::U16 => VolumeData::U16(decode_scalar!(src, n_vox, le, p, u16, 2, read_u16_into)),
-        DataType::I16 => VolumeData::I16(decode_scalar!(src, n_vox, le, p, i16, 2, read_i16_into)),
-        DataType::U32 => VolumeData::U32(decode_scalar!(src, n_vox, le, p, u32, 4, read_u32_into)),
-        DataType::I32 => VolumeData::I32(decode_scalar!(src, n_vox, le, p, i32, 4, read_i32_into)),
-        DataType::F32 => VolumeData::F32(decode_scalar!(src, n_vox, le, p, f32, 4, read_f32_into)),
-        DataType::F64 => VolumeData::F64(decode_scalar!(src, n_vox, le, p, f64, 8, read_f64_into)),
-        DataType::Rgb24 => VolumeData::Rgb24(src.to_vec()),
-        DataType::Rgba32 => VolumeData::Rgba32(src.to_vec()),
-    };
+    let src = data_slice(&raw, off, n_vox, datatype)?;
+    let data = decode_samples(src, n_vox, datatype, h.little_endian, p)?;
     drop(raw);
 
-    // §6.1: apply slope/inter only when finite, non-zero and not the identity.
-    let (slope, inter) = if h.scl_slope.is_finite()
-        && h.scl_slope != 0.0
-        && h.scl_inter.is_finite()
-        && (h.scl_slope != 1.0 || h.scl_inter != 0.0)
-    {
-        (h.scl_slope as f32, h.scl_inter as f32)
-    } else {
-        (1.0f32, 0.0f32)
-    };
-
     let (affine, affine_source) = affine_of(&h);
-    let mut vol = Volume {
-        dims,
-        nvols,
-        affine,
-        spacing: [h.pixdim[1].abs(), h.pixdim[2].abs(), h.pixdim[3].abs()],
-        datatype,
-        data,
-        scl_slope: slope,
-        scl_inter: inter,
-        cal_min: h.cal_min as f32,
-        cal_max: h.cal_max as f32,
-        intent_code: h.intent_code as i16,
-        intent_name: h.intent_name.clone(),
-        descrip: h.descrip.clone(),
-        xyz_units: units_of(h.xyzt_units),
-        is_label: false,
-        header_json: header_json(&h, affine_source),
-    };
-    vol.is_label = label_test(&vol, p)?;
-    Ok(vol)
-}
-
-/// §6.1: `is_label` = all sample values integral ∧ min ≥ 0 ∧ (`intent_code == 1002` ∨ (unique
-/// count ≤ 4096 ∧ (unique count ≤ 255 ∨ piecewise constant))). **The dtype is not part of the
-/// test** — `segmentation/labeling.nii.gz` is a float32 atlas `[DATA]`. The piecewise-constancy
-/// clause is what separates a 1000-parcel atlas from a non-negative 16-bit MRI: both are integral
-/// with a thousand distinct values, but only the atlas repeats its value from one voxel to the next
-/// (`scan::run_agreement` ≥ 0.5). An AMOS22 abdominal T1 (1014 grey levels in 0…1027) scored 0.11
-/// and was being painted with a label palette before this clause existed.
-fn label_test(v: &Volume, p: &mut dyn ProgressSink) -> Result<bool> {
-    if v.datatype.is_color() {
-        return Ok(false);
-    }
-    let Some((min, max)) = crate::scan::integral_range(v, None, p)? else {
-        return Ok(false);
-    };
-    if v.intent_code == 1002 {
-        return Ok(true);
-    }
-    let Some(n) = crate::stats::unique_count_at_most(v, None, min, max, 4096, p)? else {
-        return Ok(false);
-    };
-    Ok(n <= 255 || crate::scan::run_agreement(v, None) >= 0.5)
+    let mut meta = Meta::new(dims, nvols, &h.descrip);
+    meta.affine = affine;
+    meta.spacing = [h.pixdim[1].abs(), h.pixdim[2].abs(), h.pixdim[3].abs()];
+    meta.scl_slope = h.scl_slope;
+    meta.scl_inter = h.scl_inter;
+    meta.cal_min = h.cal_min as f32;
+    meta.cal_max = h.cal_max as f32;
+    meta.intent_code = h.intent_code as i16;
+    meta.intent_name = h.intent_name.clone();
+    meta.xyz_units = units_of(h.xyzt_units);
+    meta.header_json = header_json(&h, affine_source);
+    finish(meta, datatype, data, p)
 }

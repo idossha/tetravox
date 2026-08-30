@@ -1,5 +1,5 @@
 //! `tvx-mesh-io` — mesh readers: Gmsh `.msh` v2/v4.1, `.msh.opt`, GIfTI, FreeSurfer surf/curv/annot,
-//! STL/PLY/OBJ.
+//! STL/PLY/OBJ, VTK legacy `.vtk`, VTK XML `.vtu`/`.vtp`, OFF and MEDIT `.mesh`.
 //!
 //! This crate is [`docs/ARCHITECTURE.md` §6.2](../../../docs/ARCHITECTURE.md) verbatim; every §6.2
 //! signature is **frozen** (§12.3). The two data §6.2 promises that Phase 1 had to carry out through
@@ -32,22 +32,39 @@
 //!   [`read_fs_annot`] remaps packed-RGB annotation values to **dense 0..N−1** at parse time (a 256×1 LUT
 //!   cannot address raw annotation values), preserving the original id in `LabelEntry::id`; unassigned
 //!   vertices (`-1`) map to dense index 0 with a transparent entry.
-//! * Loaders that triangulate n-gons ([`read_fs_surface`]'s quad file, [`read_ply`], [`read_obj`]) must
-//!   emit a matching [`Mesh::tri_edge_mask`]; [`read_msh`] and [`read_stl`] emit `None`.
+//! * Loaders that triangulate n-gons ([`read_fs_surface`]'s quad file, [`read_ply`], [`read_obj`],
+//!   [`read_vtk`], [`read_vtk_xml`], [`read_off`]) must emit a matching [`Mesh::tri_edge_mask`], and
+//!   only when an n-gon really occurred; [`read_msh`], [`read_stl`] and [`read_medit`] emit `None`.
+//! * **VTK legacy binary is big-endian regardless of host.** VTK cell types 5/7/8/9 → `tris`
+//!   (n-gons fanned), 10 → `tets`; every other type is counted into [`Mesh::skipped`] under its
+//!   **VTK** cell-type code (the `.msh` and MEDIT readers use Gmsh codes there).
+//! * **VTK XML** `binary`/`appended` arrays carry one `header_type` word (byte count) uncompressed,
+//!   or `[nblocks, blocksize, last_size, size_0…]` + that many zlib streams when
+//!   `compressor="vtkZLibDataCompressor"`; inline base64 encodes the compressed header and the data
+//!   as two separate runs. `<Piece>`s concatenate with index offsets.
+//! * A cell array named (case-insensitively) `material`, `tag`, `tags`, `region`, `label`, `labels`,
+//!   `gmsh:physical`, `ElementTag`, `elem_tags`, `medit:ref` or `ref` becomes `tri_tags`/`tet_tags`
+//!   **and** stays an `ElmField`; the first such array wins. **MEDIT's trailing reference integer is
+//!   the tag.** Every other file of these formats has tag 0 throughout.
 //!
 //! **Performance target:** `ernie.msh` (184,207,351 B, 847,165 nodes, 1,177,213 tris, 4,722,625 tets
 //! `[DATA]`) parses in **< 1.5 s** native, **< 3 s** WASM.
 
 #![forbid(unsafe_code)]
 
+mod cells;
 mod freesurfer;
 mod geo;
 mod gifti;
+mod medit;
 mod msh;
 mod mshopt;
+mod off;
 mod stats;
 mod surf;
 mod util;
+mod vtk;
+mod vtkxml;
 
 /// Exact [`FieldStats`] over field values (§6.0's "no sampling" rule). Named in §6.2 because
 /// `tvx-geom`'s `elm_to_node` / `node_to_elm` must build a `Field` / `ElmField` and every such
@@ -156,6 +173,14 @@ pub enum Format {
     /// Gmsh **parsed post-processing** views, `.geo` / `.pos` (task 6). Not a mesh: it carries
     /// de-indexed points, labels, line segments and triangles. See [`read_geo_view`].
     Geo,
+    /// VTK legacy `.vtk` (POLYDATA / UNSTRUCTURED_GRID, ascii + big-endian binary).
+    Vtk,
+    /// VTK XML `.vtu` / `.vtp`.
+    VtkXml,
+    /// Object File Format.
+    Off,
+    /// MEDIT / INRIA `.mesh` (ascii; `.meshb` is refused).
+    Medit,
 }
 
 /// Gmsh `.msh` v2 (ascii + binary) and v4.1 (ascii + binary). Takes ownership of `bytes` and frees it
@@ -219,6 +244,38 @@ pub fn read_obj(bytes: Vec<u8>) -> Result<Mesh> {
     mesh
 }
 
+/// VTK legacy `.vtk`: `DATASET POLYDATA` and `DATASET UNSTRUCTURED_GRID`, ASCII and BINARY
+/// (big-endian). Cell types 5/7/8/9 → `tris` (n-gons fanned with a `tri_edge_mask`), 10 → `tets`,
+/// the rest counted into `skipped` under the VTK code. Takes ownership of `bytes` (§5 rule 5).
+pub fn read_vtk(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh> {
+    let mesh = vtk::read(&bytes, p);
+    drop(bytes);
+    mesh
+}
+
+/// VTK XML `.vtu` (UnstructuredGrid) / `.vtp` (PolyData): `ascii`, `binary` and `appended`
+/// (raw or base64), `vtkZLibDataCompressor`, any `byte_order` / `header_type`, several `<Piece>`s.
+pub fn read_vtk_xml(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh> {
+    let mesh = vtkxml::read(&bytes, p);
+    drop(bytes);
+    mesh
+}
+
+/// OFF (`OFF` / `NOFF` / `COFF` / `4OFF` / `nOFF`). Triangulates n-gons with a `tri_edge_mask`.
+pub fn read_off(bytes: Vec<u8>) -> Result<Mesh> {
+    let mesh = off::read(&bytes);
+    drop(bytes);
+    mesh
+}
+
+/// MEDIT `.mesh` (ascii). Each record's trailing reference is its `tri_tags` / `tet_tags` entry;
+/// `.meshb` is `Error::Unsupported`.
+pub fn read_medit(bytes: Vec<u8>) -> Result<Mesh> {
+    let mesh = medit::read(&bytes);
+    drop(bytes);
+    mesh
+}
+
 /// Gmsh **parsed post-processing** views — `.geo` and `.pos`, which share one grammar.
 ///
 /// Returns one [`GeoView`] per `View "name" { … };` block, in file order. A `.geo` that is a Gmsh
@@ -238,8 +295,20 @@ pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format> {
     if bytes.starts_with(b"$MeshFormat") {
         return Ok(Format::Msh);
     }
+    if vtk::looks_like(bytes) {
+        return Ok(Format::Vtk);
+    }
+    if medit::looks_like(bytes) || medit::looks_like_binary(bytes) {
+        return Ok(Format::Medit);
+    }
     if gifti::looks_like(bytes) {
         return Ok(Format::Gifti);
+    }
+    if vtkxml::looks_like(bytes) {
+        return Ok(Format::VtkXml);
+    }
+    if off::looks_like(bytes) {
+        return Ok(Format::Off);
     }
     if surf::looks_like_ply(bytes) {
         return Ok(Format::Ply);
@@ -267,6 +336,10 @@ pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format> {
         Some("ply") => Ok(Format::Ply),
         Some("obj") => Ok(Format::Obj),
         Some("geo") | Some("pos") => Ok(Format::Geo),
+        Some("vtk") => Ok(Format::Vtk),
+        Some("vtu") | Some("vtp") => Ok(Format::VtkXml),
+        Some("off") => Ok(Format::Off),
+        Some("mesh") | Some("meshb") => Ok(Format::Medit),
         Some("pial") | Some("white") | Some("inflated") | Some("sphere") | Some("central")
         | Some("surf") => Ok(Format::FsSurface),
         _ => Err(tvx_core::Error::Unsupported(format!(
@@ -281,7 +354,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn supported_formats_are_the_seven_of_the_contract() {
+    fn supported_formats_are_the_eleven_of_the_contract() {
         let all = [
             Format::Msh,
             Format::Gifti,
@@ -290,8 +363,47 @@ mod tests {
             Format::Ply,
             Format::Obj,
             Format::Geo,
+            Format::Vtk,
+            Format::VtkXml,
+            Format::Off,
+            Format::Medit,
         ];
-        assert_eq!(all.len(), 7);
+        assert_eq!(all.len(), 11);
+    }
+
+    #[test]
+    fn sniff_finds_the_general_purpose_formats_by_content_and_by_extension() {
+        assert_eq!(
+            sniff(b"# vtk DataFile Version 3.0\n", None).unwrap(),
+            Format::Vtk
+        );
+        assert_eq!(
+            sniff(
+                b"<?xml version=\"1.0\"?>\n<VTKFile type=\"UnstructuredGrid\">",
+                None
+            )
+            .unwrap(),
+            Format::VtkXml
+        );
+        assert_eq!(sniff(b"OFF\n8 6 0\n", None).unwrap(), Format::Off);
+        assert_eq!(sniff(b"# c\nCOFF 8 6 0\n", None).unwrap(), Format::Off);
+        assert_eq!(
+            sniff(b"MeshVersionFormatted 2\n", None).unwrap(),
+            Format::Medit
+        );
+        for (ext, want) in [
+            ("vtk", Format::Vtk),
+            ("vtu", Format::VtkXml),
+            ("vtp", Format::VtkXml),
+            ("off", Format::Off),
+            ("mesh", Format::Medit),
+        ] {
+            assert_eq!(
+                sniff(b"\0\0\0\0\0\0\0\0", Some(ext)).unwrap(),
+                want,
+                "{ext}"
+            );
+        }
     }
 
     #[test]

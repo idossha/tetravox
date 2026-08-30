@@ -22,7 +22,26 @@ const OFFERED = new Set(OPEN_FILTERS.flatMap((f) => f.extensions.map((e) => e.to
 
 describe('the Open dialog', () => {
   it('offers every format the readers support', () => {
-    for (const ext of ['nii', 'gz', 'msh', 'gii', 'geo', 'pos']) {
+    for (const ext of [
+      'nii',
+      'gz',
+      'mgh',
+      'mgz',
+      'nrrd',
+      'mha',
+      'msh',
+      'gii',
+      'vtk',
+      'vtu',
+      'vtp',
+      'stl',
+      'ply',
+      'obj',
+      'off',
+      'mesh',
+      'geo',
+      'pos',
+    ]) {
       expect(OFFERED.has(ext), ext).toBe(true);
     }
   });
@@ -44,6 +63,24 @@ describe('the installer’s file associations', () => {
   it('registers .geo and .pos', () => {
     expect(BUILDER).toMatch(/- ext: geo\b/);
     expect(BUILDER).toMatch(/- ext: pos\b/);
+  });
+
+  it('registers the other volume and mesh formats the readers support', () => {
+    for (const ext of [
+      'mgz',
+      'mgh',
+      'nrrd',
+      'mha',
+      'vtk',
+      'vtu',
+      'vtp',
+      'stl',
+      'ply',
+      'obj',
+      'off',
+    ]) {
+      expect(BUILDER, ext).toMatch(new RegExp(`- ext: ${ext}\\b`));
+    }
   });
 
   /**

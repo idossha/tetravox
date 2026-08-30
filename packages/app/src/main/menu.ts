@@ -18,11 +18,36 @@ export const OPEN_FILTERS = [
   // have to know which Open they wanted. `sendOpened` routes on the name, not on the dialog.
   {
     name: 'Volumes, meshes and scenes',
-    extensions: ['nii', 'gz', 'msh', 'gii', 'geo', 'pos', 'json'],
+    extensions: [
+      'nii',
+      'gz',
+      'mgh',
+      'mgz',
+      'nrrd',
+      'mha',
+      'msh',
+      'gii',
+      'vtk',
+      'vtu',
+      'vtp',
+      'stl',
+      'ply',
+      'obj',
+      'off',
+      'mesh',
+      'geo',
+      'pos',
+      'json',
+    ],
   },
   { name: 'NIfTI volume', extensions: ['nii', 'nii.gz'] },
+  { name: 'FreeSurfer volume', extensions: ['mgh', 'mgz'] },
+  { name: 'NRRD / MetaImage volume', extensions: ['nrrd', 'mha'] },
   { name: 'Gmsh mesh', extensions: ['msh'] },
   { name: 'GIfTI surface', extensions: ['gii'] },
+  { name: 'VTK mesh', extensions: ['vtk', 'vtu', 'vtp'] },
+  { name: 'STL / PLY / OBJ / OFF surface', extensions: ['stl', 'ply', 'obj', 'off'] },
+  { name: 'MEDIT mesh', extensions: ['mesh'] },
   // Gmsh **parsed post-processing views** — SimNIBS's `eeg_positions/*.geo`, and the `.pos` a
   // Gmsh "Save As" writes. Not the geometry-script `.geo`, which the reader rejects by name.
   { name: 'Gmsh view (electrode positions)', extensions: ['geo', 'pos'] },
@@ -108,6 +133,11 @@ export function sendOpenSettings(win: BrowserWindow | null): void {
   win?.webContents.send('tetravox:open-settings');
 }
 
+/** Ask the renderer to open the Sample Data dialog (File ▸ Sample Data…). */
+export function sendOpenSampleData(win: BrowserWindow | null): void {
+  win?.webContents.send('tetravox:open-sample-data');
+}
+
 /**
  * The File ▸ Open Recent submenu (directed task 13).
  *
@@ -168,6 +198,10 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
             const win = getWindow();
             sendOpened(win, await showOpenDialog(win));
           },
+        },
+        {
+          label: 'Sample Data…',
+          click: () => sendOpenSampleData(getWindow()),
         },
         { type: 'separator' },
         // Scene save/load is *asked for* here and *done* in the renderer: only the renderer holds

@@ -24,6 +24,7 @@ Every number was produced by an **independent reader** reading the committed fil
 | `msh` (v2.2, contiguous numbering) | `simnibs.mesh_io.read_msh` **and** the Gmsh 4.14 Python API, both recorded |
 | `msh` (v4.1, non-contiguous numbering) | the Gmsh Python API — SimNIBS refuses v4 and renumbers the other |
 | `surfaces` (STL/PLY/OBJ) | the Gmsh Python API |
+| `meshFormats` (VTK legacy / VTK XML / OFF / MEDIT) | meshio (all it can read: every `.vtu`, both `.vtk` lattices, `.mesh`) **and** the Gmsh Python API (ascii `.vtk`, `.off`, `.mesh`). Gmsh 4.14 loads no binary legacy VTK and no VTK XML; meshio has no `.vtp` reader and refuses POLYDATA / n-gon OFF — each gap is a `readerNote`, and `patch.vtp` carries the Gmsh record of the equivalent `patch_polydata.vtk` |
 | `mshOptParsedByGmsh` | Gmsh, applying the `.msh.opt` as options |
 | `sidecars[*].expected` | **authored** — no third-party parser yields §6.2 `MshOptions` or §6.0 `LabelTable` |
 | `writerNotes` | the writer. Never an expectation on its own; the readers above confirm each one. |

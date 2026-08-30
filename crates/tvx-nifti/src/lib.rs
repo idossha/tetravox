@@ -1,7 +1,13 @@
-//! `tvx-nifti` — NIfTI-1 (348) / NIfTI-2 (540) reader, exact statistics, GPU payload selection.
+//! `tvx-nifti` — voxel volume readers (NIfTI-1/2, FreeSurfer MGH/MGZ, NRRD, MetaImage), exact
+//! statistics, GPU payload selection.
 //!
 //! This crate is [`docs/ARCHITECTURE.md` §6.1](../../../docs/ARCHITECTURE.md) verbatim; every public
 //! signature is **frozen** (§12.3).
+//!
+//! Every reader — [`read_nifti`], [`read_mgh`], [`read_nrrd`], [`read_metaimage`], and
+//! [`read_volume`] which sniffs and dispatches — produces the same [`Volume`], so the stats, the
+//! `is_label` heuristic, the GPU payload ladder and the affine conventions below are shared by
+//! construction (`common::finish`).
 //!
 //! Rules that §6.1 states and this crate implements:
 //!
@@ -9,6 +15,10 @@
 //!   uint16, int16, uint32, int32, float32, float64, RGB24, RGBA32.
 //!   [`tvx_core::Error::Unsupported`] *by name* for complex64/128, int64 (1024), uint64 (1280); two-file
 //!   `ni1` (`.hdr`/`.img`) is `Error::Unsupported("two-file NIfTI …")`.
+//! * MGH/MGZ is big-endian with a 284-byte header and nibabel's centre-based affine; NRRD and
+//!   MetaImage are read with attached headers only (`.nhdr` / `.mhd` are `Unsupported` by name) and
+//!   converted from their LPS space to RAS. Each carries `scl_slope/inter = (1, 0)`, `cal_* = 0`,
+//!   `intent_code = 0`, and every parsed header field in `header_json`.
 //! * **Scaling is never folded into the samples.** Apply slope/inter only when
 //!   `slope.is_finite() && slope != 0.0 && inter.is_finite() && (slope != 1.0 || inter != 0.0)`;
 //!   otherwise normalise to `(1.0, 0.0)`. It is carried in [`GpuPayload::scale`] / [`GpuPayload::offset`]
@@ -39,12 +49,21 @@
 
 #![forbid(unsafe_code)]
 
+mod common;
+mod format;
 mod header;
+mod metaimage;
+mod mgh;
+mod nrrd;
 mod payload;
 mod read;
 mod scan;
 mod stats;
 
+pub use format::{read_volume, sniff_volume, VolumeFormat};
+pub use metaimage::read_metaimage;
+pub use mgh::read_mgh;
+pub use nrrd::read_nrrd;
 pub use read::read_nifti;
 
 use tvx_core::{FieldStats, NoProgress, Result};
@@ -79,7 +98,7 @@ pub enum VolumeData {
     Rgba32(Vec<u8>),
 }
 
-/// A parsed NIfTI volume (§6.1).
+/// A parsed voxel volume (§6.1) — the same struct from every reader.
 #[derive(Clone, Debug)]
 pub struct Volume {
     pub dims: [usize; 3],
