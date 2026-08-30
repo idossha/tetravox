@@ -22,7 +22,7 @@
  *   they arrive as the same event type.
  */
 
-import { GestureMachine, NO_MODIFIERS } from './gestures';
+import { GestureMachine, NO_MODIFIERS, pointToolTakesPress } from './gestures';
 import type { Modifiers } from './gestures';
 import { normaliseWheelDelta, wheelZoomFactor, ZOOM_STEP } from './camera';
 
@@ -269,8 +269,21 @@ export class PointerLayer {
     // gizmo, so a contact in the 3D pane is not eaten by a handle the pointer happens to be over —
     // the same argument that put measure mode ahead of the gizmo. A `'miss'` changes nothing at
     // all, which is what keeps every gesture that predates the tool exactly as it was.
+    //
+    // `pointToolTakesPress` is the other half of that promise (2026-08-30, review): the presses
+    // §7.5 reserves — `Shift`, `space`, a platform modifier, and any press that lands while a
+    // gesture is already in flight — are never offered to the tool, so the gesture the modifier
+    // names is the *only* thing that happens. Without it the tool ran first and `resolveGesture`'s
+    // "a new tool does not get to quietly take them" was true of the drag and false of the press.
+    //
+    // The measure branch above is deliberately NOT gated the same way: §7.5 states measure mode as
+    // "while it is on, a left-click places a measurement point", unconditionally, and gating it
+    // would change documented behaviour rather than restore it.
     this.#overPoint = false;
-    if (e.button === 0 && this.#host.pointToolMode !== null) {
+    if (
+      this.#host.pointToolMode !== null &&
+      pointToolTakesPress(e.button, this.#mods, this.#machine.active)
+    ) {
       const took = this.#host.pointToolDown(pane.viewId, pane.x, pane.y, pane.is3D);
       if (took === 'consumed') {
         e.preventDefault();

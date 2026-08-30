@@ -2425,8 +2425,20 @@ Input (Freeview-like):
   is not eaten by a handle the pointer happens to be over. **At most one click-consuming mode is armed**:
   arming the point tool disarms measure mode and `setMeasureMode(true)` disarms the point tool, because a user
   cannot be told which mode a click went to.
-  * **`place`: every left click places**, with no hit test first — 2D on the pointer ray ∩ the pane's derived
-    plane, 3D on the §7.2.3 `pick`, where a click on nothing places nothing and is still swallowed. Contacts
+  * **The tool is only offered the presses §7.5 does not already bind** (`input/gestures.ts`'s
+    `pointToolTakesPress`, 2026-08-30). A left press carrying `Shift`, `space` or a platform modifier
+    (`⌘`/`Ctrl`), and **any** press that lands while a gesture is already in flight, never reaches the tool at
+    all — in either mode. `Shift`+drag is still the active layer's opacity, `space`+drag is still the pan, a
+    `⌘`+click is still not a drag, and a second finger landing mid-drag still ends the drag it interrupted
+    rather than grabbing whatever it touched. Gating the *press* and not only the *gesture* is the point: the
+    tool's press already selected a contact, moved the crosshair and re-cut three panes before
+    `resolveGesture` was ever asked. `Alt` is not reserved by §7.5 and is not gated. **Measure mode is
+    deliberately not gated this way**: it is stated above as "while it is on, a left-click places a
+    measurement point", without qualification, and narrowing it would be a behaviour change rather than a
+    repair.
+  * **`place`: every unmodified left click places**, with no hit test first — 2D on the pointer ray ∩ the
+    pane's derived plane, 3D on the §7.2.3 `pick`, where a click on nothing places nothing and is still
+    swallowed. Contacts
     sit about five pixels apart at a default zoom, and the click that matters most is the one filling the gap
     *between* two that were found; a hit-first rule would answer it by selecting a neighbour. The point is
     `{ ...template, id: 'p<n>', position }`, it becomes the selection, and one `placed` event says so.

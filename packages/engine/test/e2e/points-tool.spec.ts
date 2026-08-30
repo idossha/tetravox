@@ -464,6 +464,161 @@ test('@angle the drag ends once from pointercancel, and once from a second point
 });
 
 // ===============================================================================================
+// the presses the tool must NOT take (§7.5's reserved modifiers, and a gesture already in flight)
+// ===============================================================================================
+
+test('@angle Shift+press over a contact is the layer opacity and NOTHING else', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  // §7.5's `Shift`+drag acts on the **active** layer; make it the points layer and start below 1,
+  // because dragging up raises opacity and 1 has nowhere to go.
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    engine.setActiveLayer(id as never);
+    engine.updateLayer(id as never, { opacity: 0.5 } as never);
+    await engine.whenSettled();
+  }, layerId);
+  await arm(page, { layerId, mode: 'select' });
+
+  const [cx, cy] = at(0, 0);
+  const cursor0 = await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3);
+
+  // The press lands squarely on the 40 px disc — the case the tool would have taken.
+  await page.mouse.move(cx, cy);
+  await page.keyboard.down('Shift');
+  await page.mouse.down();
+  await page.mouse.move(cx, cy - 100, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await settle(page);
+
+  // The gesture §7.5 promises ran, and it ran alone: 100 px up of 768 is 100/768 of opacity.
+  const opacity = await page.evaluate(
+    (id) => window.__tvxEngine!.scene.layers.find((l) => l.id === id)!.opacity,
+    layerId
+  );
+  expect(opacity).toBeCloseTo(0.5 + 100 / PANE, 6);
+  // …and the tool never saw the press: no selection, no event, and the crosshair did not jump onto
+  // the contact — which is what re-cut all three panes mid-opacity-drag before this gate existed.
+  expect(await selectionOf(page)).toBeNull();
+  expect(await eventsOf(page)).toEqual([]);
+  expect(await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3)).toEqual(cursor0);
+  expect(errors).toEqual([]);
+});
+
+test('@angle space+press in place mode pans the pane and places nothing', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, []);
+  await arm(page, { layerId, mode: 'place' });
+  const cam0 = await page.evaluate(() => {
+    const v = window.__tvxEngine!.views.find((view) => view.id === 'coronal') as {
+      camera: { center: [number, number]; mmPerPx: number };
+    };
+    return { center: [...v.camera.center] as [number, number], mmPerPx: v.camera.mmPerPx };
+  });
+
+  await page.mouse.move(...at(0, 0));
+  await page.keyboard.down('Space');
+  await page.mouse.down();
+  await page.mouse.move(at(0, 0)[0] + 50, at(0, 0)[1] - 20, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up('Space');
+  await settle(page);
+
+  // R3's pan happened, by the pixels the pointer travelled…
+  const cam1 = await page.evaluate(() => {
+    const v = window.__tvxEngine!.views.find((view) => view.id === 'coronal') as {
+      camera: { center: [number, number] };
+    };
+    return [...v.camera.center] as [number, number];
+  });
+  expect(cam1[0]).toBeCloseTo(cam0.center[0] - 50 * cam0.mmPerPx, 6);
+  expect(cam1[1]).toBeCloseTo(cam0.center[1] - 20 * cam0.mmPerPx, 6);
+  // …and `place` placed nothing: a trackpad user can pan while the tool is armed.
+  expect(await pointsOf(page, layerId)).toEqual([]);
+  expect(await eventsOf(page)).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('@angle a platform-modified click neither places nor selects', async ({ page }) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+
+  // `resolveGesture` calls a `⌘`/`Ctrl`+left press "not a drag" — a menu accelerator, or macOS's
+  // own right-click emulation. It is not a tool click either, in either mode.
+  await arm(page, { layerId, mode: 'place' });
+  await page.keyboard.down('Control');
+  await clickAt(page, ...at(4, 4));
+  await page.keyboard.up('Control');
+  expect(await pointsOf(page, layerId)).toHaveLength(1);
+
+  await arm(page, { layerId, mode: 'select' });
+  await page.keyboard.down('Meta');
+  await clickAt(page, ...at(0, 0));
+  await page.keyboard.up('Meta');
+  expect(await selectionOf(page)).toBeNull();
+  expect((await eventsOf(page)).filter((e) => e.kind !== 'cleared')).toEqual([]);
+});
+
+test('@angle a second pointer mid-drag commits the FIRST contact, and grabs nothing', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [
+    { id: 'c1', position: [0, 2.5, 0] },
+    { id: 'c2', position: [6, 2.5, 0] },
+  ]);
+  await arm(page, { layerId, mode: 'select' });
+  const [cx, cy] = at(0, 0);
+
+  // Grab `c1` and drag it 40 px right — it is now 2 mm from where it started and still 4 mm short
+  // of `c2`, so the two discs do not overlap and the second finger lands on `c2` alone.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy, { steps: 4 });
+  await settle(page);
+  const moved = (await pointsOf(page, layerId))[0]!.position;
+
+  await page.evaluate(
+    ([x, y]) => {
+      const canvas = document.querySelector('canvas')!;
+      const r = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          pointerId: 2,
+          button: 0,
+          buttons: 1,
+          clientX: r.left + (x as number),
+          clientY: r.top + (y as number),
+          bubbles: true,
+        })
+      );
+    },
+    at(6, 0) as [number, number]
+  );
+  await settle(page);
+  await page.mouse.up();
+  await settle(page);
+
+  const events = await eventsOf(page);
+  const ends = events.filter((e) => e.kind === 'dragEnd');
+  expect(ends, 'the second finger ends the drag exactly once').toHaveLength(1);
+  // The whole of the bug: the end must name the contact the drag was about. The second finger used
+  // to select `c2` and overwrite the drag first, so `dragEnd` arrived for a point that had not
+  // moved and the module's moved-comparison skipped the commit — no undo step, no dirty mark.
+  expect(ends[0]!.pointId, 'the end is the dragged contact, not the one the finger landed on').toBe(
+    'c1'
+  );
+  expect(ends[0]!.world![0]).toBeCloseTo(moved[0], 6);
+  // …and `c2` was never selected: the press that landed mid-gesture was not the tool's.
+  expect(events.filter((e) => e.kind === 'selected').map((e) => e.pointId)).toEqual(['c1']);
+  expect(await selectionOf(page)).toEqual({ pointId: 'c1', index: 0 });
+  expect(errors).toEqual([]);
+});
+
+// ===============================================================================================
 // selection lifetime, Esc, and the one-armed-mode invariant
 // ===============================================================================================
 

@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { GestureMachine, NO_MODIFIERS, resolveGesture } from './gestures';
+import { GestureMachine, NO_MODIFIERS, pointToolTakesPress, resolveGesture } from './gestures';
 import type { GestureEvent, Modifiers, PanePoint } from './gestures';
 
 const mods = (patch: Partial<Modifiers> = {}): Modifiers => ({ ...NO_MODIFIERS, ...patch });
@@ -219,5 +219,48 @@ describe("GestureMachine: the 'point' drag's three exits (§13)", () => {
     // The release of either pointer must not end it a second time.
     expect(m.up(1)).toEqual([]);
     expect(m.up(2)).toEqual([]);
+  });
+});
+
+describe('pointToolTakesPress (§13, 2026-08-30)', () => {
+  it('offers the tool a plain left press, and only the left button', () => {
+    expect(pointToolTakesPress(0, mods(), false)).toBe(true);
+    expect(pointToolTakesPress(1, mods(), false)).toBe(false);
+    expect(pointToolTakesPress(2, mods(), false)).toBe(false);
+  });
+
+  it('declines every press §7.5 has already bound to something else', () => {
+    // The three `resolveGesture` reserves. Each of them used to reach `pointToolDown` first, which
+    // is why a `Shift`+opacity drag selected a contact and re-cut all three panes on the way past.
+    expect(pointToolTakesPress(0, mods({ shift: true }), false)).toBe(false);
+    expect(pointToolTakesPress(0, mods({ space: true }), false)).toBe(false);
+    expect(pointToolTakesPress(0, mods({ ctrl: true }), false)).toBe(false);
+    expect(pointToolTakesPress(0, mods({ meta: true }), false)).toBe(false);
+  });
+
+  it('declines a press that lands while a gesture is already in flight', () => {
+    expect(pointToolTakesPress(0, mods(), true)).toBe(false);
+  });
+
+  it('keeps `alt`, which §7.5 reserves for nothing on the primary button', () => {
+    expect(pointToolTakesPress(0, mods({ alt: true }), false)).toBe(true);
+    expect(resolveGesture(0, mods({ alt: true }), false, { overPoint: true })).toBe('point');
+  });
+
+  it('agrees with resolveGesture on every combination: a declined press is never a point drag', () => {
+    // The property the two functions exist to keep together — the gate may only ever decline
+    // presses the resolver would have routed somewhere other than `'point'`.
+    for (const shift of [false, true]) {
+      for (const space of [false, true]) {
+        for (const ctrl of [false, true]) {
+          for (const meta of [false, true]) {
+            const m = mods({ shift, space, ctrl, meta });
+            const takes = pointToolTakesPress(0, m, false);
+            const kind = resolveGesture(0, m, false, { overPoint: true });
+            expect(takes).toBe(kind === 'point');
+          }
+        }
+      }
+    }
   });
 });

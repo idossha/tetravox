@@ -3931,3 +3931,49 @@ geometry; `gen-fixtures.py` writes a table with the same column set over the CT 
 one deliberately awkward file (BOM, commas, CRLF, `R`/`A`/`S`, no group column, a ragged row) for the
 reader's tolerance. The real-data half is gated on `TETRAVOX_SEEG_TESTDATA` and asserts properties
 rather than numbers, because a real table's numbers belong to the site that produced it.
+
+## 2026-08-30 — the point tool is offered a press only when §7.5 has not already bound it
+
+`resolveGesture` has carried this promise since the `'point'` kind was added: "`Shift`+drag over a contact
+is still the layer's opacity and `space`+drag is still the pan … a new tool does not get to quietly take
+them". It was true of the **drag** and false of the **press**. `pointer.ts`'s `#onDown` asked the tool about
+every left press before the gesture machine resolved anything, and `pointToolDown(viewId, x, y, is3D)` has
+no modifiers in its signature, so a `Shift`+opacity drag that happened to start on a contact selected it,
+emitted `selected`, moved the crosshair through the sEEG editor's handler and re-cut all three slice panes —
+mid-gesture, before the opacity drag it was supposed to be had moved a pixel. In `place` mode it was worse:
+the press returned `'consumed'`, so `Shift`+opacity and `space`+pan were simply unreachable in a 2D pane
+while the tool was armed, and a Windows/Linux `Ctrl`+click placed a contact and an undo step where §7.5 says
+a platform-modified press "is not a drag".
+
+The same slot had no idea whether a gesture was **already running**. A second finger landing mid-drag ran the
+tool's press logic first: in `select` mode it selected whatever that finger touched and overwrote the engine's
+`#pointDrag`, and only then did `GestureMachine.down` end the interrupted gesture — so the `dragEnd` that
+followed named the *second* contact. The sEEG editor compares positions against the snapshot its `selected`
+handler had just replaced, found nothing moved, and skipped the commit: a real contact edit with no history
+entry and no dirty mark, on a designed-for touch path (`touchAction: 'none'`).
+
+**One gate, in front of the tool, expressed as a pure function.** `input/gestures.ts` gains
+`pointToolTakesPress(button, mods, gestureActive)` beside `resolveGesture`, and `#onDown` consults it before
+`pointToolDown`. It declines a non-primary button, a press carrying `ctrl`/`meta`/`shift`/`space`, and any
+press arriving while `GestureMachine.active`. It lives next to the resolver rather than in the DOM layer
+because it is the same decision about the same press, and `gestures.test.ts` pins the property that ties them
+together: over all sixteen modifier combinations, `pointToolTakesPress` is true **exactly** when
+`resolveGesture` would answer `'point'`. `alt` is deliberately not gated — §7.5 reserves nothing for it on
+the primary button, so an `Alt`+press is still an ordinary tool click.
+
+**§7.5's `place` bullet is amended rather than the code bent to it.** It said "every left click places"; it
+now says "every *unmodified* left click places", which is the behaviour that leaves the three gestures §7.5
+binds where §7.5 puts them. This is a documented behaviour change, and it is the one the same section already
+demanded two bullets further down.
+
+**Measure mode is left exactly as it was.** It shares the ungated shape — `#onDown` offers it every left
+press too — but §7.5 states it without qualification ("while it is on, a left-click **places a measurement
+point** instead of setting the cursor"), and it predates §13. Gating it would be a behaviour change with no
+contract asking for it, so it is not made here; the asymmetry is now written into §7.5 so the next reader
+finds it stated rather than inferred.
+
+**What this does not fix, deliberately.** A pinch attempted in `place` mode still places a contact per finger.
+That is not the ordering bug: `place` returns `'consumed'` and returns *before* `machine.down` ever runs, so
+no gesture is in flight when the second finger lands and no `gestureActive` guard can see it. It is the direct
+consequence of place-on-`pointerdown`, which §7.5 chooses on purpose and `points-tool.spec.ts` pins as
+intended, and every one of those placements is committed and undoable.
