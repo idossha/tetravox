@@ -3006,6 +3006,15 @@ been frozen around stubs. All three were wired on 2026-08-30 and the surface was
 commit — one governance round, not four. From here it changes additively, with the `ARCHITECTURE.md` edit and
 the `DECISIONS.md` entry in the same commit, and absent must reproduce the previous behaviour.
 
+**`scene.activePlane()` is the one view fact a module is given** (appended 2026-08-30). It answers
+`{ normal, point }` for the active 2-D pane — the view's normal through the cursor, which is §7.5's own
+rule for what a slice pane shows — and `null` for the 3-D pane. It is here rather than derived by a
+module for the reason §8 forbids the app deriving a world point from a pane pixel: `{normal, up}` is
+engine state, and a module reconstructing it from `SliceMode` would be wrong on an oblique view and
+would not follow a rotation. Nothing else about a view is offered — not its camera, its zoom or its
+per-view layer visibility — because the one thing a panel *beside* the panes has to be able to say is
+how far the thing in its list is from the slice the user is looking at.
+
 A member a build does not wire **throws `ModuleHostError`** rather than returning a plausible `null`: "this
 build has no point tool" and "nothing is selected" must not be the same answer. Every member is wired in the
 shipping build — `ShellController.activateModule` passes the engine's tool, `createHostFiles(manifest,

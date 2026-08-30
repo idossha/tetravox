@@ -239,6 +239,11 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
       },
 
       on,
+
+      // Appended 2026-08-30 with `host.ts`'s `scene.activePlane` (§13.1): always wired, because the
+      // controller and the store are required dependencies — there is no build in which the shell
+      // exists and the active pane does not.
+      activePlane: (): { normal: vec3; point: vec3 } | null => controller.activePlane(),
     },
 
     tool: deps.tool ?? stubTool(),

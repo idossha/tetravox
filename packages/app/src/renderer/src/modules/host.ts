@@ -132,6 +132,23 @@ export interface ModuleHost {
     block<T>(): T | null;
     setBlock<T>(data: T | null): void;
     on<E extends keyof ModuleEvents>(e: E, cb: (payload: ModuleEvents[E]) => void): () => void;
+
+    /**
+     * The plane the **active 2-D pane** is showing, or `null` when the active pane is the 3-D one
+     * (appended 2026-08-30, additively; absent it was simply not askable).
+     *
+     * `{ normal, point }` where `point` is the cursor — §7.5's rule that a slice pane shows the
+     * plane with the view's normal through the crosshair. It is here rather than derived by a
+     * module for the same reason §8 forbids the app deriving a world point from a pane pixel: the
+     * view's `{normal, up}` is engine state, and a module that reconstructed it from `SliceMode`
+     * would be wrong on an oblique view and would not follow a rotation.
+     *
+     * What it is *for*: a contact editor lists each contact's distance from the plane the user is
+     * looking at, which is the number that says "this one is on the slice you are on". Everything
+     * else about a view — its camera, its zoom, its layer visibility — is deliberately still not
+     * offered: this is the one fact a panel beside the panes has to know.
+     */
+    activePlane(): { normal: vec3; point: vec3 } | null;
   };
 
   /**

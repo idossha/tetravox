@@ -3724,3 +3724,36 @@ a path rule that is right in one of two places is a path rule that will be wrong
 stricter reading won: a re-descent, a climb past the root, an empty segment and a backslash are all
 refused rather than normalised, because `../a/../../etc/passwd` normalises to something perfectly
 ordinary and this is the last place either a manifest's template or a filename on disk can be caught.
+
+## 2026-08-30 — the module host gains `scene.activePlane()`, and nothing else about a view
+
+**Decision.** `ModuleHost['scene']` gains one member — `activePlane(): { normal, point } | null` —
+answering the plane the **active 2-D pane** is showing, with the cursor as its point, and `null` for
+the 3-D pane. `host.ts` is frozen (§12.3 item 6), so ARCHITECTURE §13.1 changes in this commit with
+it; `MODULE_HOST_VERSION` does not move, because the addition is additive and absent it was simply
+not askable.
+
+**What made it necessary.** The sEEG editor's contact list quotes each contact's **distance from the
+plane you are looking at** — the number that says "this one is on your slice, that one is 8 mm
+behind it". A module has no other way to know: `ModuleHost` publishes layers, datasets and the
+cursor, and the plane a pane draws is the view's `{normal, up}`, which is engine state. The
+alternatives were all worse in a way §13.7 rule 7 already names. Deriving the normal from the pane's
+`SliceMode` would be a second source of truth that is wrong on an oblique view and does not follow an
+in-plane rotation — the same class of mistake §8 forbids when it tells the app not to turn a pane
+pixel into a world point itself. Quoting the 3-D distance from the crosshair instead would be a
+different quantity wearing the same label: a contact exactly on the slice but 30 mm to the left of
+the crosshair would read 30 mm, which is precisely the reading a clinician must not get from a column
+headed "off-plane".
+
+**Why this shape, and why nothing more.** `{ normal, point }` rather than a `View` or a `ViewId`:
+§7.5's rule is that a slice pane shows the plane with the view's normal **through the cursor**, so
+those two vectors are the whole of the answer, and a module that received a `View` would also receive
+a camera, a zoom and a per-view layer visibility it has no business reading. `null` for the 3-D pane
+is the honest answer rather than a fabricated plane, and a panel that shows a dash for it is showing
+the truth. The normal is re-normalised in the controller rather than trusted: a `*.tetravox.json` is
+user-editable text, and a non-unit normal there would silently scale every distance a module quotes.
+
+**It is always wired.** Unlike `tool`, `files` and `peakCentroid`, this is not an optional dependency
+of `createModuleHost`: it is answered from the controller and the store, which are required, so there
+is no build in which the shell exists and the active pane does not. Nothing here can throw
+`ModuleHostError`.
