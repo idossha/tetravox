@@ -43,6 +43,12 @@ cube, colour bars and crosshair as toggleable chrome; light and dark themes.
 saved in the scene), a region panel for label volumes / mesh tags / annots, a histogram widget with draggable
 window and threshold handles, and a screenshot dialog writing DPI into the PNG.
 
+**Modules.** A first-party extension surface (§13): a docked panel slot in the right column with one active
+module at a time, a toolbar switcher, a status cell, a key pool that resolves after the §7.5 map, a confirm
+dialog, per-module scene blocks carried through save and load — including for modules a build does not have —
+and an import wall that keeps a module to `ModuleHost`. The fixture module `tetravox.hello` (`?modules=hello`)
+is the worked example; the sEEG contact editor is the first real one.
+
 **Scenes.** `*.tetravox.json` — every layer setting, region edit, measurement, camera, layout and the theme.
 ⌘S / Save As / Open Recent, drop-to-open, file association, relative paths with a fingerprint-keyed relocate
 dialog, and an optional reopen-on-launch.
@@ -62,8 +68,6 @@ macOS, with the packaging matrix carried in the workflow.
 - §11's **Transparency (ii)** — a CPU per-fragment-sorted reference render of a mesh scene. The Python
   reference renderer covers volume slices only; §5 keeps a mesh's triangles out of a spec's reach, so this
   needs its own vehicle rather than a weaker test wearing the name.
-- The first `ubuntu-24.04` CI run. Every golden in the tree was captured on SwiftShader on macOS arm64 and
-  §11 makes ubuntu the authority, so some will need regenerating there.
 - §9.1 rows 15, 16 and 17b have no measurement yet.
 
 **Rendering**
@@ -87,6 +91,25 @@ macOS, with the packaging matrix carried in the workflow.
 - `OpArgs['cut']` has no `wantEdges` / `wantBoundary`, so the worker builds and ships the 2D overlay's edge
   and boundary segments even on the 3D clip path, which discards both. Frozen interface — an additive change.
 - Typed-array pooling, oct-encoded normals (85 → 57 MB for ernie's de-indexed variant), instanced points.
+
+**Modules** (§13)
+- The **sEEG contact editor**: BIDS `electrodes.tsv` in and out, intensity-weighted snap, shaft re-fit,
+  renumbering, an editlog beside the table and a `.bak` of what it replaced.
+- The engine substrate every later point-set tool inherits: per-point identity, ghosted off-plane discs, a
+  selection ring, and a 2D point tool with place/select/drag.
+- Main-process module IO: a read-text channel, a Save sheet that admits the manifest's same-directory
+  siblings, a backup and a temp+rename write, and the first `BrowserWindow 'close'` guard.
+- Job-file operations (`{"type":"module", …}`) and their Python wrappers, so every panel action is reachable
+  headlessly.
+- A **resizable right aside**. The column is 320 px and the slot lives in it; there is no splitter primitive
+  in the shell, and a module with a long list wants one. A `wide` manifest hint was considered and dropped —
+  widening the aside shrinks the toolbar's centre column below what its controls need, which wraps the row.
+- **Stage 2, the runtime-loaded tier** (§13.8): a module Worker, a JSON-only host bridge, permissions with
+  reasons, a Restricted Mode, a single-file library build and a security review. 8–9 days and a different
+  threat model; the import wall exists so that day is a port, not a rewrite.
+- An **engine command stack**, so undo is the engine's rather than each module keeping snapshots.
+- A **Compute panel**: a module that shells out to an external tool with a streamed log. It needs the first
+  async subprocess in main, argv validated token by token, a scrubbed environment and a notarisation check.
 
 **Packaging**
 - The §12.1 `package` legs green end to end: `.dmg` arm64 + x64, `.AppImage`, `.deb`, each opening

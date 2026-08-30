@@ -3203,3 +3203,121 @@ for. Multiplying keeps the ghost-shell case (`iso3d.opacity < 1`) and makes the 
 surfaces as it governs the slices. The default `iso3d.opacity` is 1, so every scene saved before
 this renders the same unless its slider was below 1 — in which case it now renders as the user
 expected when they dragged it. Additive: no `ViewSpec` field changes.
+
+## 2026-08-30 — `worker-src blob:` is removed from the renderer CSP
+
+**Decision.** `main/protocol.ts`'s policy for `tetravox://app` drops `blob:` from `worker-src`,
+leaving `worker-src 'self'`. `img-src 'self' data: blob:` is unchanged.
+
+**Why it was there, and why it is not.** Nothing ever asked for it. Both of this app's workers are
+built from a `new URL(…, import.meta.url)` that Vite emits as a same-origin asset under
+`tetravox://app/assets/…` — the engine's dataset worker (`packages/engine/src/engine.ts`) and the
+Phase-0 skeleton's (`renderer/src/Phase0App.tsx`) — so `'self'` covers every worker that is supposed
+to exist. What `blob:` covered was the one that is not: a module Worker constructed from a Blob of
+text the page fetched, which is a working script-execution path through a policy whose whole point is
+`script-src 'self'`. It is an undesigned door, and closing it costs this build nothing.
+
+**Why now.** The modules surface (§13) is first-party and compiled into `out/renderer`; §13.8
+describes a later stage where a module's code is loaded at runtime, and a Blob module Worker is
+exactly the mechanism that stage would reach for. Closing the door **before** anything wants it is
+what makes opening it later a deliberate, argued change rather than an accident that was already
+permitted. Nothing in §13 needs a CSP change: no new scheme, no `tetravox://ext`, no `script-src`
+edit.
+
+**The directive is narrowed, not deleted.** Removing `worker-src` entirely would fall back to
+`child-src` and then to `default-src 'none'`, which forbids *every* worker — the dataset worker
+included, i.e. the whole application. `worker-src 'self'` is the change; the empty diff would be a
+catastrophe.
+
+**How it is verified.** `packages/app/e2e/csp.spec.ts`, which asserts the policy from inside the page
+it governs — the CSP is a response header, not a `<meta>`, so there is nothing in the DOM to read.
+Constructing a Blob module Worker fires a `securitypolicyviolation` naming `worker-src`; a Blob PNG
+still loads into an `<img>`, which is the screenshot dialog's preview; and every other app E2E that
+opens a dataset exercises the same-origin worker that must keep working. The dev server carries no
+CSP, so this is a built-app assertion, as `e2e:packaged` is.
+
+## 2026-08-30 — Modules: a first-party extension surface (feat/modules-host)
+
+**Decision.** Tetravox gains a **module** surface: a first-party tool, compiled into `out/renderer`, that owns
+one kind of data end to end — its own panel, keys, files and undo. §1's `plugins` non-goal is **narrowed**,
+not withdrawn: "third-party runtime-loaded plugins (first-party modules are §13)". The whole contract is the
+new ARCHITECTURE §13; this entry records the choices behind it.
+
+**First-party first, and why the alternative was not chosen.** A runtime-loaded tier is a different product:
+a module Worker with no DOM, a JSON-only bridge, permissions with reasons, a Restricted Mode for a scene that
+arrives with an unknown module, a single-file library build, a §5 rule 9 rewrite and a security review — 8–9
+engineer-days and a different threat model. First-party costs none of that and loses nothing that exists
+today, because "community" here means a pull request that adds one directory. §13.8 keeps the path open and
+names its price. The one thing stage 1 does that makes stage 2 a port rather than a rewrite is the **import
+wall**: `modules/<id>/**` may reach `../host`, the shared control kit and `@tetravox/engine` **types**, and
+nothing else. It is an ESLint rule *and* a source scan in `modules.test.ts`, because a lint rule can be
+disabled inline and a test cannot.
+
+**A docked slot in the right column, not a floating palette and not a tab.** The shell has no floating,
+draggable or popover primitive; pane overlays are `pointer-events: none` by contract, so a palette over the
+canvas would fight the WebGL grid for pointer capture; and at 1512 px the sidebars already take 608 px, so a
+floating editor would cover the very pane it asks the user to click in. A *tab* was rejected for a different
+reason: the feedback most module actions are judged by is the info panel's Cursor block — the value under the
+crosshair — and a tab hides it at the moment it matters. The slot renders nothing while idle, so the DOM is
+unchanged with no module active, and it sits outside the info panel's scrolling container, which is what makes
+its 55% cap hard rather than advisory.
+
+**One switcher in the toolbar's right column, never a button per module.** Measured, not aesthetic:
+`Toolbar.tsx` is `flex-wrap`, and a second module's button in the centre cluster wraps the row at 1440 px,
+which grows the header and shrinks the view grid — the same canvas-resize class the status bar was pinned
+against. The status cell goes **before** the dataset cells for the same kind of reason: two BIDS-named
+datasets already overflow `tvx-strip`, which does not scroll, and `ml-auto` cannot pull a cell back inside a
+container that has overflowed.
+
+**A synchronous host with a lint wall, rather than async JSON from day one.** Every scene read and write is a
+call into the engine through the controller, exactly as every §8 panel's is; only files, dialogs and
+confirmations are promises, because those already cross a process boundary or wait for a person. Stage 2 costs
+a mechanical `await` pass over the modules that exist then. Making every call async today would have bought
+that same pass in advance, at the price of every module's readability, for a tier that may never be built.
+
+**`host.ts` is pre-freeze, and says so with dates.** Three of its members are backed by work that has not
+landed — `scene.peakCentroid`, the whole of `tool`, the whole of `files` — so freezing it now would freeze it
+around stubs. It grows additively and is declared frozen (§12.3 item 6) in the commit that lands the last of
+them: one governance round rather than four. Meanwhile an unwired member **throws `ModuleHostError`** rather
+than returning a plausible `null`, because "this build has no point tool" and "nothing is selected" must not
+be the same answer to a module written against the finished surface.
+
+**Persistence is core-typed layers plus one opaque block.** A module's geometry is ordinary `Scene.layers`, so
+a build without the module still draws the scene and no pass or property editor grew a case. Its own record is
+`ViewSpec.extensions[<moduleId>]`, written by the app's `serialiseScene` exactly as `theme` is and for the
+same reason — `Engine.serialize()` enumerates engine fields, and a module's record is not one. A block never
+holds a `LayerId` or a `DatasetId` (both are reassigned on load), is capped at 256 KiB, and — the rule that
+makes the format shareable — **a block belonging to a module this build does not have is carried through
+verbatim**, so opening a colleague's scene and re-saving it cannot silently delete their work. The reader is
+strict about the envelope and does not inspect `data` at all.
+
+**`moduleDirty` is a separate flag from `sceneDirty`, and the guard reads only the new one.** `sceneDirty` is
+set by any cursor click — deliberately conservative, so a gesture that ended where it started still marks the
+scene — and therefore cannot ever mean "the contacts were edited". The title's `•` is the OR of the two. The
+discard guard runs at five sites where work would otherwise vanish without a word: New, opening a scene (which
+covers Open Recent and the drop route, since all three reach `openScenePath`), and a layer row's ✕, which
+closes the dataset a module's layers hang off. `⌘S` saves the scene and says plainly that it did not save the
+module's files, because a module writes those from its own panel.
+
+**Two deviations from the design worth naming.** The guard offers `Save…` only when the dirty module declares
+a `save` command — a three-button question whose first button did nothing would be worse than a two-button
+one. And an answer to a confirm question the controller is not waiting on is **ignored entirely** rather than
+dismissing the dialog: clearing it would leave the awaiting gesture with nothing left to answer it.
+
+**Keys are a closed pool, resolved last.** `a s d f g n p t z Delete Backspace`, unmodified or with Shift,
+live only while their module is active and only after `keymap.ts` has returned `null`. So a module can never
+shadow a documented binding and adding one can never change what a key already does. The single exception to
+"an unmodified key stays harmless" is `when: 'selection' | 'toolArmed'`, and it is an exception with teeth:
+with nothing selected the key resolves to **nothing at all**, not to a command that does nothing.
+
+**The `docs-guard` CI job.** Two rules this repository has always stated and never been able to check: a
+§12.3 frozen path in the merge-base diff without both `ARCHITECTURE.md` and `DECISIONS.md`, and a manifest's
+`docs` heading missing from `USER_GUIDE.md` or from the website's `GUIDE_PAGES`. Its own job, because a
+merge-base diff needs `fetch-depth: 0` and because that failure should reach a reviewer before the test legs
+finish. §12.3 item 5 — the Rust signatures — is deliberately not enforced by path: a `crates/**` trigger would
+fire on every implementation change and teach everyone to ignore the job.
+
+**No new dependency, no lockfile change, and no engine or main-process change** beyond one CSP line, which has
+its own entry above. The fixture module `tetravox.hello` ships in every build and is listed only behind
+`?modules=hello`, because `pnpm e2e` drives the production bundle and a fixture excluded from it would prove
+nothing about the bundle users get.

@@ -68,7 +68,12 @@ const CSP = [
   "font-src 'self' data:",
   // `tetravox://file` is a *different host* from `tetravox://app`, so `'self'` does not cover it.
   "connect-src 'self' tetravox:",
-  "worker-src 'self' blob:",
+  // `blob:` was removed on 2026-08-30 (docs/DECISIONS.md): both of this app's workers are built from
+  // a `new URL(…, import.meta.url)` that Vite emits as a same-origin asset under `tetravox://app`
+  // — `engine.ts`'s dataset worker and `Phase0App.tsx`'s — so `'self'` covers every worker that is
+  // supposed to exist, and `blob:` covered only ones that are not. `img-src blob:` stays: the
+  // screenshot dialog's preview is a real `URL.createObjectURL` of a rendered PNG.
+  "worker-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
 ].join('; ');

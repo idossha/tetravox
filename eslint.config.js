@@ -62,6 +62,58 @@ export default tseslint.config(
     },
   },
   {
+    // ARCHITECTURE.md §13.1's **module wall**, and the reason stage 2 (§13.8) is a one-file change
+    // rather than a redesign: a module may reach `../host` for its types, the shared control kit
+    // under `ui/`, and `@tetravox/engine` **types only** — never the store, the engine's runtime,
+    // `bridge()`, the automation surface or a panel's internals.
+    //
+    // Two globs because minimatch's `**` and a single-segment `*` do not both cover
+    // `modules/<id>/index.ts` and `modules/<id>/kernels/x.ts`. The host's own files — `host.ts`,
+    // `hostImpl.ts`, the slot, the switcher — sit **directly** in `modules/` and are deliberately
+    // outside this rule: `hostImpl.ts` is the one file that is allowed to see both sides.
+    //
+    // A lint rule can be switched off inline, so `modules.test.ts` re-proves the same thing by
+    // reading the sources. This is the wall; that is the guard.
+    files: [
+      'packages/app/src/renderer/src/modules/*/*.{ts,tsx}',
+      'packages/app/src/renderer/src/modules/*/**/*.{ts,tsx}',
+    ],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tetravox/engine',
+              // `allowTypeImports` is the whole point: a module names `Layer` and `vec3` all day and
+              // must never *call* the engine. Everything it can do goes through `ModuleHost`.
+              allowTypeImports: true,
+              message:
+                'A module may import engine TYPES only (§13.1). Everything it can do goes through ModuleHost.',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '**/store',
+                '**/store/*',
+                '**/engine/*',
+                '**/automation/*',
+                '**/panels/**',
+                '**/lib/*',
+                '**/bridge',
+                '**/preload/*',
+                '**/../../../preload',
+              ],
+              message:
+                'A module reaches the shell only through ModuleHost (§13.1): no store, no Engine, no bridge, no automation.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The §7.1 lint applies to our source, including shader strings — not to this config.
     files: ['packages/**/*.{ts,tsx,js,jsx}', 'scripts/**/*.{ts,js}'],
     rules: {

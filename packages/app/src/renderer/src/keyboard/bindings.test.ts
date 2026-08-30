@@ -16,7 +16,16 @@
 import { describe, expect, it } from 'vitest';
 import type { Command } from './keymap';
 import { PRESET_KEYS, resolveKey } from './keymap';
-import { POINTER_GESTURES, coveredCommandKinds, keyBindingSections, keyBindings } from './bindings';
+import {
+  POINTER_GESTURES,
+  coveredCommandKinds,
+  keyBindingSections,
+  keyBindings,
+  moduleKeyRows,
+} from './bindings';
+// Modules (2026-08-30, §13.5), appended.
+import { MANIFESTS } from '../../../modules/manifests';
+import { helloManifest } from '../../../modules/hello/manifest';
 
 /**
  * Every `Command['kind']` the resolver can return, discovered by driving it rather than by
@@ -120,5 +129,37 @@ describe('the pointer gestures', () => {
     expect(gestures.find((g) => g.chord.startsWith('Middle-drag'))?.description).toContain(
       'never pans'
     );
+  });
+});
+
+// -- Modules (2026-08-30, §13.5) -----------------------------------------------------------------
+
+describe('the Modules rows', () => {
+  it('are empty with no module active, so the sheet grows no tab', () => {
+    expect(moduleKeyRows(null)).toEqual([]);
+  });
+
+  it('carry one row per bound key, in manifest order, labelled the way a user presses it', () => {
+    const rows = moduleKeyRows(helloManifest);
+    const bound = helloManifest.commands.filter((c) => c.key !== undefined);
+    expect(rows).toHaveLength(bound.length);
+    expect(rows.map((r) => r.chord)).toEqual(['g', 's']);
+    expect(rows[0]?.description).toBe('Ping');
+  });
+
+  it('say when a binding needs a selection, rather than listing it as always live', () => {
+    const rows = moduleKeyRows(helloManifest);
+    const gated = rows.find((r) => r.when === 'selection');
+    expect(gated?.description).toContain('selected');
+  });
+
+  it('never claim a `Command` kind, so the coverage assertion above still means what it meant', () => {
+    // `POINTER_GESTURES` carries none for the same reason: a row that is not a §7.5 binding must not
+    // be able to satisfy "every command the resolver can reach has a row".
+    for (const manifest of MANIFESTS) {
+      for (const row of moduleKeyRows(manifest)) {
+        expect('kind' in row).toBe(false);
+      }
+    }
   });
 });

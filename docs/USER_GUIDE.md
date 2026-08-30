@@ -277,6 +277,47 @@ a jump-to and a delete, and saved with the scene.
 
 ![Distance and angle measurements across the panes](screenshots/2026-08-29/features/feat-measure.png)
 
+## Modules
+
+A **module** is a first-party tool that Tetravox ships with, bigger than a toolbar toggle and smaller
+than a second application — an editor for one kind of data, with its own panel, its own keys and its
+own file formats. One module is active at a time.
+
+**The switcher** is the `▾` button in the toolbar's right cluster, beside `?` and `⚙`. It lists every
+module this build carries; picking one opens its panel, picking it again closes it. The panel itself is
+the **module slot**: a section in the right column, above the Info panel, so the crosshair read-out
+stays visible while you work — that is the feedback most module actions are judged by. The slot never
+takes more than a bit over half the column and scrolls inside itself; with no module active it is not
+there at all.
+
+Below about 1000 px the sidebars normally collapse into overlays that close on the next click in a
+pane. While a module is active the right sidebar stays **in flow** instead, because a module asks you
+to click in the panes and an editor that closed itself on the first click would be unusable.
+
+**Keys.** A module may bind `a s d f g n p t z Delete Backspace`, on their own or with Shift, and only
+while it is active. They resolve **after** the ordinary key map, so no module can shadow `r`, `x`, `c`,
+`v`, `m`, the camera presets or anything else in this guide, and `Esc` is never a module key. The
+toolbar's `?` sheet grows a **Modules** tab listing the active module's chords.
+
+**A module's status** — how many things it holds, what mode it is in — is one cell at the left of the
+status bar, before the dataset cells.
+
+**Unsaved edits.** A module's own edits are separate from the scene's. While one has unsaved work the
+window title carries the same `•` a dirty scene does, and **New**, opening a scene, dropping a scene on
+the window and closing a dataset all ask first, offering *Save…*, *Discard* and *Cancel*. `⌘S` saves the
+**scene**; when a module still has unsaved work it says so rather than letting you believe otherwise —
+a module saves its own files from its own panel.
+
+**Scenes carry modules.** What a module needs to reopen — never a copy of the data, just its own small
+record — is written into the `*.tetravox.json` under the module's id, and read back when the scene is
+opened. A scene written by a build that has a module you do not is not damaged by opening and re-saving
+it here: the block is carried through untouched.
+
+**Layers a module owns** are marked in the layer panel and show a read-only summary instead of the usual
+editor, so the module's own controls stay the only way to change them; closing such a layer's dataset
+closes the module's layers with it.
+
+
 ## Coordinates
 
 The **coordinate bar** shows the crosshair and lets you type one in. The space selector offers World RAS,
@@ -418,6 +459,11 @@ the app, grouped in tabs by what each binding acts on.
 
 Drag the gizmo ring handles to rotate the plane; drag its stem to slide it along the normal. Plane-from-3-points
 takes the next three clicks in any 2D pane. A camera preset puts the pane back on axial / coronal / sagittal.
+
+**Module keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
+lent to whichever [module](#modules) is open and mean nothing when none is. They are resolved **after**
+everything above, so no module can change what any key on this page does, and `Esc` is never one of them.
+The `?` sheet grows a **Modules** tab listing the active module's own chords.
 
 `⌘O` / `Ctrl+O` (Open…) is bound in the Electron application menu, not in this map, so it is never double-bound.
 

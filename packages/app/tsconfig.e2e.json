@@ -3,7 +3,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM"],
-    "types": ["node"]
+    "types": ["node"],
+    // `e2e/global.d.ts` types `window.__tetravox` against the real `ShellController`, so this
+    // program transitively contains the renderer — and, since 2026-08-30, the renderer's `.tsx`
+    // through the module registry's lazy `import('./hello')`. Setting `jsx` lets tsc *parse* those
+    // files; no spec renders one, and none may (§11 rule 0: these assert state, never pixels).
+    "jsx": "react-jsx"
   },
-  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+  // §13.1: a spec that imports a manifest is typechecked against it too — the third of the three
+  // tsconfigs a manifest has to satisfy.
+  "include": ["e2e/**/*.ts", "playwright.config.ts", "src/modules/**/*.ts"]
 }

@@ -21,15 +21,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { Tabs } from '../ui/Tabs';
 import type { TabItem } from '../ui/Tabs';
-import { POINTER_GESTURES, keyBindingSections } from './bindings';
-import type { KeySection } from './bindings';
+import { POINTER_GESTURES, keyBindingSections, moduleKeyRows } from './bindings';
+import type { KeySection, ModuleKeyRow } from './bindings';
+// Modules (2026-08-30, §13.5): a fourth tab, present only while a module is active.
+import { useController, useUi } from '../ui/context';
 
 export interface KeyboardHelpProps {
   open: boolean;
   onClose(): void;
 }
 
-type KeymapTab = 'view' | 'cursor-layers' | 'mouse';
+type KeymapTab = 'view' | 'cursor-layers' | 'mouse' | 'modules';
 
 const TABS: readonly TabItem<KeymapTab>[] = [
   { id: 'view', label: 'View' },
@@ -37,11 +39,18 @@ const TABS: readonly TabItem<KeymapTab>[] = [
   { id: 'mouse', label: 'Mouse' },
 ];
 
+/**
+ * §13.5's tab, added only while a module is active — its keys are live only then, and a permanent
+ * tab that was empty most of the time would be worse than no tab at all.
+ */
+const MODULES_TAB: TabItem<KeymapTab> = { id: 'modules', label: 'Modules' };
+
 /** Which generated `KeySection` titles (from `bindings.ts`) belong to which tab. */
 const SECTION_GROUPS: Record<KeymapTab, readonly string[]> = {
   view: ['View', 'Camera presets', 'Panels'],
   'cursor-layers': ['Cursor', 'Layers', 'Measure'],
   mouse: [],
+  modules: [],
 };
 
 /** Which `POINTER_GESTURES` group titles belong to which tab. Only Mouse has any. */
@@ -49,6 +58,7 @@ const GESTURE_GROUPS: Record<KeymapTab, readonly string[]> = {
   view: [],
   'cursor-layers': [],
   mouse: ['2D panes', '3D pane'],
+  modules: [],
 };
 
 /** Remembered for the session only — see the file header. */
@@ -88,6 +98,12 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps): React.JSX.El
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const [tab, setTab] = useState<KeymapTab>(lastTab);
+  // §13.5. Read here rather than passed in: the sheet is mounted by `ShellDialogs`, which has no
+  // reason to know about modules, and these rows change with whatever is in the slot.
+  const controller = useController();
+  const activeModule = useUi((s) => s.activeModule);
+  const moduleManifest = activeModule === null ? null : controller.activeModuleManifest();
+  const moduleRows: ModuleKeyRow[] = moduleKeyRows(moduleManifest);
 
   const onTab = (id: KeymapTab): void => {
     lastTab = id;
@@ -110,10 +126,14 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps): React.JSX.El
   }, [open]);
 
   if (!open) return null;
+  const tabs = moduleRows.length > 0 ? [...TABS, MODULES_TAB] : TABS;
+  // A module closed while its tab was open leaves `tab` pointing at a tab that is gone; fall back to
+  // the first rather than rendering an empty panel.
+  const activeTab: KeymapTab = tabs.some((t) => t.id === tab) ? tab : 'view';
   const sections = keyBindingSections();
-  const visibleSections = sections.filter((s) => SECTION_GROUPS[tab].includes(s.title));
+  const visibleSections = sections.filter((s) => SECTION_GROUPS[activeTab].includes(s.title));
   const visibleGestureGroups = POINTER_GESTURES.filter((g) =>
-    GESTURE_GROUPS[tab].includes(g.title)
+    GESTURE_GROUPS[activeTab].includes(g.title)
   );
 
   return (
@@ -145,8 +165,8 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps): React.JSX.El
 
         <div className="flex flex-col overflow-y-auto px-4 py-3">
           <Tabs
-            tabs={TABS}
-            active={tab}
+            tabs={tabs}
+            active={activeTab}
             onChange={onTab}
             testIdPrefix="keymap-tab"
             aria-label="Keyboard help sections"
@@ -156,6 +176,24 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps): React.JSX.El
             {visibleSections.map((section) => (
               <SectionBlock key={section.title} section={section} />
             ))}
+
+            {activeTab === 'modules' && moduleManifest !== null && (
+              <section data-testid="keyhelp-section-Modules">
+                <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
+                  {moduleManifest.title}
+                </h3>
+                <dl className="grid grid-cols-[5.5rem_1fr] items-baseline gap-x-2 gap-y-1">
+                  {moduleRows.map((row) => (
+                    <div key={row.chord} className="contents">
+                      <dt data-testid="keyhelp-module-chord">
+                        <Kbd>{row.chord}</Kbd>
+                      </dt>
+                      <dd className="text-[11px] text-tvx-text">{row.description}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            )}
 
             {visibleGestureGroups.map((group) => (
               <section key={group.title} data-testid={`keyhelp-section-${group.title}`}>
@@ -177,7 +215,14 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps): React.JSX.El
           </div>
         </div>
 
-        {tab === 'mouse' && (
+        {activeTab === 'modules' && (
+          <footer className="border-t border-tvx-line px-4 py-1.5 text-[10px] text-tvx-dim">
+            Module keys are live only while that module is active, and resolve after the map above —
+            so a module can never shadow a binding on the other tabs (§13.5).
+          </footer>
+        )}
+
+        {activeTab === 'mouse' && (
           <footer className="border-t border-tvx-line px-4 py-1.5 text-[10px] text-tvx-dim">
             Pointer gestures are bound by the engine on the canvas (§7.5), not by the key map, so
             they are listed rather than generated.

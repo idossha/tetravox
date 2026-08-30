@@ -6,5 +6,13 @@
     "lib": ["ES2023"],
     "types": ["node"]
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "electron.vite.config.ts"]
+  // §13.1: module manifests are data-only TypeScript, and main validates a `type: "module"` job
+  // action against them before a window exists. Typechecking them here — with no `DOM` in `lib` — is
+  // what makes "a manifest names no DOM type" a compile error rather than a convention.
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/modules/**/*.ts",
+    "electron.vite.config.ts"
+  ]
 }

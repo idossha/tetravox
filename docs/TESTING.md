@@ -78,6 +78,31 @@ const second = await launchApp(target, { userDataDir: profile });  // assert it 
 The two launches must not overlap: the second would find the lock held and quit. `e2e/theme.spec.ts` is the
 worked example.
 
+### Module tests (§13.4)
+
+The extension surface is tested at three levels, and the split is not a matter of taste:
+
+| Level | Where | What it can assert |
+|---|---|---|
+| Manifests and keys | `renderer/src/modules/modules.test.ts` | Every manifest in `MANIFESTS`, without naming one: ids, semver, `hostApi`, the `docs` heading, §13.5 pool membership, and every pool key probed through the **live `resolveKey`** so a module key that shadowed a §7.5 binding fails here. It also reads `src/modules/**` and `renderer/src/modules/<id>/**` off disk and fails an import the wall forbids — a lint rule can be disabled inline, a test cannot. |
+| The host | `renderer/src/modules/hostImpl.test.ts` | `NoGlEngine` + `createUiStore` + `ShellController.attach()` (the `panels.test.ts` idiom): activation, commands, the status cell, the dirty flag, the scene block's round trip through a saved file, the confirm dialog and the discard guard. **State and calls, never pixels.** |
+| The window | `packages/app/e2e/modules.spec.ts` | Everything §13.3 says about *layout*: the slot's height cap, the toolbar's height unchanged after an activation at 1440×900, the status cell left of the dataset cells, the aside in flow at 960 px, the rendered confirm dialog. vitest runs under `environment: 'node'`, so none of this can be asserted anywhere else. |
+
+The fixture module is the subject throughout, driven with `?modules=hello` — the same seam `?engine=mock`
+uses. It is compiled into every build and listed only behind that parameter, because `pnpm e2e` drives the
+production bundle: a fixture excluded from it would prove nothing about the bundle users get.
+
+The **docs guard** has its own fixtures and does not run under vitest:
+
+```sh
+node --test scripts/check-frozen-docs.test.mjs   # its own rules, driven red
+node scripts/check-frozen-docs.mjs --base origin/main
+```
+
+CI runs both in the `docs-guard` job, which checks out with `fetch-depth: 0` because rule one is a merge-base
+diff. Locally, without `--base`, the script says it has nothing to diff and checks only the rule that needs no
+diff — a guard that failed when it could not do half its job would be switched off within a week.
+
 ### The test page server
 
 `packages/engine/playwright.config.ts` starts Vite over `packages/engine` as the root, so a page can import

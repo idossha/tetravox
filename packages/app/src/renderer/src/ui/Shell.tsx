@@ -35,6 +35,7 @@ import { HeaderPanel } from '../panels/info/HeaderPanel';
 import { InfoPanel } from '../panels/info/InfoPanel';
 import { LayerPanel } from '../panels/layers/LayerPanel';
 import { MeasurePanel } from '../panels/measure/MeasurePanel';
+import { ModuleSlot } from '../modules/ModuleSlot';
 import { MshOptChip } from './MshOptChip';
 import { ShellDialogs } from './ShellDialogs';
 import { StatusBar } from './StatusBar';
@@ -109,6 +110,11 @@ function RightPanel({ onCollapse }: { onCollapse: () => void }): React.JSX.Eleme
         the picture rather than about the layer under the cursor, and it renders
         nothing at all while the mode is off and nothing has been placed. */}
       <MeasurePanel />
+      {/* §13.3: the module slot, between the measurement strip and the Info scroller. It renders
+        nothing at all with no module active — `MeasurePanel`'s idiom — so the DOM is unchanged
+        while it is idle, and it sits **outside** the scroller below so its `max-h-[55%]` is a hard
+        cap rather than a suggestion. */}
+      <ModuleSlot />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <InfoPanel />
         <div className="border-t border-tvx-line" />
@@ -138,6 +144,10 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
   const jobMode = useStore(store, (s) => s.jobMode);
   const leftPanelCollapsed = useStore(store, (s) => s.leftPanelCollapsed);
   const rightPanelCollapsed = useStore(store, (s) => s.rightPanelCollapsed);
+  // §13.3's narrow-mode rule. Below `NARROW_BREAKPOINT_PX` the right aside normally becomes a
+  // temporary overlay whose backdrop closes on **any** click — including a click in a pane, which is
+  // exactly what a module asks the user for. While one is active the aside therefore stays in flow.
+  const moduleActive = useStore(store, (s) => s.activeModule !== null);
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
   const startedRef = useRef(false);
   const startedJobRef = useRef(false);
@@ -314,7 +324,24 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
         altKey: event.altKey,
         editable: isEditableTarget(event.target),
       });
-      if (command === null) return;
+      if (command === null) {
+        // §13.5: the core map declined it, so the active module — if there is one — is offered the
+        // chord. Nothing module-specific reaches this file: `handleModuleKey` reads the manifest and
+        // answers whether it consumed the key.
+        if (
+          controller.handleModuleKey({
+            key: event.key,
+            ctrlKey: event.ctrlKey,
+            metaKey: event.metaKey,
+            shiftKey: event.shiftKey,
+            altKey: event.altKey,
+            editable: isEditableTarget(event.target),
+          })
+        ) {
+          event.preventDefault();
+        }
+        return;
+      }
       event.preventDefault();
       controller.runCommand(command);
     };
@@ -432,19 +459,21 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
               <ViewGrid canvas={canvas} dpr={dpr} />
               {jobMode ? null : (
                 <div className="relative flex" data-testid="right-panel-region">
-                  {narrow || rightPanelCollapsed ? (
+                  {(narrow && !moduleActive) || rightPanelCollapsed ? (
                     <PanelRail
                       side="right"
                       testId="right-panel-expand"
                       label="Expand the info panel"
                       onClick={() =>
-                        narrow ? setRightOverlayOpen(true) : controller.toggleRightPanel()
+                        narrow && !moduleActive
+                          ? setRightOverlayOpen(true)
+                          : controller.toggleRightPanel()
                       }
                     />
                   ) : (
                     <RightPanel onCollapse={() => controller.toggleRightPanel()} />
                   )}
-                  {narrow && rightOverlayOpen && (
+                  {narrow && !moduleActive && rightOverlayOpen && (
                     <>
                       <div
                         data-testid="right-panel-backdrop"

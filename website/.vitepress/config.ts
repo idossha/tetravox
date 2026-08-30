@@ -68,7 +68,8 @@ export default defineConfig({
         const token = tokens[idx];
         const src = token.attrGet('src') ?? '';
         const alt = self.renderInlineAsText(token.children ?? [], _options, _env);
-        const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        const esc = (s: string) =>
+          s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
         return `<figure class="shot"><img src="${esc(src)}" alt="${esc(alt)}" loading="lazy"><figcaption>${esc(alt)}</figcaption></figure>`;
       };
     },
@@ -104,6 +105,7 @@ export default defineConfig({
               { text: 'Vector fields', link: '/guide/vector-fields' },
               { text: 'Points & electrodes', link: '/guide/points-electrodes' },
               { text: 'Measurements', link: '/guide/measurements' },
+              { text: 'Modules', link: '/guide/modules' },
               { text: 'Coordinates', link: '/guide/coordinates' },
               { text: 'Themes & settings', link: '/guide/themes-settings' },
               { text: 'Scenes', link: '/guide/scenes' },

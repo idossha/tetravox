@@ -21,6 +21,7 @@ import {
   parseScene,
   relativePath,
   relocationCandidates,
+  sceneExtensions,
   serialiseScene,
   withRelativePaths,
 } from './scene';
@@ -354,5 +355,82 @@ describe('serialiseScene extras (§4.6 v2)', () => {
     // An empty list is not written: it is indistinguishable from having none.
     const empty = serialiseScene({ ...spec(), measurements: [] }, '/scenes/s.tetravox.json');
     expect('measurements' in (JSON.parse(empty) as object)).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Modules (2026-08-30, §13.2): the scene block round trip
+// ------------------------------------------------------------------------------------------------
+
+describe('module blocks in a scene file', () => {
+  const block = {
+    module: 'tetravox.hello' as const,
+    version: 1,
+    moduleVersion: '1.0.0',
+    data: { count: 3 },
+  };
+
+  it('writes `extensions` when there is one, and omits an empty map', () => {
+    const text = serialiseScene(spec(), '/scenes/s.tetravox.json', {
+      extensions: { 'tetravox.hello': block },
+    });
+    expect((JSON.parse(text) as { extensions: unknown }).extensions).toEqual({
+      'tetravox.hello': block,
+    });
+    const empty = serialiseScene(spec(), '/scenes/s.tetravox.json', { extensions: {} });
+    expect('extensions' in (JSON.parse(empty) as object)).toBe(false);
+    const absent = serialiseScene(spec(), '/scenes/s.tetravox.json');
+    expect('extensions' in (JSON.parse(absent) as object)).toBe(false);
+  });
+
+  it('reads back exactly what it wrote, through parseScene', () => {
+    const text = serialiseScene(spec(), '/scenes/s.tetravox.json', {
+      extensions: { 'tetravox.hello': block },
+    });
+    const parsed = parseScene(text);
+    expect(parsed.ok).toBe(true);
+    expect(sceneExtensions(parsed.spec as ViewSpec)).toEqual({ 'tetravox.hello': block });
+  });
+
+  it('carries a block for a module this build has never heard of, verbatim', () => {
+    // §13.2's degradation contract, from the other side: open, then re-save, and the stranger's
+    // work is still in the file. `data` is not inspected at all — it is not ours to validate.
+    const stranger = {
+      module: 'otherlab.tractography' as const,
+      version: 7,
+      moduleVersion: '0.4.1',
+      data: { streamlines: 'anything at all', nested: { deep: [1, 2, 3] } },
+    };
+    const opened = sceneExtensions({
+      ...spec(),
+      extensions: { 'otherlab.tractography': stranger },
+    } as ViewSpec);
+    const text = serialiseScene(spec(), '/scenes/s.tetravox.json', { extensions: opened });
+    expect((JSON.parse(text) as { extensions: unknown }).extensions).toEqual({
+      'otherlab.tractography': stranger,
+    });
+  });
+
+  it('drops a malformed block rather than handing it to a module', () => {
+    const blocks = sceneExtensions({
+      ...spec(),
+      extensions: {
+        // the key and the block disagree — an editor renamed one of them, and guessing which would
+        // silently reattribute someone's work
+        'tetravox.hello': { ...block, module: 'tetravox.other' },
+        'a.no-version': { module: 'a.no-version', moduleVersion: '1.0.0', data: {} },
+        'a.bad-version': { module: 'a.bad-version', version: 'one', moduleVersion: '1.0.0' },
+        'a.no-module-version': { module: 'a.no-module-version', version: 1 },
+        'a.not-an-object': 42,
+        'a.good': { module: 'a.good', version: 2, moduleVersion: '9.9.9', data: null },
+      },
+    } as unknown as ViewSpec);
+    expect(Object.keys(blocks)).toEqual(['a.good']);
+  });
+
+  it('answers an empty map for a scene with no extensions at all', () => {
+    expect(sceneExtensions(spec())).toEqual({});
+    expect(sceneExtensions({ ...spec(), extensions: [] } as unknown as ViewSpec)).toEqual({});
+    expect(sceneExtensions({ ...spec(), extensions: null } as unknown as ViewSpec)).toEqual({});
   });
 });

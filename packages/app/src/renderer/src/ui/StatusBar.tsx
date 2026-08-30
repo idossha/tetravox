@@ -16,6 +16,7 @@ import {
   medianFrameMs,
   medianGpuMs,
 } from '../lib/metrics';
+import { ModuleStatusCells } from '../modules/ModuleStatusCells';
 import { useUi } from './context';
 
 function Cell({
@@ -128,6 +129,11 @@ export function StatusBar(): React.JSX.Element {
           }
         />
       )}
+
+      {/* §13.3: the active module's cell, **before** the dataset cells. Two BIDS-named datasets
+          already overflow this strip and it does not scroll, so a cell after them would not be on
+          screen in the case a module is most likely to be used in. */}
+      <ModuleStatusCells />
 
       {datasets.map((dataset) => (
         <span key={dataset.id} className="flex shrink-0 items-baseline gap-1">

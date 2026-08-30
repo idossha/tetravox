@@ -294,6 +294,46 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The §12.1 docs guard (ARCHITECTURE.md §12.1, §12.3, §13.7). Its **own** job, and not a step of
+  # `test`, for two reasons: it needs `fetch-depth: 0` (actions/checkout@v5 defaults to depth 1 and a
+  # merge-base diff cannot be computed from one commit), and it must report on a pull request even
+  # when the test leg is still running — "you changed a frozen interface and not its documentation"
+  # is the kind of thing a reviewer should read before the tests finish, not after.
+  #
+  # It costs ~20 seconds: node, a diff and two file reads. No pnpm install, no toolchains.
+  docs-guard:
+    name: docs-guard
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history: `git merge-base` is the point of this job.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # A guard nobody has seen fail is a guard nobody trusts, so its own fixtures run first — a
+      # frozen path with no docs, with half the docs, a manifest naming a heading nobody wrote.
+      - name: Self-test the guard
+        run: node --test scripts/check-frozen-docs.test.mjs
+
+      # `github.event.pull_request.base.sha` on a PR; `github.event.before` on a push. Neither exists
+      # for a `workflow_dispatch`, and the script then says so and checks only the rule that needs no
+      # diff, rather than failing because it could not do half its job.
+      - name: Frozen interfaces and module docs headings
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: node scripts/check-frozen-docs.mjs --base "$BASE"
+
+      # INTEGRATION(P5): `node scripts/sync-module-docs.mjs --check` belongs in this job too — it is
+      # the same class of failure (the generated §2.7 table drifting from the validator) and the same
+      # cheap runner. P5 adds the script and the step together.
+
   # The §12.1 `package` matrix, now real (ROADMAP Phase 3). Each leg builds one slice with
   # electron-builder, runs the artefact smoke test §12.1 requires, and uploads the result as a
   # downloadable workflow artefact. `.github/workflows/release.yml` is the same matrix on a tag, plus
