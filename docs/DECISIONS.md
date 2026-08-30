@@ -3227,3 +3227,49 @@ edits it, saves with the File menu's Save Scene item, and reads the change back 
 
 **Scope.** `writeSceneFile` is unchanged: still the exact-path check, still the 8 MiB cap, still
 `allowPath` on the way out. Nothing admits a directory, a pattern or a second extension.
+
+## 2026-08-30 — module file IO: a Save sheet that admits its own siblings, and a backup main makes
+
+**Decision.** `main/module-io.ts` adds four channels for §13 modules — `module-read-text`,
+`module-open-dialog`, `module-save-dialog`, `module-write-text` — registered from main the way
+`registerJobIpc()` registers the `--job` group. This **amends A-SHELL decision 1** (2026-08-27) rather
+than working around it, and the amendment is in two named parts.
+
+**Reading restates a door that is already open.** The 2026-08-27 rejection was of a general
+`readTextFile`/`writeTextFile` pair. `module-read-text` is the read half only, and it is *narrower*
+than what ships today: `readSceneFile` returns up to 8 MiB of any allow-listed path with no content
+check, and `tetravox:subject-spaces` already reads sidecar text in main and hands it back. This one
+answers only for a path already on the `tetravox://file` allow-list, caps at 1 MiB, and takes five
+extensions (`.tsv .csv .json .txt .fcsv`). It admits nothing — a path still gets on the list only
+through the Open sheet, a drop, argv or `open-file` — and it has no write twin. Being able to read
+`T1.nii.gz` still implies nothing about writing it.
+
+**The write family is the real change, and it is bounded by the Save sheet.** A module writes only to
+paths its **own** Save sheet admitted: the file the user chose, plus that writer's declared
+same-directory siblings, in a `Map<moduleId, …>` kept apart from `scene-io.ts`'s `writable`. Three
+things keep "same directory" true rather than intended: a template must match
+`^[A-Za-z0-9_.{}-]{1,96}$` before substitution; the substituted result must still be a plain name with
+no separator, no `..` and no brace left over; and both ends are checked, because the template is what
+a manifest declares and the anchor's basename is what a *file* supplies. A `{stamp}` template is
+admitted as a shape (`\d{8}-\d{6}`), not as one instant, or only the first save of a session could
+make a `.bak`.
+
+**Why main does the backup and the rename.** The `.bak` is a copy of the file that is about to be
+replaced, so main makes it from the path it already holds and no backup bytes cross IPC — §5 rule 3
+is kept by there being nothing to carry. The write itself is `<path>.part` then `renameSync`, the
+`sample-data.ts` precedent: a rename inside one directory is atomic, so an interrupted save leaves the
+previous electrode table intact instead of half of the new one. A writer that did not declare a
+`{name}.{stamp}.bak` gets `backupPath: null` and its write; the backup is a courtesy the manifest opts
+into, not a condition of saving.
+
+**Rejected: a main-side sibling resolver.** BIDS sibling discovery stays in the renderer, where
+`open/sources.ts#firstAllowed` already probes derived sidecar names through `bridge().allowPath` and a
+null return doubles as the existence check. A resolver in main would buy no admission-policy gain over
+that status quo — `allowPath` admits any existing absolute path today — and would be the directory
+listing IPC this app deliberately does not have. Tightening `allowPath` itself is a separate question
+and is not answered here.
+
+**Tested by refusal.** `module-io.test.ts` is new infrastructure (there was no `scene-io` unit test;
+`sample-data.test.ts` is the nearest template): accepted and rejected templates, a traversal that only
+appears after substitution, cross-module isolation, the read cap and extension filter, `.bak` naming,
+`.part` cleanup, and every write that must be refused.
