@@ -26,6 +26,7 @@ import type {
   LayoutKind,
   LoadProgress,
   MeshLayer,
+  NewLayer,
   ProbeResult,
   ScreenshotOptions,
   ViewId,
@@ -69,6 +70,8 @@ import {
   layersToRestore,
   parseScene,
   relocationCandidates,
+  // Modules (2026-08-30, §13.2), appended: the blocks a scene file carried.
+  sceneExtensions,
   serialiseScene,
 } from '../lib/scene';
 import { formatLut, fromLabelEntries, lutFileName } from '../lib/lut';
@@ -86,6 +89,22 @@ import type { SampleProgress, SceneCommand } from '../bridge';
 import type { SubjectSpacesReply, SurfaceSpacesReply } from '../../../preload/index';
 import { applyTheme, enginePatch, isThemeChoice, resolveTheme } from '../theme/theme';
 import type { ThemeChoice } from '../theme/theme';
+// Modules (2026-08-30, §13). Appended per the shared-file rule. Nothing here names a module: the
+// shell reads every module-specific fact out of a manifest.
+import type { ComponentType } from 'react';
+import type { ModuleManifest } from '../../../modules/manifest-types';
+import { manifestFor } from '../../../modules/manifests';
+import { enabledModules, registrationFor } from '../modules/registry';
+import type { ModuleRegistration } from '../modules/registry';
+import { createModuleHost, disposeModuleHost } from '../modules/hostImpl';
+import type { ExtensionBlock, ModuleHost, ModuleInstance, ModuleSceneEvent } from '../modules/host';
+import { resolveModuleKey } from '../modules/keys';
+import type { ModuleKeyEvent } from '../modules/keys';
+import { readerClaim } from '../modules/readers';
+import type { ReaderClaim } from '../modules/readers';
+import { instantiateSiblings } from '../modules/siblings';
+import { moduleOfLayer } from '../modules/ownership';
+import { anyModuleDirty, dirtyModuleIds } from './store';
 
 /** A fresh identity `mat4`, for a `TemplateSpace` that carries only a warp (directed task 8). */
 function identityMat4(): Float32Array {
@@ -251,6 +270,9 @@ export class ShellController {
   }
 
   detach(): void {
+    // §13.1: a module's lifetime is the controller's. `Shell.tsx` detaches on unmount and on an
+    // engine swap, and a module left holding a disposed engine would be a module drawing into it.
+    this.deactivateModule();
     for (const off of this.unsubscribers.splice(0)) off();
     if (this.tickTimer !== null) clearInterval(this.tickTimer);
     this.tickTimer = null;
@@ -356,6 +378,14 @@ export class ShellController {
     store.setState((s) => ({ loads: loads.startCard(s.loads, ticket, this.now()) }));
     const startedAt = this.now();
     try {
+      // §13.1's `onReader`, before the path is treated as a dataset at all: `open/sources.ts` routes
+      // nothing by extension, so a `.tsv` reaches `loadMesh 'auto'` and fails "unsupported". A module
+      // that claims the path opens it instead. A claim that comes back **false** falls through to
+      // the ordinary load, so a mistaken reader can never make a file unopenable.
+      if (request.path !== null && (await this.openThroughModule(request.path))) {
+        store.setState((s) => ({ loads: loads.dismissCard(s.loads, ticket) }));
+        return;
+      }
       const dataset = await engine.addDataset(request.source);
       const elapsed = this.now() - startedAt;
       store.setState((s) => ({
@@ -372,6 +402,9 @@ export class ShellController {
       // Directed task 8: ask main whether a SimNIBS `toMNI/` governs this volume. Fire-and-forget —
       // a registration that is not there, or a bridge that is not there, must not fail the load.
       if (dataset.kind === 'volume') void this.attachSubjectSpaces(dataset.id, dataset.path);
+      // §13.1's `onSibling`, beside the sidecar discovery whose mechanism it borrows: a module whose
+      // patterns match this file's name is offered whatever `allowPath` finds beside it.
+      if (dataset.path !== undefined) void this.dispatchSiblings(dataset.path);
       // …and the fsaverage correspondence for a surface, when the subjects directory is set and the
       // spheres are where they should be. Silent on every miss (`attachFsaverage`).
       if (dataset.kind === 'mesh') void this.attachFsaverage(dataset.id, dataset.path);
@@ -1612,8 +1645,11 @@ export class ShellController {
    */
   private syncTitle(): void {
     if (typeof document === 'undefined') return;
-    const { sceneFile, sceneDirty } = this.store.getState();
-    const mark = sceneDirty ? ' •' : '';
+    const state = this.store.getState();
+    const { sceneFile, sceneDirty } = state;
+    // §13.3: a module's unsaved edits mark the title too. They have to be their own flag —
+    // `sceneDirty` is set by any cursor click, so it could never mean "the contacts were edited".
+    const mark = sceneDirty || anyModuleDirty(state) ? ' •' : '';
     document.title = sceneFile === null ? `Tetravox${mark}` : `${sceneFile.name}${mark} — Tetravox`;
   }
 
@@ -1635,6 +1671,9 @@ export class ShellController {
     // dataset to be dropped with (directed task 11).
     this.clearMeasurements();
     this.setMeasureMode(false);
+    // §13.2: an empty scene carries no module blocks, and the slot empties with it. This is also
+    // what `applyScene` relies on to start from nothing before it adopts the file's own blocks.
+    this.clearModules();
     this.syncTitle();
     this.engine.requestRender();
     this.syncLayers();
@@ -1664,7 +1703,12 @@ export class ShellController {
     const spec = this.engine.serialize();
     // No `measurements` extra: `Engine.serialize()` writes `Scene.measurements` itself now
     // (directed task 11), so `spec` already carries the live list — see `SceneExtras`.
-    const text = serialiseScene(spec, path, { theme: this.store.getState().themeChoice });
+    const text = serialiseScene(spec, path, {
+      theme: this.store.getState().themeChoice,
+      // §13.2, and the whole map: blocks belonging to modules this build does not have are written
+      // back verbatim rather than dropped.
+      extensions: this.store.getState().moduleBlocks,
+    });
     const result = await bridge().writeSceneFile(path, text);
     if (!result.ok) {
       const message = result.error ?? 'could not write the scene file';
@@ -1680,6 +1724,9 @@ export class ShellController {
     });
     this.syncTitle();
     void this.rememberRecent(saved);
+    // ⌘S is the *scene's* (`main/menu.ts`). A module writes its own files from its own panel, so say
+    // so plainly rather than letting a user believe the tsv was saved too.
+    this.warnModuleUnsaved();
     return true;
   }
 
@@ -1712,6 +1759,10 @@ export class ShellController {
    * not resolve — which is what keeps the renderer from stat-ing the filesystem itself (§5 rule 9).
    */
   async openScenePath(scenePath: string): Promise<boolean> {
+    // §13.3: opening a scene replaces this one, so a module holding unsaved edits is asked first.
+    // This single guard covers three of the five sites — Open Scene…, File ▸ Open Recent and the
+    // drop route all arrive here.
+    if (!(await this.confirmDiscardModuleEdits('Opening a scene'))) return false;
     // A scene that arrives by **drop** has never been through a dialog, so main has not admitted it
     // to the `tetravox://file/…` allow-list and `readSceneFile` would refuse it (directed task 13).
     // The call is idempotent, so the dialog and Open Recent routes — which are already admitted —
@@ -1870,6 +1921,10 @@ export class ShellController {
       this.engine.setActiveLayer((live[specIndex] as Layer).id);
     }
 
+    // §13.2's blocks, **after** `layersToRestore`: a module finds its own layer by `LayerBase.module`
+    // and there would be no layer to find before this point.
+    await this.restoreModuleBlocks(spec);
+
     // §4.6 v2's optional theme: applied when the scene names one, ignored when it does not, so a
     // scene never silently overrides a preference it said nothing about (directed task 13).
     if (spec.theme !== undefined) this.setThemeChoice(spec.theme);
@@ -1922,7 +1977,9 @@ export class ShellController {
   async runSceneCommand(command: SceneCommand): Promise<void> {
     switch (command) {
       case 'new':
-        return this.newScene();
+        // §13.3: the menu's New is one of the five guarded sites. `newScene()` itself stays
+        // synchronous, so every other caller of it is unchanged.
+        return this.requestNewScene();
       case 'open':
         await this.openSceneDialog();
         return;
@@ -2084,6 +2141,478 @@ export class ShellController {
 
   toggleAllLayersCollapsed(): void {
     this.setAllLayersCollapsed(collapseAllAction(this.store.getState()) === 'collapse');
+  }
+
+  // ============================================================================================
+  // Modules (2026-08-30; ARCHITECTURE.md §13). Appended per the shared-file rule: new members at
+  // the end of the class, nothing above this line reordered or repurposed.
+  //
+  // Everything here is **generic**. There is no module name in this file, and there must never be
+  // one: a module contributes a directory and a line in `modules/registry.ts`, and the shell reads
+  // it out of the manifest. `modules.test.ts` is what keeps that honest.
+  // ============================================================================================
+
+  /** The live module: its host, its instance, and the manifest they were built from. */
+  private moduleSession: {
+    manifest: ModuleManifest;
+    host: ModuleHost;
+    instance: ModuleInstance;
+  } | null = null;
+
+  /**
+   * The launch query the registry filters fixtures with — the `?engine=mock` seam
+   * (`engine/factory.ts`), read once so a unit test (no `location`) and a `--job` window can both
+   * set it.
+   */
+  private moduleSearch: string = globalThis.location?.search ?? '';
+
+  /** Listeners on the app-level scene edges a module can subscribe to (`ModuleEvents`). */
+  private readonly sceneListeners = new Set<(event: ModuleSceneEvent) => void>();
+
+  /** The confirm question in flight, paired with its `ConfirmRequest.id`. */
+  private pendingConfirm: { id: number; resolve: (choice: 0 | 1 | 2) => void } | null = null;
+  private confirmSeq = 0;
+
+  /** Test and `--job` seam: which fixtures the registry offers. See {@link moduleSearch}. */
+  setModuleSearch(search: string): void {
+    this.moduleSearch = search;
+  }
+
+  /** The modules this window offers, in switcher order. */
+  modules(): readonly ModuleRegistration[] {
+    return enabledModules(this.moduleSearch);
+  }
+
+  /** The active module's manifest, or null — what the slot's header and the key rows read. */
+  activeModuleManifest(): ModuleManifest | null {
+    return this.moduleSession?.manifest ?? null;
+  }
+
+  /**
+   * The active module's panel component, or null.
+   *
+   * `UiState.activeModule` is set only after `activate` resolves, so a component that saw a non-null
+   * id can rely on this being non-null in the same render.
+   */
+  modulePanel(): ComponentType | null {
+    return this.moduleSession?.instance.Panel ?? null;
+  }
+
+  /**
+   * Put a module in the slot, loading it the first time (§13.1).
+   *
+   * Idempotent for the module that is already there. Another module in the slot is disposed first —
+   * which is **not** destructive: a module's edits live in the scene's layers and its own state
+   * lives in `moduleBlocks`, so re-activating it restores through `restoreBlock`, exactly as opening
+   * a scene does. One code path for "come back to where I was".
+   *
+   * An `activate` that throws becomes a toast and leaves the slot empty. It must never leave a
+   * half-built view grid behind, which is why the store is written only on success.
+   */
+  async activateModule(id: string): Promise<boolean> {
+    if (this.moduleSession?.manifest.id === id) return true;
+    const registration = registrationFor(id, this.moduleSearch);
+    if (registration === null) return false;
+    this.deactivateModule();
+    let instance: ModuleInstance;
+    let host: ModuleHost;
+    try {
+      const loaded = await registration.load();
+      host = createModuleHost({ controller: this, store: this.store }, registration.manifest);
+      instance = await loaded.activate(host);
+    } catch (error: unknown) {
+      this.toast('io', registration.manifest.title, errorMessage(error));
+      return false;
+    }
+    this.moduleSession = { manifest: registration.manifest, host, instance };
+    this.store.setState({ activeModule: registration.manifest.id });
+    // A block this scene already carries is the module's own previous state — from the file it was
+    // opened from, or from the last time it was in the slot.
+    const block = this.store.getState().moduleBlocks[id];
+    if (block !== undefined && instance.restoreBlock !== undefined) {
+      try {
+        await instance.restoreBlock(block);
+      } catch (error: unknown) {
+        this.toast('parse', registration.manifest.title, errorMessage(error));
+      }
+    }
+    return true;
+  }
+
+  /** Empty the slot. The module's block and its dirty flag survive — see {@link activateModule}. */
+  deactivateModule(): void {
+    const session = this.moduleSession;
+    this.moduleSession = null;
+    if (session === null) return;
+    try {
+      session.instance.dispose();
+    } finally {
+      disposeModuleHost(session.host);
+      this.store.setState({ activeModule: null });
+    }
+  }
+
+  /** The switcher's toggle: the same module twice is "close it". */
+  async toggleModule(id: string): Promise<void> {
+    if (this.store.getState().activeModule === id) {
+      this.deactivateModule();
+      return;
+    }
+    await this.activateModule(id);
+  }
+
+  /**
+   * Run one of a module's commands — the key map's exit, the panel's exit and the switcher's exit
+   * all end here, so a command has exactly one code path however it was asked for.
+   */
+  async moduleCommand(id: string, command: string, args?: Record<string, unknown>): Promise<void> {
+    const session = this.moduleSession;
+    if (session === null || session.manifest.id !== id) return;
+    try {
+      await session.instance.runCommand(command, args);
+    } catch (error: unknown) {
+      this.toast('io', `${session.manifest.title}/${command}`, errorMessage(error));
+    }
+  }
+
+  /**
+   * A key the core §7.5 map did not claim, offered to the active module (§13.5).
+   *
+   * Returns whether it was consumed, so `Shell.tsx` knows whether to `preventDefault`. The gating
+   * lives in `modules/keys.ts`, which is pure and unit-tested; this is only the dispatch.
+   */
+  handleModuleKey(event: ModuleKeyEvent): boolean {
+    const session = this.moduleSession;
+    if (session === null) return false;
+    const command = resolveModuleKey(session.manifest, event, {
+      // INTEGRATION(P2): both come from the engine's point tool once it exists. Until then a
+      // `when: 'selection'` or `when: 'toolArmed'` binding never fires, which is the safe default —
+      // §13.5's exception exists to let a key act on an *explicit* selection, and there is none.
+      hasSelection: false,
+      toolArmed: false,
+    });
+    if (command === null) return false;
+    void this.moduleCommand(session.manifest.id, command.id);
+    return true;
+  }
+
+  // ---- the host's own calls --------------------------------------------------------------------
+
+  /** `host.scene.probe`. */
+  probeWorld(world: vec3): ProbeResult {
+    return this.engine.probe(world);
+  }
+
+  /** `host.scene.toSpace` — §4.7's, unchanged, so a module and the coordinate bar agree. */
+  toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null {
+    return this.engine.toSpace(ref, world);
+  }
+
+  /** `host.scene.fromSpace`. */
+  fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null {
+    return this.engine.fromSpace(ref, value);
+  }
+
+  /**
+   * `host.scene.addLayer`, stamped with the module that owns it.
+   *
+   * INTEGRATION(P1): `LayerBase.module` is the frozen field that carries the stamp; until it lands
+   * the property rides the untyped spread `addLayer` already passes through, which is exactly how a
+   * saved scene has always carried unknown layer keys. The layer panel reads it back the same way,
+   * so the summary-instead-of-editor rule works on this branch and keeps working on P1's.
+   */
+  addModuleLayer(moduleId: string, spec: NewLayer): Layer {
+    // The double cast is the honest form of "this key is not on `NewLayer` **yet**": `Partial<Layer>`
+    // has no `module` until P1 declares it, and a single `as NewLayer` would be TS refusing two
+    // types that do not overlap rather than a widening.
+    const spread = { ...spec, module: moduleId } as unknown as NewLayer;
+    const layer = this.engine.addLayer(spread);
+    this.engine.requestRender();
+    return layer;
+  }
+
+  /** `host.ui.toast`. Its own entry point because a module's note is not a load failure. */
+  moduleToast(kind: 'info' | 'warn' | 'error', title: string, text: string): void {
+    this.store.setState((s) => ({
+      toasts: toasts.pushToast(s.toasts, {
+        id: ++this.toastSeq,
+        tone: kind === 'error' ? 'error' : kind === 'warn' ? 'warn' : 'info',
+        title,
+        detail: text,
+        at: this.now(),
+      }),
+    }));
+  }
+
+  /** `host.ui.status` — the module's status-bar cell. `null` removes it. */
+  setModuleStatus(id: string, text: string | null): void {
+    this.store.setState((s) => {
+      if ((s.moduleStatus[id] ?? null) === text) return {};
+      const next = { ...s.moduleStatus };
+      if (text === null) delete next[id];
+      else next[id] = text;
+      return { moduleStatus: next };
+    });
+  }
+
+  /**
+   * `host.ui.setDirty` — "this module has unsaved work".
+   *
+   * Three things follow from it and all three are here rather than in the module: the title's `•`,
+   * the OS document-edited flag, and what the discard guard asks about.
+   */
+  setModuleDirty(id: string, dirty: boolean): void {
+    this.store.setState((s) => {
+      if ((s.moduleDirty[id] === true) === dirty) return {};
+      const next = { ...s.moduleDirty };
+      if (dirty) next[id] = true;
+      else delete next[id];
+      return { moduleDirty: next };
+    });
+    this.syncTitle();
+    this.syncDocumentEdited();
+  }
+
+  /**
+   * Tell main the window has unsaved work, so the OS close button can ask before it discards it.
+   *
+   * INTEGRATION(P3): `setDocumentEdited` is a preload member P3 adds, reached here through an
+   * optional structural cast so this branch compiles and runs against a bridge that does not have it
+   * yet. When it lands the cast is deleted and nothing else changes.
+   */
+  syncDocumentEdited(): void {
+    const edited = anyModuleDirty(this.store.getState());
+    const channel = bridge() as unknown as { setDocumentEdited?: (edited: boolean) => void };
+    channel.setDocumentEdited?.(edited);
+  }
+
+  /** `host.scene.block`. */
+  moduleBlock(id: string): ExtensionBlock | null {
+    return this.store.getState().moduleBlocks[id] ?? null;
+  }
+
+  /** `host.scene.setBlock`. `null` drops the block from the scene entirely. */
+  setModuleBlock(id: string, block: ExtensionBlock | null): void {
+    this.store.setState((s) => {
+      const next = { ...s.moduleBlocks };
+      if (block === null) delete next[id];
+      else next[id] = block;
+      return { moduleBlocks: next };
+    });
+    this.markDirty();
+  }
+
+  /**
+   * `host.ui.confirm`, and the discard guard's own question (§13.3).
+   *
+   * Two or three buttons, resolving to the index of the one chosen; the **last** is the cancelling
+   * one, which is what `Esc` and a backdrop click pick. A second question replaces the first and
+   * resolves it as cancelled: two modal questions at once would be two full-window dialogs, and §8
+   * allows one.
+   */
+  confirmDialog(
+    title: string,
+    body: string,
+    buttons: [string, string] | [string, string, string]
+  ): Promise<0 | 1 | 2> {
+    const previous = this.pendingConfirm;
+    if (previous !== null) {
+      this.pendingConfirm = null;
+      previous.resolve((buttons.length - 1) as 0 | 1 | 2);
+    }
+    const id = ++this.confirmSeq;
+    return new Promise<0 | 1 | 2>((resolve) => {
+      this.pendingConfirm = { id, resolve };
+      this.store.setState({ confirm: { id, title, body, buttons }, dialog: 'confirm' });
+    });
+  }
+
+  /** The dialog's answer. A click on a question that has already been replaced is ignored. */
+  resolveConfirm(choice: 0 | 1 | 2): void {
+    const request = this.store.getState().confirm;
+    const pending = this.pendingConfirm;
+    // An answer that does not belong to the question the controller is waiting on is **ignored
+    // entirely** — the question is left standing rather than dismissed. Clearing it here would be
+    // worse than doing nothing: the awaiting guard would never be answered and the gesture that
+    // raised it would hang.
+    if (pending === null || request === null || pending.id !== request.id) return;
+    this.pendingConfirm = null;
+    this.store.setState((s) =>
+      s.dialog === 'confirm' ? { dialog: 'none', confirm: null } : { confirm: null }
+    );
+    pending.resolve(choice);
+  }
+
+  /**
+   * The app-level scene edges (`ModuleEvents.sceneLoaded` / `sceneCleared`).
+   *
+   * They are the app's rather than the engine's because opening a scene is one gesture spanning many
+   * engine calls, and a module needs the edge, not the six `layers` events the calls emit.
+   */
+  onSceneEvent(listener: (event: ModuleSceneEvent) => void): () => void {
+    this.sceneListeners.add(listener);
+    return () => this.sceneListeners.delete(listener);
+  }
+
+  private emitSceneEvent(event: ModuleSceneEvent): void {
+    for (const listener of [...this.sceneListeners]) listener(event);
+  }
+
+  // ---- activation routes other than the switcher ------------------------------------------------
+
+  /**
+   * The module that claims this path, if any (§13.1's `onReader`).
+   *
+   * Extension first, then the manifest's optional `match` over the **basename** — never over the
+   * whole path, or a reader for `*_electrodes.tsv` would claim every file under a directory of that
+   * name.
+   */
+  readerFor(path: string): ReaderClaim | null {
+    return readerClaim(
+      this.modules().map((registration) => registration.manifest),
+      path
+    );
+  }
+
+  /**
+   * Give a claimed path to its module. `false` means "not mine after all", and the ordinary dataset
+   * load carries on — which is what keeps a reader from turning a mistake into an unopenable file.
+   */
+  private async openThroughModule(path: string): Promise<boolean> {
+    const claim = this.readerFor(path);
+    if (claim === null) return false;
+    if (!(await this.activateModule(claim.manifest.id))) return false;
+    const instance = this.moduleSession?.instance;
+    if (instance?.openPath === undefined) return false;
+    try {
+      return await instance.openPath(claim.readerId, path);
+    } catch (error: unknown) {
+      this.toast('parse', baseName(path), errorMessage(error));
+      return false;
+    }
+  }
+
+  /**
+   * A dataset landed; tell any module whose sibling patterns match its name (§13.1's `onSibling`).
+   *
+   * The candidates are probed with `bridge().allowPath`, which is the renderer's existing sibling
+   * discovery (`open/sources.ts`'s `firstAllowed`) and doubles as the existence check — no new IPC,
+   * and no capability a dataset load did not already have.
+   */
+  private async dispatchSiblings(anchor: string): Promise<void> {
+    for (const registration of this.modules()) {
+      const found: Record<string, string | null> = {};
+      let any = false;
+      for (const spec of registration.manifest.siblings ?? []) {
+        for (const candidate of instantiateSiblings(spec, anchor)) {
+          const allowed = await bridge().allowPath(candidate.path);
+          found[candidate.template] = allowed?.path ?? null;
+          if (allowed !== null) any = true;
+        }
+      }
+      if (!any) continue;
+      if (!(await this.activateModule(registration.manifest.id))) continue;
+      const instance = this.moduleSession?.instance;
+      if (instance?.onSibling === undefined) continue;
+      try {
+        await instance.onSibling(anchor, found);
+      } catch (error: unknown) {
+        this.toast('io', registration.manifest.title, errorMessage(error));
+      }
+    }
+  }
+
+  // ---- the discard guard (§13.3) ----------------------------------------------------------------
+
+  /**
+   * Ask before throwing a module's unsaved work away, and answer whether to proceed.
+   *
+   * Five call sites: `requestNewScene`, `openScenePath` (which is also Open Recent and the drop
+   * route), and `requestCloseDataset` — because a layer row's ✕ closes the dataset a module's layers
+   * hang off, and would take the edits with it.
+   *
+   * `Save…` is offered only when the dirty module declares a `save` command; a three-button question
+   * whose first button did nothing would be worse than a two-button one.
+   */
+  async confirmDiscardModuleEdits(what: string): Promise<boolean> {
+    const state = this.store.getState();
+    const ids = dirtyModuleIds(state);
+    if (ids.length === 0) return true;
+    const names = ids.map((id) => manifestFor(id)?.title ?? id).join(', ');
+    const session = this.moduleSession;
+    const canSave =
+      session !== null &&
+      ids.includes(session.manifest.id) &&
+      session.manifest.commands.some((c) => c.id === 'save');
+    const buttons: [string, string] | [string, string, string] = canSave
+      ? ['Save…', 'Discard', 'Cancel']
+      : ['Discard', 'Cancel'];
+    const choice = await this.confirmDialog(
+      `Discard unsaved ${names} edits?`,
+      `${what} will close them without saving.`,
+      buttons
+    );
+    if (!canSave) return choice === 0;
+    if (choice === 0) {
+      await this.moduleCommand(session.manifest.id, 'save');
+      // A save that did not clear the flag has not saved; do not proceed on its behalf.
+      return !anyModuleDirty(this.store.getState());
+    }
+    return choice === 1;
+  }
+
+  /** `New`, guarded. `newScene()` itself stays synchronous — every existing caller is unchanged. */
+  async requestNewScene(): Promise<void> {
+    if (!(await this.confirmDiscardModuleEdits('Starting a new scene'))) return;
+    this.newScene();
+  }
+
+  /** A layer row's ✕, guarded: closing the carrier closes the module's layers with it. */
+  async requestCloseDataset(id: DatasetId): Promise<void> {
+    const owned = this.store
+      .getState()
+      .layers.some((l) => l.datasetId === id && moduleOfLayer(l) !== null);
+    if (owned && !(await this.confirmDiscardModuleEdits('Closing this dataset'))) return;
+    this.closeDataset(id);
+  }
+
+  /** ⌘S saved the scene; say plainly that a module's own files are not part of that. */
+  private warnModuleUnsaved(): void {
+    const ids = dirtyModuleIds(this.store.getState());
+    if (ids.length === 0) return;
+    const names = ids.map((id) => manifestFor(id)?.title ?? id).join(', ');
+    this.moduleToast(
+      'warn',
+      'Scene saved',
+      `${names} still has unsaved edits — save them from its own panel.`
+    );
+  }
+
+  /** Tear the slot down and forget every block: what `newScene` and `detach` both need. */
+  private clearModules(): void {
+    this.deactivateModule();
+    this.store.setState({ moduleBlocks: {}, moduleDirty: {}, moduleStatus: {} });
+    this.syncDocumentEdited();
+    this.emitSceneEvent({ kind: 'cleared' });
+  }
+
+  /**
+   * Adopt the blocks a scene file carried, and hand each one to its module (§13.2).
+   *
+   * Blocks for modules this build does not have are kept **verbatim** so `serialiseScene` writes
+   * them back out — opening and re-saving a colleague's scene must not delete their work.
+   */
+  private async restoreModuleBlocks(spec: ViewSpec): Promise<void> {
+    const blocks = sceneExtensions(spec);
+    if (Object.keys(blocks).length === 0) return;
+    this.store.setState({ moduleBlocks: blocks });
+    this.emitSceneEvent({ kind: 'loaded', blocks });
+    for (const registration of this.modules()) {
+      const block = blocks[registration.manifest.id];
+      if (block === undefined) continue;
+      if (!registration.manifest.activation.includes('onSceneBlock')) continue;
+      await this.activateModule(registration.manifest.id);
+    }
   }
 }
 

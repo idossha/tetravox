@@ -100,6 +100,16 @@ export interface ModuleEvents {
   sceneCleared: void;
 }
 
+/**
+ * The app-level scene edges, as one tagged union.
+ *
+ * `ModuleEvents` gives a module two separate subscriptions (`sceneLoaded`, `sceneCleared`); the
+ * controller emits one stream and `hostImpl` splits it, because "a scene happened" is one edge in
+ * the controller and two questions for a module.
+ */
+export type ModuleSceneEvent =
+  { kind: 'loaded'; blocks: Record<string, ExtensionBlock> } | { kind: 'cleared' };
+
 /** A bounded undo stack over whatever snapshot a module chooses to push. */
 export interface ModuleHistory<T> {
   push(state: T): void;
