@@ -154,6 +154,9 @@ export function derivedIsoLayers(layer: VolumeLayer, ds: VolumeDataset): Isosurf
   }
   return iso3dLabels(layer, ds).map((id) => ({
     ...common,
+    // The region panel's per-label slider (`labelOpacity`) dims this region's surface exactly as it
+    // dims its fill on the slices; without it the slider visibly did nothing in 3D (2026-08-30).
+    opacity: common.opacity * (layer.labelOpacity?.[id] ?? 1),
     id: iso3dLayerId(layer.id, id),
     name: `${ds.labelTable?.byId.get(id)?.name ?? `label ${id}`} · surface`,
     // `source.label` is what makes this the region's **own** boundary rather than a level set of the

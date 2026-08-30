@@ -168,6 +168,23 @@ describe('derivedIsoLayers — a label volume', () => {
     expect(iso3dLabels({ ...hidden, selectedLabels: [] }, LABELS)).toEqual([1, 530]);
   });
 
+  it('follows the per-region opacity slider, on top of the layer opacity', () => {
+    const layer: VolumeLayer = {
+      ...layerOn(LABELS),
+      visibleLabels: Uint32Array.from([1, 530]),
+      labelOpacity: { 530: 0.4 },
+    };
+    const byId = new Map(
+      derivedIsoLayers(layer, LABELS).map((l) => [l.source.label, l.opacity] as const)
+    );
+    expect(byId.get(1)).toBeCloseTo(1);
+    expect(byId.get(530)).toBeCloseTo(0.4);
+    const dimmed: VolumeLayer = { ...layer, opacity: 0.5 };
+    expect(
+      derivedIsoLayers(dimmed, LABELS).find((l) => l.source.label === 530)?.opacity
+    ).toBeCloseTo(0.2);
+  });
+
   it('follows a recolour, with the layer override beating the LUT', () => {
     const recoloured: VolumeLayer = {
       ...layerOn(LABELS),
