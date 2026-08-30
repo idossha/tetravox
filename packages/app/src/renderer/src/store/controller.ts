@@ -2239,7 +2239,12 @@ export class ShellController {
     if (registration === null) return false;
     this.deactivateModule();
     let instance: ModuleInstance;
-    let host: ModuleHost;
+    // Declared outside the `try` so the catch can tear it down (2026-08-30): `activate` may register
+    // store projections and a `pointTool` listener and *then* throw — seeg's `createModel`
+    // subscribes five before `adoptOrphanLayer`, which a hand-edited scene can make throw — and
+    // without this those listeners stayed attached for the life of the window, with no
+    // `moduleSession` for `deactivateModule` to reach them through. Every retry leaked another set.
+    let host: ModuleHost | null = null;
     try {
       const loaded = await registration.load();
       host = createModuleHost(
@@ -2257,6 +2262,8 @@ export class ShellController {
       );
       instance = await loaded.activate(host);
     } catch (error: unknown) {
+      // Same teardown order as `deactivateModule`, minus the instance there never was one of.
+      if (host !== null) disposeModuleHost(host);
       this.toast('io', registration.manifest.title, errorMessage(error));
       return false;
     }

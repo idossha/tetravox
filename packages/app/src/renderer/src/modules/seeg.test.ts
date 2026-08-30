@@ -227,6 +227,60 @@ describe('the manifest and the module agree about the BIDS layout', () => {
   });
 });
 
+/**
+ * An `activate` that throws must leave nothing behind (§13.1).
+ *
+ * The reachable throw is a hand-edited scene: `lib/scene.ts` checks only that `layers` is an array,
+ * so a points layer stamped with this module's id whose point has no `position` reaches
+ * `adoptOrphanLayer` → `contactSetFromLayer`, which spreads it. By then `createModel` has registered
+ * five subscriptions, and `activateModule`'s catch used to toast and return without disposing the
+ * host — leaving them attached for the life of the window, with no `moduleSession` for
+ * `deactivateModule` to reach them through, and another set leaked on every retry.
+ */
+describe('an activate that throws', () => {
+  it('disposes the half-built host rather than leaking its subscriptions', async () => {
+    fakeBridge({ [CT]: 'a volume' });
+    const engine = new NoGlEngine({ stepMs: 0 });
+    const store = createUiStore();
+    // `hostImpl.ts`'s `onProjection` is an ordinary `store.subscribe`, so counting live listeners
+    // is counting exactly what a leaked host holds open.
+    const listeners = new Set<unknown>();
+    const realSubscribe = store.subscribe.bind(store);
+    store.subscribe = ((listener: never) => {
+      listeners.add(listener);
+      const off = realSubscribe(listener);
+      return () => {
+        listeners.delete(listener);
+        off();
+      };
+    }) as typeof store.subscribe;
+
+    const controller = new ShellController(engine, store);
+    controller.attach();
+    open.push(controller);
+    controller.open([{ name: 'ct', path: CT, source: { kind: 'path', path: CT } }]);
+    await until(() => store.getState().datasets.length === 1, 'the CT');
+
+    engine.addLayer({
+      datasetId: store.getState().datasets[0]?.id as string,
+      kind: 'points',
+      module: SEEG,
+      // No `position`: the malformed point a hand-edited scene file can carry.
+      points: [{ id: 'c1', name: 'A01' }] as never,
+    });
+
+    const before = listeners.size;
+    await expect(controller.activateModule(SEEG)).resolves.toBe(false);
+    expect(store.getState().activeModule).toBeNull();
+    expect(store.getState().toasts.length).toBeGreaterThan(0);
+    expect(listeners.size).toBe(before);
+
+    // And a retry does not stack a second set on top of the first.
+    await expect(controller.activateModule(SEEG)).resolves.toBe(false);
+    expect(listeners.size).toBe(before);
+  });
+});
+
 describe('opening a subject', () => {
   it('builds one points layer with §4.4’s module fields and Slicer’s display preset', async () => {
     const h = await loadSubject();
