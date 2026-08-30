@@ -20,9 +20,10 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { expectPixel } from '../helpers/pixels';
+import { expectPixel, readCanvasRect } from '../helpers/pixels';
 import { readChromeText } from '../helpers/chrome';
 import { CELL_W } from '../../src/render/font';
+import { DEFAULT_OVERLAY_THEME } from '../../src/overlay/theme';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
@@ -276,5 +277,167 @@ test("labelSource absent still reads the labels array, not the points' names", a
     labels: [{ position: [-5, 2.5, 5], text: 'LBL' }],
   });
   expect(await readLabel(page, labelCorner(-5, 5, 3), 3)).toBe('LBL');
+  expect(errors).toEqual([]);
+});
+
+// -------------------------------------------------------------------------------------------
+// §13's selection ring — `DrawInput.pointSelection` / `pointHot`, in `OverlayTheme.select`
+// -------------------------------------------------------------------------------------------
+
+/** `OverlayTheme.select`'s violet, as the bytes `readPixel` returns (§4.1's exact-round-trip rule). */
+const SELECT_RGBA: Rgba = [
+  Math.round(DEFAULT_OVERLAY_THEME.select[0] * 255),
+  Math.round(DEFAULT_OVERLAY_THEME.select[1] * 255),
+  Math.round(DEFAULT_OVERLAY_THEME.select[2] * 255),
+  255,
+];
+
+/**
+ * Every distance from `(cx, cyTop)` at which the ring's own colour appears, over a box around it.
+ *
+ * §11's scale bar is asserted this way — "the drawn length is exactly `mm / mmPerPx`, read off the
+ * framebuffer" — and a ring makes the same kind of promise: it *is* a radius, so the test measures
+ * the radius rather than poking one pixel and trusting the rasteriser to have put it there. The box
+ * is wider than any ring under test, so "no ring" is an empty array rather than a near miss.
+ */
+async function ringRadii(page: Page, cx: number, cyTop: number, half = 70): Promise<number[]> {
+  const x0 = Math.round(cx - half);
+  const y0 = Math.round(cyTop - half);
+  const size = half * 2;
+  const px = await readCanvasRect(page, x0, y0, size, size);
+  const out: number[] = [];
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const o = (y * size + x) * 4;
+      const hit =
+        Math.abs((px[o] ?? 0) - SELECT_RGBA[0]) <= 1 &&
+        Math.abs((px[o + 1] ?? 0) - SELECT_RGBA[1]) <= 1 &&
+        Math.abs((px[o + 2] ?? 0) - SELECT_RGBA[2]) <= 1;
+      if (hit) out.push(Math.hypot(x0 + x - cx, y0 + y - cyTop));
+    }
+  }
+  return out;
+}
+
+/** A ring's measured radius must be `disc + gap` — 40 px of disc here, so 42, ± the ring's width. */
+function expectRingAt(radii: readonly number[], expected: number): void {
+  expect(radii.length, 'ring pixels found').toBeGreaterThan(80);
+  expect(Math.min(...radii)).toBeGreaterThanOrEqual(expected - 2);
+  expect(Math.max(...radii)).toBeLessThanOrEqual(expected + 2);
+}
+
+/** Arm the engine's §13 render seam. By array index — that is what the frame carries. */
+async function highlight(
+  page: Page,
+  h: {
+    selection?: { layerId: string; index: number } | null;
+    hot?: { layerId: string; index: number } | null;
+  } | null
+): Promise<void> {
+  await page.evaluate(async (spec) => {
+    const engine = window.__tvxEngine!;
+    engine.setPointHighlight(spec as never);
+    await engine.whenSettled();
+  }, h);
+}
+
+test('the selection ring is drawn at the disc radius plus the gap, in the theme colour', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const { layerId } = await ghostScene(page);
+  // `setPointHighlight` is the engine's render-side seam (§13). P2's facade `setPointSelection`
+  // resolves a `points[].id` to the index this takes; the ring is the same either way.
+  await highlight(page, { selection: { layerId, index: 0 } });
+
+  const [ox, oy] = at(-5, 5);
+  // The on-slice point is a 2 mm sphere on the plane at 0.05 mm/px — a 40 px disc — so §7.2's
+  // "r + 2 px" is a ring of radius 42, measured all the way round.
+  expectRingAt(await ringRadii(page, ox, oy), 42);
+  // Inside the ring is still the disc and outside is still the slice — a ring, not a filled halo.
+  await expectPixel(page, ox + 30, oy, [...RED, 255]);
+  await expectPixel(page, ox + 50, oy, [...TAG2, 255]);
+  expect(errors).toEqual([]);
+});
+
+test('the ring follows the ghost: a ghosted point rings at its FULL radius', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await ghostScene(page, { offPlaneOpacity: GHOST });
+  await highlight(page, { selection: { layerId, index: 1 } });
+
+  // Point 1 is 10 mm off a 2 mm sphere, so it has no cross-section at all: the only radius a ring
+  // can come from is the ghost's full 2 mm — 40 px of disc, 42 px of ring. A ring computed from
+  // `sqrt(r² − d²)` would be NaN here; one at a fixed size would have looked right on the other
+  // point and wrong on this one.
+  const [gx, gy] = at(5, 5);
+  expectRingAt(await ringRadii(page, gx, gy), 42);
+  // …and inside it, the ghost is still a ghost.
+  await expectPixel(page, gx + 30, gy, over(RED, TAG2, GHOST), 2);
+  expect(errors).toEqual([]);
+});
+
+test('a selection the pane does not draw draws no ring at all', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await ghostScene(page);
+  const [gx, gy] = at(5, 5);
+  const [ox, oy] = at(-5, 5);
+
+  // Point 1 is culled here — no `offPlaneOpacity` — so a ring around it would claim the tool had
+  // selected something the user cannot see.
+  await highlight(page, { selection: { layerId, index: 1 } });
+  expect(await ringRadii(page, gx, gy)).toEqual([]);
+  await expectPixel(page, gx, gy, [...TAG2, 255]);
+
+  // A stale index is a missing ring, never a ring around the wrong contact: after a delete the two
+  // are one array replacement apart.
+  await highlight(page, { selection: { layerId, index: 9 } });
+  expect(await ringRadii(page, ox, oy)).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('the hot ring is the thinner one, and never doubles the selection ring', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await ghostScene(page, { offPlaneOpacity: GHOST });
+  const [ox, oy] = at(-5, 5);
+  const [gx, gy] = at(5, 5);
+
+  await highlight(page, {
+    selection: { layerId, index: 0 },
+    hot: { layerId, index: 1 },
+  });
+  const selected = await ringRadii(page, ox, oy);
+  const hot = await ringRadii(page, gx, gy);
+  // Both rings are at the disc radius plus the gap; the hot one is the thinner, so it covers fewer
+  // pixels of the same circle — which is how a user tells "I am over this" from "this is selected".
+  expectRingAt(selected, 42);
+  expectRingAt(hot, 42);
+  expect(hot.length).toBeLessThan(selected.length);
+
+  // Both halves name the same point: one ring, and it is the selection's. "Draw both" gives two
+  // concentric rings a pixel apart, which reads as a rendering fault rather than as a selection.
+  await highlight(page, {
+    selection: { layerId, index: 0 },
+    hot: { layerId, index: 0 },
+  });
+  expect((await ringRadii(page, ox, oy)).length).toBe(selected.length);
+  expect(await ringRadii(page, gx, gy)).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('clearing the highlight removes every ring', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await ghostScene(page);
+  const [ox, oy] = at(-5, 5);
+  await highlight(page, { selection: { layerId, index: 0 } });
+  expectRingAt(await ringRadii(page, ox, oy), 42);
+
+  // `null` clears both halves: a frame that kept the hot ring after a clear would leave a ring on
+  // the pane the moment the tool was disarmed.
+  await highlight(page, null);
+  expect(await ringRadii(page, ox, oy)).toEqual([]);
+  expect(await page.evaluate(() => window.__tvxEngine!.pointHighlight())).toEqual({
+    selection: null,
+    hot: null,
+  });
   expect(errors).toEqual([]);
 });

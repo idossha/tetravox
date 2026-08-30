@@ -362,6 +362,18 @@ export class TetravoxEngine implements Engine, PointerHost {
   #measureDraft: { viewId: ViewId; points: vec3[]; id: MeasurementId | null } | null = null;
   #measureSeq = 0;
 
+  /**
+   * §13's point highlight: which point is selected, and which one the pointer is over.
+   *
+   * By **array index**, because that is what `DrawInput` needs and what the overlay pass walks. A
+   * tool selects by `points[].id` — an index does not survive an edit — and resolves it to an index
+   * on the way in, which is also where a selection that no longer exists becomes `null`.
+   *
+   * Frame state, never `Scene`: the same reason `#measureDraft` and the gizmo are here.
+   */
+  #pointSelection: { layerId: LayerId; index: number } | null = null;
+  #pointHot: { layerId: LayerId; index: number } | null = null;
+
   /** Read-only view of the scene the store owns. */
   get #scene(): Scene {
     return this.#store.scene;
@@ -1692,6 +1704,10 @@ export class TetravoxEngine implements Engine, PointerHost {
       // Directed task 11: the half-placed measurement, so the first click is visible before the
       // second one lands. Never in `Scene` — see `DrawInput.measureDraft`.
       measureDraft: this.#measureDraft?.points ?? null,
+      // §13's point editing (2026-08-30): the selection and hover rings §7.2 draws in the overlay
+      // pass. `null` until something sets them, which is every frame this engine drew before today.
+      pointSelection: this.#pointSelection,
+      pointHot: this.#pointHot,
     };
   }
 
@@ -2566,6 +2582,58 @@ export class TetravoxEngine implements Engine, PointerHost {
   #emitMeasurements(): void {
     this.#emit('measurements', [...this.#scene.measurements]);
     this.requestRender();
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // §13's point highlight (2026-08-30). The render half of point editing: which point wears the
+  // selection ring and which wears the hover one.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Set the rings §7.2 draws — the selected point, the hot one, or neither.
+   *
+   * **Not on the §4.7 facade**, deliberately, and in the same class of member as `showGizmo` and
+   * `gizmoAt`: the facade is what §8's "everything the UI can do must be reachable from the `Engine`
+   * API alone" is about, and a *ring* is not something the UI does. It is what the engine's own
+   * pointer layer shows while a tool is armed.
+   *
+   * By **array index**: this is the frame's key into the array the overlay pass walks, and the same
+   * shape `DrawInput` carries. `null` clears. Nothing is validated here — an index past the end or a
+   * layer that is not a points layer simply draws no ring, which is the behaviour the pass has to
+   * have anyway for a highlight that goes stale between the set and the frame.
+   *
+   * INTEGRATION(P2): `setPointSelection(layerId, pointId)` resolves `points[].id` to an index and
+   * calls this; the hit test sets the hot half per pointer move while the tool is armed. Selection
+   * is by id because an index does not survive an edit (§4.4) — this method is the last step, not
+   * the interface.
+   */
+  setPointHighlight(
+    highlight: {
+      selection?: { layerId: LayerId; index: number } | null;
+      hot?: { layerId: LayerId; index: number } | null;
+    } | null
+  ): void {
+    const selection = highlight === null ? null : (highlight.selection ?? this.#pointSelection);
+    const hot = highlight === null ? null : (highlight.hot ?? this.#pointHot);
+    // Nothing changed: no render request. A hover hit test runs per pointer move (P2), so this
+    // guard is what keeps a pointer crossing one contact from being 60 redundant frames a second.
+    const same = (
+      a: { layerId: LayerId; index: number } | null,
+      b: { layerId: LayerId; index: number } | null
+    ): boolean =>
+      a === null || b === null ? a === b : a.layerId === b.layerId && a.index === b.index;
+    if (same(this.#pointSelection, selection) && same(this.#pointHot, hot)) return;
+    this.#pointSelection = selection;
+    this.#pointHot = hot;
+    this.requestRender();
+  }
+
+  /** The selected point, as the frame carries it — by index (§13). */
+  pointHighlight(): {
+    selection: { layerId: LayerId; index: number } | null;
+    hot: { layerId: LayerId; index: number } | null;
+  } {
+    return { selection: this.#pointSelection, hot: this.#pointHot };
   }
 
   /**

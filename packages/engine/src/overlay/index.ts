@@ -97,3 +97,17 @@ export {
   snapScaleBar,
 } from './scale-bar';
 export type { ScaleBarChoice, ScaleBarLayout } from './scale-bar';
+// §13's point editing (2026-08-30): the selection / hover rings, and the shader's disc rule stated
+// once on the CPU so a hit test and a ring cannot drift away from the picture.
+export {
+  DOT_RADIUS_PX,
+  POINT_HOT_RING_WIDTH_PX,
+  POINT_RING_GAP_PX,
+  POINT_RING_MIN_RADIUS_PX,
+  POINT_RING_SEGMENTS,
+  POINT_RING_WIDTH_PX,
+  discRadiusPx,
+  drawPointRing,
+  ringRadiusPx,
+} from './point-ring';
+export type { DiscShape } from './point-ring';

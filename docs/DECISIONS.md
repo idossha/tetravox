@@ -3252,3 +3252,61 @@ module keeps the layer and every per-point field — they ride `serializableLaye
 now states it as a guarantee, so narrowing `SerializableLayer` to an explicit field list is recognisable as
 the breaking change it would be. `roundtrip.test.ts` pins it by deep-equality over every key of a fully
 populated layer of each kind.
+
+## 2026-08-30 — points ghost off-slice, label themselves, and wear a selection ring
+
+Phase 1 of the modules build, the rendering half. Three things reach §7.2, all default-off, and
+`docs/ARCHITECTURE.md` §7.2 changes in the same commits.
+
+**Ghosting is a uniform, not a program variant.** §7.2's 2D rule for a points layer — the sphere ∩
+plane disc, with `|d| ≥ r` dropped — is what makes a scalp net sweep with the cursor, and it is
+exactly wrong for a depth electrode: a shaft is twelve contacts along a line no single slice
+contains, so scrolling shows one contact at a time and the shaft is never visible as a shaft.
+`offPlaneOpacity > 0` draws the dropped points too, at the **full** radius, because there is no
+cross-section to size them by. It is a `uGhostAlpha` uniform on the existing `POINTS_2D` program:
+`derived.ts` already writes per-layer uniforms there, the branch is one comparison on a draw of a few
+hundred instances, and a variant would double the program cache for a layer flag. At 0 — what absent
+means, and what the 3D variant never sets it to at all — the shader takes the cull branch verbatim.
+The value is clamped to 0…1 in the pass, because a scene file is user-editable text and a 3.0 would
+make the ghosts brighter than the contacts on the slice.
+
+**The two 2D rules diverge under ghosting, and that is the decision.** The discs ghost; the labels
+stay slab-culled at `max(radiusMm, 1 mm)`. A disc at 0.6 alpha is a legible hint of where a shaft
+goes. A whole shaft's worth of names on one slice is the smear the slab rule was added to prevent —
+187 electrodes projected onto one axial plane, names belonging to slices 80 mm away. So `§7.2` states
+both rules next to each other rather than quietly applying one of them.
+
+**`labelSource` exists so a module never maintains a `labels` array.** The overlay read
+`layer.labels` and nothing else, which is right for a parsed Gmsh view (a `T3` is independent of the
+`SP`s and SimNIBS lifts it 5 mm clear of the sphere) and wrong for a layer whose text simply *is* its
+points' names — and §4.6 does not serialise `labels`, so an editor that used it would rebuild it on
+every edit and lose it on every open. One pure resolver, `pointLabelAnchors`, so the pass has no
+branch in its loop and §11 can assert which strings a layer emits with no GL context.
+
+**The selection ring is on the frame, by index, and only where the disc is.** `DrawInput` gains
+`pointSelection` and `pointHot`, beside `gizmo` and `measureDraft` and for the same reason: which
+contact is selected is pointer state, and a `*.tetravox.json` must never carry it — a scene mailed to
+a colleague would open with a stranger's cursor in it. They are addressed by **array index** because
+that is the frame's key into the array the pass walks; a tool selects by `points[].id`, which is what
+survives an edit, and resolves it on the way in. The radius comes from `discRadiusPx`, the shader's
+rule restated once on the CPU and shared with the hit test that P2 adds — `gizmoHandleAt` shares
+`handlePoints` with `drawGizmo` for the same reason, and a hit rule stated twice is a hit rule that
+drifts away from the picture. It returns `null` for a culled point, so a ring is never drawn around
+something the pane does not show, and a stale index draws nothing rather than ringing its neighbour.
+
+**`OverlayTheme` gains `select`, violet, engine default only.** `measure` is not in the app's
+`overlayPalette` either, so this is no app token work. Violet because a ring sits *on* a coloured
+disc in a pane that may also hold the amber crosshair, the cyan gizmo and the blue active border, and
+§11 has to be able to name it without a tolerance that also matches one of those. Notably not a
+green: `gizmoHot` is one.
+
+**`TetravoxEngine.setPointHighlight` is a class member, not a §4.7 facade one.** The facade is what
+§8's "everything the UI can do must be reachable from the `Engine` API alone" is about, and a *ring*
+is not something the UI does — it is what the engine's own pointer layer shows while a tool is armed.
+Same class as `showGizmo`, `gizmoAt` and `worldAtScreen`. So `MockEngine` and the app's `NoGlEngine`
+need nothing for this phase.
+
+**Nothing moves.** `DEFAULT_OVERLAY_THEME`'s existing eight fields are untouched, `pointSelection`
+and `pointHot` are absent on every frame nothing sets them on, and `offPlaneOpacity` / `labelSource`
+are absent on every layer. The full engine e2e suite, goldens included, is green unchanged; the one
+new picture is `derived-points-ghost`.

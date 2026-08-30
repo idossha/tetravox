@@ -1999,6 +1999,19 @@ Rules:
      than `max(radiusMm, 1 mm)` from the plane. The two 2D rules diverge deliberately — a disc at
      0.6 alpha is a legible hint of where the shaft goes, and a whole shaft's worth of names on one
      slice is the smear this bullet's slab exists to prevent.
+   * **Point selection and hover rings** (§13's point editing, 2026-08-30). `DrawInput.pointSelection`
+     and `pointHot` name a points layer and an **array index**; the pass draws a ring around that
+     point in `OverlayTheme.select` — a new theme field, engine default only, so no app token work
+     and no golden moves — at the **drawn disc's radius plus 2 px**, the selection's 2 px wide and
+     the hover's 1. The radius comes from `discRadiusPx`, which restates the vertex shader's rule on
+     the CPU (cross-section, `dot` pixels, ghost's full radius) and returns `null` for a point the
+     pane culls: **a ring is only ever drawn where the disc is**, because a ring around something
+     invisible claims the tool has selected something the user cannot see. A stale index or a hidden
+     layer draws nothing rather than being clamped — a ring around the *wrong* contact is worse than
+     no ring, and after a delete the two are one array replacement apart. A hover ring that names the
+     selected point is dropped, so the user never sees two concentric circles a pixel apart. In a 3D
+     pane the radius is measured the way the billboard is built: the projected distance from the
+     centre to a point `radiusMm` along the camera's right, off `viewProj`'s rows.
    * The **scale bar** (2D panes) and the **orientation cube** (3D panes) both take the pane's
      **bottom-right** corner, which they can never contend for. The bar's length is snapped to
      `1 / 2 / 5 / 10 / 20 / 50 / 100 mm` so it lands in 60…160 px, and the **drawn length is exactly

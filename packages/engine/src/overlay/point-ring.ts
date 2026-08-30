@@ -1,0 +1,144 @@
+/**
+ * The selection and hover rings of §7.2's pass 3 — §13's point editing (2026-08-30).
+ *
+ * A point-editing tool has to say *which* point it is about, and it has to say it on the picture:
+ * §8's panel row and §7.2.3's pick target are both somewhere else, and a user dragging a contact
+ * needs to see the one they grabbed before they move it. So the answer is a ring around the drawn
+ * disc, in {@link OverlayTheme.select}, at the disc's own radius plus a small gap.
+ *
+ * Two things here are load-bearing.
+ *
+ * **The ring's radius is derived from the shader's rule, not guessed.** {@link discRadiusPx}
+ * reproduces `shaders/points.ts` exactly — the sphere ∩ plane radius, the `dot` branch's constant
+ * pixel radius, and the ghost's full radius — and returns `null` for a point the shader culls. A
+ * ring at a radius the disc does not have is worse than no ring: it says the tool has selected
+ * something other than what the user sees. **The same function is the CPU hit test's** — an
+ * `INTEGRATION(P2)` note, because a hit rule restated in a second place is a hit rule that drifts
+ * away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with `drawGizmo`.
+ *
+ * **It is screen-space quad expansion**, like the gizmo's ring and the measurement's segment:
+ * `gl.lineWidth()` is a no-op (§7.0.6), so a "1 px" ring is a strip of quads and its width is in
+ * overlay pixels scaled by `OverlayMetrics.scale`, which keeps it the same thickness at every zoom.
+ *
+ * Pure: it takes an {@link OverlayBuilder} and returns nothing, so §11 asserts its geometry with no
+ * GL context at all.
+ */
+
+import type { OverlayBuilder, OverlayMetrics } from './builder';
+import type { vec4 } from '../scene/types';
+
+/** Segments in a ring. 32 keeps a 40 px circle visibly round inside the pass's one draw call. */
+export const POINT_RING_SEGMENTS = 32;
+/** How far outside the disc the ring sits, in unscaled overlay pixels — §7.2's "r + 2 px". */
+export const POINT_RING_GAP_PX = 2;
+/** Ring width, in unscaled overlay pixels: the selection's, then the hover's. */
+export const POINT_RING_WIDTH_PX = 2;
+export const POINT_HOT_RING_WIDTH_PX = 1;
+/** No ring smaller than this, in unscaled overlay pixels: a 1 px circle is a dot, not a ring. */
+export const POINT_RING_MIN_RADIUS_PX = 4;
+/**
+ * The `dot` branch's screen radius, in CSS pixels — `derived.ts`'s `uDotPx` before `uiScale`.
+ *
+ * Exported so the two are one number: a hit test or a ring that hard-coded 4 here would silently
+ * stop matching the picture the day the marker got bigger.
+ */
+export const DOT_RADIUS_PX = 4;
+
+/** What a points layer needs to say how big its discs are. A structural type: §11 builds one by hand. */
+export interface DiscShape {
+  shape: 'sphere' | 'dot';
+  radiusMm: number;
+  offPlaneOpacity?: number;
+}
+
+/**
+ * The radius, in **pane pixels**, at which a 2D pane draws one point of a points layer — or `null`
+ * when it draws nothing there.
+ *
+ * `shaders/points.ts`, restated on the CPU and nowhere else:
+ *
+ * * the disc is the sphere ∩ plane circle, `sqrt(r² − d²)` for the signed plane distance `d`;
+ * * `|d| ≥ r` is off this slice: `null`, unless {@link DiscShape.offPlaneOpacity} is above 0, in
+ *   which case the ghost is drawn at the **full** radius `r`;
+ * * `shape: 'dot'` replaces whichever of those radii applies with a constant `4 · uiScale` pixels,
+ *   after the same cull — a screen-space marker is culled by world distance and drawn by pixels.
+ *
+ * `mmPerPx` is the pane camera's, in CSS pixels; `uiScale` converts to the render target's, which is
+ * what the overlay and the framebuffer are both in.
+ */
+export function discRadiusPx(
+  layer: DiscShape,
+  pointRadiusMm: number,
+  signedDistanceMm: number,
+  mmPerPx: number,
+  uiScale: number
+): number | null {
+  const r = pointRadiusMm;
+  const rr = r * r - signedDistanceMm * signedDistanceMm;
+  let radiusMm: number;
+  if (rr > 0) {
+    radiusMm = Math.sqrt(rr);
+  } else if ((layer.offPlaneOpacity ?? 0) > 0) {
+    radiusMm = r;
+  } else {
+    return null;
+  }
+  if (layer.shape === 'dot') return DOT_RADIUS_PX * uiScale;
+  if (!(mmPerPx > 0)) return null;
+  return (radiusMm / mmPerPx) * uiScale;
+}
+
+/**
+ * The radius the ring is actually drawn at, given the disc's — the one place the gap and the floor
+ * are applied, exported because §11 reads a pixel *on* the ring and has to know where it is.
+ */
+export function ringRadiusPx(discPx: number, scale: number): number {
+  return Math.max(POINT_RING_MIN_RADIUS_PX * scale, discPx + POINT_RING_GAP_PX * scale);
+}
+
+/**
+ * Append a ring centred on `(x, y)` in pane pixels, origin **bottom-left** like every overlay item.
+ *
+ * `radiusPx` is the **disc's** radius; the gap is added here, once, so no caller has to remember it.
+ */
+export function drawPointRing(
+  b: OverlayBuilder,
+  m: OverlayMetrics,
+  center: readonly [number, number],
+  radiusPx: number,
+  widthPx: number,
+  color: vec4
+): void {
+  const r = ringRadiusPx(radiusPx, m.scale);
+  const half = Math.max(0.5, (widthPx * m.scale) / 2);
+  let prev: [number, number] = [center[0] + r, center[1]];
+  for (let i = 1; i <= POINT_RING_SEGMENTS; i += 1) {
+    const t = (i / POINT_RING_SEGMENTS) * Math.PI * 2;
+    const next: [number, number] = [center[0] + r * Math.cos(t), center[1] + r * Math.sin(t)];
+    segment(b, prev, next, half, color);
+    prev = next;
+  }
+}
+
+/** A thick screen-space segment, as one quad — §7.0.6's expansion, `overlay/measure.ts`'s primitive. */
+function segment(
+  b: OverlayBuilder,
+  a: readonly [number, number],
+  c: readonly [number, number],
+  halfWidth: number,
+  color: vec4
+): void {
+  const dx = c[0] - a[0];
+  const dy = c[1] - a[1];
+  const len = Math.hypot(dx, dy);
+  if (!(len > 1e-6)) return;
+  const nx = (-dy / len) * halfWidth;
+  const ny = (dx / len) * halfWidth;
+  b.quad(
+    [a[0] + nx, a[1] + ny],
+    [c[0] + nx, c[1] + ny],
+    [c[0] - nx, c[1] - ny],
+    [a[0] - nx, a[1] - ny],
+    color
+  );
+}
