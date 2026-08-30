@@ -438,6 +438,7 @@ Job(files=[...], preset="plain", window=(1400, 900))   # or Job.from_scene("stud
    .sweep(...)        # PNG frames + GIF (+ MP4)
    .orbit(...)        # PNG frames + GIF (+ MP4)
    .tween(...)        # N eased frames between two scene states
+   .module(...)       # one operation of a module (§13)
    .run(out_dir, app=None) -> JobResult
 ```
 
@@ -446,7 +447,44 @@ Each method returns `self`, so a script reads in the order the app executes it. 
 to submit to a cluster.
 
 `JobResult` carries `ok`, `files` (absolute, in order), `files_for(action_index)`, `timings`,
-`warnings`, `errors`, and `raise_for_status()`.
+`warnings`, `errors`, `modules`, `results()`, and `raise_for_status()`.
+
+### Modules
+
+`Job.module(module_id, op, **args)` runs any operation of any module, and the argument names are the
+module's **manifest's**, verbatim — `radiusMm`, not `radius_mm` — because the manifest is the schema
+the app validates against and a translation table in the client would be a second copy of every
+module's arguments, wrong the moment one is added:
+
+```python
+job.module("tetravox.seeg", "snap", scope="all", radiusMm=1.5)
+```
+
+`tetravox.modules` is where a module's vocabulary is written in Python's, per module: snake_case
+parameters, one real signature per operation, and `path` arguments made absolute the way
+`Job(files=...)` makes them absolute — which matters, because the job document is written *into the
+output directory* and the app resolves a relative path against the document.
+
+```python
+from tetravox import Job
+from tetravox.modules import seeg
+
+job = Job(files=[ct], preset="plain")
+seeg.load(job, ct=ct, tsv=tsv)        # open a CT and a BIDS electrodes table
+seeg.snap(job, scope="all", radius_mm=1.5)
+seeg.refit(job)                       # PCA line fit, even re-spacing, relabel
+seeg.stats(job)                       # per-electrode geometry, no files
+seeg.save(job, out="sub-01_space-T1w_electrodes.tsv")
+
+result = job.run("out/").raise_for_status()
+print(result.modules)     # [{'id': 'tetravox.seeg', 'version': '0.1.0'}]
+print(result.results())   # what each operation reported, in order
+```
+
+`results()` is the half a renderer does not have: `stats` writes nothing and answers with numbers, so
+a batch over twenty subjects can print a table and produce no files at all. The wrappers are **data**
+— they build a document and never import the module — so they install and run on a machine whose
+build does not carry it; the app is what refuses such a job, by name, before it opens a window.
 
 Python's parameter names differ from the JSON in exactly three places, all forced: `sweep(start=, stop=)`
 and `tween(start=)` for `from` (a keyword), `sweep(stop=)` for `to`, and `mm_per_px` for `mmPerPx`
@@ -531,3 +569,5 @@ path *is* the user naming it.
 | `packages/app/src/renderer/src/automation/presets.test.ts` | The presets, over datasets with known distributions. |
 | `packages/app/e2e/automation-realdata.spec.ts` | The whole thing, offscreen, on ernie: a screenshot job, a 10-frame sweep, a 12-frame orbit, the field-over-anatomy preset, and a `window.panels` + `view: "window"` capture asserted to differ from the same scene's `grid` — the images are the requested size, are not blank, and **differ frame to frame**. Skips when `TETRAVOX_TESTDATA` is unset. |
 | `python/tests/test_client.py` | The client's documents, and one example end to end against a dev build. Skips when either is missing. |
+| `python/tests/test_modules.py` | `Job.module`, the typed sEEG wrappers and `JobResult.results()` — documents only, so they run with no app and no module in the build. |
+| `packages/app/e2e/module-job.spec.ts` | A `--job` launch that activates a module and runs its operation, asserted through `job-result.json` and the scene it saved. Runs everywhere: the data is `testdata/`. |

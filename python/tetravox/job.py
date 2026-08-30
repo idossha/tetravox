@@ -448,6 +448,35 @@ class Job:
         )
         return self
 
+    def module(self, module_id: str, op: str, **args: Any) -> "Job":
+        """Run one operation of a **module** — a first-party tool with its own panel, keys and files
+        (ARCHITECTURE §13).
+
+        Every button in a module's panel is also an operation, and this is the one action type that
+        runs them, whichever module and whichever operation:
+
+            job.module("tetravox.seeg", "snap", scope="all", radiusMm=1.5)
+
+        **Argument names are the manifest's, verbatim** — `radiusMm`, not `radius_mm`. The manifest
+        is the schema the app validates against, and a translation table here would be a second copy
+        of every module's argument list, wrong the moment a module added one. Where snake_case
+        belongs is a typed wrapper that ships *with* the module's vocabulary: see
+        `tetravox.modules.seeg`, which is `seeg.snap(job, scope="all", radius_mm=1.5)`.
+
+        An argument passed as `None` is omitted rather than sent as `null`, so a wrapper can offer an
+        optional parameter without special-casing it — the same rule every other method here follows.
+        """
+        if not module_id or "." not in module_id:
+            raise JobError(f"a module id is <vendor>.<name>, not {module_id!r}")
+        if not op:
+            raise JobError(f"{module_id} needs the name of an operation to run")
+        action: Dict[str, Any] = {"type": "module", "module": module_id, "op": op}
+        cleaned = _drop_none(args)
+        if cleaned:
+            action["args"] = cleaned
+        self._actions.append(action)
+        return self
+
     # -- output ------------------------------------------------------------------------------
 
     def to_dict(self) -> Dict[str, Any]:

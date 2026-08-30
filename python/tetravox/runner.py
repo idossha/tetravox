@@ -45,6 +45,10 @@ class JobResult:
     #: Everything the app printed, for a failure that never reached ``job-result.json``.
     stdout: str = ""
     stderr: str = ""
+    #: The modules the run used and the version that ran them (ARCHITECTURE §13.6). Empty when it
+    #: used none — the key is absent from ``job-result.json`` in that case, which is what keeps a
+    #: job written before modules existed producing exactly the file it always produced.
+    modules: List[Dict[str, str]] = field(default_factory=list)
 
     @property
     def files(self) -> List[str]:
@@ -53,6 +57,19 @@ class JobResult:
             os.path.join(self.out_dir, name)
             for output in self.outputs
             for name in output.get("files", [])
+        ]
+
+    def results(self) -> List[Dict[str, Any]]:
+        """What each module operation returned, in the order they ran.
+
+        ``files`` answers "what did this run write"; this answers "what did it find" — a `stats`
+        operation reports per-electrode geometry and writes nothing at all, and a job that could only
+        produce files could not ask it.
+        """
+        return [
+            output["result"]
+            for output in self.outputs
+            if isinstance(output.get("result"), dict)
         ]
 
     def files_for(self, index: int) -> List[str]:
@@ -219,6 +236,7 @@ def run_job(
         returncode=completed.returncode,
         stdout=completed.stdout,
         stderr=completed.stderr,
+        modules=parsed.get("modules", []),
     )
 
 
