@@ -26,6 +26,16 @@ import { discoverSubjectSpaces } from './subject-spaces';
 import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
 import {
+  cancelSample,
+  catalogue,
+  removeSample,
+  revealSampleCache,
+  sampleById,
+  sampleCacheDir,
+  sampleStatuses,
+  startSample,
+} from './sample-data';
+import {
   armWatchdog,
   jobRequest,
   isJobRun,
@@ -437,6 +447,36 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   ipcMain.handle('tetravox:write-scene', (_event, path: unknown, text: unknown) =>
     writeSceneFile(path, text)
   );
+  // -- Sample Data (§8, `sample-data.ts`) ---------------------------------------------------------
+  // Main downloads, verifies and allow-lists; the renderer gets ids, progress and — through the same
+  // `tetravox:opened` push the Open dialog uses — paths. Never bytes.
+  ipcMain.handle('tetravox:sample-catalog', () => ({
+    samples: catalogue(),
+    cacheDir: sampleCacheDir(),
+  }));
+  ipcMain.handle('tetravox:sample-statuses', () => sampleStatuses());
+  ipcMain.handle('tetravox:sample-open', async (_event, id: unknown) => {
+    const sample = typeof id === 'string' ? sampleById(id) : undefined;
+    if (sample === undefined) return { ok: false, error: `unknown sample ${String(id)}` };
+    try {
+      const paths = await startSample(sample, (p) =>
+        getWindow()?.webContents.send('tetravox:sample-progress', p)
+      );
+      sendOpened(getWindow(), toOpened(paths));
+      return { ok: true, paths };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+  ipcMain.handle('tetravox:sample-cancel', (_event, id: unknown) =>
+    typeof id === 'string' ? cancelSample(id) : false
+  );
+  ipcMain.handle('tetravox:sample-remove', (_event, id: unknown) => {
+    const sample = typeof id === 'string' ? sampleById(id) : undefined;
+    if (sample !== undefined) removeSample(sample);
+    return sampleStatuses();
+  });
+  ipcMain.handle('tetravox:sample-reveal-cache', () => revealSampleCache());
 
   void app.whenReady().then(() => {
     // No dock icon for a run that has no window: the bounce and the icon are themselves a visible

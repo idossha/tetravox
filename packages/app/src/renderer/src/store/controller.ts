@@ -82,7 +82,7 @@ import {
   setClipFollowsCursor,
 } from '../panels/layers/mesh/state';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
-import type { SceneCommand } from '../bridge';
+import type { SampleProgress, SceneCommand } from '../bridge';
 import type { SubjectSpacesReply, SurfaceSpacesReply } from '../../../preload/index';
 import { applyTheme, enginePatch, isThemeChoice, resolveTheme } from '../theme/theme';
 import type { ThemeChoice } from '../theme/theme';
@@ -601,6 +601,70 @@ export class ShellController {
   /** Open the settings dialog on a given tab; also used by "Defaults…" inside the screenshot dialog. */
   openSettingsTab(tab: SettingsTab): void {
     this.store.setState({ settingsTab: tab, dialog: 'settings' });
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // File ▸ Sample Data… (`main/sample-data.ts`)
+  // ------------------------------------------------------------------------------------------
+
+  /** Open the dialog, refreshing the catalogue and cache state from main first. */
+  async openSampleData(): Promise<void> {
+    this.store.setState({ dialog: 'sampleData' });
+    const [{ samples, cacheDir }, statuses] = await Promise.all([
+      bridge().sampleCatalog(),
+      bridge().sampleStatuses(),
+    ]);
+    this.store.setState({ samples, sampleCacheDir: cacheDir, sampleStatuses: statuses });
+  }
+
+  /** Progress pushed from main. A finished download clears its entry and refreshes the statuses. */
+  onSampleProgress(p: SampleProgress): void {
+    if (p.state === 'done' || p.state === 'cancelled') {
+      this.store.setState((s) => {
+        const next = { ...s.sampleProgress };
+        delete next[p.id];
+        return { sampleProgress: next };
+      });
+      void bridge()
+        .sampleStatuses()
+        .then((statuses) => this.store.setState({ sampleStatuses: statuses }));
+      return;
+    }
+    this.store.setState((s) => ({ sampleProgress: { ...s.sampleProgress, [p.id]: p } }));
+  }
+
+  /**
+   * Download (what is missing) and open one sample. The files arrive through `onOpened`, the same
+   * push the Open dialog uses, so this only has to report a failure; the dialog closes on success
+   * so the user sees the data, not the catalogue.
+   */
+  async openSample(id: string): Promise<void> {
+    const res = await bridge().sampleOpen(id);
+    if (res.ok) {
+      this.store.setState((s) => (s.dialog === 'sampleData' ? { dialog: 'none' } : {}));
+      return;
+    }
+    const message = res.error ?? 'download failed';
+    this.store.setState((s) => ({
+      sampleProgress: {
+        ...s.sampleProgress,
+        [id]: { id, file: '', received: 0, total: 0, state: 'error', error: message },
+      },
+    }));
+    if (!/cancel|abort/i.test(message)) this.toast('download', 'Sample data', message);
+  }
+
+  cancelSample(id: string): void {
+    void bridge().sampleCancel(id);
+  }
+
+  async removeSample(id: string): Promise<void> {
+    const statuses = await bridge().sampleRemove(id);
+    this.store.setState({ sampleStatuses: statuses });
+  }
+
+  revealSampleCache(): void {
+    void bridge().sampleRevealCache();
   }
 
   /**

@@ -216,7 +216,8 @@ export function LayerPanel(): React.JSX.Element {
       <LoadCards />
       {shown.length === 0 ? (
         <p data-testid="layer-panel-empty" className="p-3 text-xs text-tvx-dim">
-          Nothing open. File ▸ Open…, drop a file on the window, or pass a path on the command line.
+          Nothing open. File ▸ Open…, drop a file on the window, pass a path on the command line —
+          or try File ▸ Sample Data… for a public dataset.
         </p>
       ) : (
         <ul data-testid="layer-list" className="flex flex-col gap-0.5 overflow-y-auto p-2">

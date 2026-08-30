@@ -35,6 +35,8 @@ website/src/
 website/public/shots/
 website/public/media/
 website/public/gallery/
+website/public/samples/
+website/sample-data.md
 website/.vitepress/cache/
 website/.vitepress/dist/
 
@@ -59,6 +61,8 @@ docs/benchmarks/
 
 # Public sample volumes fetched by scripts/fetch-public-samples.sh
 /data/public/
+# Content-addressed sample assets staged by scripts/sample-data/stage.py for publish.sh
+/data/sample-store/
 
 # Per-run job artefact, rewritten by every builder
 docs/screenshots/*/job-result.json

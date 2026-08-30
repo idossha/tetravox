@@ -18,6 +18,7 @@ import { RelocateDialog } from '../dialogs/RelocateDialog';
 import { ScreenshotDialog } from '../dialogs/ScreenshotDialog';
 import type { FigureOptions } from '../lib/figure';
 import { SettingsDialog } from '../dialogs/SettingsDialog';
+import { SampleDataDialog } from '../dialogs/SampleDataDialog';
 import { useController, useUi } from './context';
 
 export function ShellDialogs(): React.JSX.Element | null {
@@ -32,6 +33,10 @@ export function ShellDialogs(): React.JSX.Element | null {
   const theme = useUi((s) => s.theme);
   const screenshotDefaults = useUi((s) => s.screenshotDefaults);
   const configPath = useUi((s) => s.configPath);
+  const samples = useUi((s) => s.samples);
+  const sampleStatuses = useUi((s) => s.sampleStatuses);
+  const sampleProgress = useUi((s) => s.sampleProgress);
+  const sampleCacheDir = useUi((s) => s.sampleCacheDir);
 
   const capture = useCallback(
     (opts: ScreenshotOptions, figure: FigureOptions | null) =>
@@ -42,6 +47,22 @@ export function ShellDialogs(): React.JSX.Element | null {
   const close = useCallback(() => controller.closeDialog(), [controller]);
 
   if (dialog === 'keyboard') return <KeyboardHelp open onClose={close} />;
+
+  if (dialog === 'sampleData') {
+    return (
+      <SampleDataDialog
+        samples={samples}
+        statuses={sampleStatuses}
+        progress={sampleProgress}
+        cacheDir={sampleCacheDir}
+        onOpen={(id) => void controller.openSample(id)}
+        onCancel={(id) => controller.cancelSample(id)}
+        onRemove={(id) => void controller.removeSample(id)}
+        onRevealCache={() => controller.revealSampleCache()}
+        onClose={close}
+      />
+    );
+  }
 
   if (dialog === 'settings') {
     return (

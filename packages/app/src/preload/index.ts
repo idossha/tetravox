@@ -126,6 +126,27 @@ export interface TetravoxBridge {
   /** Menu Settings… (⌘,/Ctrl+,), pushed from main. */
   onOpenSettings(listener: () => void): () => void;
 
+  // -- Sample Data (`main/sample-data.ts`) ---------------------------------------------------------
+  // Main owns the network and the cache. The renderer sees the catalogue, per-sample status and
+  // progress; an opened sample arrives through `onOpened` like any other file.
+
+  /** The catalogue (`shared/sample-catalog.json`) and where downloads land. */
+  sampleCatalog(): Promise<{ samples: Sample[]; cacheDir: string }>;
+  /** Which samples are fully in the cache, and how big each is. */
+  sampleStatuses(): Promise<SampleStatus[]>;
+  /** Download what is missing, verify, and open. Resolves when the files have been pushed to `onOpened`. */
+  sampleOpen(id: string): Promise<SampleOpenResult>;
+  /** Abort an in-flight download; `false` when none was running. */
+  sampleCancel(id: string): Promise<boolean>;
+  /** Delete a sample's files from the cache; returns the refreshed statuses. */
+  sampleRemove(id: string): Promise<SampleStatus[]>;
+  /** Open the cache directory in the OS file manager. */
+  sampleRevealCache(): Promise<void>;
+  /** Download progress, pushed from main. */
+  onSampleProgress(listener: (p: SampleProgress) => void): () => void;
+  /** Menu File ▸ Sample Data…, pushed from main. */
+  onOpenSampleData(listener: () => void): () => void;
+
   // -- The automation surface (`--job`, `main/job-runner.ts`, `docs/AUTOMATION.md`) ---------------
   // The one place bytes cross this bridge, and they are **not** file bytes: a PNG the renderer just
   // rendered off its own canvas, bounded by the window size. §5 rule 3 keeps *dataset* bytes off the
@@ -219,6 +240,44 @@ export interface AppSettings {
 /** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
 export type SceneCommand = 'new' | 'open' | 'save' | 'saveAs';
 
+// Mirror `main/sample-data.ts`'s types; duplicated because preload must not import from main.
+export interface SampleFile {
+  name: string;
+  bytes: number;
+  sha256: string;
+  url: string;
+}
+export interface Sample {
+  id: string;
+  title: string;
+  group: string;
+  description: string;
+  thumbnail: string;
+  source: string;
+  sourceUrl: string;
+  licence: string;
+  files: SampleFile[];
+}
+export interface SampleStatus {
+  id: string;
+  cached: boolean;
+  bytes: number;
+}
+export type SampleProgressState = 'downloading' | 'verifying' | 'done' | 'error' | 'cancelled';
+export interface SampleProgress {
+  id: string;
+  file: string;
+  received: number;
+  total: number;
+  state: SampleProgressState;
+  error?: string;
+}
+export interface SampleOpenResult {
+  ok: boolean;
+  paths?: string[];
+  error?: string;
+}
+
 /** The result of the two scene-file calls; mirrors `main/scene-io.ts`'s own type. */
 export interface SceneIoResult {
   ok: boolean;
@@ -257,6 +316,22 @@ const bridge: TetravoxBridge = {
     const wrapped = (): void => listener();
     ipcRenderer.on('tetravox:open-settings', wrapped);
     return () => ipcRenderer.removeListener('tetravox:open-settings', wrapped);
+  },
+  sampleCatalog: () => ipcRenderer.invoke('tetravox:sample-catalog'),
+  sampleStatuses: () => ipcRenderer.invoke('tetravox:sample-statuses'),
+  sampleOpen: (id) => ipcRenderer.invoke('tetravox:sample-open', id),
+  sampleCancel: (id) => ipcRenderer.invoke('tetravox:sample-cancel', id),
+  sampleRemove: (id) => ipcRenderer.invoke('tetravox:sample-remove', id),
+  sampleRevealCache: () => ipcRenderer.invoke('tetravox:sample-reveal-cache'),
+  onSampleProgress: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, p: SampleProgress): void => listener(p);
+    ipcRenderer.on('tetravox:sample-progress', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:sample-progress', wrapped);
+  },
+  onOpenSampleData: (listener) => {
+    const wrapped = (): void => listener();
+    ipcRenderer.on('tetravox:open-sample-data', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:open-sample-data', wrapped);
   },
   jobSpec: () => ipcRenderer.invoke('tetravox:job-spec'),
   jobWrite: (name, bytes) => ipcRenderer.invoke('tetravox:job-write', { name, bytes }),
