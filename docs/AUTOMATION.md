@@ -24,10 +24,10 @@ Tetravox --job job.json --out figures/ [--quiet]
 Exit status is `0` when every action succeeded and `1` otherwise, and `figures/job-result.json` says
 what was written, how long it took, and what went wrong.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/hero/hero-field-on-mesh.png" width="480"
-       alt="A simulated field as a thresholded heat overlay on a T1 and on the grey-matter mesh, produced by a job">
-</p>
+<figure class="shot">
+  <img src="screenshots/2026-08-29/hero/hero-field-on-mesh.png" alt="A simulated field as a thresholded heat overlay on a T1 and on the grey-matter mesh, produced by a job" loading="lazy">
+  <figcaption>A simulated field as a thresholded heat overlay on a T1 and on the grey-matter mesh, produced by a job</figcaption>
+</figure>
 
 ---
 
@@ -183,10 +183,10 @@ A publication figure in one action — every pane at 85 mm (1004 px at 300 dpi) 
 
 #### `sweep` — step a 2D view through the volume
 
-<p align="center">
-  <img src="screenshots/2026-08-29/motion/sweep-axial-t1-atlas.gif" width="360"
-       alt="An axial sweep through a T1 with the atlas outlined">
-</p>
+<figure class="shot">
+  <img src="screenshots/2026-08-29/motion/sweep-axial-t1-atlas.gif" alt="An axial sweep through a T1 with the atlas outlined" loading="lazy">
+  <figcaption>An axial sweep through a T1 with the atlas outlined</figcaption>
+</figure>
 
 | Key | Meaning |
 |---|---|
@@ -201,10 +201,10 @@ A publication figure in one action — every pane at 85 mm (1004 px at 300 dpi) 
 
 #### `orbit` — turntable the 3D view
 
-<p align="center">
-  <img src="screenshots/2026-08-29/motion/orbit-spine-vertebrae.gif" width="320"
-       alt="A turntable of per-vertebra isosurfaces from a labelled spine CT">
-</p>
+<figure class="shot">
+  <img src="screenshots/2026-08-29/motion/orbit-spine-vertebrae.gif" alt="A turntable of per-vertebra isosurfaces from a labelled spine CT" loading="lazy">
+  <figcaption>A turntable of per-vertebra isosurfaces from a labelled spine CT</figcaption>
+</figure>
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -417,12 +417,16 @@ SimNIBS subject directory; each stops with the list of files it could not find. 
 | [`orbit.py`](../examples/capture/orbit.py) | A 36-frame turntable, with the palette and size knobs that keep a GIF shareable. |
 | [`showcase.py`](../examples/capture/showcase.py) | The whole showcase film: six jobs, ~2,900 frames, captions burned on with ffmpeg. |
 
-<p align="center">
-  <img src="screenshots/2026-08-29/brain/brain-t1-2x2.png" width="360"
-       alt="A T1 in the 2x2 layout, captured by screenshot.py">
-  <img src="screenshots/2026-08-29/features/feat-mesh-translucent.png" width="360"
-       alt="The head mesh with translucent scalp and skull, captured by screenshot.py">
-</p>
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/brain/brain-t1-2x2.png" alt="A T1 in the 2x2 layout, captured by screenshot.py" loading="lazy">
+    <figcaption>A T1 in the 2x2 layout, captured by screenshot.py</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/features/feat-mesh-translucent.png" alt="The head mesh with translucent scalp and skull, captured by screenshot.py" loading="lazy">
+    <figcaption>The head mesh with translucent scalp and skull, captured by screenshot.py</figcaption>
+  </figure>
+</div>
 
 ---
 

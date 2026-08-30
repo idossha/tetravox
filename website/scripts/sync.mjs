@@ -49,7 +49,7 @@ const REPO_LINKS = {
 // Rust/TS generics (`<T>`, `<u8>`), placeholders (`<out>-0000.png`) - never
 // meant as a tag, and left alone it makes Vue's SFC compiler choke trying to
 // parse it as one (duplicate/invalid attributes, unclosed elements).
-const ALLOWED_TAGS = /^\/?(p|img|figure|figcaption|kbd|br|video|source)(\s|\/|$)/i;
+const ALLOWED_TAGS = /^\/?(p|div|img|figure|figcaption|kbd|br|video|source)(\s|\/|$)/i;
 
 /**
  * Escape a bare `<...>` span. When `allowRealTags` is true, the handful of

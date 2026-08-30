@@ -61,6 +61,17 @@ export default defineConfig({
   markdown: {
     theme: { light: 'github-light', dark: 'github-dark' },
     lineNumbers: false,
+    // Every `![alt](src)` becomes a captioned figure: the alt text is the caption, so a page never
+    // shows a bare screenshot, and the docs (which GitHub renders as plain images) stay untouched.
+    config(md) {
+      md.renderer.rules.image = (tokens, idx, _options, _env, self) => {
+        const token = tokens[idx];
+        const src = token.attrGet('src') ?? '';
+        const alt = self.renderInlineAsText(token.children ?? [], _options, _env);
+        const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        return `<figure class="shot"><img src="${esc(src)}" alt="${esc(alt)}" loading="lazy"><figcaption>${esc(alt)}</figcaption></figure>`;
+      };
+    },
   },
 
   themeConfig: {

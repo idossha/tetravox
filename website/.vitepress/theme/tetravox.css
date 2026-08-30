@@ -431,6 +431,39 @@ body:has(.VPSidebarItem.is-active a[href*='/developers/']) .VPSidebar::before {
   color: var(--t-text-faint);
 }
 
+/* A single captioned screenshot (`figure.shot`, which every markdown image becomes): the same
+   card and caption as the grids, at the prose width. */
+figure.shot {
+  margin: 1.75rem 0;
+}
+
+/* markdown-it wraps an image in a paragraph; the browser closes that `<p>` at the `<figure>` and
+   leaves an empty one behind it, which would otherwise add a blank line's margin. */
+.vp-doc p:empty {
+  display: none;
+}
+
+figure.shot img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--t-border);
+  border-radius: 6px;
+  background: #000;
+  box-shadow: var(--vp-shadow-1);
+}
+
+figure.shot figcaption {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--t-text-faint);
+  text-align: center;
+}
+
+.shot-pair figcaption {
+  text-align: center;
+}
+
 /* --------------------------------------------------------------- home hero */
 .VPHero .name {
   color: var(--t-text) !important;

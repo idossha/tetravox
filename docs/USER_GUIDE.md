@@ -107,10 +107,16 @@ editor it can be drawn as **fill**, **outline**, or both instead of the usual wi
 anatomical atlas, a SimNIBS tissue segmentation and an organ or per-vertebra segmentation of a CT are all
 the same kind of layer here.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/modalities/mod-abdomen-ct-labels-axial.png" width="45%" alt="Organ labels drawn as outlines over a CT">
-  <img src="screenshots/2026-08-29/modalities/mod-spine-ct-labels-sagittal.png" width="45%" alt="Vertebra labels drawn as fill plus outline">
-</p>
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/modalities/mod-abdomen-ct-labels-axial.png" alt="Organ labels drawn as outlines over a CT" loading="lazy">
+    <figcaption>Organ labels drawn as outlines over a CT</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/modalities/mod-spine-ct-labels-sagittal.png" alt="Vertebra labels drawn as fill plus outline" loading="lazy">
+    <figcaption>Vertebra labels drawn as fill plus outline</figcaption>
+  </figure>
+</div>
 
 The **region panel** lists everything labelled — atlas and tissue-map regions, mesh tissue tags, and surface
 annotations — with the same rows: eye, colour swatch, name, id, count. Search as you type. Click to select
@@ -134,10 +140,16 @@ Per-tissue opacity is a real paint, not a global fade: one tissue can carry a fi
 others stay in their own fixed colours, so an outer surface can be made translucent without washing out what
 it is covering.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-mesh-translucent.png" width="45%" alt="Scalp and skull translucent over the brain">
-  <img src="screenshots/2026-08-29/features/feat-mesh-per-tissue-paint.png" width="45%" alt="One tissue coloured by a field, the rest fixed">
-</p>
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/features/feat-mesh-translucent.png" alt="Scalp and skull translucent over the brain" loading="lazy">
+    <figcaption>Scalp and skull translucent over the brain</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/features/feat-mesh-per-tissue-paint.png" alt="One tissue coloured by a field, the rest fixed" loading="lazy">
+    <figcaption>One tissue coloured by a field, the rest fixed</figcaption>
+  </figure>
+</div>
 
 **Element edges** draw the real element boundaries — including on cut caps — and stay visible while you
 orbit. **Clip planes** — up to six, with a drag gizmo and a "follow cursor" option — cut the mesh and cap it
@@ -167,10 +179,16 @@ A FreeSurfer `.annot` file colours a surface by its own region labels rather tha
 — pick it from the same "colour by" control the tissue table uses for mesh layers, and its regions appear in
 the [region panel]({{ site.baseurl }}/guide/atlases-regions.html) alongside atlases and tissue tags.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/brain/brain-t1-pial-left.png" width="45%" alt="The left pial surface as contours in the slices and shaded in 3D">
-  <img src="screenshots/2026-08-29/brain/brain-t1-pial-both.png" width="45%" alt="Both pial surfaces, each contour in its own colour">
-</p>
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/brain/brain-t1-pial-left.png" alt="The left pial surface as contours in the slices and shaded in 3D" loading="lazy">
+    <figcaption>The left pial surface as contours in the slices and shaded in 3D</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/brain/brain-t1-pial-both.png" alt="Both pial surfaces, each contour in its own colour" loading="lazy">
+    <figcaption>Both pial surfaces, each contour in its own colour</figcaption>
+  </figure>
+</div>
 
 ## Isosurfaces
 
@@ -181,10 +199,16 @@ Controls: source, iso level, colour, opacity, smoothing, and flat vs. smooth fac
 gives one isosurface per visible region, in that region's own colour — brain structures, or the organs of an
 abdominal CT.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-labels-iso-brainstem.png" width="45%" alt="A brainstem label as an isosurface">
-  <img src="screenshots/2026-08-29/features/feat-isosurface-organs-abdomen.png" width="45%" alt="Abdominal organ labels as isosurfaces">
-</p>
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/features/feat-labels-iso-brainstem.png" alt="A brainstem label as an isosurface" loading="lazy">
+    <figcaption>A brainstem label as an isosurface</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/features/feat-isosurface-organs-abdomen.png" alt="Abdominal organ labels as isosurfaces" loading="lazy">
+    <figcaption>Abdominal organ labels as isosurfaces</figcaption>
+  </figure>
+</div>
 
 ## Vector fields
 
@@ -195,10 +219,16 @@ scaling as a full sentence, so the arrows' lengths mean something specific rathe
 scalar field (no direction) never appears in the glyph selector — only fields with more than one component
 can drive an arrow.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/brain/brain-mesh-e-glyphs-2x2.png" width="45%" alt="Vector-field glyphs drawn as arrows in the 3D pane of a 2x2">
-  <img src="screenshots/2026-08-29/brain/brain-mesh-e-glyphs-3d.png" width="45%" alt="The same glyphs filling a single 3D pane">
-</p>
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/brain/brain-mesh-e-glyphs-2x2.png" alt="Vector-field glyphs drawn as arrows in the 3D pane of a 2x2" loading="lazy">
+    <figcaption>Vector-field glyphs drawn as arrows in the 3D pane of a 2x2</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/brain/brain-mesh-e-glyphs-3d.png" alt="The same glyphs filling a single 3D pane" loading="lazy">
+    <figcaption>The same glyphs filling a single 3D pane</figcaption>
+  </figure>
+</div>
 
 ## Points & electrodes
 
@@ -211,10 +241,16 @@ carries per-point values (a parsed Gmsh view with data attached), the layer can 
 solid colour, with the same colormap choices as mesh field colouring, and a label-size control appears for
 sources that actually have labels to size.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-points-eeg-3d.png" width="45%" alt="An EEG net as labelled points in 3D">
-  <img src="screenshots/2026-08-29/brain/brain-t1-eeg.png" width="45%" alt="The same net on the slices it touches, and over the head in 3D">
-</p>
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/features/feat-points-eeg-3d.png" alt="An EEG net as labelled points in 3D" loading="lazy">
+    <figcaption>An EEG net as labelled points in 3D</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/brain/brain-t1-eeg.png" alt="The same net on the slices it touches, and over the head in 3D" loading="lazy">
+    <figcaption>The same net on the slices it touches, and over the head in 3D</figcaption>
+  </figure>
+</div>
 
 
 ## Measurements
@@ -250,9 +286,16 @@ oversight: a light viewport changes what a greyscale T1 and a heat overlay look 
 over the image (letters, crosshair, colour-bar text) takes its palette from the pane rather than from the
 theme name, so its halo inverts to stay legible.
 
-![The window in the dark theme](screenshots/2026-08-29/ui/ui-window-dark.png)
-
-![The Settings dialog](screenshots/2026-08-29/ui/ui-settings.png)
+<div class="shot-pair">
+  <figure>
+    <img src="screenshots/2026-08-29/ui/ui-window-dark.png" alt="The window in the dark theme" loading="lazy">
+    <figcaption>The window in the dark theme</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/2026-08-29/ui/ui-settings.png" alt="The Settings dialog" loading="lazy">
+    <figcaption>The Settings dialog</figcaption>
+  </figure>
+</div>
 
 `⚙` in the toolbar opens Settings. These are preferences for the *machine*, not for the scene: the
 **FreeSurfer subjects directory** (which is what turns on the fsaverage vertex read-out for surfaces) and
