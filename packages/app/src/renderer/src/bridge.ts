@@ -11,6 +11,9 @@ import type {
   JobSpec,
   JobWriteResult,
   OpenedPath,
+  Sample,
+  SampleProgress,
+  SampleStatus,
   ScreenshotDefaults,
   SceneCommand,
   SceneIoResult,
@@ -73,6 +76,16 @@ const ABSENT: TetravoxBridge = {
   configPath: async () => '',
   revealConfigFile: async () => {},
   onOpenSettings: () => () => {},
+  // No bridge means no network and no cache: the dialog shows an empty catalogue and every action
+  // says so, rather than a browser tab pretending it could download 60 MB somewhere.
+  sampleCatalog: async () => ({ samples: [], cacheDir: '' }),
+  sampleStatuses: async () => [],
+  sampleOpen: async () => ({ ok: false, error: 'no preload bridge' }),
+  sampleCancel: async () => false,
+  sampleRemove: async () => [],
+  sampleRevealCache: async () => {},
+  onSampleProgress: () => () => {},
+  onOpenSampleData: () => () => {},
   // No bridge means no filesystem and no launch argv, so there is no job to run — which is exactly
   // what a vitest run and a plain browser tab should see.
   jobSpec: async () => null,
@@ -99,6 +112,9 @@ export type {
   JobSpec,
   JobWriteResult,
   OpenedPath,
+  Sample,
+  SampleProgress,
+  SampleStatus,
   ScreenshotDefaults,
   SceneCommand,
   SceneIoResult,

@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export interface AppMenuAction {
-  id: 'open' | 'new' | 'open-scene' | 'save' | 'save-as';
+  id: 'open' | 'sample-data' | 'new' | 'open-scene' | 'save' | 'save-as';
   label: string;
   title?: string;
   disabled?: boolean;

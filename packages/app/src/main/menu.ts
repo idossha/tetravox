@@ -108,6 +108,11 @@ export function sendOpenSettings(win: BrowserWindow | null): void {
   win?.webContents.send('tetravox:open-settings');
 }
 
+/** Ask the renderer to open the Sample Data dialog (File ▸ Sample Data…). */
+export function sendOpenSampleData(win: BrowserWindow | null): void {
+  win?.webContents.send('tetravox:open-sample-data');
+}
+
 /**
  * The File ▸ Open Recent submenu (directed task 13).
  *
@@ -168,6 +173,10 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
             const win = getWindow();
             sendOpened(win, await showOpenDialog(win));
           },
+        },
+        {
+          label: 'Sample Data…',
+          click: () => sendOpenSampleData(getWindow()),
         },
         { type: 'separator' },
         // Scene save/load is *asked for* here and *done* in the renderer: only the renderer holds

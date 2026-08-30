@@ -248,10 +248,19 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     const offScene = bridge().onOpenScene((path) => {
       if (!cancelled) void controller.openScenePath(path);
     });
+    // File ▸ Sample Data…: the dialog, and the download progress main pushes while it is up.
+    const offSample = bridge().onOpenSampleData(() => {
+      if (!cancelled) void controller.openSampleData();
+    });
+    const offProgress = bridge().onSampleProgress((p) => {
+      if (!cancelled) controller.onSampleProgress(p);
+    });
     return () => {
       cancelled = true;
       off();
       offScene();
+      offSample();
+      offProgress();
     };
   }, [controller]);
 

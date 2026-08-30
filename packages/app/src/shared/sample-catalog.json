@@ -1,0 +1,270 @@
+{
+  "$comment": "The Sample Data catalogue: what File ▸ Sample Data… offers and what the website's Sample data page lists. Files are content-addressed — `url` is the file's own sha256 on the tetravox-sample-data `SHA256` release (3D Slicer's SlicerDataStore layout) — or an upstream URL for data whose licence is not re-hosted. `packages/app/src/main/sample-data.ts` downloads, verifies and opens; `scripts/sample-data/` stages and publishes. Keep `bytes` and `sha256` exact: the app refuses a mismatch.",
+  "store": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/",
+  "samples": [
+    {
+      "id": "ernie-t1",
+      "title": "Head MRI — T1",
+      "group": "Head (SimNIBS ernie)",
+      "description": "A 1 mm T1-weighted MRI of the SimNIBS example subject. The plain starting point: window/level, the four panes, the crosshair.",
+      "thumbnail": "ernie-t1",
+      "source": "SimNIBS example dataset (subject ernie)",
+      "sourceUrl": "https://github.com/simnibs/example-dataset",
+      "licence": "GPL-3.0",
+      "files": [
+        {
+          "name": "T1.nii.gz",
+          "bytes": 13109495,
+          "sha256": "003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a"
+        }
+      ]
+    },
+    {
+      "id": "ernie-tissues",
+      "title": "Head MRI + tissue segmentation",
+      "group": "Head (SimNIBS ernie)",
+      "description": "The same T1 with SimNIBS's tissue label map and its LUT: skin, bone, CSF, grey and white matter as fill or outline, with the region panel.",
+      "thumbnail": "ernie-tissues",
+      "source": "SimNIBS example dataset (subject ernie)",
+      "sourceUrl": "https://github.com/simnibs/example-dataset",
+      "licence": "GPL-3.0",
+      "files": [
+        {
+          "name": "T1.nii.gz",
+          "bytes": 13109495,
+          "sha256": "003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a"
+        },
+        {
+          "name": "labeling.nii.gz",
+          "bytes": 940059,
+          "sha256": "6307e3aac007f779bda48d2a821782f63a9f35bb7310fb5837c791bfc3445157",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/6307e3aac007f779bda48d2a821782f63a9f35bb7310fb5837c791bfc3445157"
+        },
+        {
+          "name": "labeling_LUT.txt",
+          "bytes": 2548,
+          "sha256": "3a2de1f456663ae0240a4ddce3a01f4be4ca8f624a98501b883fe2e84c8e8d9b",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/3a2de1f456663ae0240a4ddce3a01f4be4ca8f624a98501b883fe2e84c8e8d9b"
+        }
+      ]
+    },
+    {
+      "id": "ernie-pial",
+      "title": "Head MRI + pial surfaces",
+      "group": "Head (SimNIBS ernie)",
+      "description": "Both pial surfaces as GIfTI over the T1: contours on the slices, shaded hemispheres in 3D.",
+      "thumbnail": "ernie-pial",
+      "source": "SimNIBS example dataset (subject ernie)",
+      "sourceUrl": "https://github.com/simnibs/example-dataset",
+      "licence": "GPL-3.0",
+      "files": [
+        {
+          "name": "T1.nii.gz",
+          "bytes": 13109495,
+          "sha256": "003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a"
+        },
+        {
+          "name": "lh.pial.gii",
+          "bytes": 7997897,
+          "sha256": "1db81af09e0ed1b4c736bad7d50bc49ca47b5994a0dfe7ee34a03d48a881217d",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/1db81af09e0ed1b4c736bad7d50bc49ca47b5994a0dfe7ee34a03d48a881217d"
+        },
+        {
+          "name": "rh.pial.gii",
+          "bytes": 7971005,
+          "sha256": "d2be014b8ab23194b4a5e8201e421f1743367e4e2112e3c73eae5a07728138cc",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/d2be014b8ab23194b4a5e8201e421f1743367e4e2112e3c73eae5a07728138cc"
+        }
+      ]
+    },
+    {
+      "id": "ernie-eeg",
+      "title": "Head MRI + EEG 10-10 electrodes",
+      "group": "Head (SimNIBS ernie)",
+      "description": "A 10-10 electrode net as a Gmsh view over the T1 — labelled points on the scalp.",
+      "thumbnail": "ernie-eeg",
+      "source": "SimNIBS example dataset (subject ernie)",
+      "sourceUrl": "https://github.com/simnibs/example-dataset",
+      "licence": "GPL-3.0",
+      "files": [
+        {
+          "name": "T1.nii.gz",
+          "bytes": 13109495,
+          "sha256": "003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a"
+        },
+        {
+          "name": "EEG10-10_UI_Jurak_2007.geo",
+          "bytes": 11228,
+          "sha256": "9f2a06778d0cb4462933d734f4a2d1853e549f8334b34f30472e8a865daa1b0c",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/9f2a06778d0cb4462933d734f4a2d1853e549f8334b34f30472e8a865daa1b0c"
+        }
+      ]
+    },
+    {
+      "id": "ernie-ti",
+      "title": "TI field on the grey-matter mesh",
+      "group": "Head (SimNIBS ernie)",
+      "description": "A temporal-interference simulation on ernie: the grey-matter tetrahedral mesh carrying TI_max, and the same field resampled to a NIfTI over the T1. Field colouring, thresholds, clip planes.",
+      "thumbnail": "ernie-ti",
+      "source": "SimNIBS example subject, simulated with TI-Toolbox",
+      "sourceUrl": "https://github.com/idossha/ti-toolbox",
+      "licence": "GPL-3.0 (derived from the SimNIBS example dataset)",
+      "files": [
+        {
+          "name": "T1.nii.gz",
+          "bytes": 13109495,
+          "sha256": "003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/003fd89606002aede4d8eccfbd4be9fb5b6d4dc7c1b7b22b2613c06422150d2a"
+        },
+        {
+          "name": "grey_TI.msh",
+          "bytes": 63926663,
+          "sha256": "439616d847934c80b425f6aaaaa48fcdf5bc42c764dd332b46a9106b773296fc",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/439616d847934c80b425f6aaaaa48fcdf5bc42c764dd332b46a9106b773296fc"
+        },
+        {
+          "name": "TI_max.nii.gz",
+          "bytes": 17450987,
+          "sha256": "92c4182f5e0bec75e8315ded7446c7cfc0272bf9213c849fc17a7bd378e92fd8",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/92c4182f5e0bec75e8315ded7446c7cfc0272bf9213c849fc17a7bd378e92fd8"
+        }
+      ]
+    },
+    {
+      "id": "totalseg-ct",
+      "title": "Thorax/abdomen CT + organ labels (small)",
+      "group": "Body",
+      "description": "TotalSegmentator's 3 mm test CT with its multi-organ segmentation. Half a megabyte — the quickest sample to try.",
+      "thumbnail": "totalseg-ct",
+      "source": "TotalSegmentator test files",
+      "sourceUrl": "https://github.com/wasserth/TotalSegmentator",
+      "licence": "Apache-2.0",
+      "files": [
+        {
+          "name": "example_ct_sm.nii.gz",
+          "bytes": 483312,
+          "sha256": "e50c00b2914e2cac0aaee8e7f3b5f57d44d9f21bfd5c0577271c54c0cb49e9fb",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/e50c00b2914e2cac0aaee8e7f3b5f57d44d9f21bfd5c0577271c54c0cb49e9fb"
+        },
+        {
+          "name": "example_seg_fast.nii.gz",
+          "bytes": 35526,
+          "sha256": "353a7c65c9ff5d5b9b331f811130f0ebbaedb509df74587d3bd0d1ad5ebc3910",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/353a7c65c9ff5d5b9b331f811130f0ebbaedb509df74587d3bd0d1ad5ebc3910"
+        }
+      ]
+    },
+    {
+      "id": "amos-ct",
+      "title": "Abdominal CT + 15-organ labels",
+      "group": "Body",
+      "description": "An AMOS22 abdominal CT with spleen, kidneys, liver, stomach, pancreas, aorta, bladder and more labelled; a LUT with the official names.",
+      "thumbnail": "amos-ct",
+      "source": "AMOS22 (case 0004)",
+      "sourceUrl": "https://huggingface.co/datasets/MedOtter/amos22-ct-dataset",
+      "licence": "CC-BY-4.0",
+      "files": [
+        {
+          "name": "amos_0004_ct.nii.gz",
+          "bytes": 16974388,
+          "sha256": "0c65994c6c53182ef0fe8e1d86e597b843cb99db2dc1ac8f27876e34319ca9d9",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/0c65994c6c53182ef0fe8e1d86e597b843cb99db2dc1ac8f27876e34319ca9d9"
+        },
+        {
+          "name": "amos_0004_seg.nii.gz",
+          "bytes": 72645,
+          "sha256": "cb8bac8e724ccff8842285f460c0d5ab361aa15c4bab25bd371a25fef9cf79b3",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/cb8bac8e724ccff8842285f460c0d5ab361aa15c4bab25bd371a25fef9cf79b3"
+        },
+        {
+          "name": "amos_0004_seg_LUT.txt",
+          "bytes": 473,
+          "sha256": "397660c92fae07e0c99d3071042309a9546da9efb7bf2e2049b19b6148ded499",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/397660c92fae07e0c99d3071042309a9546da9efb7bf2e2049b19b6148ded499"
+        }
+      ]
+    },
+    {
+      "id": "amos-mri",
+      "title": "Abdominal T1 MRI + organ labels",
+      "group": "Body",
+      "description": "An AMOS22 abdominal T1-weighted MRI with the same organ labels — the soft-tissue counterpart of the CT sample.",
+      "thumbnail": "amos-mri",
+      "source": "AMOS22 (case 0555)",
+      "sourceUrl": "https://huggingface.co/datasets/MedOtter/amos22-mri-dataset",
+      "licence": "CC-BY-4.0",
+      "files": [
+        {
+          "name": "amos_0555_mri.nii.gz",
+          "bytes": 3890661,
+          "sha256": "b16fae6f7d84118f5212a0fab1664c10370fc15aafe706dfd2386fb7015b3a5a",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/b16fae6f7d84118f5212a0fab1664c10370fc15aafe706dfd2386fb7015b3a5a"
+        },
+        {
+          "name": "amos_0555_seg.nii.gz",
+          "bytes": 49924,
+          "sha256": "41ea5b7097c456575e1c48c6f8e6a65adc51329e6b06a671f2a95de7ca78acdc",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/41ea5b7097c456575e1c48c6f8e6a65adc51329e6b06a671f2a95de7ca78acdc"
+        },
+        {
+          "name": "amos_0555_seg_LUT.txt",
+          "bytes": 473,
+          "sha256": "397660c92fae07e0c99d3071042309a9546da9efb7bf2e2049b19b6148ded499",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/397660c92fae07e0c99d3071042309a9546da9efb7bf2e2049b19b6148ded499"
+        }
+      ]
+    },
+    {
+      "id": "ct-abdo",
+      "title": "Contrast chest/abdomen CT",
+      "group": "Body",
+      "description": "A contrast CT through the heart and lung bases — the lung, bone and soft-tissue window presets.",
+      "thumbnail": "ct-abdo",
+      "source": "niivue-images",
+      "sourceUrl": "https://github.com/neurolabusc/niivue-images",
+      "licence": "BSD-2-Clause",
+      "files": [
+        {
+          "name": "CT_Abdo.nii.gz",
+          "bytes": 7753434,
+          "sha256": "cfa3081e28fdcd6392d9c63de44851769983df26c931434529ae735c36eab0b3",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/cfa3081e28fdcd6392d9c63de44851769983df26c931434529ae735c36eab0b3"
+        }
+      ]
+    },
+    {
+      "id": "spine-ct",
+      "title": "Chest CT + per-vertebra labels",
+      "group": "Body",
+      "description": "A full chest CT with every vertebra labelled (VerSe numbering): the spine sample, and per-vertebra isosurfaces in 3D. Fetched from CTSpine1K directly — its licence is non-commercial, so it is not re-hosted.",
+      "thumbnail": "spine-ct",
+      "source": "CTSpine1K (COVID-19-CT-Seg case A-0377)",
+      "sourceUrl": "https://huggingface.co/datasets/alexanderdann/CTSpine1K",
+      "licence": "CC-BY-NC-SA-4.0",
+      "files": [
+        {
+          "name": "volume-covid19-A-0377_ct.nii.gz",
+          "bytes": 14068587,
+          "sha256": "5c5972eb06312906ba1fab9fa261e1c8fde2bf0b761f12150adde3f1ece4a67a",
+          "url": "https://huggingface.co/datasets/alexanderdann/CTSpine1K/resolve/main/raw_data/volumes/COVID-19/volume-covid19-A-0377_ct.nii.gz"
+        },
+        {
+          "name": "volume-covid19-A-0377_ct_seg.nii.gz",
+          "bytes": 42654,
+          "sha256": "132a19f436ad6809c3c8472e4daa2bd32ff7cdde0672bb33366ae7df3eeebc19",
+          "url": "https://huggingface.co/datasets/alexanderdann/CTSpine1K/resolve/main/raw_data/labels/COVID-19/volume-covid19-A-0377_ct_seg.nii.gz"
+        },
+        {
+          "name": "volume-covid19-A-0377_ct_seg_LUT.txt",
+          "bytes": 562,
+          "sha256": "718a0f64d8eb2f3f8961ef487e1fb88e7a768bf8033265c4354d6a61ed2df81e",
+          "url": "https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/718a0f64d8eb2f3f8961ef487e1fb88e7a768bf8033265c4354d6a61ed2df81e"
+        }
+      ]
+    }
+  ]
+}

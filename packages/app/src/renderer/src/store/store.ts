@@ -33,7 +33,12 @@ import type {
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
-import type { ScreenshotDefaults } from '../../../preload/index';
+import type {
+  Sample,
+  SampleProgress,
+  SampleStatus,
+  ScreenshotDefaults,
+} from '../../../preload/index';
 import type { LoadCard } from '../lib/loads';
 import type { Toast } from '../lib/toasts';
 import type { MetricsState } from '../lib/metrics';
@@ -234,6 +239,12 @@ export interface UiState {
   settingsTab: SettingsTab;
   /** The `tetravoxrc` path, mirrored from main so the settings dialog's footer needs no round trip. */
   configPath: string;
+  /** File ▸ Sample Data… — the catalogue and cache state, mirrored from main when the dialog opens. */
+  samples: readonly Sample[];
+  sampleStatuses: readonly SampleStatus[];
+  /** In-flight or just-failed downloads by sample id; a `done` entry is removed. */
+  sampleProgress: Readonly<Record<string, SampleProgress>>;
+  sampleCacheDir: string;
   /** Persisted §4.7 screenshot defaults, mirrored from `settings.json` (directed task: unified settings). */
   screenshotDefaults: ScreenshotDefaults;
   /** The relocate dialog's rows, populated by `loadScene` before it raises the dialog. */
@@ -292,7 +303,8 @@ export interface SceneFileRecord {
   savedAt: number | null;
 }
 
-export type DialogKind = 'none' | 'screenshot' | 'relocate' | 'keyboard' | 'settings';
+export type DialogKind =
+  'none' | 'screenshot' | 'relocate' | 'keyboard' | 'settings' | 'sampleData';
 
 /** The unified settings dialog's tabs (directed task: unified settings, 2026-08-28). */
 export type SettingsTab = 'appearance' | 'capture' | 'paths' | 'startup';
@@ -384,6 +396,10 @@ export const INITIAL_UI: UiState = {
   dialog: 'none',
   settingsTab: 'appearance',
   configPath: '',
+  samples: [],
+  sampleStatuses: [],
+  sampleProgress: {},
+  sampleCacheDir: '',
   screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
   relocate: null,
   screenshotOptions: DEFAULT_SCREENSHOT_OPTIONS,
