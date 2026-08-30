@@ -1070,8 +1070,11 @@ export function createModel(host: ModuleHost): SeegModel {
         const tsv = String(args['tsv'] ?? '');
         const ct = String(args['ct'] ?? '');
         // A module cannot open a dataset — `ModuleHost` has no `addDataset` — so the CT is expected
-        // to be open already. In a job that means an `open` action before this one.
-        // INTEGRATION(P5): `run.ts` must run the job's `open` for `ct` (and `t1`) first.
+        // to be open already: in a job file that means `scene.files` (or an `open` action) naming
+        // the CT before this action. `ct`, `tsv` and `t1` are `path` arguments, so all three are
+        // `${VAR}`-expanded, resolved and allow-listed by main before the window exists (§13.6) —
+        // which is why the dataset can be matched on its resolved path here, with the basename as
+        // the fallback for a build that opened it under a symlinked name.
         const dataset = host.scene
           .datasets()
           .find(
@@ -1139,13 +1142,19 @@ export function createModel(host: ModuleHost): SeegModel {
       case 'save': {
         const out = String(args['out'] ?? '');
         if (out === '') throw new ModuleHostError('save needs an `out` name');
+        // A `--job` window's Save sheet never opens, so nothing here comes from a dialog: `run.ts`
+        // hands `out` over as an absolute path under `--out`, and `job-runner.ts` has already put
+        // that path — and this writer's `{stem}_editlog.json` beside it — on this module's write
+        // list (§13.6). A relative `out` is a harness calling the operation directly, and then it
+        // means "beside the table that was loaded", which is the only other directory in play.
         const directory =
           tsvPath === null ? '' : tsvPath.slice(0, Math.max(0, tsvPath.lastIndexOf('/') + 1));
         const path = out.startsWith('/') ? out : `${directory}${out}`;
-        const siblings = { [EDITLOG_TEMPLATE]: `${directory}${editlogNameFor(baseNameOf(path))}` };
-        // INTEGRATION(P5): a `--job` window's Save sheet never opens, so main's module write list is
-        // empty and `writeText` refuses. `job-runner.ts` has to admit the resolved `--out` path (and
-        // its editlog sibling) for this module before `runOperation` is awaited.
+        // The editlog is a sibling of the file being **written**, never of the table that was read:
+        // main admitted `{stem}_editlog.json` in the resolved path's own directory, so anywhere else
+        // is both the wrong place and a write `module-write-text` refuses.
+        const writtenIn = path.slice(0, Math.max(0, path.lastIndexOf('/') + 1));
+        const siblings = { [EDITLOG_TEMPLATE]: `${writtenIn}${editlogNameFor(baseNameOf(path))}` };
         const result = await writeFiles(path, siblings);
         if (result === null) throw new ModuleHostError(`could not write ${path}`);
         return { path: result.path, editlog: result.editlog };

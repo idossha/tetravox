@@ -61,7 +61,8 @@ def load(job: Job, ct: PathLike, tsv: PathLike, t1: Optional[PathLike] = None) -
     `t1` the anatomy to show underneath if there is one. Every path is allow-listed by the app before
     the window opens, which is why they are `path` arguments rather than strings.
 
-    Reports `{"contacts": n, "electrodes": n}`.
+    Reports `{"contacts": n, "electrodes": n, "bound": bool}` — `bound` is false when the CT was
+    not open, which is the one failure a job can produce that still writes a table.
     """
     return job.module(
         MODULE_ID,
@@ -102,9 +103,9 @@ def snap(
 def refit(job: Job, electrode: Optional[str] = None) -> Job:
     """Re-fit a shaft: a line through its contacts, then even spacing along it at the median gap.
 
-    Every electrode when `electrode` is omitted. Reports one
-    `{"electrode", "rmsMm", "spacingCv"}` per shaft — the two numbers that say whether the fit is a
-    fit: how far the contacts sit off the line, and how uneven their spacing was.
+    Every electrode when `electrode` is omitted. Reports
+    `{"electrodes": [{"electrode", "rmsMm", "spacingCv"}, ...]}` — the two numbers that say whether
+    the fit is a fit: how far the contacts sit off the line, and how uneven their spacing was.
     """
     return job.module(MODULE_ID, "refit", electrode=electrode)
 
@@ -112,7 +113,8 @@ def refit(job: Job, electrode: Optional[str] = None) -> Job:
 def renumber(job: Job, electrode: Optional[str] = None) -> Job:
     """Renumber a shaft's contacts tip-first, 1 at the deepest.
 
-    Every electrode when `electrode` is omitted.
+    Every electrode when `electrode` is omitted. Reports
+    `{"electrodes": [{"electrode", "renamed": [{"from", "to"}, ...]}, ...]}`.
     """
     return job.module(MODULE_ID, "renumber", electrode=electrode)
 
@@ -128,7 +130,7 @@ def ghost(job: Job, on: bool) -> Job:
 def stats(job: Job) -> Job:
     """Report per-electrode geometry and write nothing.
 
-    `{"electrodes": [{"n", "rmsMm", "spacingCv", "pitchMm"}, ...]}`, read back with
+    `{"electrodes": [{"electrode", "n", "rmsMm", "spacingCv", "pitchMm"}, ...]}`, read back with
     `JobResult.results()`. This is the operation that makes a job an *analysis* rather than a
     renderer: a batch over twenty subjects that prints a table and produces no files at all.
     """

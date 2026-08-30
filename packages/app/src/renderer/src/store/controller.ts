@@ -2668,12 +2668,6 @@ export class ShellController {
   }
 
   /**
-   * Adopt the blocks a scene file carried, and hand each one to its module (§13.2).
-   *
-   * Blocks for modules this build does not have are kept **verbatim** so `serialiseScene` writes
-   * them back out — opening and re-saving a colleague's scene must not delete their work.
-   */
-  /**
    * `host.scene.activePlane` — the plane the active 2-D pane is showing (§13.1, 2026-08-30).
    *
    * `null` for the 3-D pane and for no active pane at all. The point is the cursor, because §7.5's
@@ -2695,6 +2689,12 @@ export class ShellController {
     };
   }
 
+  /**
+   * Adopt the blocks a scene file carried, and hand each one to its module (§13.2).
+   *
+   * Blocks for modules this build does not have are kept **verbatim** so `serialiseScene` writes
+   * them back out — opening and re-saving a colleague's scene must not delete their work.
+   */
   private async restoreModuleBlocks(spec: ViewSpec): Promise<void> {
     const blocks = sceneExtensions(spec);
     if (Object.keys(blocks).length === 0) return;

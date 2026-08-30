@@ -95,10 +95,11 @@ export const seegManifest: ModuleManifest = {
     },
   ],
   operations: [
-    // `t1` is `'string?'` and not `'path?'`, because §13.6's `ArgType` has no optional path — and it
-    // needs none here: the module never reads the T1's bytes (the app opens the volume), it only
-    // names it in the panel's source line, so it is not a job input to allow-list.
-    { id: 'load', args: { ct: 'path', tsv: 'path', t1: 'string?' } },
+    // `t1` is `'path?'` (2026-08-30, at the merge): §13.6's `ArgType` gained the optional path form
+    // for exactly this argument. A `path?` is `${VAR}`-expanded, resolved against the job file's
+    // directory and allow-listed before the window opens; a `string?` would have named a file the
+    // module is told about and main never admitted, which is the wrong promise to make about a T1.
+    { id: 'load', args: { ct: 'path', tsv: 'path', t1: 'path?' } },
     // `scope` is contact | electrode | all.
     {
       id: 'snap',
