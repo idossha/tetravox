@@ -291,6 +291,12 @@ test('a surface draws its plane intersection at the computed screen position, by
 test('hiding the layer removes the contour, and showing it puts it back @angle', async ({
   page,
 }) => {
+  // Three full-pane readbacks at ~10.5 s apiece on a loaded SwiftShader CI runner put this test
+  // just past the default 30 s (measured off the 2026-08-30 ubuntu run's trace: setup → first
+  // image 10.6 s, hide → second image 10.5 s; the third readback hit the limit — the same
+  // arithmetic behind PR #5's one-off timeout here). The assertions are cheap, the readbacks are
+  // not, so the budget is tripled rather than an assertion dropped.
+  test.slow();
   const errors = await openScene(page);
   const mmPerPx = 0.25;
   const { layerId } = await axialSurface(page, 8, mmPerPx);
