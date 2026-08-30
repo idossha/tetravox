@@ -26,9 +26,18 @@ function baseName(path: string): string {
   return path.split(/[/\\]/).pop() ?? '';
 }
 
+/**
+ * The manifest's pattern against a basename, **case-insensitively** (2026-08-30).
+ *
+ * The extension check has always lower-cased; the name pattern did not, so a site exporting
+ * `Electrodes.tsv` got "unsupported" from the mesh loader while `electrodes.tsv` opened. A file name
+ * is not a case-sensitive identifier to the person who typed it, and a manifest cannot opt back in
+ * — deliberately: a reader that claimed one spelling and refused another would be a bug report, not
+ * a feature. Narrowness comes from the extension list and from matching the basename alone.
+ */
 function matchesName(source: string, name: string): boolean {
   try {
-    return new RegExp(source).test(name);
+    return new RegExp(source, 'i').test(name);
   } catch {
     return false;
   }

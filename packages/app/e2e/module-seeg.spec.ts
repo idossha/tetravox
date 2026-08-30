@@ -426,4 +426,30 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await expect(page.locator('[data-testid="confirm-dialog"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="seeg-panel"]')).toBeVisible();
   });
+
+  test('Open… reaches a table the reader would never claim, and asks first', async () => {
+    // The Inputs escape hatch. The manifest's reader claims a basename saying `electrodes` /
+    // `contacts` / `markups`, so a site exporting `DIXI_locs.tsv` has no route in at all — and the
+    // `load` command that opens the module's own All-files sheet has no key and no menu entry, so
+    // without this button nothing could reach it. `showOpenDialog` is OS-modal, stubbed in main
+    // exactly as `showSaveDialog` is above; everything under it stays real.
+    const named = join(tree.ieeg, 'DIXI_locs.tsv');
+    writeFileSync(named, readFileSync(tree.tsv, 'utf8'));
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: [path],
+      })) as unknown as typeof dialog.showOpenDialog;
+    }, named);
+
+    // The previous test left the module dirty and cancelled, so the module's own discard guard —
+    // the one the shell cannot raise, because this gesture never leaves the panel — asks here.
+    await page.click('[data-testid="seeg-open"]');
+    await expect(page.locator('[data-testid="confirm-dialog"]')).toBeVisible();
+    await expect(page.locator('[data-testid^="confirm-button-"]')).toHaveCount(3);
+    await page.click('[data-testid="confirm-button-1"]'); // Discard
+
+    await expect(page.locator('[data-testid="seeg-source"]')).toContainText('DIXI_locs.tsv');
+    await expect(page.locator('[data-testid="seeg-list"] > li')).toHaveCount(6);
+  });
 });

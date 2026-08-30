@@ -225,6 +225,29 @@ describe('the manifest and the module agree about the BIDS layout', () => {
     // A `.tsv` that is not an electrodes table is not claimed: the reader matches the basename.
     expect(h.controller.readerFor('/bids/participants.tsv')).toBeNull();
   });
+
+  it('claims a table whose name is capitalised, the way the extension already was', () => {
+    // A site exporting `Electrodes.tsv` got the mesh loader's "unsupported" toast while
+    // `electrodes.tsv` opened: the extension check lower-cased and the name pattern did not.
+    const h = harness();
+    expect(h.controller.readerFor('/exports/Electrodes.tsv')?.manifest.id).toBe(SEEG);
+    expect(h.controller.readerFor('/exports/SUB-01_CONTACTS.TSV')?.manifest.id).toBe(SEEG);
+    // Still narrow: the basename has to say what the file is, whatever its case.
+    expect(h.controller.readerFor('/exports/DIXI_locs.csv')).toBeNull();
+  });
+
+  it('offers the Open sheet the manifest declares, from the panel', async () => {
+    // `load` has no key and no menu entry — §13.3 keeps module commands out of both — so the panel
+    // button is the only gesture that can reach the All-files sheet a non-canonical name needs.
+    const NAMED = '/exports/DIXI_locs.csv';
+    const h = await loadSubject();
+    h.fs.files.set(NAMED, phantomTable(0.3));
+    h.fs.openPaths = [NAMED];
+    await h.controller.moduleCommand(SEEG, 'load');
+    await until(() => h.store.getState().moduleBlocks[SEEG] !== undefined, 'the block');
+    expect(JSON.stringify(h.store.getState().moduleBlocks[SEEG]?.data)).toContain('DIXI_locs.csv');
+    expect(contactsLayer(h).points).toHaveLength(15);
+  });
 });
 
 /**

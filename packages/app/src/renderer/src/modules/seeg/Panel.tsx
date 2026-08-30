@@ -123,20 +123,38 @@ export function SeegPanel({ model }: { model: SeegModel }): React.JSX.Element {
 
   return (
     <div data-testid="seeg-panel" className="flex flex-col gap-1.5 text-[11px]">
-      <p
-        data-testid="seeg-source"
-        className="truncate text-tvx-dim"
-        title="the files this is editing"
-      >
-        {view.ctName === null && view.tsvName === null ? (
-          'Open a CT and its electrodes table.'
-        ) : (
-          <>
-            {view.subject !== null && <span className="text-tvx-text">{view.subject} · </span>}
-            {view.ctName ?? 'no CT'} · {view.tsvName ?? 'no table'}
-          </>
-        )}
-      </p>
+      {/*
+        The source line is also the Inputs step: the manifest's reader only claims a file whose
+        basename says `electrodes` / `contacts` / `markups`, and a site exporting `DIXI_locs.csv`
+        has no other way in. The `load` command opens the module's own sheet with an All-files
+        filter, and without this button nothing could reach it — no key, no menu entry (§13.3 keeps
+        module commands out of both).
+      */}
+      <div className="flex items-center gap-1.5">
+        <p
+          data-testid="seeg-source"
+          className="min-w-0 flex-1 truncate text-tvx-dim"
+          title="the files this is editing"
+        >
+          {view.ctName === null && view.tsvName === null ? (
+            'Open a CT and its electrodes table.'
+          ) : (
+            <>
+              {view.subject !== null && <span className="text-tvx-text">{view.subject} · </span>}
+              {view.ctName ?? 'no CT'} · {view.tsvName ?? 'no table'}
+            </>
+          )}
+        </p>
+        <button
+          type="button"
+          data-testid="seeg-open"
+          className="tvx-btn tvx-btn-sm shrink-0"
+          title="Open an electrodes table this module did not claim by name"
+          onClick={command('load')}
+        >
+          Open…
+        </button>
+      </div>
 
       {view.banner !== null && (
         <p data-testid="seeg-banner" className="text-tvx-warn">
