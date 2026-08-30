@@ -11,7 +11,16 @@
  * mocked `electron`, and no network or window anywhere.
  */
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -275,6 +284,10 @@ describe('module-write-text', () => {
   it('writes through a .part file and leaves none behind', () => {
     const path = join(dir, 'written.tsv');
     admitModuleWrite(SEEG, path, []);
+    // A stale `.part` from an interrupted earlier save. It has to be *consumed*: if the write went
+    // straight to `path`, this file would survive, which is what makes the assertion below evidence
+    // that the temp-then-rename really happened rather than a restatement of "the write worked".
+    writeFileSync(`${path}.part`, 'left over from a crash\n', 'utf8');
     expect(moduleWriteText(SEEG, path, 'name\tx\ty\tz\n', {})).toEqual({
       ok: true,
       backupPath: null,
@@ -318,6 +331,22 @@ describe('module-write-text', () => {
       ok: true,
       backupPath: null,
     });
+  });
+
+  /**
+   * The whole point of the rename: a save that cannot complete must leave the old file alone. The
+   * failure is forced by making the target a directory, so `writeFileSync` on the `.part` succeeds
+   * and `renameSync` onto it does not — the same order a full disk or a revoked permission hits.
+   */
+  it('reports a failed rename and clears the .part rather than leaving one', () => {
+    const path = join(dir, 'occupied.tsv');
+    mkdirSync(path, { recursive: true });
+    admitModuleWrite(SEEG, path, []);
+    const result = moduleWriteText(SEEG, path, 'never lands\n', {});
+    expect(result.ok).toBe(false);
+    expect(existsSync(`${path}.part`)).toBe(false);
+    // The target is untouched: still the directory it was, not a half-written table.
+    expect(statSync(path).isDirectory()).toBe(true);
   });
 
   it('caps the write at 8 MiB and writes nothing when it is over', () => {
