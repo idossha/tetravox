@@ -100,6 +100,31 @@ export interface PointerHost {
   addMeasurePoint(viewId: string, x: number, y: number, is3D: boolean): boolean;
   /** `Esc`: abandon the measurement being placed. */
   cancelMeasurement(): void;
+
+  // §13's point tool (2026-08-30). Same rule as the rest of this interface: one member per thing
+  // §7.5 binds, each of them public on `TetravoxEngine`.
+
+  /** Which point-tool mode is armed, or `null` — the `#onDown` slot and the cursor both ask. */
+  readonly pointToolMode: 'select' | 'place' | null;
+  /**
+   * A left press while the tool is armed. `'consumed'` — the tool took the click and no gesture
+   * follows; `'grabbed'` — a point was grabbed and a `'point'` drag should start; `'miss'` — the
+   * press was not the tool's and falls through to the gizmo and the gesture machine.
+   */
+  pointToolDown(
+    viewId: string,
+    x: number,
+    y: number,
+    is3D: boolean
+  ): 'consumed' | 'grabbed' | 'miss';
+  /** The armed hover hit test (2D, `select` mode only): `true` when a point is under the pointer. */
+  pointToolHover(viewId: string | null, x: number, y: number): boolean;
+  /** One move of a `'point'` drag. */
+  pointToolDrag(viewId: string, x: number, y: number): void;
+  /** The `'point'` gesture ended — forwarded from all three exits, and emitted once. */
+  endPointDrag(): void;
+  /** `Esc` while armed: `place` → `select` → off. `true` when it consumed the key. */
+  cancelPointTool(): boolean;
 }
 
 /** True when the key event is going into a text field and no shortcut may fire. */
@@ -120,6 +145,17 @@ export class PointerLayer {
   #gizmoHandle: 'translate' | 'rotateU' | 'rotateV' | null = null;
   /** The pane the pointer is currently over, for the keys R2 binds per pane. */
   #hovered: string | null = null;
+  /** §13: this press grabbed a point, so the gesture machine resolves a `'point'` drag. */
+  #overPoint = false;
+  /**
+   * The cursor **this layer** set on the canvas, so it can put back what it found.
+   *
+   * The embedder owns the element (§7.2's `#dpr` note is the same arrangement for its size), and a
+   * tool that reset `style.cursor` to `''` unconditionally would erase an embedder's own choice the
+   * first time a point tool was disarmed.
+   */
+  #cursor: '' | 'grab' | 'crosshair' = '';
+  #cursorWas: string | null = null;
   #destroyed = false;
 
   constructor(host: PointerHost) {
@@ -223,6 +259,19 @@ export class PointerLayer {
         return;
       }
     }
+    // §13's point tool (2026-08-30), in §7.5's precedence: after measure mode and **before** the
+    // gizmo, so a contact in the 3D pane is not eaten by a handle the pointer happens to be over —
+    // the same argument that put measure mode ahead of the gizmo. A `'miss'` changes nothing at
+    // all, which is what keeps every gesture that predates the tool exactly as it was.
+    this.#overPoint = false;
+    if (e.button === 0 && this.#host.pointToolMode !== null) {
+      const took = this.#host.pointToolDown(pane.viewId, pane.x, pane.y, pane.is3D);
+      if (took === 'consumed') {
+        e.preventDefault();
+        return;
+      }
+      this.#overPoint = took === 'grabbed';
+    }
     this.#gizmoHandle = pane.is3D ? this.#host.gizmoAt(pane.viewId, pane.x, pane.y) : null;
     // Capture first: a drag that leaves the canvas must keep arriving.
     try {
@@ -237,12 +286,16 @@ export class PointerLayer {
       e.button,
       { viewId: pane.viewId, is3D: pane.is3D, x: pane.x, y: pane.y },
       this.#mods,
-      this.#gizmoHandle !== null
+      { overGizmo: this.#gizmoHandle !== null, overPoint: this.#overPoint }
     )) {
       if (g.type === 'begin' && g.kind === 'cursor') {
         // R1: **left-click sets the cursor**, before any movement.
         this.#host.setCursorFromScreen(g.viewId, g.x, g.y);
       }
+      // §13: a second finger landing ends the one-pointer gesture (`gestures.ts`), and this loop
+      // is the only place that `end` is ever delivered. Without this line a pinch started mid-drag
+      // would leave the point tool believing the drag was still running.
+      if (g.type === 'end' && g.kind === 'point') this.#host.endPointDrag();
     }
   };
 
@@ -260,6 +313,10 @@ export class PointerLayer {
       if (pane === null) this.#host.hoverAtScreen(null, 0, 0);
       else if (pane.is3D) this.#host.gizmoAt(pane.viewId, pane.x, pane.y);
       else this.#host.hoverAtScreen(pane.viewId, pane.x, pane.y);
+      // §13's armed hover (2026-08-30). The host runs a hit test **only** while `select` mode is
+      // armed, so a user who is not editing points pays one property read per move and §8's 16 ms
+      // hover budget is untouched.
+      this.#pointCursor(pane);
       return;
     }
 
@@ -273,7 +330,13 @@ export class PointerLayer {
   readonly #onUp = (e: PointerEvent): void => {
     if (this.#destroyed) return;
     this.#gizmoHandle = null;
-    for (const g of this.#machine.up(e.pointerId)) void g;
+    this.#overPoint = false;
+    // §13: the drag's commit point. Every other gesture writes straight into the scene and needs
+    // no end (the gizmo's `end` is still discarded); a point drag is one undo step for the host,
+    // and the host cannot see the machine.
+    for (const g of this.#machine.up(e.pointerId)) {
+      if (g.type === 'end' && g.kind === 'point') this.#host.endPointDrag();
+    }
     try {
       if (this.#canvas.hasPointerCapture(e.pointerId)) {
         this.#canvas.releasePointerCapture(e.pointerId);
@@ -285,13 +348,19 @@ export class PointerLayer {
 
   readonly #onCancel = (): void => {
     this.#gizmoHandle = null;
-    this.#machine.reset();
+    this.#overPoint = false;
+    // `pointercancel`, and the window `blur` bound to the same handler — a drag that ends because
+    // the user switched windows still ends, and §13's `dragEnd` is delivered exactly once.
+    for (const g of this.#machine.reset()) {
+      if (g.type === 'end' && g.kind === 'point') this.#host.endPointDrag();
+    }
   };
 
   readonly #onLeave = (): void => {
     if (this.#machine.active) return;
     this.#hovered = null;
     this.#host.hoverAtScreen(null, 0, 0);
+    this.#pointCursor(null);
   };
 
   /**
@@ -357,6 +426,10 @@ export class PointerLayer {
       this.#host.cancelMeasurement();
       return;
     }
+    // §13's Esc grammar (2026-08-30): `place` → `select` → off. Here, beside the measurement's Esc
+    // and **before** the `viewId === null` return below, so it works with the pointer over the
+    // panel — which is where a user's pointer is when they decide they are done placing.
+    if (e.key === 'Escape' && this.#host.cancelPointTool()) return;
     const viewId = this.#hovered;
     if (viewId === null || e.ctrlKey || e.metaKey || e.altKey) return;
     // R2's keyboard half: `+` / `-` about the pane centre, `r` back to fit. Scoped to the pane under
@@ -408,6 +481,33 @@ export class PointerLayer {
     return { x: x - rect.x, y: y - rect.y, width: rect.width, height: rect.height };
   }
 
+  /**
+   * §13's cursor: `crosshair` while `place` mode is armed, `grab` over a point in `select` mode.
+   *
+   * The hit test behind the `grab` is the host's and runs only while `select` is armed; everything
+   * else here is a string comparison. What it restores when the tool disarms is whatever the
+   * embedder had on the canvas, not `''`.
+   */
+  #pointCursor(pane: PaneHit | null): void {
+    const mode = this.#host.pointToolMode;
+    let want: '' | 'grab' | 'crosshair' = '';
+    if (mode !== null && pane !== null && !pane.is3D) {
+      want =
+        mode === 'place'
+          ? 'crosshair'
+          : this.#host.pointToolHover(pane.viewId, pane.x, pane.y)
+            ? 'grab'
+            : '';
+    } else if (mode !== null) {
+      // Off a 2D pane there is nothing to be over, and the hot ring must not stay behind.
+      this.#host.pointToolHover(null, 0, 0);
+    }
+    if (want === this.#cursor) return;
+    if (this.#cursor === '') this.#cursorWas = this.#canvas.style.cursor;
+    this.#cursor = want;
+    this.#canvas.style.cursor = want === '' ? (this.#cursorWas ?? '') : want;
+  }
+
   #dispatch(
     g: ReturnType<GestureMachine['move']>[number],
     local: { x: number; y: number; width: number; height: number }
@@ -441,6 +541,11 @@ export class PointerLayer {
             if (this.#gizmoHandle !== null) {
               this.#host.gizmoDrag(this.#gizmoHandle, g.dx, g.dy);
             }
+            break;
+          // §13: the point follows the pointer exactly, in the latched pane's coordinates — so a
+          // drag that wanders out of the pane keeps moving the contact in the plane it started in.
+          case 'point':
+            this.#host.pointToolDrag(g.viewId, g.x, g.y);
             break;
         }
         break;

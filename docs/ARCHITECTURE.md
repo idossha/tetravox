@@ -774,6 +774,21 @@ export interface ProbeResult { world: vec3; mni?: vec3; tkr?: vec3; tkrVolume?: 
                                mniNonlinear?: vec3; rows: ProbeRow[] }
 export interface LabelCentroid { id: number; centroid: vec3; count: number }   // world RAS
 
+// §13's point tool (2026-08-30). Additive; absent, nothing here is armed.
+export interface PointToolSpec {
+  layerId: LayerId;
+  mode: 'select' | 'place';                     // 'place': EVERY left click appends, with no hit test
+  template?: { color?: vec4; radiusMm?: number; group?: string };
+}
+export interface PointSelection { layerId: LayerId; pointId: string; index: number }   // id is the identity
+export interface PointToolEvent {
+  layerId: LayerId;
+  kind: 'placed' | 'selected' | 'dragEnd' | 'cleared';
+  pointId: string | null;                       // null with index −1 for 'cleared'
+  index: number;
+  world?: vec3; viewId?: ViewId;
+}
+
 export interface ScreenshotOptions {
   target: 'view' | 'grid'; viewId?: ViewId;
   width?: number; height?: number; scale?: number; dpi?: number;   // dpi written to the PNG pHYs chunk
@@ -792,6 +807,7 @@ export interface EngineEvents {
   layers: Layer[];
   datasets: Dataset[];
   measurements: Measurement[];
+  pointTool: PointToolEvent;                     // §13's point tool did something (2026-08-30)
   progress: LoadProgress;
   frame: { viewId: ViewId; cpuMs: number; gpuMs?: number; quality: QualityLevel['name'] };
   quality: QualityLevel;
@@ -845,6 +861,13 @@ export interface Engine {
   removeMeasurement(id: MeasurementId): void;
   cancelMeasurement(): void;                    // Esc — drops the gesture, keeps what is placed
 
+  setPointTool(spec: PointToolSpec | null): void;   // §13; arming disarms measure mode and vice versa,
+                                                //   materialises `p<index>` ids, and null clears + emits 'cleared'
+  pointTool(): PointToolSpec | null;
+  pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null;   // CSS px, like pick()
+  setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void;     // by ID, never by index
+  pointSelection(): PointSelection | null;      // re-resolved against the current points[]
+
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]>;      // §6.5.2's op
   resetView(viewId: ViewId): void;              // §7.5 `r`: refit to the scene bounds
   cameraPreset(viewId: ViewId, preset: CameraPreset): void;
@@ -877,6 +900,19 @@ returns is the one from *before* the click. A runtime calls `probeLanded(world)`
 the engine re-emits it as `probe` if that point is still the cursor or the hover. It is its own event and not
 a second `cursor` because the app's `cursor` handler also clears the coordinate bar's draft, and a probe
 landing must not delete what a user is typing.
+
+**The point tool's five members are the same shape as measure mode's, and for the same reason.** Only the
+engine can turn a pane pixel into a world point, and §8 forbids the app deriving one — so the *mode* is engine
+state, the app (or a §13 module) owns the button that arms it, and `input/pointer.ts` is where a click becomes
+a placement or a grab (§7.5 has the grammar). Three things are decided here rather than in a host:
+**selection is by `points[].id`**, so it survives the `points` replacement every edit is — the engine re-finds
+it after each `updateLayer` and emits `cleared` when the id has gone, rather than leaving a ring on whatever
+took that index; **arming materialises ids**, giving a layer whose points carry none a `p<index>` each, so the
+tool, the selection and the saved scene name the same contact by the same string; and **a ghost is never
+hit**, because a ghost is the projection of a point on another slice and dragging one would move a contact in
+a plane it is not in. `pointAtScreen` is the hit rule on its own, for a host that wants to ask without
+selecting. The rings the tool shows are `DrawInput.pointSelection`/`pointHot` (§7.2), which are *not* on this
+facade: a ring is not something the UI does.
 
 `attachFsaverage` composes three §6.5 ops — `vertices` on the fsaverage sphere, `sphereMap` on the subject's,
 `vertices` on the fsaverage surface — and caches all three, so a second surface of the same hemisphere costs
@@ -2339,6 +2375,35 @@ Input (Freeview-like):
   `Esc` — and leaving the mode — drops whatever is pending and touches nothing already placed. The mode is
   engine state and the half-placed gesture rides on `DrawInput`, never on `Scene`: a `*.tetravox.json` must
   not carry one.
+* **The point tool** (§13, `Engine.setPointTool`; a module arms it, and no core toolbar button does).
+  While it is armed a left click is the tool's, in the `#onDown` precedence slot **after measure mode and
+  before the gizmo** — the same argument that put measure mode ahead of the gizmo, so a contact in the 3D pane
+  is not eaten by a handle the pointer happens to be over. **At most one click-consuming mode is armed**:
+  arming the point tool disarms measure mode and `setMeasureMode(true)` disarms the point tool, because a user
+  cannot be told which mode a click went to.
+  * **`place`: every left click places**, with no hit test first — 2D on the pointer ray ∩ the pane's derived
+    plane, 3D on the §7.2.3 `pick`, where a click on nothing places nothing and is still swallowed. Contacts
+    sit about five pixels apart at a default zoom, and the click that matters most is the one filling the gap
+    *between* two that were found; a hit-first rule would answer it by selecting a neighbour. The point is
+    `{ ...template, id: 'p<n>', position }`, it becomes the selection, and one `placed` event says so.
+  * **`select`: a press hits, and the hit starts a drag.** The rule is on-slice only (`|d| < r`, so **a ghost
+    is never hit**), within `max(disc px, 8 px)` of the disc the pane actually drew, nearest wins; in the 3D
+    pane the nearest projected centre within 14 px, and **no drag** in v1. The disc radius is
+    `overlay/point-ring.ts`'s `discRadiusPx` — the same function §7.2 sizes the selection ring with, so the
+    hit rule cannot drift away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with the
+    gizmo it draws.
+  * **The drag is `GestureKind 'point'`**, resolved in `resolveGesture`'s **2D** branch after the ctrl/meta
+    and `Shift` tests and before the `space` one, so `Shift`+drag over a contact is still the layer's opacity
+    and `space`+drag is still the pan. Each move writes `paneToWorld` into a **replaced** `points` array.
+    The gesture's `end` is forwarded to the tool from **all three exits** — `#onUp`, `#onCancel`
+    (`pointercancel`, and the window `blur` bound to it) and the second-pointer branch of `down()` — and
+    becomes exactly one `dragEnd`, which is what makes one drag one undo step and one dirty mark for the host.
+  * **`Esc` is `place` → `select` → off**, in the engine's own keydown beside `cancelMeasurement`'s and before
+    the "is the pointer over a pane" test, because the app's `keymap.ts` answers `Escape` unconditionally and
+    "core first, module on null" could never deliver it here.
+  * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
+    `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). A user who
+    is not editing points pays one property read per move, so §8's 16 ms hover budget is untouched.
 * Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic, `m`
   measure, `Esc` cancel a measurement, `[`/`]` cycle the active layer, `v` toggle its visibility,
   `Shift+drag` its opacity, `Ctrl+↑/↓` reorder it, `,`/`.` step the active volume layer's 4D index (each step
@@ -2663,6 +2728,7 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | Points ghost | A points layer at `offPlaneOpacity: 0.6` over a **known** slice pixel: the off-slice point's pixel is `src·0.6 + dst·0.4` of the layer colour over the tag colour, computed from first principles, and the SAME source over the background where the fixture hides its other tag — so a "ghost" implemented as a fixed dimmed colour passes the first and fails the second. Absent, the same point draws nothing at all. `shape: 'dot'` ghosts at its constant 4 px radius at two zooms an order apart |
 | Point selection ring | The ring's **radius is measured off the framebuffer**, the way the scale bar's length is: every pixel of `OverlayTheme.select` around the point is `disc + 2 px` from its centre, for an on-slice disc and for a ghosted one (which has no cross-section, so only its full radius can produce a ring). A culled point and a stale index draw **no** ring, and a hover ring that names the selected point is dropped |
 | Names as labels | `labelSource: 'names'` drawn and **decoded back out of the framebuffer** with §11's glyph matcher; with `labelSource` absent the same layer decodes its `labels` array instead. A ghosted point's disc is drawn and its name is not, which is the 2D-rule divergence §4.4 and §7.2 state |
+| Point tool | The drag is asserted as an identity derived from §3 rather than from the engine: a 40 px drag moves the contact `40 · mmPerPx ± 0.05 mm`, the same claim §11 makes of the measurement tool from the other side. Around it, the grammar: in `place` mode **every** click appends (three clicks, three points, none of them a hit test); in `select` mode a press at 0.9 r grabs and one at 1.1 r + the 8 px floor does not; exactly **one** `dragEnd` per drag from each of the three gesture exits, `pointercancel` included; the selection survives an `updateLayer` that replaces `points` and is `cleared` when its id is not in the new array; `Esc` walks `place` → `select` → off; and arming the point tool turns measure mode off |
 | Bounded local reads | `sampleVoxelBox` / `peakCentroid` against **numpy twice**: on `testdata/ct_shafts.nii.gz` (three depth electrodes, 3.5 mm pitch, anisotropic spacing so the per-axis half-extent differs, `HU + 1024` on disk so a forgotten `scl_inter` is off by exactly 1024) through `testdata/manifest.json`, and on `m2m_ernie/T1.nii.gz` through `scripts/refvalues/voxelbox_refvalues.json`. Box `ijk0`/`dims`/min/max/sum plus five spot values a transposed window cannot reproduce; the centroid to 1e-4 mm; and the property numpy cannot check — a click 0.8 mm off a contact lands within 0.15 mm of it |
 
 ---

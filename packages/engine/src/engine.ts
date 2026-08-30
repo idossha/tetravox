@@ -37,6 +37,8 @@ import type {
   NewLayer,
   NewMeasurement,
   PickResult,
+  PointSelection,
+  PointToolSpec,
   ProbeResult,
   ProbeRow,
   ScreenshotOptions,
@@ -71,7 +73,11 @@ import { nextMeasurementName } from './derived/measure';
 import { readGlyphInstances } from './derived/glyph-readback';
 import type { GlyphInstance } from './derived/glyph-readback';
 import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
+// §13's point tool (2026-08-30): the pure hit tests, and the `p<index>` id fallback.
+import { pointAtPane, pointAtPane3D, pointIdAt } from './layers/points';
+import type { PointPaneHit } from './layers/points';
 
+import { visibleIn } from './layers/runtime';
 import type { LayerRuntime, LayerRuntimeContext } from './layers/runtime';
 import { multiply4, transformPoint } from './view/m4';
 import {
@@ -174,6 +180,7 @@ import type {
   ViewSpec,
   VolumeDataset,
   VolumeLayer,
+  PointsLayer,
 } from './scene/types';
 
 type Listener = (payload: never) => void;
@@ -373,6 +380,22 @@ export class TetravoxEngine implements Engine, PointerHost {
    */
   #pointSelection: { layerId: LayerId; index: number } | null = null;
   #pointHot: { layerId: LayerId; index: number } | null = null;
+
+  // -- §13's point tool (2026-08-30). §4.7's members; the grammar is §7.5's. --------------------
+  /** What is armed, or `null`. At most one click-consuming mode is (see `setMeasureMode`). */
+  #pointTool: PointToolSpec | null = null;
+  /**
+   * The selection, **by id** — the one piece of tool state that outlives an edit.
+   *
+   * `#pointSelection` above is the same selection as the frame carries it, by index; this is what
+   * it is re-resolved from every time `points[]` is replaced. Keeping only the index would move the
+   * ring to the neighbour on the next delete, which is the bug §4.4's `id` exists to prevent.
+   */
+  #pointSelectionId: { layerId: LayerId; pointId: string } | null = null;
+  /** The drag in flight: which point the press grabbed, and in which pane. */
+  #pointDrag: { layerId: LayerId; pointId: string; viewId: ViewId } | null = null;
+  /** Counter behind the `p<n>` ids the engine mints, so a placed point never reuses a name. */
+  #pointSeq = 0;
 
   /** Read-only view of the scene the store owns. */
   get #scene(): Scene {
@@ -835,7 +858,11 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#layers.delete(id);
     this.#dropIso3d(id);
     this.#derived.dropLayer(id);
+    // §13: the tool's layer just went. Disarming here rather than leaving a tool pointed at
+    // nothing is what keeps "armed" and "there is something to edit" the same statement.
+    if (this.#pointTool?.layerId === id) this.setPointTool(null);
     this.#emit('layers', [...this.#scene.layers]);
+    this.#reconcilePointSelection();
     this.requestRender();
   }
 
@@ -844,6 +871,10 @@ export class TetravoxEngine implements Engine, PointerHost {
     if (next !== undefined) this.#layers.get(id)?.applyPatch(next);
     if (next !== undefined) this.#reconcileIso3d(next);
     this.#emit('layers', [...this.#scene.layers]);
+    // §13: a replaced `points` array is the ordinary case for a point-editing tool — every drag
+    // move is one — so the selection is re-found by id here, or cleared. See
+    // `#reconcilePointSelection`.
+    this.#reconcilePointSelection();
     this.requestRender();
   }
 
@@ -2464,6 +2495,9 @@ export class TetravoxEngine implements Engine, PointerHost {
    * the button being switched off would reappear on the next click in a mode the user had left.
    */
   setMeasureMode(on: boolean): void {
+    // §7.5's one-armed-mode invariant (2026-08-30): both modes take the left click away from the
+    // cursor, so arming one disarms the other. A user cannot be told which mode a click went to.
+    if (on && this.#pointTool !== null) this.setPointTool(null);
     if (this.#measureMode === on) return;
     this.#measureMode = on;
     if (!on) this.#measureDraft = null;
@@ -2613,8 +2647,18 @@ export class TetravoxEngine implements Engine, PointerHost {
       hot?: { layerId: LayerId; index: number } | null;
     } | null
   ): void {
-    const selection = highlight === null ? null : (highlight.selection ?? this.#pointSelection);
-    const hot = highlight === null ? null : (highlight.hot ?? this.#pointHot);
+    // `'selection' in highlight` rather than `highlight.selection ?? …`: the *value* a caller
+    // passes to clear one half is `null`, and `??` cannot tell that from "not mentioned". Without
+    // this the hover ring could only ever be cleared by clearing the selection with it, and a
+    // pointer leaving a contact would take the selection's ring away too (2026-08-30, P2).
+    const selection =
+      highlight === null
+        ? null
+        : 'selection' in highlight
+          ? (highlight.selection ?? null)
+          : this.#pointSelection;
+    const hot =
+      highlight === null ? null : 'hot' in highlight ? (highlight.hot ?? null) : this.#pointHot;
     // Nothing changed: no render request. A hover hit test runs per pointer move (P2), so this
     // guard is what keeps a pointer crossing one contact from being 60 redundant frames a second.
     const same = (
@@ -2634,6 +2678,414 @@ export class TetravoxEngine implements Engine, PointerHost {
     hot: { layerId: LayerId; index: number } | null;
   } {
     return { selection: this.#pointSelection, hot: this.#pointHot };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // §13's point tool — §4.7's five members, and §7.5's grammar (2026-08-30).
+  //
+  // The mode is the engine's for the reason measure mode is (`docs/DECISIONS.md`, 2026-08-28):
+  // only the engine can turn a pane pixel into a world point, and §8 forbids the app deriving one.
+  // Everything below is either that conversion, the hit test, or the bookkeeping that keeps a
+  // selection pointing at the same *contact* across an edit.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * §7.5's point tool. See {@link Engine.setPointTool} — this is that member.
+   *
+   * Three things happen on the way in, and each is a decision stated in §7.5:
+   * arming disarms measure mode (one click-consuming mode at a time); the layer's points are given
+   * ids if they have none, so every later answer names a contact by a string that survives an edit;
+   * and a selection belonging to a *different* layer is dropped, because it is not this tool's.
+   */
+  setPointTool(spec: PointToolSpec | null): void {
+    if (spec === null) {
+      const tool = this.#pointTool;
+      if (tool === null) return;
+      this.#pointTool = null;
+      this.#pointDrag = null;
+      const layerId = this.#pointSelectionId?.layerId ?? tool.layerId;
+      this.#pointSelectionId = null;
+      this.setPointHighlight(null);
+      // `cleared` on every disarm, selection or not: it is the one event a module can hang
+      // "the tool is no longer mine" on, and `Esc` in `select` mode arrives here.
+      this.#emit('pointTool', { layerId, kind: 'cleared', pointId: null, index: -1 });
+      this.requestRender();
+      return;
+    }
+    if (this.#measureMode) this.setMeasureMode(false);
+    const next: PointToolSpec = {
+      layerId: spec.layerId,
+      mode: spec.mode,
+      ...(spec.template !== undefined ? { template: { ...spec.template } } : {}),
+    };
+    this.#pointTool = next;
+    this.#ensurePointIds(next.layerId);
+    if (this.#pointSelectionId !== null && this.#pointSelectionId.layerId !== next.layerId) {
+      this.setPointSelection(null);
+    }
+    this.requestRender();
+  }
+
+  /** What is armed, as a copy — §4.7. */
+  pointTool(): PointToolSpec | null {
+    const tool = this.#pointTool;
+    if (tool === null) return null;
+    return {
+      layerId: tool.layerId,
+      mode: tool.mode,
+      ...(tool.template !== undefined ? { template: { ...tool.template } } : {}),
+    };
+  }
+
+  /** §4.7: which point a **CSS**-pixel pane coordinate would grab, without grabbing it. */
+  pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null {
+    const dpr = this.#dpr();
+    return this.#pointAt(viewId, px * dpr, py * dpr);
+  }
+
+  /**
+   * §4.7: select by id, or clear with `null`.
+   *
+   * An id that no longer resolves **clears** rather than throwing or holding on: the ordinary way
+   * for one to stop resolving is the user deleting that contact, and a selection that outlived its
+   * point would put the ring on whatever took its index.
+   */
+  setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void {
+    if (sel === null) {
+      const prev = this.#pointSelectionId;
+      this.#pointSelectionId = null;
+      this.setPointHighlight({ selection: null, hot: null });
+      if (prev === null) return;
+      this.#emit('pointTool', { layerId: prev.layerId, kind: 'cleared', pointId: null, index: -1 });
+      return;
+    }
+    const index = this.#indexOfPointId(sel.layerId, sel.pointId);
+    if (index === null) {
+      this.setPointSelection(null);
+      return;
+    }
+    this.#pointSelectionId = { layerId: sel.layerId, pointId: sel.pointId };
+    this.setPointHighlight({ selection: { layerId: sel.layerId, index } });
+    this.#emit('pointTool', {
+      layerId: sel.layerId,
+      kind: 'selected',
+      pointId: sel.pointId,
+      index,
+    });
+  }
+
+  /** §4.7: the selection, re-resolved against the current `points[]`. */
+  pointSelection(): PointSelection | null {
+    const sel = this.#pointSelectionId;
+    if (sel === null) return null;
+    const index = this.#indexOfPointId(sel.layerId, sel.pointId);
+    if (index === null) return null;
+    return { layerId: sel.layerId, pointId: sel.pointId, index };
+  }
+
+  // -- the pointer layer's half (`PointerHost`; §7.5) -------------------------------------------
+
+  /** {@link PointerHost}: which point-tool mode is armed, for the `#onDown` slot and the cursor. */
+  get pointToolMode(): 'select' | 'place' | null {
+    return this.#pointTool?.mode ?? null;
+  }
+
+  /**
+   * {@link PointerHost}: a left press in a pane while the tool is armed, in **device** pixels.
+   *
+   * `'consumed'` — the press was the tool's and no gesture follows it: every click in `place` mode
+   * (a 3D click that hit nothing places nothing, and is still swallowed — the mode is on, so it
+   * must not fall through to "set the cursor"), and a 3D `select` click, which selects but starts
+   * no drag (v1 has no 3D point drag: that needs a points `PickItem` and a pick shader).
+   * `'grabbed'` — a 2D `select` click hit a point: it is now the selection and the caller starts a
+   * `'point'` gesture. `'miss'` — nothing here; the press falls through to the gizmo and the
+   * gesture machine, exactly as it did before the tool existed.
+   */
+  pointToolDown(
+    viewId: ViewId,
+    x: number,
+    y: number,
+    is3D: boolean
+  ): 'consumed' | 'grabbed' | 'miss' {
+    const tool = this.#pointTool;
+    if (tool === null) return 'miss';
+    if (tool.mode === 'place') {
+      this.#placePoint(tool, viewId, x, y, is3D);
+      return 'consumed';
+    }
+    const hit = this.#pointAt(viewId, x, y);
+    if (hit === null) return 'miss';
+    this.setPointSelection({ layerId: hit.layerId, pointId: hit.pointId });
+    if (is3D) return 'consumed';
+    this.#pointDrag = { layerId: hit.layerId, pointId: hit.pointId, viewId };
+    return 'grabbed';
+  }
+
+  /**
+   * {@link PointerHost}: the hover half — the hot ring and the `grab` cursor.
+   *
+   * Runs **only while `select` mode is armed**, which is what keeps a per-move CPU hit test off
+   * §8's 16 ms hover budget for every user who is not editing points. `place` mode has no hot
+   * point: every click places, so there is nothing to be over.
+   *
+   * Returns whether a point is under the pointer, so the DOM layer can set the cursor without
+   * asking a second time.
+   */
+  pointToolHover(viewId: ViewId | null, x: number, y: number): boolean {
+    if (this.#pointTool?.mode !== 'select' || viewId === null) {
+      this.setPointHighlight({ hot: null });
+      return false;
+    }
+    const hit = this.#pointAt(viewId, x, y);
+    this.setPointHighlight({
+      hot: hit === null ? null : { layerId: hit.layerId, index: hit.index },
+    });
+    return hit !== null;
+  }
+
+  /**
+   * {@link PointerHost}: one move of a `'point'` drag — the grabbed point goes to this pane pixel.
+   *
+   * Exact and in-plane: `worldAtScreen` is the pointer ray ∩ the pane's derived plane, so the
+   * contact lands where the pointer is and its along-normal coordinate is the plane's. The `points`
+   * array is **replaced**, never mutated — `derived/store.ts` keys the instance buffer on the
+   * array's identity, so mutation would move the point in the scene and not on the screen.
+   */
+  pointToolDrag(viewId: ViewId, x: number, y: number): void {
+    const drag = this.#pointDrag;
+    if (drag === null || drag.viewId !== viewId) return;
+    const layer = this.#pointsLayer(drag.layerId);
+    if (layer === null) return;
+    const index = this.#indexOfPointId(drag.layerId, drag.pointId);
+    if (index === null) return;
+    const world = this.worldAtScreen(viewId, x, y);
+    if (world === null) return;
+    const points = (layer.points ?? []).map((p, i) =>
+      i === index ? { ...p, position: world } : p
+    );
+    this.updateLayer<PointsLayer>(drag.layerId, { points });
+  }
+
+  /**
+   * {@link PointerHost}: the `'point'` gesture ended — **once**, from whichever exit ended it.
+   *
+   * The pointer layer forwards the machine's `end` from `#onUp`, from `#onCancel`
+   * (`pointercancel`, and the window `blur` bound to it) and from the second-pointer branch of
+   * `down()`. The scene has already moved; this is the commit point, and it is what makes one drag
+   * one undo step and one dirty mark for the host.
+   */
+  endPointDrag(): void {
+    const drag = this.#pointDrag;
+    if (drag === null) return;
+    this.#pointDrag = null;
+    const index = this.#indexOfPointId(drag.layerId, drag.pointId);
+    const world =
+      index === null ? undefined : this.#pointsLayer(drag.layerId)?.points?.[index]?.position;
+    this.#emit('pointTool', {
+      layerId: drag.layerId,
+      kind: 'dragEnd',
+      pointId: drag.pointId,
+      index: index ?? -1,
+      ...(world !== undefined ? { world } : {}),
+      viewId: drag.viewId,
+    });
+  }
+
+  /**
+   * {@link PointerHost}: `Esc` while the tool is armed — `place` → `select` → off.
+   *
+   * Two steps rather than one because the two modes fail differently: a user who armed `place` by
+   * mistake wants out of *placing*, not out of the tool, and a user who is done wants out
+   * altogether. Handled in the engine's own keydown (before the "is the pointer over a pane" test)
+   * for the reason `cancelMeasurement` is: the app's `keymap.ts` answers `Escape` unconditionally,
+   * so "core first, module on null" could never deliver it here.
+   *
+   * Returns whether it consumed the key.
+   */
+  cancelPointTool(): boolean {
+    const tool = this.#pointTool;
+    if (tool === null) return false;
+    if (tool.mode === 'place') {
+      this.setPointTool({ ...tool, mode: 'select' });
+      return true;
+    }
+    this.setPointTool(null);
+    return true;
+  }
+
+  // -- the private half -------------------------------------------------------------------------
+
+  /** The points layer with this id, or `null` — a layer that is not one answers `null`, not throws. */
+  #pointsLayer(id: LayerId): PointsLayer | null {
+    const layer = this.#scene.layers.find((l) => l.id === id);
+    return layer !== undefined && layer.kind === 'points' ? layer : null;
+  }
+
+  /**
+   * Which points layers a hit test may answer for in this pane.
+   *
+   * The armed layer alone while a tool is armed — a scene may hold a second points layer the tool
+   * has no business editing — and every *visible* points layer otherwise, which is what makes
+   * `pointAtScreen` useful to a host that has not armed anything.
+   */
+  #pointLayersFor(view: View): PointsLayer[] {
+    const tool = this.#pointTool;
+    const layers = this.#scene.layers.filter(
+      (l): l is PointsLayer => l.kind === 'points' && visibleIn(l, view)
+    );
+    return tool === null ? layers : layers.filter((l) => l.id === tool.layerId);
+  }
+
+  /** The hit test, in **device** pixels — `pointAtScreen`'s and the pointer layer's one path. */
+  #pointAt(viewId: ViewId, x: number, y: number): PointSelection | null {
+    const view = this.#store.view(viewId);
+    const rect = this.paneRect(viewId);
+    if (view === undefined || rect === null) return null;
+    const layers = this.#pointLayersFor(view);
+    if (layers.length === 0) return null;
+    const uiScale = Math.max(1, Math.round(this.#dpr()));
+
+    let best: { layer: PointsLayer; hit: PointPaneHit } | null = null;
+    if (isSliceView(view)) {
+      const place = {
+        view,
+        cursor: this.#scene.cursor,
+        anchor: planeAnchor(this.#store.bounds()),
+        radiological: this.#scene.radiological,
+        rect,
+        uiScale,
+      };
+      for (const layer of layers) {
+        const hit = pointAtPane(layer, place, x, y);
+        if (hit !== null && (best === null || hit.distancePx < best.hit.distancePx)) {
+          best = { layer, hit };
+        }
+      }
+    } else {
+      // The 3D pane's projection is the one the **last frame** used, like `pick` (§7.2.3): a hit
+      // test against a matrix nothing was drawn with would answer for a picture the user never saw.
+      const viewProj = this.#lastViewProj.get(viewId);
+      if (viewProj === undefined) return null;
+      for (const layer of layers) {
+        const hit = pointAtPane3D(layer, viewProj, rect, x, y);
+        if (hit !== null && (best === null || hit.distancePx < best.hit.distancePx)) {
+          best = { layer, hit };
+        }
+      }
+    }
+    if (best === null) return null;
+    return {
+      layerId: best.layer.id,
+      pointId: pointIdAt(best.layer, best.hit.index),
+      index: best.hit.index,
+    };
+  }
+
+  /** Where a point with this id sits in the layer's array right now, or `null` (§4.4). */
+  #indexOfPointId(layerId: LayerId, pointId: string): number | null {
+    const layer = this.#pointsLayer(layerId);
+    if (layer === null) return null;
+    const points = layer.points ?? [];
+    for (let i = 0; i < points.length; i += 1) {
+      if (pointIdAt(layer, i) === pointId) return i;
+    }
+    return null;
+  }
+
+  /**
+   * Give every point an id, once, when a tool arms on the layer (§4.4).
+   *
+   * Without this the tool's answers would be `p<index>` strings that are *not* in the scene, and a
+   * scene saved mid-edit would come back with the selection naming a contact by an index it no
+   * longer has. Existing ids are kept; the minted ones skip anything already taken, so a layer that
+   * carries `c1`, `p0` and two blanks cannot end up with two `p0`s.
+   */
+  #ensurePointIds(layerId: LayerId): void {
+    const layer = this.#pointsLayer(layerId);
+    if (layer === null) return;
+    const points = layer.points ?? [];
+    if (points.every((p) => typeof p.id === 'string' && p.id.length > 0)) return;
+    const taken = new Set(points.map((p) => p.id).filter((id): id is string => id !== undefined));
+    let n = 0;
+    const next = points.map((p) => {
+      if (typeof p.id === 'string' && p.id.length > 0) return p;
+      while (taken.has(`p${n}`)) n += 1;
+      const id = `p${n}`;
+      taken.add(id);
+      return { ...p, id };
+    });
+    this.#pointSeq = Math.max(this.#pointSeq, n + 1);
+    this.updateLayer<PointsLayer>(layerId, { points: next });
+  }
+
+  /** The next free `p<n>` in this layer — a placed point never reuses a name (§4.4). */
+  #mintPointId(layer: PointsLayer): string {
+    const taken = new Set((layer.points ?? []).map((_p, i) => pointIdAt(layer, i)));
+    while (taken.has(`p${this.#pointSeq}`)) this.#pointSeq += 1;
+    const id = `p${this.#pointSeq}`;
+    this.#pointSeq += 1;
+    return id;
+  }
+
+  /**
+   * `place` mode's click: append `{ ...template, id, position }` and select it (§7.5).
+   *
+   * The world point is the same one every other click-consuming mode uses — the pointer ray ∩ the
+   * pane's derived plane in 2D, §7.2.3's `pick` in 3D, where a click on nothing places nothing.
+   *
+   * It emits `placed` and **not** also `selected`: one click is one thing that happened, and a
+   * host that wants the selection reads `pointId` off the same event.
+   */
+  #placePoint(tool: PointToolSpec, viewId: ViewId, x: number, y: number, is3D: boolean): void {
+    const world = is3D
+      ? (this.pick(viewId, x / this.#dpr(), y / this.#dpr())?.world ?? null)
+      : this.worldAtScreen(viewId, x, y);
+    if (world === null) return;
+    this.#ensurePointIds(tool.layerId);
+    const layer = this.#pointsLayer(tool.layerId);
+    if (layer === null) return;
+    const points = layer.points ?? [];
+    const id = this.#mintPointId(layer);
+    const index = points.length;
+    this.updateLayer<PointsLayer>(tool.layerId, {
+      points: [...points, { ...(tool.template ?? {}), id, position: world }],
+    });
+    this.#emit('pointTool', {
+      layerId: tool.layerId,
+      kind: 'placed',
+      pointId: id,
+      index,
+      world,
+      viewId,
+    });
+    // Selected, but silently: the placement is the event.
+    this.#pointSelectionId = { layerId: tool.layerId, pointId: id };
+    this.setPointHighlight({ selection: { layerId: tool.layerId, index }, hot: null });
+  }
+
+  /**
+   * Re-find the selection after `points[]` changed — or clear it, with a `cleared` event.
+   *
+   * Called from `updateLayer` and `removeLayer`, which is every route an array can be replaced by:
+   * the tool's own drag, a module's delete, an undo. The hover half is dropped rather than
+   * re-resolved, because the next pointer move recomputes it and a hot ring left on an index that
+   * now belongs to another contact is a lie about what is under the pointer.
+   */
+  #reconcilePointSelection(): void {
+    const sel = this.#pointSelectionId;
+    if (sel === null) {
+      if (this.#pointHot !== null) this.setPointHighlight({ hot: null });
+      return;
+    }
+    const index = this.#indexOfPointId(sel.layerId, sel.pointId);
+    if (index === null) {
+      this.#pointSelectionId = null;
+      this.#pointDrag = null;
+      this.setPointHighlight(null);
+      this.#emit('pointTool', { layerId: sel.layerId, kind: 'cleared', pointId: null, index: -1 });
+      return;
+    }
+    this.setPointHighlight({ selection: { layerId: sel.layerId, index }, hot: null });
   }
 
   /**
@@ -2711,6 +3163,11 @@ export class TetravoxEngine implements Engine, PointerHost {
    * policy a host should try before it asks the user.
    */
   async load(input: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
+    // §13: every layer in the scene is about to be replaced, ids included, so a tool armed on one
+    // of the outgoing ones is pointed at nothing. Disarmed here rather than left to fail its next
+    // click — and it emits `cleared`, which is how a module knows to re-arm against the layer the
+    // load brought back.
+    this.setPointTool(null);
     // One migration point, so a host that read the file itself and a host that did not both get a
     // spec at `SCENE_VERSION` (§4.6, directed task 13).
     const spec = migrateViewSpec(input);

@@ -3363,3 +3363,97 @@ JavaScript's `Math.round`. `np.rint` is half-to-even and disagreed on every inde
 two voxels. Both references now state the rule, and the fixture's origin puts an integer voxel index at
 world 0 on every axis with no query on a half-index — a test whose expectations turn on a tie-break is
 pinning the tie-break rather than the rule.
+
+## 2026-08-30 — the point tool: place on every click, select by id, and one `dragEnd` per drag
+
+§13's contact editor needs three things the engine had no member for: a mode in which a click edits points
+instead of moving the cursor, a way to say *which* point a tool is about that survives an edit, and a signal
+that a drag is over. `api.ts` gains five members, an event and three types; `engine.ts` implements them;
+`input/gestures.ts` gains a `GestureKind`; `input/pointer.ts` gains one slot in its precedence chain. Two
+frozen files (§12.3) — `api.ts`, and ARCHITECTURE §4.7 / §7.5 / §11 edited in the same commit. Every addition
+is additive and nothing is armed by default, so the whole engine e2e suite, goldens included, is unchanged.
+
+**The template is the measurement tool** (`docs/DECISIONS.md`, 2026-08-28), deliberately and almost line for
+line: the mode is the engine's because only the engine can turn a pane pixel into a world point and §8 forbids
+the app deriving one; the app owns the thing that arms it and nothing else; the pointer layer is where a click
+becomes an edit. What is new is that the thing being edited is **scene state a layer already holds**, not a
+new `Scene` collection — §4.4's `PointsLayer` is the contact model (2026-08-30), so every edit is one
+`updateLayer` and a host that never heard of this tool still sees the points move.
+
+**Place mode does not hit-test first, and that is Slicer's semantics rather than an omission.** In `'place'`
+every left click appends a point. The alternative — hit first, place on a miss — reads as helpful and is
+wrong at the pitch this is for: sEEG contacts are 3.5 mm apart, about five pixels at a default zoom, and the
+click that matters most is the one filling the gap *between* two contacts that were found. A hit-first rule
+answers that click by selecting a neighbour, and the user's correction has silently become a no-op.
+
+**Selection is by `points[].id`, and the engine re-finds it after every `points` replacement.** The array
+index is the frame's key and cannot be an identity: deleting the second of twelve contacts renumbers ten of
+them. So the tool holds `{ layerId, pointId }`, `updateLayer` re-resolves it, and an id that is no longer
+there **clears** the selection with a `cleared` event rather than leaving the ring on whatever took the index.
+Arming the tool also *materialises* ids — a layer whose points carry none gets `p<index>` on every one of
+them — so that the tool, the selection and the saved scene name the same contact by the same string instead of
+the engine answering with ids that are not in the scene.
+
+**A ghost is never hit.** `offPlaneOpacity` draws the off-slice contacts of a shaft so the shaft reads as a
+shaft (2026-08-30), and every one of those discs is at a position the pane is *not* showing a cross-section
+of. Grabbing one and dragging it would move a contact in a plane it is not in, by a delta measured in a plane
+it is not in. So the hit test asks the disc rule with the ghost switched off, which is one argument
+(`offPlaneOpacity: 0`) rather than a second rule: `overlay/point-ring.ts`'s `discRadiusPx` is the shader's
+rule stated once, and the ring, the hit test and the picture cannot drift apart — the arrangement
+`gizmoHandleAt` already has with `handlePoints`. The floor under it is `max(disc, 8 px)`, because a 0.8 mm
+contact at 0.5 mm/px is a 3 px target and a hand does not aim at 3 px.
+
+**One `dragEnd`, delivered from all three of the gesture machine's exits.** The gizmo drag discards its
+`end` (`#onUp` is `void g`) because it has no host that cares; a point drag does — one drag is one undo step
+and one dirty mark, and the module's `.bak` is the only other net. The `end` arrives from `#onUp`, from
+`#onCancel` (which is `pointercancel` **and** the window `blur` bound to the same handler) and from the
+second-pointer branch of `down()`, whose events until now were read only for a `begin`. All three are
+forwarded for kind `'point'` and for no other kind, and `gestures.test.ts` has a case per exit — a tool that
+listened to only the first would leave a half-committed edit behind every time a user switched windows
+mid-drag.
+
+**`GestureKind 'point'` is resolved in the 2D branch, between `Shift` and `space`.** After the ctrl/meta and
+`Shift` tests so a menu accelerator is still not a drag and `Shift`+drag over a contact is still the layer's
+opacity; before the `space` test, and testing `space` itself, so `space`+drag over a contact still pans the
+pane. §7.5 binds those three and a new tool does not get to quietly take them. `GestureMachine.down` and
+`resolveGesture` now take a `GestureTargets` bag where `overGizmo` was a positional boolean — `overPoint`
+would have been a fifth — and a bare boolean is still read as `{ overGizmo }`, so no existing caller changes.
+
+**One armed mode at a time.** Arming the point tool disarms measure mode and `setMeasureMode(true)` disarms
+the point tool. Both take the left click away from the cursor, and there is no place in §8's chrome that could
+honestly show which of two armed modes a click went to. §7.5 states the invariant.
+
+**`Esc` is `place` → `select` → off**, in the engine's own `keydown` beside `cancelMeasurement`'s and
+**before** the "is the pointer over a pane" early return, so it works with the pointer over the panel — which
+is where a user's pointer is when they decide they are done placing. It cannot be the app's: `keymap.ts`
+returns `cancelMeasurement` for `Escape` unconditionally and `Shell.tsx` `preventDefault`s it, so "core first,
+module on null" would never reach a module. Two steps rather than one because the two modes fail differently:
+a user who armed `place` by mistake wants out of *placing*, not out of the tool.
+
+**The hover hit test runs only while `select` is armed.** §8 budgets a volume hover at 16 ms and the 2D
+`#onMove` path is the hottest code in the pointer layer, so an unconditional per-move CPU test over a points
+layer would be a tax on every user who is not editing points. Armed, it sets `DrawInput.pointHot` and the
+canvas cursor; unarmed, it is one property read. `pointer.spec.ts` keeps a timing case on the unarmed path so
+that stays true.
+
+**Both mocks, and one of them behaviourally.** `MockEngine` inside the frozen `api.ts` throws, like every
+other member of it — its job is to be the compile-time proof that the facade needs no GL. The app's
+`NoGlEngine` implements the tool **for real** (arm/disarm, ids, selection by id, place, drag, the events),
+because the app's e2e launches with `?engine=mock` and there is no canvas there for a pointer layer to listen
+to. Its hit test is the engine's own exported `pointAtPane`, so "which contact did that click grab" has one
+answer in both engines; what it cannot borrow is the pane, so its 2D pane is an explicit `pointPane` with its
+in-plane origin at the cursor — the case the real engine reduces to when the scene anchor and the cursor
+coincide — and its 3D hit test answers `null` rather than inventing a projection from a camera matrix that
+never drew anything. `pointToolClick` / `pointToolDrag` / `pointToolDragEnd` are the three calls the real
+pointer layer would have made, exposed as a seam like `terminations` and `theme`, and not on `Engine`.
+
+**One P1 member had to be corrected to make the hover ring work.** `setPointHighlight({ hot: null })` kept the
+old value: the implementation read `highlight.hot ?? this.#pointHot`, and `??` cannot tell `null` — the value
+a caller passes to *clear* one half — from "not mentioned". It now tests `'hot' in highlight`. Without it, a
+pointer leaving a contact could only clear the hover ring by clearing the selection's with it.
+
+**Nothing moves.** No mode is armed unless something arms it, `pointSelection`/`pointHot` stay absent on every
+frame that predates a tool, and `resolveGesture` returns exactly what it returned for every press that is not
+over a point with a tool armed. The full engine e2e suite (both renderer projects) and every golden are
+unchanged; the new coverage is `points-tool.spec.ts`, which asserts the drag as `40 · mmPerPx ± 0.05 mm`
+derived from §3 rather than from the engine.
