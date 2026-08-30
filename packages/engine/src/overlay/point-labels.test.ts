@@ -8,7 +8,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { drawPointLabels, labelHeightPx, placePointLabels } from './point-labels';
+import {
+  drawPointLabels,
+  labelHeightPx,
+  placePointLabels,
+  pointLabelAnchors,
+} from './point-labels';
 import { OverlayBuilder, overlayMetrics } from './builder';
 import type { mat4, vec3 } from '../scene/types';
 
@@ -120,5 +125,49 @@ describe('3D text labels', () => {
     const m = overlayMetrics(200, 100, 1);
     expect(labelHeightPx(m, 2)).toBe(labelHeightPx(m, 1) * 2);
     expect(labelHeightPx(m, 0.01)).toBe(labelHeightPx(m, 1));
+  });
+});
+
+/**
+ * §4.4's `labelSource` (2026-08-30) — *which* array the text comes from, before anything is placed.
+ *
+ * The two sources are not interchangeable and the tests below say so with different strings in each,
+ * because the failure this guards against is silent: a resolver that fell through to `labels` for a
+ * `'names'` layer draws the right number of labels in the right places on a Gmsh net and nothing at
+ * all on a layer that has no `labels` array — which looks like "labels are off", not like a bug.
+ */
+describe('labelSource', () => {
+  const layer = {
+    points: [
+      { position: [1, 2, 3] as vec3, name: 'A01' },
+      { position: [4, 5, 6] as vec3, name: 'A02' },
+      { position: [7, 8, 9] as vec3 },
+    ],
+    labels: [{ position: [0, 0, 0] as vec3, text: 'GMSH' }],
+  };
+
+  it('defaults to the labels array — absent is the behaviour that predates the field', () => {
+    expect(pointLabelAnchors(layer)).toEqual(layer.labels);
+    expect(pointLabelAnchors({ ...layer, labelSource: 'labels' })).toEqual(layer.labels);
+  });
+
+  it("'names' draws points[].name at each point's own position", () => {
+    expect(pointLabelAnchors({ ...layer, labelSource: 'names' })).toEqual([
+      { position: [1, 2, 3], text: 'A01' },
+      { position: [4, 5, 6], text: 'A02' },
+    ]);
+  });
+
+  it('drops a point with no name rather than drawing a halo around nothing', () => {
+    const anchors = pointLabelAnchors({
+      points: [{ position: [0, 0, 0], name: '' }, { position: [1, 1, 1] }],
+      labelSource: 'names',
+    });
+    expect(anchors).toEqual([]);
+  });
+
+  it('is empty, not a crash, for a layer with neither array', () => {
+    expect(pointLabelAnchors({})).toEqual([]);
+    expect(pointLabelAnchors({ labelSource: 'names' })).toEqual([]);
   });
 });

@@ -36,6 +36,8 @@ import type {
   ViewId,
   ViewSpec,
   vec3,
+  // §13's point tool (2026-08-30): a placement template carries a colour.
+  vec4,
 } from './scene/types';
 import type { Capabilities } from './gl/caps';
 // Directed task 9 (2026-08-28): the pass-3 chrome palette `setTheme` carries.
@@ -273,6 +275,68 @@ export interface LoadProgress {
   total: number;
 }
 
+// -----------------------------------------------------------------------------------------------
+// §13's point tool (2026-08-30 — see `docs/DECISIONS.md`). Appended, additive: absent, every member
+// below is unarmed and the engine behaves exactly as it did.
+// -----------------------------------------------------------------------------------------------
+
+/**
+ * What {@link Engine.setPointTool} arms — one layer, one mode, and what a placed point starts as.
+ *
+ * One **layer**, not one kind: §4.4's answer to twelve electrodes is one `PointsLayer` holding
+ * twelve `group`s, so a tool that edits "the contacts" edits one layer, and a scene may hold a
+ * second points layer (a net, a set of ROI centres) that the tool must not touch.
+ */
+export interface PointToolSpec {
+  layerId: LayerId;
+  /**
+   * `'place'` — **every** left click appends a point, with no hit test first. `'select'` — a click
+   * grabs the point under it and drags it; a click on nothing does nothing.
+   *
+   * Place mode does not hit-test on purpose. Contacts sit at a 3.5 mm pitch, about five pixels
+   * apart at a default zoom, and the click that matters most is the one filling the gap *between*
+   * two contacts that were found — which a hit-first rule would answer by selecting a neighbour.
+   */
+  mode: 'select' | 'place';
+  /** Fields a placed point starts with; `position` and `id` are the engine's. */
+  template?: { color?: vec4; radiusMm?: number; group?: string };
+}
+
+/**
+ * Which point is selected — by **id**, with the array index alongside it as a convenience.
+ *
+ * The id is the identity (§4.4) and the index is the frame's key: deleting the second of twelve
+ * contacts renumbers ten of them, so a selection held as an index would silently move to the
+ * neighbour. Everything that outlives one call — the selection itself, an undo step, a module's
+ * table row — is addressed by `pointId`; `index` is what the same call's `points[]` lookup is.
+ */
+export interface PointSelection {
+  layerId: LayerId;
+  pointId: string;
+  index: number;
+}
+
+/**
+ * What the tool did — {@link EngineEvents.pointTool}.
+ *
+ * * `placed` — a click in `place` mode appended a point; it is also now the selection. `world` is
+ *   where it landed and `viewId` which pane the click was in.
+ * * `selected` — a point became the selection, from a click or from {@link Engine.setPointSelection}.
+ * * `dragEnd` — a `select`-mode drag finished, **once**, however it ended (pointer up, cancel, a
+ *   second finger). The scene has already moved: the drag wrote every intermediate position, so
+ *   this is the commit point, not the change.
+ * * `cleared` — there is no selection any more: `Esc`, an explicit `null`, or the selected id
+ *   disappearing from a replaced `points` array. `pointId` is `null` and `index` is `-1`.
+ */
+export interface PointToolEvent {
+  layerId: LayerId;
+  kind: 'placed' | 'selected' | 'dragEnd' | 'cleared';
+  pointId: string | null;
+  index: number;
+  world?: vec3;
+  viewId?: ViewId;
+}
+
 export interface EngineEvents {
   cursor: vec3;
   hover: vec3 | null;
@@ -302,6 +366,15 @@ export interface EngineEvents {
    * rebuild the layer panel every time a click lands in measure mode.
    */
   measurements: Measurement[];
+  /**
+   * §13's point tool did something (2026-08-30).
+   *
+   * Its own event and not a flag on `layers`, for the reason `measurements` is its own event: a
+   * points edit fires `layers` too — the tool moves a point by replacing the array through
+   * `updateLayer` — and an editor that rebuilt its table on `layers` would rebuild it sixty times a
+   * second during a drag. This says what happened, once, and `dragEnd` says when it is over.
+   */
+  pointTool: PointToolEvent;
   progress: LoadProgress;
   frame: { viewId: ViewId; cpuMs: number; gpuMs?: number; quality: QualityLevel['name'] };
   quality: QualityLevel;
@@ -391,6 +464,44 @@ export interface Engine {
   removeMeasurement(id: MeasurementId): void;
   /** `Esc`: abandon the measurement being placed. Nothing already placed is touched. */
   cancelMeasurement(): void;
+
+  // -- §13's point tool (2026-08-30; §4.4, §7.5, §13; `docs/DECISIONS.md`) ----------------------
+  /**
+   * Arm — or disarm, with `null` — the point tool on one points layer (§7.5).
+   *
+   * **At most one click-consuming mode is armed.** Arming this disarms measure mode and
+   * {@link Engine.setMeasureMode} disarms this, because both of them take the left click away from
+   * the cursor and a user cannot be told which one a click went to.
+   *
+   * Arming also **materialises point ids**: a layer whose `points[]` carry none gets `p<index>` on
+   * every one of them, so that from here on the tool, the selection and the scene file all name the
+   * same contact by the same string (§4.4).
+   *
+   * Disarming clears the selection and the hover, and emits `cleared`.
+   */
+  setPointTool(spec: PointToolSpec | null): void;
+  /** What is armed, or `null` — §8's `aria-pressed`, and a module reading its own mode back. */
+  pointTool(): PointToolSpec | null;
+  /**
+   * Which point a pane pixel would grab, without grabbing it — `px`/`py` in **CSS pixels**, like
+   * {@link Engine.pick}.
+   *
+   * The `select`-mode hit rule exactly: on-slice only (**a ghost is never hit** — it is a
+   * projection of a point on another slice), within `max(disc, 8 px)` of the disc the pane actually
+   * drew, nearest wins; in the 3D pane the nearest projected centre within 14 px. Restricted to the
+   * armed layer while a tool is armed, and over every visible points layer otherwise.
+   */
+  pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null;
+  /**
+   * Select a point by **id**, or clear the selection with `null`. Emits `selected` / `cleared`.
+   *
+   * By id and not by index because the selection has to survive the edit that follows it: a module
+   * that deletes a contact and replaces `points` finds its selection re-resolved, or cleared with a
+   * `cleared` event — never silently pointing at the neighbour.
+   */
+  setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void;
+  /** The selection, resolved against the current `points[]`, or `null`. */
+  pointSelection(): PointSelection | null;
 
   // -- coordinate spaces (directed task 8; §3, §8; `docs/DECISIONS.md` 2026-08-28) --------------
   /**
@@ -645,6 +756,29 @@ export class MockEngine implements Engine {
     throw new Error('phase 1');
   }
   cancelMeasurement(): void {
+    throw new Error('phase 1');
+  }
+  // §13's point tool (2026-08-30). Every member throws, like the rest of this class: its job is to
+  // be a compile-time proof that the facade is implementable without GL. The *behavioural* no-GL
+  // point tool is `packages/app`'s `NoGlEngine`, which the app's e2e drives for real.
+  setPointTool(spec: PointToolSpec | null): void {
+    void spec;
+    throw new Error('phase 1');
+  }
+  pointTool(): PointToolSpec | null {
+    throw new Error('phase 1');
+  }
+  pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null {
+    void viewId;
+    void px;
+    void py;
+    throw new Error('phase 1');
+  }
+  setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void {
+    void sel;
+    throw new Error('phase 1');
+  }
+  pointSelection(): PointSelection | null {
     throw new Error('phase 1');
   }
   coordinateSpaces(): CoordSpaceOption[] {

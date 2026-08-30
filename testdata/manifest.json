@@ -4722,9 +4722,302 @@
    "reader": "gmsh 4.14.0 python api"
   }
  },
- "totalFixtureBytes": 117137,
+ "totalFixtureBytes": 139279,
  "version": 1,
  "volumes": {
+  "ct_shafts.nii.gz": {
+   "affine": [
+    [
+     0.400000006,
+     0.0,
+     0.0,
+     -11.199999809
+    ],
+    [
+     0.0,
+     0.5,
+     0.0,
+     -12.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.800000012,
+     -16.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": true,
+   "bytes": 22142,
+   "datatypeCode": 4,
+   "dims": [
+    56,
+    48,
+    40
+   ],
+   "dtype": "i16",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 0.0,
+   "niftiVersion": 1,
+   "numpyDtype": "int16",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    0.400000006,
+    0.5,
+    0.800000012,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     0.400000006,
+     0.0,
+     0.0,
+     -11.199999809
+    ],
+    [
+     0.0,
+     0.5,
+     0.0,
+     -12.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.800000012,
+     -16.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     0.400000006,
+     0.0,
+     0.0,
+     -11.199999809
+    ],
+    [
+     0.0,
+     0.5,
+     0.0,
+     -12.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.800000012,
+     -16.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -11.199999809,
+    -12.0,
+    -16.0
+   ],
+   "quatern": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sclInterOnDisk": -1024.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     0.400000006,
+     0.0,
+     0.0,
+     -11.199999809
+    ],
+    [
+     0.0,
+     0.5,
+     0.0,
+     -12.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.800000012,
+     -16.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    0.400000006,
+    0.5,
+    0.800000012
+   ],
+   "spotValues": [
+    {
+     "physical": 43.0,
+     "raw": 1067.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -11.199999809,
+      -12.0,
+      -16.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 46.0,
+     "raw": 1070.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -9.599999785,
+      -12.0,
+      -16.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 41.0,
+     "raw": 1065.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -11.199999809,
+      -10.5,
+      -16.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 42.0,
+     "raw": 1066.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -11.199999809,
+      -12.0,
+      -14.399999976,
+      1.0
+     ]
+    },
+    {
+     "physical": 43.0,
+     "raw": 1067.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -10.399999797,
+      -11.5,
+      -15.199999988,
+      1.0
+     ]
+    },
+    {
+     "physical": 44.0,
+     "raw": 1068.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -9.599999785,
+      -10.5,
+      -14.399999976,
+      1.0
+     ]
+    },
+    {
+     "physical": 44.0,
+     "raw": 1068.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -9.999999791,
+      -11.0,
+      -16.0,
+      1.0
+     ]
+    },
+    {
+     "physical": 42.0,
+     "raw": 1066.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -10.799999803,
+      -11.5,
+      -14.399999976,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 3166.0,
+    "mean": 49.114973958,
+    "min": 25.0,
+    "n": 107520,
+    "nFinite": 107520,
+    "sum": 5280842.0
+   },
+   "uniqueCount": 909
+  },
   "labels_float32.nii.gz": {
    "affine": [
     [
@@ -11576,6 +11869,725 @@
    },
    "uniqueCount": 60
   }
+ },
+ "voxelBox": {
+  "cases": [
+   {
+    "box": {
+     "dims": [
+      9,
+      7,
+      5
+     ],
+     "ijk0": [
+      15,
+      11,
+      13
+     ],
+     "spotValues": [
+      {
+       "offset": [
+        0,
+        0,
+        0
+       ],
+       "value": 37.0
+      },
+      {
+       "offset": [
+        8,
+        0,
+        0
+       ],
+       "value": 25.0
+      },
+      {
+       "offset": [
+        0,
+        6,
+        0
+       ],
+       "value": 97.0
+      },
+      {
+       "offset": [
+        0,
+        0,
+        4
+       ],
+       "value": 35.0
+      },
+      {
+       "offset": [
+        4,
+        3,
+        2
+       ],
+       "value": 701.0
+      }
+     ],
+     "valueMax": 3057.0,
+     "valueMin": 25.0,
+     "valueSum": 81714.0,
+     "voxelCount": 315
+    },
+    "expectedContact": {
+     "centroidErrorMm": 0.086403912,
+     "group": "A",
+     "ordinal": 3,
+     "queryErrorMm": 0.877496439,
+     "world": [
+      -4.245608525,
+      -4.543851935,
+      -4.68419069
+     ]
+    },
+    "name": "snap-a3",
+    "peakCentroidWorld": [
+     -4.246485822,
+     -4.547394583,
+     -4.770517488
+    ],
+    "radiusMm": 1.5,
+    "world": [
+     -3.645608525,
+     -5.043851935,
+     -4.28419069
+    ]
+   },
+   {
+    "box": {
+     "dims": [
+      9,
+      7,
+      5
+     ],
+     "ijk0": [
+      39,
+      10,
+      5
+     ],
+     "spotValues": [
+      {
+       "offset": [
+        0,
+        0,
+        0
+       ],
+       "value": 38.0
+      },
+      {
+       "offset": [
+        8,
+        0,
+        0
+       ],
+       "value": 32.0
+      },
+      {
+       "offset": [
+        0,
+        6,
+        0
+       ],
+       "value": 40.0
+      },
+      {
+       "offset": [
+        0,
+        0,
+        4
+       ],
+       "value": 37.0
+      },
+      {
+       "offset": [
+        4,
+        3,
+        2
+       ],
+       "value": 1770.0
+      }
+     ],
+     "valueMax": 2622.0,
+     "valueMin": 31.0,
+     "valueSum": 74973.0,
+     "voxelCount": 315
+    },
+    "expectedContact": {
+     "centroidErrorMm": 0.019464309,
+     "group": "B",
+     "ordinal": 1,
+     "queryErrorMm": 0.761577311,
+     "world": [
+      6.0,
+      -6.0,
+      -10.0
+     ]
+    },
+    "name": "snap-b1",
+    "peakCentroidWorld": [
+     5.995840567,
+     -5.991980955,
+     -9.982758963
+    ],
+    "radiusMm": 1.5,
+    "world": [
+     6.0,
+     -5.3,
+     -10.3
+    ]
+   },
+   {
+    "box": {
+     "dims": [
+      9,
+      7,
+      5
+     ],
+     "ijk0": [
+      18,
+      33,
+      15
+     ],
+     "spotValues": [
+      {
+       "offset": [
+        0,
+        0,
+        0
+       ],
+       "value": 34.0
+      },
+      {
+       "offset": [
+        8,
+        0,
+        0
+       ],
+       "value": 73.0
+      },
+      {
+       "offset": [
+        0,
+        6,
+        0
+       ],
+       "value": 33.0
+      },
+      {
+       "offset": [
+        0,
+        0,
+        4
+       ],
+       "value": 34.0
+      },
+      {
+       "offset": [
+        4,
+        3,
+        2
+       ],
+       "value": 627.0
+      }
+     ],
+     "valueMax": 3166.0,
+     "valueMin": 28.0,
+     "valueSum": 79367.0,
+     "voxelCount": 315
+    },
+    "expectedContact": {
+     "centroidErrorMm": 0.101991894,
+     "group": "C",
+     "ordinal": 2,
+     "queryErrorMm": 0.788986692,
+     "world": [
+      -2.075865666,
+      5.450472181,
+      -3.271227671
+     ]
+    },
+    "name": "snap-c2",
+    "peakCentroidWorld": [
+     -2.052631252,
+     5.421788738,
+     -3.176149975
+    ],
+    "radiusMm": 1.5,
+    "world": [
+     -2.575865666,
+     5.800472181,
+     -2.771227671
+    ]
+   },
+   {
+    "box": {
+     "dims": [
+      9,
+      7,
+      5
+     ],
+     "ijk0": [
+      10,
+      8,
+      6
+     ],
+     "spotValues": [
+      {
+       "offset": [
+        0,
+        0,
+        0
+       ],
+       "value": 140.0
+      },
+      {
+       "offset": [
+        8,
+        0,
+        0
+       ],
+       "value": 38.0
+      },
+      {
+       "offset": [
+        0,
+        6,
+        0
+       ],
+       "value": 44.0
+      },
+      {
+       "offset": [
+        0,
+        0,
+        4
+       ],
+       "value": 40.0
+      },
+      {
+       "offset": [
+        4,
+        3,
+        2
+       ],
+       "value": 364.0
+      }
+     ],
+     "valueMax": 3050.0,
+     "valueMin": 33.0,
+     "valueSum": 110593.0,
+     "voxelCount": 315
+    },
+    "name": "between-a1-a2",
+    "peakCentroidWorld": [
+     -5.575297945,
+     -6.390874472,
+     -9.580216458
+    ],
+    "radiusMm": 1.5,
+    "world": [
+     -5.561402131,
+     -6.385962984,
+     -9.421047673
+    ]
+   },
+   {
+    "box": {
+     "dims": [
+      7,
+      5,
+      5
+     ],
+     "ijk0": [
+      5,
+      38,
+      28
+     ],
+     "spotValues": [
+      {
+       "offset": [
+        0,
+        0,
+        0
+       ],
+       "value": 38.0
+      },
+      {
+       "offset": [
+        6,
+        0,
+        0
+       ],
+       "value": 45.0
+      },
+      {
+       "offset": [
+        0,
+        4,
+        0
+       ],
+       "value": 42.0
+      },
+      {
+       "offset": [
+        0,
+        0,
+        4
+       ],
+       "value": 35.0
+      },
+      {
+       "offset": [
+        3,
+        2,
+        2
+       ],
+       "value": 43.0
+      }
+     ],
+     "valueMax": 49.0,
+     "valueMin": 35.0,
+     "valueSum": 7473.0,
+     "voxelCount": 175
+    },
+    "name": "background",
+    "peakCentroidWorld": [
+     -7.333333085,
+     8.356630824,
+     7.607168811
+    ],
+    "radiusMm": 1.0,
+    "world": [
+     -8.0,
+     8.0,
+     8.0
+    ]
+   },
+   {
+    "box": {
+     "dims": [
+      7,
+      6,
+      5
+     ],
+     "ijk0": [
+      0,
+      0,
+      0
+     ],
+     "spotValues": [
+      {
+       "offset": [
+        0,
+        0,
+        0
+       ],
+       "value": 43.0
+      },
+      {
+       "offset": [
+        6,
+        0,
+        0
+       ],
+       "value": 50.0
+      },
+      {
+       "offset": [
+        0,
+        5,
+        0
+       ],
+       "value": 38.0
+      },
+      {
+       "offset": [
+        0,
+        0,
+        4
+       ],
+       "value": 41.0
+      },
+      {
+       "offset": [
+        3,
+        2,
+        2
+       ],
+       "value": 43.0
+      }
+     ],
+     "valueMax": 50.0,
+     "valueMin": 37.0,
+     "valueSum": 9014.0,
+     "voxelCount": 210
+    },
+    "name": "clipped-corner",
+    "peakCentroidWorld": [
+     -9.07791541,
+     -11.280397022,
+     -14.624317597
+    ],
+    "radiusMm": 2.0,
+    "world": [
+     -10.7,
+     -11.4,
+     -15.1
+    ]
+   },
+   {
+    "box": {
+     "dims": [
+      31,
+      31,
+      31
+     ],
+     "ijk0": [
+      13,
+      9,
+      5
+     ],
+     "spotValues": [
+      {
+       "offset": [
+        0,
+        0,
+        0
+       ],
+       "value": 576.0
+      },
+      {
+       "offset": [
+        30,
+        0,
+        0
+       ],
+       "value": 33.0
+      },
+      {
+       "offset": [
+        0,
+        30,
+        0
+       ],
+       "value": 43.0
+      },
+      {
+       "offset": [
+        0,
+        0,
+        30
+       ],
+       "value": 39.0
+      },
+      {
+       "offset": [
+        15,
+        15,
+        15
+       ],
+       "value": 45.0
+      }
+     ],
+     "valueMax": 3166.0,
+     "valueMin": 25.0,
+     "valueSum": 2107857.0,
+     "voxelCount": 29791
+    },
+    "name": "capped-radius",
+    "peakCentroidWorld": [
+     -0.220801386,
+     -1.595781761,
+     -2.513412066
+    ],
+    "radiusMm": 40.0,
+    "world": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   {
+    "box": null,
+    "name": "outside",
+    "peakCentroidWorld": null,
+    "radiusMm": 1.5,
+    "world": [
+     40.0,
+     0.0,
+     0.0
+    ]
+   }
+  ],
+  "contactSigmaMm": 0.85,
+  "contacts": [
+   {
+    "groundTruth": "authored",
+    "group": "A",
+    "ordinal": 1,
+    "world": [
+     -6.0,
+     -7.0,
+     -11.0
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "A",
+    "ordinal": 2,
+    "world": [
+     -5.122804263,
+     -5.771925968,
+     -7.842095345
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "A",
+    "ordinal": 3,
+    "world": [
+     -4.245608525,
+     -4.543851935,
+     -4.68419069
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "A",
+    "ordinal": 4,
+    "world": [
+     -3.368412788,
+     -3.315777903,
+     -1.526286035
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "A",
+    "ordinal": 5,
+    "world": [
+     -2.49121705,
+     -2.08770387,
+     1.631618619
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "A",
+    "ordinal": 6,
+    "world": [
+     -1.614021313,
+     -0.859629838,
+     4.789523274
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "B",
+    "ordinal": 1,
+    "world": [
+     6.0,
+     -6.0,
+     -10.0
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "B",
+    "ordinal": 2,
+    "world": [
+     5.471687664,
+     -5.119479441,
+     -6.654021874
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "B",
+    "ordinal": 3,
+    "world": [
+     4.943375329,
+     -4.238958881,
+     -3.308043748
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "B",
+    "ordinal": 4,
+    "world": [
+     4.415062993,
+     -3.358438322,
+     0.037934378
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "B",
+    "ordinal": 5,
+    "world": [
+     3.886750657,
+     -2.477917762,
+     3.383912504
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "C",
+    "ordinal": 1,
+    "world": [
+     -4.0,
+     6.5,
+     -6.0
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "C",
+    "ordinal": 2,
+    "world": [
+     -2.075865666,
+     5.450472181,
+     -3.271227671
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "C",
+    "ordinal": 3,
+    "world": [
+     -0.151731331,
+     4.400944363,
+     -0.542455343
+    ]
+   },
+   {
+    "groundTruth": "authored",
+    "group": "C",
+    "ordinal": 4,
+    "world": [
+     1.772403003,
+     3.351416544,
+     2.186316986
+    ]
+   }
+  ],
+  "conventions": {
+   "box": "half-extent ceil(radiusMm / spacing) voxels PER AXIS, clipped to the volume, capped at 32 voxels on an axis (ARCHITECTURE.md \u00a74.3)",
+   "peakCentroid": "weights clip(v - (max - 0.5*(max - min)), 0); centroid in voxel indices, then through the affine",
+   "spotValues": "offset is [i, j, k] within the box; i fastest, like VolumeDataset.data",
+   "values": "physical = raw * sclSlope + sclInter, applied once"
+  },
+  "file": "ct_shafts.nii.gz",
+  "groundTruth": "nibabel + numpy, reading ct_shafts.nii.gz back (the shaft geometry is authored)",
+  "pitchMm": 3.5,
+  "spacing": [
+   0.400000006,
+   0.5,
+   0.800000012
+  ]
  },
  "voxelFormats": {
   "vol_4d_list.nrrd": {

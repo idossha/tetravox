@@ -241,7 +241,7 @@ export interface VolumeDataset {
   affine: mat4; inverseAffine: mat4; spacing: vec3; bounds: Aabb;
   dtype: 'u8' | 'i8' | 'u16' | 'i16' | 'u32' | 'i32' | 'f32' | 'f64' | 'rgb24' | 'rgba32';
   data: TypedArray;                   // RAW on-disk samples, nx*ny*nz*nvols, i fastest. Kept on the UI thread
-                                      // for probes only; never re-sent to a worker.
+                                      // for probes AND BOUNDED LOCAL READS; never re-sent to a worker.
   sclSlope: number; sclInter: number;  // identity (1, 0) when the header says no scaling
   isLabel: boolean;
   labelIds?: Uint32Array;             // sorted unique ids, present iff isLabel
@@ -310,12 +310,31 @@ edit, applied on top by the engine's model matrix and serialised in `ViewSpec`.
 **Mesh bulk arrays never reach the UI thread.** Nodes/tets/tris/fields stay in the dataset's worker; the UI
 thread sees only draw-ready buffers (uploaded to GL, then dropped) and probe results.
 
+**`VolumeDataset.data` is for probes and bounded local reads — a whole-volume scan is still not a probe**
+(2026-08-30). A probe is one voxel; a point tool that snaps a contact to the local intensity peak needs the
+*neighbourhood*, which on a 0.5 mm CT at a 1.5 mm radius is a few hundred voxels and well under a millisecond.
+`derived/voxel-box.ts` is the whole of that permission and it carries the bound with it:
+`sampleVoxelBox(ds, world, radiusMm)` returns the physical values (`raw * sclSlope + sclInter`, applied once)
+in a box whose half-extent is `ceil(radiusMm / spacing)` voxels **per axis**, clipped to the volume and capped
+at `MAX_BOX_VOXELS` = 32 voxels on an axis; it returns `null` for `rgb24`/`rgba32`, whose samples are
+interleaved components with no single value, and for a point outside the volume — never a clamp, because a
+snap that silently pulled a click back inside the head would be worse than one that refused. `peakCentroid`
+is the one consumer the engine ships: the intensity-weighted centroid of that box above the **midpoint of its
+own range** (`clip(v − (max − ½(max − min)), 0)`), computed in voxel indices and mapped through the affine, so
+it is sub-voxel and needs no absolute threshold. It is `null` on a flat box, where there is no peak to report.
+Both are pure and exported from `@tetravox/engine`, so the app's no-GL engine gives the same answers. The cap
+is what makes this an exception rather than a hole: without it "read `data` on the UI thread" is a door to a
+512³ loop inside a `pointermove`, and §5's worker-per-dataset arrangement leaks through it. A caller who wants
+more than a box asks a worker (§6.5).
+
 ### 4.4 Layers
 
 ```ts
 export interface LayerBase {
   id: LayerId; datasetId: DatasetId; name: string;
   visible: boolean; opacity: number; pickable: boolean; showColorbar: boolean;
+  module?: string;                    // §13: the module that owns this layer's edits. A TAG the engine
+                                      // never interprets; absent = core-owned
 }
 
 export interface VolumeLayer extends LayerBase {
@@ -409,7 +428,12 @@ export interface IsosurfaceLayer extends LayerBase {
 
 export interface PointsLayer extends LayerBase {
   kind: 'points';
-  points: { name?: string; position: vec3; color?: vec4; radiusMm?: number; value?: number }[];
+  points: { name?: string; position: vec3; color?: vec4; radiusMm?: number; value?: number;
+            // §13 (2026-08-30). All optional; the array index stays the ENGINE's key (ProbeRow.labelId,
+            // nearestPoint) and a tool's selection is by `id`, which survives array replacement.
+            id?: string;              // stable identity, unique within the layer
+            group?: string;           // the set it belongs to — an sEEG electrode, a montage
+            ordinal?: number }[];     // 1-based position within `group`; 1 = deepest contact
   shape: 'sphere' | 'dot'; radiusMm: number; color: vec4; showLabels: boolean;
 
   // A Gmsh parsed view's extras (§6.2). EVERY field below is optional and absent reproduces the
@@ -423,6 +447,12 @@ export interface PointsLayer extends LayerBase {
   valueMode?: 'solid' | 'value';
   colormap?: ColormapName | string;
   valueRange?: { lo: number; hi: number };       // absent = the layer's own min..max
+
+  // §13 (2026-08-30). Both optional; both default to the Phase-2 behaviour, so no golden moves.
+  offPlaneOpacity?: number;                      // 0/absent = today's 2D cull; > 0 draws the off-slice
+                                                 // points as full-radius discs at this alpha
+  labelSource?: 'labels' | 'names';              // 'labels' (default) = the `labels` array;
+                                                 // 'names' = points[].name at each point's position
 }
 
 export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
@@ -454,6 +484,29 @@ table would be lost on the next open. `labelColors` is therefore an *override*: 
 readable underneath it, a per-row Reset is deleting a key, and "Save LUT…" writes the override merged over
 the table. `selectedLabels` is a plain `number[]`, unlike `visibleLabels`' `Uint32Array`: a selection is a
 handful of ids a panel edits click by click, not a filter over up to 65535 of them.
+
+**A points layer's five §13 fields, and what "additive" guarantees here** (2026-08-30). `LayerBase.module`,
+`points[].id` / `.group` / `.ordinal`, `PointsLayer.offPlaneOpacity` and `.labelSource` are every one of them
+optional, and **absent reproduces the previous behaviour exactly** — that is the whole of §12.3's additive
+rule, and for these fields it is checkable: `module`, `group` and `ordinal` are read by nobody in the engine,
+`id` is read only by a tool's selection, and the two rendering fields both default to the branch the shader
+and the overlay took before they existed. No existing scene changes and no §11 golden moves.
+
+**The 2D cull and the ghost.** §7.2's 2D rule for a points layer is the sphere ∩ plane disc, and a point
+further than its own radius from the plane is dropped entirely — which is what makes a points layer sweep
+with the cursor. `offPlaneOpacity > 0` adds the other case: the off-slice points are also drawn, as the
+**full-radius** disc projected onto the plane at that alpha (`shape: 'dot'` at its constant pixel radius,
+which is the size it draws at on-slice). A depth electrode is twelve contacts on a line no single slice
+contains, so under the cull alone the shaft is never visible as a shaft. **The labels do not follow the
+discs**: they stay slab-culled at `max(radiusMm, 1 mm)` even when the discs are ghosted, because a whole net's
+names projected onto one slice is exactly the smear the slab rule exists to prevent. §7.2 states that
+divergence beside the rule it diverges from.
+
+**Identity: the index is the engine's, the id is the tool's.** `points[]` is an array and the index is what
+the engine keys on — `ProbeRow.labelId`, `nearestPoint`, the instance row. It cannot also be an identity:
+deleting the second of twelve contacts renumbers ten of them, so a selection or an undo step holding an index
+afterwards names the wrong electrode. `id` is the identity a tool selects by and survives an insertion, a
+deletion, and a wholesale `points` replacement.
 
 ### 4.5 Views, layout, scene
 
@@ -594,6 +647,8 @@ export interface ViewSpec {
   transparency: Scene['transparency'];
   theme?: 'system' | 'light' | 'dark';   // v2, optional — the app's, not the engine's
   measurements?: Measurement[];          // v2, optional: absent = NONE, never "keep what the live scene had"
+  extensions?: Record<string, { module: string; version: number;   // §13 module blocks, optional, absent = NONE.
+                                moduleVersion: string; data: unknown }>;  // written by the APP, like `theme`
 }
 ```
 
@@ -605,6 +660,24 @@ points layer's `labels` and `lineSegments` are re-derived from the parsed `.geo`
 `lineSegments` is a `Float32Array`, which `JSON.stringify` turns into `{"0":…}`, so persisting it would write
 megabytes that restore garbage. Everything the *user* chose about a points layer is persisted. `measurements`
 is the opposite case: it is plain JSON, there is nothing to re-derive it from, and it is written as-is.
+
+**Per-layer fields ride the spread, and that is a guarantee, not an accident** (2026-08-30). `serializableLayer`
+is `{ ...layer }` minus the two derived points fields and plus the JSON forms of `threshold` /
+`visibleLabels` / `label`; `remapLayer` is the same spread with the dataset ids remapped. So **every**
+kind-specific field — including one this build has never heard of — survives save → load → `addLayer`. It was
+already true, it was undocumented, and §13 depends on it: a scene re-saved by an older build must keep a
+module's points with their `id`, `group` and `ordinal` even though that build drops the `extensions` block it
+cannot describe. It is stated here so that a future `SerializableLayer` narrowed to an explicit field list is
+recognised as the breaking change it would be, and it is pinned by `roundtrip.test.ts`, which asserts deep
+equality over every key of a fully-populated layer of each kind.
+
+**`extensions` — §13's per-module blocks, written by the app.** Typed on `ViewSpec` exactly like `theme`, and
+for the same reason: it belongs to the file, but `Engine.serialize()` cannot produce it. `toViewSpec`
+enumerates `Scene` fields, and there is no module state in `Scene` — `LayerBase.module` is a tag the engine
+never interprets — so the **app** writes this field on save and hands each block back to its module on load,
+carrying an unknown module's block forward verbatim. §13.2 owns the rules: ≤ 256 KiB of JSON per block, and
+never a `LayerId` or `DatasetId` inside one, because both are reassigned on load. A module finds its layer
+again through `LayerBase.module`.
 
 **`sidecars` — because "re-derived from the dataset and its LUT" needs the LUT.** `ernie.msh` carries no
 `$PhysicalNames`, so `ernie.msh.opt` is the only source of the tissue names and colours the head is drawn in,
@@ -702,6 +775,21 @@ export interface ProbeResult { world: vec3; mni?: vec3; tkr?: vec3; tkrVolume?: 
                                mniNonlinear?: vec3; rows: ProbeRow[] }
 export interface LabelCentroid { id: number; centroid: vec3; count: number }   // world RAS
 
+// §13's point tool (2026-08-30). Additive; absent, nothing here is armed.
+export interface PointToolSpec {
+  layerId: LayerId;
+  mode: 'select' | 'place';                     // 'place': EVERY left click appends, with no hit test
+  template?: { color?: vec4; radiusMm?: number; group?: string };
+}
+export interface PointSelection { layerId: LayerId; pointId: string; index: number }   // id is the identity
+export interface PointToolEvent {
+  layerId: LayerId;
+  kind: 'placed' | 'selected' | 'dragEnd' | 'cleared';
+  pointId: string | null;                       // null with index −1 for 'cleared'
+  index: number;
+  world?: vec3; viewId?: ViewId;
+}
+
 export interface ScreenshotOptions {
   target: 'view' | 'grid'; viewId?: ViewId;
   width?: number; height?: number; scale?: number; dpi?: number;   // dpi written to the PNG pHYs chunk
@@ -720,6 +808,7 @@ export interface EngineEvents {
   layers: Layer[];
   datasets: Dataset[];
   measurements: Measurement[];
+  pointTool: PointToolEvent;                     // §13's point tool did something (2026-08-30)
   progress: LoadProgress;
   frame: { viewId: ViewId; cpuMs: number; gpuMs?: number; quality: QualityLevel['name'] };
   quality: QualityLevel;
@@ -773,6 +862,13 @@ export interface Engine {
   removeMeasurement(id: MeasurementId): void;
   cancelMeasurement(): void;                    // Esc — drops the gesture, keeps what is placed
 
+  setPointTool(spec: PointToolSpec | null): void;   // §13; arming disarms measure mode and vice versa,
+                                                //   materialises `p<index>` ids, and null clears + emits 'cleared'
+  pointTool(): PointToolSpec | null;
+  pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null;   // CSS px, like pick()
+  setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void;     // by ID, never by index
+  pointSelection(): PointSelection | null;      // re-resolved against the current points[]
+
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]>;      // §6.5.2's op
   resetView(viewId: ViewId): void;              // §7.5 `r`: refit to the scene bounds
   cameraPreset(viewId: ViewId, preset: CameraPreset): void;
@@ -805,6 +901,19 @@ returns is the one from *before* the click. A runtime calls `probeLanded(world)`
 the engine re-emits it as `probe` if that point is still the cursor or the hover. It is its own event and not
 a second `cursor` because the app's `cursor` handler also clears the coordinate bar's draft, and a probe
 landing must not delete what a user is typing.
+
+**The point tool's five members are the same shape as measure mode's, and for the same reason.** Only the
+engine can turn a pane pixel into a world point, and §8 forbids the app deriving one — so the *mode* is engine
+state, the app (or a §13 module) owns the button that arms it, and `input/pointer.ts` is where a click becomes
+a placement or a grab (§7.5 has the grammar). Three things are decided here rather than in a host:
+**selection is by `points[].id`**, so it survives the `points` replacement every edit is — the engine re-finds
+it after each `updateLayer` and emits `cleared` when the id has gone, rather than leaving a ring on whatever
+took that index; **arming materialises ids**, giving a layer whose points carry none a `p<index>` each, so the
+tool, the selection and the saved scene name the same contact by the same string; and **a ghost is never
+hit**, because a ghost is the projection of a point on another slice and dragging one would move a contact in
+a plane it is not in. `pointAtScreen` is the hit rule on its own, for a host that wants to ask without
+selecting. The rings the tool shows are `DrawInput.pointSelection`/`pointHot` (§7.2), which are *not* on this
+facade: a ring is not something the UI does.
 
 `attachFsaverage` composes three §6.5 ops — `vertices` on the fsaverage sphere, `sphereMap` on the subject's,
 `vertices` on the fsaverage surface — and caches all three, so a second surface of the same hemisphere costs
@@ -1929,6 +2038,15 @@ Rules:
 1. **Opaque** — volume base slices (2D: the slice; 3D: the plane of each `SliceView` whose owning volume
    layer has `showIn3D`), opaque meshes, opaque isosurfaces, points, a points layer's `SL` segments, and the
    cut caps of opaque layers.
+   * **Points in a 2D pane are the sphere ∩ plane disc**, radius `sqrt(r² − d²)` for a signed plane distance
+     `d`, drawn *on* the plane; a point with `|d| ≥ r` is not on this slice and the vertex shader drops it
+     off screen. `shape: 'dot'` is culled by the same world rule and then drawn at a constant **4 px**
+     screen radius. §4.4's **`offPlaneOpacity > 0` adds the second case**: the dropped points are drawn as
+     well, at the **full** radius `r` (a `dot` at its same 4 px) and at that alpha, through a `uGhostAlpha`
+     uniform on the existing `POINTS_2D` program rather than a third variant — `derived.ts` already writes
+     per-layer uniforms there, and the value is clamped to 0…1 because a scene file is editable text. At 0,
+     which is what absent means, the shader takes the cull branch verbatim and the pixels are the ones every
+     §11 golden was captured with.
 2. **Transparent, scene-wide, two phases:**
    * **2a — back faces:** `cullFace(FRONT)`, depth test on, depth write off; objects sorted back-to-front by
      the depth of their **far** extent.
@@ -1969,6 +2087,28 @@ Rules:
      the eye or outside the pane, and — in a 2D pane — every anchor further than one point radius from the
      slice, because a 187-electrode net projected whole onto one axial slice is a smear of names belonging to
      slices 80 mm away.
+   * **`PointsLayer.labelSource`** (2026-08-30) picks which array that text comes from: `'labels'` —
+     absent, and every layer written before the field — is the `labels` array above; `'names'` draws
+     `points[].name` at each point's **own** position, dropping the points that have no name. One
+     resolver, `pointLabelAnchors`, so the pass has no branch inside its loop and §11 can assert
+     which strings a layer emits with no GL context. **The slab rule does not follow the ghost**: a
+     layer with `offPlaneOpacity > 0` draws its off-slice discs and still drops every label further
+     than `max(radiusMm, 1 mm)` from the plane. The two 2D rules diverge deliberately — a disc at
+     0.6 alpha is a legible hint of where the shaft goes, and a whole shaft's worth of names on one
+     slice is the smear this bullet's slab exists to prevent.
+   * **Point selection and hover rings** (§13's point editing, 2026-08-30). `DrawInput.pointSelection`
+     and `pointHot` name a points layer and an **array index**; the pass draws a ring around that
+     point in `OverlayTheme.select` — a new theme field, engine default only, so no app token work
+     and no golden moves — at the **drawn disc's radius plus 2 px**, the selection's 2 px wide and
+     the hover's 1. The radius comes from `discRadiusPx`, which restates the vertex shader's rule on
+     the CPU (cross-section, `dot` pixels, ghost's full radius) and returns `null` for a point the
+     pane culls: **a ring is only ever drawn where the disc is**, because a ring around something
+     invisible claims the tool has selected something the user cannot see. A stale index or a hidden
+     layer draws nothing rather than being clamped — a ring around the *wrong* contact is worse than
+     no ring, and after a delete the two are one array replacement apart. A hover ring that names the
+     selected point is dropped, so the user never sees two concentric circles a pixel apart. In a 3D
+     pane the radius is measured the way the billboard is built: the projected distance from the
+     centre to a point `radiusMm` along the camera's right, off `viewProj`'s rows.
    * The **scale bar** (2D panes) and the **orientation cube** (3D panes) both take the pane's
      **bottom-right** corner, which they can never contend for. The bar's length is snapped to
      `1 / 2 / 5 / 10 / 20 / 50 / 100 mm` so it lands in 60…160 px, and the **drawn length is exactly
@@ -2279,6 +2419,35 @@ Input (Freeview-like):
   `Esc` — and leaving the mode — drops whatever is pending and touches nothing already placed. The mode is
   engine state and the half-placed gesture rides on `DrawInput`, never on `Scene`: a `*.tetravox.json` must
   not carry one.
+* **The point tool** (§13, `Engine.setPointTool`; a module arms it, and no core toolbar button does).
+  While it is armed a left click is the tool's, in the `#onDown` precedence slot **after measure mode and
+  before the gizmo** — the same argument that put measure mode ahead of the gizmo, so a contact in the 3D pane
+  is not eaten by a handle the pointer happens to be over. **At most one click-consuming mode is armed**:
+  arming the point tool disarms measure mode and `setMeasureMode(true)` disarms the point tool, because a user
+  cannot be told which mode a click went to.
+  * **`place`: every left click places**, with no hit test first — 2D on the pointer ray ∩ the pane's derived
+    plane, 3D on the §7.2.3 `pick`, where a click on nothing places nothing and is still swallowed. Contacts
+    sit about five pixels apart at a default zoom, and the click that matters most is the one filling the gap
+    *between* two that were found; a hit-first rule would answer it by selecting a neighbour. The point is
+    `{ ...template, id: 'p<n>', position }`, it becomes the selection, and one `placed` event says so.
+  * **`select`: a press hits, and the hit starts a drag.** The rule is on-slice only (`|d| < r`, so **a ghost
+    is never hit**), within `max(disc px, 8 px)` of the disc the pane actually drew, nearest wins; in the 3D
+    pane the nearest projected centre within 14 px, and **no drag** in v1. The disc radius is
+    `overlay/point-ring.ts`'s `discRadiusPx` — the same function §7.2 sizes the selection ring with, so the
+    hit rule cannot drift away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with the
+    gizmo it draws.
+  * **The drag is `GestureKind 'point'`**, resolved in `resolveGesture`'s **2D** branch after the ctrl/meta
+    and `Shift` tests and before the `space` one, so `Shift`+drag over a contact is still the layer's opacity
+    and `space`+drag is still the pan. Each move writes `paneToWorld` into a **replaced** `points` array.
+    The gesture's `end` is forwarded to the tool from **all three exits** — `#onUp`, `#onCancel`
+    (`pointercancel`, and the window `blur` bound to it) and the second-pointer branch of `down()` — and
+    becomes exactly one `dragEnd`, which is what makes one drag one undo step and one dirty mark for the host.
+  * **`Esc` is `place` → `select` → off**, in the engine's own keydown beside `cancelMeasurement`'s and before
+    the "is the pointer over a pane" test, because the app's `keymap.ts` answers `Escape` unconditionally and
+    "core first, module on null" could never deliver it here.
+  * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
+    `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). A user who
+    is not editing points pays one property read per move, so §8's 16 ms hover budget is untouched.
 * Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic, `m`
   measure, `Esc` cancel a measurement, `[`/`]` cycle the active layer, `v` toggle its visibility,
   `Shift+drag` its opacity, `Ctrl+↑/↓` reorder it, `,`/`.` step the active volume layer's 4D index (each step
@@ -2574,6 +2743,9 @@ Examples that must exist:
   `expectGolden()` refuses to run in any update mode without that variable.
 * Every golden includes the §8 2D chrome (orientation letters, corner info, RAD/NEU badge) and the colour
   bars.
+* **A golden captured on a developer's machine is a proposal; ubuntu decides.** `docs/TESTING.md` §3 has the
+  loop: CI's failure artefact carries the `*-actual.png` the authority rendered, and that file — not a local
+  capture, and never a `-u` re-run — is what gets committed.
 
 **(3) A pane-scale reference renderer.** `expectPixel` proves one pixel; nobody hand-computes 147,456 of
 them, and a golden only says "the same as last time". `scripts/reference/` is a second **rendering path** for
@@ -2616,6 +2788,11 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | Scale bar | The drawn bar is exactly `mm / mmPerPx` pixels long, read off the framebuffer at two zooms |
 | Glyphs | Against a numpy reference over `ernie_TDCS_1_scalar.msh`: set equality on the sampled element numbers, origins within 0.01 mm, directions within 1°, lengths equal to the scaling model's |
 | Surface contours | `lh.pial.gii`'s three axis-plane contours against a nibabel + numpy reference: segment counts and total contour lengths |
+| Points ghost | A points layer at `offPlaneOpacity: 0.6` over a **known** slice pixel: the off-slice point's pixel is `src·0.6 + dst·0.4` of the layer colour over the tag colour, computed from first principles, and the SAME source over the background where the fixture hides its other tag — so a "ghost" implemented as a fixed dimmed colour passes the first and fails the second. Absent, the same point draws nothing at all. `shape: 'dot'` ghosts at its constant 4 px radius at two zooms an order apart |
+| Point selection ring | The ring's **radius is measured off the framebuffer**, the way the scale bar's length is: every pixel of `OverlayTheme.select` around the point is `disc + 2 px` from its centre, for an on-slice disc and for a ghosted one (which has no cross-section, so only its full radius can produce a ring). A culled point and a stale index draw **no** ring, and a hover ring that names the selected point is dropped |
+| Names as labels | `labelSource: 'names'` drawn and **decoded back out of the framebuffer** with §11's glyph matcher; with `labelSource` absent the same layer decodes its `labels` array instead. A ghosted point's disc is drawn and its name is not, which is the 2D-rule divergence §4.4 and §7.2 state |
+| Point tool | The drag is asserted as an identity derived from §3 rather than from the engine: a 40 px drag moves the contact `40 · mmPerPx ± 0.05 mm`, the same claim §11 makes of the measurement tool from the other side. Around it, the grammar: in `place` mode **every** click appends (three clicks, three points, none of them a hit test); in `select` mode a press at 0.9 r grabs and one at 1.1 r + the 8 px floor does not; exactly **one** `dragEnd` per drag from each of the three gesture exits, `pointercancel` included; the selection survives an `updateLayer` that replaces `points` and is `cleared` when its id is not in the new array; `Esc` walks `place` → `select` → off; and arming the point tool turns measure mode off |
+| Bounded local reads | `sampleVoxelBox` / `peakCentroid` against **numpy twice**: on `testdata/ct_shafts.nii.gz` (three depth electrodes, 3.5 mm pitch, anisotropic spacing so the per-axis half-extent differs, `HU + 1024` on disk so a forgotten `scl_inter` is off by exactly 1024) through `testdata/manifest.json`, and on `m2m_ernie/T1.nii.gz` through `scripts/refvalues/voxelbox_refvalues.json`. Box `ijk0`/`dims`/min/max/sum plus five spot values a transposed window cannot reproduce; the centroid to 1e-4 mm; and the property numpy cannot check — a click 0.8 mm off a contact lands within 0.15 mm of it |
 
 ---
 

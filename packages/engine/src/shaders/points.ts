@@ -20,6 +20,15 @@
  *
  * `shape: 'dot'` is the same draw with a screen-space radius instead of a world one, so a marker
  * stays visible at any zoom.
+ *
+ * **Ghosting (§4.4's `offPlaneOpacity`, 2026-08-30).** `uGhostAlpha` is the one addition: at 0 —
+ * the value every caller that does not ask for ghosting passes, and the default the uniform is not
+ * set to at all in the 3D variant — the 2D branch is the cull above, verbatim. Above 0 the
+ * off-slice points are drawn too, at the **full** radius (a projection of the whole sphere, not a
+ * vanishing cross-section) and at that alpha. It is a uniform and not a third program variant on
+ * purpose: `derived.ts` already writes per-layer uniforms into this program, the branch costs one
+ * comparison on a draw of a few hundred instances, and a variant would double the program cache for
+ * a layer flag.
  */
 
 import { PRECISION_FLOAT, VERSION } from './chunks/caps';
@@ -42,23 +51,37 @@ uniform vec3 uNormal;                     // pane normal (2D) or view direction 
 uniform float uPlaneOffset;               // §4.1 Plane.offset of the pane's plane (2D only)
 uniform float uMmPerPx;                   // 2D: pane scale, for the 'dot' screen-space radius
 uniform float uDotPx;                     // > 0 selects a screen-space radius of this many pixels
+#if POINTS_2D
+uniform float uGhostAlpha;                // §4.4 offPlaneOpacity: 0 = cull off-slice points (default)
+#endif
 
 out vec2 vCorner;
 out vec4 vColor;
+#if POINTS_2D
+// 1 on the slice, \`uGhostAlpha\` off it. A varying and not a second uniform because on-slice and
+// off-slice points are ONE instanced draw (§7.4), so the two cases differ per instance.
+out float vAlphaScale;
+#endif
 
 void main() {
   vColor = aColor;
   vCorner = aCorner;
   float r = aRadius;
 #if POINTS_2D
+  vAlphaScale = 1.0;
   // The sphere ∩ plane circle. \`uNormal · c + uPlaneOffset\` is §4.1's signed distance, verbatim.
   float d = dot(uNormal, aCenter) + uPlaneOffset;
   float rr = r * r - d * d;
-  if (rr <= 0.0) {
+  if (rr > 0.0) {
+    r = sqrt(rr);
+  } else if (uGhostAlpha > 0.0) {
+    // §4.4's ghost: not on this slice, but drawn anyway at the FULL radius, so a depth electrode's
+    // shaft stays a shaft while the slice sweeps through it. \`r\` is already \`aRadius\`.
+    vAlphaScale = uGhostAlpha;
+  } else {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);   // off screen: this point is not on this slice
     return;
   }
-  r = sqrt(rr);
   if (uDotPx > 0.0) r = uDotPx * uMmPerPx;
   // Draw on the plane itself, so the disc is never clipped by the pane's own depth range.
   vec3 center = aCenter - uNormal * d;
@@ -73,6 +96,9 @@ export const POINTS_FS = `${VERSION}
 ${PRECISION_FLOAT}
 in vec2 vCorner;
 in vec4 vColor;
+#if POINTS_2D
+in float vAlphaScale;                     // 1 on the slice, §4.4's offPlaneOpacity off it
+#endif
 uniform float uAmbient;
 uniform float uOpacity;
 out vec4 fragColor;
@@ -82,8 +108,9 @@ void main() {
   if (r2 > 1.0) discard;                  // the quad's corners are not part of the sphere
 #if POINTS_2D
   // A cross-section is flat: no shading, so the pixel is the point's colour exactly and an analytic
-  // test can name it.
-  fragColor = vec4(vColor.rgb, vColor.a * uOpacity);
+  // test can name it. \`vAlphaScale\` is 1 for every on-slice point, so a layer that does not ghost
+  // is bit-identical to what it was before ghosting existed.
+  fragColor = vec4(vColor.rgb, vColor.a * uOpacity * vAlphaScale);
 #else
   // Headlight on the hemisphere the billboard stands for; the light direction is the view direction,
   // so the normal's z component is the whole diffuse term (§7.4).

@@ -103,3 +103,35 @@ export function drawPointLabels(
 export function labelHeightPx(m: OverlayMetrics, labelScale: number): number {
   return GLYPH_H * Math.max(1, Math.round(m.scale * Math.max(0.25, labelScale)));
 }
+
+/**
+ * The anchors a points layer's text is drawn at — §4.4's `labelSource`, resolved (2026-08-30).
+ *
+ * `'labels'` (absent, and every layer written before today) is the `labels` array verbatim: a Gmsh
+ * `T3` is *independent* of the `SP`s — SimNIBS lifts each label 5 mm off its electrode so the text
+ * does not sit inside the sphere, and a legal file may carry more labels than points, or none (§6.2).
+ *
+ * `'names'` is the other, equally common case: the text simply **is** the points' names, at the
+ * points' own positions. Saying that with a parallel `labels` array meant maintaining one that §4.6
+ * does not serialise — it is re-derived from the dataset on load — so an editor would rebuild it on
+ * every edit and lose it on every open.
+ *
+ * A point with no name contributes nothing: there is no text to draw, and an empty string would put
+ * a halo around nothing.
+ *
+ * Pure and exported like {@link placePointLabels}, so §11 can assert *which* strings a layer emits
+ * with no GL context, and so the pass reads one expression instead of branching inside a loop.
+ */
+export function pointLabelAnchors(layer: {
+  points?: readonly { position: vec3; name?: string }[];
+  labels?: readonly { position: vec3; text: string }[];
+  labelSource?: 'labels' | 'names';
+}): readonly { position: vec3; text: string }[] {
+  if (layer.labelSource !== 'names') return layer.labels ?? [];
+  const out: { position: vec3; text: string }[] = [];
+  for (const p of layer.points ?? []) {
+    if (p.name === undefined || p.name === '') continue;
+    out.push({ position: p.position, text: p.name });
+  }
+  return out;
+}

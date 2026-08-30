@@ -1100,6 +1100,91 @@ VOL_LUT_SIMNIBS = """#No.\tLabel Name:\t\t\t\tR\tG\tB\tA
 # --------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------
+# the sEEG CT phantom (§4.3 bounded local reads, 2026-08-30)
+# --------------------------------------------------------------------------------------
+
+# Anisotropic and NOT a multiple of each other, so `ceil(1.5 / s)` is 4, 3 and 2 voxels — three
+# different half-extents in one box.  The origin puts an INTEGER voxel index at world 0 on every
+# axis, and no query below lands on a half-index: rounding a voxel index is where a float32 inverse
+# affine and a float64 one can legitimately disagree, and a fixture whose expectations turn on a
+# tie-break would be testing the tie-break.
+CT_DIMS = (56, 48, 40)
+CT_SPACING = (0.4, 0.5, 0.8)
+CT_ORIGIN = (-11.2, -12.0, -16.0)
+
+# Three shafts, 3.5 mm contact pitch (the pitch of a real sEEG electrode), each oblique to all three
+# axes so nothing in the box arithmetic can be right by accident.  AUTHORED ground truth: the
+# manifest marks it as such, and every *computed* expectation beside it is read back with nibabel.
+CT_SHAFTS = [
+    {"group": "A", "entry": (-6.0, -7.0, -11.0), "dir": (0.25, 0.35, 0.90), "contacts": 6},
+    {"group": "B", "entry": (6.0, -6.0, -10.0), "dir": (-0.15, 0.25, 0.95), "contacts": 5},
+    {"group": "C", "entry": (-4.0, 6.5, -6.0), "dir": (0.55, -0.30, 0.78), "contacts": 4},
+]
+CT_PITCH_MM = 3.5
+# A contact is a Gaussian blob, not a hard sphere: at 0.4-0.8 mm voxels a 0.8 mm-diameter cylinder
+# is one or two samples, and a centroid over two samples has nothing sub-voxel to find.  The width
+# is the one the peak-centroid rule is meant to resolve.
+CT_CONTACT_HU = 3000.0
+CT_CONTACT_SIGMA_MM = 0.85
+# The shaft body between contacts: visible, and faint enough that it cannot pull a centroid off a
+# contact (it is symmetric along the axis through one anyway).
+CT_SHAFT_HU = 200.0
+CT_SHAFT_SIGMA_MM = 0.5
+
+
+def ct_shafts_affine() -> np.ndarray:
+    m = np.eye(4, dtype=np.float64)
+    m[0, 0], m[1, 1], m[2, 2] = CT_SPACING
+    m[:3, 3] = CT_ORIGIN
+    return m
+
+
+def ct_contact_centres():
+    """Every contact, as `(group, ordinal, world mm)` — ordinal 1 is the deepest (the entry end)."""
+    out = []
+    for shaft in CT_SHAFTS:
+        d = np.array(shaft["dir"], dtype=np.float64)
+        d /= np.linalg.norm(d)
+        p0 = np.array(shaft["entry"], dtype=np.float64)
+        for n in range(shaft["contacts"]):
+            out.append((shaft["group"], n + 1, p0 + d * (CT_PITCH_MM * n)))
+    return out
+
+
+def ct_shafts_volume() -> np.ndarray:
+    """`HU + 1024`, i fastest, as the int16 samples the fixture stores."""
+    nx, ny, nz = CT_DIMS
+    ii, jj, kk = np.meshgrid(np.arange(nx), np.arange(ny), np.arange(nz), indexing="ij")
+    x = CT_ORIGIN[0] + ii * CT_SPACING[0]
+    y = CT_ORIGIN[1] + jj * CT_SPACING[1]
+    z = CT_ORIGIN[2] + kk * CT_SPACING[2]
+
+    # Soft tissue with a gentle, entirely deterministic modulation.  NOT flat: a flat box has no
+    # peak at all (every weight is zero once the threshold is the value itself), and the point of a
+    # background case is to pin what the rule does away from a contact, not to pin `None`.
+    vol = 40.0 + 6.0 * np.sin(0.7 * x) + 5.0 * np.cos(0.5 * y) + 4.0 * np.sin(0.3 * z)
+
+    for shaft in CT_SHAFTS:
+        d = np.array(shaft["dir"], dtype=np.float64)
+        d /= np.linalg.norm(d)
+        p0 = np.array(shaft["entry"], dtype=np.float64)
+        p1 = p0 + d * (CT_PITCH_MM * (shaft["contacts"] - 1))
+        # Perpendicular distance to the segment, for the body.
+        rx, ry, rz = x - p0[0], y - p0[1], z - p0[2]
+        t = np.clip(rx * d[0] + ry * d[1] + rz * d[2], 0.0, float(np.linalg.norm(p1 - p0)))
+        perp = np.sqrt(
+            (rx - t * d[0]) ** 2 + (ry - t * d[1]) ** 2 + (rz - t * d[2]) ** 2
+        )
+        vol += CT_SHAFT_HU * np.exp(-((perp / CT_SHAFT_SIGMA_MM) ** 2))
+
+    for _group, _ordinal, c in ct_contact_centres():
+        dd = (x - c[0]) ** 2 + (y - c[1]) ** 2 + (z - c[2]) ** 2
+        vol += CT_CONTACT_HU * np.exp(-dd / (CT_CONTACT_SIGMA_MM**2))
+
+    return np.rint(vol + 1024.0)
+
+
 def generate(out: Path) -> dict:
     """Write every fixture. Returns a dict of *writer-side* notes (never ground truth)."""
     out.mkdir(parents=True, exist_ok=True)
@@ -1218,6 +1303,20 @@ def generate(out: Path) -> dict:
     aff_asym = np.eye(4)
     aff_asym[:3, 3] = (-3.5, -3.5, -3.5)
     write_nifti(out / "vol_asym.nii", asym, aff_asym)
+
+    # §4.3's bounded local reads (2026-08-30): a CT phantom with three depth-electrode shafts, for
+    # `derived/voxel-box.ts`'s `sampleVoxelBox` / `peakCentroid`.  Anisotropic spacing on purpose —
+    # the box's half-extent is `ceil(radiusMm / spacing)` PER AXIS, so an implementation that used
+    # one spacing for all three reads the right answer on an isotropic volume and the wrong one
+    # here.  Stored as `HU + 1024` with `scl = (1, -1024)`, so a reader that forgets §6.1's scaling
+    # is off by exactly 1024 in every value rather than subtly wrong.
+    write_nifti(
+        out / "ct_shafts.nii.gz",
+        ct_shafts_volume().astype(np.int16),
+        ct_shafts_affine(),
+        gzip_it=True,
+        scl=(1.0, -1024.0),
+    )
 
     # ---------------- MGH / NRRD / MetaImage (§6.1's other voxel formats) ----------------
     # Same ramps, same oblique affine, so a reader that gets an axis or a sign wrong is caught by
@@ -1492,6 +1591,160 @@ def inspect_nifti(path: Path) -> dict:
     if uniq.size <= 32:
         rec["uniqueValues"] = fl(uniq)
     return rec
+
+
+# --------------------------------------------------------------------------------------
+# verification — §4.3's bounded local reads, on ct_shafts.nii.gz
+# --------------------------------------------------------------------------------------
+
+# ARCHITECTURE.md §4.3 / `packages/engine/src/derived/voxel-box.ts`: at most this many voxels on an
+# axis, whatever the spacing.  Duplicated here on purpose — a reference implementation that imported
+# the constant from the thing it is checking would not be a reference implementation.
+VOXEL_BOX_MAX = 32
+
+
+def _box_indices(inv_affine, dims, spacing, world, radius_mm):
+    """`sampleVoxelBox`'s window, from the spec: ceil(radius/spacing) per axis, clipped, capped."""
+    v = inv_affine @ np.array([world[0], world[1], world[2], 1.0], dtype=np.float64)
+    # HALF-UP, matching JavaScript's `Math.round` — `np.rint` is half-to-EVEN and would disagree
+    # with the implementation on every index that lands exactly between two voxels.
+    c = np.floor(v[:3] + 0.5).astype(np.int64)
+    dims = np.asarray(dims, dtype=np.int64)
+    if np.any(c < 0) or np.any(c >= dims):
+        return None
+    half = np.minimum(
+        (VOXEL_BOX_MAX - 1) // 2,
+        np.ceil(radius_mm / np.abs(np.asarray(spacing, dtype=np.float64))).astype(np.int64),
+    )
+    lo = np.maximum(0, c - half)
+    hi = np.minimum(dims - 1, c + half)
+    return lo, hi
+
+
+def _peak_centroid(affine, lo, box):
+    """Slicer's rule: weights `clip(v - (max - 0.5*(max-min)), 0)`, centroid in VOXEL indices."""
+    mn = float(box.min())
+    mx = float(box.max())
+    w = np.clip(box - (mx - 0.5 * (mx - mn)), 0.0, None)
+    total = float(w.sum())
+    if not total > 0.0:
+        return None
+    idx = np.indices(box.shape).astype(np.float64)
+    for a in range(3):
+        idx[a] += float(lo[a])
+    c = np.array([float((idx[a] * w).sum() / total) for a in range(3)])
+    return affine @ np.array([c[0], c[1], c[2], 1.0])
+
+
+# The queries the TypeScript tests replay.  Offsets are deliberate: a snap that only worked when the
+# click was already on the contact would prove nothing.
+def _ct_cases(contacts):
+    by = {(g, n): c for g, n, c in contacts}
+    return [
+        # On a contact, but 0.9 mm off it — the ordinary snap.
+        ("snap-a3", by[("A", 3)] + np.array([0.6, -0.5, 0.4]), 1.5, ("A", 3)),
+        # The deepest contact of another shaft, offset along a different axis.
+        ("snap-b1", by[("B", 1)] + np.array([0.0, 0.7, -0.3]), 1.5, ("B", 1)),
+        # A shaft that runs the other way in x, to catch a sign error in the affine.
+        ("snap-c2", by[("C", 2)] + np.array([-0.5, 0.35, 0.5]), 1.5, ("C", 2)),
+        # Between two contacts of A: the rule must pick ONE of them, not the midpoint.
+        ("between-a1-a2", (by[("A", 1)] + by[("A", 2)]) / 2.0, 1.5, None),
+        # Quiet background: no contact within reach, so the answer follows the modulation alone.
+        ("background", np.array([-8.0, 8.0, 8.0]), 1.0, None),
+        # Near a face: the box is clipped by the volume, so `dims` is smaller than the radius asks.
+        ("clipped-corner", np.array([-10.7, -11.4, -15.1]), 2.0, None),
+        # A radius nothing could serve: the cap, then the volume, bound it.
+        ("capped-radius", np.array([0.0, 0.0, 0.0]), 40.0, None),
+        # Outside the volume entirely: `null`, never a clamp.
+        ("outside", np.array([40.0, 0.0, 0.0]), 1.5, None),
+    ]
+
+
+# Where inside a box a value is sampled, as a fraction of its size — corners and centre, so a
+# transposed or flipped window cannot agree with these five numbers.
+BOX_SPOT_FRACTIONS = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.5)]
+
+
+def inspect_voxel_box(out: Path) -> dict:
+    """§4.3's expectations, computed by nibabel + numpy reading the fixture BACK (AGENTS 'Test data')."""
+    path = out / "ct_shafts.nii.gz"
+    img = nib.load(str(path))
+    raw = np.asarray(img.dataobj.get_unscaled(), dtype=np.float64)
+    # §6.1's scaling, applied once, from the RAW header — `nib.load(p).header` hands scaling to the
+    # array proxy and reports NaN (AGENTS.md "Gotchas").
+    hdr = raw_nifti_header(path)
+    slope, inter = struct.unpack("<2f", hdr[OFF_SCL_SLOPE : OFF_SCL_SLOPE + 8])
+    slope = slope if np.isfinite(slope) and slope != 0 else 1.0
+    inter = inter if np.isfinite(inter) else 0.0
+    phys = raw * slope + inter
+
+    affine = np.vstack(
+        [np.array(img.header["srow_x"]), np.array(img.header["srow_y"]),
+         np.array(img.header["srow_z"]), [0, 0, 0, 1]]
+    ).astype(np.float64)
+    inv = np.linalg.inv(affine)
+    dims = list(phys.shape[:3])
+    spacing = [float(np.linalg.norm(affine[:3, a])) for a in range(3)]
+
+    contacts = ct_contact_centres()
+    cases = []
+    for name, world, radius, expect_contact in _ct_cases(contacts):
+        win = _box_indices(inv, dims, spacing, world, radius)
+        rec = {"name": name, "world": fl(world), "radiusMm": f(radius)}
+        if win is None:
+            rec["box"] = None
+            rec["peakCentroidWorld"] = None
+            cases.append(rec)
+            continue
+        lo, hi = win
+        box = phys[lo[0] : hi[0] + 1, lo[1] : hi[1] + 1, lo[2] : hi[2] + 1]
+        spots = []
+        for fx_, fy, fz in BOX_SPOT_FRACTIONS:
+            o = [int(round(fx_ * (box.shape[0] - 1))), int(round(fy * (box.shape[1] - 1))),
+                 int(round(fz * (box.shape[2] - 1)))]
+            spots.append({"offset": o, "value": f(box[o[0], o[1], o[2]])})
+        rec["box"] = {
+            "ijk0": [int(v) for v in lo],
+            "dims": [int(v) for v in box.shape],
+            "voxelCount": int(box.size),
+            "valueMin": f(box.min()),
+            "valueMax": f(box.max()),
+            "valueSum": f(box.sum(), 6),
+            "spotValues": spots,
+        }
+        centroid = _peak_centroid(affine, lo, box)
+        rec["peakCentroidWorld"] = None if centroid is None else fl(centroid[:3])
+        if expect_contact is not None and centroid is not None:
+            truth = {(g, n): c for g, n, c in contacts}[expect_contact]
+            rec["expectedContact"] = {
+                "group": expect_contact[0],
+                "ordinal": expect_contact[1],
+                "world": fl(truth),
+                "centroidErrorMm": f(float(np.linalg.norm(centroid[:3] - truth))),
+                "queryErrorMm": f(float(np.linalg.norm(np.asarray(world) - truth))),
+            }
+        cases.append(rec)
+
+    return {
+        "file": "ct_shafts.nii.gz",
+        "groundTruth": "nibabel + numpy, reading ct_shafts.nii.gz back (the shaft geometry is authored)",
+        "conventions": {
+            "box": "half-extent ceil(radiusMm / spacing) voxels PER AXIS, clipped to the volume, "
+                   "capped at %d voxels on an axis (ARCHITECTURE.md §4.3)" % VOXEL_BOX_MAX,
+            "values": "physical = raw * sclSlope + sclInter, applied once",
+            "spotValues": "offset is [i, j, k] within the box; i fastest, like VolumeDataset.data",
+            "peakCentroid": "weights clip(v - (max - 0.5*(max - min)), 0); centroid in voxel "
+                            "indices, then through the affine",
+        },
+        "spacing": fl(spacing),
+        "pitchMm": f(CT_PITCH_MM),
+        "contactSigmaMm": f(CT_CONTACT_SIGMA_MM),
+        "contacts": [
+            {"group": g, "ordinal": n, "world": fl(c), "groundTruth": "authored"}
+            for g, n, c in contacts
+        ],
+        "cases": cases,
+    }
 
 
 # --------------------------------------------------------------------------------------
@@ -2168,6 +2421,7 @@ def main() -> int:
         p.name: inspect_mgh(p) for p in sorted(out.glob("*.mgh")) + sorted(out.glob("*.mgz"))
     }
     manifest["gifti"] = {p.name: inspect_gifti(p) for p in sorted(out.glob("*.gii"))}
+    manifest["voxelBox"] = inspect_voxel_box(out)
     manifest["freesurfer"] = inspect_fs(out)
 
     tmp = out / ".mesh-inspect.json"

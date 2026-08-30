@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { GestureMachine, NO_MODIFIERS, resolveGesture } from './gestures';
-import type { Modifiers, PanePoint } from './gestures';
+import type { GestureEvent, Modifiers, PanePoint } from './gestures';
 
 const mods = (patch: Partial<Modifiers> = {}): Modifiers => ({ ...NO_MODIFIERS, ...patch });
 const pane2d: PanePoint = { viewId: 'axial', is3D: false, x: 10, y: 20 };
@@ -138,5 +138,86 @@ describe('GestureMachine', () => {
     expect(m.reset()).toEqual([{ type: 'end', kind: 'pan3d', viewId: 'view3d' }]);
     expect(m.active).toBe(false);
     expect(m.move(1, 5, 5)).toEqual([]);
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+// §13's point tool (2026-08-30): the `'point'` kind, the options bag, and the three exits.
+//
+// The three exits matter more than they look. A drag that moved a contact is one undo step and one
+// dirty mark, and the *only* signal the tool gets that the drag is over is the machine's `end`
+// event — which arrives from `up()`, from `reset()` (`pointercancel`, and the window `blur` bound to
+// it) and from `down()` when a second finger lands. A tool that listened to only the first would
+// leave a half-committed edit behind every time a user switched windows mid-drag.
+// -------------------------------------------------------------------------------------------------
+
+describe("resolveGesture: the 'point' kind (§13)", () => {
+  it('is a 2D left-press over a point, and nothing else', () => {
+    expect(resolveGesture(0, mods(), false, { overPoint: true })).toBe('point');
+    // The 3D pane has no point drag in v1: a press there is still the orbit.
+    expect(resolveGesture(0, mods(), true, { overPoint: true })).toBe('orbit');
+    // Not the middle or right button — those stay §7.5's pan and window/level.
+    expect(resolveGesture(1, mods(), false, { overPoint: true })).toBe('pan');
+    expect(resolveGesture(2, mods(), false, { overPoint: true })).toBe('windowLevel');
+  });
+
+  it('never takes a gesture §7.5 already binds', () => {
+    // `Shift`+drag is the layer's opacity, in every pane, over a contact or not.
+    expect(resolveGesture(0, mods({ shift: true }), false, { overPoint: true })).toBe('opacity');
+    // `space`+drag is R3's explicit pan.
+    expect(resolveGesture(0, mods({ space: true }), false, { overPoint: true })).toBe('pan');
+    // A platform-modified primary button is a menu accelerator, not a drag.
+    expect(resolveGesture(0, mods({ meta: true }), false, { overPoint: true })).toBeNull();
+    expect(resolveGesture(0, mods({ ctrl: true }), false, { overPoint: true })).toBeNull();
+  });
+
+  it('is a plain cursor drag when nothing is under the press', () => {
+    expect(resolveGesture(0, mods(), false, { overPoint: false })).toBe('cursor');
+    expect(resolveGesture(0, mods(), false, {})).toBe('cursor');
+  });
+
+  it('reads a bare boolean as `{ overGizmo }`, the way every pre-§13 caller wrote it', () => {
+    expect(resolveGesture(0, mods(), true, true)).toBe('gizmo');
+    expect(resolveGesture(0, mods(), true, false)).toBe('orbit');
+    expect(resolveGesture(0, mods(), true, { overGizmo: true })).toBe('gizmo');
+    // A gizmo flag means nothing in a 2D pane, and a point flag means nothing in the 3D one.
+    expect(resolveGesture(0, mods(), false, { overGizmo: true })).toBe('cursor');
+  });
+});
+
+describe("GestureMachine: the 'point' drag's three exits (§13)", () => {
+  const grab = (m: GestureMachine): GestureEvent[] =>
+    m.down(1, 0, pane2d, mods(), { overPoint: true });
+
+  it('begins on the press and ends on the release', () => {
+    const m = new GestureMachine();
+    expect(grab(m)).toEqual([{ type: 'begin', kind: 'point', viewId: 'axial', x: 10, y: 20 }]);
+    expect(m.move(1, 50, 20)).toEqual([
+      { type: 'move', kind: 'point', viewId: 'axial', x: 50, y: 20, dx: 40, dy: 0 },
+    ]);
+    expect(m.up(1)).toEqual([{ type: 'end', kind: 'point', viewId: 'axial' }]);
+    expect(m.kind).toBeNull();
+  });
+
+  it('ends on reset — `pointercancel`, and the window blur bound to it', () => {
+    const m = new GestureMachine();
+    grab(m);
+    m.move(1, 50, 20);
+    expect(m.reset()).toEqual([{ type: 'end', kind: 'point', viewId: 'axial' }]);
+    expect(m.active).toBe(false);
+    // …and the end is delivered exactly once: a second reset has nothing left to end.
+    expect(m.reset()).toEqual([]);
+  });
+
+  it('ends when a second finger lands, before the pinch takes over', () => {
+    const m = new GestureMachine();
+    grab(m);
+    expect(m.down(2, 0, { ...pane2d, x: 110, y: 20 }, mods(), { overPoint: true })).toEqual([
+      { type: 'end', kind: 'point', viewId: 'axial' },
+    ]);
+    expect(m.kind).toBeNull();
+    // The release of either pointer must not end it a second time.
+    expect(m.up(1)).toEqual([]);
+    expect(m.up(2)).toEqual([]);
   });
 });

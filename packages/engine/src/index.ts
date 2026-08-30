@@ -113,3 +113,35 @@ export {
   nextMeasurementName,
   pointsNeeded,
 } from './derived/measure';
+
+/**
+ * §4.3's **bounded local reads** (2026-08-30) — the neighbourhood arithmetic §13's point tools snap
+ * with.
+ *
+ * Exported for the same reason the colormaps and the coordinate spaces are: the app's `NoGlEngine`
+ * has to give the *same* answer as the real engine without a GL context, and a module that
+ * re-implemented "move this contact to the local intensity peak" would be a second source of truth
+ * for where a electrode is. Pure functions over §4.3 values; nothing here touches GL, and the cap on
+ * how much of `data` they may read is `MAX_BOX_VOXELS`, not the caller's discretion.
+ */
+export { MAX_BOX_VOXELS, peakCentroid, sampleVoxelBox } from './derived/voxel-box';
+export type { VoxelBox } from './derived/voxel-box';
+
+/**
+ * §13's point tool (2026-08-30): the pure hit test the tool selects with, and the `p<index>` id
+ * fallback §4.4 defines.
+ *
+ * Exported for the reason `peakCentroid` is: the app's `NoGlEngine` has to give the **same** answer
+ * as the real engine — the app's e2e drives the point tool against it — and a stand-in with its own
+ * idea of which contact a click grabbed would be a second definition of the hit rule. Pure functions
+ * over §4.4 values; the disc rule inside them is `overlay/point-ring.ts`'s, which is also what §7.2
+ * sizes the selection ring with.
+ */
+export {
+  POINT_HIT_3D_PX,
+  POINT_HIT_MIN_PX,
+  pointAtPane,
+  pointAtPane3D,
+  pointIdAt,
+} from './layers/points';
+export type { PanePlacement, PointPaneHit } from './layers/points';

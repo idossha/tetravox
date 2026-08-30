@@ -1535,3 +1535,88 @@ test('@angle R2: a camera set through setView is the ZOOM reference; a gesture o
   expect(reset[2]?.trim()).toMatch(/^SLICE /);
   expect(errors).toEqual([]);
 });
+
+// ===========================================================================================
+// §13's armed hover — the no-regression case for the point tool (2026-08-30)
+// ===========================================================================================
+
+/**
+ * §7.5 puts a CPU hit test on the 2D `#onMove` path, and that path is the hottest code in the
+ * pointer layer: §8 budgets a volume hover at **16 ms** and P2-04's case above is what pins it.
+ *
+ * So there are two claims here, and both of them are about cost rather than about correctness (the
+ * hit rule itself is `points-tool.spec.ts`'s):
+ *
+ * 1. **Unarmed, nothing happens at all.** A user who is not editing points pays one property read
+ *    per move — asserted by the state the hit test would have written, which stays `null` over a
+ *    layer whose points are directly under the pointer.
+ * 2. **Armed, the whole per-move path is still inside 16 ms**, on a 200-point layer, which is a
+ *    dense sEEG implantation and an order more than the twelve contacts of one shaft.
+ */
+test('@angle §13: the armed hover hit test stays inside §8’s 16 ms, and costs nothing unarmed', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+  await load(page, fixture('vol_asym.nii'), 'volume', ['axial', 'coronal', 'sagittal', 'view3d']);
+
+  // 200 points on a line through the cursor's plane, so a hover in the middle of the pane is over
+  // one of them and the test is timing a hit, not a miss walking an array.
+  const layerId = await page.evaluate(async () => {
+    const engine = window.__tvxEngine!;
+    const ds = [...engine.scene.datasets.values()][0]!;
+    const c = engine.scene.cursor;
+    const points = Array.from({ length: 200 }, (_v, i) => ({
+      id: `c${i}`,
+      position: [c[0] + (i - 100) * 0.35, c[1], c[2]] as [number, number, number],
+    }));
+    const layer = engine.addLayer({ datasetId: ds.id, kind: 'points', points, radiusMm: 2 });
+    await engine.whenSettled();
+    return layer.id;
+  });
+
+  const hotOf = async (): Promise<number | null> =>
+    await page.evaluate(() => window.__tvxEngine!.pointHighlight().hot?.index ?? null);
+
+  // -- 1: unarmed --------------------------------------------------------------------------------
+  await page.mouse.move(PANES.axial.x + HALF / 2, PANES.axial.y + HALF / 2);
+  await page.mouse.move(PANES.axial.x + HALF / 2 + 1, PANES.axial.y + HALF / 2);
+  expect(await hotOf(), 'no tool is armed, so no hit test ran').toBeNull();
+
+  // -- 2: armed, and timed on the synchronous path a `pointermove` takes -------------------------
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    engine.setPointTool({ layerId: id, mode: 'select' });
+    await engine.whenSettled();
+  }, layerId);
+
+  const ms = await page.evaluate(() => {
+    const engine = window.__tvxEngine as unknown as {
+      hoverAtScreen(id: string, x: number, y: number): void;
+      pointToolHover(id: string, x: number, y: number): boolean;
+      probe(w: [number, number, number]): unknown;
+      scene: { hover: [number, number, number] | null };
+    };
+    const run = (n: number): number => {
+      const t0 = performance.now();
+      for (let i = 0; i < n; i += 1) {
+        // Exactly what `pointer.ts` does per move in a 2D pane while the tool is armed.
+        engine.hoverAtScreen('axial', 100 + (i % 64), 120 + (i % 47));
+        engine.pointToolHover('axial', 100 + (i % 64), 120 + (i % 47));
+        const h = engine.scene.hover;
+        if (h !== null) engine.probe(h);
+      }
+      return (performance.now() - t0) / n;
+    };
+    run(20);
+    return run(200);
+  });
+  console.log(`[bench] armed point hover ${ms.toFixed(4)} ms (§8 budget 16 ms)`);
+  expect(ms, '§8: the armed hover path is inside the volume-hover budget').toBeLessThan(16);
+
+  // …and it is doing the work, rather than being fast by returning early.
+  await page.mouse.move(PANES.axial.x + HALF / 2, PANES.axial.y + HALF / 2);
+  await page.mouse.move(PANES.axial.x + HALF / 2 + 1, PANES.axial.y + HALF / 2);
+  expect(await hotOf(), 'armed, the pointer is over one of the 200 contacts').not.toBeNull();
+  expect(errors).toEqual([]);
+});

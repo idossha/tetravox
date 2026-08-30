@@ -47,6 +47,8 @@ export { CONTOUR_PICK_PX, nearestContourDistanceSqPx, segmentDistanceSqPx } from
 export type { ContourQuad } from './contours';
 // Appended for parsed Gmsh views (task 6): a points layer's screen-projected 3D text labels.
 export { drawPointLabels, labelHeightPx, placePointLabels } from './point-labels';
+// §4.4's `labelSource` (2026-08-30): which array a points layer's text comes from, resolved once.
+export { pointLabelAnchors } from './point-labels';
 export type { LabelPlacement, PlacedLabel } from './point-labels';
 // Directed task 9 (2026-08-28): the pass-3 chrome palette, so `setAnnotations`'s neighbour
 // `setTheme` has something to carry and the halo flips with the embedder's theme.
@@ -95,3 +97,17 @@ export {
   snapScaleBar,
 } from './scale-bar';
 export type { ScaleBarChoice, ScaleBarLayout } from './scale-bar';
+// §13's point editing (2026-08-30): the selection / hover rings, and the shader's disc rule stated
+// once on the CPU so a hit test and a ring cannot drift away from the picture.
+export {
+  DOT_RADIUS_PX,
+  POINT_HOT_RING_WIDTH_PX,
+  POINT_RING_GAP_PX,
+  POINT_RING_MIN_RADIUS_PX,
+  POINT_RING_SEGMENTS,
+  POINT_RING_WIDTH_PX,
+  discRadiusPx,
+  drawPointRing,
+  ringRadiusPx,
+} from './point-ring';
+export type { DiscShape } from './point-ring';

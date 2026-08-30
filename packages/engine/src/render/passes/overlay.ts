@@ -34,7 +34,13 @@ import {
   overlayMetrics,
   volumeColorbarSpec,
 } from '../../overlay';
-import { drawPointLabels, placePointLabels } from '../../overlay/point-labels';
+import { drawPointLabels, placePointLabels, pointLabelAnchors } from '../../overlay/point-labels';
+import {
+  POINT_HOT_RING_WIDTH_PX,
+  POINT_RING_WIDTH_PX,
+  discRadiusPx,
+  drawPointRing,
+} from '../../overlay/point-ring';
 import { drawMeasurement, onPlane } from '../../overlay/measure';
 import type { PlacedMeasurement } from '../../overlay/measure';
 import { formatMeasurement } from '../../derived/measure';
@@ -52,6 +58,7 @@ import {
 import type { DrawInput } from './pass';
 import type { ViewportRect } from '../../view/layout';
 import type {
+  LayerId,
   mat4,
   Measurement,
   Scene,
@@ -209,6 +216,11 @@ export class OverlayPass implements FramePass {
     // contains their points. After the labels and before the draw, in the same reserved slot.
     drawMeasurements(b, view, rect, viewProj, input, theme.measure);
 
+    // Appended (shared-file rule) for §13's point editing (2026-08-30): the selection and hover
+    // rings. Last of the pass-3 items, deliberately — a ring says which contact a tool is about, and
+    // it has to be readable over the contact's own label as well as over its disc.
+    drawPointRings(b, view, rect, viewProj, input, theme.select);
+
     if (b.vertexCount === 0) return;
     const gl = this.#gl;
     // §7.2 pass 3: all clip distances disabled, no depth.
@@ -254,7 +266,9 @@ function drawPointLabelsFor(
   for (const layer of input.scene.layers) {
     if (layer.kind !== 'points' || !visibleIn(layer, view)) continue;
     if (layer.showLabels !== true) continue;
-    const labels = layer.labels ?? [];
+    // §4.4's `labelSource` (2026-08-30). Absent — and every layer that predates the field — resolves
+    // to `layer.labels` verbatim, so this pane draws exactly what it drew before.
+    const labels = pointLabelAnchors(layer);
     if (labels.length === 0) continue;
 
     const slabMm = Math.max(layer.radiusMm, 1);
@@ -271,6 +285,100 @@ function drawPointLabelsFor(
     const faded: vec4 = [color[0], color[1], color[2], color[3] * layer.opacity];
     drawPointLabels(b, m, placePointLabels(labels, viewProj, place), layer.labelScale ?? 1, faded);
   }
+}
+
+/**
+ * §13's selection and hover rings, in whichever pane actually draws the point they are about.
+ *
+ * Two rules, both of them about not lying:
+ *
+ * * **The ring is where the disc is.** Its radius comes from `discRadiusPx`, which restates the
+ *   vertex shader's rule — sphere ∩ plane, the `dot` branch's constant pixels, and the ghost's full
+ *   radius — and returns `null` for a point this pane culls. A ring drawn around a point the pane
+ *   does not show would claim the tool has selected something the user cannot see.
+ * * **A stale highlight draws nothing.** An index past the end of `points`, or a layer id that is
+ *   not a visible points layer in this pane, is silently skipped rather than clamped: a ring around
+ *   the wrong contact is worse than no ring at all, and after a delete the two are one array
+ *   replacement apart.
+ *
+ * In a 3D pane the disc is a view-aligned billboard of radius `radiusMm`, so the ring's radius is
+ * measured the same way the billboard is built: project the centre, project the centre offset along
+ * the camera's right vector by `radiusMm`, and take the distance between them. That is exact for
+ * the orthographic 3D camera and correct to the point's own depth for any other.
+ *
+ * The hover ring is the thinner of the two and is dropped when it names the selected point, so the
+ * user sees one ring and not two concentric ones.
+ */
+function drawPointRings(
+  b: OverlayBuilder,
+  view: View,
+  rect: ViewportRect,
+  viewProj: mat4,
+  input: DrawInput,
+  color: vec4
+): void {
+  const sel = input.pointSelection ?? null;
+  const hot = input.pointHot ?? null;
+  if (sel === null && hot === null) return;
+  const m = overlayMetrics(rect.width, rect.height, input.uiScale);
+  const slice = isSliceView(view) ? slicePlane(view, input.scene.cursor) : null;
+
+  const ringFor = (target: { layerId: LayerId; index: number }, widthPx: number): void => {
+    const layer = input.scene.layers.find((l) => l.id === target.layerId);
+    if (layer === undefined || layer.kind !== 'points' || !visibleIn(layer, view)) return;
+    const point = (layer.points ?? [])[target.index];
+    if (point === undefined) return;
+    const projected = worldToPane3D(viewProj, rect, point.position);
+    if (projected === null) return;
+    // `worldToPane3D` answers top-down; overlay pixels run bottom-up. One flip, here.
+    const center: [number, number] = [projected[0], rect.height - 1 - projected[1]];
+    const radiusMm = point.radiusMm ?? layer.radiusMm;
+
+    let discPx: number | null;
+    if (slice !== null && isSliceView(view)) {
+      const n = slice.normal;
+      const p = point.position;
+      const d = n[0] * p[0] + n[1] * p[1] + n[2] * p[2] + slice.offset;
+      discPx = discRadiusPx(layer, radiusMm, d, view.camera.mmPerPx, input.uiScale);
+    } else {
+      discPx = billboardRadiusPx(viewProj, rect, point.position, radiusMm);
+    }
+    if (discPx === null) return;
+    drawPointRing(b, m, center, discPx, widthPx, color);
+  };
+
+  if (sel !== null) ringFor(sel, POINT_RING_WIDTH_PX);
+  if (hot !== null && (sel === null || hot.layerId !== sel.layerId || hot.index !== sel.index)) {
+    ringFor(hot, POINT_HOT_RING_WIDTH_PX);
+  }
+}
+
+/**
+ * A 3D pane's billboard radius in pane pixels: the projected distance from the centre to a point
+ * `radiusMm` away along the **camera's right**, which is the axis `shaders/points.ts` expands the
+ * billboard on. Reading `viewProj`'s rows is how `passes/derived.ts` builds that basis, so the ring
+ * and the hemisphere cannot disagree.
+ */
+function billboardRadiusPx(
+  viewProj: mat4,
+  rect: ViewportRect,
+  center: vec3,
+  radiusMm: number
+): number | null {
+  const rx = viewProj[0] ?? 1;
+  const ry = viewProj[4] ?? 0;
+  const rz = viewProj[8] ?? 0;
+  const len = Math.hypot(rx, ry, rz);
+  if (!(len > 1e-9)) return null;
+  const edge: vec3 = [
+    center[0] + (rx / len) * radiusMm,
+    center[1] + (ry / len) * radiusMm,
+    center[2] + (rz / len) * radiusMm,
+  ];
+  const a = worldToPane3D(viewProj, rect, center);
+  const c = worldToPane3D(viewProj, rect, edge);
+  if (a === null || c === null) return null;
+  return Math.hypot(c[0] - a[0], c[1] - a[1]);
 }
 
 /**

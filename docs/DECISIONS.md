@@ -3421,3 +3421,257 @@ four cases, and `e2e/module-guard.spec.ts` closes a real window three times — 
 Discard closes it, a cleared flag and the E2E seam close it with no box at all — with
 `dialog.showMessageBox` stubbed in main, because an OS-modal box no click can reach would otherwise
 hang the run.
+
+## 2026-08-30 — §13's five scene fields: a module tags its layer, a point has an identity, `ViewSpec` carries a block
+
+Phase 1 of the modules build (`feat/points-engine`). `scene/types.ts` is frozen (§12.3), so ARCHITECTURE
+§4.4 and §4.6 change in this commit with it. Five additions, every one optional, and **absent reproduces the
+previous behaviour** — which for these five is checkable rather than asserted: three of them are read by
+nobody in the engine at all.
+
+* `LayerBase.module?: string` — which module owns a layer's edits.
+* `points[].id?` / `.group?` / `.ordinal?` — a stable identity, its electrode, its 1-based contact number.
+* `PointsLayer.offPlaneOpacity?` and `.labelSource?` — the two rendering fields, decided in the entry below.
+* `ViewSpec.extensions?` — the per-module state blocks.
+
+**`module` is a `string`, not a union, and the engine never reads it.** §4.4 is the scene model; a union of
+module ids would put the app's registry inside the frozen engine and make adding a module a frozen-file
+change. The field exists because §4.6 reassigns every `LayerId` on load, so a module looking for its own
+layer afterwards has only dataset, kind and name to match on — which two subjects' contact layers share, and
+which two runs of the same subject share exactly. The app is the only reader: a module-owned layer gets a
+read-only summary row where the core property editor would be, so the core per-point colour reset and the
+0.5–20 mm radius slider cannot rewrite a module's invariants behind its back.
+
+**Why a per-point `id` when the array index already identifies a point.** It does, to the engine, and it
+still does: `ProbeRow.labelId`, `nearestPoint` and the instance row are all the index, and none of that
+changes. But an index is not an identity across an edit. Deleting the second of twelve contacts renumbers
+ten, so a selection held as an index then names a different electrode, and an undo step holding one restores
+the wrong contact. Selection is therefore by `id` and survives a wholesale `points` replacement — which is
+how every edit reaches the engine, since the instance buffer is keyed on the array's identity and a layer is
+patched by handing it a new array.
+
+**Why one layer with `group`/`ordinal` and not one layer per electrode.** Twelve same-kind rows each mount a
+full property editor, add a stop to `[` / `]`, take a probe row and put a ✕ on the layer panel that closes
+the carrier dataset. One layer with a `group` tag costs two optional fields and no rendering change at all.
+`ordinal` is separate from array order because the array is drawing order and the ordinal is anatomy: a
+contact inserted between 4 and 5 sits wherever the editor put it and is still ordinal 5 after a renumber.
+
+**`ViewSpec.extensions` is written by the app, like `theme`.** `Engine.serialize()` enumerates `Scene`, and
+there is no module state in `Scene` to enumerate — deliberately, because the engine has no module registry
+and must not grow one. So the field is *typed* here (a scene file is one schema, not two) and *written*
+there, and the app carries an unregistered module's block forward verbatim so that opening a colleague's
+scene in a build without their module does not delete their work. §13.2 caps a block at 256 KiB of JSON and
+forbids a `LayerId` or `DatasetId` inside one: both are reassigned on load, so a block that named one would
+be silently wrong rather than loudly broken.
+
+**The degradation contract, and the guarantee it rests on.** A scene re-saved by a build that predates a
+module keeps the layer and every per-point field — they ride `serializableLayer`'s `{ ...layer }` spread and
+`remapLayer`'s — and drops only `extensions`. That pass-through was already true and was undocumented; §4.6
+now states it as a guarantee, so narrowing `SerializableLayer` to an explicit field list is recognisable as
+the breaking change it would be. `roundtrip.test.ts` pins it by deep-equality over every key of a fully
+populated layer of each kind.
+
+## 2026-08-30 — points ghost off-slice, label themselves, and wear a selection ring
+
+Phase 1 of the modules build, the rendering half. Three things reach §7.2, all default-off, and
+`docs/ARCHITECTURE.md` §7.2 changes in the same commits.
+
+**Ghosting is a uniform, not a program variant.** §7.2's 2D rule for a points layer — the sphere ∩
+plane disc, with `|d| ≥ r` dropped — is what makes a scalp net sweep with the cursor, and it is
+exactly wrong for a depth electrode: a shaft is twelve contacts along a line no single slice
+contains, so scrolling shows one contact at a time and the shaft is never visible as a shaft.
+`offPlaneOpacity > 0` draws the dropped points too, at the **full** radius, because there is no
+cross-section to size them by. It is a `uGhostAlpha` uniform on the existing `POINTS_2D` program:
+`derived.ts` already writes per-layer uniforms there, the branch is one comparison on a draw of a few
+hundred instances, and a variant would double the program cache for a layer flag. At 0 — what absent
+means, and what the 3D variant never sets it to at all — the shader takes the cull branch verbatim.
+The value is clamped to 0…1 in the pass, because a scene file is user-editable text and a 3.0 would
+make the ghosts brighter than the contacts on the slice.
+
+**The two 2D rules diverge under ghosting, and that is the decision.** The discs ghost; the labels
+stay slab-culled at `max(radiusMm, 1 mm)`. A disc at 0.6 alpha is a legible hint of where a shaft
+goes. A whole shaft's worth of names on one slice is the smear the slab rule was added to prevent —
+187 electrodes projected onto one axial plane, names belonging to slices 80 mm away. So `§7.2` states
+both rules next to each other rather than quietly applying one of them.
+
+**`labelSource` exists so a module never maintains a `labels` array.** The overlay read
+`layer.labels` and nothing else, which is right for a parsed Gmsh view (a `T3` is independent of the
+`SP`s and SimNIBS lifts it 5 mm clear of the sphere) and wrong for a layer whose text simply *is* its
+points' names — and §4.6 does not serialise `labels`, so an editor that used it would rebuild it on
+every edit and lose it on every open. One pure resolver, `pointLabelAnchors`, so the pass has no
+branch in its loop and §11 can assert which strings a layer emits with no GL context.
+
+**The selection ring is on the frame, by index, and only where the disc is.** `DrawInput` gains
+`pointSelection` and `pointHot`, beside `gizmo` and `measureDraft` and for the same reason: which
+contact is selected is pointer state, and a `*.tetravox.json` must never carry it — a scene mailed to
+a colleague would open with a stranger's cursor in it. They are addressed by **array index** because
+that is the frame's key into the array the pass walks; a tool selects by `points[].id`, which is what
+survives an edit, and resolves it on the way in. The radius comes from `discRadiusPx`, the shader's
+rule restated once on the CPU and shared with the hit test that P2 adds — `gizmoHandleAt` shares
+`handlePoints` with `drawGizmo` for the same reason, and a hit rule stated twice is a hit rule that
+drifts away from the picture. It returns `null` for a culled point, so a ring is never drawn around
+something the pane does not show, and a stale index draws nothing rather than ringing its neighbour.
+
+**`OverlayTheme` gains `select`, violet, engine default only.** `measure` is not in the app's
+`overlayPalette` either, so this is no app token work. Violet because a ring sits *on* a coloured
+disc in a pane that may also hold the amber crosshair, the cyan gizmo and the blue active border, and
+§11 has to be able to name it without a tolerance that also matches one of those. Notably not a
+green: `gizmoHot` is one.
+
+**`TetravoxEngine.setPointHighlight` is a class member, not a §4.7 facade one.** The facade is what
+§8's "everything the UI can do must be reachable from the `Engine` API alone" is about, and a *ring*
+is not something the UI does — it is what the engine's own pointer layer shows while a tool is armed.
+Same class as `showGizmo`, `gizmoAt` and `worldAtScreen`. So `MockEngine` and the app's `NoGlEngine`
+need nothing for this phase.
+
+**Nothing moves.** `DEFAULT_OVERLAY_THEME`'s existing eight fields are untouched, `pointSelection`
+and `pointHot` are absent on every frame nothing sets them on, and `offPlaneOpacity` / `labelSource`
+are absent on every layer. The full engine e2e suite, goldens included, is green unchanged; the one
+new picture is `derived-points-ghost`.
+
+## 2026-08-30 — `sampleVoxelBox` / `peakCentroid`: §4.3's "for probes only" becomes "and bounded local reads"
+
+§4.3 kept `VolumeDataset.data` on the UI thread "for probes only", and a probe is one voxel. Snapping an
+sEEG contact to the metal it is inside needs the neighbourhood — Slicer's editor takes a box of radius
+1.5 mm and moves the contact to the intensity-weighted peak, which on a 0.5 mm CT is a few hundred voxels
+and well under a millisecond. So §4.3's sentence is amended in the same commit as the code, and the
+amendment carries its own bound: `derived/voxel-box.ts` reads at most `MAX_BOX_VOXELS` = **32 voxels on an
+axis**, and a whole-volume scan is still not a probe.
+
+**The cap is the decision, not a performance note.** Without one, "you may read `data` on the UI thread"
+is a door to a 512³ loop inside a `pointermove` handler, and §5's whole worker-per-dataset arrangement
+leaks through it. 32 rather than a millimetre limit because the bound has to hold whatever the spacing is:
+1.5 mm is a 3-voxel half-extent on ernie's 1 mm T1 and 15 on a 0.2 mm micro-CT. A caller who wants more
+than a box asks a worker (§6.5).
+
+**The box is axis-aligned in voxel space, half-extent `ceil(radiusMm / spacing)` per axis.** A world-aligned
+box would need the affine's row norms and would still have to be padded to whole voxels; this covers the
+requested radius in every direction on an oblique volume and is one `ceil` per axis. It is clipped to the
+volume rather than refused there, so a contact near a face reads a smaller box and says so through `ijk0`
+and `dims`. It **refuses** two things instead of coping: `rgb24`/`rgba32`, whose samples are interleaved
+components with no single value (§4.2's scalar model does not cover them either), and a query point outside
+the volume — never clamped, because a snap that silently pulled a click 40 mm back inside the head is worse
+than one that says no.
+
+**The weighting is Slicer's, verbatim: `clip(v − (max − ½(max − min)), 0)`.** Half way up the box's *own*
+range, not a fixed HU floor — which is what makes it work unchanged on a CT whose background is soft tissue
+at ~40 HU and whose contacts are metal at ~3000, and on the same scan rescaled. It has no parameter but the
+radius. The centroid is computed in **voxel indices** and mapped through the affine at the end, so the
+weights and the coordinates stay in one frame; on a flat box every weight is zero and the answer is `null`,
+because uniform background has no peak and returning the box centre would be a snap pretending to have found
+something.
+
+**Both are pure and exported from `@tetravox/engine`.** The app's `NoGlEngine` must give the same answers as
+the real engine, and a module that re-implemented "where is this contact really" would be a second source of
+truth for an electrode position. Exported for the reason the colormaps and the coordinate spaces are.
+
+**Two references, and neither is this code.** The synthetic fixture is `testdata/ct_shafts.nii.gz` — a CT
+phantom with three depth electrodes at a 3.5 mm contact pitch, oblique to every axis, on **anisotropic**
+spacing (0.4 / 0.5 / 0.8 mm) so that `ceil(1.5 / spacing)` is 4, 3 and 2 voxels and an implementation that
+used one spacing for all three axes is right on an isotropic volume and wrong here. It is stored as
+`HU + 1024` with `scl = (1, −1024)`, so a reader that forgets §6.1's scaling is off by exactly 1024 rather
+than subtly wrong. `scripts/gen-fixtures.py`'s verification half re-reads the file with **nibabel** and
+recomputes every expectation in numpy, per AGENTS.md "Test data". The real-data half is
+`scripts/refvalues/voxelbox_refvalues.py` over `m2m_ernie/T1.nii.gz`, which is the file that matters —
+float32 with a max of exactly 65535 and a non-diagonal sform, where a box built from `dims` and `spacing`
+instead of the inverse affine would pass on the phantom and fail on a subject.
+
+**One convention had to be pinned to make the two agree: the query's voxel index rounds HALF-UP**, like
+JavaScript's `Math.round`. `np.rint` is half-to-even and disagreed on every index landing exactly between
+two voxels. Both references now state the rule, and the fixture's origin puts an integer voxel index at
+world 0 on every axis with no query on a half-index — a test whose expectations turn on a tie-break is
+pinning the tie-break rather than the rule.
+
+## 2026-08-30 — the point tool: place on every click, select by id, and one `dragEnd` per drag
+
+§13's contact editor needs three things the engine had no member for: a mode in which a click edits points
+instead of moving the cursor, a way to say *which* point a tool is about that survives an edit, and a signal
+that a drag is over. `api.ts` gains five members, an event and three types; `engine.ts` implements them;
+`input/gestures.ts` gains a `GestureKind`; `input/pointer.ts` gains one slot in its precedence chain. Two
+frozen files (§12.3) — `api.ts`, and ARCHITECTURE §4.7 / §7.5 / §11 edited in the same commit. Every addition
+is additive and nothing is armed by default, so the whole engine e2e suite, goldens included, is unchanged.
+
+**The template is the measurement tool** (`docs/DECISIONS.md`, 2026-08-28), deliberately and almost line for
+line: the mode is the engine's because only the engine can turn a pane pixel into a world point and §8 forbids
+the app deriving one; the app owns the thing that arms it and nothing else; the pointer layer is where a click
+becomes an edit. What is new is that the thing being edited is **scene state a layer already holds**, not a
+new `Scene` collection — §4.4's `PointsLayer` is the contact model (2026-08-30), so every edit is one
+`updateLayer` and a host that never heard of this tool still sees the points move.
+
+**Place mode does not hit-test first, and that is Slicer's semantics rather than an omission.** In `'place'`
+every left click appends a point. The alternative — hit first, place on a miss — reads as helpful and is
+wrong at the pitch this is for: sEEG contacts are 3.5 mm apart, about five pixels at a default zoom, and the
+click that matters most is the one filling the gap *between* two contacts that were found. A hit-first rule
+answers that click by selecting a neighbour, and the user's correction has silently become a no-op.
+
+**Selection is by `points[].id`, and the engine re-finds it after every `points` replacement.** The array
+index is the frame's key and cannot be an identity: deleting the second of twelve contacts renumbers ten of
+them. So the tool holds `{ layerId, pointId }`, `updateLayer` re-resolves it, and an id that is no longer
+there **clears** the selection with a `cleared` event rather than leaving the ring on whatever took the index.
+Arming the tool also *materialises* ids — a layer whose points carry none gets `p<index>` on every one of
+them — so that the tool, the selection and the saved scene name the same contact by the same string instead of
+the engine answering with ids that are not in the scene.
+
+**A ghost is never hit.** `offPlaneOpacity` draws the off-slice contacts of a shaft so the shaft reads as a
+shaft (2026-08-30), and every one of those discs is at a position the pane is *not* showing a cross-section
+of. Grabbing one and dragging it would move a contact in a plane it is not in, by a delta measured in a plane
+it is not in. So the hit test asks the disc rule with the ghost switched off, which is one argument
+(`offPlaneOpacity: 0`) rather than a second rule: `overlay/point-ring.ts`'s `discRadiusPx` is the shader's
+rule stated once, and the ring, the hit test and the picture cannot drift apart — the arrangement
+`gizmoHandleAt` already has with `handlePoints`. The floor under it is `max(disc, 8 px)`, because a 0.8 mm
+contact at 0.5 mm/px is a 3 px target and a hand does not aim at 3 px.
+
+**One `dragEnd`, delivered from all three of the gesture machine's exits.** The gizmo drag discards its
+`end` (`#onUp` is `void g`) because it has no host that cares; a point drag does — one drag is one undo step
+and one dirty mark, and the module's `.bak` is the only other net. The `end` arrives from `#onUp`, from
+`#onCancel` (which is `pointercancel` **and** the window `blur` bound to the same handler) and from the
+second-pointer branch of `down()`, whose events until now were read only for a `begin`. All three are
+forwarded for kind `'point'` and for no other kind, and `gestures.test.ts` has a case per exit — a tool that
+listened to only the first would leave a half-committed edit behind every time a user switched windows
+mid-drag.
+
+**`GestureKind 'point'` is resolved in the 2D branch, between `Shift` and `space`.** After the ctrl/meta and
+`Shift` tests so a menu accelerator is still not a drag and `Shift`+drag over a contact is still the layer's
+opacity; before the `space` test, and testing `space` itself, so `space`+drag over a contact still pans the
+pane. §7.5 binds those three and a new tool does not get to quietly take them. `GestureMachine.down` and
+`resolveGesture` now take a `GestureTargets` bag where `overGizmo` was a positional boolean — `overPoint`
+would have been a fifth — and a bare boolean is still read as `{ overGizmo }`, so no existing caller changes.
+
+**One armed mode at a time.** Arming the point tool disarms measure mode and `setMeasureMode(true)` disarms
+the point tool. Both take the left click away from the cursor, and there is no place in §8's chrome that could
+honestly show which of two armed modes a click went to. §7.5 states the invariant.
+
+**`Esc` is `place` → `select` → off**, in the engine's own `keydown` beside `cancelMeasurement`'s and
+**before** the "is the pointer over a pane" early return, so it works with the pointer over the panel — which
+is where a user's pointer is when they decide they are done placing. It cannot be the app's: `keymap.ts`
+returns `cancelMeasurement` for `Escape` unconditionally and `Shell.tsx` `preventDefault`s it, so "core first,
+module on null" would never reach a module. Two steps rather than one because the two modes fail differently:
+a user who armed `place` by mistake wants out of *placing*, not out of the tool.
+
+**The hover hit test runs only while `select` is armed.** §8 budgets a volume hover at 16 ms and the 2D
+`#onMove` path is the hottest code in the pointer layer, so an unconditional per-move CPU test over a points
+layer would be a tax on every user who is not editing points. Armed, it sets `DrawInput.pointHot` and the
+canvas cursor; unarmed, it is one property read. `pointer.spec.ts` keeps a timing case on the unarmed path so
+that stays true.
+
+**Both mocks, and one of them behaviourally.** `MockEngine` inside the frozen `api.ts` throws, like every
+other member of it — its job is to be the compile-time proof that the facade needs no GL. The app's
+`NoGlEngine` implements the tool **for real** (arm/disarm, ids, selection by id, place, drag, the events),
+because the app's e2e launches with `?engine=mock` and there is no canvas there for a pointer layer to listen
+to. Its hit test is the engine's own exported `pointAtPane`, so "which contact did that click grab" has one
+answer in both engines; what it cannot borrow is the pane, so its 2D pane is an explicit `pointPane` with its
+in-plane origin at the cursor — the case the real engine reduces to when the scene anchor and the cursor
+coincide — and its 3D hit test answers `null` rather than inventing a projection from a camera matrix that
+never drew anything. `pointToolClick` / `pointToolDrag` / `pointToolDragEnd` are the three calls the real
+pointer layer would have made, exposed as a seam like `terminations` and `theme`, and not on `Engine`.
+
+**One P1 member had to be corrected to make the hover ring work.** `setPointHighlight({ hot: null })` kept the
+old value: the implementation read `highlight.hot ?? this.#pointHot`, and `??` cannot tell `null` — the value
+a caller passes to *clear* one half — from "not mentioned". It now tests `'hot' in highlight`. Without it, a
+pointer leaving a contact could only clear the hover ring by clearing the selection's with it.
+
+**Nothing moves.** No mode is armed unless something arms it, `pointSelection`/`pointHot` stay absent on every
+frame that predates a tool, and `resolveGesture` returns exactly what it returned for every press that is not
+over a point with a tool armed. The full engine e2e suite (both renderer projects) and every golden are
+unchanged; the new coverage is `points-tool.spec.ts`, which asserts the drag as `40 · mmPerPx ± 0.05 mm`
+derived from §3 rather than from the engine.

@@ -259,6 +259,33 @@ message; "the GM surface is now lit by a headlight rather than a fixed light, so
 `*-actual.png` and `*-diff.png` are git-ignored; on a failure the whole `playwright-report/` and
 `test-results/` tree is uploaded as a CI artefact.
 
+### Blessing a golden from ubuntu — the loop the command above does *not* complete
+
+The command above captures on **your** machine, and `ubuntu-24.04` is the authority (§11). Its SwiftShader is
+a different build on a different architecture, so a picture that is right locally can still be over
+`maxDiffPixelRatio` there. Both cases end at the same place — a PNG in the CI artefact — and neither is fixed
+by running Playwright with `-u` again:
+
+1. **Add the golden locally.** Write the spec, capture with `TETRAVOX_UPDATE_GOLDENS=1`, **look at the file**
+   (it is evidence, not proof — §11 rule 0 still wants the analytic assertion beside it), and commit it with a
+   body saying what it shows. Pushing without it is worse than pushing a wrong one: `updateSnapshots: 'none'`
+   makes a *missing* golden a failure, so CI reports `A snapshot doesn't exist at …` and captures nothing.
+2. **Let CI render it.** If ubuntu agrees within the ratio, that is the end of it. If it does not, the `engine`
+   job fails on that one test and uploads `playwright-report/` + `test-results/`.
+3. **Download the artefact and take ubuntu's picture.** Inside it,
+   `test-results/<spec>-<test>-chromium-swiftshader/<name>-actual.png` is what the authority rendered, beside
+   the `-diff.png` that says how it differs. Copy the **`-actual.png`** over
+   `packages/engine/test/golden/swiftshader/<name>.png` and commit it — replacing your local capture, in its
+   own commit, with a body stating what changed visually and that the picture came from ubuntu CI.
+4. **Never make it pass by re-running.** `playwright test -u` on the failing leg would overwrite the
+   authority's picture with the local one, which is the failure the two locks in the previous section exist to
+   prevent. If the diff is a real regression, fix the code; if it is a legitimate visual change, step 3 is how
+   it lands.
+
+The same three steps re-bless an **existing** golden that a deliberate rendering change moved — `186ff51`
+re-blessed five of them from ubuntu's renders on 2026-08-29 — and the only difference is that §11 then also
+requires the commit body to say what changed and why.
+
 ### Where a spec's screenshots go
 
 Two different things, and they never share a directory:
