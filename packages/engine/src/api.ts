@@ -323,8 +323,17 @@ export interface PointSelection {
  *   where it landed and `viewId` which pane the click was in.
  * * `selected` — a point became the selection, from a click or from {@link Engine.setPointSelection}.
  * * `dragEnd` — a `select`-mode drag finished, **once**, however it ended (pointer up, cancel, a
- *   second finger). The scene has already moved: the drag wrote every intermediate position, so
- *   this is the commit point, not the change.
+ *   second finger, or the tool being disarmed mid-drag). The scene has already moved: the drag
+ *   wrote every intermediate position, so this is the commit point, not the change.
+ *
+ *   **A plain click emits one too, and it is zero-length.** A `select`-mode click *grabs* the point
+ *   under it, and a grab is a drag that ended without moving — so clicking through a list of
+ *   contacts produces `selected`, `dragEnd`, `selected`, `dragEnd`, … A host that treats every
+ *   `dragEnd` as an edit therefore records an undo step and a dirty mark per *selection*: the
+ *   window-close guard arms, the discard prompts appear, and the history fills with no-ops. **Compare
+ *   positions against the snapshot taken at `selected` (or at `placed`) before committing** — an
+ *   unchanged one commits nothing. This is stated here, in the contract, rather than only in the
+ *   engine's own e2e, because it is the first thing a second module gets wrong (2026-08-30).
  * * `cleared` — there is no selection any more: `Esc`, an explicit `null`, or the selected id
  *   disappearing from a replaced `points` array. `pointId` is `null` and `index` is `-1`.
  */

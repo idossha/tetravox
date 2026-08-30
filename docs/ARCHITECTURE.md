@@ -2469,6 +2469,12 @@ Input (Freeview-like):
     The gesture's `end` is forwarded to the tool from **all three exits** — `#onUp`, `#onCancel`
     (`pointercancel`, and the window `blur` bound to it) and the second-pointer branch of `down()` — and
     becomes exactly one `dragEnd`, which is what makes one drag one undo step and one dirty mark for the host.
+    **A plain click is a zero-length drag and emits one too**: a `select`-mode click grabs the point under
+    it, so clicking through contacts produces `selected`, `dragEnd`, `selected`, `dragEnd`, … "One drag is
+    one undo step" is therefore not "every `dragEnd` is an undo step" — a host compares positions against
+    the snapshot it took at `selected` and commits only what moved. The engine does not suppress the event:
+    the grab really did happen, a host may want it, and a silent exception in a frozen contract is worse
+    than a stated one (2026-08-30).
   * **`Esc` is `place` → `select` → off**, in the engine's own keydown beside `cancelMeasurement`'s and before
     the "is the pointer over a pane" test, because the app's `keymap.ts` answers `Escape` unconditionally and
     "core first, module on null" could never deliver it here. **A disarm that lands mid-drag commits the drag

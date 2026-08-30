@@ -4091,3 +4091,32 @@ the last bits of an inverse affine (float64 in numpy, a float32-valued matrix in
 `ceil` box was two voxels deeper than it needed to be and absorbed the one-voxel shift; Slicer's is tighter,
 and the same tie moved the centroid 0.08 mm. The offsets are now `0.47 / 0.29 / 0.19`, which keeps every
 query at least 0.03 of a voxel from a half-index on every axis.
+
+## 2026-08-30 — the zero-length `dragEnd` is written into the contract, not suppressed
+
+A `select`-mode click grabs the point under it, and a grab is a drag: the press starts a `'point'` gesture
+and the release ends it. So a plain click emits `selected` and then one **zero-length** `dragEnd`, and
+clicking through a list of contacts emits `selected`, `dragEnd`, `selected`, `dragEnd`, …
+
+`api.ts`'s `PointToolEvent` described `dragEnd` only as "a `select`-mode drag finished, **once** … this is the
+commit point, not the change", and §7.5 said the gesture's end "becomes exactly one `dragEnd`, which is what
+makes one drag one undo step and one dirty mark for the host". Read as instructions — which is how a module
+author reads a frozen interface — those two sentences say "push undo and set dirty on every `dragEnd`", and
+a host that does exactly that marks itself dirty for merely *looking* at contacts: the OS close guard arms,
+§13.3's discard prompts start appearing, and the 50-slot history fills with no-ops.
+
+The knowledge existed. It was in `points-tool.spec.ts`'s comment ("a host that treats every `dragEnd` as an
+edit would otherwise record an undo step per selection"), in `tetravox.seeg`'s editor header, and in this
+file's own sEEG undo-coalescing entry. None of those is the contract a *second* module is written against.
+
+**Stated, not suppressed.** Suppressing the event when nothing moved would make §7.5's sentence true as
+written, and it was the tempting fix. It is the wrong one: the grab genuinely happened, a host may want to
+know a drag began and ended on the same pixel, and removing an event that a frozen interface has emitted
+since it was frozen is a behaviour change to `Engine` in a contract whose whole promise is "absent reproduces
+the previous behaviour". A documented exception is worse than no exception and far better than a silent one.
+So `PointToolEvent`'s docstring and §7.5 both now say a click emits a zero-length `dragEnd` and that a host
+compares positions against the snapshot taken at `selected` before committing — which is what the first-party
+module already does, and now for a reason a reader can find.
+
+`api.ts` is §12.3-frozen, so this documentation-only edit lands with its `ARCHITECTURE.md` change in the same
+commit, exactly as a signature change would.
