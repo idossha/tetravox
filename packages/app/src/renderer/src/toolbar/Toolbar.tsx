@@ -65,7 +65,9 @@ export function Toolbar(): React.JSX.Element {
       label: 'New',
       disabled: !hasContent,
       title: 'Close every dataset and start an empty scene',
-      onSelect: () => controller.newScene(),
+      // §13.3: guarded, like the File menu's New. `newScene()` itself is untouched and still
+      // synchronous, so nothing else that calls it had to change.
+      onSelect: () => void controller.requestNewScene(),
     },
     {
       id: 'open-scene',

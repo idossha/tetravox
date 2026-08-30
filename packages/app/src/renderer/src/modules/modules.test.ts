@@ -13,6 +13,10 @@
  *  3. **Data only.** `src/modules/**` is read off disk and every import in it must resolve *inside*
  *     that directory — no engine, no store, no `node:`, no bridge. That is what lets the main
  *     process import a manifest before a window exists.
+ *  4. **The lint wall, proved from the other side.** `renderer/src/modules/<id>/**` may reach
+ *     `../host`, the shared control kit and `@tetravox/engine` **types**; a value import of the
+ *     engine, or any import of the store / bridge / automation, fails here as well as in ESLint. A
+ *     lint rule can be switched off inline; this cannot.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -31,6 +35,8 @@ import { resolveKey } from '../keyboard/keymap';
 const HERE = dirname(fileURLToPath(import.meta.url));
 /** `packages/app/src/modules` — the data-only half. */
 const DATA_DIR = resolve(HERE, '..', '..', '..', 'modules');
+/** `packages/app/src/renderer/src/modules` — this directory; its subdirectories are the modules. */
+const CODE_DIR = HERE;
 const USER_GUIDE = resolve(HERE, '..', '..', '..', '..', '..', '..', 'docs', 'USER_GUIDE.md');
 
 function sourcesUnder(dir: string): string[] {
@@ -209,6 +215,50 @@ describe('`src/modules` is data only', () => {
           staysInside(file, specifier, DATA_DIR),
           `${relative(DATA_DIR, file)} imports ${specifier}`
         ).toBe(true);
+      }
+    }
+  });
+});
+
+describe('the module import wall (§13.1)', () => {
+  const moduleDirs = readdirSync(CODE_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(CODE_DIR, entry.name));
+
+  it('has a module directory to check', () => {
+    // The host's own files sit **directly** in `modules/`; only the subdirectories are modules.
+    expect(moduleDirs.length).toBeGreaterThan(0);
+  });
+
+  it('lets a module reach the host, the control kit and engine types, and nothing else', () => {
+    const forbidden =
+      /(^|\/)(store|automation|open|panels)(\/|$)|(^|\/)bridge$|(^|\/)preload(\/|$)|(^|\/)engine\/(factory|mockEngine|commands)$/;
+    for (const dir of moduleDirs) {
+      for (const file of sourcesUnder(dir)) {
+        const text = readFileSync(file, 'utf8');
+        for (const specifier of importsOf(file)) {
+          const where = `${relative(CODE_DIR, file)} imports ${specifier}`;
+          expect(forbidden.test(specifier), where).toBe(false);
+          if (specifier !== '@tetravox/engine') continue;
+          // Types only. A value import would put engine code inside a module, which §13.8's worker
+          // tier could never allow — and would make the wall a style rule rather than a boundary.
+          const value = new RegExp(`import\\s+(?!type\\b)[^;]*?from\\s*['"]@tetravox/engine['"]`);
+          expect(value.test(text), where).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('reaches the shell only through `../host`', () => {
+    for (const dir of moduleDirs) {
+      for (const file of sourcesUnder(dir)) {
+        for (const specifier of importsOf(file)) {
+          if (!specifier.startsWith('..')) continue;
+          // One legal way out of a module's directory, and it is the host.
+          expect(specifier, `${relative(CODE_DIR, file)} imports ${specifier}`).toMatch(
+            /^\.\.\/(host|ui\/)/
+          );
+        }
       }
     }
   });
