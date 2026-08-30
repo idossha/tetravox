@@ -249,9 +249,9 @@ carries per-point values (a parsed Gmsh view with data attached), the layer can 
 solid colour, with the same colormap choices as mesh field colouring, and a label-size control appears for
 sources that actually have labels to size.
 
-**A points layer a [module](#modules) owns is different**, and the layer panel says so: it shows a read-only
+**A points layer a [module]({{ site.baseurl }}/guide/modules.html) owns is different**, and the layer panel says so: it shows a read-only
 summary where that editor would be, and the module's own panel is the only way to change it. Contacts read
-from an electrodes table belong to the [sEEG contacts](#seeg-contacts) module — its editor is where they are
+from an electrodes table belong to the [sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module — its editor is where they are
 placed, snapped, re-fitted, renumbered and saved, because the core editor here would rewrite the electrode
 colours and the radius it is not allowed to touch, and its edits would go around the module's own undo. What
 stays on the row is what belongs to the panel: visibility, opacity and the stacking order.
@@ -595,8 +595,8 @@ takes the next three clicks in any 2D pane. A camera preset puts the pane back o
 **Module keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
 lent to whichever [module](#modules) is open and mean nothing when none is. They are resolved **after**
 everything above, so no module can change what any key on this page does, and `Esc` is never one of them.
-The `?` sheet grows a **Modules** tab listing the active module's own chords. The [sEEG contacts](#seeg-contacts)
-module binds these:
+The `?` sheet grows a **Modules** tab listing the active module's own chords. The
+[sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module binds these:
 
 | Key | Action |
 |---|---|

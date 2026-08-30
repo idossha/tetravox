@@ -26,6 +26,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -50,6 +51,12 @@ function subjectTree(): { ct: string; tsv: string; ieeg: string } {
   const tsv = join(ieeg, 'sub-P076_space-T1w_electrodes.tsv');
   copyFileSync(join(TESTDATA, 'ct_shafts.nii.gz'), ct);
   copyFileSync(join(TESTDATA, 'seeg_contacts.tsv'), tsv);
+  // A subject somebody has already hand-corrected: the editlog is what `seegprep`'s --force guard
+  // looks for, and what the panel's banner is about.
+  writeFileSync(
+    join(ieeg, 'sub-P076_space-T1w_electrodes_editlog.json'),
+    JSON.stringify({ edited_utc: '2026-08-14T09:30:00Z', n_contacts: 15, added: 0, edited: 2 })
+  );
   return { ct, tsv, ieeg };
 }
 
@@ -145,6 +152,10 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     expect(ct.threshold).toMatchObject({ lo: 150, mode: 'hide' });
   });
 
+  test('an existing editlog is a banner: somebody has been here before you', async () => {
+    await expect(page.locator('[data-testid="seeg-banner"]')).toContainText('2026-08-14');
+  });
+
   test('the contact list shows a status, an off-plane distance and a tip marker', async () => {
     await expect(page.locator('[data-testid="seeg-list"] > li')).toHaveCount(6);
     const row = page.locator('[data-testid="seeg-row-A01"]');
@@ -155,7 +166,7 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await expect(page.locator('[data-testid="seeg-stats"]')).toContainText('rms');
   });
 
-  test('a jump puts the crosshair on the contact', async () => {
+  test('a jump puts the crosshair on the contact, and its own off-plane distance is zero', async () => {
     await page.click('[data-testid="seeg-jump-A04"]');
     const cursor = await page.evaluate(() => window.__tetravox?.store.getState().cursor);
     const contact = await page.evaluate((id) => {
@@ -165,6 +176,12 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
       return points.find((p) => p.name === 'A04')?.position ?? null;
     }, SEEG);
     expect(cursor).toEqual(contact);
+
+    // §13.1's `activePlane`: the column is the distance from the plane the active pane is showing,
+    // which passes through the crosshair — so the contact the crosshair is now on reads 0.0 mm, and
+    // the ones further along an oblique shaft do not.
+    await expect(page.locator('[data-testid="seeg-row-A04"]')).toContainText('0.0 mm');
+    await expect(page.locator('[data-testid="seeg-row-A01"]')).not.toContainText('0.0 mm');
   });
 
   test('a snap moves the selected contact toward the metal, and Undo puts it back', async () => {
@@ -312,6 +329,8 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
 
     // The backup main made, from the bytes that were there — its name is the writer's template.
     const backups = readdirSync(tree.ieeg).filter((name) => name.endsWith('.bak'));
+    // Exactly one: the table's. The editlog is written with `backup: false` — it is a record of
+    // this save, not a file whose previous contents are worth keeping.
     expect(backups).toHaveLength(1);
     expect(backups[0]).toMatch(/^sub-P076_space-T1w_electrodes\.tsv\.\d{8}-\d{6}\.bak$/);
     expect(readFileSync(join(tree.ieeg, backups[0] as string), 'utf8')).toBe(before);
