@@ -580,6 +580,43 @@ describe('operations (§13.6)', () => {
     expect(saved.editlog).toBe(`${DERIV}/ieeg/sub-P076_space-T1w_electrodes_editlog.json`);
   });
 
+  /**
+   * The `ct` a job **named** beats the volume the name heuristic would have guessed.
+   *
+   * A pre-op CT beside a post-implant one is the ordinary sEEG scene and both basenames say "ct", so
+   * `chooseVolume`'s "the first volume whose name contains a standalone ct" answers the pre-op one —
+   * the volume with no electrodes in it. Everything downstream rides on that binding: the layer's
+   * carrier, the 150 HU display preset, and every `peakCentroid` a snap takes.
+   */
+  it('binds the CT the load operation named, not the first volume that looks like one', async () => {
+    const PREOP = `${DERIV}/ct/sub-P076_acq-preop_space-T1w_ct.nii.gz`;
+    const TABLE = `${DERIV}/ieeg/sub-P076_desc-job_electrodes.tsv`;
+    const h = harness({ [PREOP]: 'a volume', [CT]: 'a volume', [TABLE]: phantomTable() });
+    // `scene.files` order: the pre-op CT lands first, exactly as a job listing it first would.
+    h.controller.open([
+      { name: 'preop', path: PREOP, source: { kind: 'path', path: PREOP } },
+      { name: 'bone', path: CT, source: { kind: 'path', path: CT } },
+    ]);
+    await until(() => h.store.getState().datasets.length === 2, 'both CTs');
+    expect(await h.controller.activateModule(SEEG)).toBe(true);
+
+    const result = await h.controller
+      .moduleInstance()
+      ?.runOperation?.('load', { ct: CT, tsv: TABLE });
+    expect(result).toMatchObject({ contacts: 15, bound: true });
+
+    const bone = h.store.getState().datasets.find((d) => d.path === CT);
+    const preop = h.store.getState().datasets.find((d) => d.path === PREOP);
+    expect(bone?.id).not.toBe(preop?.id);
+    expect(contactsLayer(h).datasetId).toBe(bone?.id);
+    // …and the display preset went to the CT that was named, not to the other one.
+    const volumeOn = (datasetId?: string): { threshold?: { lo: number } } | undefined =>
+      h.store.getState().layers.find((l) => l.kind === 'volume' && l.datasetId === datasetId) as
+        { threshold?: { lo: number } } | undefined;
+    expect(volumeOn(bone?.id)?.threshold?.lo).toBe(150);
+    expect(volumeOn(preop?.id)?.threshold?.lo).not.toBe(150);
+  });
+
   it('refuses an operation it does not have, and a bad snap scope', async () => {
     const h = await loadSubject();
     const instance = h.controller.moduleInstance();

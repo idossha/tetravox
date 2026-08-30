@@ -447,7 +447,17 @@ export function createModel(host: ModuleHost): SeegModel {
     const dataset = host.scene.datasets().find((d) => d.id === datasetId);
     if (dataset === undefined) return;
     const stem = tsvPath === null ? (subjectOf(dataset.name) ?? '') : stemOf(baseNameOf(tsvPath));
-    const existing = layerOf() ?? ownedLayer();
+    let existing = layerOf() ?? ownedLayer();
+    // A layer hanging off a *different* volume than the one now bound — a job's `load` naming a
+    // second CT after an interactive session bound the first — is rebuilt rather than patched:
+    // `LayerBase.datasetId` is the carrier the renderable was built for, so the contacts would be
+    // drawn against one volume and snapped against another. Removing it disarms the point tool;
+    // the `armed`/`ensureArmed` pair at the end of this function is what puts it back.
+    if (existing !== null && existing.datasetId !== dataset.id) {
+      host.scene.removeLayer(existing.id);
+      layerId = null;
+      existing = null;
+    }
     if (existing !== null) {
       layerId = existing.id;
       host.scene.updateLayer<PointsLayer>(existing.id, {
@@ -478,6 +488,10 @@ export function createModel(host: ModuleHost): SeegModel {
     ctName = dataset.name;
     return true;
   };
+
+  /** Whether {@link datasetId} still names a dataset the scene has. */
+  const stillBound = (): boolean =>
+    datasetId !== null && host.scene.datasets().some((d) => d.id === datasetId);
 
   const applyTable = (path: string, text: string): boolean => {
     let parsed;
@@ -513,7 +527,14 @@ export function createModel(host: ModuleHost): SeegModel {
     warning = seegprepWarning(path);
     for (const note of result.warnings.slice(0, 3)) host.ui.toast('warn', note);
 
-    if (!bindVolume()) {
+    // **A CT that was named beats a CT that was guessed.** `runOperation('load')` resolves the job's
+    // `ct` argument to a dataset before calling this; re-running the name heuristic here would throw
+    // that away and bind whichever volume matches `/ct/` first, which in the ordinary sEEG scene —
+    // a pre-op CT and a post-implant one — is the wrong volume, and everything downstream (the
+    // layer's carrier, the 150 HU preset, every `peakCentroid` a snap takes) would be computed on
+    // it while the result still reported `bound: true`. Only re-bind when nothing is bound, or when
+    // what was bound has since been closed.
+    if (!stillBound() && !bindVolume()) {
       pendingTsv = path;
       message = 'Open the CT this table was localised on to edit it.';
       markDirty(false);
