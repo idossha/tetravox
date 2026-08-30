@@ -575,6 +575,48 @@ describe('saving', () => {
   });
 
   /**
+   * §13.3's discard guard covered New, Open scene and Close dataset — and not the route that most
+   * looks like "the next subject": opening another electrodes table.
+   */
+  it('asks before another table throws unsaved contact edits away', async () => {
+    const NEXT = `${DERIV}/ieeg/sub-P077_space-T1w_electrodes.tsv`;
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'snap-electrode');
+    const edited = pointNamed(h, 'A01').position;
+    expect(h.store.getState().moduleDirty[SEEG]).toBe(true);
+
+    h.fs.files.set(NEXT, phantomTable(0.2));
+    h.controller.open([{ name: 'next', path: NEXT, source: { kind: 'path', path: NEXT } }]);
+    await until(() => h.store.getState().dialog === 'confirm', 'the discard question');
+    // Three buttons, because the manifest declares a `save` command: Save… / Discard / Cancel.
+    expect(h.store.getState().confirm?.buttons).toHaveLength(3);
+
+    h.controller.resolveConfirm(2); // Cancel
+    await until(() => h.store.getState().dialog === 'none', 'the dialog to close');
+    // The edits are still there, and the table that was refused was not opened as a mesh either:
+    // the reader claimed it, so `runOne` stopped rather than toasting "unsupported".
+    expect(pointNamed(h, 'A01').position).toEqual(edited);
+    expect(h.store.getState().moduleDirty[SEEG]).toBe(true);
+    expect(h.store.getState().toasts.some((t) => /unsupported/i.test(t.detail ?? ''))).toBe(false);
+  });
+
+  it('opens the next table once the guard is answered with Discard', async () => {
+    const NEXT = `${DERIV}/ieeg/sub-P077_space-T1w_electrodes.tsv`;
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'snap-electrode');
+
+    h.fs.files.set(NEXT, phantomTable(0.2));
+    h.controller.open([{ name: 'next', path: NEXT, source: { kind: 'path', path: NEXT } }]);
+    await until(() => h.store.getState().dialog === 'confirm', 'the discard question');
+    h.controller.resolveConfirm(1); // Discard
+    await until(
+      () => h.store.getState().moduleDirty[SEEG] !== true,
+      'the second table to be loaded'
+    );
+    expect(contactsLayer(h).points).toHaveLength(15);
+  });
+
+  /**
    * A renumber is the one edit that rewires a table's `csc` / channel mapping, and it moves nothing
    * — so a diff keyed on position alone reported `added: 0, edited: 0` and no rows at all for it.
    */

@@ -2590,10 +2590,15 @@ filename. `docs/USER_GUIDE.md` is the user-facing half.
 **Asking before losing work.** `DialogKind` carries a `confirm` case: a promise-resolving question with two
 or three buttons, raised by the module host (`host.ui.confirm`, §13.1) and by the shell's own discard guard.
 The **last** button is always the cancelling one, so Escape and a backdrop click — which `DialogFrame` already
-routes to `onCancel` — are the same answer as pressing it. The guard runs at five places where work would
+routes to `onCancel` — are the same answer as pressing it. The guard runs at every place where work would
 otherwise be thrown away without a word: **New**, opening a scene (which is also File ▸ Open Recent and the
-drop route, since all three arrive at `openScenePath`), and a layer row's **✕**, which closes the dataset a
-module's layers hang off. It is keyed on `UiState.moduleDirty`, **never** on `sceneDirty`: `sceneDirty` is set
+drop route, since all three arrive at `openScenePath`), a layer row's **✕**, which closes the dataset a
+module's layers hang off, and **opening another file a module claims** — a module's `openPath` replaces what
+it is editing and clears its own history, so the reader route (§13.1's `onReader`) is as destructive as New
+and asks the same question; cancelling there reports the path as *claimed*, because falling through to the
+ordinary dataset load would try an electrodes table as a mesh. A module's own Open sheet asks for itself,
+through `host.ui.confirm`, since the shell never sees that gesture. It is keyed on `UiState.moduleDirty`,
+**never** on `sceneDirty`: `sceneDirty` is set
 by any cursor click and is deliberately conservative, so it cannot mean "this work is unsaved". The window
 title's `•` is the OR of the two. `⌘S` saves the *scene*; while a module has unsaved work it also says so,
 because a module writes its own files from its own panel.

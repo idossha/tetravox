@@ -920,7 +920,31 @@ export function createModel(host: ModuleHost): SeegModel {
     return writeFiles(savePath, saveSiblings);
   };
 
+  /**
+   * §13.3's discard guard, asked by the module for the one destructive route the shell cannot see.
+   *
+   * `openThroughModule` guards the reader route, but the panel's own Open… sheet never leaves the
+   * module, and `applyTable` replaces the set and clears the history. Same three buttons and the
+   * same order as `confirmDiscardModuleEdits`, because a user who has answered one of these should
+   * not have to read the other: Save… first, then Discard, and Cancel last.
+   */
+  const confirmDiscard = async (what: string): Promise<boolean> => {
+    if (!isDirty) return true;
+    const answer = await host.ui.confirm(`Discard unsaved sEEG contacts edits?`, `${what}.`, [
+      'Save…',
+      'Discard',
+      'Cancel',
+    ]);
+    if (answer === 0) {
+      await doSave();
+      // A save that did not clear the flag has not saved; do not proceed on its behalf.
+      return !isDirty;
+    }
+    return answer === 1;
+  };
+
   const doLoadDialog = async (): Promise<void> => {
+    if (!(await confirmDiscard('Opening another table will close them without saving'))) return;
     const paths = await host.files.openDialog('electrodes');
     const path = paths?.[0];
     if (path === undefined) return;
