@@ -326,11 +326,20 @@ export interface ModuleDialogFilter {
 export interface ModuleOpenOptions {
   title: string;
   filters: ModuleDialogFilter[];
+  /**
+   * Which of the module's `readers` this sheet is for (2026-08-30, appended).
+   *
+   * Main looks the reader up in `MANIFESTS` and uses **its** title and extensions; the two fields
+   * above are then the fallback for a module main does not know, still sanitised on arrival.
+   */
+  readerId?: string;
 }
 export interface ModuleSaveOptions extends ModuleOpenOptions {
   /** The writer's sibling templates — `{name}.{stamp}.bak`, `{stem}_editlog.json`. */
   siblings: string[];
   defaultPath: string | null;
+  /** Which of the module's `writers` this sheet is for. See {@link ModuleOpenOptions.readerId}. */
+  writerId?: string;
 }
 /** The chosen path, and each declared template's substituted absolute path beside it. */
 export interface ModuleSaveTarget {

@@ -40,6 +40,10 @@ import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { allowPath, allowPaths, resolveAllowed } from './paths';
 import { fileUrl } from './protocol';
 import type { OpenedPath } from './menu';
+// §13.1's data-only barrel. Main-safe by construction — no DOM type, no `node:` import, no engine —
+// which is the same property that lets `job.ts` validate a module action before a window exists.
+import { manifestFor } from '../modules/manifests';
+import type { ModuleReader, ModuleWriter } from '../modules/manifest-types';
 
 /**
  * What `module-read-text` will read. Text a module parses on the UI thread: an electrode table, a
@@ -75,12 +79,16 @@ export interface ModuleDialogFilter {
 export interface ModuleOpenOptions {
   title: string;
   filters: ModuleDialogFilter[];
+  /** Which of the module's `readers` this sheet is for; main prefers the manifest's own copy. */
+  readerId?: string;
 }
 
 export interface ModuleSaveOptions extends ModuleOpenOptions {
   /** The writer's sibling templates, validated here and admitted with the chosen path. */
   siblings: string[];
   defaultPath: string | null;
+  /** Which of the module's `writers` this sheet is for; main prefers the manifest's own copy. */
+  writerId?: string;
 }
 
 /** What a Save sheet returns: the chosen path, and each template's substituted absolute path. */
@@ -320,13 +328,34 @@ function coerceTitle(value: unknown, fallback: string): string {
 }
 
 /**
+ * The reader a sheet is for, out of `MANIFESTS` — or null when main does not know this module.
+ *
+ * "Does not know" is a real case rather than an error: a harness drives these handlers directly, and
+ * a `--job` window may be told about a module the barrel in this build does not carry. The renderer's
+ * own title and filters are then the fallback, still coerced, which is why {@link coerceFilters}
+ * stays on the path either way.
+ */
+function readerOf(moduleId: string, readerId: unknown): ModuleReader | null {
+  if (typeof readerId !== 'string' || readerId === '') return null;
+  return (manifestFor(moduleId)?.readers ?? []).find((r) => r.id === readerId) ?? null;
+}
+
+/** The writer a Save sheet is for, out of `MANIFESTS`. See {@link readerOf}. */
+function writerOf(moduleId: string, writerId: unknown): ModuleWriter | null {
+  if (typeof writerId !== 'string' || writerId === '') return null;
+  return (manifestFor(moduleId)?.writers ?? []).find((w) => w.id === writerId) ?? null;
+}
+
+/**
  * `tetravox:module-open-dialog` — an Open sheet with the reader's own title and filters, whose
  * result is allow-listed exactly like `menu.ts`'s. Paths, never bytes (§5 rule 3).
  *
- * INTEGRATION(P0): the title and filters arrive from the renderer, which read them out of the
- * module's manifest. Once `src/modules/manifests.ts` exists, main imports it (it is data-only and
- * main-safe by construction) and looks them up by `moduleId` + `readerId` itself, so the dialog can
- * only ever offer what a manifest declared. Until then they are sanitised on arrival above.
+ * **The manifest is the authority.** `readerId` names one of the module's declared readers and main
+ * reads that reader's title and extensions out of `MANIFESTS` itself, so the sheet can only ever
+ * offer what a manifest declared — design §6's "never from the renderer", now that the barrel exists
+ * for main to import. The renderer's own title and filters remain as a fallback for a module this
+ * build does not carry, and that fallback is sanitised on arrival exactly as it always was: a
+ * hostile one is a badly-named sheet, never a path.
  */
 export async function moduleOpenDialog(
   win: BrowserWindow | null,
@@ -334,11 +363,20 @@ export async function moduleOpenDialog(
   raw: unknown
 ): Promise<OpenedPath[]> {
   if (typeof moduleId !== 'string' || moduleId === '') return [];
-  const { title, filters } = (raw ?? {}) as Partial<ModuleOpenOptions>;
+  const { title, filters, readerId } = (raw ?? {}) as Partial<ModuleOpenOptions>;
+  const reader = readerOf(moduleId, readerId);
   const options: Electron.OpenDialogOptions = {
-    title: coerceTitle(title, 'Open'),
+    title: reader === null ? coerceTitle(title, 'Open') : coerceTitle(reader.title, 'Open'),
     properties: ['openFile', 'multiSelections'],
-    filters: coerceFilters(filters),
+    filters:
+      reader === null
+        ? coerceFilters(filters)
+        : coerceFilters([
+            { name: reader.title, extensions: reader.extensions },
+            // The escape hatch the renderer offered, kept: a reader whose extension list is right
+            // for a manifest is still wrong for the one file a user has named something else.
+            { name: 'All files', extensions: ['*'] },
+          ]),
   };
   const result = win
     ? await dialog.showOpenDialog(win, options)
@@ -351,9 +389,12 @@ export async function moduleOpenDialog(
  * `tetravox:module-save-dialog` — a Save sheet whose result admits the chosen path **and** the
  * writer's siblings for writing, and nothing else. Null when the user cancelled.
  *
- * INTEGRATION(P0): `siblings` comes from the renderer for the same reason the filters do, and is
- * validated here (`isSiblingTemplate` + `substituteSibling`) so a bad one is inert whatever its
- * origin. When main imports `MANIFESTS` the templates should come from the writer it names.
+ * **The manifest is the authority**, as for the Open sheet: `writerId` names one of the module's
+ * declared writers and its title, filters and **sibling templates** are read out of `MANIFESTS`
+ * here — which is the half that matters, because a template is what admits a second path for
+ * writing. The renderer's copies stay as the fallback for a module this build does not carry, and
+ * every template is validated by `isSiblingTemplate` + `substituteSibling` whichever end it came
+ * from: a bad one is inert, not trusted because a manifest said it.
  */
 export async function moduleSaveDialog(
   win: BrowserWindow | null,
@@ -361,18 +402,21 @@ export async function moduleSaveDialog(
   raw: unknown
 ): Promise<ModuleSaveTarget | null> {
   if (typeof moduleId !== 'string' || moduleId === '') return null;
-  const { title, filters, siblings, defaultPath } = (raw ?? {}) as Partial<ModuleSaveOptions>;
+  const { title, filters, siblings, defaultPath, writerId } = (raw ??
+    {}) as Partial<ModuleSaveOptions>;
+  const writer = writerOf(moduleId, writerId);
   const options: Electron.SaveDialogOptions = {
-    title: coerceTitle(title, 'Save'),
-    filters: coerceFilters(filters),
+    title: coerceTitle(writer?.title ?? title, 'Save'),
+    filters: coerceFilters(writer?.filters ?? filters),
     ...(typeof defaultPath === 'string' && defaultPath !== '' ? { defaultPath } : {}),
   };
   const result = win
     ? await dialog.showSaveDialog(win, options)
     : await dialog.showSaveDialog(options);
   if (result.canceled || result.filePath === undefined || result.filePath === '') return null;
-  const templates = Array.isArray(siblings)
-    ? siblings.filter((s): s is string => typeof s === 'string').slice(0, 8)
+  const declared = writer?.siblings ?? siblings;
+  const templates = Array.isArray(declared)
+    ? declared.filter((s): s is string => typeof s === 'string').slice(0, 8)
     : [];
   return admitModuleWrite(moduleId, result.filePath, templates);
 }

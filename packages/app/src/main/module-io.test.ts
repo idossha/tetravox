@@ -17,6 +17,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -24,6 +25,42 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * A manifest barrel with one module in it, so the "the manifest is the authority" half of the two
+ * dialog handlers can be driven at all: `MANIFESTS` really carries only `tetravox.hello`, which
+ * declares no reader and no writer, and the module that will is P4's.
+ *
+ * Every existing case below passes **no** `readerId`/`writerId`, so it exercises the fallback — a
+ * module main does not know — exactly as it did before the lookup existed.
+ */
+const declared = vi.hoisted(() => {
+  const manifest = {
+    id: 'tetravox.seeg',
+    title: 'sEEG',
+    version: '1.0.0',
+    hostApi: 1 as const,
+    docs: 'Modules',
+    activation: ['onToggle' as const],
+    commands: [],
+    readers: [{ id: 'electrodes', title: 'Electrode table', extensions: ['tsv', 'csv'] }],
+    writers: [
+      {
+        id: 'electrodes',
+        title: 'Save electrodes',
+        filters: [{ name: 'Electrode table', extensions: ['tsv'] }],
+        siblings: ['{name}.{stamp}.bak', '{stem}_editlog.json'],
+        backup: 'timestamped' as const,
+      },
+    ],
+  };
+  return { manifest };
+});
+
+vi.mock('../modules/manifests', () => ({
+  MANIFESTS: [declared.manifest],
+  manifestFor: (id: string) => (id === declared.manifest.id ? declared.manifest : null),
+}));
 
 vi.mock('electron', () => ({
   BrowserWindow: { fromWebContents: () => null },
@@ -44,6 +81,7 @@ import {
   clearModuleWriteLists,
   isModuleWritable,
   isSiblingTemplate,
+  moduleOpenDialog,
   moduleReadText,
   moduleSaveDialog,
   moduleWriteText,
@@ -224,6 +262,76 @@ describe('module-save-dialog', () => {
     expect(await moduleSaveDialog(null, '', { siblings: [] })).toBeNull();
     expect(await moduleSaveDialog(null, 42, { siblings: [] })).toBeNull();
     expect(vi.mocked(dialog.showSaveDialog)).not.toHaveBeenCalled();
+  });
+
+  it('takes the writer’s title, filters and templates from the manifest, not the renderer', async () => {
+    const target = join(dir, 'authority.tsv');
+    saveSheetReturns(target);
+    // A renderer asking for a sheet on a writer the manifest declares: every value it sent is
+    // ignored, including the sibling template — which is the one that *admits a second path for
+    // writing*, and therefore the one that must not be renderer-supplied once main can look it up.
+    const admitted = await moduleSaveDialog(null, SEEG, {
+      writerId: 'electrodes',
+      title: 'Save anything at all',
+      filters: [{ name: 'Everything', extensions: ['*'] }],
+      siblings: ['{stem}_elsewhere.json'],
+      defaultPath: null,
+    });
+    expect(admitted?.path).toBe(target);
+    const options = vi.mocked(dialog.showSaveDialog).mock.calls.at(-1)?.[0] as
+      Electron.SaveDialogOptions | undefined;
+    expect(options?.title).toBe('Save electrodes');
+    expect(options?.filters).toEqual([{ name: 'Electrode table', extensions: ['tsv'] }]);
+    // The manifest's `{stem}_editlog.json` is admitted; the renderer's invention is not.
+    expect(isModuleWritable(SEEG, join(dir, 'authority_editlog.json'))).toBe(true);
+    expect(isModuleWritable(SEEG, join(dir, 'authority_elsewhere.json'))).toBe(false);
+  });
+
+  it('falls back to the renderer’s values for a writer no manifest declares', async () => {
+    const target = join(dir, 'fallback.tsv');
+    saveSheetReturns(target);
+    await moduleSaveDialog(null, SEEG, {
+      writerId: 'not-declared',
+      title: 'Save electrodes',
+      filters: [{ name: 'Electrode table', extensions: ['tsv'] }],
+      siblings: [EDITLOG],
+      defaultPath: null,
+    });
+    // Still sanitised, still validated — the fallback never trusted the renderer, it only used it.
+    expect(isModuleWritable(SEEG, join(dir, 'fallback_editlog.json'))).toBe(true);
+    expect(isModuleWritable(SEEG, join(dir, 'anything.json'))).toBe(false);
+  });
+});
+
+describe('module-open-dialog', () => {
+  it('offers the manifest’s reader, with an escape hatch, and allow-lists what was chosen', async () => {
+    const chosen = join(dir, 'chosen.tsv');
+    writeFileSync(chosen, 'name\tx\n', 'utf8');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: false, filePaths: [chosen] });
+    const opened = await moduleOpenDialog(null, SEEG, {
+      readerId: 'electrodes',
+      title: 'Open whatever',
+      filters: [{ name: 'Everything', extensions: ['*'] }],
+    });
+    // `allowPaths` admits the **resolved** path (macOS's temp directory is a symlink), which is the
+    // same path `module-read-text` will canonicalise the read to.
+    expect(opened.map((o) => o.path)).toEqual([realpathSync(chosen)]);
+    const options = vi.mocked(dialog.showOpenDialog).mock.calls.at(-1)?.[0] as
+      Electron.OpenDialogOptions | undefined;
+    expect(options?.title).toBe('Electrode table');
+    expect(options?.filters).toEqual([
+      { name: 'Electrode table', extensions: ['tsv', 'csv'] },
+      { name: 'All files', extensions: ['*'] },
+    ]);
+    // Opening is a read gesture and nothing more: the chosen path is readable, never writable.
+    expect(moduleReadText(SEEG, chosen)).toEqual({ ok: true, text: 'name\tx\n' });
+    expect(isModuleWritable(SEEG, chosen)).toBe(false);
+  });
+
+  it('answers nothing for something that is not a module id, and asks no sheet', async () => {
+    vi.mocked(dialog.showOpenDialog).mockClear();
+    expect(await moduleOpenDialog(null, '', { title: 'x', filters: [] })).toEqual([]);
+    expect(vi.mocked(dialog.showOpenDialog)).not.toHaveBeenCalled();
   });
 });
 
