@@ -19,8 +19,9 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { expectPixel, readCanvasRect } from '../helpers/pixels';
+import { expectGolden, expectPixel, readCanvasRect } from '../helpers/pixels';
 import { readChromeText } from '../helpers/chrome';
 import { CELL_W } from '../../src/render/font';
 import { DEFAULT_OVERLAY_THEME } from '../../src/overlay/theme';
@@ -440,4 +441,98 @@ test('clearing the highlight removes every ring', async ({ page }) => {
     hot: null,
   });
   expect(errors).toEqual([]);
+});
+
+// -------------------------------------------------------------------------------------------
+// The §11 golden
+// -------------------------------------------------------------------------------------------
+
+/**
+ * `derived-points-ghost` — the one new regression picture for all three additions at once.
+ *
+ * The scene is `testdata/ct_shafts.nii.gz`, the phantom `derived/voxel-box.ts` is tested against:
+ * three depth electrodes, 3.5 mm contact pitch, oblique to every axis. That is deliberate rather
+ * than convenient — the whole point of `offPlaneOpacity` is that a shaft is a *shaft* and not one
+ * contact at a time, and no synthetic lattice can show that. In the picture: the on-slice contacts
+ * are opaque discs, the rest of each shaft is ghosted at 0.6, every contact carries its own name
+ * through `labelSource: 'names'` (slab-culled, so only the near ones are labelled — the divergence
+ * §7.2 states), and one contact wears the selection ring.
+ *
+ * The contact positions come from `testdata/manifest.json`, not from a literal here, so the picture
+ * and the numeric tests cannot describe two different electrodes.
+ */
+interface ManifestContacts {
+  voxelBox: { contacts: { group: string; ordinal: number; world: [number, number, number] }[] };
+}
+const CONTACTS = (
+  JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL('../../../../testdata/manifest.json', import.meta.url)),
+      'utf8'
+    )
+  ) as ManifestContacts
+).voxelBox.contacts;
+
+/** One colour per electrode — far apart, and none of them the ring's violet. */
+const GROUP_COLOR: Record<string, [number, number, number, number]> = {
+  A: [1, 0.45, 0.15, 1],
+  B: [0.3, 0.95, 0.5, 1],
+  C: [1, 0.85, 0.25, 1],
+};
+
+test('golden: derived-points-ghost', async ({ page }) => {
+  const errors = await openScene(page);
+  await page.evaluate(
+    async ([url, contacts, colors]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({ kind: 'path', path: url as string });
+      const volume = engine.addLayer({ datasetId: ds.id, kind: 'volume' });
+      // A fixed window, so the picture is a function of the scene rather than of a percentile —
+      // and a NARROW one, `0…120`, which puts the phantom's ~40 HU soft tissue at a mid grey and
+      // saturates the metal. A ghost blended over black is indistinguishable from a dim contact;
+      // over grey it is the thing this picture exists to regress.
+      engine.updateLayer(volume.id, { scale: { kind: 'linear', lo: 0, hi: 120 } });
+      const rows = contacts as {
+        group: string;
+        ordinal: number;
+        world: [number, number, number];
+      }[];
+      const palette = colors as Record<string, [number, number, number, number]>;
+      const points = engine.addLayer({
+        datasetId: ds.id,
+        kind: 'points',
+        module: 'tetravox.seeg',
+        name: 'Contacts · ct_shafts',
+        points: rows.map((c) => ({
+          id: `${c.group}${String(c.ordinal).padStart(2, '0')}`,
+          group: c.group,
+          ordinal: c.ordinal,
+          name: `${c.group}${String(c.ordinal).padStart(2, '0')}`,
+          position: c.world,
+          color: palette[c.group],
+        })),
+        color: [1, 1, 1, 1],
+        radiusMm: 1.2,
+        showLabels: true,
+        labelSource: 'names',
+        labelColor: [0.95, 0.96, 1, 1],
+        offPlaneOpacity: 0.6,
+      });
+      // The cursor on A3, so its own slice shows opaque discs and the rest of the shaft ghosts.
+      const a3 = rows.find((c) => c.group === 'A' && c.ordinal === 3)!;
+      engine.setCursor(a3.world);
+      engine.setPointHighlight({ selection: { layerId: points.id, index: rows.indexOf(a3) } });
+      engine.setLayout({ kind: '2x2', cells: ['axial', 'coronal', 'sagittal', 'view3d'] });
+      // §11: "every golden includes the §8 2D chrome … and the colour bars."
+      engine.setAnnotations({ colorbars: true });
+      for (const id of ['axial', 'coronal', 'sagittal']) {
+        engine.setView(id, { camera: { center: [0, 0], mmPerPx: 0.09 } });
+      }
+      engine.resetView('view3d');
+      await engine.whenSettled();
+    },
+    [fixture('ct_shafts.nii.gz'), CONTACTS, GROUP_COLOR] as const
+  );
+  expect(errors).toEqual([]);
+  await expectGolden(page, 'derived-points-ghost');
 });

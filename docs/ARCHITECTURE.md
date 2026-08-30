@@ -2615,6 +2615,9 @@ Examples that must exist:
   `expectGolden()` refuses to run in any update mode without that variable.
 * Every golden includes the §8 2D chrome (orientation letters, corner info, RAD/NEU badge) and the colour
   bars.
+* **A golden captured on a developer's machine is a proposal; ubuntu decides.** `docs/TESTING.md` §3 has the
+  loop: CI's failure artefact carries the `*-actual.png` the authority rendered, and that file — not a local
+  capture, and never a `-u` re-run — is what gets committed.
 
 **(3) A pane-scale reference renderer.** `expectPixel` proves one pixel; nobody hand-computes 147,456 of
 them, and a golden only says "the same as last time". `scripts/reference/` is a second **rendering path** for
@@ -2657,6 +2660,10 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | Scale bar | The drawn bar is exactly `mm / mmPerPx` pixels long, read off the framebuffer at two zooms |
 | Glyphs | Against a numpy reference over `ernie_TDCS_1_scalar.msh`: set equality on the sampled element numbers, origins within 0.01 mm, directions within 1°, lengths equal to the scaling model's |
 | Surface contours | `lh.pial.gii`'s three axis-plane contours against a nibabel + numpy reference: segment counts and total contour lengths |
+| Points ghost | A points layer at `offPlaneOpacity: 0.6` over a **known** slice pixel: the off-slice point's pixel is `src·0.6 + dst·0.4` of the layer colour over the tag colour, computed from first principles, and the SAME source over the background where the fixture hides its other tag — so a "ghost" implemented as a fixed dimmed colour passes the first and fails the second. Absent, the same point draws nothing at all. `shape: 'dot'` ghosts at its constant 4 px radius at two zooms an order apart |
+| Point selection ring | The ring's **radius is measured off the framebuffer**, the way the scale bar's length is: every pixel of `OverlayTheme.select` around the point is `disc + 2 px` from its centre, for an on-slice disc and for a ghosted one (which has no cross-section, so only its full radius can produce a ring). A culled point and a stale index draw **no** ring, and a hover ring that names the selected point is dropped |
+| Names as labels | `labelSource: 'names'` drawn and **decoded back out of the framebuffer** with §11's glyph matcher; with `labelSource` absent the same layer decodes its `labels` array instead. A ghosted point's disc is drawn and its name is not, which is the 2D-rule divergence §4.4 and §7.2 state |
+| Bounded local reads | `sampleVoxelBox` / `peakCentroid` against **numpy twice**: on `testdata/ct_shafts.nii.gz` (three depth electrodes, 3.5 mm pitch, anisotropic spacing so the per-axis half-extent differs, `HU + 1024` on disk so a forgotten `scl_inter` is off by exactly 1024) through `testdata/manifest.json`, and on `m2m_ernie/T1.nii.gz` through `scripts/refvalues/voxelbox_refvalues.json`. Box `ijk0`/`dims`/min/max/sum plus five spot values a transposed window cannot reproduce; the centroid to 1e-4 mm; and the property numpy cannot check — a click 0.8 mm off a contact lands within 0.15 mm of it |
 
 ---
 
