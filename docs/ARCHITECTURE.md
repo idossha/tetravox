@@ -315,13 +315,23 @@ thread sees only draw-ready buffers (uploaded to GL, then dropped) and probe res
 *neighbourhood*, which on a 0.5 mm CT at a 1.5 mm radius is a few hundred voxels and well under a millisecond.
 `derived/voxel-box.ts` is the whole of that permission and it carries the bound with it:
 `sampleVoxelBox(ds, world, radiusMm)` returns the physical values (`raw * sclSlope + sclInter`, applied once)
-in a box whose half-extent is `ceil(radiusMm / spacing)` voxels **per axis**, clipped to the volume and capped
-at `MAX_BOX_VOXELS` = 32 voxels on an axis; it returns `null` for `rgb24`/`rgba32`, whose samples are
-interleaved components with no single value, and for a point outside the volume — never a clamp, because a
-snap that silently pulled a click back inside the head would be worse than one that refused. `peakCentroid`
+in a box whose half-extent is `max(trunc(radiusMm / spacing), 1)` voxels **per axis**, clipped to the volume
+and capped at `MAX_BOX_VOXELS` = 32 voxels on an axis; it returns `null` for `rgb24`/`rgba32`, whose samples
+are interleaved components with no single value, and for a point outside the volume — never a clamp, because
+a snap that silently pulled a click back inside the head would be worse than one that refused. `peakCentroid`
 is the one consumer the engine ships: the intensity-weighted centroid of that box above the **midpoint of its
 own range** (`clip(v − (max − ½(max − min)), 0)`), computed in voxel indices and mapped through the affine, so
 it is sub-voxel and needs no absolute threshold. It is `null` on a flat box, where there is no peak to report.
+
+**That half-extent is a parity rule, not a numerical preference** (2026-08-30): it is
+`SEEGContactEditor.snapToMetal`'s `rad_vox = np.maximum((radius_mm / spacing).astype(int), 1)`, character for
+character — truncation, floor of one voxel. §13's sEEG module tells users it reproduces the 3D Slicer editor's
+workflow "so the two can be used on the same subject interchangeably", and a snap is interchangeable only if
+it searches the same neighbourhood. `ceil` differs on every non-integer `radius / spacing`: at the module's
+default 1.5 mm it is 5×5×5 on a 1 mm CT where Slicer is 3×3×3. Two things here are deliberately **not**
+Slicer's, and both are argued in `DECISIONS.md`: the query's voxel index is rounded HALF-UP (`Math.round`)
+where Python's `round` is half-to-even, and a **flat** box answers `null` where Slicer's `+ 1e-6` in the
+threshold makes it return the box centroid.
 Both are pure and exported from `@tetravox/engine`, so the app's no-GL engine gives the same answers. The cap
 is what makes this an exception rather than a hole: without it "read `data` on the UI thread" is a door to a
 512³ loop inside a `pointermove`, and §5's worker-per-dataset arrangement leaks through it. A caller who wants
@@ -2816,7 +2826,7 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | Point selection ring | The ring's **radius is measured off the framebuffer**, the way the scale bar's length is: every pixel of `OverlayTheme.select` around the point is `disc + 2 px` from its centre, for an on-slice disc and for a ghosted one (which has no cross-section, so only its full radius can produce a ring). A culled point and a stale index draw **no** ring, and a hover ring that names the selected point is dropped |
 | Names as labels | `labelSource: 'names'` drawn and **decoded back out of the framebuffer** with §11's glyph matcher; with `labelSource` absent the same layer decodes its `labels` array instead. A ghosted point's disc is drawn and its name is not, which is the 2D-rule divergence §4.4 and §7.2 state |
 | Point tool | The drag is asserted as an identity derived from §3 rather than from the engine: a 40 px drag moves the contact `40 · mmPerPx ± 0.05 mm`, the same claim §11 makes of the measurement tool from the other side. Around it, the grammar: in `place` mode **every** click appends (three clicks, three points, none of them a hit test); in `select` mode a press at 0.9 r grabs and one at 1.1 r + the 8 px floor does not; exactly **one** `dragEnd` per drag from each of the three gesture exits, `pointercancel` included; the selection survives an `updateLayer` that replaces `points` and is `cleared` when its id is not in the new array; `Esc` walks `place` → `select` → off; and arming the point tool turns measure mode off |
-| Bounded local reads | `sampleVoxelBox` / `peakCentroid` against **numpy twice**: on `testdata/ct_shafts.nii.gz` (three depth electrodes, 3.5 mm pitch, anisotropic spacing so the per-axis half-extent differs, `HU + 1024` on disk so a forgotten `scl_inter` is off by exactly 1024) through `testdata/manifest.json`, and on `m2m_ernie/T1.nii.gz` through `scripts/refvalues/voxelbox_refvalues.json`. Box `ijk0`/`dims`/min/max/sum plus five spot values a transposed window cannot reproduce; the centroid to 1e-4 mm; and the property numpy cannot check — a click 0.8 mm off a contact lands within 0.15 mm of it |
+| Bounded local reads | `sampleVoxelBox` / `peakCentroid` against **numpy twice**: on `testdata/ct_shafts.nii.gz` (three depth electrodes, 3.5 mm pitch, anisotropic spacing so the per-axis half-extent differs, `HU + 1024` on disk so a forgotten `scl_inter` is off by exactly 1024) through `testdata/manifest.json`, and on `m2m_ernie/T1.nii.gz` through `scripts/refvalues/voxelbox_refvalues.json`. Box `ijk0`/`dims`/min/max/sum plus five spot values a transposed window cannot reproduce; the centroid to 1e-4 mm; and the property numpy cannot check — a click 0.8 mm off a contact lands within 0.15 mm of it. Two cases exist for the **parity** rule alone: `off-toward-neighbour`, a mislocalised click where Slicer's `rad_vox` and `ceil` answer 0.86 mm apart, and `default-radius`, the one T1 query with a non-integer radius (on 1 mm spacing every integer radius makes the two rules agree) |
 
 ---
 

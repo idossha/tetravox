@@ -12,8 +12,8 @@ This is the real-data half of AGENTS.md rule 2 for `packages/engine/src/derived/
 expectations `scripts/gen-fixtures.py` writes into `testdata/manifest.json`; this file is the same
 two functions re-implemented in numpy over `m2m_ernie/T1.nii.gz`, which is the file that matters:
 float32 with a max of exactly 65535, a real (non-diagonal) sform, and 1 mm spacing, so the box's
-half-extent is `ceil(radius)` on all three axes and any axis mix-up is invisible in the *shape* and
-loud in the *values*.
+half-extent is `max(int(radius), 1)` on all three axes and any axis mix-up is invisible in the
+*shape* and loud in the *values*.
 
 IMPORTANT, and the same warning `nifti_refvalues.py` carries: scl_slope/scl_inter come from the RAW
 348-byte header, never from `nib.load(p).header`, which reports NaN for every file because
@@ -52,6 +52,11 @@ QUERIES = [
     ("intracranial-lps", (-18.3, -22.7, 31.4), 3.0),
     ("intracranial-ras", (21.7, 18.3, 12.9), 3.0),
     ("inferior", (2.3, -9.7, -38.1), 5.0),
+    # A NON-INTEGER radius, and the sEEG module's own default (2026-08-30).  On 1 mm spacing every
+    # other query here has `ceil(r) == trunc(r)`, so none of them can tell Slicer's `rad_vox` from
+    # the `ceil` this used to compute; 1.5 mm is half-extent 1 under Slicer's rule and 2 under
+    # `ceil`, i.e. a 3-voxel box against a 5-voxel one.
+    ("default-radius", (21.7, 18.3, 12.9), 1.5),
     ("scalp", (-58.3, 6.7, 41.9), 2.0),
     ("capped-radius", (0.3, 0.7, 0.9), 60.0),
     ("outside", (1000.0, 0.0, 0.0), 3.0),
@@ -77,7 +82,11 @@ def raw_header(path):
 
 
 def box_indices(inv_affine, dims, spacing, world, radius_mm):
-    """`sampleVoxelBox`'s window, from the spec: ceil(radius/spacing) per axis, clipped, capped."""
+    """`sampleVoxelBox`'s window: Slicer's `rad_vox` per axis, clipped, capped.
+
+    `np.maximum((radius_mm / spacing).astype(int), 1)` — `SEEGContactEditor.snapToMetal`, character
+    for character.
+    """
     v = inv_affine @ np.array([world[0], world[1], world[2], 1.0], dtype=np.float64)
     # HALF-UP, matching JavaScript's `Math.round`; `np.rint` is half-to-even.
     c = np.floor(v[:3] + 0.5).astype(np.int64)
@@ -86,7 +95,9 @@ def box_indices(inv_affine, dims, spacing, world, radius_mm):
         return None
     half = np.minimum(
         (VOXEL_BOX_MAX - 1) // 2,
-        np.ceil(radius_mm / np.abs(np.asarray(spacing, dtype=np.float64))).astype(np.int64),
+        np.maximum(
+            (radius_mm / np.abs(np.asarray(spacing, dtype=np.float64))).astype(np.int64), 1
+        ),
     )
     lo = np.maximum(0, c - half)
     hi = np.minimum(dims - 1, c + half)
@@ -174,8 +185,9 @@ def main():
         "bytes": os.path.getsize(FILE),
         "producedBy": "nibabel + numpy (scripts/refvalues/voxelbox_refvalues.py)",
         "conventions": {
-            "box": "half-extent ceil(radiusMm / spacing) voxels PER AXIS, clipped to the volume, "
-                   "capped at %d voxels on an axis (ARCHITECTURE.md §4.3)" % VOXEL_BOX_MAX,
+            "box": "half-extent max(trunc(radiusMm / spacing), 1) voxels PER AXIS — Slicer's "
+                   "rad_vox — clipped to the volume, capped at %d voxels on an axis "
+                   "(ARCHITECTURE.md §4.3)" % VOXEL_BOX_MAX,
             "values": "physical = raw * sclSlope + sclInter, applied once, slope from the RAW header",
             "spotValues": "offset is [i, j, k] within the box; i fastest, like VolumeDataset.data",
             "peakCentroid": "weights clip(v - (max - 0.5*(max - min)), 0); centroid in voxel "

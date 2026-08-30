@@ -318,6 +318,78 @@
   {
    "box": {
     "dims": [
+     3,
+     3,
+     3
+    ],
+    "ijk0": [
+     135,
+     156,
+     120
+    ],
+    "spotValues": [
+     {
+      "offset": [
+       0,
+       0,
+       0
+      ],
+      "value": 24939.0
+     },
+     {
+      "offset": [
+       2,
+       0,
+       0
+      ],
+      "value": 23821.0
+     },
+     {
+      "offset": [
+       0,
+       2,
+       0
+      ],
+      "value": 24044.0
+     },
+     {
+      "offset": [
+       0,
+       0,
+       2
+      ],
+      "value": 22255.0
+     },
+     {
+      "offset": [
+       1,
+       1,
+       1
+      ],
+      "value": 25834.0
+     }
+    ],
+    "valueMax": 26057.0,
+    "valueMin": 20801.0,
+    "valueSum": 646066.0,
+    "voxelCount": 27
+   },
+   "name": "default-radius",
+   "peakCentroidWorld": [
+    20.849766001,
+    18.043624816,
+    13.518005356
+   ],
+   "radiusMm": 1.5,
+   "world": [
+    21.7,
+    18.3,
+    12.9
+   ]
+  },
+  {
+   "box": {
+    "dims": [
      5,
      5,
      5
@@ -472,7 +544,7 @@
   }
  ],
  "conventions": {
-  "box": "half-extent ceil(radiusMm / spacing) voxels PER AXIS, clipped to the volume, capped at 32 voxels on an axis (ARCHITECTURE.md \u00a74.3)",
+  "box": "half-extent max(trunc(radiusMm / spacing), 1) voxels PER AXIS \u2014 Slicer's rad_vox \u2014 clipped to the volume, capped at 32 voxels on an axis (ARCHITECTURE.md \u00a74.3)",
   "peakCentroid": "weights clip(v - (max - 0.5*(max - min)), 0); centroid in voxel indices, then through the affine",
   "rounding": "the query's voxel index is rounded HALF-UP, like JavaScript's Math.round",
   "spotValues": "offset is [i, j, k] within the box; i fastest, like VolumeDataset.data",

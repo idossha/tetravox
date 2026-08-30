@@ -14,8 +14,9 @@
  * fixture (§11). So the agreement asserted below is between two independent implementations of
  * `peakCentroid` reading the same bytes, not between this code and itself. The phantom is three
  * depth electrodes at a 3.5 mm contact pitch, oblique to every axis, on a volume whose spacing is
- * anisotropic on purpose: `ceil(1.5 / spacing)` is 4, 3 and 2 voxels, so a box that used one
- * spacing for all three axes is right on an isotropic volume and wrong here.
+ * anisotropic on purpose: Slicer's `max(trunc(1.5 / spacing), 1)` is 3, 3 and 1 voxels (and 5, 4
+ * and 2 at the 2 mm radius the `clipped-corner` case uses), so a box that used one spacing for all
+ * three axes is right on an isotropic volume and wrong here.
  *
  * **The NIfTI reader in this file is test-only**, exactly as `view/spaces.realdata.test.ts` says of
  * its own: the engine reads volumes in Rust through a worker (§6.1), which a node test cannot drive,
@@ -82,19 +83,49 @@ const index = (dims: [number, number, number], i: number, j: number, k: number):
   (k * dims[1] + j) * dims[0] + i;
 
 describe('sampleVoxelBox', () => {
-  it('takes a box of ceil(radius / spacing) voxels PER AXIS', () => {
+  it("takes Slicer's `rad_vox` — max(trunc(radius / spacing), 1) — PER AXIS", () => {
     const dims: [number, number, number] = [21, 21, 21];
     const ds = volume(dims, new Float32Array(21 * 21 * 21), {
       spacing: [0.4, 0.5, 0.8],
       origin: [-4, -5, -8],
     });
-    // The centre voxel is (10, 10, 10) = world (0, 0, 0). ceil(1.5/0.4)=4, ceil(1.5/0.5)=3,
-    // ceil(1.5/0.8)=2, so the box is 9 x 7 x 5 and starts six, three and two voxels back.
+    // The centre voxel is (10, 10, 10) = world (0, 0, 0). `SEEGContactEditor.snapToMetal` computes
+    // `np.maximum((radius_mm / spacing).astype(int), 1)`: trunc(1.5/0.4)=3, trunc(1.5/0.5)=3,
+    // trunc(1.5/0.8)=1, so the box is 7 x 7 x 3 and starts three, three and one voxel back.
     const box = sampleVoxelBox(ds, [0, 0, 0], 1.5);
     expect(box).not.toBeNull();
-    expect(box!.ijk0).toEqual([6, 7, 8]);
-    expect(box!.dims).toEqual([9, 7, 5]);
-    expect(box!.values.length).toBe(9 * 7 * 5);
+    expect(box!.ijk0).toEqual([7, 7, 9]);
+    expect(box!.dims).toEqual([7, 7, 3]);
+    expect(box!.values.length).toBe(7 * 7 * 3);
+  });
+
+  it('truncates rather than rounding up, which is the whole of the Slicer-parity claim', () => {
+    // The rule stated as a table, at 1 mm spacing so `radius / spacing` IS the radius. `ceil` — what
+    // this computed before 2026-08-30 — gives 2, 2, 2, 3 for these four and a box two voxels wider
+    // on every axis for three of them. §4.3 is a parity rule: the sEEG module tells users the two
+    // editors can be used on the same subject interchangeably, and a snap is interchangeable only
+    // if it searches the same neighbourhood.
+    const iso = (r: number): [number, number, number] =>
+      sampleVoxelBox(
+        volume([41, 41, 41], new Float32Array(41 ** 3), { origin: [-20, -20, -20] }),
+        [0, 0, 0],
+        r
+      )!.dims;
+    expect(iso(1.0), 'exact: the two rules agree').toEqual([3, 3, 3]);
+    expect(iso(1.5), "the module's default radius on a 1 mm CT").toEqual([3, 3, 3]);
+    expect(iso(1.9)).toEqual([3, 3, 3]);
+    expect(iso(2.0)).toEqual([5, 5, 5]);
+  });
+
+  it('never reads fewer than three voxels on an axis — Slicer`s floor of one', () => {
+    // `np.maximum(..., 1)`: a radius under one voxel still reads a neighbourhood rather than the
+    // single voxel a probe would give, because a centroid over one sample has nothing to find.
+    const ds = volume([9, 9, 9], new Float32Array(729), {
+      spacing: [2, 2, 2],
+      origin: [-8, -8, -8],
+    });
+    expect(sampleVoxelBox(ds, [0, 0, 0], 0.5)!.dims).toEqual([3, 3, 3]);
+    expect(sampleVoxelBox(ds, [0, 0, 0], 0)!.dims).toEqual([3, 3, 3]);
   });
 
   it('clips the box to the volume rather than reading outside it', () => {
@@ -409,6 +440,30 @@ describe('ct_shafts.nii.gz against numpy', () => {
         `${c.name} landed ${err.toFixed(4)} mm from ${c.expectedContact!.group}`
       ).toBeLessThan(0.15);
     }
+  });
+
+  it("the parity case: a mislocalised click reads Slicer's window, not `ceil`'s", () => {
+    // `off-toward-neighbour` is a click 1.2 mm off contact A2, displaced along the shaft toward A3
+    // — the mislocalised contact a snap exists to fix, and the one query on this phantom where the
+    // box rule changes the answer rather than only the arithmetic.
+    //
+    // Slicer's `rad_vox` at 0.4/0.5/0.8 mm and a 1.5 mm radius is (3, 3, 1), a 7x7x3 window;
+    // `ceil` would be (4, 3, 2), a 9x7x5 one. The two answers are 0.86 mm apart — Slicer's lands
+    // 0.77 mm from A2, `ceil`'s 1.64 mm, dragged along the shaft by the extra shells. The `dims`
+    // below are what a regression to `ceil` breaks first, and it breaks loudly.
+    const c = manifest.voxelBox.cases.find((x) => x.name === 'off-toward-neighbour');
+    expect(c, 'the fixture carries the parity case').toBeTruthy();
+    expect(c!.box!.dims).toEqual([7, 7, 3]);
+
+    const a2 = manifest.voxelBox.contacts.find((x) => x.group === 'A' && x.ordinal === 2)!.world;
+    const a3 = manifest.voxelBox.contacts.find((x) => x.group === 'A' && x.ordinal === 3)!.world;
+    const got = peakCentroid(ds, c!.world, c!.radiusMm)!;
+    const to = (t: number[]): number =>
+      Math.hypot(got[0] - (t[0] ?? 0), got[1] - (t[1] ?? 0), got[2] - (t[2] ?? 0));
+    // It stays on A2's side of the pitch: the point of the smaller window is that it does not go
+    // looking at the neighbour, and the click was 1.2 mm from A2 and 2.3 mm from A3.
+    expect(to(a2)).toBeLessThan(to(a3));
+    expect(to(a2)).toBeLessThan(1.0);
   });
 
   it("does not drift to a neighbour: the contacts are a shaft's pitch apart", () => {

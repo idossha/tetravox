@@ -4045,3 +4045,49 @@ shrinks to 4 CSS pixels at DPR 2, and if it is ever raised, the gizmo's goes wit
 CSS-sized canvas gives `points-tool.spec.ts` a pane whose backing store really is twice its CSS size, and
 the test reads the drawn disc's own width off the framebuffer, then asserts the ring sits one scaled gap
 outside *that* and the hit boundary is *that* — the shader is the reference, not the CPU rule.
+
+## 2026-08-30 — the snap neighbourhood is Slicer's `rad_vox`, not `ceil`
+
+`sampleVoxelBox` computed its half-extent as `ceil(radiusMm / spacing)` per axis. Slicer's sEEG editor
+computes `rad_vox = np.maximum((radius_mm / spacing).astype(int), 1)` — truncation, never below one voxel
+(`SEEGContactEditor.snapToMetal`). The two agree only when `radius / spacing` is an integer, and they are
+different on every CT anyone actually snaps on: at the module's default 1.5 mm radius, a 1 mm CT gets a
+5×5×5 window here against Slicer's 3×3×3, and a 0.45/0.45/0.6 mm bone CT gets half-extents (4,4,3) against
+(3,3,2).
+
+**This is a parity rule, so `ceil` was simply wrong.** `USER_GUIDE.md` tells users the module "reproduces the
+3D Slicer SEEG Contact Editor workflow … so the two can be used on the same subject interchangeably", and a
+snap is interchangeable only if it searches the same neighbourhood. The extra shells are not free either: on
+a 3.5 mm contact pitch the larger box reaches along the shaft, and the divergence appears exactly in the case
+snap exists for — a click that is 1 mm *off* the intended contact. On the phantom, a click 1.2 mm off contact
+A2 toward A3 lands 0.77 mm from A2 under Slicer's rule and 1.64 mm under `ceil`.
+
+Three pieces of evidence say the `ceil` was an accident and not a decision. The old worked examples in
+`voxel-box.ts` and in this file — "1.5 mm is a 3-voxel half-extent on ernie's 1 mm T1 and 15 on a 0.2 mm
+micro-CT" — are wrong for `ceil` (which gives 2 and 8) and are exactly Slicer's box *widths*. This file
+claimed "the weighting is Slicer's, verbatim" while the neighbourhood it weighted was not. And **no test
+could have caught it**: both numpy references, `gen-fixtures.py`'s `_box_indices` and
+`refvalues/voxelbox_refvalues.py`'s `box_indices`, re-implemented `ceil` from the same wrong spec, so the two
+"independent" implementations agreed on the wrong rule.
+
+So all three now compute `max(trunc(r / s), 1)`, `testdata/manifest.json` and
+`scripts/refvalues/voxelbox_refvalues.json` are regenerated, and two cases exist for this rule alone:
+`off-toward-neighbour` on the phantom (the mislocalised click above), and `default-radius` on `T1.nii.gz` —
+because every other real-data query uses an integer radius on 1 mm spacing, where `ceil` and `trunc` are the
+same number and the file could not tell them apart.
+
+**Two deviations from Slicer stay, and are named rather than left to be discovered.** The query's voxel index
+is rounded HALF-UP (`Math.round`); Python's `round` is half-to-even. It differs only for an index exactly on
+a half, and half-up is this repository's convention wherever a pixel or a voxel index is rounded. And a
+**flat** box answers `null` where Slicer's threshold carries a `+ 1e-6` that makes every weight
+`0.5 × 1e-6 > 0`, so Slicer returns the box's geometric centroid. Uniform background has no peak; returning
+its centre would be a snap pretending to have found something, and the module counts a refusal as "did not
+move" rather than moving a contact to the middle of a window.
+
+**One fixture constant moved with it.** `seeg_offset`'s per-contact miss was `0.5 / 0.25 / 0.2` mm, which put
+contact A01 at world z = −11.6 — voxel index **5.5 exactly**. Which voxel a box is centred on then turns on
+the last bits of an inverse affine (float64 in numpy, a float32-valued matrix inverted in the engine), and
+`gen-fixtures.py` already refuses to let a fixture turn on a tie-break for precisely this reason. The
+`ceil` box was two voxels deeper than it needed to be and absorbed the one-voxel shift; Slicer's is tighter,
+and the same tie moved the centroid 0.08 mm. The offsets are now `0.47 / 0.29 / 0.19`, which keeps every
+query at least 0.03 of a voxel from a half-index on every axis.

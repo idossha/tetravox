@@ -16,9 +16,14 @@
  * is **float32 with a maximum of exactly 65535** — the very value that keeps R16F out of §6.1's
  * ladder — with a real, non-diagonal sform. A box built from `dims` and `spacing` instead of from
  * the inverse affine is right on the phantom and wrong here, and a `Float32Array` accumulator would
- * lose the top of that range. 1 mm spacing also makes the half-extent `ceil(radius)` on all three
- * axes, so an axis mix-up is invisible in the box's *shape* and loud in its *values* — which is
- * exactly the case the phantom's anisotropic spacing cannot produce.
+ * lose the top of that range. 1 mm spacing also makes the half-extent `max(int(radius), 1)` on all
+ * three axes, so an axis mix-up is invisible in the box's *shape* and loud in its *values* — which
+ * is exactly the case the phantom's anisotropic spacing cannot produce.
+ *
+ * One query, `default-radius`, uses the sEEG module's own 1.5 mm (2026-08-30). Every other radius
+ * here is an integer, and on 1 mm spacing an integer radius makes `ceil` and Slicer's
+ * `max(trunc(r / s), 1)` the same number — so without it this file could not tell the two apart at
+ * all. At 1.5 mm they are a 3-voxel box and a 5-voxel one.
  *
  * **The NIfTI reader here is test-only**, like `view/spaces.realdata.test.ts`'s and
  * `voxel-box.test.ts`'s: the engine reads volumes in Rust through a worker (§6.1), which a node test

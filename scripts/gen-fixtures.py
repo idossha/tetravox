@@ -1104,8 +1104,10 @@ VOL_LUT_SIMNIBS = """#No.\tLabel Name:\t\t\t\tR\tG\tB\tA
 # the sEEG CT phantom (§4.3 bounded local reads, 2026-08-30)
 # --------------------------------------------------------------------------------------
 
-# Anisotropic and NOT a multiple of each other, so `ceil(1.5 / s)` is 4, 3 and 2 voxels — three
-# different half-extents in one box.  The origin puts an INTEGER voxel index at world 0 on every
+# Anisotropic and NOT a multiple of each other, so the per-axis half-extent really differs: Slicer's
+# `max(trunc(r / s), 1)` is (3, 3, 1) at the module's default 1.5 mm radius and (5, 4, 2) at the
+# 2 mm one the `clipped-corner` case uses — three different half-extents in one box.  The origin
+# puts an INTEGER voxel index at world 0 on every
 # axis, and no query below lands on a half-index: rounding a voxel index is where a float32 inverse
 # affine and a float64 one can legitimately disagree, and a fixture whose expectations turn on a
 # tie-break would be testing the tie-break.
@@ -1609,17 +1611,25 @@ VOXEL_BOX_MAX = 32
 
 
 def _box_indices(inv_affine, dims, spacing, world, radius_mm):
-    """`sampleVoxelBox`'s window, from the spec: ceil(radius/spacing) per axis, clipped, capped."""
+    """`sampleVoxelBox`'s window: Slicer's `rad_vox` per axis, clipped, capped.
+
+    The half-extent is `np.maximum((radius_mm / spacing).astype(int), 1)` — `SEEGContactEditor`'s
+    `snapToMetal`, character for character (truncation, floor of one voxel), which is the whole
+    point of §4.3 being a parity rule rather than a numerical preference.
+    """
     v = inv_affine @ np.array([world[0], world[1], world[2], 1.0], dtype=np.float64)
     # HALF-UP, matching JavaScript's `Math.round` — `np.rint` is half-to-EVEN and would disagree
-    # with the implementation on every index that lands exactly between two voxels.
+    # with the implementation on every index that lands exactly between two voxels.  Slicer's
+    # `int(round(...))` is half-to-even; the deviation is deliberate and is in DECISIONS.md.
     c = np.floor(v[:3] + 0.5).astype(np.int64)
     dims = np.asarray(dims, dtype=np.int64)
     if np.any(c < 0) or np.any(c >= dims):
         return None
     half = np.minimum(
         (VOXEL_BOX_MAX - 1) // 2,
-        np.ceil(radius_mm / np.abs(np.asarray(spacing, dtype=np.float64))).astype(np.int64),
+        np.maximum(
+            (radius_mm / np.abs(np.asarray(spacing, dtype=np.float64))).astype(np.int64), 1
+        ),
     )
     lo = np.maximum(0, c - half)
     hi = np.minimum(dims - 1, c + half)
@@ -1654,6 +1664,21 @@ def _ct_cases(contacts):
         ("snap-c2", by[("C", 2)] + np.array([-0.5, 0.35, 0.5]), 1.5, ("C", 2)),
         # Between two contacts of A: the rule must pick ONE of them, not the midpoint.
         ("between-a1-a2", (by[("A", 1)] + by[("A", 2)]) / 2.0, 1.5, None),
+        # The PARITY case (2026-08-30).  A click 1.2 mm off contact A2, displaced along the shaft
+        # TOWARD A3 — the mislocalised contact a snap exists to fix, and the one place where the
+        # box rule is load-bearing.  At this spacing Slicer's `rad_vox` is (3, 3, 1) and `ceil`
+        # would be (4, 3, 2) — a 7x7x3 window against a 9x7x5 one — and the two answers are
+        # 0.86 mm apart: Slicer's lands 0.77 mm from A2, `ceil`'s 1.64 mm, dragged along the shaft
+        # by the extra shells toward A3.  Measured, not asserted here; the expectations below are
+        # Slicer's rule, so a regression to `ceil` fails this case loudly.
+        # Deliberately NOT tagged with an expected contact: 1.2 mm off is further than a 1.5 mm
+        # radius fully recovers, and the case exists to pin the WINDOW, not the snap quality.
+        (
+            "off-toward-neighbour",
+            by[("A", 2)] + (by[("A", 3)] - by[("A", 2)]) / CT_PITCH_MM * 1.2,
+            1.5,
+            None,
+        ),
         # Quiet background: no contact within reach, so the answer follows the modulation alone.
         ("background", np.array([-8.0, 8.0, 8.0]), 1.0, None),
         # Near a face: the box is clipped by the volume, so `dims` is smaller than the radius asks.
@@ -1734,8 +1759,9 @@ def inspect_voxel_box(out: Path) -> dict:
         "file": "ct_shafts.nii.gz",
         "groundTruth": "nibabel + numpy, reading ct_shafts.nii.gz back (the shaft geometry is authored)",
         "conventions": {
-            "box": "half-extent ceil(radiusMm / spacing) voxels PER AXIS, clipped to the volume, "
-                   "capped at %d voxels on an axis (ARCHITECTURE.md §4.3)" % VOXEL_BOX_MAX,
+            "box": "half-extent max(trunc(radiusMm / spacing), 1) voxels PER AXIS — Slicer's "
+                   "rad_vox — clipped to the volume, capped at %d voxels on an axis "
+                   "(ARCHITECTURE.md §4.3)" % VOXEL_BOX_MAX,
             "values": "physical = raw * sclSlope + sclInter, applied once",
             "spotValues": "offset is [i, j, k] within the box; i fastest, like VolumeDataset.data",
             "peakCentroid": "weights clip(v - (max - 0.5*(max - min)), 0); centroid in voxel "
@@ -1764,8 +1790,18 @@ SEEG_MESSY = "seeg_messy.csv"
 
 
 def seeg_offset(i: int) -> np.ndarray:
-    """A deterministic per-contact miss, in millimetres. Not random: a fixture is reproducible."""
-    return np.array([((i % 3) - 1) * 0.5, ((i % 5) - 2) * 0.25, ((i % 7) - 3) * 0.2])
+    """A deterministic per-contact miss, in millimetres. Not random: a fixture is reproducible.
+
+    The constants are 0.47 / 0.29 / 0.19 rather than round tenths for the reason `CT_ORIGIN` is what
+    it is: **no query may land on a half-voxel index.**  With 0.5 / 0.25 / 0.2, contact A01 sat at
+    world z = -11.6, which is voxel index 5.5 exactly, and "which voxel is the box centred on" then
+    turns on the last bits of an inverse affine — float64 here and a float32-valued matrix inverted
+    in the engine.  It went unnoticed while the box was `ceil`-sized and two voxels deeper than it
+    needed to be; Slicer's `rad_vox` is tighter, and a one-voxel shift of a 3-deep window moved the
+    centroid 0.08 mm.  A fixture whose expectations turn on a tie-break is testing the tie-break.
+    These offsets keep every index at least 0.03 of a voxel away from a half on every axis.
+    """
+    return np.array([((i % 3) - 1) * 0.47, ((i % 5) - 2) * 0.29, ((i % 7) - 3) * 0.19])
 
 
 def seeg_rows():
