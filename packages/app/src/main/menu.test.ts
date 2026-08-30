@@ -57,6 +57,21 @@ describe('the Open dialog', () => {
   it('still ends with the escape hatch', () => {
     expect(OPEN_FILTERS[OPEN_FILTERS.length - 1]?.extensions).toEqual(['*']);
   });
+
+  /**
+   * Contact tables (§5 rule 11, §13). A `.tsv` reaches no dataset reader — a module claims the path
+   * and reads its text over `tetravox:module-read-text` — so this filter exists to make the file
+   * *reachable* from ⌘O. It is deliberately its own entry rather than an addition to the combined
+   * "Volumes, meshes and scenes" filter, whose name would then be wrong.
+   */
+  it('offers electrode tables as their own filter', () => {
+    const tables = OPEN_FILTERS.find((f) => f.name.startsWith('Electrode tables'));
+    expect(tables?.extensions).toEqual(['tsv', 'csv', 'fcsv']);
+    for (const ext of ['tsv', 'csv', 'fcsv']) expect(OFFERED.has(ext), ext).toBe(true);
+    const combined = OPEN_FILTERS[0];
+    expect(combined?.name).toBe('Volumes, meshes and scenes');
+    expect(combined?.extensions).not.toContain('tsv');
+  });
 });
 
 describe('the installer’s file associations', () => {
@@ -93,6 +108,17 @@ describe('the installer’s file associations', () => {
       BUILDER.slice(BUILDER.indexOf(`- ext: ${ext}\n`), BUILDER.indexOf(`- ext: ${ext}\n`) + 260);
     expect(block('geo')).toContain('rank: Default');
     expect(block('pos')).toContain('rank: Owner');
+  });
+
+  /**
+   * The same argument, one step further (2026-08-30): a contact table is offered in the Open dialog
+   * and is registered with the OS **not at all**. `.tsv` and `.csv` belong to every spreadsheet on
+   * the machine, and this app opens one only through a module that claims the name.
+   */
+  it('registers no association for the electrode-table extensions', () => {
+    for (const ext of ['tsv', 'csv', 'fcsv']) {
+      expect(BUILDER, ext).not.toMatch(new RegExp(`- ext: ${ext}\\b`));
+    }
   });
 });
 

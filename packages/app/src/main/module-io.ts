@@ -1,0 +1,563 @@
+/**
+ * File IO for §13 modules (§5 rule 11): four channels, registered from here the way
+ * `registerJobIpc()` registers the `--job` group, plus §5 rule 12's unsaved-edits close guard.
+ *
+ * The shape is the one A-SHELL's decision 1 (DECISIONS 2026-08-27) laid down for scene IO, applied
+ * to a second kind of small text file:
+ *
+ *  1. **Reading is a restatement of a door that is already open, not a new one.** `module-read-text`
+ *     answers only for paths already on the `tetravox://file/…` allow-list (`paths.ts`) — the same
+ *     paths `readSceneFile` has returned 8 MiB of, with no content check, since Phase 2, and the same
+ *     ones `subject-spaces.ts` reads sidecar text out of in main. This one is *narrower* than either:
+ *     ≤ 1 MiB and a five-extension filter. It has no write twin.
+ *  2. **Writing is a module-scoped list only a Save sheet fills.** `module-save-dialog` admits the
+ *     path the user chose **and** the writer's manifest-declared same-directory siblings, into
+ *     `Map<moduleId, …>` — separate from `scene-io.ts`'s `writable`, so a module cannot write over a
+ *     scene and the scene channel cannot write a module's files. Sibling templates are validated
+ *     before substitution and the result is validated again: one directory, no separator, no `..`.
+ *  3. **The backup and the temp-then-rename are main's, not the renderer's.** A `.bak` copy never
+ *     crosses IPC — main copies the file it is about to replace — and the write itself goes to
+ *     `<path>.part` and is renamed into place, the `sample-data.ts` precedent, so an interrupted
+ *     write cannot leave a half-written electrode table where the whole one was.
+ *
+ * Sibling *discovery* is deliberately not here. The renderer already probes derived sibling names
+ * through `bridge().allowPath` (`open/sources.ts#firstAllowed`), and a main-side resolver would buy
+ * no admission-policy gain over that; `renderer/src/modules/hostFiles.ts` does it that way.
+ */
+
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { BrowserWindow as BrowserWindowClass, dialog, ipcMain } from 'electron';
+import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
+import { allowPath, allowPaths, resolveAllowed } from './paths';
+import { fileUrl } from './protocol';
+import type { OpenedPath } from './menu';
+
+/**
+ * What `module-read-text` will read. Text a module parses on the UI thread: an electrode table, a
+ * BIDS sidecar, an edit log. Not a format with a reader — those go through a dataset worker.
+ */
+export const MODULE_READ_EXTENSIONS: readonly string[] = ['.tsv', '.csv', '.json', '.txt', '.fcsv'];
+
+/** 1 MiB. A 103-contact `electrodes.tsv` is ~12 kB; a 5 000-row one is under 600 kB. */
+export const MAX_MODULE_READ_BYTES = 1024 * 1024;
+
+/** 8 MiB, the same line `scene-io.ts` draws between "small JSON" and "a byte channel". */
+export const MAX_MODULE_WRITE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A sibling **template** before substitution: `{name}.{stamp}.bak`, `{stem}_editlog.json`. The
+ * braces are in the class because this is the un-substituted form; `SIBLING_NAME` is what the
+ * result must match.
+ */
+export const SIBLING_TEMPLATE = /^[A-Za-z0-9_.{}-]{1,96}$/;
+
+/** A sibling **name** after substitution: no separator, no brace left over, and `..` refused below. */
+export const SIBLING_NAME = /^[A-Za-z0-9_.-]{1,96}$/;
+
+export type ModuleReadResult = { ok: true; text: string } | { ok: false; error: string };
+export type ModuleWriteResult =
+  { ok: true; backupPath: string | null } | { ok: false; error: string };
+
+export interface ModuleDialogFilter {
+  name: string;
+  extensions: string[];
+}
+
+export interface ModuleOpenOptions {
+  title: string;
+  filters: ModuleDialogFilter[];
+}
+
+export interface ModuleSaveOptions extends ModuleOpenOptions {
+  /** The writer's sibling templates, validated here and admitted with the chosen path. */
+  siblings: string[];
+  defaultPath: string | null;
+}
+
+/** What a Save sheet returns: the chosen path, and each template's substituted absolute path. */
+export interface ModuleSaveTarget {
+  path: string;
+  siblings: Record<string, string>;
+}
+
+// ------------------------------------------------------------------------------------------------
+// Names, stamps and sibling templates
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * `{stem}` — the basename without its trailing extension chain.
+ *
+ * `sub-01_electrodes.tsv` → `sub-01_electrodes`, and `sub-01_ct.nii.gz` → `sub-01_ct`: a compression
+ * suffix takes the extension in front of it with it, because `sub-01_ct.nii` is not a stem anyone
+ * would write a sibling against. Everything else loses exactly one suffix, and a name with no dot
+ * (or one that begins with the only dot, `.tsv`) is its own stem.
+ */
+export function stemOf(name: string): string {
+  const cut = (value: string): string | null => {
+    const dot = value.lastIndexOf('.');
+    return dot > 0 ? value.slice(0, dot) : null;
+  };
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.gz') || lower.endsWith('.bz2') || lower.endsWith('.zip')) {
+    const once = cut(name);
+    if (once !== null) return cut(once) ?? once;
+  }
+  return cut(name) ?? name;
+}
+
+/** `{stamp}` — `YYYYMMDD-HHMMSS` in local time, the form the Slicer editor's `.bak` names use. */
+export function stampNow(at: Date = new Date()): string {
+  const pad = (n: number, width = 2): string => String(n).padStart(width, '0');
+  return (
+    `${pad(at.getFullYear(), 4)}${pad(at.getMonth() + 1)}${pad(at.getDate())}` +
+    `-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`
+  );
+}
+
+/** The `{stamp}` shape, for recognising a backup name a *later* write will mint. */
+const STAMP_SOURCE = '\\d{8}-\\d{6}';
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Is this a template a module may declare at all? Checked before any substitution happens. */
+export function isSiblingTemplate(template: unknown): template is string {
+  return typeof template === 'string' && SIBLING_TEMPLATE.test(template);
+}
+
+/**
+ * Substitute `{name}` / `{stem}` / `{stamp}` and validate the result, or null when the template or
+ * the result is not a plain sibling name.
+ *
+ * Both ends are checked on purpose. The template guards what a module is allowed to *declare*; the
+ * result guards what an anchor name can *turn it into* — a file called `../x` cannot be opened, but
+ * a manifest is data and this is the last place either can be caught.
+ */
+export function substituteSibling(
+  template: string,
+  anchorName: string,
+  stamp: string
+): string | null {
+  if (!isSiblingTemplate(template)) return null;
+  // One pass, so a token that appears *inside* a substituted value is not substituted again, and an
+  // unknown token (`{sub}`, a typo) survives to be caught by the brace check below.
+  const name = template.replace(/\{(name|stem|stamp)\}/g, (_match, token: string) =>
+    token === 'name' ? anchorName : token === 'stem' ? stemOf(anchorName) : stamp
+  );
+  if (name.includes('{') || name.includes('}')) return null;
+  if (name.includes('..') || name === '.') return null;
+  return SIBLING_NAME.test(name) ? name : null;
+}
+
+/**
+ * The same substitution as a matcher, with `{stamp}` left open.
+ *
+ * A `{name}.{stamp}.bak` admitted when the Save sheet closed carries the stamp of *that* moment; the
+ * backup a write mints minutes later carries its own. Admitting the shape rather than one instant is
+ * what lets the second save of a session still make a `.bak`, and it is still one directory, one
+ * anchor and one fixed prefix and suffix.
+ */
+function siblingMatcher(template: string, anchorName: string): RegExp | null {
+  if (!isSiblingTemplate(template) || !template.includes('{stamp}')) return null;
+  const probe = substituteSibling(template, anchorName, '00000000-000000');
+  if (probe === null) return null;
+  // Split on `{stamp}` **first**, so a `{stamp}` that arrived inside the anchor's own name is a
+  // literal to escape rather than a second wildcard.
+  const source = template
+    .split('{stamp}')
+    .map((part) =>
+      escapeRegExp(
+        part.replace(/\{(name|stem)\}/g, (_match, token: string) =>
+          token === 'name' ? anchorName : stemOf(anchorName)
+        )
+      )
+    )
+    .join(STAMP_SOURCE);
+  return new RegExp(`^${source}$`);
+}
+
+// ------------------------------------------------------------------------------------------------
+// The module-scoped write list
+// ------------------------------------------------------------------------------------------------
+
+interface WriteList {
+  /** Exact paths: the chosen file and every stamp-free sibling. */
+  paths: Set<string>;
+  /** Stamp-bearing siblings, as a directory and a name matcher. */
+  stamped: { dir: string; name: RegExp }[];
+}
+
+const writeLists = new Map<string, WriteList>();
+
+/** Canonicalise for the write list. The file may not exist yet, so `realpath` is not an option. */
+function normalise(candidate: string): string | null {
+  if (!candidate || !isAbsolute(candidate)) return null;
+  return resolve(candidate);
+}
+
+/**
+ * Admit `target` and the substituted `templates` beside it for this module. Only a Save sheet that
+ * the user confirmed calls this.
+ *
+ * A template that fails validation is dropped: it is not admitted, it is not returned, and the rest
+ * of the save still works. A module's templates are static data, so an invalid one is a manifest bug
+ * to be found by its own tests, not a reason to refuse the save the user just asked for.
+ */
+export function admitModuleWrite(
+  moduleId: string,
+  target: string,
+  templates: readonly string[]
+): ModuleSaveTarget | null {
+  const path = normalise(target);
+  if (path === null) return null;
+  const dir = dirname(path);
+  const anchor = basename(path);
+  const stamp = stampNow();
+
+  const list = writeLists.get(moduleId) ?? { paths: new Set<string>(), stamped: [] };
+  writeLists.set(moduleId, list);
+  list.paths.add(path);
+
+  const siblings: Record<string, string> = {};
+  for (const template of templates) {
+    if (!isSiblingTemplate(template)) continue;
+    const name = substituteSibling(template, anchor, stamp);
+    if (name === null) continue;
+    siblings[template] = join(dir, name);
+    const matcher = siblingMatcher(template, anchor);
+    if (matcher === null) list.paths.add(join(dir, name));
+    else list.stamped.push({ dir, name: matcher });
+  }
+  return { path, siblings };
+}
+
+/** May this module write here? Exact admission, or a stamped sibling's shape in its own directory. */
+export function isModuleWritable(moduleId: string, candidate: string): boolean {
+  const path = normalise(candidate);
+  if (path === null) return false;
+  const list = writeLists.get(moduleId);
+  if (list === undefined) return false;
+  if (list.paths.has(path)) return true;
+  const dir = dirname(path);
+  const name = basename(path);
+  return list.stamped.some((entry) => entry.dir === dir && entry.name.test(name));
+}
+
+/** Test seam, mirroring `paths.ts`'s and `scene-io.ts`'s. */
+export function clearModuleWriteLists(): void {
+  writeLists.clear();
+}
+
+// ------------------------------------------------------------------------------------------------
+// The four channels
+// ------------------------------------------------------------------------------------------------
+
+/** The last suffix of a basename, lowercased and including the dot; `''` when there is none. */
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.slice(dot).toLowerCase() : '';
+}
+
+/**
+ * `tetravox:module-read-text` — UTF-8 text of an **already allow-listed** path, ≤ 1 MiB, from the
+ * five extensions a module parses. No path is admitted here; that is `allowPath`'s job and a user
+ * gesture's.
+ */
+export function moduleReadText(moduleId: unknown, candidate: unknown): ModuleReadResult {
+  if (typeof moduleId !== 'string' || moduleId === '') return { ok: false, error: 'not a module' };
+  if (typeof candidate !== 'string') return { ok: false, error: 'not a path' };
+  const real = resolveAllowed(candidate);
+  if (real === null) return { ok: false, error: 'not on the allow-list' };
+  const extension = extensionOf(basename(real));
+  if (!MODULE_READ_EXTENSIONS.includes(extension)) {
+    return {
+      ok: false,
+      error: `${basename(real)} is not one of ${MODULE_READ_EXTENSIONS.join(' ')}`,
+    };
+  }
+  try {
+    const size = statSync(real).size;
+    if (size > MAX_MODULE_READ_BYTES) {
+      return { ok: false, error: `${size} bytes exceeds the ${MAX_MODULE_READ_BYTES}-byte cap` };
+    }
+    return { ok: true, text: readFileSync(real, 'utf8') };
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** One filter entry, or null. Extensions are names, never patterns with a separator in them. */
+function coerceFilter(value: unknown): ModuleDialogFilter | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { name, extensions } = value as { name?: unknown; extensions?: unknown };
+  if (typeof name !== 'string' || name === '' || !Array.isArray(extensions)) return null;
+  const clean = extensions
+    .filter((e): e is string => typeof e === 'string' && /^[A-Za-z0-9.*]{1,16}$/.test(e))
+    .slice(0, 16);
+  return clean.length === 0 ? null : { name: name.slice(0, 64), extensions: clean };
+}
+
+function coerceFilters(value: unknown): ModuleDialogFilter[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(coerceFilter)
+    .filter((f): f is ModuleDialogFilter => f !== null)
+    .slice(0, 8);
+}
+
+function coerceTitle(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value !== '' ? value.slice(0, 120) : fallback;
+}
+
+/**
+ * `tetravox:module-open-dialog` — an Open sheet with the reader's own title and filters, whose
+ * result is allow-listed exactly like `menu.ts`'s. Paths, never bytes (§5 rule 3).
+ *
+ * INTEGRATION(P0): the title and filters arrive from the renderer, which read them out of the
+ * module's manifest. Once `src/modules/manifests.ts` exists, main imports it (it is data-only and
+ * main-safe by construction) and looks them up by `moduleId` + `readerId` itself, so the dialog can
+ * only ever offer what a manifest declared. Until then they are sanitised on arrival above.
+ */
+export async function moduleOpenDialog(
+  win: BrowserWindow | null,
+  moduleId: unknown,
+  raw: unknown
+): Promise<OpenedPath[]> {
+  if (typeof moduleId !== 'string' || moduleId === '') return [];
+  const { title, filters } = (raw ?? {}) as Partial<ModuleOpenOptions>;
+  const options: Electron.OpenDialogOptions = {
+    title: coerceTitle(title, 'Open'),
+    properties: ['openFile', 'multiSelections'],
+    filters: coerceFilters(filters),
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled) return [];
+  return allowPaths(result.filePaths).map((path) => ({ path, url: fileUrl(path) }));
+}
+
+/**
+ * `tetravox:module-save-dialog` — a Save sheet whose result admits the chosen path **and** the
+ * writer's siblings for writing, and nothing else. Null when the user cancelled.
+ *
+ * INTEGRATION(P0): `siblings` comes from the renderer for the same reason the filters do, and is
+ * validated here (`isSiblingTemplate` + `substituteSibling`) so a bad one is inert whatever its
+ * origin. When main imports `MANIFESTS` the templates should come from the writer it names.
+ */
+export async function moduleSaveDialog(
+  win: BrowserWindow | null,
+  moduleId: unknown,
+  raw: unknown
+): Promise<ModuleSaveTarget | null> {
+  if (typeof moduleId !== 'string' || moduleId === '') return null;
+  const { title, filters, siblings, defaultPath } = (raw ?? {}) as Partial<ModuleSaveOptions>;
+  const options: Electron.SaveDialogOptions = {
+    title: coerceTitle(title, 'Save'),
+    filters: coerceFilters(filters),
+    ...(typeof defaultPath === 'string' && defaultPath !== '' ? { defaultPath } : {}),
+  };
+  const result = win
+    ? await dialog.showSaveDialog(win, options)
+    : await dialog.showSaveDialog(options);
+  if (result.canceled || result.filePath === undefined || result.filePath === '') return null;
+  const templates = Array.isArray(siblings)
+    ? siblings.filter((s): s is string => typeof s === 'string').slice(0, 8)
+    : [];
+  return admitModuleWrite(moduleId, result.filePath, templates);
+}
+
+/**
+ * `tetravox:module-write-text` — UTF-8 text to a path this module's Save sheet admitted, ≤ 8 MiB.
+ *
+ * `backup: true` copies an existing file to `<path>.<YYYYMMDD-HHMMSS>.bak` first, and only when that
+ * name is itself on the module's list — i.e. only when the writer declared a `{name}.{stamp}.bak`
+ * sibling. A writer that did not declare one gets `backupPath: null` and its write, rather than a
+ * refusal: the backup is a courtesy the manifest opts into, not a condition of saving.
+ *
+ * The write is `<path>.part` then `renameSync`, the `sample-data.ts` precedent: a rename within one
+ * directory is atomic, so a crash mid-write leaves the previous table intact rather than half of the
+ * new one.
+ */
+export function moduleWriteText(
+  moduleId: unknown,
+  candidate: unknown,
+  text: unknown,
+  raw: unknown
+): ModuleWriteResult {
+  if (typeof moduleId !== 'string' || moduleId === '') return { ok: false, error: 'not a module' };
+  if (typeof candidate !== 'string' || typeof text !== 'string') {
+    return { ok: false, error: 'not a path and a string' };
+  }
+  const path = normalise(candidate);
+  if (path === null || !isModuleWritable(moduleId, path)) {
+    return { ok: false, error: 'not on the module write list' };
+  }
+  const bytes = Buffer.byteLength(text, 'utf8');
+  if (bytes > MAX_MODULE_WRITE_BYTES) {
+    return { ok: false, error: `${bytes} bytes exceeds the ${MAX_MODULE_WRITE_BYTES}-byte cap` };
+  }
+  const wantsBackup = ((raw ?? {}) as { backup?: unknown }).backup === true;
+  const part = `${path}.part`;
+  try {
+    let backupPath: string | null = null;
+    if (wantsBackup && existsSync(path)) {
+      const target = `${path}.${stampNow()}.bak`;
+      if (isModuleWritable(moduleId, target)) {
+        copyFileSync(path, target);
+        backupPath = target;
+      }
+    }
+    try {
+      writeFileSync(part, text, 'utf8');
+      renameSync(part, path);
+    } catch (error: unknown) {
+      rmSync(part, { force: true });
+      throw error;
+    }
+    // Writing is also how the file becomes readable: the module just named this path through a Save
+    // sheet, so reading its own output back must not need a second gesture.
+    allowPath(path);
+    return { ok: true, backupPath };
+  } catch (error: unknown) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Unsaved module edits and the window's close guard
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * Which windows a module has reported unsaved edits in.
+ *
+ * `sceneDirty` cannot answer this — it is set by any cursor click (`controller.ts`) — so the flag is
+ * pushed from the renderer over `tetravox:set-document-edited` and kept per window id, which is also
+ * the granularity `win.setDocumentEdited` works at.
+ */
+const editedWindows = new Set<number>();
+/** Windows already showing the discard box, so a second `close` cannot stack a second sheet. */
+const prompting = new Set<number>();
+
+export function setDocumentEdited(win: BrowserWindow | null, edited: unknown): void {
+  if (win === null) return;
+  const flag = edited === true;
+  if (flag) editedWindows.add(win.id);
+  else editedWindows.delete(win.id);
+  try {
+    // macOS draws the dot in the close button from this; it is a no-op elsewhere and must not be
+    // allowed to throw a renderer message into main's uncaught handler on a platform that lacks it.
+    win.setDocumentEdited(flag);
+  } catch {
+    // Nothing to do: the flag above is what the close guard reads.
+  }
+}
+
+export function documentEdited(win: BrowserWindow | null): boolean {
+  return win !== null && editedWindows.has(win.id);
+}
+
+/**
+ * Should a `close` be interrupted?
+ *
+ * Pure, because the two cases that must never prompt are the ones a Playwright run and a `--job`
+ * render depend on and neither is convenient to reach through a real window: a job has no user to
+ * answer the box (it would hang until the 45-minute CI cap), and an e2e teardown closes a window it
+ * deliberately made dirty. `TETRAVOX_E2E_DISCARD=1` is that seam, read at close time so a spec can
+ * set it per launch.
+ */
+export function shouldPromptOnClose(opts: {
+  edited: boolean;
+  isJob: boolean;
+  env?: NodeJS.ProcessEnv;
+}): boolean {
+  if (!opts.edited || opts.isJob) return false;
+  return (opts.env ?? process.env)['TETRAVOX_E2E_DISCARD'] !== '1';
+}
+
+/**
+ * The codebase's first `BrowserWindow 'close'` handler (only `'closed'` existed).
+ *
+ * Two buttons, Discard and Cancel — and deliberately no Save. Saving is the module's own write path
+ * through the Save sheet and `module-write-text`; a Save button here would be a second write path
+ * driven from main, which is the one thing §5's write rule exists to prevent.
+ */
+export function installCloseGuard(win: BrowserWindow, opts: { isJob: boolean }): void {
+  if (opts.isJob) return;
+  win.on('close', (event) => {
+    if (!shouldPromptOnClose({ edited: documentEdited(win), isJob: false })) return;
+    event.preventDefault();
+    if (prompting.has(win.id)) return;
+    prompting.add(win.id);
+    void dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        noLink: true,
+        title: 'Unsaved changes',
+        message: 'Discard unsaved edits?',
+        detail:
+          'A module in this window has edits that have not been written to disk. Closing the ' +
+          'window discards them.',
+        buttons: ['Discard', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        prompting.delete(win.id);
+        if (response !== 0 || win.isDestroyed()) return;
+        editedWindows.delete(win.id);
+        // `destroy()` rather than `close()`: the flag is already cleared, but destroying is what
+        // makes "Discard" unambiguous even if a module re-marks the window in the same tick.
+        win.destroy();
+      })
+      .catch(() => {
+        prompting.delete(win.id);
+      });
+  });
+  win.on('closed', () => {
+    editedWindows.delete(win.id);
+    prompting.delete(win.id);
+  });
+}
+
+// ------------------------------------------------------------------------------------------------
+// Registration
+// ------------------------------------------------------------------------------------------------
+
+function windowOf(event: IpcMainInvokeEvent | IpcMainEvent): BrowserWindow | null {
+  return BrowserWindowClass.fromWebContents(event.sender);
+}
+
+/**
+ * Register the module IPC. Called unconditionally from main, like `registerJobIpc()`: a build with
+ * no modules simply never sees a call on these channels.
+ */
+export function registerModuleIpc(): void {
+  ipcMain.handle('tetravox:module-read-text', (_event, moduleId: unknown, path: unknown) =>
+    moduleReadText(moduleId, path)
+  );
+  ipcMain.handle('tetravox:module-open-dialog', async (event, moduleId: unknown, opts: unknown) =>
+    moduleOpenDialog(windowOf(event), moduleId, opts)
+  );
+  ipcMain.handle('tetravox:module-save-dialog', async (event, moduleId: unknown, opts: unknown) =>
+    moduleSaveDialog(windowOf(event), moduleId, opts)
+  );
+  ipcMain.handle(
+    'tetravox:module-write-text',
+    (_event, moduleId: unknown, path: unknown, text: unknown, opts: unknown) =>
+      moduleWriteText(moduleId, path, text, opts)
+  );
+  ipcMain.on('tetravox:set-document-edited', (event, edited: unknown) =>
+    setDocumentEdited(windowOf(event), edited)
+  );
+}

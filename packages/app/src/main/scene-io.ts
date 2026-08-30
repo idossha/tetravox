@@ -8,8 +8,13 @@
  *  1. **Reads go through the `tetravox://file/…` allow-list** (`paths.ts`), so the renderer can only
  *     read back a scene the *user* named through a dialog or a drop. A `readTextFile` with no
  *     allow-list check would be the arbitrary-file-read primitive `paths.ts` exists to prevent.
- *  2. **Writes go through a second, separate allow-list**, populated only by the Save dialog. Being
- *     allowed to *read* `T1.nii.gz` must never imply being allowed to overwrite it.
+ *  2. **Writes go through a second, separate allow-list**, populated only by the Save dialog — and,
+ *     since 2026-08-30, by a *successful read of a `*.tetravox.json`*. Being allowed to read
+ *     `T1.nii.gz` must never imply being allowed to overwrite it, and it still does not: the
+ *     carve-out is exactly one compound extension, the app's own scene format, which the user named
+ *     in an Open sheet or dropped on the window. Opening `study.tetravox.json` **is** naming the file
+ *     ⌘S will save over; before this, Save on an opened scene was refused with "not on the write
+ *     list" and only Save As… worked (§5 rule 10, DECISIONS 2026-08-30).
  *  3. **A hard size cap on both directions.** `MAX_SCENE_BYTES` is three orders of magnitude above a
  *     real `ViewSpec` and three orders below `ernie.msh`, so the cap is the line between "small JSON"
  *     and "a byte channel" being drawn in code instead of in a comment.
@@ -22,7 +27,7 @@ import type { BrowserWindow } from 'electron';
 import { allowPath, resolveAllowed } from './paths';
 import { fileUrl } from './protocol';
 import type { OpenedPath } from './menu';
-import { OPEN_FILTERS } from './menu';
+import { OPEN_FILTERS, isScenePath } from './menu';
 
 /** §4.6's file extension, in one place so the dialog filters and the default name agree. */
 export const SCENE_EXTENSION = 'tetravox.json';
@@ -76,6 +81,12 @@ export interface SceneIoResult {
 /**
  * Read a scene file the user named. Returns an error string rather than throwing: the renderer turns
  * it into a §8 toast, and a rejected IPC call there would be an unhandled rejection instead.
+ *
+ * A `*.tetravox.json` that reads back is also admitted for **writing**, which is what makes ⌘S work
+ * on a scene that was opened rather than saved (§5 rule 10). The admission is deliberately narrow:
+ * it needs a successful read of an allow-listed path whose whole compound suffix is the app's own
+ * scene extension, so the door it opens is "save over the scene you have open", not "write to
+ * anything you can read".
  */
 export function readSceneFile(candidate: unknown): SceneIoResult {
   if (typeof candidate !== 'string') return { ok: false, error: 'not a path' };
@@ -86,7 +97,9 @@ export function readSceneFile(candidate: unknown): SceneIoResult {
     if (size > MAX_SCENE_BYTES) {
       return { ok: false, error: `${size} bytes exceeds the ${MAX_SCENE_BYTES}-byte scene cap` };
     }
-    return { ok: true, path: real, text: readFileSync(real, 'utf8') };
+    const text = readFileSync(real, 'utf8');
+    if (isScenePath(real)) allowWrite(real);
+    return { ok: true, path: real, text };
   } catch (error: unknown) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

@@ -170,6 +170,37 @@ export interface TetravoxBridge {
   jobLog(message: string): void;
   /** Report the run. Main writes `job-result.json` and exits 0 or 1. */
   jobDone(report: JobDonePayload): Promise<boolean>;
+
+  // -- Module file IO (§5 rule 11, `main/module-io.ts`, 2026-08-30) ------------------------------
+  // Small text and paths, like everything else here, and every call carries the module id: the
+  // write list is per module, so one module's Save sheet admits nothing for another.
+
+  /**
+   * UTF-8 text of a path already on the `tetravox://file/…` allow-list — ≤ 1 MiB, and only
+   * `.tsv .csv .json .txt .fcsv`. It admits nothing; `allowPath` and a user gesture still do that.
+   */
+  moduleReadText(moduleId: string, path: string): Promise<ModuleReadResult>;
+  /** An Open sheet with a reader's own title and filters. The result is allow-listed for reading. */
+  moduleOpenDialog(moduleId: string, opts: ModuleOpenOptions): Promise<OpenedPath[]>;
+  /**
+   * A Save sheet with a writer's title and filters. The chosen path **and** the writer's declared
+   * same-directory siblings are admitted for writing; null when the user cancelled.
+   */
+  moduleSaveDialog(moduleId: string, opts: ModuleSaveOptions): Promise<ModuleSaveTarget | null>;
+  /** Write text to a path this module's Save sheet admitted. `backup` copies the old file first. */
+  moduleWriteText(
+    moduleId: string,
+    path: string,
+    text: string,
+    opts: { backup: boolean }
+  ): Promise<ModuleWriteResult>;
+  /**
+   * Tell main this window has (or no longer has) unsaved module edits.
+   *
+   * Main calls `win.setDocumentEdited` with it and keeps the flag for §5 rule 12's `close` guard.
+   * `send`, not `invoke`: it is a fact about the window, and nothing waits on the answer.
+   */
+  setDocumentEdited(edited: boolean): void;
 }
 
 /** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
@@ -287,6 +318,29 @@ export interface SceneIoResult {
   error?: string;
 }
 
+// Mirror `main/module-io.ts`'s types; duplicated because preload must not import from main.
+export interface ModuleDialogFilter {
+  name: string;
+  extensions: string[];
+}
+export interface ModuleOpenOptions {
+  title: string;
+  filters: ModuleDialogFilter[];
+}
+export interface ModuleSaveOptions extends ModuleOpenOptions {
+  /** The writer's sibling templates — `{name}.{stamp}.bak`, `{stem}_editlog.json`. */
+  siblings: string[];
+  defaultPath: string | null;
+}
+/** The chosen path, and each declared template's substituted absolute path beside it. */
+export interface ModuleSaveTarget {
+  path: string;
+  siblings: Record<string, string>;
+}
+export type ModuleReadResult = { ok: true; text: string } | { ok: false; error: string };
+export type ModuleWriteResult =
+  { ok: true; backupPath: string | null } | { ok: false; error: string };
+
 const bridge: TetravoxBridge = {
   openDialog: () => ipcRenderer.invoke('tetravox:open-dialog'),
   getDroppedFilePath: (file) => webUtils.getPathForFile(file),
@@ -353,6 +407,15 @@ const bridge: TetravoxBridge = {
     ipcRenderer.on('tetravox:scene-command', wrapped);
     return () => ipcRenderer.removeListener('tetravox:scene-command', wrapped);
   },
+  moduleReadText: (moduleId, path) =>
+    ipcRenderer.invoke('tetravox:module-read-text', moduleId, path),
+  moduleOpenDialog: (moduleId, opts) =>
+    ipcRenderer.invoke('tetravox:module-open-dialog', moduleId, opts),
+  moduleSaveDialog: (moduleId, opts) =>
+    ipcRenderer.invoke('tetravox:module-save-dialog', moduleId, opts),
+  moduleWriteText: (moduleId, path, text, opts) =>
+    ipcRenderer.invoke('tetravox:module-write-text', moduleId, path, text, opts),
+  setDocumentEdited: (edited) => ipcRenderer.send('tetravox:set-document-edited', edited),
 };
 
 contextBridge.exposeInMainWorld('tetravox', bridge);

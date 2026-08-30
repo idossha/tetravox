@@ -29,6 +29,7 @@ import {
 } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
+import { installCloseGuard, registerModuleIpc } from './module-io';
 import { discoverSubjectSpaces } from './subject-spaces';
 import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
@@ -426,6 +427,9 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // The `--job` channels (`job-runner.ts`). Registered unconditionally: a normal launch asks for a
   // spec once, is told `null`, and takes the UI path.
   registerJobIpc();
+  // §13's module file IO (`module-io.ts`, §5 rule 11). Registered unconditionally for the same
+  // reason: a build whose modules never open a file simply never calls these.
+  registerModuleIpc();
 
   ipcMain.on('tetravox:log', (_event, message: unknown) => {
     console.log(`[tetravox:renderer] ${String(message)}`);
@@ -535,6 +539,10 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
+    // §5 rule 12: unsaved **module** edits interrupt a close. Inert for a `--job` window, which has
+    // nobody to answer the box and would hang until the watchdog, and inert under
+    // `TETRAVOX_E2E_DISCARD=1`, which is how a windowless e2e closes a window it made dirty.
+    installCloseGuard(mainWindow, { isJob: isJobRun() });
 
     if (isJobRun() && mainWindow !== null) {
       // A job that never reports is a job that hung: without these two the process would sit alive
@@ -554,6 +562,7 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
         mainWindow.on('closed', () => {
           mainWindow = null;
         });
+        installCloseGuard(mainWindow, { isJob: isJobRun() });
       }
     });
   });

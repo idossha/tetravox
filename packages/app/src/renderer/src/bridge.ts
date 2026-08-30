@@ -18,6 +18,12 @@ import type {
   SceneCommand,
   SceneIoResult,
   TetravoxBridge,
+  ModuleDialogFilter,
+  ModuleOpenOptions,
+  ModuleReadResult,
+  ModuleSaveOptions,
+  ModuleSaveTarget,
+  ModuleWriteResult,
 } from '../../preload/index';
 
 /** `main/settings.ts`'s `DEFAULT_SCREENSHOT_DEFAULTS`, duplicated for the same reason as everything
@@ -94,6 +100,15 @@ const ABSENT: TetravoxBridge = {
   jobFrames: async () => ({ ok: false, error: 'no preload bridge' }),
   jobLog: () => {},
   jobDone: async () => false,
+  // No bridge means no filesystem and no OS sheets, so a module's file calls answer the way they
+  // answer a user who cancelled — with the reason carried, never swallowed. `modules/hostFiles.ts`
+  // maps these onto the `null` a module already handles.
+  moduleReadText: async () => ({ ok: false, error: 'no preload bridge' }),
+  moduleOpenDialog: async () => [],
+  moduleSaveDialog: async () => null,
+  moduleWriteText: async () => ({ ok: false, error: 'no preload bridge' }),
+  // No window to mark, and no window to guard: a context with no bridge cannot be closed by a user.
+  setDocumentEdited: () => {},
 };
 
 export function bridge(): TetravoxBridge {
@@ -118,4 +133,12 @@ export type {
   ScreenshotDefaults,
   SceneCommand,
   SceneIoResult,
+  // Appended 2026-08-30 with §5 rule 11's module channels; the list is append-only so that
+  // branches building on it merge.
+  ModuleDialogFilter,
+  ModuleOpenOptions,
+  ModuleReadResult,
+  ModuleSaveOptions,
+  ModuleSaveTarget,
+  ModuleWriteResult,
 };

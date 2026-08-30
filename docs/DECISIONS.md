@@ -3321,3 +3321,103 @@ fire on every implementation change and teach everyone to ignore the job.
 its own entry above. The fixture module `tetravox.hello` ships in every build and is listed only behind
 `?modules=hello`, because `pnpm e2e` drives the production bundle and a fixture excluded from it would prove
 nothing about the bundle users get.
+
+## 2026-08-30 — an opened scene is admitted for writing, so ⌘S saves it
+
+**Decision.** A successful `readSceneFile` of a path whose whole compound suffix is `.tetravox.json`
+adds that path to `scene-io.ts`'s `writable` set. One line, and it carves a hole in A-SHELL decision 1
+(2026-08-27) that is worth naming: "being able to read `T1.nii.gz` must never imply being able to
+overwrite it" still stands for every other file, and this is the one exception.
+
+**Why it is not the general case.** The rejected primitive was `readTextFile`/`writeTextFile` over
+anything on the read allow-list. This admits **one compound extension** — the app's own scene format,
+matched by `isScenePath` on the whole suffix, so §7.6's `hot_LUT.json` is not a scene — and only after
+a read of a path the user had already named through the Open sheet, a drop, argv or `open-file`.
+Opening `study.tetravox.json` *is* naming the file ⌘S will save over: the write it enables is the one
+write the user just asked to be able to make.
+
+**The bug it fixes.** `ShellController.saveScene` writes to `sceneFile.path` when one is attached, and
+`openScenePath` attaches it after `allowPath` + `readSceneFile` — but only `showSaveSceneDialog` ever
+called `allowWrite`, so ⌘S on an opened scene came back "not on the write list" and the scene silently
+stayed on disk as it was. Save As… worked, which is what hid it: the second save of a session was
+fine, and the first was refused. `e2e/scene-save-opened.spec.ts` opens a saved scene in a fresh window,
+edits it, saves with the File menu's Save Scene item, and reads the change back off disk.
+
+**Scope.** `writeSceneFile` is unchanged: still the exact-path check, still the 8 MiB cap, still
+`allowPath` on the way out. Nothing admits a directory, a pattern or a second extension.
+
+## 2026-08-30 — module file IO: a Save sheet that admits its own siblings, and a backup main makes
+
+**Decision.** `main/module-io.ts` adds four channels for §13 modules — `module-read-text`,
+`module-open-dialog`, `module-save-dialog`, `module-write-text` — registered from main the way
+`registerJobIpc()` registers the `--job` group. This **amends A-SHELL decision 1** (2026-08-27) rather
+than working around it, and the amendment is in two named parts.
+
+**Reading restates a door that is already open.** The 2026-08-27 rejection was of a general
+`readTextFile`/`writeTextFile` pair. `module-read-text` is the read half only, and it is *narrower*
+than what ships today: `readSceneFile` returns up to 8 MiB of any allow-listed path with no content
+check, and `tetravox:subject-spaces` already reads sidecar text in main and hands it back. This one
+answers only for a path already on the `tetravox://file` allow-list, caps at 1 MiB, and takes five
+extensions (`.tsv .csv .json .txt .fcsv`). It admits nothing — a path still gets on the list only
+through the Open sheet, a drop, argv or `open-file` — and it has no write twin. Being able to read
+`T1.nii.gz` still implies nothing about writing it.
+
+**The write family is the real change, and it is bounded by the Save sheet.** A module writes only to
+paths its **own** Save sheet admitted: the file the user chose, plus that writer's declared
+same-directory siblings, in a `Map<moduleId, …>` kept apart from `scene-io.ts`'s `writable`. Three
+things keep "same directory" true rather than intended: a template must match
+`^[A-Za-z0-9_.{}-]{1,96}$` before substitution; the substituted result must still be a plain name with
+no separator, no `..` and no brace left over; and both ends are checked, because the template is what
+a manifest declares and the anchor's basename is what a *file* supplies. A `{stamp}` template is
+admitted as a shape (`\d{8}-\d{6}`), not as one instant, or only the first save of a session could
+make a `.bak`.
+
+**Why main does the backup and the rename.** The `.bak` is a copy of the file that is about to be
+replaced, so main makes it from the path it already holds and no backup bytes cross IPC — §5 rule 3
+is kept by there being nothing to carry. The write itself is `<path>.part` then `renameSync`, the
+`sample-data.ts` precedent: a rename inside one directory is atomic, so an interrupted save leaves the
+previous electrode table intact instead of half of the new one. A writer that did not declare a
+`{name}.{stamp}.bak` gets `backupPath: null` and its write; the backup is a courtesy the manifest opts
+into, not a condition of saving.
+
+**Rejected: a main-side sibling resolver.** BIDS sibling discovery stays in the renderer, where
+`open/sources.ts#firstAllowed` already probes derived sidecar names through `bridge().allowPath` and a
+null return doubles as the existence check. A resolver in main would buy no admission-policy gain over
+that status quo — `allowPath` admits any existing absolute path today — and would be the directory
+listing IPC this app deliberately does not have. Tightening `allowPath` itself is a separate question
+and is not answered here.
+
+**Tested by refusal.** `module-io.test.ts` is new infrastructure (there was no `scene-io` unit test;
+`sample-data.test.ts` is the nearest template): accepted and rejected templates, a traversal that only
+appears after substitution, cross-module isolation, the read cap and extension filter, `.bak` naming,
+`.part` cleanup, and every write that must be refused.
+
+## 2026-08-30 — the window asks before closing on unsaved module edits, and offers no Save
+
+**Decision.** `installCloseGuard` (`main/module-io.ts`) adds the codebase's first `BrowserWindow
+'close'` handler — until today only `'closed'` was listened for. When the window carries the
+module-edited flag, the close is `preventDefault`ed and a two-button `dialog.showMessageBox`
+**{Discard, Cancel}** decides it. The flag arrives on `tetravox:set-document-edited`, which main also
+hands to `win.setDocumentEdited` so macOS draws the dot in the close button.
+
+**Why the flag is pushed and not derived.** `sceneDirty` is set by any cursor click, any layer or
+dataset event and any interacting frame (`controller.ts`), so it cannot mean "a module has edits that
+are not on disk"; a guard keyed on it would stop every close of every session. `UiState.moduleDirty`
+is fed by a module's own `ui.setDirty`, and this channel is the one bit of it main needs.
+
+**Why there is no Save button.** Saving a module's file means its Save sheet, its writer's filters and
+its siblings, and `module-write-text` — all of which live in the renderer and the module. A Save here
+would be a second write path driven from main, on a window that is halfway through closing, and §5's
+write rule exists to keep there being exactly one. The renderer's own five-site guard (New, Open,
+Open Recent, drop, close-dataset) is where a three-button "Save…, Discard, Cancel" belongs, because
+that is where the module is still alive to save.
+
+**Two ways it must stay out of the way.** A `--job` window never installs it: a batch render has
+nobody to answer the box and would sit until the watchdog fires, spending the 45-minute CI cap on a
+hung window. And `TETRAVOX_E2E_DISCARD=1` disables it entirely, read at close time so a spec can set
+it per launch — the seam a windowless e2e needs to tear down a window it deliberately made dirty
+(AGENTS rule 8). Both are asserted: `shouldPromptOnClose` is a pure function with a unit test for all
+four cases, and `e2e/module-guard.spec.ts` closes a real window three times — Cancel keeps it,
+Discard closes it, a cleared flag and the E2E seam close it with no box at all — with
+`dialog.showMessageBox` stubbed in main, because an OS-modal box no click can reach would otherwise
+hang the run.

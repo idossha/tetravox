@@ -892,6 +892,49 @@ Rules:
    The worker also fetches sidecars, which are derived sibling paths and not user-named, so `allowPath` on a
    dataset must admit that dataset's sidecars at the same time. The document's CSP carries
    `connect-src 'self' tetravox:` because `tetravox://file` is a *different host* from `tetravox://app`.
+10. **Writing is a second, narrower allow-list, and reading admits exactly one thing to it.** Scene writes go
+    to `scene-io.ts`'s `writable` set, which the Save sheet fills. The single carve-out from "being able to
+    read `T1.nii.gz` must never imply being able to overwrite it" is the app's own scene format: a
+    **successful `readSceneFile` of a `*.tetravox.json`** admits that path for writing, because opening a
+    scene *is* naming the file ⌘S will save over. It is one compound extension, it needs a path the user
+    already named through the Open sheet, a drop, argv or `open-file`, and it is matched on the whole suffix
+    (`isScenePath`), so §7.6's `_LUT.json` is not a scene and gains nothing. Nothing else widens that list.
+11. **Module file IO is four channels, and a module-scoped write list** (`main/module-io.ts`, registered from
+    main like `registerJobIpc()`; §13). Small text only, paths in both directions, and each one narrower than
+    a door that is already open:
+
+    | Channel | What it does |
+    |---|---|
+    | `tetravox:module-read-text` | UTF-8 text of a path **already on the read allow-list**, ≤ 1 MiB, extensions `.tsv .csv .json .txt .fcsv`. It admits nothing and has no write twin — a policy restatement of what `readSceneFile` (8 MiB, any allow-listed path, no content check) and `tetravox:subject-spaces` already return. |
+    | `tetravox:module-open-dialog` | An Open sheet with the reader's title and filters; the result is allow-listed exactly like File ▸ Open's. |
+    | `tetravox:module-save-dialog` | A Save sheet whose result admits the chosen path **and** the writer's declared same-directory siblings for writing. |
+    | `tetravox:module-write-text` | UTF-8 text, ≤ 8 MiB, to a path on **that module's** list, `.part` + rename, with an optional main-side `.bak` copy first. |
+
+    The write list is `Map<moduleId, …>`, separate from `scene-io.ts`'s `writable`: a module cannot write over
+    a scene, the scene channel cannot write a module's files, and one module's Save sheet admits nothing for
+    another. A **sibling template** (`{name}.{stamp}.bak`, `{stem}_editlog.json`) must match
+    `^[A-Za-z0-9_.{}-]{1,96}$` before substitution, and after substituting `{name}` (the basename), `{stem}`
+    (it without its extension chain) and `{stamp}` (`YYYYMMDD-HHMMSS`) must still be a plain name — no
+    separator, no `..`, no brace left over — so a sibling is always in the chosen file's own directory. A
+    stamped template is admitted as a *shape*, because the backup a later save mints carries its own moment.
+    The `.bak` is copied **in main**, from the file about to be replaced, so backup bytes never cross IPC; the
+    write goes to `<path>.part` and is renamed, the `sample-data.ts` precedent, so an interrupted save leaves
+    the previous table rather than half the new one; and the written path is allow-listed for reading, as
+    `writeSceneFile` does. A writer that declared no `{name}.{stamp}.bak` gets no backup and still saves.
+
+    **Sibling discovery stays in the renderer.** `modules/hostFiles.ts` instantiates the manifest's patterns
+    for an anchor path and probes each candidate with `bridge().allowPath` — the `open/sources.ts#firstAllowed`
+    precedent, where `allowPath` returning null *is* the existence check. A main-side resolver would add no
+    admission-policy gain over that status quo, and no listing or glob IPC exists or is wanted.
+12. **Unsaved module edits interrupt a window close.** The renderer pushes `tetravox:set-document-edited`
+    (from a module's `ui.setDirty`, never from `sceneDirty`, which any cursor click sets); main calls
+    `win.setDocumentEdited` with it and keeps the flag per window. A `BrowserWindow 'close'` on a window
+    holding that flag is `preventDefault`ed and answered with a two-button `dialog.showMessageBox`
+    **{Discard, Cancel}** — and no Save: saving is the module's own Save sheet and `module-write-text`, and a
+    Save button here would be a second write path driven from main. Discard clears the flag and destroys the
+    window; Cancel leaves it open. The handler is **not installed on a `--job` window** — a batch render has
+    nobody to answer a box and would hang to the watchdog — and it is inert under `TETRAVOX_E2E_DISCARD=1`,
+    which is how a windowless e2e tears down a window it deliberately made dirty (AGENTS rule 8).
 
 ---
 
