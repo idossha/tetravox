@@ -1,0 +1,210 @@
+{
+  "version": 2,
+  "datasets": [
+    {
+      "id": "ds1",
+      "kind": "volume",
+      "name": "volume-covid19-A-0377_ct.nii.gz",
+      "path": "volume-covid19-A-0377_ct.nii.gz",
+      "fingerprint": "tvxfp1-0000000001980160-e98582183a2ebbd8"
+    },
+    {
+      "id": "ds3",
+      "kind": "volume",
+      "name": "volume-covid19-A-0377_ct_seg.nii.gz",
+      "path": "volume-covid19-A-0377_ct_seg.nii.gz",
+      "fingerprint": "tvxfp1-0000000001980160-88ff49aebf9a865c",
+      "sidecars": {
+        "lut": {
+          "path": "volume-covid19-A-0377_ct_seg_LUT.txt",
+          "absPath": "/private/tmp/claude-501/-Users-idohaber-00-development-tetravox/53a0ff99-ccf8-46da-8460-95e420e7192a/scratchpad/sample-cache/spine-ct/volume-covid19-A-0377_ct_seg_LUT.txt"
+        }
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer2",
+      "datasetId": "ds1",
+      "name": "volume-covid19-A-0377_ct.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": -2048,
+        "hi": 267
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "linear",
+      "labelMode": "fill",
+      "outlineWidthPx": 1,
+      "showIn3D": false,
+      "precision": "auto"
+    },
+    {
+      "id": "layer4",
+      "datasetId": "ds3",
+      "name": "volume-covid19-A-0377_ct_seg.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": 0,
+        "hi": 18
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "nearest",
+      "labelMode": "outline",
+      "outlineWidthPx": 2,
+      "showIn3D": false,
+      "precision": "auto"
+    }
+  ],
+  "activeLayerId": "layer2",
+  "slices": [
+    {
+      "id": "axial",
+      "mode": "axial",
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "up": [
+        0,
+        1,
+        0
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.44039109987910374
+      }
+    },
+    {
+      "id": "coronal",
+      "mode": "coronal",
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.44039109987910374
+      }
+    },
+    {
+      "id": "sagittal",
+      "mode": "sagittal",
+      "normal": [
+        -1,
+        0,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.44039109987910374
+      }
+    }
+  ],
+  "view3d": {
+    "id": "view3d",
+    "camera": {
+      "target": [
+        -3.75950488448143,
+        0.14740124344825745,
+        -67.5
+      ],
+      "distance": 982.6488958360359,
+      "rotation": [
+        0.5,
+        -0.5,
+        -0.5,
+        0.5
+      ],
+      "fovYDeg": 35,
+      "orthographic": false,
+      "near": 1,
+      "far": 2363.905774834931
+    },
+    "showSlicePlanes": false
+  },
+  "layout": {
+    "kind": "2x2",
+    "cells": [
+      "axial",
+      "coronal",
+      "sagittal",
+      "view3d"
+    ]
+  },
+  "cursor": [
+    -3.75950488448143,
+    0.14740124344825745,
+    -67.5
+  ],
+  "radiological": false,
+  "background": [
+    0.058823529411764705,
+    0.06666666666666667,
+    0.08627450980392157,
+    1
+  ],
+  "lighting": {
+    "ambient": 0.25,
+    "headlight": true
+  },
+  "annotations": {
+    "orientationLabels": true,
+    "cornerInfo": true,
+    "conventionBadge": true,
+    "scaleBar": true,
+    "colorbars": true,
+    "crosshair": true,
+    "orientationCube": true
+  },
+  "transparency": {
+    "mode": "twoPhase"
+  }
+}

@@ -1,0 +1,290 @@
+{
+  "version": 2,
+  "datasets": [
+    {
+      "id": "ds1",
+      "kind": "volume",
+      "name": "T1.nii.gz",
+      "path": "T1.nii.gz",
+      "fingerprint": "tvxfp1-0000000003400160-8192ec923b9c8951"
+    },
+    {
+      "id": "ds3",
+      "kind": "mesh",
+      "name": "grey_TI.msh",
+      "path": "grey_TI.msh",
+      "fingerprint": "tvxfp1-0000000003cf7187-f3d8d6b22f335d11"
+    },
+    {
+      "id": "ds5",
+      "kind": "volume",
+      "name": "TI_max.nii.gz",
+      "path": "TI_max.nii.gz",
+      "fingerprint": "tvxfp1-0000000003400160-b9cf9775339cc27b"
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer2",
+      "datasetId": "ds1",
+      "name": "T1.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": -0.7819769382476807,
+        "hi": 20353.884765625
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "linear",
+      "labelMode": "fill",
+      "outlineWidthPx": 1,
+      "showIn3D": false,
+      "precision": "auto"
+    },
+    {
+      "id": "layer4",
+      "datasetId": "ds3",
+      "name": "grey_TI.msh",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "mesh",
+      "colorMode": "field",
+      "solidColor": [
+        0.78,
+        0.78,
+        0.8,
+        1
+      ],
+      "colormap": "jet",
+      "scale": {
+        "kind": "linear",
+        "lo": 0.002893029246479273,
+        "hi": 0.13
+      },
+      "threshold": {
+        "lo": 0,
+        "hi": 0.2,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "tagStyle": {
+        "2": {
+          "visible": true,
+          "opacity": 1
+        }
+      },
+      "edges": {
+        "surface": false,
+        "caps": false
+      },
+      "edgeColor": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "edgeWidthPx": 1,
+      "flatShading": false,
+      "faceMode": "cull",
+      "clip": {
+        "planes": [
+          {
+            "plane": {
+              "normal": [
+                1,
+                0,
+                0
+              ],
+              "offset": 30.077060062920054
+            },
+            "enabled": true,
+            "followCursor": true
+          }
+        ],
+        "caps": true,
+        "capColorMode": "inherit"
+      },
+      "contoursIn2D": true,
+      "contourWidthPx": 1,
+      "fillIn2D": true,
+      "field": {
+        "source": "elm",
+        "name": "TI_max",
+        "component": "mag"
+      }
+    },
+    {
+      "id": "layer6",
+      "datasetId": "ds5",
+      "name": "TI_max.nii.gz",
+      "visible": false,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "turbo",
+      "scale": {
+        "kind": "heat",
+        "min": 0.005377147864958437,
+        "mid": 0.09983019667041287,
+        "max": 0.19428324547586737,
+        "truncate": false,
+        "inverse": false,
+        "negative": "hide"
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "linear",
+      "labelMode": "fill",
+      "outlineWidthPx": 1,
+      "showIn3D": false,
+      "precision": "auto"
+    }
+  ],
+  "activeLayerId": "layer4",
+  "slices": [
+    {
+      "id": "axial",
+      "mode": "axial",
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "up": [
+        0,
+        1,
+        0
+      ],
+      "camera": {
+        "center": [
+          3.249617373032008,
+          -0.8124043432579366
+        ],
+        "mmPerPx": 0.27080144775265896
+      }
+    },
+    {
+      "id": "coronal",
+      "mode": "coronal",
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.27080144775265896
+      }
+    },
+    {
+      "id": "sagittal",
+      "mode": "sagittal",
+      "normal": [
+        -1,
+        0,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.27080144775265896
+      }
+    }
+  ],
+  "view3d": {
+    "id": "view3d",
+    "camera": {
+      "target": [
+        -4.999486858625502,
+        6.7201728878984985,
+        13.58273145334144
+      ],
+      "distance": 322.0735201567362,
+      "rotation": [
+        0.37086066603660583,
+        -0.4740983843803406,
+        -0.7326240539550781,
+        0.31773439049720764
+      ],
+      "fovYDeg": 35,
+      "orthographic": false,
+      "near": 1,
+      "far": 1663.245021035686
+    },
+    "showSlicePlanes": false
+  },
+  "layout": {
+    "kind": "2x2",
+    "cells": [
+      "axial",
+      "coronal",
+      "sagittal",
+      "view3d"
+    ]
+  },
+  "cursor": [
+    -30.077060062920054,
+    39.58230331290986,
+    5.578965051379292
+  ],
+  "radiological": false,
+  "background": [
+    0.058823529411764705,
+    0.06666666666666667,
+    0.08627450980392157,
+    1
+  ],
+  "lighting": {
+    "ambient": 0.25,
+    "headlight": true
+  },
+  "annotations": {
+    "orientationLabels": true,
+    "cornerInfo": true,
+    "conventionBadge": true,
+    "scaleBar": true,
+    "colorbars": true,
+    "crosshair": true,
+    "orientationCube": true
+  },
+  "transparency": {
+    "mode": "twoPhase"
+  }
+}

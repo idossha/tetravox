@@ -1,0 +1,210 @@
+{
+  "version": 2,
+  "datasets": [
+    {
+      "id": "ds1",
+      "kind": "volume",
+      "name": "amos_0555_mri.nii.gz",
+      "path": "amos_0555_mri.nii.gz",
+      "fingerprint": "tvxfp1-000000000092d160-ccb0b695dc056a21"
+    },
+    {
+      "id": "ds3",
+      "kind": "volume",
+      "name": "amos_0555_seg.nii.gz",
+      "path": "amos_0555_seg.nii.gz",
+      "fingerprint": "tvxfp1-000000000092d160-7f9a136ec0b5ad99",
+      "sidecars": {
+        "lut": {
+          "path": "amos_0555_seg_LUT.txt",
+          "absPath": "/private/tmp/claude-501/-Users-idohaber-00-development-tetravox/53a0ff99-ccf8-46da-8460-95e420e7192a/scratchpad/sample-cache/amos-mri/amos_0555_seg_LUT.txt"
+        }
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer2",
+      "datasetId": "ds1",
+      "name": "amos_0555_mri.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": 0,
+        "hi": 311
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "linear",
+      "labelMode": "fill",
+      "outlineWidthPx": 1,
+      "showIn3D": false,
+      "precision": "auto"
+    },
+    {
+      "id": "layer4",
+      "datasetId": "ds3",
+      "name": "amos_0555_seg.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": 0,
+        "hi": 6
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "nearest",
+      "labelMode": "outline",
+      "outlineWidthPx": 2,
+      "showIn3D": false,
+      "precision": "auto"
+    }
+  ],
+  "activeLayerId": "layer2",
+  "slices": [
+    {
+      "id": "axial",
+      "mode": "axial",
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "up": [
+        0,
+        1,
+        0
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.41302334960379444
+      }
+    },
+    {
+      "id": "coronal",
+      "mode": "coronal",
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.41302334960379444
+      }
+    },
+    {
+      "id": "sagittal",
+      "mode": "sagittal",
+      "normal": [
+        -1,
+        0,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.41302334960379444
+      }
+    }
+  ],
+  "view3d": {
+    "id": "view3d",
+    "camera": {
+      "target": [
+        -2.9681642055511475,
+        0.6816599369049072,
+        73.25300598144531
+      ],
+      "distance": 921.5829714862211,
+      "rotation": [
+        0,
+        0.7071067690849304,
+        0.7071067690849304,
+        0
+      ],
+      "fovYDeg": 35,
+      "orthographic": false,
+      "near": 1,
+      "far": 2217.002754002303
+    },
+    "showSlicePlanes": false
+  },
+  "layout": {
+    "kind": "2x2",
+    "cells": [
+      "axial",
+      "coronal",
+      "sagittal",
+      "view3d"
+    ]
+  },
+  "cursor": [
+    -2.9681642055511475,
+    0.6816599369049072,
+    73.25300598144531
+  ],
+  "radiological": false,
+  "background": [
+    0.058823529411764705,
+    0.06666666666666667,
+    0.08627450980392157,
+    1
+  ],
+  "lighting": {
+    "ambient": 0.25,
+    "headlight": true
+  },
+  "annotations": {
+    "orientationLabels": true,
+    "cornerInfo": true,
+    "conventionBadge": true,
+    "scaleBar": true,
+    "colorbars": true,
+    "crosshair": true,
+    "orientationCube": true
+  },
+  "transparency": {
+    "mode": "twoPhase"
+  }
+}

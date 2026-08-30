@@ -24,8 +24,10 @@ Any of: drag files onto the window, **⌘O / Ctrl+O**, File ▸ Open…, or name
 **No data to hand?** File ▸ **Sample Data…** lists public datasets — a SimNIBS head with its tissues, pial
 surfaces, an EEG net and a TI field; abdominal and chest CT and MRI with organ and vertebra labels — each
 with its source and licence. One click downloads the files (once, into the app's cache, verified by
-checksum) and opens them like any other file. The same list, with sizes and download links, is on the
-website's Sample data page.
+checksum) and opens a **ready-made scene** — layout, colour maps, thresholds and camera already set, the
+TI field on its mesh with a clip plane following the cursor — replacing what is on screen, as Open Scene…
+does. The scene file sits beside the data in the cache, so File ▸ Save Scene As… keeps your changes to
+it. The same list, with sizes and download links, is on the website's Sample data page.
 
 Formats read: NIfTI-1/2 (`.nii`, `.nii.gz`, including 4D), Gmsh `.msh` v2.2 and v4.1, Gmsh parsed views
 (`.geo` / `.pos` — SimNIBS electrode nets), GIfTI (`.gii`, `.func.gii`, `.shape.gii`, `.label.gii`),

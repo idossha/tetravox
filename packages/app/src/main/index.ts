@@ -19,7 +19,14 @@ import { mkdirSync, writeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
-import { buildMenu, sendOpened, showOpenDialog, splitScenes, toOpened } from './menu';
+import {
+  buildMenu,
+  sendOpenScene,
+  sendOpened,
+  showOpenDialog,
+  splitScenes,
+  toOpened,
+} from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
 import { discoverSubjectSpaces } from './subject-spaces';
@@ -28,6 +35,7 @@ import { fileUrl, handleScheme, registerScheme } from './protocol';
 import {
   cancelSample,
   catalogue,
+  materialiseScene,
   removeSample,
   revealSampleCache,
   sampleById,
@@ -462,7 +470,14 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
       const paths = await startSample(sample, (p) =>
         getWindow()?.webContents.send('tetravox:sample-progress', p)
       );
-      sendOpened(getWindow(), toOpened(paths));
+      // A sample with a shipped scene opens *configured* — layout, presets, camera — through the
+      // scene route, which replaces what is on screen exactly as Open Scene… does. The files are
+      // allow-listed first: the scene's bare `DatasetRef.path`s resolve beside it (§4.6), and the
+      // renderer's relocate check asks main about each one.
+      const scene = materialiseScene(sample);
+      toOpened(paths);
+      if (scene !== null) sendOpenScene(getWindow(), scene);
+      else sendOpened(getWindow(), toOpened(paths));
       return { ok: true, paths };
     } catch (err) {
       return { ok: false, error: String(err) };

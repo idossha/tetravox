@@ -23,6 +23,7 @@ import {
   catalogue,
   ensureFile,
   fetchSample,
+  materialiseScene,
   samplePath,
   sampleStatuses,
   startSample,
@@ -117,6 +118,35 @@ describe('the catalogue', () => {
         ).toBe(true);
       }
     }
+  });
+
+  it('ships a scene for every sample whose dataset paths are the sample’s own file names', () => {
+    for (const s of catalogue()) {
+      expect(s.scene, `${s.id} has no scene`).toBeDefined();
+      const path = join(__dirname, '../shared/scenes', s.scene ?? '');
+      expect(existsSync(path), `${s.id}: ${s.scene} missing`).toBe(true);
+      const spec = JSON.parse(readFileSync(path, 'utf8')) as {
+        version: number;
+        datasets: { path: string; absPath?: string }[];
+        layers: unknown[];
+      };
+      expect(spec.version).toBe(2);
+      expect(spec.layers.length).toBeGreaterThan(0);
+      const names = new Set(s.files.map((f) => f.name));
+      for (const d of spec.datasets) {
+        // Bare names only: the scene is written beside the files, and a machine path would leak.
+        expect(names.has(d.path), `${s.id}: scene names ${d.path}`).toBe(true);
+        expect(d.absPath, `${s.id}: absPath leaked into the shipped scene`).toBeUndefined();
+      }
+    }
+  });
+
+  it('materialises the scene beside the data', () => {
+    const s = catalogue()[0];
+    if (s === undefined) throw new Error('empty catalogue');
+    const path = materialiseScene(s);
+    expect(path).toBe(join(dir, s.id, s.scene ?? ''));
+    expect(readFileSync(path ?? '', 'utf8')).toContain('"datasets"');
   });
 
   it('has a thumbnail for every sample', () => {

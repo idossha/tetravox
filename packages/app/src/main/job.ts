@@ -288,7 +288,19 @@ export interface TweenAction {
   include?: IncludeSpec;
 }
 
-export type JobAction = SetAction | ScreenshotAction | SweepAction | OrbitAction | TweenAction;
+/**
+ * Write the scene as File ▸ Save Scene would (§4.6), under `--out`. Dataset paths come out
+ * relative to the file, so a job that runs beside its data produces a scene of bare file names —
+ * which is how the sample-data scenes (`scripts/sample-data/scenes/make-scenes.py`) are made.
+ */
+export interface SaveSceneAction {
+  type: 'save-scene';
+  /** File name under `--out`; `.tetravox.json` is appended when missing. */
+  out: string;
+}
+
+export type JobAction =
+  SetAction | ScreenshotAction | SweepAction | OrbitAction | TweenAction | SaveSceneAction;
 
 export interface Job {
   /** Optional; validated against {@link JOB_SCHEMA_VERSION} when present. */
@@ -749,8 +761,15 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       errors.include(`${path}.include`, action['include']);
       return;
     }
+    case 'save-scene': {
+      errors.outName(`${path}.out`, action['out']);
+      return;
+    }
     default:
-      errors.push(`${path}.type`, 'must be one of set, screenshot, sweep, orbit, tween');
+      errors.push(
+        `${path}.type`,
+        'must be one of set, screenshot, sweep, orbit, tween, save-scene'
+      );
   }
 }
 

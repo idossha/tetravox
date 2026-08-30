@@ -297,6 +297,19 @@ opt-out, and at 1920×1080 over a thousand frames a GIF is neither small nor wat
 **Frame limits.** A sweep, an orbit or a tween is capped at 720 frames each, and the cap is recorded as
 a warning rather than silently applied. A `sequence` is not capped: it is as long as its actions.
 
+#### `save-scene` — write the scene
+
+| Key | Meaning |
+|---|---|
+| `out` | File name under `--out`; `.tetravox.json` is appended when missing. |
+
+Exactly what File ▸ Save Scene writes ([§4.6]({{ site.baseurl }}/ARCHITECTURE.html)): every layer,
+colour map, threshold and camera as they stand after the preceding actions, with dataset paths
+**relative to the file**. Run a job beside its data and the scene names bare files — which is how the
+scenes shipped with **File ▸ Sample Data…** are produced (`scripts/sample-data/scenes/make-scenes.py`:
+files + a preset + a few `set`s + `save-scene`), so their numbers come from the data, not from a
+keyboard.
+
 ### 2.4 `job-result.json`
 
 ```json

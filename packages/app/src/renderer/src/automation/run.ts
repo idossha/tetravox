@@ -29,6 +29,7 @@ import { bridge } from '../bridge';
 import type { JobSpec } from '../bridge';
 import { DEFAULT_FIGURE, type FigureOptions } from '../lib/figure';
 import { isActive } from '../lib/loads';
+import { dirName, serialiseScene } from '../lib/scene';
 import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import { planPreset } from './presets';
@@ -308,6 +309,20 @@ export class JobRunner {
       case 'tween':
         await this.runTween(index, action, started);
         return;
+      case 'save-scene': {
+        // The scene as File ▸ Save Scene would write it (§4.6): dataset paths relative to the file,
+        // which lands under `--out` like every other output. This is how the shipped sample-data
+        // scenes are produced — from the real files, through the same presets a job uses — rather
+        // than typed by hand.
+        const name = withExtension(String(action['out']), '.tetravox.json');
+        const path = `${this.spec.outDir}/${name}`;
+        this.env.engine.setSceneDir?.(dirName(path));
+        const text = serialiseScene(this.env.engine.serialize(), path);
+        const written = await bridge().jobWrite(name, new TextEncoder().encode(text));
+        if (!written.ok) throw new Error(`writing ${name}: ${written.error ?? 'unknown error'}`);
+        this.record(index, type, [name], started);
+        return;
+      }
       default:
         throw new Error(`actions[${index}]: unknown type ${type}`);
     }

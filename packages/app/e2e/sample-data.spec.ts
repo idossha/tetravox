@@ -10,7 +10,15 @@
 
 /* eslint-disable no-empty-pattern */
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -21,10 +29,14 @@ interface CatalogFile {
   name: string;
   bytes: number;
 }
+interface CatalogFileHashed extends CatalogFile {
+  sha256: string;
+}
 interface CatalogSample {
   id: string;
   licence: string;
-  files: CatalogFile[];
+  scene: string;
+  files: CatalogFileHashed[];
 }
 const catalog = JSON.parse(
   readFileSync(resolve(APP_ROOT, 'src', 'shared', 'sample-catalog.json'), 'utf8')
@@ -78,6 +90,54 @@ test('the Sample Data dialog lists the catalogue from main, with the cache and e
 
     await page.click('[data-testid="sample-close"]');
     await expect(dialog).toBeHidden();
+    await app.close();
+  } finally {
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Opening a cached sample goes through the **scene** route: main writes the shipped scene beside
+ * the files and the renderer loads it, so the layers, layout and camera arrive configured. The
+ * files must be the real ones — main re-hashes a cached file before it trusts it, and a
+ * placeholder would send it to the network — so this leg needs the staged store
+ * (`scripts/sample-data/stage.py` → `data/sample-store/<sha256>`) and skips without it.
+ */
+test('opening a cached sample loads its ready-made scene', async ({}, testInfo) => {
+  const target = testInfo.project.name as LaunchTarget;
+  const blocked = target === 'packaged' ? packagedUnavailable() : null;
+  test.skip(blocked !== null, blocked ?? '');
+
+  const sample = catalog.samples.find((s) => s.id === SMALLEST);
+  if (sample === undefined) throw new Error(`catalogue lost ${SMALLEST}`);
+  const store = resolve(APP_ROOT, '..', '..', 'data', 'sample-store');
+  test.skip(
+    !sample.files.every((f) => existsSync(join(store, f.sha256))),
+    'data/sample-store is not staged on this machine'
+  );
+
+  const cache = mkdtempSync(join(tmpdir(), 'tvx-sample-e2e-'));
+  mkdirSync(join(cache, sample.id), { recursive: true });
+  for (const f of sample.files) copyFileSync(join(store, f.sha256), join(cache, sample.id, f.name));
+
+  try {
+    const app = await launchApp(target, {
+      search: 'engine=mock',
+      env: { TETRAVOX_SAMPLE_DIR: cache },
+    });
+    const page = await app.firstWindow();
+    await clickAppMenu(page, 'sample-data');
+    await page.click(`[data-testid="sample-open-${SMALLEST}"]`);
+    await expect(page.locator('[data-testid="sample-data-dialog"]')).toBeHidden();
+
+    // The scene, not just the files: one row per dataset in the shipped scene, and its layout.
+    const scene = JSON.parse(
+      readFileSync(resolve(APP_ROOT, 'src', 'shared', 'scenes', sample.scene), 'utf8')
+    ) as { layers: unknown[]; layout: { kind: string } };
+    await expect(page.locator('[data-testid^="layer-row-"]')).toHaveCount(scene.layers.length);
+    const layout = await page.evaluate(() => window.__tetravox?.store.getState().layoutKind);
+    expect(layout).toBe(scene.layout.kind);
+    expect(existsSync(join(cache, sample.id, sample.scene))).toBe(true);
     await app.close();
   } finally {
     rmSync(cache, { recursive: true, force: true });

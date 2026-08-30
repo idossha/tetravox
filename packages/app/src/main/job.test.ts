@@ -213,7 +213,7 @@ describe('validateJob — what a bad job is told', () => {
 
   it('rejects an unknown action type', () => {
     expect(errorsFor({ ...minimal, actions: [{ type: 'render' }] })).toEqual([
-      'actions[0].type: must be one of set, screenshot, sweep, orbit, tween',
+      'actions[0].type: must be one of set, screenshot, sweep, orbit, tween, save-scene',
     ]);
   });
 
@@ -383,7 +383,7 @@ describe('tween', () => {
   it('is listed among the action types an unknown `type` is told about', () => {
     const result = validateJob(jobWith({ type: 'zoom', out: 'a' }));
     expect(result.errors).toContain(
-      'actions[0].type: must be one of set, screenshot, sweep, orbit, tween'
+      'actions[0].type: must be one of set, screenshot, sweep, orbit, tween, save-scene'
     );
   });
 });

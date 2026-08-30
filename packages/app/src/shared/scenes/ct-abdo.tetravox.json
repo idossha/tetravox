@@ -1,0 +1,168 @@
+{
+  "version": 2,
+  "datasets": [
+    {
+      "id": "ds1",
+      "kind": "volume",
+      "name": "CT_Abdo.nii.gz",
+      "path": "CT_Abdo.nii.gz",
+      "fingerprint": "tvxfp1-0000000001629d60-60bd07958770f0e7"
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer2",
+      "datasetId": "ds1",
+      "name": "CT_Abdo.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": -1024,
+        "hi": 464
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "linear",
+      "labelMode": "fill",
+      "outlineWidthPx": 1,
+      "showIn3D": false,
+      "precision": "auto"
+    }
+  ],
+  "activeLayerId": "layer2",
+  "slices": [
+    {
+      "id": "axial",
+      "mode": "axial",
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "up": [
+        0,
+        1,
+        0
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.4462646235816607
+      }
+    },
+    {
+      "id": "coronal",
+      "mode": "coronal",
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.4462646235816607
+      }
+    },
+    {
+      "id": "sagittal",
+      "mode": "sagittal",
+      "normal": [
+        -1,
+        0,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.4462646235816607
+      }
+    }
+  ],
+  "view3d": {
+    "id": "view3d",
+    "camera": {
+      "target": [
+        -36.690253019332886,
+        0.6556230187416077,
+        9.2529296875
+      ],
+      "distance": 995.7545457516878,
+      "rotation": [
+        0,
+        0.7071067690849304,
+        0.7071067690849304,
+        0
+      ],
+      "fovYDeg": 35,
+      "orthographic": false,
+      "near": 1,
+      "far": 2395.4333343222047
+    },
+    "showSlicePlanes": false
+  },
+  "layout": {
+    "kind": "2x2",
+    "cells": [
+      "axial",
+      "coronal",
+      "sagittal",
+      "view3d"
+    ]
+  },
+  "cursor": [
+    -36.690253019332886,
+    0.6556230187416077,
+    9.2529296875
+  ],
+  "radiological": false,
+  "background": [
+    0.058823529411764705,
+    0.06666666666666667,
+    0.08627450980392157,
+    1
+  ],
+  "lighting": {
+    "ambient": 0.25,
+    "headlight": true
+  },
+  "annotations": {
+    "orientationLabels": true,
+    "cornerInfo": true,
+    "conventionBadge": true,
+    "scaleBar": true,
+    "colorbars": true,
+    "crosshair": true,
+    "orientationCube": true
+  },
+  "transparency": {
+    "mode": "twoPhase"
+  }
+}

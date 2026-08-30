@@ -1,0 +1,204 @@
+{
+  "version": 2,
+  "datasets": [
+    {
+      "id": "ds1",
+      "kind": "volume",
+      "name": "example_ct_sm.nii.gz",
+      "path": "example_ct_sm.nii.gz",
+      "fingerprint": "tvxfp1-00000000000b4958-7fab2c737abb43e4"
+    },
+    {
+      "id": "ds3",
+      "kind": "volume",
+      "name": "example_seg_fast.nii.gz",
+      "path": "example_seg_fast.nii.gz",
+      "fingerprint": "tvxfp1-000000000005d76c-9d7d8c84c8f845e3"
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer2",
+      "datasetId": "ds1",
+      "name": "example_ct_sm.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": -1008,
+        "hi": 115
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "linear",
+      "labelMode": "fill",
+      "outlineWidthPx": 1,
+      "showIn3D": false,
+      "precision": "auto"
+    },
+    {
+      "id": "layer4",
+      "datasetId": "ds3",
+      "name": "example_seg_fast.nii.gz",
+      "visible": true,
+      "opacity": 1,
+      "pickable": true,
+      "showColorbar": true,
+      "kind": "volume",
+      "volumeIndex": 0,
+      "colormap": "gray",
+      "scale": {
+        "kind": "linear",
+        "lo": 0,
+        "hi": 87
+      },
+      "threshold": {
+        "lo": null,
+        "hi": null,
+        "symmetric": false,
+        "mode": "clamp",
+        "softEdge": 0
+      },
+      "interpolation": "nearest",
+      "labelMode": "outline",
+      "outlineWidthPx": 2,
+      "showIn3D": false,
+      "precision": "auto"
+    }
+  ],
+  "activeLayerId": "layer2",
+  "slices": [
+    {
+      "id": "axial",
+      "mode": "axial",
+      "normal": [
+        0,
+        0,
+        1
+      ],
+      "up": [
+        0,
+        1,
+        0
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.35686698654978893
+      }
+    },
+    {
+      "id": "coronal",
+      "mode": "coronal",
+      "normal": [
+        0,
+        -1,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.35686698654978893
+      }
+    },
+    {
+      "id": "sagittal",
+      "mode": "sagittal",
+      "normal": [
+        -1,
+        0,
+        0
+      ],
+      "up": [
+        0,
+        0,
+        1
+      ],
+      "camera": {
+        "center": [
+          0,
+          0
+        ],
+        "mmPerPx": 0.35686698654978893
+      }
+    }
+  ],
+  "view3d": {
+    "id": "view3d",
+    "camera": {
+      "target": [
+        3.543670654296875,
+        161.31900024414062,
+        137.8017578125
+      ],
+      "distance": 796.280738620174,
+      "rotation": [
+        0,
+        0.7071067690849304,
+        0.7071067690849304,
+        0
+      ],
+      "fovYDeg": 35,
+      "orthographic": false,
+      "near": 1,
+      "far": 1915.5698890930605
+    },
+    "showSlicePlanes": false
+  },
+  "layout": {
+    "kind": "2x2",
+    "cells": [
+      "axial",
+      "coronal",
+      "sagittal",
+      "view3d"
+    ]
+  },
+  "cursor": [
+    3.543670654296875,
+    161.31900024414062,
+    137.8017578125
+  ],
+  "radiological": false,
+  "background": [
+    0.058823529411764705,
+    0.06666666666666667,
+    0.08627450980392157,
+    1
+  ],
+  "lighting": {
+    "ambient": 0.25,
+    "headlight": true
+  },
+  "annotations": {
+    "orientationLabels": true,
+    "cornerInfo": true,
+    "conventionBadge": true,
+    "scaleBar": true,
+    "colorbars": true,
+    "crosshair": true,
+    "orientationCube": true
+  },
+  "transparency": {
+    "mode": "twoPhase"
+  }
+}

@@ -58,7 +58,7 @@ export function SampleDataDialog({
     <DialogFrame
       testId="sample-data-dialog"
       title="Sample data"
-      subtitle="Public datasets, downloaded once into this machine's cache and opened like any other file."
+      subtitle="Public datasets, downloaded once into this machine's cache. Each opens as a ready-made scene — layout, colour maps and camera set — replacing what is on screen, like Open Scene…"
       width="56rem"
       onCancel={onClose}
       footer={

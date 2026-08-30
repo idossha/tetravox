@@ -17,9 +17,21 @@
  * hashing 60 MB is far cheaper than a corrupt mesh that parses.
  */
 
+/// <reference types="vite/client" />
+// (for `import.meta.glob` below — electron-vite bundles main with Vite, but `tsconfig.node.json`
+// does not carry Vite's client types.)
+
 import { app, net, shell } from 'electron';
 import { createHash } from 'node:crypto';
-import { createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs';
+import {
+  createWriteStream,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -45,6 +57,12 @@ export interface Sample {
   sourceUrl: string;
   licence: string;
   files: SampleFile[];
+  /**
+   * A ready-made scene (`shared/scenes/<name>`, made by `scripts/sample-data/scenes/make-scenes.py`)
+   * that opens the sample already configured — layout, presets, camera. Written next to the data
+   * on open, so its bare `DatasetRef.path`s resolve (§4.6), and opened through the scene route.
+   */
+  scene?: string;
 }
 
 /** What the dialog shows per sample without touching the network. */
@@ -231,6 +249,32 @@ export async function fetchSample(
 /** Delete a sample's directory from the cache. */
 export function removeSample(sample: Sample): void {
   rmSync(join(sampleCacheDir(), sample.id), { recursive: true, force: true });
+}
+
+/** The shipped scenes, bundled as text: `'../shared/scenes/<name>' → contents`. */
+const SCENES = import.meta.glob<string>('../shared/scenes/*.tetravox.json', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+});
+
+export function sceneText(sample: Sample): string | null {
+  if (sample.scene === undefined) return null;
+  return SCENES[`../shared/scenes/${sample.scene}`] ?? null;
+}
+
+/**
+ * Write the sample's scene beside its files (always: the shipped copy is the truth, and a user's
+ * later edit is theirs to save elsewhere) and return its path, or null when the sample has none.
+ */
+export function materialiseScene(sample: Sample): string | null {
+  const text = sceneText(sample);
+  if (text === null || sample.scene === undefined) return null;
+  const dir = join(sampleCacheDir(), sample.id);
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, sample.scene);
+  writeFileSync(path, text);
+  return path;
 }
 
 export function revealSampleCache(): void {

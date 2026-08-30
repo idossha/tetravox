@@ -36,8 +36,8 @@ title: Sample data
 # Sample data
 
 Public datasets to try Tetravox on, the same list as **File ▸ Sample Data…** in the app. In the app one
-click downloads a sample into the cache (once, verified by sha256) and opens it; here every file is a
-direct link, for scripting or for a machine without the app. Nothing on this page is original work — each
+click downloads a sample into the cache (once, verified by sha256) and opens it as a ready-made scene —
+layout, colour maps, thresholds and camera already set; here every file is a direct link, for scripting or for a machine without the app. Nothing on this page is original work — each
 sample keeps the licence of its source.
 
 The files are hosted the way [3D Slicer's SlicerDataStore](https://github.com/Slicer/SlicerDataStore)

@@ -257,6 +257,7 @@ export interface Sample {
   sourceUrl: string;
   licence: string;
   files: SampleFile[];
+  scene?: string;
 }
 export interface SampleStatus {
   id: string;
