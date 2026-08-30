@@ -254,19 +254,28 @@ describe('the module import wall (§13.1)', () => {
     }
   });
 
-  it('reaches the shell only through `../host`, the control kit or `../shared`', () => {
+  it('leaves its directory only for `../host`, the control kit, `../shared` or the contract', () => {
     for (const dir of moduleDirs) {
       for (const file of sourcesUnder(dir)) {
         for (const specifier of importsOf(file)) {
           if (!specifier.startsWith('..')) continue;
-          // Three legal ways out of a module's directory, and none of them is the shell: the host,
-          // the shared control kit, and `modules/shared/**` — the hardware-independent libraries a
-          // second module of the same family is built from (`shared/contacts/README.md`). The last
-          // one is inside the wall rather than outside it: everything under `shared/` is checked by
-          // this very loop, so a library that reached the store would fail here for its own file.
-          // One extra `..` is allowed because a library lives one level deeper than a module's root.
+          // Four legal ways out of a module's directory, and none of them is the shell: the host,
+          // the shared control kit, `modules/shared/**` — the hardware-independent libraries a
+          // second module of the same family is built from (`shared/contacts/README.md`) — and
+          // `src/modules/manifest-types`, the **data-only module contract** its own manifest is
+          // written against. `shared/` is inside the wall rather than outside it: everything under
+          // it is checked by this very loop, so a library that reached the store would fail here for
+          // its own file. One extra `..` is allowed because a library lives one level deeper than a
+          // module's root.
+          //
+          // The contract was added 2026-08-30 with the one `stemOf`: it declares `{stem}` for the
+          // manifest and defines it for main, and a module computing a *different* `{stem}` is how
+          // an editlog write got refused by the list that admitted it. Importing it can pull nothing
+          // in — §13.1 already requires that file to import nothing at all, `modules.test.ts`'s
+          // "data only" block above proves it, and the ESLint wall (which is the wall; this is the
+          // guard) has always allowed it.
           expect(specifier, `${relative(CODE_DIR, file)} imports ${specifier}`).toMatch(
-            /^\.\.\/(\.\.\/)?(host|ui\/|shared\/)/
+            /^\.\.\/(\.\.\/)?(host|ui\/|shared\/)|^(?:\.\.\/)+modules\/manifest-types$/
           );
         }
       }

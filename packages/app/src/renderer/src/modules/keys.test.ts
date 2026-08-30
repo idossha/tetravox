@@ -167,9 +167,31 @@ describe('instantiateSiblings', () => {
     expect(instantiateSiblings({ from: '(', candidates: ['{stem}.json'] }, anchor)).toEqual([]);
   });
 
-  it('strips a whole extension chain for `{stem}`', () => {
+  it('takes one suffix for `{stem}`, and two off a compressed volume', () => {
     expect(stemOf('sub-01_ct.nii.gz')).toBe('sub-01_ct');
     expect(stemOf('sub-01_electrodes.tsv')).toBe('sub-01_electrodes');
     expect(stemOf('no-extension')).toBe('no-extension');
+  });
+
+  /**
+   * The renderer half of the one `{stem}` (`src/modules/manifest-types.ts`).
+   *
+   * `main/module-io.ts` admits `{stem}_editlog.json` beside the file a module saves; this is what
+   * the module *asks* for. While the two were separate functions they agreed on `.tsv` and
+   * `.nii.gz` and parted over a dotted name — main admitted `sub-P076_electrodes.v2_editlog.json`,
+   * the module instantiated `sub-P076_electrodes_editlog.json`, and the editlog write was then
+   * refused by the write list the save had just filled. `module-io.test.ts` pins the admission
+   * side; this pins the instantiation side, on the same name.
+   */
+  it('instantiates a dotted anchor’s `{stem}` the way main admits it', () => {
+    const dotted: ModuleSibling = {
+      from: '^(?<sub>sub-[A-Za-z0-9]+)_electrodes\\.v2\\.tsv$',
+      candidates: ['{stem}_editlog.json'],
+    };
+    expect(
+      instantiateSiblings(dotted, '/data/sub-P076/ieeg/sub-P076_electrodes.v2.tsv').map(
+        (c) => c.path
+      )
+    ).toEqual(['/data/sub-P076/ieeg/sub-P076_electrodes.v2_editlog.json']);
   });
 });

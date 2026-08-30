@@ -20,7 +20,14 @@
  * renderer file; and this file cannot be the manifest, because a manifest is data. So the strings
  * appear twice and `modules/seeg.test.ts` asserts they are the same strings — which is the only
  * arrangement in which a typo fails a test rather than silently disabling a sibling.
+ *
+ * **`{stem}` is not duplicated, though.** The templates are strings a test can compare; the token's
+ * *meaning* is a function, and two copies of it disagreed about a dotted table name — main admitted
+ * one editlog name and this module wrote another. It comes from the module contract, which is
+ * data-only and main-safe and therefore the one file both sides of that write may import.
  */
+
+import { stemOf } from '../../../../modules/manifest-types';
 
 /** Templates the CT anchors. Keys of the `Record` `host.files.siblings` and `onSibling` hand over. */
 export const FROM_CT_TSV = '../ieeg/{sub}_space-{space}_electrodes.tsv';
@@ -78,10 +85,8 @@ export function baseNameOf(path: string): string {
   return path.split(/[/\\]/).pop() ?? '';
 }
 
-/** The basename without its extension chain: `sub-01_electrodes.tsv` → `sub-01_electrodes`. */
-export function stemOf(name: string): string {
-  return name.replace(/(\.[A-Za-z0-9]+)+$/, '');
-}
+/** `{stem}` — the module contract's, re-exported so the editlog name below is main's `{stem}`. */
+export { stemOf };
 
 /**
  * `<stem>_editlog.json` beside `tsvPath`.

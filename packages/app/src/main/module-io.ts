@@ -43,6 +43,7 @@ import type { OpenedPath } from './menu';
 // §13.1's data-only barrel. Main-safe by construction — no DOM type, no `node:` import, no engine —
 // which is the same property that lets `job.ts` validate a module action before a window exists.
 import { manifestFor } from '../modules/manifests';
+import { stemOf } from '../modules/manifest-types';
 import type { ModuleReader, ModuleWriter } from '../modules/manifest-types';
 
 /**
@@ -102,25 +103,14 @@ export interface ModuleSaveTarget {
 // ------------------------------------------------------------------------------------------------
 
 /**
- * `{stem}` — the basename without its trailing extension chain.
+ * `{stem}` — re-exported, never redefined.
  *
- * `sub-01_electrodes.tsv` → `sub-01_electrodes`, and `sub-01_ct.nii.gz` → `sub-01_ct`: a compression
- * suffix takes the extension in front of it with it, because `sub-01_ct.nii` is not a stem anyone
- * would write a sibling against. Everything else loses exactly one suffix, and a name with no dot
- * (or one that begins with the only dot, `.tsv`) is its own stem.
+ * The rule and the reason it is one function live with the module contract
+ * (`../modules/manifest-types`), because the renderer substitutes the same token against the same
+ * anchor and may not import from `main`. Main admitting one name while the module writes another is
+ * exactly the failure the shared definition exists to make impossible.
  */
-export function stemOf(name: string): string {
-  const cut = (value: string): string | null => {
-    const dot = value.lastIndexOf('.');
-    return dot > 0 ? value.slice(0, dot) : null;
-  };
-  const lower = name.toLowerCase();
-  if (lower.endsWith('.gz') || lower.endsWith('.bz2') || lower.endsWith('.zip')) {
-    const once = cut(name);
-    if (once !== null) return cut(once) ?? once;
-  }
-  return cut(name) ?? name;
-}
+export { stemOf };
 
 /** `{stamp}` — `YYYYMMDD-HHMMSS` in local time, the form the Slicer editor's `.bak` names use. */
 export function stampNow(at: Date = new Date()): string {

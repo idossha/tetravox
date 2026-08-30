@@ -172,11 +172,26 @@ describe('the sibling template rule (contracts §2)', () => {
     );
   });
 
-  it('reads a stem as the name without its extension chain', () => {
+  it('reads a stem as the name less one suffix, a compression suffix taking two', () => {
     expect(stemOf('sub-01_electrodes.tsv')).toBe('sub-01_electrodes');
     expect(stemOf('sub-01_acq-bone_ct.nii.gz')).toBe('sub-01_acq-bone_ct');
     expect(stemOf('no-extension')).toBe('no-extension');
     expect(stemOf('.hidden')).toBe('.hidden');
+    // A dotted name keeps its dots. This is the case main and the renderer disagreed about, and it
+    // is asserted on *this* side and on `instantiateSiblings`' (`modules/keys.test.ts`) because one
+    // definition is only one definition while both halves are pinned to it: main admitting
+    // `…v2_editlog.json` while a module writes `…_editlog.json` refuses the module's own save.
+    expect(stemOf('sub-01_electrodes.v2.tsv')).toBe('sub-01_electrodes.v2');
+  });
+
+  it('admits a dotted anchor’s editlog under the name the module will write', () => {
+    const target = join(dir, 'sub-01_electrodes.v2.tsv');
+    const admitted = admitModuleWrite(SEEG, target, [EDITLOG]);
+    expect(admitted?.siblings[EDITLOG]).toBe(join(dir, 'sub-01_electrodes.v2_editlog.json'));
+    expect(isModuleWritable(SEEG, join(dir, 'sub-01_electrodes.v2_editlog.json'))).toBe(true);
+    // The name the *chain* rule would have produced is not admitted, which is the point: it is a
+    // different file, and it is the one another table in this directory legitimately owns.
+    expect(isModuleWritable(SEEG, join(dir, 'sub-01_electrodes_editlog.json'))).toBe(false);
   });
 
   it('stamps a sortable local timestamp', () => {

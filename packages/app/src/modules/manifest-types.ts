@@ -95,6 +95,42 @@ export const ENGINE_RESERVED_KEYS: readonly string[] = [
   'R',
 ];
 
+/**
+ * `{stem}` — a basename without its trailing extension. **The one definition** (§13.1, §13.6).
+ *
+ * Three places substitute this token and all three have to produce the same string: main's sibling
+ * admission (`main/module-io.ts`), the renderer's sibling instantiation
+ * (`renderer/src/modules/siblings.ts`), and the sEEG module's editlog name
+ * (`renderer/src/modules/seeg/bids.ts`). They were three functions until 2026-08-30 and disagreed
+ * about a dotted name — main admitted `sub-01_electrodes.v2_editlog.json` while the module wrote
+ * `sub-01_electrodes_editlog.json`, so the write was refused by the very list that existed to
+ * permit it. It lives here because this file is the module *contract*, main-safe by construction
+ * (no DOM type, no `node:` import, nothing that has to be executed), which makes it the only place
+ * both processes may import from.
+ *
+ * The rule: **one suffix, and a compression suffix takes the extension in front of it with it.**
+ * `sub-01_electrodes.tsv` → `sub-01_electrodes`, and `sub-01_ct.nii.gz` → `sub-01_ct`, because
+ * `sub-01_ct.nii` is not a stem anyone would write a sibling against. A name with no dot, or one
+ * whose only dot begins it (`.hidden`), is its own stem.
+ *
+ * "One suffix" rather than "the whole extension chain" is the half chosen deliberately: it keeps the
+ * token **injective** over a directory. `a.tsv` and `a.v2.tsv` get different stems, so two tables
+ * sitting beside each other can never claim one `{stem}_editlog.json` — under a chain rule they
+ * collapse to the same name and the second save silently overwrites the first one's provenance.
+ */
+export function stemOf(name: string): string {
+  const cut = (value: string): string | null => {
+    const dot = value.lastIndexOf('.');
+    return dot > 0 ? value.slice(0, dot) : null;
+  };
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.gz') || lower.endsWith('.bz2') || lower.endsWith('.zip')) {
+    const once = cut(name);
+    if (once !== null) return cut(once) ?? once;
+  }
+  return cut(name) ?? name;
+}
+
 export type ArgShape = Record<string, ArgType>;
 
 export interface ModuleCommand {
@@ -127,8 +163,8 @@ export interface ModuleSibling {
   from: string;
   /**
    * Paths relative to the anchor's **directory**, at most three `..` ascents. Tokens are
-   * `{sub}` / `{space}` / `{stem}` — `{stem}` is the anchor's basename without its last extension
-   * chain, everything else is a named group of `from`.
+   * `{sub}` / `{space}` / `{stem}` — `{stem}` is {@link stemOf} of the anchor's basename,
+   * everything else is a named group of `from`.
    */
   candidates: string[];
 }
@@ -139,8 +175,8 @@ export interface ModuleWriter {
   filters: { name: string; extensions: string[] }[];
   /**
    * Same-directory companions the Save sheet admits alongside the chosen path, as templates over it:
-   * `'{name}.{stamp}.bak'`, `'{stem}_editlog.json'`. `{name}` is the full basename, `{stem}` drops
-   * its last extension chain, `{stamp}` is `YYYYMMDD-HHMMSS`.
+   * `'{name}.{stamp}.bak'`, `'{stem}_editlog.json'`. `{name}` is the full basename, `{stem}` is
+   * {@link stemOf} of it, `{stamp}` is `YYYYMMDD-HHMMSS`.
    */
   siblings: string[];
   backup?: 'timestamped';

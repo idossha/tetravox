@@ -61,7 +61,7 @@ describe('bundleOf', () => {
 });
 
 describe('names', () => {
-  it('takes a whole extension chain off a stem', () => {
+  it('takes one suffix off a stem, and two off a compressed volume', () => {
     expect(stemOf('sub-P076_space-T1w_electrodes.tsv')).toBe('sub-P076_space-T1w_electrodes');
     expect(stemOf('sub-P076_acq-bone_space-T1w_ct.nii.gz')).toBe('sub-P076_acq-bone_space-T1w_ct');
     expect(baseNameOf('/a/b/c.tsv')).toBe('c.tsv');
@@ -71,6 +71,11 @@ describe('names', () => {
   it('builds the editlog name seegprep globs for', () => {
     expect(editlogNameFor('sub-P076_space-T1w_electrodes.tsv')).toBe(
       'sub-P076_space-T1w_electrodes_editlog.json'
+    );
+    // The name a dotted table gets is the one `main/module-io.ts` admits from the same `{stem}` —
+    // one definition, so the module can never ask to write a sibling the Save sheet did not admit.
+    expect(editlogNameFor('sub-P076_electrodes.v2.tsv')).toBe(
+      'sub-P076_electrodes.v2_editlog.json'
     );
   });
 

@@ -17,6 +17,7 @@
  * ascent limit and the resolution live here and nowhere else.
  */
 
+import { stemOf } from '../../../modules/manifest-types';
 import type { ModuleSibling } from '../../../modules/manifest-types';
 
 export interface SiblingCandidate {
@@ -48,15 +49,13 @@ export function baseNameOf(path: string): string {
 }
 
 /**
- * The basename without its last extension chain: `sub-01_electrodes.tsv` → `sub-01_electrodes`,
- * `sub-01_ct.nii.gz` → `sub-01_ct`.
+ * `{stem}` — re-exported from the module contract, never redefined here.
  *
- * "Chain", not "extension", because the files this exists for are `.nii.gz` — stripping one
- * extension would leave `sub-01_ct.nii` and the sibling would never be found.
+ * A candidate this file instantiates is probed, opened and *written beside*, and `main/module-io.ts`
+ * is what admits the write. Two definitions of the token meant the two halves disagreed about a
+ * dotted anchor; `../../../modules/manifest-types` holds the rule and why it is the rule.
  */
-export function stemOf(name: string): string {
-  return name.replace(/(\.[A-Za-z0-9]+)+$/, '');
-}
+export { stemOf };
 
 /** The separator the anchor is written with, so a Windows path stays a Windows path. */
 function separatorOf(path: string): string {
