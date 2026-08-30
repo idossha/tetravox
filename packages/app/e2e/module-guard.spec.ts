@@ -121,17 +121,39 @@ test.describe('closing a window with unsaved module edits', () => {
     }
   });
 
-  test('TETRAVOX_E2E_DISCARD=1 closes a dirty window without asking', async ({}, info) => {
+  /**
+   * The E2E seam, and the build it belongs to (2026-08-30).
+   *
+   * `dev` is the build that runs tests, so the seam works there: a harness that made a window dirty
+   * must be able to tear it down, and a job window must never stop on a box nobody can answer.
+   * `packaged` is the build a *user* launches, where the same variable is ambient state — a dotfile,
+   * a wrapper script, a leftover `export` in the shell — and switching off the only guard unsaved
+   * module edits have is not something an environment should be able to do. One spec, and the
+   * target decides which half of the rule it asserts.
+   */
+  test('the E2E seam works in dev and is ignored in a packaged build', async ({}, info) => {
     const target = info.project.name as LaunchTarget;
     const blocked = target === 'packaged' ? packagedUnavailable() : null;
     test.skip(blocked !== null, blocked ?? '');
 
-    // The seam every other windowless spec relies on: a harness that made a window dirty must still
-    // be able to tear it down, and a job window must never stop on a box nobody can answer.
     const { app, page } = await boot(target, { TETRAVOX_E2E_DISCARD: '1' });
     try {
-      await stubMessageBox(app, 1);
+      await stubMessageBox(app, 1); // Cancel, if a box is ever shown
       await markEdited(page, true);
+
+      if (target === 'packaged') {
+        // The seam is closed: the box is shown, Cancel keeps the window, the edits survive.
+        await closeWindow(app);
+        await expect.poll(() => boxesShown(app)).toBe(1);
+        expect(page.isClosed()).toBe(false);
+        // …and Discard still closes it, so this leg leaves no window hanging behind it.
+        await stubMessageBox(app, 0);
+        const discarded = page.waitForEvent('close', { timeout: 15_000 });
+        await closeWindow(app);
+        await discarded;
+        expect(page.isClosed()).toBe(true);
+        return;
+      }
 
       const closed = page.waitForEvent('close', { timeout: 15_000 });
       await closeWindow(app);

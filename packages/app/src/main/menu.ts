@@ -10,6 +10,12 @@ import { basename, dirname } from 'node:path';
 import { allowPath, allowPaths } from './paths';
 import { fileUrl } from './protocol';
 import { readSettings, writeSettings } from './settings';
+// The write halves of §5 rules 10 and 11, minted and dropped where main hands a *document* over
+// (2026-08-30). `scene-io.ts` imports `OPEN_FILTERS`/`isScenePath` back out of this file, so those
+// two are a cycle — a **call-time** one: neither module reads anything from the other while it is
+// still being evaluated, so the order they initialise in cannot matter.
+import { allowOpenedScene } from './scene-io';
+import { revokeAllModuleWrites } from './module-io';
 
 /** §12.3/§8: the formats the viewer opens. Kept in one place so the menu and the installer agree. */
 export const OPEN_FILTERS = [
@@ -125,16 +131,37 @@ export function sendOpened(win: BrowserWindow | null, opened: readonly OpenedPat
   if (last !== undefined) sendOpenScene(win, last.path);
 }
 
-/** Ask the renderer to open one scene file by path (Open Recent, a drop, argv, `open-file`). */
+/**
+ * Ask the renderer to open one scene file by path (Open Recent, a drop, argv, `open-file`).
+ *
+ * This is where §5 rule 10's write admission is minted for every route but the Open sheet and the
+ * startup drain: *main* chose this path, from argv, from `open-file`, from `settings.json`'s recent
+ * list or from a downloaded sample, so it is the file ⌘S is being asked to save over. A renderer
+ * that names a path itself (`tetravox:allow-path` + `tetravox:read-scene`) reaches none of this and
+ * gains no write (DECISIONS 2026-08-30).
+ *
+ * Replacing the scene also ends every module's editing session, so §5 rule 11's write admissions go
+ * with it: the module is disposed and re-`activate`d against the new document, and its own
+ * `savePath` is gone, so a Save sheet is what re-admits a path — not a stale list in main.
+ */
 export function sendOpenScene(win: BrowserWindow | null, path: string): void {
+  allowOpenedScene(path);
+  revokeAllModuleWrites();
   win?.webContents.send('tetravox:open-scene', path);
 }
 
 /** The scene commands the File menu can ask the renderer to run (§4.6, §8). */
 export type SceneCommand = 'new' | 'open' | 'save' | 'saveAs';
 
-/** Ask the renderer to run a scene command. Main never builds or parses a `ViewSpec` itself. */
+/**
+ * Ask the renderer to run a scene command. Main never builds or parses a `ViewSpec` itself.
+ *
+ * `new` and `open` are the two that end a document, and with it every module's editing session
+ * (§13.3 disposes the module on both), so main drops the module write admissions those sessions
+ * earned — the same reason `sendOpenScene` does. `save`/`saveAs` keep them: they *are* the session.
+ */
 export function sendSceneCommand(win: BrowserWindow | null, command: SceneCommand): void {
+  if (command === 'new' || command === 'open') revokeAllModuleWrites();
   win?.webContents.send('tetravox:scene-command', command);
 }
 

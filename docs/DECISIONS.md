@@ -4120,3 +4120,125 @@ module already does, and now for a reason a reader can find.
 
 `api.ts` is §12.3-frozen, so this documentation-only edit lands with its `ARCHITECTURE.md` change in the same
 commit, exactly as a signature change would.
+
+## 2026-08-30 — the ⌘S carve-out is minted where main hands a scene over, not by reading one
+
+**Decision.** `readSceneFile` admits nothing. The write admission §5 rule 10 grants an opened scene
+is minted by `scene-io.ts#allowOpenedScene`, called at the five places **main** is the one choosing
+the path: `showOpenSceneDialog`'s result, `menu.ts#sendOpenScene` (the scene half of the
+`tetravox:opened` routing — argv, `open-file`, a second instance, File ▸ Open Recent, Sample Data),
+the `tetravox:startup-scene` drain, and a new `tetravox:dropped-path` message. This amends the
+2026-08-30 entry above it, which put the admission in `readSceneFile`.
+
+**What was wrong with the read.** The entry above justified the carve-out as "only after a read of a
+path the user had already named through the Open sheet, a drop, argv or `open-file`". The renderer
+can synthesise that precondition: `tetravox:allow-path` is an unconditional handler that puts *any*
+existing absolute path on the read allow-list and hands back its canonical form — the same entry says
+so, in its own "rejected: a main-side sibling resolver" paragraph. So `allowPath(victim)` +
+`readSceneFile(victim)` + `writeSceneFile(victim, …)` was a silent overwrite of any
+`*.tetravox.json` on the machine, reachable from any script in the renderer, with no dialog and no
+gesture at any step. The threat model in `paths.ts`'s header — "an arbitrary-file-read primitive for
+anything that gets script into the renderer" — is exactly that attacker, and `origin/main` had no
+such write: before the carve-out, only the Save sheet filled `writable`.
+
+**Why the delivery points are the right place.** The justification was always about provenance, and
+provenance is a fact main holds and the renderer cannot forge. At each of these five, main already
+knows the path *because it chose it* — from the picker, from argv, from `settings.json`, from a
+downloaded sample. The renderer's own routes reach none of them.
+
+**The drop is preserved, and it is the interesting one.** A drop never reaches main: the renderer
+gets the path from `bridge().getDroppedFilePath`, which is `webUtils.getPathForFile` in **preload**.
+That is what makes it trustworthy — it answers only for a `File` the user really handed the page, and
+renderer script cannot manufacture one backed by a path of its choosing. So preload sends every
+dropped path on `tetravox:dropped-path` and main admits the ones that are scenes. It is the only
+capability on this bridge that a compromised renderer cannot mint for an arbitrary path, and it is
+now what carries the drop half of §5 rule 10.
+
+**Both spellings of the path.** `sendOpenScene` sends whatever main holds (`settings.json`'s
+remembered string) and the Open sheet sends `realpath`'s, while `writeSceneFile`'s check is
+`resolve()` only. `allowOpenedScene` admits both forms so ⌘S works whichever one the renderer was
+handed and saves back.
+
+**Tested both ways.** `scene-io.test.ts` is new (there was no unit test for this file): a path
+admitted only through `allowPath` reads and is refused the write, with the bytes on disk asserted;
+a path `allowOpenedScene` named saves. `e2e/scene-save-opened.spec.ts` keeps the ⌘S-on-an-opened-scene
+flow green and now also performs the escalation through the real bridge in the real window — allow,
+read, write — and asserts the refusal and the untouched file.
+
+## 2026-08-30 — a module's write admissions end with its editing session
+
+**Decision.** `module-io.ts` grows `revokeModuleWrites(moduleId)` and `revokeAllModuleWrites()`, and
+a fifth channel, `tetravox:module-clear-writes`. The renderer sends it from
+`ShellController.deactivateModule`; main calls `revokeAllModuleWrites()` from `sendOpenScene` and
+from `sendSceneCommand('new'|'open')` — the two places main itself replaces the document.
+
+**The gap.** `writeLists` was filled by every confirmed Save sheet and every job `out` target, and
+emptied only by `clearModuleWriteLists`, whose sole caller was a test. So a user who saved subject
+A's `electrodes.tsv` left A's table, A's editlog and the `<anchor>.<YYYYMMDD-HHMMSS>.bak` *shape* in
+A's directory writable for the rest of the process — including after they moved to subject B and the
+UI stopped mentioning A at all. A stale path in a module, or a replayed `moduleWriteText` with A's
+path and a matching module id, then overwrites a table nothing on screen names.
+
+**Why deactivate is the right hook.** It is where the module's own `savePath` dies: the instance is
+disposed, and its next save calls `saveDialog` again regardless. So revocation takes away nothing a
+legitimate module still had — it makes main's list agree with the module's own state instead of
+outliving it by the length of the session.
+
+**What this does and does not buy.** It scopes **accidents** — a stale path, a module that kept a
+reference, a capability that outlived the subject it was granted for. It does not stop a compromised
+renderer, which simply never sends the message. That is not a flaw in the hook but a property of
+where the admission comes from: `allowPath` admits any existing absolute path today, so every
+admission in this app is only as strong as the renderer. Tightening `allowPath` is the durable fix,
+it is a change to the oldest security surface here, it is out of scope for this branch, and it is
+now written down in `docs/ROADMAP.md` under Modules.
+
+**Inert for `--job`.** A batch run's admissions come from the envelope's `out` arguments, admitted in
+`prepareJob` before a window exists, and its actions activate modules in whatever order they are
+listed — `activateModule` deactivates the previous one, which is a step *between* two actions and not
+the end of an editing session. `registerModuleIpc({ isJob })` drops the message there.
+
+## 2026-08-30 — `TETRAVOX_E2E_DISCARD` is honoured only in a build that runs tests
+
+**Decision.** `shouldPromptOnClose` gains `packaged`, and returns `true` — prompt — whenever it is
+set, whatever the environment says. `installCloseGuard` takes it from main's `app.isPackaged`.
+
+**Why.** The seam was read from `process.env` in every build, packaged and notarised included. It is
+ambient state: a dotfile, a launcher script, a wrapper, or a shell where someone once exported it for
+a test run. A user in that shell makes unsaved sEEG contact edits, presses ⌘W, and the window closes
+with no prompt and no trace — and the module's only reversibility is the `.bak` its *save* writes,
+which never ran. §5 rule 12's guard is the whole of the protection on that gesture, and an
+environment variable should not be able to switch it off.
+
+**Why not read `app.isPackaged` in `module-io.ts`.** `shouldPromptOnClose` is pure, which is why all
+four of its cases have a unit test rather than a window; importing `app` for one boolean would trade
+that for nothing. Main already has it. Absent means "not packaged", so every existing caller —
+including the e2e's — behaves exactly as before.
+
+**The e2e says both halves.** `module-guard.spec.ts`'s seam test now branches on its target: on `dev`
+the seam still closes a dirty window silently, and on `packaged` the box is shown, Cancel keeps the
+window and Discard closes it. `module-seeg.spec.ts` clears the edited flag in `afterAll` instead of
+relying on the seam, so its teardown does not depend on which build it is running.
+
+## 2026-08-30 — the docs guard checks the sidebar §13.7 always said it checked
+
+**Decision.** `scripts/check-frozen-docs.mjs` reads `website/.vitepress/config.ts` and requires a
+`/guide/<slug>` entry for every module manifest's `docs` heading, where the slug is the one
+`GUIDE_PAGES` maps that heading to.
+
+**Why it was a real hole.** §13.7 item 3 has always listed three things — the `## ` section, the
+`GUIDE_PAGES` entry "and the site sidebar" — and said "The `docs-guard` CI job fails without them."
+It checked two. The sidebar is a hand-written literal: `sync.mjs` generates `website/src/guide/
+<slug>.md` but never generates or validates the list that links to it, and VitePress's
+`ignoreDeadLinks: false` fails only the opposite mistake — a sidebar entry with no page. A page with
+no sidebar entry builds perfectly and ships reachable from nothing, which is precisely the late,
+silent failure the guard's own header says it exists to prevent, while the contract claimed CI had
+caught it.
+
+**A grep, not a parser.** The config is TypeScript and this script is plain ESM run by `node --test`
+with no build step. The sidebar is a literal array of `link:` strings, which a regex reads exactly as
+well as a parser would, and a config that stopped being that shape would fail loudly here rather than
+quietly pass. `sidebar` defaults to `''` rather than being optional, so a caller that forgets to pass
+it gets a failure instead of a silently skipped rule — which is the failure mode this fixes.
+
+**Scope.** Manifests only, matching §13.7's wording; the guard does not audit the eighteen core guide
+pages, whose sidebar entries no module PR touches.

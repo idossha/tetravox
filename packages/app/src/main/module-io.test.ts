@@ -71,7 +71,7 @@ vi.mock('electron', () => ({
   protocol: {},
 }));
 
-import { dialog } from 'electron';
+import { dialog, ipcMain } from 'electron';
 import { allowPath, clearAllowList } from './paths';
 import {
   MAX_MODULE_READ_BYTES,
@@ -85,6 +85,9 @@ import {
   moduleReadText,
   moduleSaveDialog,
   moduleWriteText,
+  registerModuleIpc,
+  revokeAllModuleWrites,
+  revokeModuleWrites,
   shouldPromptOnClose,
   stampNow,
   stemOf,
@@ -548,5 +551,128 @@ describe('the close guard', () => {
         env: { TETRAVOX_E2E_DISCARD: '0' } as NodeJS.ProcessEnv,
       })
     ).toBe(true);
+  });
+
+  /**
+   * The seam is a *test* seam, and a packaged build runs no tests (2026-08-30).
+   *
+   * `TETRAVOX_E2E_DISCARD` is ambient state: a dotfile, a launcher script or a leftover `export` in
+   * the shell a user starts the app from would silently switch off the only thing standing between
+   * ⌘W and an afternoon of unsaved contact edits. `app.isPackaged` is what tells the two builds
+   * apart, and main passes it in so this stays a pure function.
+   */
+  it('ignores the E2E seam in a packaged build', () => {
+    const seam = { TETRAVOX_E2E_DISCARD: '1' } as NodeJS.ProcessEnv;
+    expect(shouldPromptOnClose({ edited: true, isJob: false, env: seam, packaged: true })).toBe(
+      true
+    );
+    // …and the ambient process environment, which is what a real close reads, is no different.
+    const before = process.env['TETRAVOX_E2E_DISCARD'];
+    process.env['TETRAVOX_E2E_DISCARD'] = '1';
+    try {
+      expect(shouldPromptOnClose({ edited: true, isJob: false, packaged: true })).toBe(true);
+      expect(shouldPromptOnClose({ edited: true, isJob: false, packaged: false })).toBe(false);
+      expect(shouldPromptOnClose({ edited: true, isJob: false })).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env['TETRAVOX_E2E_DISCARD'];
+      else process.env['TETRAVOX_E2E_DISCARD'] = before;
+    }
+
+    // What the gate must not do: turn a clean window, or a `--job` window, into a prompt.
+    expect(shouldPromptOnClose({ edited: false, isJob: false, env: seam, packaged: true })).toBe(
+      false
+    );
+    expect(shouldPromptOnClose({ edited: true, isJob: true, env: seam, packaged: true })).toBe(
+      false
+    );
+  });
+});
+
+/**
+ * Revocation (2026-08-30): an admission belongs to the editing session that earned it.
+ *
+ * `admitModuleWrite` is called by every confirmed Save sheet and by a job's `out` targets, and
+ * before this its only eraser was this file's own `clearModuleWriteLists`. So a user who saved
+ * subject A's table and then moved to subject B left A's tsv — and the `<anchor>.<stamp>.bak` shape
+ * beside it — writable for the rest of the process, against a subject nothing on screen mentioned.
+ */
+describe('giving a write admission back', () => {
+  it('drops one module’s list and leaves every other module’s alone', () => {
+    const mine = join(dir, 'revoke-mine.tsv');
+    const theirs = join(dir, 'revoke-theirs.tsv');
+    admitModuleWrite(SEEG, mine, [BAK, EDITLOG]);
+    admitModuleWrite(OTHER, theirs, []);
+    expect(isModuleWritable(SEEG, mine)).toBe(true);
+
+    expect(revokeModuleWrites(SEEG)).toBe(true);
+    expect(isModuleWritable(SEEG, mine)).toBe(false);
+    // The siblings go with it — including the stamped *shape*, which is the admission that would
+    // otherwise keep matching any `<anchor>.<YYYYMMDD-HHMMSS>.bak` in that directory forever.
+    expect(isModuleWritable(SEEG, `${mine}.20260830-120000.bak`)).toBe(false);
+    expect(isModuleWritable(SEEG, join(dir, 'revoke-mine_editlog.json'))).toBe(false);
+    // Another module's Save sheet is another module's business.
+    expect(isModuleWritable(OTHER, theirs)).toBe(true);
+
+    // Revoking twice, or revoking what was never admitted, is not an error.
+    expect(revokeModuleWrites(SEEG)).toBe(false);
+    expect(revokeModuleWrites('tetravox.never')).toBe(false);
+    expect(revokeModuleWrites('')).toBe(false);
+    expect(revokeModuleWrites(42)).toBe(false);
+  });
+
+  it('a write refused after revocation leaves the file exactly as it was', () => {
+    const path = join(dir, 'revoke-write.tsv');
+    writeFileSync(path, 'before\n', 'utf8');
+    admitModuleWrite(SEEG, path, []);
+    expect(moduleWriteText(SEEG, path, 'after\n', {}).ok).toBe(true);
+
+    revokeModuleWrites(SEEG);
+    expect(moduleWriteText(SEEG, path, 'clobbered\n', {})).toEqual({
+      ok: false,
+      error: 'not on the module write list',
+    });
+    expect(readFileSync(path, 'utf8')).toBe('after\n');
+    expect(existsSync(`${path}.part`)).toBe(false);
+  });
+
+  it('a new document drops every module at once', () => {
+    const mine = join(dir, 'revoke-all-mine.tsv');
+    const theirs = join(dir, 'revoke-all-theirs.tsv');
+    admitModuleWrite(SEEG, mine, []);
+    admitModuleWrite(OTHER, theirs, []);
+    revokeAllModuleWrites();
+    expect(isModuleWritable(SEEG, mine)).toBe(false);
+    expect(isModuleWritable(OTHER, theirs)).toBe(false);
+  });
+
+  /**
+   * The channel, driven through the handler `registerModuleIpc` really registers — the renderer
+   * sends this from `deactivateModule`, and a channel that was never wired would look exactly like
+   * a revocation that works, because both leave the list untouched from in here.
+   */
+  it('is reachable on `tetravox:module-clear-writes`, and inert for a --job run', () => {
+    const handlerFor = (): ((event: unknown, id: unknown) => void) => {
+      const call = vi
+        .mocked(ipcMain.on)
+        .mock.calls.findLast(([channel]) => channel === 'tetravox:module-clear-writes');
+      if (call === undefined) throw new Error('tetravox:module-clear-writes was never registered');
+      return call[1] as (event: unknown, id: unknown) => void;
+    };
+
+    const path = join(dir, 'revoke-ipc.tsv');
+    vi.mocked(ipcMain.on).mockClear();
+    registerModuleIpc();
+    admitModuleWrite(SEEG, path, []);
+    handlerFor()(null, SEEG);
+    expect(isModuleWritable(SEEG, path)).toBe(false);
+
+    // A `--job` run activates modules in the order its actions name them, so a deactivate between
+    // two actions is not the end of an editing session — and the `out` target it would drop was
+    // admitted by `prepareJob` before there was a window to send anything from.
+    vi.mocked(ipcMain.on).mockClear();
+    registerModuleIpc({ isJob: true });
+    admitModuleWrite(SEEG, path, []);
+    handlerFor()(null, SEEG);
+    expect(isModuleWritable(SEEG, path)).toBe(true);
   });
 });

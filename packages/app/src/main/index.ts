@@ -54,6 +54,7 @@ import {
   rememberInvocation,
 } from './job-runner';
 import {
+  allowOpenedScene,
   readSceneFile,
   showOpenSceneDialog,
   showRelocateDialog,
@@ -328,6 +329,20 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     return real === null ? null : { path: real, url: fileUrl(real) };
   });
   /**
+   * A path behind a **dropped** `File` (§5 rule 10, 2026-08-30). Sent by preload from
+   * `getDroppedFilePath`, and reachable no other way: `webUtils.getPathForFile` answers only for a
+   * `File` the user really handed the page, and renderer script cannot manufacture one for a path
+   * of its choosing. That is what makes a drop a *gesture* main can trust, and it is why the ⌘S
+   * carve-out survives for a dropped scene while `tetravox:allow-path` — which any script may call
+   * for any existing path — earns nothing.
+   *
+   * `allowOpenedScene` ignores everything that is not a `*.tetravox.json`, so the dropped volumes
+   * and meshes that also come through here are a no-op; the read side is still `allowPath`'s.
+   */
+  ipcMain.on('tetravox:dropped-path', (_event, path: unknown) => {
+    allowOpenedScene(path);
+  });
+  /**
    * §8's MNI spaces (directed task 8): what registration, if any, governs a volume the user opened.
    *
    * The reply carries the affine as **text** (≤ 64 kB) and the warps as allow-listed
@@ -403,9 +418,12 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     startupPaths = [];
     return opened;
   });
+  // The startup scene, and §5 rule 10's admission with it: argv, a double-clicked document and the
+  // "reopen last scene" setting are all main naming the file this launch will save over.
   ipcMain.handle('tetravox:startup-scene', () => {
     const scene = startupScene;
     startupScene = null;
+    if (scene !== null) allowOpenedScene(scene);
     return scene;
   });
   /**
@@ -428,8 +446,10 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // spec once, is told `null`, and takes the UI path.
   registerJobIpc();
   // §13's module file IO (`module-io.ts`, §5 rule 11). Registered unconditionally for the same
-  // reason: a build whose modules never open a file simply never calls these.
-  registerModuleIpc();
+  // reason: a build whose modules never open a file simply never calls these. `isJob` only silences
+  // the write-revocation channel, whose renderer-side trigger (a module leaving the slot) is a step
+  // a batch run takes between two actions rather than the end of an editing session.
+  registerModuleIpc({ isJob: isJobRun() });
 
   ipcMain.on('tetravox:log', (_event, message: unknown) => {
     console.log(`[tetravox:renderer] ${String(message)}`);
@@ -541,8 +561,10 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     });
     // §5 rule 12: unsaved **module** edits interrupt a close. Inert for a `--job` window, which has
     // nobody to answer the box and would hang until the watchdog, and inert under
-    // `TETRAVOX_E2E_DISCARD=1`, which is how a windowless e2e closes a window it made dirty.
-    installCloseGuard(mainWindow, { isJob: isJobRun() });
+    // `TETRAVOX_E2E_DISCARD=1`, which is how a windowless e2e closes a window it made dirty — but
+    // only in a build that runs tests: `app.isPackaged` closes that seam, so ambient environment
+    // cannot switch off a shipped build's only unsaved-work guard (2026-08-30).
+    installCloseGuard(mainWindow, { isJob: isJobRun(), packaged: app.isPackaged });
 
     if (isJobRun() && mainWindow !== null) {
       // A job that never reports is a job that hung: without these two the process would sit alive

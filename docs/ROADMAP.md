@@ -113,6 +113,13 @@ macOS, with the packaging matrix carried in the workflow.
 - **Stage 2, the runtime-loaded tier** (§13.8): a module Worker, a JSON-only host bridge, permissions with
   reasons, a Restricted Mode, a single-file library build and a security review. 8–9 days and a different
   threat model; the import wall exists so that day is a port, not a rewrite.
+- **Tighten `allowPath` itself** (§5 rules 9–11). `tetravox:allow-path` admits *any* existing absolute path
+  the renderer names, with no gesture, and every other admission in the app sits on top of it. Both write
+  lists are therefore only as strong as the renderer: the scene carve-out is now minted where main hands the
+  path over, and a module's admissions are revoked when its editing session ends (2026-08-30), but each of
+  those scopes an *accident* — a compromised renderer simply never sends the revocation. The real fix is an
+  `allowPath` that admits only what a gesture, a sidecar rule or an opened dataset's own directory justifies.
+  It is a change to the oldest security surface in the app, and it is wanted before §13.8's stage 2.
 - An **engine command stack**, so undo is the engine's rather than each module keeping snapshots.
 - A **Compute panel**: a module that shells out to an external tool with a streamed log. It needs the first
   async subprocess in main, argv validated token by token, a scrubbed environment and a notarisation check.

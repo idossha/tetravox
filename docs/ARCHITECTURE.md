@@ -1011,13 +1011,22 @@ Rules:
    The worker also fetches sidecars, which are derived sibling paths and not user-named, so `allowPath` on a
    dataset must admit that dataset's sidecars at the same time. The document's CSP carries
    `connect-src 'self' tetravox:` because `tetravox://file` is a *different host* from `tetravox://app`.
-10. **Writing is a second, narrower allow-list, and reading admits exactly one thing to it.** Scene writes go
+10. **Writing is a second, narrower allow-list, and only main puts anything on it.** Scene writes go
     to `scene-io.ts`'s `writable` set, which the Save sheet fills. The single carve-out from "being able to
-    read `T1.nii.gz` must never imply being able to overwrite it" is the app's own scene format: a
-    **successful `readSceneFile` of a `*.tetravox.json`** admits that path for writing, because opening a
-    scene *is* naming the file ⌘S will save over. It is one compound extension, it needs a path the user
-    already named through the Open sheet, a drop, argv or `open-file`, and it is matched on the whole suffix
-    (`isScenePath`), so §7.6's `_LUT.json` is not a scene and gains nothing. Nothing else widens that list.
+    read `T1.nii.gz` must never imply being able to overwrite it" is the app's own scene format: **main
+    handing the renderer a `*.tetravox.json` to open** admits that path for writing
+    (`scene-io.ts#allowOpenedScene`), because opening a scene *is* naming the file ⌘S will save over. It is
+    one compound extension, matched on the whole suffix (`isScenePath`), so §7.6's `_LUT.json` is not a scene
+    and gains nothing. Nothing else widens that list.
+
+    **It is minted at the five delivery points, never by a read.** `showOpenSceneDialog`'s result;
+    `menu.ts#sendOpenScene`, which is the scene half of the `tetravox:opened` routing (argv, `open-file`, a
+    second instance, File ▸ Open Recent, Sample Data); the `tetravox:startup-scene` drain; and
+    `tetravox:dropped-path`, which **preload** sends from `getDroppedFilePath` — `webUtils.getPathForFile`
+    answers only for a `File` the user really dragged, so that path is a gesture main can trust and renderer
+    script cannot manufacture one. `readSceneFile` admits **nothing** (2026-08-30): `tetravox:allow-path`
+    takes any existing absolute path with no gesture, so a write derived from a read was a write the renderer
+    could mint for any scene file on the disk — read it, then overwrite it, with no dialog anywhere.
 11. **Module file IO is four channels, and a module-scoped write list** (`main/module-io.ts`, registered from
     main like `registerJobIpc()`; §13). Small text only, paths in both directions, and each one narrower than
     a door that is already open:
@@ -1045,6 +1054,17 @@ Rules:
     for an anchor path and probes each candidate with `bridge().allowPath` — the `open/sources.ts#firstAllowed`
     precedent, where `allowPath` returning null *is* the existence check. A main-side resolver would add no
     admission-policy gain over that status quo, and no listing or glob IPC exists or is wanted.
+
+    **An admission belongs to the editing session that earned it, not to the process** (2026-08-30). A fifth
+    channel, `tetravox:module-clear-writes`, drops one module's whole list; the renderer sends it from
+    `deactivateModule`, which is also where the module's own `savePath` dies, so the next save shows a sheet
+    anyway. Main drops **every** module's list where it replaces the document itself — `sendOpenScene` and
+    `sendSceneCommand('new'|'open')`. Without this, saving subject A's `electrodes.tsv` left A's table and
+    the `<anchor>.<stamp>.bak` *shape* beside it writable for the rest of the session, including after the
+    user moved to subject B. It is inert for a `--job` run, whose `out` admissions come from the envelope
+    before there is a window and whose actions activate modules in whatever order they are listed. This
+    scopes **accidents**: a compromised renderer simply never sends it, and the durable answer is a narrower
+    `allowPath` (`docs/ROADMAP.md`).
 12. **Unsaved module edits interrupt a window close.** The renderer pushes `tetravox:set-document-edited`
     (from a module's `ui.setDirty`, never from `sceneDirty`, which any cursor click sets); main calls
     `win.setDocumentEdited` with it and keeps the flag per window. A `BrowserWindow 'close'` on a window
@@ -1053,7 +1073,10 @@ Rules:
     Save button here would be a second write path driven from main. Discard clears the flag and destroys the
     window; Cancel leaves it open. The handler is **not installed on a `--job` window** — a batch render has
     nobody to answer a box and would hang to the watchdog — and it is inert under `TETRAVOX_E2E_DISCARD=1`,
-    which is how a windowless e2e tears down a window it deliberately made dirty (AGENTS rule 8).
+    which is how a windowless e2e tears down a window it deliberately made dirty (AGENTS rule 8). That seam
+    is honoured **only when `app.isPackaged` is false** (2026-08-30): it is ambient environment, and a
+    dotfile or a launcher exporting it must not be able to switch off a shipped build's only guard on
+    unsaved edits. `installCloseGuard` takes `packaged` from main, so `shouldPromptOnClose` stays pure.
 
 ---
 
@@ -2905,9 +2928,14 @@ implementation change and teach everyone to ignore the job. Item 6 — `modules/
 enforced by path from the day it was frozen (2026-08-30), for the reason the four before it are: for
 a file that *is* the interface, "the file changed" and "the interface changed" are the same event.
 Second, **§13.1**: every module
-manifest's `docs` heading must exist as a `## ` section in `docs/USER_GUIDE.md` **and** in
-`website/scripts/sync.mjs`'s `GUIDE_PAGES`, because the website's splitter throws on a section it
-has no page for — a late, confusing failure this turns into an early, specific one.
+manifest's `docs` heading must exist as a `## ` section in `docs/USER_GUIDE.md`, in
+`website/scripts/sync.mjs`'s `GUIDE_PAGES`, **and** as a `/guide/<slug>` entry in
+`website/.vitepress/config.ts`'s sidebar. The first two because the website's splitter throws on a
+section it has no page for — a late, confusing failure this turns into an early, specific one. The
+third because nothing else can check it: the sidebar is hand-written, `sync.mjs` neither generates
+nor validates it, and `ignoreDeadLinks: false` only catches a sidebar entry with no page, never a
+page with no sidebar entry — which builds cleanly and ships linked from nothing. §13.7 item 3 has
+always required all three; since 2026-08-30 the job enforces all three.
 
 It is a **separate job** rather than a step of `test` because `actions/checkout@v5` fetches one
 commit by default and a merge-base diff needs the history, and because "you changed a frozen

@@ -106,6 +106,10 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
   });
 
   test.afterAll(async () => {
+    // Clear the module-edited flag before closing rather than leaning on `TETRAVOX_E2E_DISCARD`:
+    // since 2026-08-30 a **packaged** build ignores that seam on purpose (§5 rule 12), and a
+    // teardown that depended on it would hang this leg on an OS-modal box nobody can answer.
+    await page?.evaluate(() => window.tetravox.setDocumentEdited(false)).catch(() => {});
     await app?.close();
   });
 

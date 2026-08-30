@@ -2284,6 +2284,11 @@ export class ShellController {
       session.instance.dispose();
     } finally {
       disposeModuleHost(session.host);
+      // §5 rule 11 (2026-08-30): the Save sheet's admissions belong to the editing session, not to
+      // the process. The instance's own `savePath` has just died with it, so the next save shows a
+      // sheet anyway — main should not still be holding the last subject's paths open in the
+      // meantime. `?.` because a stand-in bridge need not carry the member.
+      bridge().moduleClearWrites?.(session.manifest.id);
       this.store.setState({ activeModule: null });
     }
   }

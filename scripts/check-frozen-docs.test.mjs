@@ -20,13 +20,18 @@ import {
   docsHeadingViolations,
   frozenViolations,
   guideHeadings,
+  guidePageEntries,
   guidePages,
   main,
   manifestDocs,
   readManifests,
+  sidebarSlugs,
 } from './check-frozen-docs.mjs';
 
 const FROZEN = FROZEN_PATHS[0];
+/** A sidebar fixture with one `/guide/<slug>` link per slug, shaped like the real config's. */
+const sidebarFor = (...slugs) =>
+  `items: [\n${slugs.map((s) => `  { text: 'X', link: '/guide/${s}' },`).join('\n')}\n]`;
 
 test('a change that touches no frozen path is fine on its own', () => {
   deepStrictEqual(frozenViolations(['packages/app/src/renderer/src/ui/Shell.tsx']), []);
@@ -84,6 +89,25 @@ test('the guide’s headings and the website’s page map are both parsed', () =
     ),
     ['One', 'Two']
   );
+  deepStrictEqual(
+    guidePageEntries(
+      "const GUIDE_PAGES = [\n { heading: 'One', slug: 'one' },\n { heading: 'Two', slug: 't' },\n];"
+    ),
+    [
+      { heading: 'One', slug: 'one' },
+      { heading: 'Two', slug: 't' },
+    ]
+  );
+});
+
+test('the site sidebar’s guide links are parsed, and only those', () => {
+  deepStrictEqual(
+    sidebarSlugs(
+      "items: [{ text: 'Home', link: '/' }, { text: 'M', link: '/guide/modules' }," +
+        " { text: 'S', link: \"/guide/seeg-contacts\" }, { text: 'I', link: '/install' }]"
+    ),
+    ['modules', 'seeg-contacts']
+  );
 });
 
 test('a manifest naming a heading nobody wrote fails', () => {
@@ -91,6 +115,7 @@ test('a manifest naming a heading nobody wrote fails', () => {
     manifests: [{ file: 'm/manifest.ts', docs: 'Ghosts' }],
     guide: '## Modules\n',
     sync: "{ heading: 'Modules', slug: 'modules' },",
+    sidebar: sidebarFor('modules'),
   });
   strictEqual(issues.length, 2);
   ok(issues[0].includes('USER_GUIDE.md'));
@@ -104,9 +129,47 @@ test('a heading the website would drop fails on its own', () => {
     manifests: [{ file: 'm/manifest.ts', docs: 'Modules' }],
     guide: '## Modules\n',
     sync: "{ heading: 'Scenes', slug: 'scenes' },",
+    sidebar: sidebarFor('scenes'),
   });
   strictEqual(issues.length, 1);
   ok(issues[0].includes('GUIDE_PAGES'));
+});
+
+test('a page the sidebar does not link to fails (§13.7 item 3)', () => {
+  // The regression this exists for: guide section written, `GUIDE_PAGES` entry added, sidebar
+  // forgotten. `sync.mjs` writes `website/src/guide/modules.md`, VitePress builds it happily, and
+  // the page ships with nothing linking to it — `ignoreDeadLinks` only catches the other direction.
+  const issues = docsHeadingViolations({
+    manifests: [{ file: 'm/manifest.ts', docs: 'Modules' }],
+    guide: '## Modules\n',
+    sync: "{ heading: 'Modules', slug: 'modules' },",
+    sidebar: sidebarFor('scenes'),
+  });
+  strictEqual(issues.length, 1);
+  ok(issues[0].includes('/guide/modules'));
+  ok(issues[0].includes('.vitepress/config.ts'));
+
+  // …and the same three, consistent, is silent.
+  deepStrictEqual(
+    docsHeadingViolations({
+      manifests: [{ file: 'm/manifest.ts', docs: 'Modules' }],
+      guide: '## Modules\n',
+      sync: "{ heading: 'Modules', slug: 'modules' },",
+      sidebar: sidebarFor('scenes', 'modules'),
+    }),
+    []
+  );
+});
+
+test('an omitted sidebar is a failure, not a skipped check', () => {
+  // A caller that forgets the third file must not silently disable the rule — that *was* the bug.
+  const issues = docsHeadingViolations({
+    manifests: [{ file: 'm/manifest.ts', docs: 'Modules' }],
+    guide: '## Modules\n',
+    sync: "{ heading: 'Modules', slug: 'modules' },",
+  });
+  strictEqual(issues.length, 1);
+  ok(issues[0].includes('config.ts'));
 });
 
 test('a manifest with no `docs` at all fails', () => {
@@ -114,6 +177,7 @@ test('a manifest with no `docs` at all fails', () => {
     manifests: [{ file: 'm/manifest.ts', docs: null }],
     guide: '## Modules\n',
     sync: "{ heading: 'Modules', slug: 'modules' },",
+    sidebar: sidebarFor('modules'),
   });
   strictEqual(issues.length, 1);
   ok(issues[0].includes('must name'));

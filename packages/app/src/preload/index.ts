@@ -46,7 +46,14 @@ export interface SurfaceSpacesReply {
 export interface TetravoxBridge {
   /** File ▸ Open… / ⌘O. Returns paths, never bytes. */
   openDialog(): Promise<OpenedPath[]>;
-  /** The absolute path behind a dropped `File`, or `''` when it has none (§8 fallback). */
+  /**
+   * The absolute path behind a dropped `File`, or `''` when it has none (§8 fallback).
+   *
+   * Also tells main *that a file was dropped*, which is the one drop signal main has (§5 rule 10,
+   * 2026-08-30): `webUtils.getPathForFile` runs in preload and answers only for a `File` the user
+   * really handed the page, so a path that comes out of here was named by a gesture. Main uses it
+   * to admit a dropped `*.tetravox.json` for writing, and ignores everything else.
+   */
   getDroppedFilePath(file: File): string;
   /** Add a dropped path to the `tetravox://file/…` allow-list; returns its fetchable URL. */
   allowPath(path: string): Promise<OpenedPath | null>;
@@ -201,6 +208,18 @@ export interface TetravoxBridge {
    * `send`, not `invoke`: it is a fact about the window, and nothing waits on the answer.
    */
   setDocumentEdited(edited: boolean): void;
+  /**
+   * Give this module's write admissions back (§5 rule 11, 2026-08-30).
+   *
+   * Sent when a module leaves the slot: its `savePath` dies with the instance, so nothing
+   * legitimate can write to those paths again without a new Save sheet, and an admission that
+   * outlives its editing session is a live capability against whatever subject the user has since
+   * moved on to. `send`, not `invoke` — dropping a capability cannot fail.
+   *
+   * Optional so that a `TetravoxBridge` written before this member (a test's stand-in, an older
+   * preload beside a newer renderer) is still one; the renderer calls it with `?.`.
+   */
+  moduleClearWrites?(moduleId: string): void;
 }
 
 /** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
@@ -352,7 +371,13 @@ export type ModuleWriteResult =
 
 const bridge: TetravoxBridge = {
   openDialog: () => ipcRenderer.invoke('tetravox:open-dialog'),
-  getDroppedFilePath: (file) => webUtils.getPathForFile(file),
+  getDroppedFilePath: (file) => {
+    const path = webUtils.getPathForFile(file);
+    // The drop gesture, reported to main. Only preload can produce this path, so this send is the
+    // one thing renderer script cannot forge for a path of its choosing (§5 rule 10).
+    if (path !== '') ipcRenderer.send('tetravox:dropped-path', path);
+    return path;
+  },
   allowPath: (path) => ipcRenderer.invoke('tetravox:allow-path', path),
   startupPaths: () => ipcRenderer.invoke('tetravox:startup-paths'),
   subjectSpaces: (path, explicitDir) =>
@@ -425,6 +450,7 @@ const bridge: TetravoxBridge = {
   moduleWriteText: (moduleId, path, text, opts) =>
     ipcRenderer.invoke('tetravox:module-write-text', moduleId, path, text, opts),
   setDocumentEdited: (edited) => ipcRenderer.send('tetravox:set-document-edited', edited),
+  moduleClearWrites: (moduleId) => ipcRenderer.send('tetravox:module-clear-writes', moduleId),
 };
 
 contextBridge.exposeInMainWorld('tetravox', bridge);
