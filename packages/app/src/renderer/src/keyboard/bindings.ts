@@ -23,6 +23,9 @@
 
 import type { Command } from './keymap';
 import { PRESET_KEYS, resolveKey } from './keymap';
+// Modules (2026-08-30, §13.5). Appended per the shared-file rule.
+import type { ModuleManifest } from '../../../modules/manifest-types';
+import { moduleChordLabel } from '../modules/keys';
 
 export interface KeyBinding {
   /** What the user presses, e.g. `⌃↑` or `[`. */
@@ -236,4 +239,44 @@ export function keyBindings(): KeyBinding[] {
 /** Every command kind the sheet accounts for; `bindings.test.ts` checks it against `keymap.ts`. */
 export function coveredCommandKinds(): Set<Command['kind']> {
   return new Set(keyBindings().map((b) => b.kind));
+}
+
+// -- Modules (2026-08-30, §13.5) -----------------------------------------------------------------
+
+/**
+ * One row of the help sheet's **Modules** tab.
+ *
+ * A second row source rather than a second `CANDIDATES` table, and it carries no `Command['kind']`
+ * — exactly like {@link POINTER_GESTURES} — because a module's command is not a `Command` and
+ * `bindings.test.ts`'s coverage assertion must not mistake one for the other. `keyBindings()` is
+ * unchanged, so that test keeps meaning what it meant.
+ *
+ * These rows are **live only while their module is active**, which is why they are generated from a
+ * manifest handed in rather than from a registry read here: the sheet shows what is bound *now*.
+ */
+export interface ModuleKeyRow {
+  chord: string;
+  description: string;
+  /** Set when the binding needs a selection or an armed tool, so the sheet can say so. */
+  when?: 'toolArmed' | 'selection';
+}
+
+const WHEN_NOTE: Record<'toolArmed' | 'selection', string> = {
+  selection: ' — with a contact selected',
+  toolArmed: ' — while the tool is armed',
+};
+
+/** The active module's chords, in manifest order. Empty for a module that binds no key. */
+export function moduleKeyRows(manifest: ModuleManifest | null): ModuleKeyRow[] {
+  if (manifest === null) return [];
+  const rows: ModuleKeyRow[] = [];
+  for (const command of manifest.commands) {
+    if (command.key === undefined) continue;
+    rows.push({
+      chord: moduleChordLabel(command),
+      description: `${command.title}${command.when === undefined ? '' : WHEN_NOTE[command.when]}`,
+      ...(command.when === undefined ? {} : { when: command.when }),
+    });
+  }
+  return rows;
 }
