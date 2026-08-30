@@ -188,6 +188,12 @@ export class PointerLayer {
     for (const off of this.#off) off();
     this.#off.length = 0;
     this.#machine.reset();
+    // §13: the canvas belongs to the embedder, and an engine destroyed while the point tool was
+    // armed must not leave a `grab` cursor on it for ever.
+    if (this.#cursor !== '') {
+      this.#canvas.style.cursor = this.#cursorWas ?? '';
+      this.#cursor = '';
+    }
   }
 
   #on(target: EventTarget, type: string, fn: EventListener, opts?: AddEventListenerOptions): void {
