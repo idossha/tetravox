@@ -891,6 +891,13 @@ Rules:
    The worker also fetches sidecars, which are derived sibling paths and not user-named, so `allowPath` on a
    dataset must admit that dataset's sidecars at the same time. The document's CSP carries
    `connect-src 'self' tetravox:` because `tetravox://file` is a *different host* from `tetravox://app`.
+10. **Writing is a second, narrower allow-list, and reading admits exactly one thing to it.** Scene writes go
+    to `scene-io.ts`'s `writable` set, which the Save sheet fills. The single carve-out from "being able to
+    read `T1.nii.gz` must never imply being able to overwrite it" is the app's own scene format: a
+    **successful `readSceneFile` of a `*.tetravox.json`** admits that path for writing, because opening a
+    scene *is* naming the file ⌘S will save over. It is one compound extension, it needs a path the user
+    already named through the Open sheet, a drop, argv or `open-file`, and it is matched on the whole suffix
+    (`isScenePath`), so §7.6's `_LUT.json` is not a scene and gains nothing. Nothing else widens that list.
 
 ---
 

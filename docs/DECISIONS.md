@@ -3203,3 +3203,27 @@ for. Multiplying keeps the ghost-shell case (`iso3d.opacity < 1`) and makes the 
 surfaces as it governs the slices. The default `iso3d.opacity` is 1, so every scene saved before
 this renders the same unless its slider was below 1 — in which case it now renders as the user
 expected when they dragged it. Additive: no `ViewSpec` field changes.
+
+## 2026-08-30 — an opened scene is admitted for writing, so ⌘S saves it
+
+**Decision.** A successful `readSceneFile` of a path whose whole compound suffix is `.tetravox.json`
+adds that path to `scene-io.ts`'s `writable` set. One line, and it carves a hole in A-SHELL decision 1
+(2026-08-27) that is worth naming: "being able to read `T1.nii.gz` must never imply being able to
+overwrite it" still stands for every other file, and this is the one exception.
+
+**Why it is not the general case.** The rejected primitive was `readTextFile`/`writeTextFile` over
+anything on the read allow-list. This admits **one compound extension** — the app's own scene format,
+matched by `isScenePath` on the whole suffix, so §7.6's `hot_LUT.json` is not a scene — and only after
+a read of a path the user had already named through the Open sheet, a drop, argv or `open-file`.
+Opening `study.tetravox.json` *is* naming the file ⌘S will save over: the write it enables is the one
+write the user just asked to be able to make.
+
+**The bug it fixes.** `ShellController.saveScene` writes to `sceneFile.path` when one is attached, and
+`openScenePath` attaches it after `allowPath` + `readSceneFile` — but only `showSaveSceneDialog` ever
+called `allowWrite`, so ⌘S on an opened scene came back "not on the write list" and the scene silently
+stayed on disk as it was. Save As… worked, which is what hid it: the second save of a session was
+fine, and the first was refused. `e2e/scene-save-opened.spec.ts` opens a saved scene in a fresh window,
+edits it, saves with the File menu's Save Scene item, and reads the change back off disk.
+
+**Scope.** `writeSceneFile` is unchanged: still the exact-path check, still the 8 MiB cap, still
+`allowPath` on the way out. Nothing admits a directory, a pattern or a second extension.
