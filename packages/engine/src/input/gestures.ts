@@ -29,7 +29,16 @@ export type GestureKind =
   /** 3D right/middle-drag: pan the 3D camera target. */
   | 'pan3d'
   /** 3D left-drag that started on a cut-plane gizmo handle: manipulate the plane (§7.5). */
-  | 'gizmo';
+  | 'gizmo'
+  /**
+   * 2D left-drag that started **on a point** while §13's point tool is armed in `select` mode:
+   * the point follows the pointer (2026-08-30).
+   *
+   * Appended, never inserted: the union is read by `pointer.ts`'s dispatch switch and by
+   * `render/passes`, and a kind that changed position in the list would change nothing at all —
+   * which is exactly why this note is here rather than in a commit message.
+   */
+  | 'point';
 
 export interface Modifiers {
   shift: boolean;
@@ -49,6 +58,22 @@ export const NO_MODIFIERS: Modifiers = {
 };
 
 /**
+ * What the press landed **on**, as far as the pointer layer could tell before resolving anything.
+ *
+ * An options bag rather than a growing tail of positional booleans (2026-08-30): `overGizmo` was
+ * the fourth argument and `overPoint` would have been the fifth, at which point every call site is
+ * a row of bare `true`/`false` whose meaning is in this file rather than at the call. A plain
+ * `boolean` is still accepted in that position and means `{ overGizmo }`, so nothing that predates
+ * §13 changes.
+ */
+export interface GestureTargets {
+  /** §7.5's cut-plane gizmo handle is under the press (3D panes only). */
+  overGizmo?: boolean;
+  /** §13's point tool is armed in `select` mode and a point is under the press (2D panes only). */
+  overPoint?: boolean;
+}
+
+/**
  * Which gesture a press starts, from the button, the modifiers and the pane kind.
  *
  * §7.5, and R3 for the emphasis: *left-drag never pans*. Pan is middle-drag, `space`+left-drag or a
@@ -62,8 +87,9 @@ export function resolveGesture(
   button: number,
   mods: Modifiers,
   is3D: boolean,
-  overGizmo = false
+  targets: GestureTargets | boolean = false
 ): GestureKind | null {
+  const over = typeof targets === 'boolean' ? { overGizmo: targets } : targets;
   // A platform modifier on the primary button is a menu accelerator or, on macOS, the OS's own
   // right-click emulation — which Chromium has already turned into `button === 2` by the time it
   // gets here. Either way it is not a drag.
@@ -72,11 +98,17 @@ export function resolveGesture(
   if (is3D) {
     // §7.5's gizmo takes precedence over the orbit it would otherwise start: a handle the user can
     // see and aim at has to be grabbable, and the orbit is available everywhere else in the pane.
-    if (button === 0 && overGizmo) return 'gizmo';
+    if (button === 0 && over.overGizmo === true) return 'gizmo';
     if (button === 0) return 'orbit';
     if (button === 1 || button === 2) return 'pan3d';
     return null;
   }
+  // §13's point tool (2026-08-30), in the **2D** branch and only here: the 3D pane has no point
+  // drag in v1. It sits after the ctrl/meta and `Shift` branches above, so a platform-modified
+  // click is still not a drag and `Shift`+drag over a contact is still the layer's opacity, and
+  // before the `space` test below rather than inside it, so `space`+drag over a contact still pans
+  // the pane. Those three are §7.5's, and a new tool does not get to quietly take them.
+  if (button === 0 && !mods.space && over.overPoint === true) return 'point';
   if (button === 0) return mods.space ? 'pan' : 'cursor';
   if (button === 1) return 'pan';
   if (button === 2) return 'windowLevel';
@@ -147,12 +179,16 @@ export class GestureMachine {
     return this.#viewId;
   }
 
+  /**
+   * A pointer went down. `targets` says what it landed on — see {@link GestureTargets}; a bare
+   * `boolean` there is the pre-2026-08-30 spelling of `{ overGizmo }`.
+   */
   down(
     pointerId: number,
     button: number,
     at: PanePoint,
     mods: Modifiers,
-    overGizmo = false
+    targets: GestureTargets | boolean = false
   ): GestureEvent[] {
     const out: GestureEvent[] = [];
     this.#down.set(pointerId, { x: at.x, y: at.y });
@@ -170,7 +206,7 @@ export class GestureMachine {
       return out;
     }
 
-    const kind = resolveGesture(button, mods, at.is3D, overGizmo);
+    const kind = resolveGesture(button, mods, at.is3D, targets);
     if (kind === null) return out;
     this.#kind = kind;
     this.#viewId = at.viewId;

@@ -16,6 +16,9 @@
 
 export { GestureMachine, resolveGesture, NO_MODIFIERS } from './gestures';
 export type { GestureEvent, GestureKind, Modifiers, PanePoint } from './gestures';
+// §13's point tool (2026-08-30): what a press landed on, as an options bag rather than a fifth
+// positional boolean.
+export type { GestureTargets } from './gestures';
 export {
   clampMmPerPx,
   dolly,
