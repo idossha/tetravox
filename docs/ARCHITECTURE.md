@@ -3152,6 +3152,22 @@ so they are allow-listed like every other job input. `job-result.json` gains `mo
 `JOB_SCHEMA_VERSION` does not move, because an unknown action type was already rejected and a job file that
 does not use one is unaffected.
 
+**The manifest is the schema, and two of its types are about files rather than values.** `number`, `string`
+and `boolean` (each with an optional `?` form) and `vec3?` are checked exactly as the same shapes are checked
+anywhere else in the document. A **`path`** (or `path?`) is an *input*: `${VAR}` is expanded, a relative one
+resolves against the job file's directory, main allow-lists it before the window opens, and the module is
+handed the resolved path — the treatment `scene.files` have had since the first job ran, for the reason §5
+directive A2 gives, which is that the job file naming a path *is* the user naming it. An **`out`** is a name
+under `--out`, held to the same rule every other output name is, and admitted — with that module's declared
+writer siblings (§5 rule 11) — to its module-scoped write list, because a batch run has no Save sheet to open
+one with; the module is handed the resolved path there too, so an operation that saves is written once and
+does the same thing from a panel and from a job. An `out` can therefore never name the file the job read: it
+is under `--out` and nowhere else, so a first save there mints no `.bak` because there is nothing to back up.
+
+`runOperation`'s return value — a plain JSON object, the module's own report — is recorded as that action's
+`result` in `job-result.json`. Without it a `stats` operation could not exist: a job that can only write files
+cannot answer a question.
+
 **Every panel action is also an operation.** That is what keeps §8's "there is no automation-only code path"
 literally true for modules: `ModuleInstance.runCommand` is what a button and a key call, `runOperation` is
 what a job calls, and a module that let them diverge would be shipping two products.

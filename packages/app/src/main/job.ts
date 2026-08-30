@@ -14,6 +14,12 @@
  * {@link JOB_SCHEMA_VERSION} is bumped when a required field appears or a default changes.
  */
 
+// §13.1's data-only manifest barrel — main-safe by construction (no DOM type, no `node:` import, no
+// engine), which is exactly what lets a `type: "module"` action be validated **before a window
+// exists** (§13.6) and reported alongside every other problem in the document.
+import { MANIFESTS } from '../modules/manifests';
+import type { ArgShape, ArgType, ModuleManifest } from '../modules/manifest-types';
+
 export const JOB_SCHEMA_VERSION = 1;
 
 // ------------------------------------------------------------------------------------------------
@@ -326,8 +332,41 @@ export interface SaveSceneAction {
   out: string;
 }
 
+/**
+ * **The module envelope — one action type, forever** (§13.6).
+ *
+ * ```json
+ * { "type": "module", "module": "tetravox.seeg", "op": "snap", "args": { "scope": "all" } }
+ * ```
+ *
+ * A second module must not be a second `case` here and a second branch in `automation/run.ts`: the
+ * two closed switches are the whole cost of the automation surface, and a module that wanted its own
+ * action type would be paying it again for every module after it. So `module` and `op` are looked up
+ * in {@link MANIFESTS} and `args` is checked against the operation's own {@link ArgShape} — the
+ * manifest is the schema, and the validator is written once.
+ *
+ * **Unknown `args` keys are rejected**, unlike a `set`'s `patch` (which is a `Partial<Layer>` the
+ * engine merges and cannot enumerate). An operation declares every argument it takes, so a key it
+ * did not declare is a typo, and a typo that is silently dropped is a job that appears to have run.
+ */
+export interface ModuleAction {
+  type: 'module';
+  /** A module id in `MANIFESTS`, `<vendor>.<name>`. */
+  module: string;
+  /** One of that module's declared `operations`. */
+  op: string;
+  /** Checked against the operation's `ArgShape`; absent is the same as `{}`. */
+  args?: Record<string, unknown>;
+}
+
 export type JobAction =
-  SetAction | ScreenshotAction | SweepAction | OrbitAction | TweenAction | SaveSceneAction;
+  | SetAction
+  | ScreenshotAction
+  | SweepAction
+  | OrbitAction
+  | TweenAction
+  | SaveSceneAction
+  | ModuleAction;
 
 export interface Job {
   /** Optional; validated against {@link JOB_SCHEMA_VERSION} when present. */
@@ -358,6 +397,15 @@ export interface JobOutput {
   /** Paths relative to `--out`, in the order they were written. */
   files: string[];
   ms: number;
+  /** `type: "module"` only: which module ran, and which operation (§13.6). */
+  module?: string;
+  op?: string;
+  /**
+   * `type: "module"` only: whatever `ModuleInstance.runOperation` returned — a plain JSON object,
+   * the module's own report (`{ moved, meanShiftMm }`). It is the reason a `stats` operation is
+   * worth running at all: a job that could only write files could not answer a question.
+   */
+  result?: Record<string, unknown> | null;
 }
 
 export interface JobResult {
@@ -366,6 +414,17 @@ export interface JobResult {
   job: string;
   outDir: string;
   outputs: JobOutput[];
+  /**
+   * The modules this job ran an operation on, with the version that ran it (§13.6) — **present only
+   * when it ran one**, so a job that uses no module produces exactly the result file it produced
+   * before the envelope existed.
+   *
+   * It is main's answer rather than the renderer's: main validated the actions against `MANIFESTS`
+   * before the window was created, so it already knows every module the run depends on, and a
+   * result file naming the version that produced it is what makes a figure re-derivable a year
+   * later.
+   */
+  modules?: { id: string; version: string }[];
   timings: { totalMs: number; loadMs: number; actionsMs: number };
   warnings: string[];
   errors: string[];
@@ -454,6 +513,25 @@ type Bag = Record<string, unknown>;
 function isBag(value: unknown): value is Bag {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
+
+/**
+ * How each {@link ArgType} is named to the person who typed the job.
+ *
+ * "is required (a finite number)" says what to write; "is required (number)" restates the schema at
+ * someone who does not have it open.
+ */
+const ARG_PHRASES: Record<ArgType, string> = {
+  number: 'a finite number',
+  'number?': 'a finite number',
+  string: 'a string',
+  'string?': 'a string',
+  boolean: 'true or false',
+  'boolean?': 'true or false',
+  'vec3?': 'three finite numbers [x, y, z] in world RAS mm',
+  path: 'a path',
+  'path?': 'a path',
+  out: 'a file name under --out',
+};
 
 class Errors {
   readonly list: string[] = [];
@@ -628,6 +706,62 @@ class Errors {
       }
     }
   }
+  /**
+   * A module operation's `args`, against the {@link ArgShape} its manifest declares (§13.6).
+   *
+   * Every argument is checked with the same helpers the rest of the schema uses, so a module's
+   * arguments are told what a `set`'s are told, in the same words. Two rules are specific to this
+   * type and both are deliberate: an **unknown key is an error** (an operation declares everything
+   * it takes, so an undeclared key is a typo, and a silently dropped typo is a job that appears to
+   * have run), and a **missing required argument is named with what it should have been**.
+   */
+  args(path: string, value: Bag, shape: ArgShape): void {
+    const declared = Object.keys(shape);
+    for (const key of Object.keys(value)) {
+      if (!Object.hasOwn(shape, key)) {
+        this.push(
+          `${path}.${key}`,
+          `unknown argument (this operation takes ${declared.length === 0 ? 'none' : declared.join(', ')})`
+        );
+      }
+    }
+    for (const [key, type] of Object.entries(shape)) {
+      const at = `${path}.${key}`;
+      const given = value[key];
+      if (given === undefined) {
+        if (!type.endsWith('?')) this.push(at, `is required (${ARG_PHRASES[type]})`);
+        continue;
+      }
+      switch (type) {
+        case 'number':
+        case 'number?':
+          this.number(at, given);
+          break;
+        case 'string':
+        case 'string?':
+          if (typeof given !== 'string') this.push(at, 'must be a string');
+          break;
+        case 'boolean':
+        case 'boolean?':
+          this.boolean(at, given);
+          break;
+        case 'vec3?':
+          this.numbers(at, given, 3, 'three finite numbers [x, y, z] in world RAS mm');
+          break;
+        case 'path':
+        case 'path?':
+          // The same shape a `scene.files` entry has, and admitted the same way: `jobInputPaths`
+          // collects it, `${VAR}` is expanded, and main allow-lists it before the window opens.
+          if (typeof given !== 'string' || given === '') {
+            this.push(at, 'must be a path (absolute, relative to the job file, or ${VAR})');
+          }
+          break;
+        case 'out':
+          this.outName(at, given);
+          break;
+      }
+    }
+  }
   /** A non-empty output name that cannot climb out of `--out`. */
   outName(path: string, value: unknown): void {
     if (typeof value !== 'string' || value === '') {
@@ -674,7 +808,12 @@ function validateScene(scene: unknown, errors: Errors): void {
   errors.enum('scene.preset', scene['preset'], PRESETS);
 }
 
-function validateAction(action: unknown, path: string, errors: Errors): void {
+function validateAction(
+  action: unknown,
+  path: string,
+  errors: Errors,
+  manifests: readonly ModuleManifest[]
+): void {
   if (!isBag(action)) {
     errors.push(path, 'must be an object');
     return;
@@ -836,10 +975,51 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
       errors.outName(`${path}.out`, action['out']);
       return;
     }
+    case 'module': {
+      // The envelope's own keys first: `args` is the only bag whose contents a manifest describes,
+      // so a stray key at *this* level (`arguments`, `params`) has to be caught here or it would be
+      // read as an argument no operation declares.
+      const known = ['type', 'module', 'op', 'args'];
+      for (const key of Object.keys(action)) {
+        if (!known.includes(key)) {
+          errors.push(`${path}.${key}`, `unknown key (expected ${known.join(', ')})`);
+        }
+      }
+      const id = action['module'];
+      const manifest = manifests.find((m) => m.id === id) ?? null;
+      if (manifest === null) {
+        errors.push(
+          `${path}.module`,
+          `must be a module this build carries: ${manifests.map((m) => m.id).join(', ')}`
+        );
+        return;
+      }
+      const operations = manifest.operations ?? [];
+      const operation = operations.find((o) => o.id === action['op']);
+      if (operation === undefined) {
+        errors.push(
+          `${path}.op`,
+          operations.length === 0
+            ? `${manifest.id} declares no operations`
+            : `must be one of ${manifest.id}'s operations: ${operations.map((o) => o.id).join(', ')}`
+        );
+        return;
+      }
+      const args = action['args'] ?? {};
+      if (!isBag(args)) {
+        errors.push(
+          `${path}.args`,
+          `must be an object of ${manifest.id}/${operation.id} arguments`
+        );
+        return;
+      }
+      errors.args(`${path}.args`, args, operation.args);
+      return;
+    }
     default:
       errors.push(
         `${path}.type`,
-        'must be one of set, screenshot, sweep, orbit, tween, save-scene'
+        'must be one of set, screenshot, sweep, orbit, tween, save-scene, module'
       );
   }
 }
@@ -850,7 +1030,10 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
  * Every problem is reported, not just the first: a job is typed by hand or generated by the Python
  * client, and a validator that stops at the first bad key turns one round of fixing into four.
  */
-export function validateJob(input: unknown): ValidationResult {
+export function validateJob(
+  input: unknown,
+  manifests: readonly ModuleManifest[] = MANIFESTS
+): ValidationResult {
   const errors = new Errors();
   if (!isBag(input)) {
     return { ok: false, errors: ['job: must be a JSON object'] };
@@ -876,7 +1059,9 @@ export function validateJob(input: unknown): ValidationResult {
   if (!Array.isArray(actions) || actions.length === 0) {
     errors.push('actions', 'must be a non-empty array');
   } else {
-    for (const [i, action] of actions.entries()) validateAction(action, `actions[${i}]`, errors);
+    for (const [i, action] of actions.entries()) {
+      validateAction(action, `actions[${i}]`, errors, manifests);
+    }
   }
 
   if (errors.list.length > 0) return { ok: false, errors: errors.list };
@@ -928,7 +1113,139 @@ export function expandEnv(
   return missing.length > 0 ? { ok: false, missing } : { ok: true, path: expanded };
 }
 
-/** Every input path a job names, so main can allow-list them before the renderer asks (§5 A2). */
-export function jobInputPaths(job: Job): string[] {
-  return 'path' in job.scene ? [job.scene.path] : [...job.scene.files];
+// ------------------------------------------------------------------------------------------------
+// Module actions, as the runner needs to see them (§13.6)
+// ------------------------------------------------------------------------------------------------
+
+/** The operation one module action names, or null — for a document that has been validated, never null. */
+function operationOf(
+  action: JobAction,
+  manifests: readonly ModuleManifest[]
+): { manifest: ModuleManifest; args: ArgShape } | null {
+  if (action.type !== 'module') return null;
+  const manifest = manifests.find((m) => m.id === action.module);
+  const operation = manifest?.operations?.find((o) => o.id === action.op);
+  if (manifest === undefined || operation === undefined) return null;
+  return { manifest, args: operation.args };
+}
+
+/**
+ * The `path`-typed argument keys an action actually carries a string for, in the order its manifest
+ * declares them.
+ *
+ * One function for both directions, which is the whole reason it exists: {@link jobInputPaths}
+ * collects the values and {@link withInputPaths} puts the resolved ones back, and the two agree
+ * because they walk the same list rather than each deriving one.
+ */
+function modulePathKeys(action: JobAction, manifests: readonly ModuleManifest[]): string[] {
+  const operation = operationOf(action, manifests);
+  if (operation === null) return [];
+  const args = (action as ModuleAction).args ?? {};
+  return Object.entries(operation.args)
+    .filter(([key, type]) => (type === 'path' || type === 'path?') && typeof args[key] === 'string')
+    .map(([key]) => key);
+}
+
+/**
+ * Every input path a job names, so main can allow-list them before the renderer asks (§5 A2).
+ *
+ * A module's `path` arguments are in here for exactly the reason the scene's files are: the job file
+ * naming a path *is* the user naming it, and a module reading a table it was told to read must not
+ * need a second gesture that a batch run has nobody to make.
+ */
+export function jobInputPaths(
+  job: Job,
+  manifests: readonly ModuleManifest[] = MANIFESTS
+): string[] {
+  const paths = 'path' in job.scene ? [job.scene.path] : [...job.scene.files];
+  for (const action of job.actions) {
+    const args = (action as ModuleAction).args ?? {};
+    for (const key of modulePathKeys(action, manifests)) paths.push(String(args[key]));
+  }
+  return paths;
+}
+
+/**
+ * The same job with every {@link jobInputPaths} entry replaced, in that order.
+ *
+ * The renderer is handed **resolved** paths so a job behaves the same run from its own directory or
+ * from anywhere else, and `${VAR}` has already been expanded by the time it gets there. That was
+ * true of `scene` from the first version of this file; a module's `path` argument is the same kind
+ * of thing, so it is resolved by the same pass rather than by a second rule the module would have
+ * to know about.
+ */
+export function withInputPaths(
+  job: Job,
+  resolved: readonly string[],
+  manifests: readonly ModuleManifest[] = MANIFESTS
+): Job {
+  let next = 0;
+  const take = (fallback: string): string => resolved[next++] ?? fallback;
+  const scene: JobScene =
+    'path' in job.scene
+      ? { path: take(job.scene.path) }
+      : { files: job.scene.files.map((file) => take(file)), preset: job.scene.preset };
+  const actions = job.actions.map((action) => {
+    const keys = modulePathKeys(action, manifests);
+    if (keys.length === 0) return action;
+    const args = { ...(action as ModuleAction).args };
+    for (const key of keys) args[key] = take(String(args[key]));
+    return { ...(action as ModuleAction), args };
+  });
+  return { ...job, scene, actions };
+}
+
+/** One `out`-typed argument: a name under `--out`, and the sibling templates it may be saved with. */
+export interface ModuleOutTarget {
+  module: string;
+  /** The relative name the action asked for, exactly as `outName` validated it. */
+  name: string;
+  /** Every sibling template the module's writers declare, deduplicated (§5 rule 11). */
+  siblings: string[];
+}
+
+/**
+ * The `out` arguments a job's module actions name.
+ *
+ * `job-runner.ts` resolves each one under `--out` and admits it — with the templates — to that
+ * module's write list, which is how a module's own `writeText` can produce a file in a batch run
+ * that has no Save sheet to open. The **union** of the module's writers' templates is admitted
+ * because an `out` argument names a file and not a writer: a job saying "write the table here" has
+ * no vocabulary for "…using the electrodes writer", and every template is still validated and
+ * substituted by `module-io.ts` before anything is admitted.
+ */
+export function moduleOutTargets(
+  job: Job,
+  manifests: readonly ModuleManifest[] = MANIFESTS
+): ModuleOutTarget[] {
+  const targets: ModuleOutTarget[] = [];
+  for (const action of job.actions) {
+    const operation = operationOf(action, manifests);
+    if (operation === null) continue;
+    const args = (action as ModuleAction).args ?? {};
+    const siblings = [
+      ...new Set((operation.manifest.writers ?? []).flatMap((writer) => writer.siblings)),
+    ];
+    for (const [key, type] of Object.entries(operation.args)) {
+      if (type !== 'out' || typeof args[key] !== 'string') continue;
+      targets.push({ module: operation.manifest.id, name: args[key], siblings });
+    }
+  }
+  return targets;
+}
+
+/** The modules a job runs an operation on, with their versions, in first-use order (§13.6). */
+export function jobModules(
+  job: Job,
+  manifests: readonly ModuleManifest[] = MANIFESTS
+): { id: string; version: string }[] {
+  const seen = new Map<string, string>();
+  for (const action of job.actions) {
+    const operation = operationOf(action, manifests);
+    if (operation === null) continue;
+    if (!seen.has(operation.manifest.id)) {
+      seen.set(operation.manifest.id, operation.manifest.version);
+    }
+  }
+  return [...seen].map(([id, version]) => ({ id, version }));
 }

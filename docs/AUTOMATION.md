@@ -310,6 +310,45 @@ scenes shipped with **File ▸ Sample Data…** are produced (`scripts/sample-da
 files + a preset + a few `set`s + `save-scene`), so their numbers come from the data, not from a
 keyboard.
 
+#### `module` — run a module's operation
+
+A **module** ([§13]({{ site.baseurl }}/ARCHITECTURE.html)) is a first-party tool with its own panel,
+keys and files; the sEEG contact editor is the first. Every button in its panel is also an
+*operation*, and this one action type runs them — whichever module, whichever operation, forever:
+
+```json
+{ "type": "module", "module": "tetravox.seeg", "op": "snap",
+  "args": { "scope": "all", "radiusMm": 1.5 } }
+```
+
+| Key | Meaning |
+|---|---|
+| `module` | A module id this build carries. An unknown one is refused with the list of the ones that exist. |
+| `op` | One of that module's declared operations (§2.7). |
+| `args` | The operation's own arguments. **An argument it did not declare is an error**, not a key that is quietly dropped. |
+
+The module's **manifest is the schema**, so the whole action — the id, the operation, every argument
+and its type — is checked in main before a window is created, along with every other problem in the
+document. Arguments are `number`, `string`, `boolean` (each optional with a trailing `?`), `vec3?`,
+and two that name files:
+
+* **`path`** is an input. `${VAR}` is expanded, a relative path resolves against the job file's
+  directory, and it is allow-listed for the module to read — exactly what happens to `scene.files`.
+* **`out`** is a name under `--out`, held to the same rule as every other output name, and the
+  module may write it and the companion files its writer declares (`<stem>_editlog.json`) beside it.
+  A job never writes over the file it read: an `out` is under `--out` and nowhere else, which is
+  also why a save there produces no `.bak` — there is nothing yet to back up.
+
+What the operation returned comes back in the result file, so a job can *ask* as well as render:
+
+```json
+{ "action": 2, "type": "module", "module": "tetravox.seeg", "op": "snap",
+  "files": [], "ms": 412, "result": { "moved": 96, "meanShiftMm": 0.42 } }
+```
+
+The operations each module offers are listed in [§2.7](#27-module-operations), which is generated
+from the manifests themselves.
+
 ### 2.4 `job-result.json`
 
 ```json
