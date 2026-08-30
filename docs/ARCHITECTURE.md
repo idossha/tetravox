@@ -2568,6 +2568,7 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | `package` | `ubuntu-24.04` | `.AppImage` + `.deb` + `.tar.gz` x64 | **Linux artefacts are never built on macOS** |
 | `package` | `windows-latest` | `.exe` (nsis) x64 | electron-builder makes this from macOS/Linux too — only *signing* needs wine — but this is the only runner that can launch it |
 | `package` (optional) | `ubuntu-24.04-arm` | `.AppImage` arm64 | not built today |
+| `docs-guard` | `ubuntu-24.04` | `scripts/check-frozen-docs.mjs` on the merge-base diff, plus its own `node --test` fixtures | **`fetch-depth: 0`**; its own job, so it reports before `test` finishes |
 
 **macOS and Linux are the priority platforms; Windows is optional.** The Windows leg is carried
 because it costs nothing — a stock `windows-latest` builds an unsigned NSIS installer with no extra
@@ -2613,6 +2614,25 @@ display manager and takes no developer's focus.
 so rather than go green on a vacuous render it runs `--version-only`: launch, print a version, exit 0.
 Windows is therefore *built and launch-verified* every release, and *rendering on Windows is not covered by
 CI* — a real gap, recorded rather than papered over.
+
+**The `docs-guard` job** enforces two rules this file has always stated and could never check.
+First, **§12.3**: a frozen interface path in the merge-base diff without **both** `ARCHITECTURE.md`
+and `DECISIONS.md` in the same diff fails the job. Both, because one says what the interface now is
+and the other says why it changed, and a repository with one and not the other has lost the half
+nobody wrote. Item 5 of §12.3 — the Rust signatures — is deliberately *not* enforced by path: it is
+a rule about signatures spread over many files, and a `crates/**` trigger would fire on every
+implementation change and teach everyone to ignore the job. Second, **§13.1**: every module
+manifest's `docs` heading must exist as a `## ` section in `docs/USER_GUIDE.md` **and** in
+`website/scripts/sync.mjs`'s `GUIDE_PAGES`, because the website's splitter throws on a section it
+has no page for — a late, confusing failure this turns into an early, specific one.
+
+It is a **separate job** rather than a step of `test` because `actions/checkout@v5` fetches one
+commit by default and a merge-base diff needs the history, and because "you changed a frozen
+interface and not its documentation" is something a reviewer should read before the test legs
+finish. It costs about twenty seconds — node, a diff, two file reads — and no toolchain. With no base
+to compare against (a `workflow_dispatch`, a local run) it says so and checks only the rule that
+needs no diff; a guard that failed when it could not do half its job would be switched off within a
+week. Its own fixtures run first, in the same job (`scripts/check-frozen-docs.test.mjs`, `node --test`).
 
 `pnpm package` on a developer machine produces that platform's artefacts only; Linux artefacts come from CI
 or from `scripts/package-linux.sh`, which runs electron-builder inside `electronuserland/builder` with the
