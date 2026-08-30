@@ -593,6 +593,7 @@ function Iso3dSection({
               type="range"
               data-testid={`volume-iso3d-opacity-${layer.id}`}
               aria-label="3D surface opacity"
+              title="On top of the layer's opacity slider, which the surfaces follow too"
               min={0}
               max={1}
               step={0.01}

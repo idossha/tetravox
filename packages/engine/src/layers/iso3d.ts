@@ -129,7 +129,10 @@ export function derivedIsoLayers(layer: VolumeLayer, ds: VolumeDataset): Isosurf
     kind: 'iso' as const,
     datasetId: layer.datasetId,
     visible: layer.visible,
-    opacity: spec.opacity,
+    // The layer's opacity slider governs its surfaces as it governs its slices; `iso3d.opacity` is
+    // a multiplier on top (1 by default, so a scene saved before this looks the same). A surface
+    // that ignored the slider read as a bug to every user who dragged it (2026-08-30).
+    opacity: layer.opacity * spec.opacity,
     // §7.2.3 keeps isosurfaces out of the pick target (`layers/iso.ts`), and a derived surface has
     // even less identity to report than a standalone one.
     pickable: false,

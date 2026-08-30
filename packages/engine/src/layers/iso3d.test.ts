@@ -130,9 +130,14 @@ describe('derivedIsoLayers — a scalar volume', () => {
       ...layerOn(SCALAR),
       iso3d: { ...defaultIso3d(SCALAR), opacity: 0.35 },
     };
-    // The surface opacity is its own, not the slice one: a solid slice under a ghost shell is the
-    // combination the feature exists for.
-    expect(derivedIsoLayers(faint, SCALAR)[0]!.opacity).toBe(0.35);
+    // `iso3d.opacity` alone still makes a ghost shell under a solid slice…
+    expect(derivedIsoLayers(faint, SCALAR)[0]!.opacity).toBeCloseTo(0.35);
+    // …and the layer's own slider governs the surfaces too — a surface that ignored it read as a
+    // bug (2026-08-30). The two multiply, so the default `iso3d.opacity` of 1 follows the slider.
+    const dimmed: VolumeLayer = { ...faint, opacity: 0.5 };
+    expect(derivedIsoLayers(dimmed, SCALAR)[0]!.opacity).toBeCloseTo(0.175);
+    const sliderOnly: VolumeLayer = { ...layerOn(SCALAR), opacity: 0.5 };
+    expect(derivedIsoLayers(sliderOnly, SCALAR)[0]!.opacity).toBeCloseTo(0.5);
   });
 });
 

@@ -3190,3 +3190,16 @@ badge, `scripts/coverage-badge.mjs`, the `test:coverage` script and vitest `cove
 Codecov upload, the CI publish step, and the branch itself. `ci.yml`'s `test` job is back to
 `contents: read`. Coverage is not tracked until there is a mechanism that does not need a bot branch
 (a Codecov token, or a reporter with no external service).
+
+## 2026-08-30 — `VolumeLayer.iso3d.opacity` multiplies the layer's opacity
+
+**Decision.** A volume layer's derived 3D isosurfaces are drawn at `LayerBase.opacity × iso3d.opacity`,
+not at `iso3d.opacity` alone. `derivedIsoLayers` (`layers/iso3d.ts`) is the one place it is computed.
+
+**Why.** The 2026-08-28 design made the surfaces' opacity "independent of the slice", so that a ghost
+shell could sit over a solid slice. In use, the layer panel's opacity slider then did nothing to the
+surfaces, and the owner reported it as a bug — the slider is *the* opacity control a user reaches
+for. Multiplying keeps the ghost-shell case (`iso3d.opacity < 1`) and makes the slider govern the
+surfaces as it governs the slices. The default `iso3d.opacity` is 1, so every scene saved before
+this renders the same unless its slider was below 1 — in which case it now renders as the user
+expected when they dragged it. Additive: no `ViewSpec` field changes.

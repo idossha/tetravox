@@ -421,7 +421,7 @@ export interface VolumeIso3d {
   iso: number;
   /** Scalar volumes only: 0..1 RGBA, like every colour in §4.1. */
   color: vec4;
-  /** The surfaces' opacity, independent of the volume slice's `LayerBase.opacity`. */
+  /** A multiplier on `LayerBase.opacity` for the surfaces (1 = follow the layer slider exactly). */
   opacity: number;
   /** Smooth (per-vertex) shading; `false` is faceted. */
   smooth: boolean;
