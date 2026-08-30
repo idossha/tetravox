@@ -2239,7 +2239,12 @@ export class ShellController {
     if (registration === null) return false;
     this.deactivateModule();
     let instance: ModuleInstance;
-    let host: ModuleHost;
+    // Declared outside the `try` so the catch can tear it down (2026-08-30): `activate` may register
+    // store projections and a `pointTool` listener and *then* throw — seeg's `createModel`
+    // subscribes five before `adoptOrphanLayer`, which a hand-edited scene can make throw — and
+    // without this those listeners stayed attached for the life of the window, with no
+    // `moduleSession` for `deactivateModule` to reach them through. Every retry leaked another set.
+    let host: ModuleHost | null = null;
     try {
       const loaded = await registration.load();
       host = createModuleHost(
@@ -2257,6 +2262,8 @@ export class ShellController {
       );
       instance = await loaded.activate(host);
     } catch (error: unknown) {
+      // Same teardown order as `deactivateModule`, minus the instance there never was one of.
+      if (host !== null) disposeModuleHost(host);
       this.toast('io', registration.manifest.title, errorMessage(error));
       return false;
     }
@@ -2557,6 +2564,14 @@ export class ShellController {
   private async openThroughModule(path: string): Promise<boolean> {
     const claim = this.readerFor(path);
     if (claim === null) return false;
+    // §13.3's discard guard, on the route that was missing one (2026-08-30). A module's `openPath`
+    // replaces what it is editing and clears its own undo history, so File ▸ Open — or a drop — of
+    // the next subject's table threw an hour of snapping away with no prompt, while ⌘N on the same
+    // state offered Save…/Discard/Cancel. Cancelling answers **true**: the path was claimed, and
+    // falling through to `engine.addDataset` would try the table as a mesh and toast "unsupported".
+    if (!(await this.confirmDiscardModuleEdits('Opening another file this module edits'))) {
+      return true;
+    }
     if (!(await this.activateModule(claim.manifest.id))) return false;
     const instance = this.moduleSession?.instance;
     if (instance?.openPath === undefined) return false;
@@ -2603,9 +2618,10 @@ export class ShellController {
   /**
    * Ask before throwing a module's unsaved work away, and answer whether to proceed.
    *
-   * Five call sites: `requestNewScene`, `openScenePath` (which is also Open Recent and the drop
-   * route), and `requestCloseDataset` — because a layer row's ✕ closes the dataset a module's layers
-   * hang off, and would take the edits with it.
+   * Call sites: `requestNewScene`, `openScenePath` (which is also Open Recent and the drop route),
+   * `requestCloseDataset` — because a layer row's ✕ closes the dataset a module's layers hang off,
+   * and would take the edits with it — and `openThroughModule`, since handing a module a second
+   * file to edit replaces what it is editing (2026-08-30).
    *
    * `Save…` is offered only when the dirty module declares a `save` command; a three-button question
    * whose first button did nothing would be worse than a two-button one.

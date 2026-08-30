@@ -276,6 +276,47 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await page.click('[data-testid="seeg-add"]');
   });
 
+  test('Escape takes the Add button with it, one step at a time', async () => {
+    // The engine's Esc grammar is place → select → off, and the first step emits **no event** — so
+    // a panel mirroring the mode in the module's own state shows Add held down while every click
+    // selects. `cancelPointTool` is the call the engine's own keydown makes; `?engine=mock` has no
+    // canvas for it to listen on, exactly as `pointToolClick` above is the call `#onDown` makes.
+    const escape = (): Promise<boolean> =>
+      page.evaluate(() =>
+        (window.__tetravox?.engine as unknown as { cancelPointTool(): boolean }).cancelPointTool()
+      );
+    const mode = (): Promise<string | null> =>
+      page.evaluate(
+        () =>
+          (
+            window.__tetravox?.engine as unknown as { pointTool(): { mode: string } | null }
+          ).pointTool()?.mode ?? null
+      );
+
+    await page.click('[data-testid="seeg-add"]');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
+
+    // Esc #1: place → select, silently. The button's state is read off the engine now, so the next
+    // render is right; there is no event to render *on*, which is why the assertion below is about
+    // the press after it rather than about the pixel in between.
+    expect(await escape()).toBe(true);
+    expect(await mode()).toBe('select');
+
+    // Esc #2 emits `cleared`, the panel renders, and the button is not pressed — where the old
+    // handler re-armed place mode inside this very keydown and left it held down.
+    expect(await escape()).toBe(true);
+    expect(await mode()).toBeNull();
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'false');
+
+    // One press arms place mode again — Escape turned the tool off rather than breaking it — and a
+    // second leaves the tool where the specs after this one expect it: armed, selecting.
+    await page.click('[data-testid="seeg-add"]');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
+    expect(await mode()).toBe('place');
+    await page.click('[data-testid="seeg-add"]');
+    expect(await mode()).toBe('select');
+  });
+
   test('a drag is one undo step, and a re-fit straightens the shaft', async () => {
     const id = await layerId(page);
     await page.evaluate((layer) => {
@@ -388,5 +429,33 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await page.click('[data-testid="confirm-button-2"]');
     await expect(page.locator('[data-testid="confirm-dialog"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="seeg-panel"]')).toBeVisible();
+  });
+
+  test('Open… reaches a table the reader would never claim, and asks first', async () => {
+    // The Inputs escape hatch. The manifest's reader claims a basename saying `electrodes` /
+    // `contacts` / `markups`, so a site exporting `DIXI_locs.tsv` has no route in at all — and the
+    // `load` command that opens the module's own All-files sheet has no key and no menu entry, so
+    // without this button nothing could reach it. `showOpenDialog` is OS-modal, stubbed in main
+    // exactly as `showSaveDialog` is above; everything under it stays real.
+    // The committed fixture rather than `tree.tsv`, which the save above rewrote: this asserts a
+    // count, and it should be the count of the file it opened.
+    const named = join(tree.ieeg, 'DIXI_locs.tsv');
+    copyFileSync(join(TESTDATA, 'seeg_contacts.tsv'), named);
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: [path],
+      })) as unknown as typeof dialog.showOpenDialog;
+    }, named);
+
+    // The previous test left the module dirty and cancelled, so the module's own discard guard —
+    // the one the shell cannot raise, because this gesture never leaves the panel — asks here.
+    await page.click('[data-testid="seeg-open"]');
+    await expect(page.locator('[data-testid="confirm-dialog"]')).toBeVisible();
+    await expect(page.locator('[data-testid^="confirm-button-"]')).toHaveCount(3);
+    await page.click('[data-testid="confirm-button-1"]'); // Discard
+
+    await expect(page.locator('[data-testid="seeg-source"]')).toContainText('DIXI_locs.tsv');
+    await expect(page.locator('[data-testid="seeg-list"] > li')).toHaveCount(6);
   });
 });

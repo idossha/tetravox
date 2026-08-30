@@ -130,6 +130,46 @@ describe('every module manifest', () => {
     }
   });
 
+  /**
+   * §13.6's parity rule, made mechanical (2026-08-30).
+   *
+   * "Every panel action is also an operation" is what keeps §8's "there is no automation-only code
+   * path" true of a module, and the exceptions are real but few: a command that needs a **live
+   * pointer**, a **file sheet**, the session's own **undo stack**, or that only moves the
+   * **selection** has nothing to do in a batch run, and one that is another operation's argument is
+   * already automatable. Nothing in a manifest says which kind a command is, so the exceptions are
+   * written down here — and the assertion is *equality*, so adding a scene-mutating command with no
+   * operation fails this test until somebody either writes the operation or writes down why there
+   * cannot be one. A module absent from this map is asserted to have an operation per command.
+   */
+  const COMMANDS_THAT_ARE_NOT_OPERATIONS: Record<string, Record<string, string>> = {
+    'tetravox.hello': {
+      ping: 'the fixture’s own demonstration of the status cell',
+      'select-demo': 'reports the live point selection, which a job does not have',
+    },
+    'tetravox.seeg': {
+      add: 'arms place mode — every contact it adds comes from a live click in a pane',
+      next: 'moves the selection; changes nothing a saved file would show',
+      prev: 'moves the selection; changes nothing a saved file would show',
+      undo: 'the session’s own history stack, which a job has no use for',
+      redo: 'the session’s own history stack, which a job has no use for',
+      'snap-electrode': 'the `snap` operation with `scope: "electrode"`',
+      'snap-all': 'the `snap` operation with `scope: "all"`, plus a confirmation',
+      'save-as': 'opens a file sheet; the `save` operation is handed `out` instead',
+    },
+  };
+
+  it('gives every scene-mutating command an operation, or says why it cannot have one', () => {
+    for (const manifest of MANIFESTS) {
+      const operations = new Set((manifest.operations ?? []).map((o) => o.id));
+      const orphans = manifest.commands.map((c) => c.id).filter((id) => !operations.has(id));
+      const excused = Object.keys(COMMANDS_THAT_ARE_NOT_OPERATIONS[manifest.id] ?? {});
+      expect(new Set(orphans), `${manifest.id}: commands with no operation of the same id`).toEqual(
+        new Set(excused)
+      );
+    }
+  });
+
   it('declares sibling patterns that compile and ascend at most three directories', () => {
     for (const manifest of MANIFESTS) {
       for (const sibling of manifest.siblings ?? []) {

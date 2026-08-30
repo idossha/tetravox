@@ -411,6 +411,30 @@ describe('module blocks in a scene file', () => {
     });
   });
 
+  it('keeps an envelope field a later host added, rather than stripping it on re-save', () => {
+    // §12.3's additive rule from the other end: a fourth envelope field beside `data` — a checksum,
+    // a `dataHash` — has to survive a build that predates it, or "absent reproduces the previous
+    // behaviour" buys nothing and the envelope can never grow. The block belongs to a stranger, so
+    // this is the same "do not quietly delete a colleague's work" rule the carry-forward exists for.
+    const future = {
+      module: 'otherlab.tractography' as const,
+      version: 7,
+      moduleVersion: '0.4.1',
+      data: { streamlines: 'anything at all' },
+      dataHash: 'sha256:9f2c',
+      writtenBy: { host: 2 },
+    };
+    const opened = sceneExtensions({
+      ...spec(),
+      extensions: { 'otherlab.tractography': future },
+    } as unknown as ViewSpec);
+    expect(opened['otherlab.tractography']).toEqual(future);
+    const text = serialiseScene(spec(), '/scenes/s.tetravox.json', { extensions: opened });
+    expect((JSON.parse(text) as { extensions: unknown }).extensions).toEqual({
+      'otherlab.tractography': future,
+    });
+  });
+
   it('drops a malformed block rather than handing it to a module', () => {
     const blocks = sceneExtensions({
       ...spec(),

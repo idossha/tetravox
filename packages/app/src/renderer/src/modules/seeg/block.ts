@@ -21,8 +21,8 @@
  *    misread.
  */
 
-import type { vec4 } from '@tetravox/engine';
-import type { ContactSet, TipEnd } from '../shared/contacts/model';
+import type { vec3, vec4 } from '@tetravox/engine';
+import type { Contact, ContactSet, TipEnd } from '../shared/contacts/model';
 import type { ColumnMap, Delimiter } from '../shared/contacts/tsv';
 import { paletteColor } from '../shared/contacts/palette';
 
@@ -49,8 +49,36 @@ export interface SeegBlockSource {
 
 export interface SeegBlockRow {
   original: [number, number, number] | null;
+  /**
+   * The name the **table** gave this contact (`Contact.originalName`), or `null` for one placed in
+   * the session. Additive, 2026-08-30: a block written before it says `null`, which restores to the
+   * previous behaviour — a rebuilt contact whose name is not known to have changed — so
+   * `sceneBlock.version` is still 1. Without it a renumber made before a scene save is invisible to
+   * the editlog written after the scene is reopened.
+   */
+  name: string | null;
   status: string | null;
   extra: Record<string, string>;
+}
+
+/**
+ * A contact this session deleted, kept in the block so the record of it survives the slot.
+ *
+ * The deletion itself lives in the layer — the point is simply gone — but *that it was deleted* is
+ * provenance, and provenance is what this block is for. Without it, switching module and coming
+ * back, or saving and reopening the scene, writes an editlog claiming nothing was deleted while the
+ * table it sits beside is missing the rows, and Revert quietly stops being able to bring them back
+ * after promising it would.
+ */
+export interface SeegBlockDeleted {
+  /** `points[].id` — the identity the contact had, so an undo/redo cycle keeps naming the same one. */
+  id: string;
+  name: string;
+  group: string;
+  ordinal: number;
+  /** Where it was when it was deleted; `row.original` is where the file had put it. */
+  position: [number, number, number];
+  row: SeegBlockRow;
 }
 
 export interface SeegBlockElectrode {
@@ -64,6 +92,11 @@ export interface SeegBlock {
   /** Keyed by `points[].id` — never a `LayerId`, never a `DatasetId` (§13.2). */
   rows: Record<string, SeegBlockRow>;
   electrodes: SeegBlockElectrode[];
+  /**
+   * The contacts the session deleted (2026-08-30). Additive, and absent restores to what this build
+   * did before it existed — an empty list — so `sceneBlock.version` is still 1.
+   */
+  deleted: SeegBlockDeleted[];
   snapRadiusMm: number;
   namePad: number;
   ghost: boolean;
@@ -71,29 +104,42 @@ export interface SeegBlock {
 
 export interface BlockInput {
   set: ContactSet;
+  /** What `doDelete` has taken out of the set so far, in the order it took them. */
+  deleted: readonly Contact[];
   source: SeegBlockSource | null;
   snapRadiusMm: number;
   namePad: number;
   ghost: boolean;
 }
 
+function rowOf(contact: Contact): SeegBlockRow {
+  return {
+    original:
+      contact.original === null
+        ? null
+        : [contact.original[0], contact.original[1], contact.original[2]],
+    name: contact.originalName,
+    status: contact.loadedStatus,
+    extra: contact.extra,
+  };
+}
+
 /** Everything the module needs to resume, and nothing the scene already holds. */
 export function toBlock(input: BlockInput): SeegBlock {
   const rows: Record<string, SeegBlockRow> = {};
-  for (const contact of input.set.contacts) {
-    rows[contact.id] = {
-      original:
-        contact.original === null
-          ? null
-          : [contact.original[0], contact.original[1], contact.original[2]],
-      status: contact.loadedStatus,
-      extra: contact.extra,
-    };
-  }
+  for (const contact of input.set.contacts) rows[contact.id] = rowOf(contact);
   return {
     source: input.source,
     rows,
     electrodes: input.set.groups.map((g) => ({ name: g.name, color: g.color, tip: g.tip })),
+    deleted: input.deleted.map((contact) => ({
+      id: contact.id,
+      name: contact.name,
+      group: contact.group,
+      ordinal: contact.ordinal,
+      position: [contact.position[0], contact.position[1], contact.position[2]],
+      row: rowOf(contact),
+    })),
     snapRadiusMm: input.snapRadiusMm,
     namePad: input.namePad,
     ghost: input.ghost,
@@ -108,14 +154,24 @@ export function toBlock(input: BlockInput): SeegBlock {
  * and turns every contact into an `added` one; the module says so rather than pretending.
  */
 export function shrinkBlock(block: SeegBlock, level: 1 | 2): SeegBlock {
+  const trim = (row: SeegBlockRow): SeegBlockRow => ({
+    original: row.original,
+    name: row.name,
+    status: row.status,
+    extra: {},
+  });
   if (level === 1) {
     const rows: Record<string, SeegBlockRow> = {};
-    for (const [id, row] of Object.entries(block.rows)) {
-      rows[id] = { original: row.original, status: row.status, extra: {} };
-    }
-    return { ...block, rows };
+    for (const [id, row] of Object.entries(block.rows)) rows[id] = trim(row);
+    return {
+      ...block,
+      rows,
+      deleted: block.deleted.map((gone) => ({ ...gone, row: trim(gone.row) })),
+    };
   }
-  return { ...block, rows: {} };
+  // Level 2 loses `original` for every contact, so the deletion records go with it: an editlog
+  // entry for a contact whose position is unknown would be worse than the missing entry.
+  return { ...block, rows: {}, deleted: [] };
 }
 
 function isFiniteTriple(value: unknown): value is [number, number, number] {
@@ -170,6 +226,17 @@ function sourceOf(value: unknown): SeegBlockSource | null {
   };
 }
 
+/** One row of the block, read tolerantly: every field defaults rather than throwing. */
+function rowFrom(value: unknown): SeegBlockRow {
+  const row = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+  return {
+    original: isFiniteTriple(row['original']) ? row['original'] : null,
+    name: typeof row['name'] === 'string' ? row['name'] : null,
+    status: typeof row['status'] === 'string' ? row['status'] : null,
+    extra: stringRecord(row['extra']),
+  };
+}
+
 const TIPS: readonly TipEnd[] = ['auto', 'low', 'high'];
 
 /**
@@ -187,12 +254,29 @@ export function fromBlock(data: unknown): SeegBlock | null {
   const rawRows = typeof raw['rows'] === 'object' && raw['rows'] !== null ? raw['rows'] : {};
   for (const [id, value] of Object.entries(rawRows as Record<string, unknown>)) {
     if (typeof value !== 'object' || value === null) continue;
-    const row = value as Record<string, unknown>;
-    rows[id] = {
-      original: isFiniteTriple(row['original']) ? row['original'] : null,
-      status: typeof row['status'] === 'string' ? row['status'] : null,
-      extra: stringRecord(row['extra']),
-    };
+    rows[id] = rowFrom(value);
+  }
+
+  // A block written before deletions were carried has no `deleted` key and reads back as none,
+  // which is the state this build used to restore to.
+  const deleted: SeegBlockDeleted[] = [];
+  if (Array.isArray(raw['deleted'])) {
+    for (const value of raw['deleted'] as unknown[]) {
+      if (typeof value !== 'object' || value === null) continue;
+      const entry = value as Record<string, unknown>;
+      const position = entry['position'];
+      if (typeof entry['id'] !== 'string' || entry['id'] === '') continue;
+      if (typeof entry['name'] !== 'string' || !isFiniteTriple(position)) continue;
+      const ordinal = entry['ordinal'];
+      deleted.push({
+        id: entry['id'],
+        name: entry['name'],
+        group: typeof entry['group'] === 'string' ? entry['group'] : entry['name'],
+        ordinal: typeof ordinal === 'number' && Number.isFinite(ordinal) ? Math.trunc(ordinal) : 1,
+        position,
+        row: rowFrom(entry['row']),
+      });
+    }
   }
 
   const electrodes: SeegBlockElectrode[] = [];
@@ -219,10 +303,26 @@ export function fromBlock(data: unknown): SeegBlock | null {
     source: sourceOf(raw['source']),
     rows,
     electrodes,
+    deleted,
     snapRadiusMm:
       typeof snapRadiusMm === 'number' && Number.isFinite(snapRadiusMm) ? snapRadiusMm : 1.5,
     namePad: typeof namePad === 'number' && Number.isFinite(namePad) ? Math.trunc(namePad) : 2,
     ghost: raw['ghost'] !== false,
+  };
+}
+
+/** A deletion record, back as the contact it was — the module's `deleted` list after a restore. */
+export function contactFromDeleted(gone: SeegBlockDeleted): Contact {
+  return {
+    id: gone.id,
+    name: gone.name,
+    group: gone.group,
+    ordinal: gone.ordinal,
+    position: [...gone.position] as vec3,
+    original: gone.row.original === null ? null : ([...gone.row.original] as vec3),
+    originalName: gone.row.name,
+    loadedStatus: gone.row.status,
+    extra: { ...gone.row.extra },
   };
 }
 
@@ -244,6 +344,7 @@ export function mergeBlockIntoSet(set: ContactSet, block: SeegBlock): ContactSet
         ...contact,
         original:
           row.original === null ? null : [row.original[0], row.original[1], row.original[2]],
+        originalName: row.name,
         loadedStatus: row.status,
         extra: row.extra,
       };

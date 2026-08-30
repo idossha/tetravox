@@ -30,6 +30,7 @@ function contact(id: string, group: string, ordinal: number, position: vec3): Co
     ordinal,
     position,
     original: [...position] as vec3,
+    originalName: `${group}${String(ordinal).padStart(2, '0')}`,
     loadedStatus: null,
     extra: {},
   };

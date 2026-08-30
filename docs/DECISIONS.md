@@ -2398,8 +2398,6 @@ Each entry below names the problem, the fix, and the evidence.
   `'T1.nii.gz'` verbatim, which is the only form that can fail if this regresses.
 
 
-
-
 - 2026-08-28 — **§9.2's `buildTopology` memory bar was never measured, and measuring it moved the
   number.** `docs/PHASE2-OWNERSHIP.md` lists it as a Phase-2 gate item explicitly deferred from
   Phase 1 ("nothing in Phase 1 clips or isolates"), owner E-MESH. The only `ernie_seeg.msh` heap
@@ -2544,7 +2542,6 @@ Each entry below names the problem, the fix, and the evidence.
   No frozen interface moved. The GIF encoder and the PNG decoder are written in-repo (`main/gif.ts`,
   `main/png.ts`) rather than installed, per §12.3; ffmpeg stays optional and its absence is a warning,
   never a failure. Python client: `python/`, standard library only.
-
 
 
 - 2026-08-28 — **A user-enabled display feature is never dropped mid-gesture: `edges` leaves the
@@ -2717,7 +2714,6 @@ to click.
   point-in-tetrahedron search, so a 0-tet `.gii` produced no `ProbeRow` at all. `nearestVertex` runs
   for *every* mesh on its own latest-wins key, so `lh.central.gii` now answers with a vertex index and
   that vertex's own coordinate — which is deliberately **not** the probe point.
-
 
 
 - 2026-08-28 — **Gmsh parsed post-processing views (`.geo` / `.pos`) load through `loadMesh`, not
@@ -4242,3 +4238,77 @@ it gets a failure instead of a silently skipped rule — which is the failure mo
 
 **Scope.** Manifests only, matching §13.7's wording; the guard does not audit the eighteen core guide
 pages, whose sidebar entries no module PR touches.
+
+## 2026-08-30 — the sEEG review pass: parity made mechanical, and provenance made per-table
+
+Ten confirmed review findings against `tetravox.seeg` and the module host, fixed on
+`fix/seeg-polish`. Most were one-line oversights and need no entry; these six decided something a
+reader would otherwise have to infer.
+
+**§13.6's parity rule is now a rule, with the gap it excused closed.** The contract said flatly that
+every panel action is also an operation, and the flagship module shipped seventeen commands and
+seven operations. Two ways out were available — write down a weaker rule, or write the missing
+operations — and the weaker rule was the wrong one: `flip-tip`, `revert` and `delete` are
+deterministic edits to a **named** electrode or contact, needing no pointer, no dialog and no
+confirmation, so nothing about them was automation-resistant. `flip-tip` is the one that matters:
+`tip: 'auto'` is a heuristic this file's own entry above concedes an occipital shaft can defeat,
+`renumber` applies whatever the tip currently is, and the canonical TSV keeps no tip column — so a
+headless load → renumber → save on a shaft the heuristic read backwards produced a tip-last table
+with **no remedy short of a prior interactive session**, on exactly the Slicer-parity workflow the
+module exists for. §13.6 now states the rule precisely (a scene-mutating command that needs neither a
+live pointer nor a dialog is an operation of the same id; four kinds of command are exempt and only
+those four), and `modules.test.ts` compares each manifest's commands-without-an-operation against a
+written list of exemptions *for equality*. Adding a scene-mutating command with no operation now
+fails the build until somebody writes the operation or writes down why there cannot be one.
+
+**A `cleared` point-tool event is not a message; the module has to work out who sent it.** The
+engine's Esc grammar is place → select → off, and its first step emits nothing at all — so a module
+mirroring the mode in a flag went stale on the first press, and the second step's `cleared` was
+handled by re-arming, which put place mode straight back and made Escape cycle for ever. Two
+decisions come out of it. `placing` is **read off `host.tool.pointTool()`** rather than tracked: the
+engine owns which mode is live and the module owns only the intent, so the panel's pressed Add
+button cannot disagree with what a click does. And a `cleared` the module did not ask for is
+disarmed first and *explained afterwards*, from the `layers` subscription — because
+`host.scene.layers()` is the store's projection and it is written by the event that follows
+`cleared`, so "did my layer survive?" has no answer inside the handler. The layer still being there
+is Esc and the tool stays off; the layer having been replaced is `Engine.load` or a removal, and the
+tool comes back against the layer the scene put there. The alternative — an engine-side reason on the
+event — would have been a frozen-file change for a defect the module can diagnose itself.
+
+**Provenance is per table, not per window.** The `operations` record, the "hand-edited on …" banner
+and the T1 a `load` operation named all survived `applyTable`, so opening the next subject's table in
+the same window wrote *this* subject's snapped/refit flags into the next one's editlog — and
+anatomical naming means the electrode names usually match. The editlog is a contract with
+`seegprep`, so a sidecar reporting operations that never ran on that subject is worse than one
+reporting none. All three are cleared per table.
+
+**The editlog answers "what was changed?", so a relabel is a change.** `entryFor` keyed on position
+alone, and Renumber and Re-fit rewrite names while moving nothing — so the one edit that changes how
+a table's `csc` column maps onto the recording system produced `added: 0, edited: 0` and no rows at
+all, with the panel footer reading "0 changed" beside a dirty dot. `Contact.originalName` is the twin
+of `original` and carries the same meaning for names that `original` carries for positions, `null`
+included; a `renamed` change and a `renamed_from` field are additive beside every count Slicer wrote,
+and a contact that both moved and was relabelled is **one** `edited` row carrying `renamed_from`, so
+the counts and the rows cannot disagree. `EDITLOG_SCHEMA` does not move: a reader that knows only the
+old keys is unaffected, and an old log reads as `renamed: 0`, which is what it was.
+
+**Deletions belong in the scene block.** §13.2 calls leaving the slot non-destructive *because* the
+module restores through its block — true of everything except a deletion, which the layer cannot
+carry, since a deleted contact is simply not a point. So switching module or reopening a scene
+dropped the records, and the next save wrote an editlog claiming nothing was deleted beside a table
+missing the rows, while Revert quietly stopped keeping the promise its own toast makes. `SeegBlock`
+gains a `deleted` list and `rows[].name`, both additive: a block written without them restores to
+exactly what this build did before, which is why `sceneBlock.version` is still 1. `shrinkBlock`
+drops their columns at level 1 and the records themselves at level 2, where every `original` is lost
+and a deletion with no position would be a worse record than a missing one.
+
+**A carried-forward block keeps its whole envelope, and a reader's name pattern is
+case-insensitive.** `sceneExtensions` rebuilt each block as exactly the four fields this build knows,
+which made §12.3's additive rule unusable for the envelope — a later host's fifth field would be
+stripped by every older build that opened and re-saved the file, including from the blocks of modules
+it has never heard of. The three validated fields are now re-stated *over* the block rather than
+copied out of it. Separately, `readers.ts` matched its manifest pattern case-sensitively while the
+extension check lower-cased, so `Electrodes.tsv` reached the mesh loader and came back "unsupported";
+a manifest cannot opt back into case sensitivity, deliberately — a reader that claimed one spelling
+and refused another would be a bug report, not a feature — and the panel now has the Open… button
+that makes the module's own All-files sheet reachable for a name no pattern will ever claim.

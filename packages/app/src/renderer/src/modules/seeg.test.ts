@@ -225,6 +225,83 @@ describe('the manifest and the module agree about the BIDS layout', () => {
     // A `.tsv` that is not an electrodes table is not claimed: the reader matches the basename.
     expect(h.controller.readerFor('/bids/participants.tsv')).toBeNull();
   });
+
+  it('claims a table whose name is capitalised, the way the extension already was', () => {
+    // A site exporting `Electrodes.tsv` got the mesh loader's "unsupported" toast while
+    // `electrodes.tsv` opened: the extension check lower-cased and the name pattern did not.
+    const h = harness();
+    expect(h.controller.readerFor('/exports/Electrodes.tsv')?.manifest.id).toBe(SEEG);
+    expect(h.controller.readerFor('/exports/SUB-01_CONTACTS.TSV')?.manifest.id).toBe(SEEG);
+    // Still narrow: the basename has to say what the file is, whatever its case.
+    expect(h.controller.readerFor('/exports/DIXI_locs.csv')).toBeNull();
+  });
+
+  it('offers the Open sheet the manifest declares, from the panel', async () => {
+    // `load` has no key and no menu entry — §13.3 keeps module commands out of both — so the panel
+    // button is the only gesture that can reach the All-files sheet a non-canonical name needs.
+    const NAMED = '/exports/DIXI_locs.csv';
+    const h = await loadSubject();
+    h.fs.files.set(NAMED, phantomTable(0.3));
+    h.fs.openPaths = [NAMED];
+    await h.controller.moduleCommand(SEEG, 'load');
+    await until(() => h.store.getState().moduleBlocks[SEEG] !== undefined, 'the block');
+    expect(JSON.stringify(h.store.getState().moduleBlocks[SEEG]?.data)).toContain('DIXI_locs.csv');
+    expect(contactsLayer(h).points).toHaveLength(15);
+  });
+});
+
+/**
+ * An `activate` that throws must leave nothing behind (§13.1).
+ *
+ * The reachable throw is a hand-edited scene: `lib/scene.ts` checks only that `layers` is an array,
+ * so a points layer stamped with this module's id whose point has no `position` reaches
+ * `adoptOrphanLayer` → `contactSetFromLayer`, which spreads it. By then `createModel` has registered
+ * five subscriptions, and `activateModule`'s catch used to toast and return without disposing the
+ * host — leaving them attached for the life of the window, with no `moduleSession` for
+ * `deactivateModule` to reach them through, and another set leaked on every retry.
+ */
+describe('an activate that throws', () => {
+  it('disposes the half-built host rather than leaking its subscriptions', async () => {
+    fakeBridge({ [CT]: 'a volume' });
+    const engine = new NoGlEngine({ stepMs: 0 });
+    const store = createUiStore();
+    // `hostImpl.ts`'s `onProjection` is an ordinary `store.subscribe`, so counting live listeners
+    // is counting exactly what a leaked host holds open.
+    const listeners = new Set<unknown>();
+    const realSubscribe = store.subscribe.bind(store);
+    store.subscribe = ((listener: never) => {
+      listeners.add(listener);
+      const off = realSubscribe(listener);
+      return () => {
+        listeners.delete(listener);
+        off();
+      };
+    }) as typeof store.subscribe;
+
+    const controller = new ShellController(engine, store);
+    controller.attach();
+    open.push(controller);
+    controller.open([{ name: 'ct', path: CT, source: { kind: 'path', path: CT } }]);
+    await until(() => store.getState().datasets.length === 1, 'the CT');
+
+    engine.addLayer({
+      datasetId: store.getState().datasets[0]?.id as string,
+      kind: 'points',
+      module: SEEG,
+      // No `position`: the malformed point a hand-edited scene file can carry.
+      points: [{ id: 'c1', name: 'A01' }] as never,
+    });
+
+    const before = listeners.size;
+    await expect(controller.activateModule(SEEG)).resolves.toBe(false);
+    expect(store.getState().activeModule).toBeNull();
+    expect(store.getState().toasts.length).toBeGreaterThan(0);
+    expect(listeners.size).toBe(before);
+
+    // And a retry does not stack a second set on top of the first.
+    await expect(controller.activateModule(SEEG)).resolves.toBe(false);
+    expect(listeners.size).toBe(before);
+  });
 });
 
 describe('opening a subject', () => {
@@ -418,6 +495,69 @@ describe('commands', () => {
     h.engine.pointToolDragEnd();
     expect(h.store.getState().moduleDirty[SEEG]).toBeUndefined();
   });
+
+  /**
+   * The engine's Esc grammar is place → select → off (§4.7), and it has to reach `off`.
+   *
+   * The first step emits nothing at all — `setPointTool`'s non-null branch is silent — so a module
+   * mirroring the mode in a flag of its own goes stale on the first press; the second step emits
+   * `cleared`, and a handler that re-armed on every `cleared` put the tool straight back into place
+   * mode, so Escape cycled for ever and every click kept dropping a contact.
+   */
+  it('lets Escape disarm the tool for good, place → select → off', async () => {
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+    h.engine.pointToolClick('axial', 260, 260);
+    expect(contactsLayer(h).points).toHaveLength(16);
+
+    // Esc #1: place → select. Silent, which is exactly the step a module-local flag misses.
+    expect(h.engine.cancelPointTool()).toBe(true);
+    expect(h.engine.pointTool()?.mode).toBe('select');
+    // Esc #2: select → off, and it stays off.
+    expect(h.engine.cancelPointTool()).toBe(true);
+    expect(h.engine.pointTool()).toBeNull();
+
+    // A click now places nothing, which is the whole point of having pressed Escape.
+    h.engine.pointToolClick('axial', 240, 240);
+    expect(contactsLayer(h).points).toHaveLength(16);
+    // …and `a` arms it again: Escape turned the tool off rather than breaking it.
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+  });
+
+  it('takes the Add toggle from the engine, not from a flag that Escape left stale', async () => {
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+    h.engine.cancelPointTool(); // place → select, with no event
+
+    // One press of Add has to put place mode back. With a module-local `placing` still reading
+    // true this pressed "off" and left the tool selecting, while the panel's `aria-pressed` — the
+    // same field — showed the button held down the whole time.
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+    // The status cell is the module's own view of the flag, and it agrees with the engine.
+    expect(h.store.getState().moduleStatus[SEEG]).toContain('place');
+  });
+
+  it('comes back armed when the scene puts a new layer under it', async () => {
+    // The other half of `cleared`: `Engine.load` disarms at its start and removing the tool's layer
+    // disarms with it. Neither is a request to stop, so the module re-arms against the layer the
+    // scene put back — which is what the Escape rule above must not have cost.
+    const h = await loadSubject();
+    const gone = contactsLayer(h);
+    h.engine.removeLayer(gone.id);
+    expect(h.engine.pointTool()).toBeNull();
+
+    const rebuilt = h.engine.addLayer({
+      datasetId: gone.datasetId,
+      kind: 'points',
+      module: SEEG,
+      points: [{ id: 'c1', name: 'A01', group: 'A', ordinal: 1, position: [0, 0, 0] }],
+    });
+    expect(h.engine.pointTool()).toMatchObject({ layerId: rebuilt.id, mode: 'select' });
+  });
 });
 
 describe('saving', () => {
@@ -482,6 +622,134 @@ describe('saving', () => {
     expect(coordinate(written, 'A01')).toEqual(coordinate(source, 'A01'));
     // …and the writer really did use `repr`: an integral coordinate keeps its `.0`.
     expect(written).toContain('-11.0\t');
+  });
+
+  /**
+   * Provenance is per **table**, not per window (§13.6's sidecar is a contract with `seegprep`).
+   *
+   * Anatomical naming means the next subject's shafts are usually called what this one's were, so a
+   * session that kept the operation flags would tell a reviewer that a snap ran on electrodes it
+   * never touched — in the one file whose whole purpose is answering "what was changed?".
+   */
+  it('does not carry one table’s operations into the next table’s editlog', async () => {
+    const NEXT = `${DERIV}/ieeg/sub-P077_space-T1w_electrodes.tsv`;
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'snap-electrode');
+    await h.controller.moduleCommand(SEEG, 'refit');
+
+    // The second subject's table, through the module's own reader route — the same live instance,
+    // because `activateModule` early-returns for the module already in the slot.
+    h.fs.files.set(NEXT, phantomTable(0.2));
+    expect(await h.controller.moduleInstance()?.openPath?.('electrodes', NEXT)).toBe(true);
+
+    h.fs.savePath = NEXT;
+    await h.controller.moduleCommand(SEEG, 'save-as');
+    const log = JSON.parse(h.fs.writes.at(-1)?.text ?? '{}') as {
+      electrodes: { name: string; snapped: boolean; refit: boolean }[];
+    };
+    expect(log.electrodes.map((e) => e.name)).toContain('A');
+    expect(log.electrodes.some((e) => e.snapped || e.refit)).toBe(false);
+  });
+
+  /**
+   * §13.3's discard guard covered New, Open scene and Close dataset — and not the route that most
+   * looks like "the next subject": opening another electrodes table.
+   */
+  it('asks before another table throws unsaved contact edits away', async () => {
+    const NEXT = `${DERIV}/ieeg/sub-P077_space-T1w_electrodes.tsv`;
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'snap-electrode');
+    const edited = pointNamed(h, 'A01').position;
+    expect(h.store.getState().moduleDirty[SEEG]).toBe(true);
+
+    h.fs.files.set(NEXT, phantomTable(0.2));
+    h.controller.open([{ name: 'next', path: NEXT, source: { kind: 'path', path: NEXT } }]);
+    await until(() => h.store.getState().dialog === 'confirm', 'the discard question');
+    // Three buttons, because the manifest declares a `save` command: Save… / Discard / Cancel.
+    expect(h.store.getState().confirm?.buttons).toHaveLength(3);
+
+    h.controller.resolveConfirm(2); // Cancel
+    await until(() => h.store.getState().dialog === 'none', 'the dialog to close');
+    // The edits are still there, and the table that was refused was not opened as a mesh either:
+    // the reader claimed it, so `runOne` stopped rather than toasting "unsupported".
+    expect(pointNamed(h, 'A01').position).toEqual(edited);
+    expect(h.store.getState().moduleDirty[SEEG]).toBe(true);
+    expect(h.store.getState().toasts.some((t) => /unsupported/i.test(t.detail ?? ''))).toBe(false);
+  });
+
+  it('opens the next table once the guard is answered with Discard', async () => {
+    const NEXT = `${DERIV}/ieeg/sub-P077_space-T1w_electrodes.tsv`;
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'snap-electrode');
+
+    h.fs.files.set(NEXT, phantomTable(0.2));
+    h.controller.open([{ name: 'next', path: NEXT, source: { kind: 'path', path: NEXT } }]);
+    await until(() => h.store.getState().dialog === 'confirm', 'the discard question');
+    h.controller.resolveConfirm(1); // Discard
+    await until(
+      () => h.store.getState().moduleDirty[SEEG] !== true,
+      'the second table to be loaded'
+    );
+    expect(contactsLayer(h).points).toHaveLength(15);
+  });
+
+  /**
+   * A renumber is the one edit that rewires a table's `csc` / channel mapping, and it moves nothing
+   * — so a diff keyed on position alone reported `added: 0, edited: 0` and no rows at all for it.
+   */
+  it('names every contact a renumber renamed, old name beside new', async () => {
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'renumber');
+    // The panel's own counter agrees: a renumber is a change, not "0 changed" beside a dirty dot.
+    expect(h.store.getState().moduleStatus[SEEG]).toContain('edited');
+
+    h.fs.savePath = TSV;
+    await h.controller.moduleCommand(SEEG, 'save-as');
+    const log = JSON.parse(h.fs.writes.at(-1)?.text ?? '{}') as {
+      renamed: number;
+      edited: number;
+      contacts: { name: string; change: string; renamed_from?: string }[];
+    };
+    // The phantom's A is numbered from the entry, so Renumber reverses all six names.
+    expect(log.renamed).toBe(6);
+    expect(log.edited).toBe(0);
+    const renamed = log.contacts.filter((c) => c.change === 'renamed');
+    expect(renamed).toHaveLength(6);
+    expect(renamed.find((c) => c.name === 'A06')?.renamed_from).toBe('A01');
+  });
+
+  /**
+   * §13.2 calls leaving the slot non-destructive *because* the module restores through its block —
+   * which was true of everything except the deletions, the one edit the layer cannot carry.
+   */
+  it('remembers the contacts it deleted across a trip through the block', async () => {
+    const h = await loadSubject();
+    for (const name of ['A03', 'A04']) {
+      const target = pointNamed(h, name);
+      h.engine.setPointSelection({ layerId: contactsLayer(h).id, pointId: target.id });
+      await h.controller.moduleCommand(SEEG, 'delete');
+    }
+    expect(contactsLayer(h).points).toHaveLength(13);
+
+    h.controller.deactivateModule();
+    expect(await h.controller.activateModule(SEEG)).toBe(true);
+    expect(contactsLayer(h).points).toHaveLength(13);
+
+    h.fs.savePath = TSV;
+    await h.controller.moduleCommand(SEEG, 'save-as');
+    const log = JSON.parse(h.fs.writes.at(-1)?.text ?? '{}') as {
+      deleted: number;
+      contacts: { name: string; change: string }[];
+    };
+    expect(log.deleted).toBe(2);
+    expect(log.contacts.filter((c) => c.change === 'deleted').map((c) => c.name)).toEqual([
+      'A03',
+      'A04',
+    ]);
+
+    // …and Revert can still keep the promise its own toast makes.
+    await h.controller.moduleCommand(SEEG, 'revert');
+    expect(contactsLayer(h).points).toHaveLength(15);
   });
 });
 
@@ -578,6 +846,92 @@ describe('operations (§13.6)', () => {
     })) as { path: string; editlog: string };
     expect(saved.path).toBe(TSV);
     expect(saved.editlog).toBe(`${DERIV}/ieeg/sub-P076_space-T1w_electrodes_editlog.json`);
+  });
+
+  /**
+   * The `ct` a job **named** beats the volume the name heuristic would have guessed.
+   *
+   * A pre-op CT beside a post-implant one is the ordinary sEEG scene and both basenames say "ct", so
+   * `chooseVolume`'s "the first volume whose name contains a standalone ct" answers the pre-op one —
+   * the volume with no electrodes in it. Everything downstream rides on that binding: the layer's
+   * carrier, the 150 HU display preset, and every `peakCentroid` a snap takes.
+   */
+  it('binds the CT the load operation named, not the first volume that looks like one', async () => {
+    const PREOP = `${DERIV}/ct/sub-P076_acq-preop_space-T1w_ct.nii.gz`;
+    const TABLE = `${DERIV}/ieeg/sub-P076_desc-job_electrodes.tsv`;
+    const h = harness({ [PREOP]: 'a volume', [CT]: 'a volume', [TABLE]: phantomTable() });
+    // `scene.files` order: the pre-op CT lands first, exactly as a job listing it first would.
+    h.controller.open([
+      { name: 'preop', path: PREOP, source: { kind: 'path', path: PREOP } },
+      { name: 'bone', path: CT, source: { kind: 'path', path: CT } },
+    ]);
+    await until(() => h.store.getState().datasets.length === 2, 'both CTs');
+    expect(await h.controller.activateModule(SEEG)).toBe(true);
+
+    const result = await h.controller
+      .moduleInstance()
+      ?.runOperation?.('load', { ct: CT, tsv: TABLE });
+    expect(result).toMatchObject({ contacts: 15, bound: true });
+
+    const bone = h.store.getState().datasets.find((d) => d.path === CT);
+    const preop = h.store.getState().datasets.find((d) => d.path === PREOP);
+    expect(bone?.id).not.toBe(preop?.id);
+    expect(contactsLayer(h).datasetId).toBe(bone?.id);
+    // …and the display preset went to the CT that was named, not to the other one.
+    const volumeOn = (datasetId?: string): { threshold?: { lo: number } } | undefined =>
+      h.store.getState().layers.find((l) => l.kind === 'volume' && l.datasetId === datasetId) as
+        { threshold?: { lo: number } } | undefined;
+    expect(volumeOn(bone?.id)?.threshold?.lo).toBe(150);
+    expect(volumeOn(preop?.id)?.threshold?.lo).not.toBe(150);
+  });
+
+  /**
+   * The three appended 2026-08-30, and the workflow that made them necessary.
+   *
+   * `tip: 'auto'` is a heuristic, `renumber` applies whatever the tip currently is, and a job had no
+   * way to say "the other end" — so a headless load → renumber → save on a shaft the heuristic read
+   * backwards numbered it tip-last with no remedy at all. That is the automation-only gap §13.6
+   * says cannot exist, on the very workflow this module was written for.
+   */
+  it('flips a tip, reverts and deletes from a job, exactly as the panel does', async () => {
+    const h = await loadSubject();
+    const instance = h.controller.moduleInstance();
+    const nameOf = (id: string): string =>
+      (contactsLayer(h).points ?? []).find((p) => p.id === id)?.name ?? '';
+
+    // The phantom's A is numbered from the entry, so the heuristic renumbers it in reverse …
+    await instance?.runOperation?.('renumber', { electrode: 'A' });
+    expect(nameOf('c1')).toBe('A06');
+    // … and the flip is the remedy a panel user has with `t`, now available to a job file.
+    expect(await instance?.runOperation?.('flip-tip', { electrode: 'A' })).toEqual({
+      electrodes: [{ electrode: 'A', tip: expect.stringMatching(/^(low|high)$/) as unknown }],
+    });
+    await instance?.runOperation?.('renumber', { electrode: 'A' });
+    expect(nameOf('c1')).toBe('A01');
+
+    // Named, never "the selected one" — a job has no selection.
+    expect(await instance?.runOperation?.('delete', { contact: 'A03' })).toEqual({
+      deleted: 'A03',
+      contacts: 14,
+    });
+    expect(contactsLayer(h).points).toHaveLength(14);
+
+    // Revert brings the deletion back and puts every position where the table had it.
+    expect(await instance?.runOperation?.('revert', {})).toEqual({ contacts: 15, restored: 1 });
+    expect(contactsLayer(h).points).toHaveLength(15);
+  });
+
+  it('flips every electrode when the job names none, and refuses a contact it has not got', async () => {
+    const h = await loadSubject();
+    const instance = h.controller.moduleInstance();
+    const flipped = (await instance?.runOperation?.('flip-tip', {})) as {
+      electrodes: { electrode: string }[];
+    };
+    expect(flipped.electrodes.map((e) => e.electrode)).toEqual(['A', 'B', 'C']);
+    await expect(instance?.runOperation?.('delete', { contact: 'Z99' })).rejects.toThrow(
+      /no contact called/
+    );
+    await expect(instance?.runOperation?.('delete', {})).rejects.toThrow(/needs a `contact`/);
   });
 
   it('refuses an operation it does not have, and a bad snap scope', async () => {

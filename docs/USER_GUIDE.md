@@ -421,7 +421,10 @@ things happen, in this order:
    `edited` (moved by more than 0.001 mm) or `added`; a row that has not moved keeps whatever status the
    localiser gave it, so `located` and `gapfilled` survive;
 3. `<stem>_editlog.json` is written beside it, recording what changed — counts, and one entry per
-   contact added, moved or deleted, with where it was and where it is now.
+   contact added, moved, **renamed** or deleted, with where it was and where it is now. Renumber and
+   Re-fit relabel contacts that may not have moved at all, and those entries carry the name the table
+   had (`renamed_from`) beside the name it has now: relabelling is the one edit that changes how the
+   `csc` column maps onto your recording system, so an editlog silent about it would be lying.
 
 That editlog name matters: `seegprep` looks for `*_electrodes_editlog.json` in the subject's `ieeg/`
 directory and **refuses to re-run over a hand-edited subject unless you pass `--force`**. If you save
@@ -447,7 +450,10 @@ writing a table in which everything looks new.
 ### From a job file
 
 Every button is also a job-file operation, so a batch can do what the panel does — `load`, `snap`,
-`refit`, `renumber`, `ghost`, `stats` and `save`. See [Automation]({{ site.baseurl }}/AUTOMATION.html).
+`refit`, `renumber`, `flip-tip`, `revert`, `delete`, `ghost`, `stats` and `save`. `flip-tip` matters more
+than it looks: which end of a shaft is contact 1 comes from a heuristic, `renumber` applies whatever the
+tip currently is, and this is how a batch corrects the shaft the heuristic read backwards — the same thing
+`t` does in the panel. See [Automation]({{ site.baseurl }}/AUTOMATION.html).
 
 
 ## Coordinates

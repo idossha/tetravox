@@ -87,7 +87,7 @@ import {
   tipReference,
 } from './shaft';
 import type { SeegBlock, SeegBlockSource } from './block';
-import { fromBlock, mergeBlockIntoSet, shrinkBlock, toBlock } from './block';
+import { contactFromDeleted, fromBlock, mergeBlockIntoSet, shrinkBlock, toBlock } from './block';
 import {
   baseNameOf,
   bundleOf,
@@ -205,7 +205,6 @@ export function createModel(host: ModuleHost): SeegModel {
   let ghost = true;
   let electrode: string | null = null;
   let selectedId: string | null = null;
-  let placing = false;
   let source: SeegBlockSource | null = null;
   let savePath: string | null = null;
   let saveSiblings: Record<string, string> = {};
@@ -221,12 +220,41 @@ export function createModel(host: ModuleHost): SeegModel {
   let t1Path: string | null = null;
   let pendingTsv: string | null = null;
   let isDirty = false;
+  /** Whether the module wants the point tool on its layer at all. */
   let armed = false;
+  /** The mode {@link ensureArmed} restores. The **engine** owns which mode is live; this is intent. */
+  let wantMode: 'select' | 'place' = 'select';
+  /** The layer the tool was last armed against — how a `cleared` event says who cleared it. */
+  let armedLayerId: LayerId | null = null;
+  /** Set while this module is the one taking the tool away, so its own `cleared` is not a surprise. */
+  let selfCleared = false;
+  /**
+   * The layer a `cleared` this module did not ask for took the tool off, until a `layers` event says
+   * why. See {@link reconcileTool} — the store's layer list lags the engine by one event, so the
+   * question "did my layer survive?" cannot be answered inside the `cleared` handler itself.
+   */
+  let clearedFrom: LayerId | null = null;
   let dragBase: Snapshot | null = null;
   const operations = {
     refit: new Set<string>(),
     renumbered: new Set<string>(),
     snapped: new Set<string>(),
+  };
+
+  /**
+   * Forget which electrodes this session's operations touched — **per table, not per window**.
+   *
+   * The three sets are keyed by electrode *name*, and anatomical naming means sub-02's shafts are
+   * usually called what sub-01's were. So a snap-all on one subject followed by opening the next
+   * subject's table would write `snapped: true` beside every same-named electrode of a table the
+   * snap never ran on, in the sidecar the module's own header calls "a contract with another
+   * program". The editlog's per-contact diff was always per table (`set` and `deleted` are replaced
+   * on load); this is what makes the per-electrode flags agree with it.
+   */
+  const forgetOperations = (): void => {
+    operations.refit.clear();
+    operations.renumbered.clear();
+    operations.snapped.clear();
   };
 
   const listeners = new Set<() => void>();
@@ -311,7 +339,7 @@ export function createModel(host: ModuleHost): SeegModel {
    * §13.2's 256 KiB cap. The host throws for an oversized block; two fallbacks, then a warning.
    */
   const writeBlock = (): void => {
-    const input = { set, source, snapRadiusMm, namePad, ghost };
+    const input = { set, deleted, source, snapRadiusMm, namePad, ghost };
     const attempts: SeegBlock[] = [
       toBlock(input),
       shrinkBlock(toBlock(input), 1),
@@ -343,20 +371,33 @@ export function createModel(host: ModuleHost): SeegModel {
     const changed = dirtyCount(set, deleted.length);
     const parts = [`sEEG ${set.contacts.length}`];
     if (changed > 0) parts.push(`${changed} edited`);
-    if (placing) parts.push('place');
+    if (placingNow()) parts.push('place');
     host.ui.status(parts.join(' · ').slice(0, 40));
   };
 
   // ---- the point tool ----------------------------------------------------------------------------
 
+  /**
+   * Whether the **engine** is in place mode — the only honest answer to "is the Add button pressed?".
+   *
+   * The engine's Esc grammar is place → select → off (§4.7) and the first step emits no event, so a
+   * module flag mirroring it goes stale the moment a user presses Escape once: the button would read
+   * pressed while every click selected instead of placed. Reading the engine cannot go stale; what
+   * it costs is that the panel re-renders on the next event rather than on the key press itself,
+   * because there is no event to render on.
+   */
+  const placingNow = (): boolean => host.tool.pointTool()?.mode === 'place';
+
   const arm = (mode: 'select' | 'place'): void => {
     const layer = layerOf();
     if (layer === null) return;
+    armed = true;
+    wantMode = mode;
+    armedLayerId = layer.id;
     const current = host.tool.pointTool();
     if (current?.layerId === layer.id && current.mode === mode) return;
     const group = electrode ?? set.groups[0]?.name ?? 'E';
     const color = set.groups.find((g) => g.name === group)?.color ?? paletteColor(0);
-    armed = true;
     host.tool.setPointTool({
       layerId: layer.id,
       mode,
@@ -364,10 +405,43 @@ export function createModel(host: ModuleHost): SeegModel {
     });
   };
 
+  /** Stop wanting the tool. The `cleared` this provokes is the module's own, not the user's. */
   const disarm = (): void => {
     armed = false;
-    placing = false;
-    if (host.tool.pointTool() !== null) host.tool.setPointTool(null);
+    wantMode = 'select';
+    armedLayerId = null;
+    if (host.tool.pointTool() === null) return;
+    selfCleared = true;
+    try {
+      host.tool.setPointTool(null);
+    } finally {
+      selfCleared = false;
+    }
+  };
+
+  /**
+   * What a `cleared` the module did not ask for turned out to mean, decided against the layer list.
+   *
+   * Run from the `layers` subscription, because that is the first moment the store agrees with the
+   * engine about which layers exist. The module's layer being **still there** means the user pressed
+   * Esc: the tool stays away until `a` or a load arms it again. The layer having been **replaced**
+   * means `Engine.load` or a layer removal took it, which is not a request to stop, so the tool
+   * comes back against whatever layer this module owns now. Owning no layer at all is the window
+   * between a scene load's disarm and its restored layer — keep waiting rather than guess.
+   */
+  const reconcileTool = (): void => {
+    if (armed) {
+      ensureArmed();
+      return;
+    }
+    if (clearedFrom === null) return;
+    const layer = ownedLayer();
+    if (layer === null) return;
+    const survived = layer.id === clearedFrom;
+    clearedFrom = null;
+    if (survived) return;
+    layerId = layer.id;
+    arm('select');
   };
 
   /** Re-arm after the engine cleared the tool — `Engine.load` does, and so does removing the layer. */
@@ -377,7 +451,7 @@ export function createModel(host: ModuleHost): SeegModel {
     if (layer === null) return;
     layerId = layer.id;
     if (host.tool.pointTool()?.layerId === layer.id) return;
-    arm(placing ? 'place' : 'select');
+    arm(wantMode);
   };
 
   // ---- building the layer -------------------------------------------------------------------------
@@ -447,7 +521,23 @@ export function createModel(host: ModuleHost): SeegModel {
     const dataset = host.scene.datasets().find((d) => d.id === datasetId);
     if (dataset === undefined) return;
     const stem = tsvPath === null ? (subjectOf(dataset.name) ?? '') : stemOf(baseNameOf(tsvPath));
-    const existing = layerOf() ?? ownedLayer();
+    let existing = layerOf() ?? ownedLayer();
+    // A layer hanging off a *different* volume than the one now bound — a job's `load` naming a
+    // second CT after an interactive session bound the first — is rebuilt rather than patched:
+    // `LayerBase.datasetId` is the carrier the renderable was built for, so the contacts would be
+    // drawn against one volume and snapped against another. Removing it disarms the point tool;
+    // the `armed`/`ensureArmed` pair at the end of this function is what puts it back.
+    if (existing !== null && existing.datasetId !== dataset.id) {
+      selfCleared = true;
+      try {
+        host.scene.removeLayer(existing.id);
+      } finally {
+        selfCleared = false;
+      }
+      layerId = null;
+      armedLayerId = null;
+      existing = null;
+    }
     if (existing !== null) {
       layerId = existing.id;
       host.scene.updateLayer<PointsLayer>(existing.id, {
@@ -479,6 +569,10 @@ export function createModel(host: ModuleHost): SeegModel {
     return true;
   };
 
+  /** Whether {@link datasetId} still names a dataset the scene has. */
+  const stillBound = (): boolean =>
+    datasetId !== null && host.scene.datasets().some((d) => d.id === datasetId);
+
   const applyTable = (path: string, text: string): boolean => {
     let parsed;
     try {
@@ -502,6 +596,13 @@ export function createModel(host: ModuleHost): SeegModel {
     saveSiblings = {};
     electrode = set.groups[0]?.name ?? null;
     selectedId = null;
+    // Everything the *previous* table's session recorded goes with it: the per-electrode operation
+    // flags (see {@link forgetOperations}), the "hand-edited on …" banner, which belongs to the
+    // editlog beside the table that was open, and the T1 — the block's `source.t1` is provenance
+    // for *this* table, and a `load` operation that names one calls `showT1` right after this.
+    forgetOperations();
+    banner = null;
+    t1Path = null;
     source = {
       tsv: path,
       coordsystem: null,
@@ -513,7 +614,14 @@ export function createModel(host: ModuleHost): SeegModel {
     warning = seegprepWarning(path);
     for (const note of result.warnings.slice(0, 3)) host.ui.toast('warn', note);
 
-    if (!bindVolume()) {
+    // **A CT that was named beats a CT that was guessed.** `runOperation('load')` resolves the job's
+    // `ct` argument to a dataset before calling this; re-running the name heuristic here would throw
+    // that away and bind whichever volume matches `/ct/` first, which in the ordinary sEEG scene —
+    // a pre-op CT and a post-implant one — is the wrong volume, and everything downstream (the
+    // layer's carrier, the 150 HU preset, every `peakCentroid` a snap takes) would be computed on
+    // it while the result still reported `bound: true`. Only re-bind when nothing is bound, or when
+    // what was bound has since been closed.
+    if (!stillBound() && !bindVolume()) {
       pendingTsv = path;
       message = 'Open the CT this table was localised on to edit it.';
       markDirty(false);
@@ -583,7 +691,11 @@ export function createModel(host: ModuleHost): SeegModel {
   };
 
   const view = (): SeegView => {
-    if (cached !== null) return cached;
+    // `placing` is read off the engine, which changes it without an event (Esc's place → select
+    // step), so the cache is invalidated by comparing rather than only by `notify`. It still returns
+    // the same object until something really changed, which is what `useSyncExternalStore` needs.
+    const placing = placingNow();
+    if (cached !== null && cached.placing === placing) return cached;
     const rows = rowsOf();
     cached = {
       ready: layerId !== null && set.contacts.length > 0,
@@ -699,17 +811,43 @@ export function createModel(host: ModuleHost): SeegModel {
     notify();
   };
 
-  const doDelete = (id: string): void => {
+  /** The contact a job named, by the name in the table or by the id the block keys on. */
+  const findContact = (wanted: string): Contact | null =>
+    set.contacts.find((c) => c.name === wanted || c.id === wanted) ?? null;
+
+  const doDelete = (id: string): Contact | null => {
     const contact = set.contacts.find((c) => c.id === id);
-    if (contact === undefined) return;
+    if (contact === undefined) return null;
     const before = snapshot();
     set = { groups: set.groups, contacts: set.contacts.filter((c) => c.id !== id) };
     if (contact.original !== null) deleted = [...deleted, contact];
     if (selectedId === id) selectedId = null;
     commit(before);
+    return contact;
   };
 
-  const doRevert = (): void => {
+  /** Pin the other end of one electrode as contact 1. Answers the end that is now the tip. */
+  const doFlipTip = (group: string): 'low' | 'high' | null => {
+    const spec = set.groups.find((g) => g.name === group);
+    if (spec === undefined) return null;
+    const contacts = contactsOf(set, group);
+    if (contacts.length === 0) return null;
+    const tip = flippedTip(
+      spec,
+      contacts.map((c) => c.position),
+      reference()
+    );
+    set = {
+      contacts: set.contacts,
+      groups: set.groups.map((g) => (g.name === group ? { ...g, tip } : g)),
+    };
+    writeBlock();
+    markDirty(true);
+    // `tip` is only ever `'low'` or `'high'` here: `flippedTip` resolves `'auto'` before flipping it.
+    return tip === 'auto' ? null : tip;
+  };
+
+  const doRevert = (): { contacts: number; restored: number } => {
     const before = snapshot();
     const restored = deleted;
     set = {
@@ -724,7 +862,7 @@ export function createModel(host: ModuleHost): SeegModel {
     deleted = [];
     selectedId = null;
     commit(before);
-    host.ui.toast('info', 'Every contact is back where the table put it.');
+    return { contacts: set.contacts.length, restored: restored.length };
   };
 
   const doUndo = (): void => {
@@ -808,7 +946,31 @@ export function createModel(host: ModuleHost): SeegModel {
     return writeFiles(savePath, saveSiblings);
   };
 
+  /**
+   * §13.3's discard guard, asked by the module for the one destructive route the shell cannot see.
+   *
+   * `openThroughModule` guards the reader route, but the panel's own Open… sheet never leaves the
+   * module, and `applyTable` replaces the set and clears the history. Same three buttons and the
+   * same order as `confirmDiscardModuleEdits`, because a user who has answered one of these should
+   * not have to read the other: Save… first, then Discard, and Cancel last.
+   */
+  const confirmDiscard = async (what: string): Promise<boolean> => {
+    if (!isDirty) return true;
+    const answer = await host.ui.confirm(`Discard unsaved sEEG contacts edits?`, `${what}.`, [
+      'Save…',
+      'Discard',
+      'Cancel',
+    ]);
+    if (answer === 0) {
+      await doSave();
+      // A save that did not clear the flag has not saved; do not proceed on its behalf.
+      return !isDirty;
+    }
+    return answer === 1;
+  };
+
   const doLoadDialog = async (): Promise<void> => {
+    if (!(await confirmDiscard('Opening another table will close them without saving'))) return;
     const paths = await host.files.openDialog('electrodes');
     const path = paths?.[0];
     if (path === undefined) return;
@@ -908,9 +1070,28 @@ export function createModel(host: ModuleHost): SeegModel {
       case 'cleared': {
         selectedId = null;
         dragBase = null;
-        // The engine disarms at the start of `Engine.load` and when the layer goes; re-arm against
-        // whatever layer this module owns once one exists again.
-        ensureArmed();
+        // **Why the tool was cleared decides what to do about it**, and the module can tell the
+        // three cases apart:
+        //
+        //  * *this module* asked (`disarm`, or removing its own layer) — nothing to undo;
+        //  * the **user** pressed Esc. The engine's grammar is place → select → off (§4.7) and the
+        //    layer it was armed against is still there. Re-arming here is what made Escape cycle
+        //    place → select → place for ever, so every click kept dropping a contact;
+        //  * the **engine** took the layer away — `Engine.load` disarms at its start, and so does
+        //    removing the tool's layer. Then the layer this was armed against is gone, and staying
+        //    armed is how the module comes back against the layer a scene load restores.
+        if (selfCleared) {
+          notify();
+          return;
+        }
+        // Disarm now and decide later: `host.scene.layers()` is the store's projection and it is
+        // written by the `layers` event that *follows* this one, so asking it here would answer
+        // about the scene as it was a moment ago. {@link reconcileTool} answers when it can.
+        armed = false;
+        wantMode = 'select';
+        clearedFrom = armedLayerId;
+        armedLayerId = null;
+        syncStatus();
         notify();
         return;
       }
@@ -925,7 +1106,7 @@ export function createModel(host: ModuleHost): SeegModel {
   host.subscribe(
     host.scene.on('layers', () => {
       adoptLayerPositions();
-      ensureArmed();
+      reconcileTool();
     })
   );
   host.subscribe(
@@ -950,6 +1131,7 @@ export function createModel(host: ModuleHost): SeegModel {
       set = emptySet();
       deleted = [];
       history.clear();
+      forgetOperations();
       layerId = null;
       datasetId = null;
       tsvPath = null;
@@ -963,7 +1145,9 @@ export function createModel(host: ModuleHost): SeegModel {
       electrode = null;
       selectedId = null;
       armed = false;
-      placing = false;
+      wantMode = 'select';
+      armedLayerId = null;
+      clearedFrom = null;
       markDirty(false);
     })
   );
@@ -973,9 +1157,10 @@ export function createModel(host: ModuleHost): SeegModel {
   const run = async (command: string): Promise<void> => {
     switch (command) {
       case 'add': {
-        placing = !placing;
-        if (placing) arm('place');
-        else arm('select');
+        // The engine's mode is the truth about what a click does, so the toggle asks it rather than
+        // a flag of its own: after an Escape the button and the engine cannot disagree about which
+        // way this press goes.
+        arm(placingNow() ? 'select' : 'place');
         syncStatus();
         notify();
         return;
@@ -1045,20 +1230,7 @@ export function createModel(host: ModuleHost): SeegModel {
       }
       case 'flip-tip': {
         if (electrode === null) return;
-        const group = set.groups.find((g) => g.name === electrode);
-        if (group === undefined) return;
-        const contacts = contactsOf(set, electrode);
-        const tip = flippedTip(
-          group,
-          contacts.map((c) => c.position),
-          reference()
-        );
-        set = {
-          contacts: set.contacts,
-          groups: set.groups.map((g) => (g.name === electrode ? { ...g, tip } : g)),
-        };
-        writeBlock();
-        notify();
+        if (doFlipTip(electrode) === null) return;
         host.ui.toast(
           'info',
           `The other end of ${electrode} is now the tip. Renumber to apply it to the names.`
@@ -1100,8 +1272,11 @@ export function createModel(host: ModuleHost): SeegModel {
         }
         return;
       }
-      case 'revert':
-        return doRevert();
+      case 'revert': {
+        doRevert();
+        host.ui.toast('info', 'Every contact is back where the table put it.');
+        return;
+      }
       default:
         host.ui.toast('warn', `sEEG has no command "${command}"`);
     }
@@ -1197,6 +1372,31 @@ export function createModel(host: ModuleHost): SeegModel {
       }
       case 'stats':
         return { electrodes: allShaftStats(set) };
+      // The three appended 2026-08-30. Each is a deterministic edit to a **named** electrode or
+      // contact — no pointer, no dialog, no confirmation — so §13.6's "every panel action is also an
+      // operation" is true of them and a headless run has the remedies a person has. The motivating
+      // one is `flip-tip`: `tip: 'auto'` is a heuristic this module's own DECISIONS entry concedes
+      // an occipital shaft can defeat, and without it a job could only renumber tip-last and live
+      // with it.
+      case 'flip-tip': {
+        const wanted = args['electrode'];
+        // Every electrode when none is named — the shape `refit` and `renumber` already read.
+        const groups = typeof wanted === 'string' ? [wanted] : set.groups.map((g) => g.name);
+        const electrodes = groups
+          .map((group) => ({ electrode: group, tip: doFlipTip(group) }))
+          .filter((r): r is { electrode: string; tip: 'low' | 'high' } => r.tip !== null);
+        return { electrodes };
+      }
+      case 'revert':
+        return doRevert();
+      case 'delete': {
+        const wanted = String(args['contact'] ?? '');
+        if (wanted === '') throw new ModuleHostError('delete needs a `contact` name');
+        const found = findContact(wanted);
+        if (found === null) throw new ModuleHostError(`no contact called "${wanted}"`);
+        doDelete(found.id);
+        return { deleted: found.name, contacts: set.contacts.length };
+      }
       case 'save': {
         const out = String(args['out'] ?? '');
         if (out === '') throw new ModuleHostError('save needs an `out` name');
@@ -1332,8 +1532,15 @@ export function createModel(host: ModuleHost): SeegModel {
       ghost = data?.ghost ?? true;
       electrode = set.groups[0]?.name ?? null;
       selectedId = null;
-      deleted = [];
+      // The deletions come back with the block: the layer cannot carry them — a deleted contact is
+      // simply not a point any more — so without this the editlog written after a scene round trip
+      // would report `deleted: 0` beside a table that is missing the rows, and Revert would quietly
+      // stop being able to put them back.
+      deleted = (data?.deleted ?? []).map(contactFromDeleted);
       history.clear();
+      // The operations that ran before this scene was written are the file's history, not this
+      // session's: what a save writes now is what happened to *this* restored table.
+      forgetOperations();
       warning = tsvPath === null ? null : seegprepWarning(tsvPath);
       if (namePad === 0) namePad = namePadOf(set.contacts.map((c) => c.name));
 
@@ -1364,7 +1571,7 @@ export function createModel(host: ModuleHost): SeegModel {
 
     setElectrode(name) {
       electrode = name;
-      if (placing) arm('place');
+      if (placingNow()) arm('place');
       notify();
     },
 

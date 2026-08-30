@@ -2653,10 +2653,15 @@ filename. `docs/USER_GUIDE.md` is the user-facing half.
 **Asking before losing work.** `DialogKind` carries a `confirm` case: a promise-resolving question with two
 or three buttons, raised by the module host (`host.ui.confirm`, §13.1) and by the shell's own discard guard.
 The **last** button is always the cancelling one, so Escape and a backdrop click — which `DialogFrame` already
-routes to `onCancel` — are the same answer as pressing it. The guard runs at five places where work would
+routes to `onCancel` — are the same answer as pressing it. The guard runs at every place where work would
 otherwise be thrown away without a word: **New**, opening a scene (which is also File ▸ Open Recent and the
-drop route, since all three arrive at `openScenePath`), and a layer row's **✕**, which closes the dataset a
-module's layers hang off. It is keyed on `UiState.moduleDirty`, **never** on `sceneDirty`: `sceneDirty` is set
+drop route, since all three arrive at `openScenePath`), a layer row's **✕**, which closes the dataset a
+module's layers hang off, and **opening another file a module claims** — a module's `openPath` replaces what
+it is editing and clears its own history, so the reader route (§13.1's `onReader`) is as destructive as New
+and asks the same question; cancelling there reports the path as *claimed*, because falling through to the
+ordinary dataset load would try an electrodes table as a mesh. A module's own Open sheet asks for itself,
+through `host.ui.confirm`, since the shell never sees that gesture. It is keyed on `UiState.moduleDirty`,
+**never** on `sceneDirty`: `sceneDirty` is set
 by any cursor click and is deliberately conservative, so it cannot mean "this work is unsaved". The window
 title's `•` is the OR of the two. `⌘S` saves the *scene*; while a module has unsaved work it also says so,
 because a module writes its own files from its own panel.
@@ -3124,7 +3129,10 @@ one of them. Three rules make it portable:
   module's own settings — not a second copy of the data.
 * **A block for a module this build does not have is carried through verbatim.** Opening a colleague's scene
   and re-saving it must not delete their work. A build that *does* have the module but is older reads the
-  block's `version` and decides for itself.
+  block's `version` and decides for itself. Verbatim is the **whole envelope**, not the four fields a given
+  build knows about: `sceneExtensions` validates `module` / `version` / `moduleVersion` and re-states them
+  over the block it was handed, so a fifth field a later host adds under §12.3's additive rule survives an
+  open and a re-save by the build that predates it rather than being stripped from every block in the file.
 
 The read side is strict about the envelope and tolerant about `data`: a block whose key and `module` field
 disagree, or whose `version` is not a number, is **dropped**, because handing a malformed block to
@@ -3261,6 +3269,18 @@ cannot answer a question.
 **Every panel action is also an operation.** That is what keeps §8's "there is no automation-only code path"
 literally true for modules: `ModuleInstance.runCommand` is what a button and a key call, `runOperation` is
 what a job calls, and a module that let them diverge would be shipping two products.
+
+Said precisely, because it is a rule a test enforces rather than an aspiration: **a command that changes the
+scene and needs neither a live pointer nor a dialog is an operation of the same id**, and its command and its
+operation call the same function. Four kinds of command are exempt, and only these four — one that arms a
+pointer mode (`add`), one that opens a file sheet (`save-as`), one that moves the session's own undo stack
+(`undo`, `redo`), and one that only moves the selection (`next`, `prev`) — plus a command that *is* another
+operation's argument (`snap-all` is `snap` with `scope: "all"`). `modules.test.ts` compares each manifest's
+commands-without-an-operation against a written list of exemptions **for equality**, so a scene-mutating
+command added without one fails the build until somebody writes the operation or writes down why there
+cannot be one. That is what closed the gap `tetravox.seeg` shipped with: `flip-tip`, `revert` and `delete`
+were panel-only, and a headless renumber of a shaft whose `tip: 'auto'` heuristic guessed wrong therefore had
+no remedy at all (DECISIONS, 2026-08-30).
 
 ### 13.7 The checklist for adding one
 

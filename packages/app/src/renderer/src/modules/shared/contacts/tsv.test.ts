@@ -214,6 +214,7 @@ describe('writeTable', () => {
       ordinal: 2,
       position: [1, 2, 3],
       original: null,
+      originalName: null,
       loadedStatus: null,
       extra: {},
     });
@@ -224,6 +225,44 @@ describe('writeTable', () => {
     expect(status(rows[3] as string)).toBe('added');
     // An added contact's unknown cells are BIDS's `n/a`, never an empty cell.
     expect((rows[3] as string).split('\t')[3]).toBe('n/a');
+  });
+
+  it('never writes `n/a` into a sibling column that also means the electrode', () => {
+    // `seegprep`'s canonical 17-column header carries BOTH `group` and `electrode`, and its reader
+    // is `r.get("group") or r.get("electrode")` — so the truthy string `n/a` in `group` beats the
+    // real label in `electrode`, and an added contact comes back detached into a phantom `n/a`
+    // group. Slicer wrote `''` there, which is falsy and falls through.
+    const parsed = parseTable(
+      'name\tgroup\telectrode\tcontact\tx\ty\tz\nLINS01\tLINS\tLINS\t1\t1\t2\t3\n'
+    );
+    const { set } = contactSetFrom(parsed);
+    set.contacts.push({
+      id: 'p1',
+      name: 'LINS02',
+      group: 'LINS',
+      ordinal: 2,
+      position: [4, 5, 6],
+      original: null,
+      originalName: null,
+      loadedStatus: null,
+      extra: {},
+    });
+    const rows = writeTable(set, parsed).trimEnd().split('\n');
+    const header = (rows[0] as string).split('\t');
+    const cell = (line: string, column: string): string =>
+      (line.split('\t')[header.indexOf(column)] ?? '') as string;
+    expect(cell(rows[2] as string, 'group')).toBe('LINS');
+    expect(cell(rows[2] as string, 'electrode')).toBe('LINS');
+    // The row the file really wrote is still written back exactly as it arrived.
+    expect(cell(rows[1] as string, 'group')).toBe('LINS');
+  });
+
+  it('leaves an aliased column the file really wrote alone, even when it is empty', () => {
+    const parsed = parseTable('name\tgroup\telectrode\tx\ty\tz\nA1\t\tLINS\t1\t2\t3\n');
+    const { set } = contactSetFrom(parsed);
+    // An empty cell is falsy to `seegprep`'s `or` and already falls through to `electrode`, so
+    // rewriting it would be a diff on a contact nobody touched.
+    expect((writeTable(set, parsed).trimEnd().split('\n')[1] as string).split('\t')[1]).toBe('');
   });
 
   it('keeps a cell the file really left empty, so an untouched row makes no diff', () => {

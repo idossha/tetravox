@@ -24,6 +24,7 @@ function contact(id: string, group: string, position: vec3): Contact {
     ordinal: 1,
     position,
     original: [...position] as vec3,
+    originalName: id,
     loadedStatus: null,
     extra: {},
   };

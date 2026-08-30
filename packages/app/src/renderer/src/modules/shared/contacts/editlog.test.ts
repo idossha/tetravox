@@ -7,21 +7,25 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { vec3 } from '@tetravox/engine';
 import type { Contact, ContactSet } from './model';
 import { buildEditlog, editlogDate, formatEditlog, EDITLOG_SCHEMA, utcSeconds } from './editlog';
 import { paletteColor } from './palette';
 
 function contact(partial: Partial<Contact> & Pick<Contact, 'id'>): Contact {
-  return {
+  const base = {
     name: 'A01',
     group: 'A',
     ordinal: 1,
-    position: [0, 0, 0],
-    original: [0, 0, 0],
+    position: [0, 0, 0] as vec3,
+    original: [0, 0, 0] as vec3 | null,
     loadedStatus: null,
     extra: {},
     ...partial,
   };
+  // A contact's loaded name is the name it has, unless a case below says a relabel changed it; a
+  // contact with no row behind it has none at all.
+  return { originalName: base.original === null ? null : base.name, ...base };
 }
 
 const SET: ContactSet = {
@@ -94,6 +98,79 @@ describe('buildEditlog', () => {
 
   it('says nothing about a contact that did not move', () => {
     expect(log.contacts.some((c) => c.name === 'A01')).toBe(false);
+  });
+
+  /**
+   * A renumber rewrites every name on a shaft and moves nothing, and it is the one edit that
+   * rewires a table's `csc`/channel mapping — so an editlog silent about it answers "was this
+   * hand-edited?" with a no. `renamed` is a change of its own, with the name the table had beside
+   * the name it has now.
+   */
+  it('records a relabel that moved nothing, with the name the table had', () => {
+    const renumbered = buildEditlog({
+      set: {
+        contacts: [
+          contact({ id: 'c1', name: 'A06', ordinal: 6, originalName: 'A01' }),
+          contact({ id: 'c2', name: 'A05', ordinal: 5, originalName: 'A02' }),
+          contact({ id: 'c3', name: 'A03', ordinal: 3 }),
+        ],
+        groups: [{ name: 'A', color: paletteColor(0), tip: 'auto' }],
+      },
+      deleted: [],
+      sourceTsv: null,
+      outputTsv: '/data/out.tsv',
+      backup: null,
+      snapRadiusMm: 1.5,
+      tool: 't',
+      operations: {
+        refit: new Set<string>(),
+        renumbered: new Set(['A']),
+        snapped: new Set<string>(),
+      },
+    });
+    expect(renumbered.renamed).toBe(2);
+    expect(renumbered.edited).toBe(0);
+    expect(renumbered.kept).toBe(1);
+    expect(renumbered.contacts).toHaveLength(2);
+    expect(renumbered.contacts[0]).toEqual({
+      name: 'A06',
+      electrode: 'A',
+      contact: 6,
+      change: 'renamed',
+      renamed_from: 'A01',
+      to: [0, 0, 0],
+    });
+  });
+
+  it('folds a contact that both moved and was relabelled into one `edited` row', () => {
+    // A re-fit does both to the same contact; two rows for it would make the counts disagree with
+    // the entries beside them.
+    const both = buildEditlog({
+      set: {
+        contacts: [contact({ id: 'c1', name: 'A03', position: [2, 0, 0], originalName: 'A01' })],
+        groups: [{ name: 'A', color: paletteColor(0), tip: 'auto' }],
+      },
+      deleted: [],
+      sourceTsv: null,
+      outputTsv: '/data/out.tsv',
+      backup: null,
+      snapRadiusMm: 1.5,
+      tool: 't',
+      operations: {
+        refit: new Set(['A']),
+        renumbered: new Set<string>(),
+        snapped: new Set<string>(),
+      },
+    });
+    expect(both.edited).toBe(1);
+    expect(both.renamed).toBe(0);
+    expect(both.contacts).toHaveLength(1);
+    expect(both.contacts[0]).toMatchObject({ change: 'edited', renamed_from: 'A01', shift_mm: 2 });
+  });
+
+  it('never calls an added contact renamed — it had no name in the file', () => {
+    expect(log.contacts.find((c) => c.name === 'A03')).not.toHaveProperty('renamed_from');
+    expect(log.renamed).toBe(0);
   });
 
   it('is two-space JSON with a trailing newline, like `json.dump(…, indent=2)`', () => {

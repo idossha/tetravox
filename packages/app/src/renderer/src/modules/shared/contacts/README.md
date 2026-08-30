@@ -12,7 +12,7 @@ between *any* contact editor and *this* kind of hardware is drawn, and why it is
 
 | File | What it owns |
 |---|---|
-| `model.ts` | `ContactSet` / `Contact` / `Group`, identity (`id`), provenance (`original`), `status`, name padding, group inference from a name |
+| `model.ts` | `ContactSet` / `Contact` / `Group`, identity (`id`), provenance (`original` and `originalName`), `status`, name padding, group inference from a name |
 | `tsv.ts` | the tolerant reader (delimiter, BOM, aliases, `R`/`A`/`S`, ragged rows, Slicer `.fcsv`) and the canonical BIDS writer, including Python-`repr` float formatting |
 | `editlog.ts` | the `<stem>_editlog.json` schema, its counts and its per-contact diff |
 | `geometry.ts` | PCA line fit (Jacobi), line RMS, spacing CV, median pitch, projection, even re-spacing, ordering along the line |

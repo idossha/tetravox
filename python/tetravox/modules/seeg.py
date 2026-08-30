@@ -6,6 +6,7 @@
     job = Job(files=[ct], preset="plain")
     seeg.load(job, ct=ct, tsv=tsv)
     seeg.snap(job, scope="all", radius_mm=1.5)
+    seeg.flip_tip(job, electrode="LOCC")
     seeg.refit(job)
     seeg.save(job, out="sub-01_space-T1w_electrodes.tsv")
 
@@ -143,6 +144,43 @@ def stats(job: Job) -> Job:
     renderer: a batch over twenty subjects that prints a table and produces no files at all.
     """
     return job.module(MODULE_ID, "stats")
+
+
+def flip_tip(job: Job, electrode: Optional[str] = None) -> Job:
+    """Pin the other end of a shaft as contact 1, without moving or renaming anything.
+
+    Which end is contact 1 comes from a heuristic — the end nearer the head's centre is the deeper
+    one — and an occipital shaft entering near the midline can defeat it. `renumber` applies whatever
+    the tip currently is, so this is the remedy for a shaft it read backwards, and it is the same
+    thing the panel's `t` does. Nothing changes on disk until you `renumber` after it.
+
+    Every electrode when `electrode` is omitted. Reports
+    `{"electrodes": [{"electrode", "tip": "low" | "high"}, ...]}`.
+    """
+    return job.module(MODULE_ID, "flip-tip", electrode=electrode)
+
+
+def revert(job: Job) -> Job:
+    """Put every contact back where the table had it, and bring back the ones deleted since.
+
+    The in-session undo of everything, for a job that decided its own edits were wrong — the `.bak`
+    a save writes is the on-disk one. Reports `{"contacts": n, "restored": n}`, where `restored`
+    counts the deletions that came back.
+    """
+    return job.module(MODULE_ID, "revert")
+
+
+def delete(job: Job, contact: str) -> Job:
+    """Remove one contact, named by the label the table gave it (`LINS01`).
+
+    Never "the selected one": a job has no selection. The deletion is recorded in the edit log a
+    later `save` writes, with the position the contact had. Reports `{"deleted", "contacts"}`, and
+    raises inside the app when no contact has that name — a job that deletes nothing silently is a
+    job whose output nobody can check.
+    """
+    if not isinstance(contact, str) or contact == "":
+        raise JobError("delete(contact=...) needs the name of a contact")
+    return job.module(MODULE_ID, "delete", contact=contact)
 
 
 def save(job: Job, out: str) -> Job:
