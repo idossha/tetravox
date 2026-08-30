@@ -17,10 +17,26 @@ TAG="SHA256"
 STORE="${TETRAVOX_SAMPLE_STORE:-$ROOT/data/sample-store}"
 
 if [ "${1:-}" = "--create" ]; then
-  gh repo create "$REPO" --public \
-    --description "Sample datasets for Tetravox — content-addressed release assets (see the Tetravox website's Sample data page)"
-  gh release create "$TAG" --repo "$REPO" --title "$TAG" \
-    --notes "Content-addressed sample files: every asset is named by its own sha256. What each one is — file name, sample, source, licence — is listed on https://idossha.github.io/tetravox/sample-data and in packages/app/src/shared/sample-catalog.json in the Tetravox repository."
+  # Every step is idempotent, so a run that stopped halfway can simply be repeated.
+  if ! gh repo view "$REPO" >/dev/null 2>&1; then
+    gh repo create "$REPO" --public \
+      --description "Sample datasets for Tetravox — content-addressed release assets (see the Tetravox website's Sample data page)"
+  fi
+  # GitHub refuses a release on a repository with no commits, so the README goes first.
+  # (`gh api …/commits` fails outright on an empty repository — that failure is the signal.)
+  if ! gh api "repos/$REPO/commits?per_page=1" >/dev/null 2>&1; then
+    tmp="$(mktemp -d)"
+    cp "$ROOT/scripts/sample-data/STORE-README.md" "$tmp/README.md"
+    git -C "$tmp" init -q -b main
+    git -C "$tmp" add README.md
+    git -C "$tmp" -c user.name="tetravox" -c user.email="noreply@tetravox" commit -qm "README"
+    git -C "$tmp" push -q "git@github.com:$REPO.git" main
+    rm -rf "$tmp"
+  fi
+  if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+    gh release create "$TAG" --repo "$REPO" --title "$TAG" \
+      --notes "Content-addressed sample files: every asset is named by its own sha256. What each one is — file name, sample, source, licence — is listed on https://idossha.github.io/tetravox/sample-data and in packages/app/src/shared/sample-catalog.json in the Tetravox repository."
+  fi
 fi
 
 existing="$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')"
