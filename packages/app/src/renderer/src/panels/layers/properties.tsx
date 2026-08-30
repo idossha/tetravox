@@ -15,6 +15,11 @@ import { IsoProperties, isoSummary } from './iso/IsoProperties';
 import { MeshProperties, meshSummary } from './mesh/MeshProperties';
 import { PointsProperties, pointsSummary } from './points/PointsProperties';
 import { VolumeProperties, volumeSummary } from './volume/VolumeProperties';
+// Modules (2026-08-30, §13.3). Appended per the shared-file rule: one branch before the registry
+// lookup, and no new entry in either record.
+import { ModuleLayerSummary } from '../../modules/ModuleLayerSummary';
+import { moduleOfLayer } from '../../modules/ownership';
+import { manifestFor } from '../../../../modules/manifests';
 
 export interface LayerPropertiesProps {
   layer: Layer;
@@ -45,8 +50,11 @@ const EDITOR: Record<Layer['kind'], Editor> = {
  * — shows its kind rather than nothing, which is what the panel did before the split.
  */
 export function layerSummary(dataset: Dataset | undefined, layer: Layer): string {
-  if (dataset === undefined) return layer.kind;
-  return SUMMARY[layer.kind](dataset, layer);
+  const base = dataset === undefined ? layer.kind : SUMMARY[layer.kind](dataset, layer);
+  // §13.3's badge: a module-owned layer says so on its own row, so "why does this one have no
+  // editor" is answered where the question is asked.
+  const owner = moduleOfLayer(layer);
+  return owner === null ? base : `${manifestFor(owner)?.title ?? owner} · ${base}`;
 }
 
 /** The per-kind editor, or nothing while every editor is Phase 2's. */
@@ -58,6 +66,9 @@ export function LayerProperties({
   dataset: Dataset | undefined;
 }): React.JSX.Element | null {
   if (dataset === undefined) return null;
+  // §13.3: a module-owned layer gets a read-only summary instead of the core editor. See
+  // `ModuleLayerSummary` for the three concrete defects the core points editor would cause on one.
+  if (moduleOfLayer(layer) !== null) return <ModuleLayerSummary layer={layer} />;
   const Editor = EDITOR[layer.kind];
   return <Editor layer={layer} dataset={dataset} />;
 }
