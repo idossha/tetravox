@@ -330,9 +330,41 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
         run: node scripts/check-frozen-docs.mjs --base "$BASE"
 
-      # INTEGRATION(P5): `node scripts/sync-module-docs.mjs --check` belongs in this job too — it is
-      # the same class of failure (the generated §2.7 table drifting from the validator) and the same
-      # cheap runner. P5 adds the script and the step together.
+      # The generated half of the same rule (§13.6): `docs/AUTOMATION.md` §2.7 is written from the
+      # module manifests, so a table that drifts from the manifest the job validator reads would tell
+      # a user a job is legal that the validator refuses. Same class of failure as the two above, and
+      # the same 20-second runner: node, a diff and two file reads.
+      - name: Self-test the module-docs generator
+        run: node --test scripts/sync-module-docs.test.mjs
+
+      - name: AUTOMATION.md §2.7 matches the manifests
+        run: node scripts/sync-module-docs.mjs --check
+
+  # The Python client's document tests (`docs/AUTOMATION.md` §3) — **the first Python step in this
+  # workflow**, and its own job for the docs guard's reasons rather than a step of `test`: it needs
+  # no pnpm install, no toolchain and no build, it is ~20 seconds, and putting it in `test` would run
+  # it a second time on the macOS leg at 10x the minutes for identical coverage.
+  #
+  # The client is standard library only (that is a design decision, not an omission — see
+  # `python/pyproject.toml`), so this installs nothing at all. `test_client.py`'s end-to-end half and
+  # `test_capture_examples.py` skip when there is no build and no data, which is the same
+  # skip-never-fail rule every real-data test in the repository follows: CI checks the documents a
+  # `Job` builds, which is the half that is the contract with `main/job.ts`.
+  python:
+    name: python
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Client document tests
+        run: python -m unittest discover -s python/tests --verbose
 
   # The §12.1 `package` matrix, now real (ROADMAP Phase 3). Each leg builds one slice with
   # electron-builder, runs the artefact smoke test §12.1 requires, and uploads the result as a

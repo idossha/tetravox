@@ -41,7 +41,20 @@ export type ModuleKey =
  * *relative to* `--out`. A trailing `?` is "optional"; everything without one is required.
  */
 export type ArgType =
-  'number' | 'number?' | 'string' | 'string?' | 'boolean' | 'boolean?' | 'vec3?' | 'path' | 'out';
+  | 'number'
+  | 'number?'
+  | 'string'
+  | 'string?'
+  | 'boolean'
+  | 'boolean?'
+  | 'vec3?'
+  | 'path'
+  // Appended 2026-08-30 with the job envelope (§13.6): an **optional** input path, which the sEEG
+  // `load` operation needs for the T1 it will use if it is given one. `string?` would have carried
+  // the same value and none of the meaning — only a `path` joins `jobInputPaths`, and a path a job
+  // named but main never allow-listed is a file the module is told about and cannot read.
+  | 'path?'
+  | 'out';
 
 /**
  * The same pool as a value, because the resolver and its tests both need to *enumerate* it.

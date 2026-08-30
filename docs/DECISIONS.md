@@ -3724,3 +3724,101 @@ a path rule that is right in one of two places is a path rule that will be wrong
 stricter reading won: a re-descent, a climb past the root, an empty segment and a backslash are all
 refused rather than normalised, because `../a/../../etc/passwd` normalises to something perfectly
 ordinary and this is the last place either a manifest's template or a filename on disk can be caught.
+
+## 2026-08-30 — the module job envelope: one action type, and the manifest is its schema
+
+**Decision.** A module operation reaches `--job` as `{ "type": "module", "module", "op", "args" }` and never
+as an action type of its own. The automation surface has two closed switches — `main/job.ts`'s
+`validateAction` and `automation/run.ts`'s `runAction` — and they are the whole cost of a job action; a
+module that wanted `{ "type": "seeg-snap" }` would make every module after it pay that cost again, in two
+files neither module owns. One envelope, edited once, and `modules.test.ts`'s rule that nothing
+module-specific appears in the shell survives into automation.
+
+**The manifest is the schema.** `module` is looked up in `MANIFESTS`, `op` in that manifest's `operations`,
+and `args` against the operation's own `ArgShape` — in **main**, before a window exists, which is what keeps
+§2.6's promise that every problem in a job file is reported at once with a path into the document. Nothing
+new was needed for that: `MANIFESTS` is the data-only barrel `module-io.ts` already imports, and a manifest
+that stopped being erasable data would break this validator first.
+
+**An undeclared `args` key is an error, and a `set`'s `patch` key is not.** The asymmetry is not an
+inconsistency: a `patch` is a `Partial<Layer>` that `updateLayer` merges and nothing here can enumerate,
+while an operation declares every argument it takes. So an undeclared argument is a typo, and a typo that is
+silently dropped is a job that appears to have run — the worst outcome available to an unattended render.
+
+**`path` and `out` are the two types that are about files, and they are opposites.** A `path` is an input and
+gets exactly what `scene.files` get, for the reason §5 directive A2 gives: `${VAR}` expanded, resolved
+against the job file, allow-listed before the window opens, and handed to the renderer already resolved. An
+`out` is a name under `--out`, held to the same `outName` rule every other output is, and admitted to that
+module's write list (§5 rule 11) together with the sibling templates its writers declare — the union of them,
+because an `out` names a file and a job has no vocabulary for "using the electrodes writer". That admission
+is the whole mechanism by which a module can save in a batch run: there is no Save sheet to open, and a
+second write path driven from main is what §5's write rule exists to prevent. It also means an `out` can
+never name the file the job read, so the first save in a fresh `--out` mints no `.bak` — there is nothing
+there to back up.
+
+**`ArgType` gains `path?`.** The sEEG `load` operation takes a T1 it will use if it is given one, and
+`string?` would have carried the same value with none of the meaning: only a `path` joins `jobInputPaths`,
+and a path a job named but main never allow-listed is a file the module is told about and cannot read.
+Additive, and absent reproduces the previous behaviour.
+
+**`JOB_SCHEMA_VERSION` does not move.** It is bumped when a required field appears or a default changes.
+An unknown action type was already rejected with a message naming the types that exist, so a job written
+before today behaves identically, and a job written today against an older build is refused rather than
+half-run. For the same reason `job-result.json` grows `modules: [{ id, version }]` **only when the run
+actually used a module**: a job that uses none produces the result file it produced before, byte for byte,
+and a client parsing it needs no version check to know what it is looking at. The list is main's answer
+rather than the renderer's, since main validated the actions against the manifests and already knows every
+module the run depends on — and a result naming the version that produced a figure is what makes the figure
+re-derivable a year later.
+
+**`validateJob` and the four helpers take the manifest list as a last argument, defaulted to `MANIFESTS`.**
+No shipped manifest declares every `ArgType`, so a validator driven only by what ships would have eight
+untested branches; the seam is the same one `shouldPromptOnClose` takes `env` for, and the tests still run
+the whole envelope against the real barrel through `tetravox.hello`'s `echo` so the default binding is
+proven and not assumed.
+
+## 2026-08-30 — AUTOMATION §2.7 is generated from the manifests, and CI grows its first Python step
+
+**Decision.** The table of module operations in `docs/AUTOMATION.md` is written by
+`scripts/sync-module-docs.mjs` from the manifests themselves, and `docs-guard` runs it with
+`--check`. A hand-written table would be a **second declaration** of the automation surface, and the
+two would agree exactly until somebody added an argument — at which point the documentation would be
+the thing telling a user their job was legal and the validator the thing refusing it. Generating it
+is how "the manifest is the schema" stays true of the documentation as well as of the code.
+
+**It imports each `<id>/manifest.ts`, not the `manifests.ts` barrel.** Node runs TypeScript by
+stripping the types, and a manifest's own imports are all `import type` and vanish with them — so a
+manifest file is a standalone ES module the moment the annotations are gone, which is the same
+property `modules.test.ts` already enforces for its own reasons. The barrel is not: it carries a real
+`import { helloManifest } from './hello/manifest'`, extensionless, which is a TypeScript convention
+Node's resolver does not implement. Type stripping is unflagged from Node 23.6 (CI's Node 24 and a
+local Node 25 both need nothing) and behind `--experimental-strip-types` from 22.6 to 23.5, so the
+script re-execs **itself** once with the flag if the import fails the way an older Node fails it —
+one retry, guarded by an environment variable, rather than a build step and a generated JSON file
+nobody would remember to regenerate.
+
+**The section is delimited by markdown, not by an HTML comment.** `<!-- BEGIN GENERATED -->` was the
+obvious marker and is the wrong one here: `website/scripts/sync.mjs` escapes every tag it does not
+recognise, so the marker would appear as visible text on the published page. The script instead owns
+everything from its `### 2.7` heading to the next heading **at that level or above**, or the next
+`---` rule. Both halves of that sentence are load-bearing and both were found by a failing test: a
+scan that stopped at any heading stopped at the first `####` of the section's own body and
+re-inserted the section in front of the tables it had just written, and a splice done on strings
+rather than on lines ate the blank line above the heading and then glued the heading to the
+paragraph above it. A generator whose first run looks right is exactly the kind that needs its own
+tests.
+
+**CI's first Python step, and its own job.** `python -m unittest discover -s python/tests` runs under
+`actions/setup-python`, pinned to 3.12, installing nothing: the client is standard library only, and
+that is a design decision rather than an omission (`python/pyproject.toml`). It is a separate job for
+the reasons `docs-guard` is one — no pnpm install, no toolchains, ~20 seconds — and specifically not
+a step of `test`, where it would run a second time on the macOS leg at 10x the minutes for identical
+coverage. The end-to-end halves (`test_client.py`'s example run, `test_capture_examples.py`) skip
+when there is no build and no data, exactly as every real-data test in the repository does; what CI
+gates is the **documents** a `Job` builds, which is the half that is the contract with
+`main/job.ts` — and the half whose other end `job.test.ts` asserts.
+
+This is the first non-JavaScript, non-Rust dependency in the workflow, and it is worth naming as a
+cost: the Python client has shipped untested by CI since it was written, its schema is the same
+schema the validator implements, and the two drifting is a class of bug no other test in the
+repository can see.

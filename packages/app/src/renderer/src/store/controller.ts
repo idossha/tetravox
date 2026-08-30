@@ -2685,6 +2685,23 @@ export class ShellController {
       await this.activateModule(registration.manifest.id);
     }
   }
+
+  // Automation (2026-08-30; ARCHITECTURE.md §13.6). Appended per the shared-file rule.
+
+  /**
+   * The active module's instance, or null — what a job's `{ type: 'module' }` action calls
+   * `runOperation` on (§13.6).
+   *
+   * The twin of {@link moduleHost}, and it is here for the same reason: `automation/run.ts` drives
+   * the module through the object this controller built, so a job runs the module the window
+   * actually has in its slot rather than a second copy it activated for itself. It is not a way for
+   * the shell to act *as* a module — what a job reaches through it is what a panel button already
+   * calls, `runCommand`'s twin, which is what keeps §8's "there is no automation-only code path"
+   * true for modules too.
+   */
+  moduleInstance(): ModuleInstance | null {
+    return this.moduleSession?.instance ?? null;
+  }
 }
 
 /** A filename-safe ISO timestamp: `:` and `.` are illegal or awkward on at least one platform. */

@@ -310,6 +310,45 @@ scenes shipped with **File ▸ Sample Data…** are produced (`scripts/sample-da
 files + a preset + a few `set`s + `save-scene`), so their numbers come from the data, not from a
 keyboard.
 
+#### `module` — run a module's operation
+
+A **module** ([§13]({{ site.baseurl }}/ARCHITECTURE.html)) is a first-party tool with its own panel,
+keys and files; the sEEG contact editor is the first. Every button in its panel is also an
+*operation*, and this one action type runs them — whichever module, whichever operation, forever:
+
+```json
+{ "type": "module", "module": "tetravox.seeg", "op": "snap",
+  "args": { "scope": "all", "radiusMm": 1.5 } }
+```
+
+| Key | Meaning |
+|---|---|
+| `module` | A module id this build carries. An unknown one is refused with the list of the ones that exist. |
+| `op` | One of that module's declared operations (§2.7). |
+| `args` | The operation's own arguments. **An argument it did not declare is an error**, not a key that is quietly dropped. |
+
+The module's **manifest is the schema**, so the whole action — the id, the operation, every argument
+and its type — is checked in main before a window is created, along with every other problem in the
+document. Arguments are `number`, `string`, `boolean` (each optional with a trailing `?`), `vec3?`,
+and two that name files:
+
+* **`path`** is an input. `${VAR}` is expanded, a relative path resolves against the job file's
+  directory, and it is allow-listed for the module to read — exactly what happens to `scene.files`.
+* **`out`** is a name under `--out`, held to the same rule as every other output name, and the
+  module may write it and the companion files its writer declares (`<stem>_editlog.json`) beside it.
+  A job never writes over the file it read: an `out` is under `--out` and nowhere else, which is
+  also why a save there produces no `.bak` — there is nothing yet to back up.
+
+What the operation returned comes back in the result file, so a job can *ask* as well as render:
+
+```json
+{ "action": 2, "type": "module", "module": "tetravox.seeg", "op": "snap",
+  "files": [], "ms": 412, "result": { "moved": 96, "meanShiftMm": 0.42 } }
+```
+
+The operations each module offers are listed in §2.7 below, which is generated from the manifests
+themselves.
+
 ### 2.4 `job-result.json`
 
 ```json
@@ -331,6 +370,25 @@ keyboard.
 `files` are relative to `outDir`, in the order they were written. A run that failed still writes this
 file: `ok: false` with the reasons in `errors`, which is what makes a failed batch diagnosable from a
 log rather than from a screen.
+
+A job that ran a **module** operation also carries `modules` — every module it used and the version
+that ran it, so a figure produced by one is re-derivable a year later:
+
+```json
+{
+  "modules": [{ "id": "tetravox.seeg", "version": "0.1.0" }],
+  "outputs": [
+    { "action": 0, "type": "module", "module": "tetravox.seeg", "op": "snap",
+      "files": [], "ms": 412, "result": { "moved": 96, "meanShiftMm": 0.42 } },
+    { "action": 1, "type": "module", "module": "tetravox.seeg", "op": "save",
+      "files": ["contacts.tsv"], "ms": 38, "result": { "path": "contacts.tsv" } }
+  ]
+}
+```
+
+The key is **absent** when no module ran, so every job written before modules existed produces the
+same result file it always did. `result` is whatever the operation returned, and `files` are its
+`out` arguments — relative to `outDir`, like every other action's.
 
 ### 2.5 Video
 
@@ -364,6 +422,19 @@ path into the document:
 An input file that does not exist is named. A job that produces no result at all within
 `TETRAVOX_JOB_TIMEOUT_MS` (default 600 000) fails rather than hanging.
 
+### 2.7 Module operations
+
+Every operation every module in this build declares, with the arguments each one takes.
+**This section is generated** from the manifests by `scripts/sync-module-docs.mjs` — the same
+declarations the job validator checks an action against — so edit a manifest and re-run the
+script rather than editing the table. CI checks it with `--check`.
+
+#### `tetravox.hello` — Hello 1.0.0
+
+| Operation | Arguments |
+|---|---|
+| `echo` | `text` a string |
+
 ---
 
 ## 3. The Python client
@@ -380,6 +451,7 @@ Job(files=[...], preset="plain", window=(1400, 900))   # or Job.from_scene("stud
    .sweep(...)        # PNG frames + GIF (+ MP4)
    .orbit(...)        # PNG frames + GIF (+ MP4)
    .tween(...)        # N eased frames between two scene states
+   .module(...)       # one operation of a module (§13)
    .run(out_dir, app=None) -> JobResult
 ```
 
@@ -388,7 +460,44 @@ Each method returns `self`, so a script reads in the order the app executes it. 
 to submit to a cluster.
 
 `JobResult` carries `ok`, `files` (absolute, in order), `files_for(action_index)`, `timings`,
-`warnings`, `errors`, and `raise_for_status()`.
+`warnings`, `errors`, `modules`, `results()`, and `raise_for_status()`.
+
+### Modules
+
+`Job.module(module_id, op, **args)` runs any operation of any module, and the argument names are the
+module's **manifest's**, verbatim — `radiusMm`, not `radius_mm` — because the manifest is the schema
+the app validates against and a translation table in the client would be a second copy of every
+module's arguments, wrong the moment one is added:
+
+```python
+job.module("tetravox.seeg", "snap", scope="all", radiusMm=1.5)
+```
+
+`tetravox.modules` is where a module's vocabulary is written in Python's, per module: snake_case
+parameters, one real signature per operation, and `path` arguments made absolute the way
+`Job(files=...)` makes them absolute — which matters, because the job document is written *into the
+output directory* and the app resolves a relative path against the document.
+
+```python
+from tetravox import Job
+from tetravox.modules import seeg
+
+job = Job(files=[ct], preset="plain")
+seeg.load(job, ct=ct, tsv=tsv)        # open a CT and a BIDS electrodes table
+seeg.snap(job, scope="all", radius_mm=1.5)
+seeg.refit(job)                       # PCA line fit, even re-spacing, relabel
+seeg.stats(job)                       # per-electrode geometry, no files
+seeg.save(job, out="sub-01_space-T1w_electrodes.tsv")
+
+result = job.run("out/").raise_for_status()
+print(result.modules)     # [{'id': 'tetravox.seeg', 'version': '0.1.0'}]
+print(result.results())   # what each operation reported, in order
+```
+
+`results()` is the half a renderer does not have: `stats` writes nothing and answers with numbers, so
+a batch over twenty subjects can print a table and produce no files at all. The wrappers are **data**
+— they build a document and never import the module — so they install and run on a machine whose
+build does not carry it; the app is what refuses such a job, by name, before it opens a window.
 
 Python's parameter names differ from the JSON in exactly three places, all forced: `sweep(start=, stop=)`
 and `tween(start=)` for `from` (a keyword), `sweep(stop=)` for `to`, and `mm_per_px` for `mmPerPx`
@@ -473,3 +582,5 @@ path *is* the user naming it.
 | `packages/app/src/renderer/src/automation/presets.test.ts` | The presets, over datasets with known distributions. |
 | `packages/app/e2e/automation-realdata.spec.ts` | The whole thing, offscreen, on ernie: a screenshot job, a 10-frame sweep, a 12-frame orbit, the field-over-anatomy preset, and a `window.panels` + `view: "window"` capture asserted to differ from the same scene's `grid` — the images are the requested size, are not blank, and **differ frame to frame**. Skips when `TETRAVOX_TESTDATA` is unset. |
 | `python/tests/test_client.py` | The client's documents, and one example end to end against a dev build. Skips when either is missing. |
+| `python/tests/test_modules.py` | `Job.module`, the typed sEEG wrappers and `JobResult.results()` — documents only, so they run with no app and no module in the build. |
+| `packages/app/e2e/module-job.spec.ts` | A `--job` launch that activates a module and runs its operation, asserted through `job-result.json` and the scene it saved. Runs everywhere: the data is `testdata/`. |

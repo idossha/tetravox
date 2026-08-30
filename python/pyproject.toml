@@ -27,4 +27,7 @@ Homepage = "https://github.com/tetravox/tetravox"
 Documentation = "https://github.com/tetravox/tetravox/blob/main/docs/AUTOMATION.md"
 
 [tool.setuptools]
-packages = ["tetravox"]
+# Explicit, and therefore a list that has to be added to: `tetravox.modules` carries the typed
+# wrappers for each module's job operations (ARCHITECTURE §13.6), and an automatic discovery here
+# would hide the day a new subpackage is left out of a release.
+packages = ["tetravox", "tetravox.modules"]
