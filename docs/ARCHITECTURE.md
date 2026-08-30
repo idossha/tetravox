@@ -2456,7 +2456,14 @@ Input (Freeview-like):
     becomes exactly one `dragEnd`, which is what makes one drag one undo step and one dirty mark for the host.
   * **`Esc` is `place` → `select` → off**, in the engine's own keydown beside `cancelMeasurement`'s and before
     the "is the pointer over a pane" test, because the app's `keymap.ts` answers `Escape` unconditionally and
-    "core first, module on null" could never deliver it here.
+    "core first, module on null" could never deliver it here. **A disarm that lands mid-drag commits the drag
+    first** (2026-08-30): `setPointTool(null)` — whether it came from `Esc` with the button still down or from
+    a module — emits that drag's `dragEnd`, at the position the drag reached, *before* `cleared`. `Esc`
+    cannot be gated on "is a gesture running" without ceasing to be the mode key, so the only two honest
+    exits are commit and revert; commit is chosen because it makes `Esc` mean what `pointerup` means and keeps
+    "one drag is one undo step" true however the drag ended. The scene has already moved by then — every
+    intermediate position was written into the layer — so dropping the drag left an edit with no commit
+    point: no undo entry, no dirty mark, nothing for the discard guard to ask about.
   * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
     `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). A user who
     is not editing points pays one property read per move, so §8's 16 ms hover budget is untouched.

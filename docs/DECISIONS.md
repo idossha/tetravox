@@ -3977,3 +3977,36 @@ That is not the ordering bug: `place` returns `'consumed'` and returns *before* 
 no gesture is in flight when the second finger lands and no `gestureActive` guard can see it. It is the direct
 consequence of place-on-`pointerdown`, which §7.5 chooses on purpose and `points-tool.spec.ts` pins as
 intended, and every one of those placements is committed and undoable.
+
+## 2026-08-30 — a disarm mid-drag commits the drag: `Esc` means what `pointerup` means
+
+`Esc` is §7.5's `place` → `select` → off key, handled in the engine's own keydown before the "is the pointer
+over a pane" test — which is what makes it work with the pointer over the panel, and which also means it is
+**not** gated on a gesture being in flight. It cannot be: a key that only worked when no button was down
+would not be the mode key. So a user who grabs a contact, drags it three millimetres and presses `Esc`
+before releasing was reaching `setPointTool(null)` with `#pointDrag` still live. It threw the drag away and
+emitted only `cleared`.
+
+That left the edit in neither state. Every intermediate position had already been written into the layer by
+`pointToolDrag` and adopted by the host through the `layers` event, so the contact stayed where the drag had
+put it — but the commit point never arrived: no history entry, no `ui.setDirty(true)`, no `•` in the title,
+and `confirmDiscardModuleEdits` waving the next scene open straight through. Worse, the *next* commit's
+before-snapshot bakes the moved position in, so the `Esc`'d move becomes permanently un-undoable. On the
+later `pointerup`, `endPointDrag` found `#pointDrag === null` and emitted nothing; `pointercancel` never
+fires for a key press, so no other exit rescued it.
+
+**Committed, not reverted.** The two honest exits are "the drag happened" and "the drag never happened", and
+`Esc` is made to mean the first: `setPointTool(null)` calls `endPointDrag()` before it clears anything, so
+`dragEnd` arrives — carrying the position the drag actually reached — and then `cleared`. That order is the
+one a host is written for (commit on `dragEnd`, reset on `cleared`), and it keeps §7.5's "one drag is one
+undo step and one dirty mark" true however the drag ended. Reverting was the alternative and was rejected:
+`Esc` in this tool is documented as a *mode* key, not an undo, and a key that silently rolled a movement back
+would be the only place in the app where a scene edit vanishes without a history entry. A user who wants the
+move undone has an undo.
+
+**It is skipped when there is nothing left to commit.** `removeLayer` disarms *after* the layer has gone and
+`Engine.load` replaces every layer id, so the guard is "does the dragged point still resolve" — those two
+paths emit `cleared` alone, exactly as before, rather than a `dragEnd` for a contact that no longer exists.
+
+`NoGlEngine` mirrors it in the same commit. The app's E2E drives `?engine=mock`, and a rule that held only in
+the WebGL2 engine would be a rule the shell is never tested against.

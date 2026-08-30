@@ -2701,6 +2701,24 @@ export class TetravoxEngine implements Engine, PointerHost {
     if (spec === null) {
       const tool = this.#pointTool;
       if (tool === null) return;
+      // §13 (2026-08-30, review): a drag still in flight is **committed** on the way out, never
+      // dropped. `Esc` is not gated on "is a gesture running" — it cannot be, because it is the
+      // documented `place` → `select` → off key and a user presses it with a button down — so a
+      // disarm mid-drag used to discard `#pointDrag` and emit only `cleared`. Every intermediate
+      // position had already been written into the layer and adopted by the host, and the commit
+      // point never arrived: no undo entry, no dirty mark, an edit the user could neither see
+      // flagged nor revert. Committing (rather than reverting to the press-time position) makes
+      // `Esc` mid-drag mean exactly what `pointerup` means, which is the answer that leaves one
+      // undo step per drag however the drag ended.
+      //
+      // Skipped when the grabbed point no longer resolves: `removeLayer` disarms *after* the layer
+      // has gone and `Engine.load` replaces the scene, and there is nothing left to commit there.
+      if (
+        this.#pointDrag !== null &&
+        this.#indexOfPointId(this.#pointDrag.layerId, this.#pointDrag.pointId) !== null
+      ) {
+        this.endPointDrag();
+      }
       this.#pointTool = null;
       this.#pointDrag = null;
       const layerId = this.#pointSelectionId?.layerId ?? tool.layerId;
@@ -2873,6 +2891,10 @@ export class TetravoxEngine implements Engine, PointerHost {
    * (`pointercancel`, and the window `blur` bound to it) and from the second-pointer branch of
    * `down()`. The scene has already moved; this is the commit point, and it is what makes one drag
    * one undo step and one dirty mark for the host.
+   *
+   * `setPointTool(null)` is the fourth caller (2026-08-30): disarming mid-drag — which `Esc` does,
+   * and a module's own disarm can — commits through this same path before `cleared` is emitted, so
+   * every exit from a drag is one of the two honest ones and none of them is half.
    */
   endPointDrag(): void {
     const drag = this.#pointDrag;

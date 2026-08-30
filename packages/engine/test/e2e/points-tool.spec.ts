@@ -692,6 +692,45 @@ test('@angle Esc walks place → select → off, wherever the pointer is', async
   );
 });
 
+test('@angle Esc mid-drag COMMITS the drag before it disarms', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  await arm(page, { layerId, mode: 'select' });
+  const [cx, cy] = at(0, 0);
+
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 60, cy, { steps: 4 });
+  await settle(page);
+  const moved = (await pointsOf(page, layerId))[0]!.position;
+  // Where the last pointer pixel addresses, half-pixel convention included — the drag is 3 mm from
+  // where the contact started, which is what makes losing it a visible edit.
+  expect(moved[0], 'the scene moved during the drag').toBeCloseTo(worldOfPixel(cx + 60, cy)[0], 6);
+
+  // `Esc` is the documented `place` → `select` → off key and is deliberately not gated on a
+  // gesture being in flight — so it lands here, with the button still down and the contact already
+  // 3 mm from where it started.
+  await page.keyboard.press('Escape');
+  await settle(page);
+
+  const kinds = (await eventsOf(page)).map((e) => e.kind);
+  // The commit arrives, and it arrives BEFORE `cleared`: a host commits on `dragEnd` and resets on
+  // `cleared`, and the other order would hand it the commit after it had thrown the base away.
+  expect(kinds).toEqual(['selected', 'dragEnd', 'cleared']);
+  const end = (await eventsOf(page)).find((e) => e.kind === 'dragEnd')!;
+  expect(end.pointId).toBe('c1');
+  expect(end.world![0]).toBeCloseTo(moved[0], 6);
+  // Committed, not reverted: the contact is where the drag left it, which is what makes the exit
+  // one of the two honest ones rather than half of each.
+  expect((await pointsOf(page, layerId))[0]!.position).toEqual(moved);
+
+  // The release that follows commits nothing a second time.
+  await page.mouse.up();
+  await settle(page);
+  expect((await eventsOf(page)).filter((e) => e.kind === 'dragEnd')).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
+
 test('@angle at most one click-consuming mode is armed', async ({ page }) => {
   await openScene(page);
   const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
