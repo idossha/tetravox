@@ -26,6 +26,7 @@
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readCanvasRect } from '../helpers/pixels';
 import { DEFAULT_OVERLAY_THEME } from '../../src/overlay/theme';
@@ -140,6 +141,17 @@ const worldOfPixel = (px: number, py: number): Vec3 => [
   (px + 0.5 - CX) * MM_PER_PX,
   2.5,
   (CY - py - 0.5) * MM_PER_PX,
+];
+
+/**
+ * The **exact** projected centre of a world point — {@link at} minus §11's half pixel.
+ *
+ * A ring is measured as a radius from a centre, so the centre has to be the real one: measuring
+ * from `at()` puts `√2/2` px of error into every radius, which is most of the ring's own width.
+ */
+const centreOf = (x: number, z: number): [number, number] => [
+  CX + x / MM_PER_PX - 0.5,
+  CY - z / MM_PER_PX - 0.5,
 ];
 
 const arm = async (page: Page, spec: unknown): Promise<void> => {
@@ -273,17 +285,23 @@ test('@angle a select-mode click grabs the disc under it and rings it', async ({
 
   await clickAt(page, ...at(5, 5));
   expect(await selectionOf(page)).toEqual({ pointId: 'c2', index: 1 });
-  const selected = (await eventsOf(page)).filter((e) => e.kind === 'selected');
+  const events = await eventsOf(page);
+  const selected = events.filter((e) => e.kind === 'selected');
   expect(selected).toHaveLength(1);
   expect(selected[0]!.pointId).toBe('c2');
+  // A click is a press and a release, so the gesture ran and ended: a select-mode click is a
+  // **zero-length drag** and emits one `dragEnd` after its `selected`. Stated here because a host
+  // that treats every `dragEnd` as an edit would otherwise record an undo step per selection.
+  expect(events.map((e) => e.kind)).toEqual(['selected', 'dragEnd']);
 
   // The ring is on the picture, at the disc's radius plus §7.2's 2 px gap — measured off the
-  // framebuffer, the way §11 measures the scale bar's length.
-  const [rx, ry] = at(5, 5);
-  const radii = await ringRadii(page, rx, ry);
+  // framebuffer, the way §11 measures the scale bar's length. The band is 2 px wide, so every
+  // ring pixel is within half of that of `disc + 2`, plus the rasteriser's own coverage — which is
+  // what the 2.5 px window allows for, and it is far tighter than the 40 px disc it is about.
+  const radii = await ringRadii(page, ...centreOf(5, 5));
   expect(radii.length, 'the selection ring is drawn').toBeGreaterThan(80);
-  expect(Math.min(...radii)).toBeGreaterThanOrEqual(DISC_PX + 2 - 2);
-  expect(Math.max(...radii)).toBeLessThanOrEqual(DISC_PX + 2 + 2);
+  expect(Math.min(...radii)).toBeGreaterThanOrEqual(DISC_PX + 2 - 2.5);
+  expect(Math.max(...radii)).toBeLessThanOrEqual(DISC_PX + 2 + 2.5);
   expect(errors).toEqual([]);
 });
 
@@ -609,3 +627,124 @@ async function ringRadii(page: Page, cx: number, cyTop: number, half = 70): Prom
   }
   return out;
 }
+
+// ===============================================================================================
+// Real data — AGENTS rule 2's other half.
+//
+// The synthetic scene above is a tidy ruler: `mmPerPx = 0.05`, `camera.center = [0, 0]`, and a
+// lattice whose bounds are small. A subject is none of those, and the two things that differ are
+// exactly the two the hit test reads: the **fitted** `mmPerPx`, which is an arbitrary number here,
+// and R3's in-plane **anchor**, which is the scene bbox centre and is nowhere near the cursor on a
+// head. A hit test that quietly measured from the cursor instead passes every case above and misses
+// every contact on `T1.nii.gz`.
+// ===============================================================================================
+
+const TESTDATA = process.env.TETRAVOX_TESTDATA ?? '';
+const hasRealData = TESTDATA !== '' && existsSync(`${TESTDATA}/m2m_ernie/T1.nii.gz`);
+const T1 = `/@fs${TESTDATA}/m2m_ernie/T1.nii.gz`;
+
+test('@angle real data: the tool selects and drags at a fitted camera on T1.nii.gz', async ({
+  page,
+}) => {
+  test.skip(!hasRealData, 'needs TETRAVOX_TESTDATA');
+  test.setTimeout(120_000);
+  const errors = await openScene(page);
+
+  // One axial pane filling the canvas, fitted — so `mmPerPx` is whatever the subject's bounds make
+  // it, and the camera is measured from R3's **anchor** rather than from the cursor.
+  const cam = await page.evaluate(async (url) => {
+    const engine = window.__tvxEngine!;
+    const ds = await engine.addDataset({ kind: 'path', path: url as string });
+    engine.addLayer({ datasetId: ds.id, kind: 'volume' });
+    engine.setLayout({ kind: '1x1', cells: ['axial'] });
+    engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+    engine.resetView('axial');
+    const events: unknown[] = [];
+    engine.on('pointTool', (e) => events.push(JSON.parse(JSON.stringify(e))));
+    (window as unknown as { __toolEvents: unknown[] }).__toolEvents = events;
+    await engine.whenSettled();
+    const view = engine.views.find((v) => v.id === 'axial') as {
+      camera: { mmPerPx: number; center: [number, number] };
+    };
+    const b = ds.bounds;
+    return {
+      mmPerPx: view.camera.mmPerPx,
+      // Read back rather than assumed to be [0, 0]: `camera.center` is R3's in-plane offset FROM
+      // the anchor, and the ruler below is wrong by it if the fit ever stops centring.
+      center: [...view.camera.center] as [number, number],
+      cursor: [...engine.scene.cursor] as Vec3,
+      anchor: [0, 1, 2].map((k) => ((b.min[k] ?? 0) + (b.max[k] ?? 0)) / 2) as Vec3,
+    };
+  }, T1);
+
+  // §3's axial basis in neurological: right = +X, up = +Y, normal = +Z. The world a pane pixel
+  // addresses, written out from §11's pixel-centre convention rather than asked of the engine.
+  const world = (px: number, py: number): Vec3 => [
+    cam.anchor[0] + cam.center[0] + (px + 0.5 - PANE / 2) * cam.mmPerPx,
+    cam.anchor[1] + cam.center[1] + (PANE / 2 - py - 0.5) * cam.mmPerPx,
+    cam.cursor[2],
+  ];
+
+  // Three contacts at a 3.5 mm pitch along the pane's `right`, expressed as world points a pane
+  // pixel names — so the fixture and the assertion are the same arithmetic read in two directions.
+  const pitchPx = 3.5 / cam.mmPerPx;
+  const centre: [number, number] = [PANE / 2, PANE / 2];
+  const layerId = await page.evaluate(
+    async ([positions]) => {
+      const engine = window.__tvxEngine!;
+      const ds = [...engine.scene.datasets.values()][0]!;
+      const layer = engine.addLayer({
+        datasetId: ds.id,
+        kind: 'points',
+        points: (positions as readonly Vec3[]).map((position, i) => ({ id: `c${i}`, position })),
+        radiusMm: 1.5,
+        color: [1, 0, 0, 1],
+      });
+      engine.setPointTool({ layerId: layer.id, mode: 'select' });
+      await engine.whenSettled();
+      return layer.id;
+    },
+    [
+      [
+        world(centre[0] - pitchPx, centre[1]),
+        world(centre[0], centre[1]),
+        world(centre[0] + pitchPx, centre[1]),
+      ],
+    ] as const
+  );
+
+  // The middle contact, clicked at the pixel the ruler says it is at.
+  await clickAt(page, centre[0], centre[1]);
+  expect(await selectionOf(page), 'the click found the contact at that pixel').toEqual({
+    pointId: 'c1',
+    index: 1,
+  });
+
+  // …and its neighbour 3.5 mm away is a different contact, not the same one grabbed twice.
+  await clickAt(page, centre[0] + pitchPx, centre[1]);
+  expect(await selectionOf(page)).toEqual({ pointId: 'c2', index: 2 });
+
+  // The drag identity again, at this camera: between two pointer positions, so the press's own
+  // sub-pixel offset cancels. The two clicks above were each a zero-length drag and each emitted
+  // its own `dragEnd`, so the count below is about this drag alone.
+  await page.evaluate(() => {
+    (window as unknown as { __toolEvents: unknown[] }).__toolEvents.length = 0;
+  });
+  await page.mouse.move(centre[0] + pitchPx, centre[1]);
+  await page.mouse.down();
+  await page.mouse.move(centre[0] + pitchPx + 10, centre[1]);
+  await settle(page);
+  const p1 = (await pointsOf(page, layerId))[2]!.position;
+  await page.mouse.move(centre[0] + pitchPx + 50, centre[1]);
+  await settle(page);
+  const p2 = (await pointsOf(page, layerId))[2]!.position;
+  await page.mouse.up();
+  await settle(page);
+
+  expect(Math.abs(dist(p1, p2) - 40 * cam.mmPerPx)).toBeLessThan(0.05);
+  expect(p2[0] - p1[0]).toBeCloseTo(40 * cam.mmPerPx, 6);
+  // Still on the pane's plane: a contact dragged in a slice stays in that slice.
+  expect(p2[2]).toBeCloseTo(cam.cursor[2], 6);
+  expect((await eventsOf(page)).filter((e) => e.kind === 'dragEnd')).toHaveLength(1);
+  expect(errors).toEqual([]);
+});
