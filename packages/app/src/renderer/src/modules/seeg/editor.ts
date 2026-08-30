@@ -229,6 +229,22 @@ export function createModel(host: ModuleHost): SeegModel {
     snapped: new Set<string>(),
   };
 
+  /**
+   * Forget which electrodes this session's operations touched — **per table, not per window**.
+   *
+   * The three sets are keyed by electrode *name*, and anatomical naming means sub-02's shafts are
+   * usually called what sub-01's were. So a snap-all on one subject followed by opening the next
+   * subject's table would write `snapped: true` beside every same-named electrode of a table the
+   * snap never ran on, in the sidecar the module's own header calls "a contract with another
+   * program". The editlog's per-contact diff was always per table (`set` and `deleted` are replaced
+   * on load); this is what makes the per-electrode flags agree with it.
+   */
+  const forgetOperations = (): void => {
+    operations.refit.clear();
+    operations.renumbered.clear();
+    operations.snapped.clear();
+  };
+
   const listeners = new Set<() => void>();
   const history = host.history<HistoryEntry>(50);
   let cached: SeegView | null = null;
@@ -516,6 +532,13 @@ export function createModel(host: ModuleHost): SeegModel {
     saveSiblings = {};
     electrode = set.groups[0]?.name ?? null;
     selectedId = null;
+    // Everything the *previous* table's session recorded goes with it: the per-electrode operation
+    // flags (see {@link forgetOperations}), the "hand-edited on …" banner, which belongs to the
+    // editlog beside the table that was open, and the T1 — the block's `source.t1` is provenance
+    // for *this* table, and a `load` operation that names one calls `showT1` right after this.
+    forgetOperations();
+    banner = null;
+    t1Path = null;
     source = {
       tsv: path,
       coordsystem: null,
@@ -971,6 +994,7 @@ export function createModel(host: ModuleHost): SeegModel {
       set = emptySet();
       deleted = [];
       history.clear();
+      forgetOperations();
       layerId = null;
       datasetId = null;
       tsvPath = null;
@@ -1355,6 +1379,9 @@ export function createModel(host: ModuleHost): SeegModel {
       selectedId = null;
       deleted = [];
       history.clear();
+      // The operations that ran before this scene was written are the file's history, not this
+      // session's: what a save writes now is what happened to *this* restored table.
+      forgetOperations();
       warning = tsvPath === null ? null : seegprepWarning(tsvPath);
       if (namePad === 0) namePad = namePadOf(set.contacts.map((c) => c.name));
 

@@ -483,6 +483,33 @@ describe('saving', () => {
     // …and the writer really did use `repr`: an integral coordinate keeps its `.0`.
     expect(written).toContain('-11.0\t');
   });
+
+  /**
+   * Provenance is per **table**, not per window (§13.6's sidecar is a contract with `seegprep`).
+   *
+   * Anatomical naming means the next subject's shafts are usually called what this one's were, so a
+   * session that kept the operation flags would tell a reviewer that a snap ran on electrodes it
+   * never touched — in the one file whose whole purpose is answering "what was changed?".
+   */
+  it('does not carry one table’s operations into the next table’s editlog', async () => {
+    const NEXT = `${DERIV}/ieeg/sub-P077_space-T1w_electrodes.tsv`;
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'snap-electrode');
+    await h.controller.moduleCommand(SEEG, 'refit');
+
+    // The second subject's table, through the module's own reader route — the same live instance,
+    // because `activateModule` early-returns for the module already in the slot.
+    h.fs.files.set(NEXT, phantomTable(0.2));
+    expect(await h.controller.moduleInstance()?.openPath?.('electrodes', NEXT)).toBe(true);
+
+    h.fs.savePath = NEXT;
+    await h.controller.moduleCommand(SEEG, 'save-as');
+    const log = JSON.parse(h.fs.writes.at(-1)?.text ?? '{}') as {
+      electrodes: { name: string; snapped: boolean; refit: boolean }[];
+    };
+    expect(log.electrodes.map((e) => e.name)).toContain('A');
+    expect(log.electrodes.some((e) => e.snapped || e.refit)).toBe(false);
+  });
 });
 
 describe('the scene block', () => {
