@@ -421,6 +421,42 @@ describe('module-write-text', () => {
     expect(moduleReadText(SEEG, path)).toEqual({ ok: true, text: 'name\tx\ty\tz\n' });
   });
 
+  /**
+   * A module operation's `out` is a name **under** `--out`, and `job.ts`'s `outName` admits
+   * `tables/electrodes.tsv` — no leading `/`, no `..`, so nothing about it is an escape.
+   * `job-runner.ts` then resolves it and admits it to this module's write list before the window
+   * exists. Nothing had ever created `<out>/tables`, so the `.part` write died with ENOENT on a
+   * path main had already said yes to: the admission and the write disagreed about whether the
+   * directory was anybody's job.
+   *
+   * Seeded through `admitModuleWrite` rather than a Save sheet, which is the same seam the runner
+   * uses — a `--job` window has no sheet to open.
+   */
+  it('creates the parent directory an `out` named, and writes the sibling there too', () => {
+    const path = join(dir, 'tables', 'nested', 'sub-01_electrodes.tsv');
+    const admitted = admitModuleWrite(SEEG, path, [EDITLOG]);
+    expect(existsSync(join(dir, 'tables'))).toBe(false);
+
+    expect(moduleWriteText(SEEG, path, 'name\tx\ty\tz\n', {})).toEqual({
+      ok: true,
+      backupPath: null,
+    });
+    expect(readFileSync(path, 'utf8')).toBe('name\tx\ty\tz\n');
+    expect(existsSync(`${path}.part`)).toBe(false);
+
+    // The editlog is admitted in that same new directory and lands beside the table.
+    const editlog = admitted?.siblings[EDITLOG] ?? '';
+    expect(editlog).toBe(join(dir, 'tables', 'nested', 'sub-01_electrodes_editlog.json'));
+    expect(moduleWriteText(SEEG, editlog, '{}\n', {}).ok).toBe(true);
+    expect(existsSync(editlog)).toBe(true);
+
+    // Creating a directory is not admitting one: an unadmitted path under it is still refused.
+    expect(moduleWriteText(SEEG, join(dir, 'tables', 'nested', 'other.tsv'), 'x', {})).toEqual({
+      ok: false,
+      error: 'not on the module write list',
+    });
+  });
+
   it('copies the previous file to a stamped .bak when the writer declared one', () => {
     const path = join(dir, 'backed.tsv');
     writeFileSync(path, 'before\n', 'utf8');

@@ -28,6 +28,7 @@
 import {
   copyFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -422,6 +423,12 @@ export async function moduleSaveDialog(
  * The write is `<path>.part` then `renameSync`, the `sample-data.ts` precedent: a rename within one
  * directory is atomic, so a crash mid-write leaves the previous table intact rather than half of the
  * new one.
+ *
+ * **The parent directory is created first** (`job-runner.ts`'s `ensureDir`, the same one line). A
+ * module operation's `out` argument is a name *under* `--out` and `outName` legally admits
+ * `tables/electrodes.tsv`; `job-runner.ts` then resolves and admits that path, but nothing has ever
+ * made `<out>/tables`, so the `.part` write failed with ENOENT on a target main had already said
+ * yes to. It cannot widen anything: `path` is on this module's write list before this line runs.
  */
 export function moduleWriteText(
   moduleId: unknown,
@@ -453,6 +460,8 @@ export function moduleWriteText(
       }
     }
     try {
+      // The `.part` and its target share a directory, so one `mkdir -p` covers the rename too.
+      mkdirSync(dirname(path), { recursive: true });
       writeFileSync(part, text, 'utf8');
       renameSync(part, path);
     } catch (error: unknown) {

@@ -383,6 +383,58 @@ test.describe('a module that writes, from a job', () => {
     expect(editlog.contacts.every((c) => c.change === 'edited' && c.shift_mm > 0)).toBe(true);
   });
 
+  /**
+   * The same round trip with an `out` that names a **subdirectory**, which `outName` has always
+   * admitted — no leading `/`, no `..`, so it is a name inside `--out` like any other. Main resolved
+   * it and admitted it to the write list, and then the write failed with ENOENT, because nothing
+   * created `<out>/tables`: the admission and the write disagreed about whose job the directory was.
+   * `module-io.test.ts` pins the unit; this is the launch that produced the failure.
+   */
+  test('makes the subdirectory an `out` names, and writes the table and editlog into it', async () => {
+    const tree = subjectTree();
+    const out = 'tables/sub-P076_space-T1w_electrodes.tsv';
+
+    const outcome = await runJob(
+      {
+        scene: { files: [tree.ct], preset: 'plain' },
+        window: { width: 400, height: 300 },
+        actions: [
+          {
+            type: 'module',
+            module: 'tetravox.seeg',
+            op: 'load',
+            args: { ct: tree.ct, tsv: tree.tsv },
+          },
+          { type: 'module', module: 'tetravox.seeg', op: 'save', args: { out } },
+        ],
+      },
+      'seeg-nested-out'
+    );
+
+    expect(outcome.result.errors).toEqual([]);
+    expect(outcome.result.ok).toBe(true);
+    expect(outcome.code).toBe(0);
+
+    const tsvPath = join(outcome.outDir, 'tables', 'sub-P076_space-T1w_electrodes.tsv');
+    const editlogPath = join(
+      outcome.outDir,
+      'tables',
+      'sub-P076_space-T1w_electrodes_editlog.json'
+    );
+    expect(outcome.result.outputs[1]).toMatchObject({
+      op: 'save',
+      files: [out],
+      result: { path: tsvPath, editlog: editlogPath },
+    });
+    // Both files are in the directory the job named and the run created, and `--out` itself holds
+    // nothing but the result file and that directory.
+    expect(readFileSync(tsvPath, 'utf8').split('\n')[0]).toBe(
+      'name\telectrode\tcontact\tcsc\tx\ty\tz\tstatus'
+    );
+    expect(existsSync(editlogPath)).toBe(true);
+    expect(readdirSync(outcome.outDir).sort()).toEqual(['job-result.json', 'tables']);
+  });
+
   test('refuses an `out` that would climb out of --out, before a window exists', async () => {
     const tree = subjectTree();
     const outcome = await runJob(
