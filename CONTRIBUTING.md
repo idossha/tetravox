@@ -44,7 +44,7 @@ at a time in the right column. `docs/ARCHITECTURE.md` §13 is the contract; this
 
 The rule the whole design rests on: **a module is a directory and one line in a registry.** If you find
 yourself editing `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts` to make
-your module work, the *host* is missing a member — add it to
+your module work, the _host_ is missing a member — add it to
 `packages/app/src/renderer/src/modules/host.ts` under §12.3's rules, and say why in
 `docs/DECISIONS.md`.
 
