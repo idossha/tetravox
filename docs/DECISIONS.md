@@ -4029,3 +4029,27 @@ including the e2e's — behaves exactly as before.
 the seam still closes a dirty window silently, and on `packaged` the box is shown, Cancel keeps the
 window and Discard closes it. `module-seeg.spec.ts` clears the edited flag in `afterAll` instead of
 relying on the seam, so its teardown does not depend on which build it is running.
+
+## 2026-08-30 — the docs guard checks the sidebar §13.7 always said it checked
+
+**Decision.** `scripts/check-frozen-docs.mjs` reads `website/.vitepress/config.ts` and requires a
+`/guide/<slug>` entry for every module manifest's `docs` heading, where the slug is the one
+`GUIDE_PAGES` maps that heading to.
+
+**Why it was a real hole.** §13.7 item 3 has always listed three things — the `## ` section, the
+`GUIDE_PAGES` entry "and the site sidebar" — and said "The `docs-guard` CI job fails without them."
+It checked two. The sidebar is a hand-written literal: `sync.mjs` generates `website/src/guide/
+<slug>.md` but never generates or validates the list that links to it, and VitePress's
+`ignoreDeadLinks: false` fails only the opposite mistake — a sidebar entry with no page. A page with
+no sidebar entry builds perfectly and ships reachable from nothing, which is precisely the late,
+silent failure the guard's own header says it exists to prevent, while the contract claimed CI had
+caught it.
+
+**A grep, not a parser.** The config is TypeScript and this script is plain ESM run by `node --test`
+with no build step. The sidebar is a literal array of `link:` strings, which a regex reads exactly as
+well as a parser would, and a config that stopped being that shape would fail loudly here rather than
+quietly pass. `sidebar` defaults to `''` rather than being optional, so a caller that forgets to pass
+it gets a failure instead of a silently skipped rule — which is the failure mode this fixes.
+
+**Scope.** Manifests only, matching §13.7's wording; the guard does not audit the eighteen core guide
+pages, whose sidebar entries no module PR touches.

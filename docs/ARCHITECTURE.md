@@ -2888,9 +2888,14 @@ implementation change and teach everyone to ignore the job. Item 6 — `modules/
 enforced by path from the day it was frozen (2026-08-30), for the reason the four before it are: for
 a file that *is* the interface, "the file changed" and "the interface changed" are the same event.
 Second, **§13.1**: every module
-manifest's `docs` heading must exist as a `## ` section in `docs/USER_GUIDE.md` **and** in
-`website/scripts/sync.mjs`'s `GUIDE_PAGES`, because the website's splitter throws on a section it
-has no page for — a late, confusing failure this turns into an early, specific one.
+manifest's `docs` heading must exist as a `## ` section in `docs/USER_GUIDE.md`, in
+`website/scripts/sync.mjs`'s `GUIDE_PAGES`, **and** as a `/guide/<slug>` entry in
+`website/.vitepress/config.ts`'s sidebar. The first two because the website's splitter throws on a
+section it has no page for — a late, confusing failure this turns into an early, specific one. The
+third because nothing else can check it: the sidebar is hand-written, `sync.mjs` neither generates
+nor validates it, and `ignoreDeadLinks: false` only catches a sidebar entry with no page, never a
+page with no sidebar entry — which builds cleanly and ships linked from nothing. §13.7 item 3 has
+always required all three; since 2026-08-30 the job enforces all three.
 
 It is a **separate job** rather than a step of `test` because `actions/checkout@v5` fetches one
 commit by default and a merge-base diff needs the history, and because "you changed a frozen

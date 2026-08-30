@@ -7,11 +7,15 @@
  *     the contract and `DECISIONS.md` is the record of why; "edit the doc in the same commit" has
  *     until now been a review catch, which means it was a catch that scaled with reviewer attention.
  *     This makes it a red CI job instead.
- *  2. **A module's `docs` heading has to exist.** §13.1 says a manifest names a `## ` heading in
- *     `docs/USER_GUIDE.md`; the website's `sync.mjs` splits that guide into one page per heading and
- *     *throws* on an unmapped section, so a heading added to the guide and not to `GUIDE_PAGES`
- *     breaks the site build rather than this one. Checking both here is what turns two late,
- *     confusing failures into one early, specific one.
+ *  2. **A module's `docs` heading has to exist — in all three places.** §13.1 says a manifest names
+ *     a `## ` heading in `docs/USER_GUIDE.md`; the website's `sync.mjs` splits that guide into one
+ *     page per heading and *throws* on an unmapped section, so a heading added to the guide and not
+ *     to `GUIDE_PAGES` breaks the site build rather than this one. The third is the VitePress
+ *     **sidebar** (`website/.vitepress/config.ts`), a hand-written list `sync.mjs` neither generates
+ *     nor validates: a generated page with no entry in it builds perfectly and is linked from
+ *     nothing, and `ignoreDeadLinks: false` only catches the opposite mistake — a sidebar entry with
+ *     no page. §13.7 item 3 has always said this job fails without all three; since 2026-08-30 it
+ *     does. Checking them here turns three late, confusing failures into one early, specific one.
  *
  * Rule 1 needs a **merge-base diff**, so the job that runs this checks out with `fetch-depth: 0`.
  * With no base to compare against (a `workflow_dispatch`, a local run) it reports that and checks
@@ -55,6 +59,8 @@ export const ARCHITECTURE = 'docs/ARCHITECTURE.md';
 export const DECISIONS = 'docs/DECISIONS.md';
 export const USER_GUIDE = 'docs/USER_GUIDE.md';
 export const SYNC_MJS = 'website/scripts/sync.mjs';
+/** The site's hand-maintained sidebar. Nothing generates it, so nothing else can check it. */
+export const SIDEBAR = 'website/.vitepress/config.ts';
 
 /**
  * The frozen files this change touched without also editing both docs.
@@ -90,16 +96,42 @@ export function guidePages(text) {
   return [...text.matchAll(/\{\s*heading:\s*'([^']+)'/g)].map((m) => m[1]);
 }
 
+/** The same map as {@link guidePages}, carrying the slug each heading becomes a page at. */
+export function guidePageEntries(text) {
+  return [...text.matchAll(/\{\s*heading:\s*'([^']+)'\s*,\s*slug:\s*'([^']+)'\s*\}/g)].map((m) => ({
+    heading: m[1],
+    slug: m[2],
+  }));
+}
+
+/**
+ * Every `/guide/<slug>` the VitePress sidebar links to.
+ *
+ * A regex over the config rather than an import: the file is TypeScript, this script is plain ESM
+ * run by `node --test` with no build step, and the sidebar is a literal array of `link:` strings —
+ * the one shape a grep reads exactly as well as a parser would.
+ */
+export function sidebarSlugs(text) {
+  return [...text.matchAll(/link:\s*['"]\/guide\/([A-Za-z0-9._-]+)['"]/g)].map((m) => m[1]);
+}
+
 /**
  * Rule 2, over one manifest.
  *
  * The website's splitter throws on a guide section it has no page for, so the two lists have to
  * agree in both directions; this checks the direction a *module* can break, which is a manifest
  * naming a heading that nobody wrote.
+ *
+ * The sidebar is checked last and only when the heading has a slug to look for, so a PR that forgot
+ * `GUIDE_PAGES` is told that once rather than twice. `sidebar` defaults to `''` — an empty sidebar
+ * has no entry for anything, so a caller that forgets to pass it gets a failure and not a silent
+ * skip, which is the failure mode this check exists to end.
  */
-export function docsHeadingViolations({ manifests, guide, sync }) {
+export function docsHeadingViolations({ manifests, guide, sync, sidebar = '' }) {
   const headings = guideHeadings(guide);
   const pages = guidePages(sync);
+  const entries = guidePageEntries(sync);
+  const slugs = sidebarSlugs(sidebar);
   const issues = [];
   for (const { file, docs } of manifests) {
     if (docs === null || docs === '') {
@@ -112,6 +144,13 @@ export function docsHeadingViolations({ manifests, guide, sync }) {
     if (!pages.includes(docs)) {
       issues.push(
         `${file}: \`docs: '${docs}'\` is not in ${SYNC_MJS}'s GUIDE_PAGES, so the website build would drop it.`
+      );
+      continue;
+    }
+    const slug = entries.find((entry) => entry.heading === docs)?.slug;
+    if (slug !== undefined && !slugs.includes(slug)) {
+      issues.push(
+        `${file}: \`docs: '${docs}'\` has no \`/guide/${slug}\` entry in ${SIDEBAR}, so the page would ship with nothing linking to it (§13.7 item 3).`
       );
     }
   }
@@ -180,6 +219,7 @@ export function main(argv = process.argv.slice(2), log = console) {
       manifests: readManifests(root),
       guide: readFileSync(join(root, USER_GUIDE), 'utf8'),
       sync: readFileSync(join(root, SYNC_MJS), 'utf8'),
+      sidebar: readFileSync(join(root, SIDEBAR), 'utf8'),
     })
   );
 
