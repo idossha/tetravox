@@ -27,6 +27,7 @@ import { useCallback } from 'react';
 import { LAYOUT_LABEL } from '../lib/layout';
 import { KEYMAP_HELP } from '../keyboard/keymap';
 import { useController, useUi } from '../ui/context';
+import { ModuleSwitcher } from '../modules/ModuleSwitcher';
 import { AppMenu } from './AppMenu';
 import type { AppMenuAction } from './AppMenu';
 
@@ -250,6 +251,11 @@ export function Toolbar(): React.JSX.Element {
       </div>
 
       <div className="flex items-center justify-end gap-2">
+        {/* §13.3: one switcher, in the right column, directly above the slot it opens — never a
+          button per module, which would wrap the toolbar's centre cluster at 1440 px with the
+          second one. It renders nothing at all in a build that offers no module. */}
+        <ModuleSwitcher />
+
         <button
           type="button"
           data-testid="keyboard-help-button"

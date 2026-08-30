@@ -1,0 +1,96 @@
+/**
+ * The module switcher — one control in the toolbar's **right** column (§13.3).
+ *
+ * One switcher from the first module, and never a button per module. Two modules' worth of buttons
+ * after `Cube` wrap the toolbar's centre cluster at 1440 px (`Toolbar.tsx` is `flex-wrap`), which
+ * grows the header and shrinks the view grid — the same canvas-resize class the status bar was
+ * pinned against. An E2E asserts the toolbar's height is unchanged after an activation.
+ *
+ * It sits directly above the column it opens, like Slicer's module selector, and before `?` and `⚙`
+ * so the gear stays the right-most control on the rail whatever is added to its left.
+ *
+ * Nothing here names a module: the list is `controller.modules()`, which is the registry filtered by
+ * the launch query, and each row's label is its manifest's `title`.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useController, useUi } from '../ui/context';
+
+export function ModuleSwitcher(): React.JSX.Element | null {
+  const controller = useController();
+  const activeModule = useUi((s) => s.activeModule);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (rootRef.current !== null && !rootRef.current.contains(event.target as Node)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') close();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open, close]);
+
+  const modules = controller.modules();
+  // A build with no module offers no control at all, rather than a menu with nothing in it. This is
+  // also what keeps the toolbar byte-identical in a default launch, where the fixture is hidden.
+  if (modules.length === 0) return null;
+
+  const active = modules.find((m) => m.manifest.id === activeModule) ?? null;
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        data-testid="module-switcher"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        // `aria-pressed` while one is active, like every other toolbar toggle.
+        aria-pressed={active !== null}
+        title="Modules — one tool at a time, in the panel above (§13)"
+        className={active === null ? 'tvx-btn' : 'tvx-btn tvx-btn-on'}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {active === null ? 'Modules' : active.manifest.title} ▾
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="Modules"
+          data-testid="module-switcher-list"
+          className="absolute right-0 top-full z-20 mt-1 flex min-w-[10rem] flex-col gap-0.5 rounded border border-tvx-line bg-tvx-panel p-1 shadow-lg"
+        >
+          {modules.map((registration) => {
+            const id = registration.manifest.id;
+            const on = id === activeModule;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={on}
+                data-testid={`module-switcher-${id}`}
+                className={on ? 'tvx-btn tvx-btn-on justify-start' : 'tvx-btn justify-start'}
+                title={`${registration.manifest.title} ${registration.manifest.version}`}
+                onClick={() => {
+                  close();
+                  void controller.toggleModule(id);
+                }}
+              >
+                {registration.manifest.title}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
