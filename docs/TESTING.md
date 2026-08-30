@@ -39,12 +39,21 @@ pnpm exec electron --version            # electron ≥ 42 downloads its ~100 MB 
 pnpm exec playwright install chromium   # the version-pinned Chromium
 ```
 
-Real-data tests are gated on `TETRAVOX_TESTDATA` and **skip, never fail, when it is unset**. CI leaves it
-unset on purpose and asserts so. Locally:
+Real-data tests are gated on an environment variable and **skip, never fail, when it is unset**. CI leaves
+both unset on purpose and asserts so. Locally:
 
 ```sh
 export TETRAVOX_TESTDATA=/path/to/derivatives/SimNIBS/sub-ernie
+export TETRAVOX_SEEG_TESTDATA=/path/to/derivatives/seegprep/sub-P076   # §13's contact editor
 ```
+
+`TETRAVOX_SEEG_TESTDATA` is a **subject directory inside a `seegprep` derivative tree** —
+`<dir>/ct/sub-<id>_acq-bone_space-T1w_ct.nii.gz` and `<dir>/ieeg/sub-<id>_space-T1w_electrodes.tsv`. There is
+no such subject on the development machine, so `modules/seeg-realdata.test.ts` asserts **properties, not
+numbers**: a real table's contact count, columns and coordinates belong to the site that produced it, and a
+test pinning those could only ever be run by whoever generated them. Its synthetic half —
+`modules/seeg-fixtures.test.ts` — is where the numbers live, and they come from numpy
+(`scripts/gen-fixtures.py`, the `seeg` block).
 
 ### Where each kind of test lives
 
@@ -87,6 +96,7 @@ The extension surface is tested at three levels, and the split is not a matter o
 | Manifests and keys | `renderer/src/modules/modules.test.ts` | Every manifest in `MANIFESTS`, without naming one: ids, semver, `hostApi`, the `docs` heading, §13.5 pool membership, and every pool key probed through the **live `resolveKey`** so a module key that shadowed a §7.5 binding fails here. It also reads `src/modules/**` and `renderer/src/modules/<id>/**` off disk and fails an import the wall forbids — a lint rule can be disabled inline, a test cannot. |
 | The host | `renderer/src/modules/hostImpl.test.ts` | `NoGlEngine` + `createUiStore` + `ShellController.attach()` (the `panels.test.ts` idiom): activation, commands, the status cell, the dirty flag, the scene block's round trip through a saved file, the confirm dialog and the discard guard. **State and calls, never pixels.** |
 | The window | `packages/app/e2e/modules.spec.ts` | Everything §13.3 says about *layout*: the slot's height cap, the toolbar's height unchanged after an activation at 1440×900, the status cell left of the dataset cells, the aside in flow at 960 px, the rendered confirm dialog. vitest runs under `environment: 'node'`, so none of this can be asserted anywhere else. |
+| A module end to end | `renderer/src/modules/seeg.test.ts`, `seeg-fixtures.test.ts`, `packages/app/e2e/module-seeg.spec.ts` | The three levels again, for the first *product* module. The harness drives every command through the controller against `NoGlEngine`; the fixtures replay numpy's own answers for the line fit, the re-fit, the tip rule, the snap and the float formatting; the e2e opens a real `seegprep` tree in a temp directory and reads the table, its `.bak` and its `_editlog.json` back off disk. |
 
 The fixture module is the subject throughout, driven with `?modules=hello` — the same seam `?engine=mock`
 uses. It is compiled into every build and listed only behind that parameter, because `pnpm e2e` drives the

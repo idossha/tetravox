@@ -3107,6 +3107,19 @@ flow**. Pinned by an e2e at 960 px.
 **Not offered:** floating or detached panels, popovers, module-drawn canvas overlays, native menu items, left-
 column slots, per-module toolbar buttons.
 
+**A module's second module is a library, not a fork** (2026-08-30). `tetravox.seeg` is the first of a
+family — DBS leads and ECoG grids are the shape of the next ones — and what those share is not their
+geometry but their *data*: a list of named 3-D positions grouped into electrodes, read from a table
+and written back to one. So the model, the tolerant reader, the canonical BIDS writer, the editlog
+schema, the PCA line primitives, the group palette, the `ContactSet` ⇄ `PointsLayer` bridge and the
+snap scoping live in `renderer/src/modules/shared/contacts/**`, and the sEEG module supplies only
+what is true of a **depth electrode**: which end is contact 1, what re-fitting a shaft means, and
+where `seegprep` puts a subject's files. `shared/contacts/README.md` draws that line and says what a
+second module has to bring. Everything under `shared/` is inside §13.1's import wall — the ESLint
+rule and `modules.test.ts` both scan it exactly as they scan a module's own directory — so a shared
+library that reached the store would fail for its own file, and a module may import `../shared/**`
+beside `../host` and the control kit and nothing more.
+
 ### 13.4 Test obligations
 
 A module ships with all of these or it does not ship:

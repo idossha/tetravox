@@ -3757,3 +3757,79 @@ user-editable text, and a non-unit normal there would silently scale every dista
 of `createModuleHost`: it is answered from the controller and the store, which are required, so there
 is no build in which the shell exists and the active pane does not. Nothing here can throw
 `ModuleHostError`.
+
+## 2026-08-30 — `tetravox.seeg`: the contact editor, and the library under it
+
+The first product module (§13), reproducing the 3D Slicer `SEEGContactEditor`'s Inputs → Edit → Save
+loop over a BIDS-iEEG `electrodes.tsv` and the registered CT it was localised on. It reads and writes
+the same files as that module and as `seegprep`, so the two can be used on one subject
+interchangeably. This entry records what it decides that a reader would otherwise have to infer.
+
+**A shared contact library, and a line drawn through it.** The owner's requirement was that DBS leads
+and ECoG grids be addable later without a fork, so `modules/shared/contacts/**` holds everything that
+is true of *any* set of named implanted positions — the model and its identity rules, the tolerant
+reader, the canonical writer, the editlog schema, the PCA line primitives, the palette, the layer
+bridge, the snap scoping — and `modules/seeg/**` holds what is true of a **depth electrode**. The
+test of where the line falls is simple: a rule that a 4×8 grid would also obey is shared, and one
+that mentions a shaft is not. `refitShaft`, the tip rule and the `seegprep` file layout are therefore
+sEEG's; `fitLine` and `respaceEven` are not. Everything under `shared/` is inside §13.1's import wall,
+which is what keeps "shared" from becoming a back door to the store.
+
+**The tip rule is stated, because Slicer's is a stub.** `_tipSign` there has a docstring describing a
+heuristic and a body that returns `1.0`, and the module's own README lists "verify contact 1 =
+deepest" as a known limitation. Here: **contact 1 is the end of the shaft nearer the reference
+centre**, where the reference is the bound volume's bounding-box centre (falling back to the centroid
+of every contact). Not the electrode's own centroid, which lies *between* its ends and would make the
+rule a coin toss. It is a heuristic and not a brain mask — an occipital shaft entering near the
+midline can defeat it — so the tip contact is marked in the panel, `t` pins the other end per
+electrode, and the choice is saved with the scene.
+
+**Only Re-fit and Renumber ever relabel.** Loading, placing, dragging, snapping and deleting leave
+every contact's number and name exactly as they were. A clinical table's numbering is wired to the
+recording system through its `csc` column, so a renumber is a decision, not a side effect — and both
+buttons that make it say so. New names keep the **zero-padding the file used** (`LINS01`, not
+`LINS1`), which is the Slicer defect that made every relabelled contact read as `added` on the next
+load.
+
+**Floats are formatted like Python's `repr`.** `seegprep` writes `repr` so its tables round-trip bit
+for bit, and JavaScript disagrees with it in three places: `String(3)` is `3` where `repr(3.0)` is
+`3.0`, `String(1e-7)` is `1e-7` where `repr` is `1e-07`, and the two switch to exponent notation at
+different magnitudes (21/−7 against 17/−4). `formatFloat` is CPython's layout rule over
+`toExponential()`'s shortest digits, pinned by a generated fixture of two dozen pairs. The
+consequence that matters: **an untouched contact is written back byte for byte**, which is what makes
+the `status` column mean something.
+
+**The save is three files and the editlog's name is a contract.** The table (tab-separated, LF, the
+original columns in their original order with `electrode` / `contact` / `status` appended if absent),
+a `<name>.<stamp>.bak` main copies from the bytes that were there, and `<stem>_editlog.json`.
+`seegprep`'s CLI globs `<derivatives>/sub-<id>/ieeg/*_electrodes_editlog.json` and refuses to re-run
+over a hand-edited subject without `--force`, so a save whose stem does not end in `_electrodes`, or
+which lands outside an `ieeg/` directory, is warned about **before** it is written. The editlog keeps
+every count Slicer's wrote, under the same names, and adds a per-contact diff — counts answer "was
+this hand-edited?", and the reviewer three months later is asking "what was changed?".
+
+**`status` keeps what the localiser said.** `edited` for a contact that moved by more than 1e-3 mm
+(Slicer's L1 test), `added` for one with no row behind it, and otherwise the row's own status if it
+had one — so `located` and `gapfilled` survive a save that did not touch them, rather than being
+flattened to `kept`.
+
+**Undo is a `{ before, after }` pair.** `ModuleHistory` is a stack of states: `undo()` pops the last
+thing pushed and moves it to the redo side, which expresses "restore this snapshot" exactly and
+cannot express a redo on its own — after an undo, `redo()` would hand back the state just restored.
+Pushing the pair makes both directions correct with the published host surface and no second stack.
+A drag is coalesced by comparing positions against the snapshot taken at `selected`, because a plain
+click emits `selected` and then one zero-length `dragEnd`; a snap of any scope is one entry however
+many contacts moved.
+
+**Two things Slicer does that this does not.** Its display preset also puts the CT *above* the T1,
+and `ModuleHost` has no `reorderLayers`; adding one for a display nicety is not worth a §12.3 change,
+so the module applies the colormap, the opacity and the 150 HU `mode: 'hide'` floor and *says* when
+another volume is drawn over the CT. And a table opened before any volume is held rather than
+loaded — a module cannot open a dataset, and inventing a way for it to would be a second load path
+beside `runOne`'s.
+
+**The `sub-P076` sample table was deliberately not committed.** It is patient-derived electrode
+geometry; `gen-fixtures.py` writes a table with the same column set over the CT phantom instead, plus
+one deliberately awkward file (BOM, commas, CRLF, `R`/`A`/`S`, no group column, a ragged row) for the
+reader's tolerance. The real-data half is gated on `TETRAVOX_SEEG_TESTDATA` and asserts properties
+rather than numbers, because a real table's numbers belong to the site that produced it.

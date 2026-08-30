@@ -249,6 +249,13 @@ carries per-point values (a parsed Gmsh view with data attached), the layer can 
 solid colour, with the same colormap choices as mesh field colouring, and a label-size control appears for
 sources that actually have labels to size.
 
+**A points layer a [module](#modules) owns is different**, and the layer panel says so: it shows a read-only
+summary where that editor would be, and the module's own panel is the only way to change it. Contacts read
+from an electrodes table belong to the [sEEG contacts](#seeg-contacts) module — its editor is where they are
+placed, snapped, re-fitted, renumbered and saved, because the core editor here would rewrite the electrode
+colours and the radius it is not allowed to touch, and its edits would go around the module's own undo. What
+stays on the row is what belongs to the panel: visibility, opacity and the stacking order.
+
 <div class="shot-pair">
   <figure>
     <img src="screenshots/2026-08-29/features/feat-points-eeg-3d.png" alt="An EEG net as labelled points in 3D" loading="lazy">
@@ -588,7 +595,20 @@ takes the next three clicks in any 2D pane. A camera preset puts the pane back o
 **Module keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
 lent to whichever [module](#modules) is open and mean nothing when none is. They are resolved **after**
 everything above, so no module can change what any key on this page does, and `Esc` is never one of them.
-The `?` sheet grows a **Modules** tab listing the active module's own chords.
+The `?` sheet grows a **Modules** tab listing the active module's own chords. The [sEEG contacts](#seeg-contacts)
+module binds these:
+
+| Key | Action |
+|---|---|
+| `a` | Add contacts (place mode) |
+| `s` | Snap the selected contact to the metal |
+| `⇧S` | Snap the whole electrode |
+| `n` / `p` | Next / previous contact |
+| `f` | Re-fit the shaft |
+| `t` | Flip which end is the tip |
+| `g` | Contacts visible through slices |
+| `Delete` / `⌫` | Delete the selected contact |
+| `z` / `⇧Z` | Undo / redo |
 
 `⌘O` / `Ctrl+O` (Open…) is bound in the Electron application menu, not in this map, so it is never double-bound.
 
