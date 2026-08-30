@@ -32,7 +32,8 @@ the number is the reason for a rule.
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
 
 **Non-goals:** WebGPU, Windows, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
-scope), remote/URL loading, plugins, tractography, wasm64, wasm threads, auto-update, two-file `.hdr`/`.img`.
+scope), remote/URL loading, **third-party runtime-loaded plugins** (first-party modules, compiled into the
+app, are §13), tractography, wasm64, wasm threads, auto-update, two-file `.hdr`/`.img`.
 
 ---
 
@@ -2269,9 +2270,17 @@ Input (Freeview-like):
 
 **Regions.** **Left**: layer panel (ordered list, per-row disclosure, eye, opacity slider, per-kind property
 editor, 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed +
-Cancel). **Centre**: view grid (coloured border on the active view pane). **Right**: measurements panel,
-coordinate bar, info panel. **Top**: toolbar (Open, layout, radiological toggle, measure mode, theme,
-settings, screenshot, save/load scene). **Status bar** along the bottom.
+Cancel). **Centre**: view grid (coloured border on the active view pane). **Right**, top to bottom in this
+order: coordinate bar, the `.msh.opt` defaults chip (§7.6), measurements panel, **module panel — one active
+module at a time (§13)** — and the info panel. **Top**: toolbar — the `Tetravox` menu (Open…, Sample data…,
+New, Open scene…, Save, Save as…) and the scene's name in the left column; layout, radiological toggle,
+Reset, crosshair, colour bars, measure mode, scale bar, orientation cube and screenshot in the centre; the
+**module switcher**, the keyboard sheet (`?`) and settings (`⚙`) in the right column. **Status bar** along
+the bottom, with each active module's cell **before** the per-dataset cells.
+
+The theme is **not** a toolbar control: `system`/`light`/`dark` live in the settings dialog's Appearance tab
+(directed task: toolbar consolidation, 2026-08-28), so `⚙` is the single home for every standing preference
+and stays the right-most control on the rail however many toggles are added to its left.
 
 **2D view chrome — a laterality-safety requirement, not decoration:**
 * Orientation letters `L/R/A/P/S/I` on all four edges of every 2D view, **derived from the affine and the
@@ -2365,6 +2374,17 @@ bar carries the scene's name and a `•` while it is dirty; **File ▸ Open Rece
 reaches the app by **every** door a dataset does — a drop, ⌘O, argv, `open-file` from a double-click, a
 second instance. `main/menu.ts` splits scenes from datasets on the way in, so the renderer never sniffs a
 filename. `docs/USER_GUIDE.md` is the user-facing half.
+
+**Asking before losing work.** `DialogKind` carries a `confirm` case: a promise-resolving question with two
+or three buttons, raised by the module host (`host.ui.confirm`, §13.1) and by the shell's own discard guard.
+The **last** button is always the cancelling one, so Escape and a backdrop click — which `DialogFrame` already
+routes to `onCancel` — are the same answer as pressing it. The guard runs at five places where work would
+otherwise be thrown away without a word: **New**, opening a scene (which is also File ▸ Open Recent and the
+drop route, since all three arrive at `openScenePath`), and a layer row's **✕**, which closes the dataset a
+module's layers hang off. It is keyed on `UiState.moduleDirty`, **never** on `sceneDirty`: `sceneDirty` is set
+by any cursor click and is deliberately conservative, so it cannot mean "this work is unsaved". The window
+title's `•` is the OR of the two. `⌘S` saves the *scene*; while a module has unsaved work it also says so,
+because a module writes its own files from its own panel.
 
 **Screenshot**: `screenshot(opts: ScreenshotOptions)` (§4.7) → PNG with the DPI written into the pHYs chunk.
 The same path is exposed headlessly by the **automation surface** (`docs/AUTOMATION.md`):
@@ -2701,3 +2721,228 @@ incidental one, and it needs a line in `docs/DECISIONS.md`.
 
 **`pnpm-lock.yaml` and `Cargo.lock` are never merged.** On conflict, take `main`'s version and re-run
 `pnpm install` / `cargo check --workspace` to regenerate. Worktree branches rebase on `main` before merge.
+
+---
+
+## 13. Modules — the first-party extension surface
+
+A **module** is a first-party tool compiled into `out/renderer`: bigger than a toolbar toggle, smaller than a
+second application, owning one kind of data end to end — its own panel, its own keys, its own files, its own
+undo. The sEEG contact editor is the first; DBS leads, ECoG grids and an ROI tool are the shape of the next
+ones. §1's "plugins" non-goal is **narrowed, not withdrawn**: third-party code loaded at runtime is still out
+of scope, and §13.8 says what it would cost.
+
+The rule this section exists to hold: **a module is a directory and one line in a registry.** Nothing
+module-specific may appear in `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts` — the
+shell reads every module-specific fact out of a manifest. `modules.test.ts` is what keeps that true.
+
+### 13.1 What a module is, and where it lives
+
+```
+packages/app/src/modules/manifest-types.ts        # ModuleManifest, ArgShape — no DOM, no node:
+packages/app/src/modules/<id>/manifest.ts         # data only; read by main, the renderer AND scripts
+packages/app/src/modules/manifests.ts             # MANIFESTS — the main-safe barrel
+packages/app/src/renderer/src/modules/host.ts     # ModuleHost / ModuleInstance (pre-freeze, see below)
+packages/app/src/renderer/src/modules/registry.ts # [{ manifest, load: () => import('./<id>') }]
+packages/app/src/renderer/src/modules/hostImpl.ts # createModuleHost — the ONLY file that sees both sides
+packages/app/src/renderer/src/modules/<id>/…      # index.ts, Panel.tsx, kernels, tests
+```
+
+**A manifest is data, and that is load-bearing.** `main/job.ts` validates a `type: "module"` job action
+against `MANIFESTS` **before a window exists** (§13.6), which is what lets a job file report every problem at
+once. So manifests carry type annotations and object literals only — erasable syntax, no enums, no namespaces
+— and are typechecked by **all three** tsconfigs: `tsconfig.node.json` (no `DOM` in `lib`, so naming a DOM
+type is a compile error), `tsconfig.web.json` and `tsconfig.e2e.json`. A vitest reads the sources back and
+fails a manifest that imports anything outside its own directory.
+
+**Ids.** A module id is `<vendor>.<name>` (`tetravox.seeg`). Command, reader, writer and operation ids are
+**unprefixed inside a manifest**; the host namespaces them as `<moduleId>/<id>` wherever they leave the
+module, so a manifest never repeats its own id and two modules may both declare `save`.
+
+**`ModuleHost` is the whole surface.** Scene reads and writes are **synchronous** — they are calls into the
+engine through the controller, exactly as every §8 panel's are — and only files, dialogs and confirmations are
+promises, because those cross §5's process boundary or wait for a person. A module receives this object and
+imports nothing else: an ESLint wall on `modules/<id>/**` allows `../host`, the shared control kit and
+`@tetravox/engine` **types**, and forbids the store, the engine's runtime, `bridge()` and `automation/*`. A
+lint rule can be switched off inline, so `modules.test.ts` re-proves the same property by reading the sources.
+That wall is the precondition for §13.8, and it means the blast radius of a worker-hosted module tier is
+`hostImpl.ts` and nothing else.
+
+**Pre-freeze, deliberately.** `host.ts` is **not** a §12.3 frozen interface yet, and the reason is dated
+rather than vague: `scene.peakCentroid` needs the engine's bounded local read, `tool` needs the engine's point
+tool, and `files` needs the main-process channels. A surface frozen before those exist would be frozen around
+stubs. It grows additively until they are all in and is declared frozen — with `MODULE_HOST_VERSION` as its
+version — in the commit that lands the last of them. Until then, an unwired member **throws
+`ModuleHostError`** rather than returning a plausible `null`: "this build has no point tool" and "nothing is
+selected" must not be the same answer.
+
+**Versioning.** `MODULE_HOST_VERSION` is an integer and `manifest.hostApi` names the version a module was
+written against. Host changes are additive under §12.3 exactly like `api.ts`; a breaking change bumps the
+integer with a `DECISIONS.md` line, and the registry test then refuses every stale manifest.
+
+**Lifecycle.** Registration is build time; activation is lazy — the switcher, a reader hit, a sibling hit
+after a dataset lands, or a scene carrying the module's block. One module is in the slot at a time
+(`UiState.activeModule`, set only once `activate` resolved). `dispose()` runs on deactivate, on `newScene` and
+on `ShellController.detach`. An `activate` that throws becomes a toast and leaves the slot empty; it may never
+leave a half-built view grid behind. **Deactivating is not destructive**: a module's edits live in the scene's
+layers and its own state in `moduleBlocks`, so re-activating restores through `restoreBlock` — the same code
+path opening a scene takes.
+
+**Distribution.** In-tree, by pull request (`CONTRIBUTING.md`, "Adding a module"). A lab-internal module is a
+branch build, and this document says so plainly rather than implying an installer that does not exist.
+
+### 13.2 Persistence
+
+Two halves, and neither is a new scene concept.
+
+**Core-typed layers.** A module's geometry is ordinary `Scene.layers` — a `PointsLayer` of contacts, not a new
+layer kind. So a build without the module still *draws* the scene, `serialize` still round-trips it, and no
+pass, registry or property editor grew a case for it. `LayerBase.module` records the owner.
+
+**One opaque block per module**, at `ViewSpec.extensions[<moduleId>]`:
+`{ module, version, moduleVersion, data }`. It is written by the **app**'s `serialiseScene`, exactly like
+`theme` and for the same reason: `Engine.serialize()` enumerates engine fields and a module's record is not
+one of them. Three rules make it portable:
+
+* **A block never contains a `LayerId` or a `DatasetId`.** Both are reassigned on load, so a block holding one
+  would point at someone else's layer the second time a scene was opened. A module finds its own layer by
+  `LayerBase.module`.
+* **≤ 256 KiB of JSON**, enforced by the host. A block is a *record* — provenance, per-point status, the
+  module's own settings — not a second copy of the data.
+* **A block for a module this build does not have is carried through verbatim.** Opening a colleague's scene
+  and re-saving it must not delete their work. A build that *does* have the module but is older reads the
+  block's `version` and decides for itself.
+
+The read side is strict about the envelope and tolerant about `data`: a block whose key and `module` field
+disagree, or whose `version` is not a number, is **dropped**, because handing a malformed block to
+`restoreBlock` is a module crash on file open; `data` is not inspected at all, because it is not ours to
+validate.
+
+**Degradation, stated.** A scene re-saved by a build without the module keeps the layer and every per-point
+field — they ride the `{ ...layer }` spread §4.6 promises — and drops `extensions`. A module reopening such a
+scene rebuilds what it can from the layer, marks its provenance unknown, and says so.
+
+### 13.3 The user interface
+
+**One docked slot in the right column, above the info panel.** Not a floating palette: the shell has no
+floating, draggable or popover primitive, pane overlays are `pointer-events: none` by contract so a palette
+over the canvas would fight the WebGL grid for pointer capture, and at 1512 px the sidebars already take
+608 px — a floating editor would cover the pane it asks the user to click in. Not a tab either: the feedback
+most module actions are judged by is the info panel's Cursor block, and a tab hides it at the moment it
+matters.
+
+The slot renders **nothing at all** while idle, so the DOM is unchanged with no module active, and it sits
+**outside** the info panel's scrolling container, which is what makes `max-h-[55%]` plus its own scroller a
+hard cap rather than a suggestion — inside it, a tall module would squeeze the info panel to zero. The column
+is 320 px and stays 320 px; a resizable right aside is on the ROADMAP, not in v1.
+
+**Four bounded secondary surfaces, and no fifth:**
+
+1. **One switcher**, in the toolbar's right column, directly above the slot it opens — never a button per
+   module. `Toolbar.tsx` is `flex-wrap`, so a second module's button in the centre cluster wraps the row at
+   1440 px, grows the header and shrinks the view grid: the same canvas-resize class the status bar was pinned
+   against. A Playwright assertion pins the toolbar's height unchanged after an activation at 1440×900.
+2. **One status-bar cell per active module, ≤ 40 characters, before the dataset cells.** Two BIDS-named
+   datasets already overflow the strip, which does not scroll, and `ml-auto` cannot pull a cell back inside a
+   container that has overflowed — after them it would simply not be on screen.
+3. **Pool keys**, live only while the module is active (§13.5), listed in the `?` sheet's Modules tab.
+4. **One `confirm` dialog** with two or three buttons (§8).
+
+**Module-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
+concrete defect: the core points editor's per-point ↺ deletes the electrode's colour, its 0.5–20 mm radius
+slider is also the probe radius and the 2D slab, and every edit reaches `controller.patchLayer` directly,
+bypassing the module's history and its dirty flag so its own Undo would not undo it. Visibility, opacity and
+stacking stay on the row: they are the panel's, they cost the module nothing, and hiding a layer you can see
+in a list is the one thing a reader always expects to work.
+
+**Narrow mode (< 1000 px):** the right aside normally becomes a temporary overlay whose backdrop closes on any
+click — including the click in a pane a module just asked for — so **while a module is active it stays in
+flow**. Pinned by an e2e at 960 px.
+
+**Not offered:** floating or detached panels, popovers, module-drawn canvas overlays, native menu items, left-
+column slots, per-module toolbar buttons.
+
+### 13.4 Test obligations
+
+A module ships with all of these or it does not ship:
+
+* **`modules.test.ts` covers it for free** — manifest shape, unique ids, semver, `hostApi`, key-pool
+  membership, collision with `resolveKey` and with the engine's own keys, the `docs` heading, and the import
+  wall — because that test iterates `MANIFESTS` rather than naming a module.
+* **Every kernel is a pure function with a vitest**, and where an algorithm has a numeric reference the
+  expectations come from a fixture produced by an independent implementation (§11's rule, applied to modules).
+* **Panel behaviour is a Playwright spec.** vitest runs under `environment: 'node'`, so a claim about layout
+  or about a rendered control can only be made against a window.
+* **Real data is gated on an environment variable and skips, never fails, when it is unset.**
+* **The fixture module `tetravox.hello`** is compiled into every build and listed only behind
+  `?modules=hello` — the `?engine=mock` seam — because `pnpm e2e` drives the production bundle, so a fixture
+  excluded from it would prove nothing about the bundle users get. It exercises every part of the host that is
+  wired, which is what keeps the surface from rotting between real modules.
+
+### 13.5 Keys
+
+**The pool** is `a s d f g n p t z Delete Backspace`, unmodified or with Shift, and nothing else. Every one of
+them is a key `resolveKey` returns `null` for, and none is Space, `Esc`, `+`, `=`, `-`, `_` or `r` — the keys
+the **engine** binds on the canvas, which no resolver probe would reveal. `modules.test.ts` proves both halves
+against the live resolver rather than against this paragraph.
+
+**Resolution order** is: the engine's own canvas bindings; then `keymap.ts`; then, only if that returned
+`null` and a module is active and the target is not editable, the module resolver. So a module can never
+shadow a documented binding, and adding a module can never change what any key already does. `Esc` is never a
+module key: `keymap.ts` returns `cancelMeasurement` for it unconditionally and `Shell.tsx` preventDefaults it,
+so "core first, module on null" could not deliver it even if the pool allowed it.
+
+**The one exception to "a plain key stays harmless"** (`keymap.ts`'s rule that an unmodified key never
+destroys anything) is `when`: a module command may be bound with `when: 'selection'` or `when: 'toolArmed'`,
+and is then live **only** with an explicit selection or an armed tool. With neither, the key resolves to
+nothing at all — not to a command that does nothing. That distinction is the whole of the exception's safety,
+and it is unit-tested from both sides.
+
+**Chords are per module and listed in the `?` sheet's Modules tab**, generated from the active manifest. Those
+rows carry no `Command['kind']`, exactly as the pointer gestures do not, so `bindings.test.ts`'s coverage
+assertion keeps meaning what it meant.
+
+### 13.6 Automation
+
+One action type, forever — an envelope, so the job validator and the job runner are each edited once:
+
+```json
+{ "type": "module", "module": "tetravox.seeg", "op": "snap", "args": { "scope": "all", "radiusMm": 1.5 } }
+```
+
+`module` must be in `MANIFESTS`, `op` a declared operation, and `args` is checked against its `ArgShape` with
+unknown keys rejected — all in **main**, before a window exists. `path`-typed arguments join `jobInputPaths`
+so they are allow-listed like every other job input. `job-result.json` gains `modules: [{ id, version }]`;
+`JOB_SCHEMA_VERSION` does not move, because an unknown action type was already rejected and a job file that
+does not use one is unaffected.
+
+**Every panel action is also an operation.** That is what keeps §8's "there is no automation-only code path"
+literally true for modules: `ModuleInstance.runCommand` is what a button and a key call, `runOperation` is
+what a job calls, and a module that let them diverge would be shipping two products.
+
+### 13.7 The checklist for adding one
+
+1. A directory under `packages/app/src/modules/<name>/` with `manifest.ts`, and one under
+   `renderer/src/modules/<name>/` with `index.ts` and its panel.
+2. One line in `MANIFESTS` and one in `MODULES`.
+3. A `## ` section in `docs/USER_GUIDE.md` named by the manifest's `docs`, plus its entry in
+   `website/scripts/sync.mjs`'s `GUIDE_PAGES` and the site sidebar. The `docs-guard` CI job fails without them.
+4. Keys from §13.5's pool, or none.
+5. Tests per §13.4.
+6. A `docs/DECISIONS.md` entry for anything the module decides that a reader would otherwise have to infer.
+7. Nothing added to `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts`. If a module
+   seems to need something there, the host is missing a member — add it to `host.ts` under §12.3's rules.
+
+`tetravox.hello` is the worked example; read it before writing a manifest.
+
+### 13.8 Stage 2, and what it would cost
+
+A **community tier** — modules loaded at runtime from disk rather than compiled in — is described here as the
+path and is not built. It needs: a module Worker with no DOM and a JSON-only host bridge (a mechanical `await`
+pass over the modules that exist by then, not a redesign, which is exactly what the sync-plus-lint-wall design
+buys); a permission model with reasons; a Restricted Mode for a scene that arrives with an unknown module; a
+single-file library build so a module has something stable to compile against; a §5 rule 9 rewrite; and a
+security review of the whole path. It is 8–9 engineer-days and a different threat model, and nothing in stage 1
+prevents it — the wall on `modules/<id>/**` exists precisely so that day is a port and not a rewrite.
+
+Until then, "community" means a pull request that adds one directory, cites this section and passes §13.7.
