@@ -3967,6 +3967,542 @@
    "why": "\u00a76.2 rejects it by name; the byte-slice signature has no sibling-file access."
   }
  ],
+ "seeg": {
+  "contacts": [
+   {
+    "contact": 1,
+    "electrode": "A",
+    "errorToContactMm": 0.117400902,
+    "name": "A01",
+    "shiftMm": 0.859143103,
+    "snappedWorld": [
+     -5.99482103,
+     -7.000091174,
+     -11.117286579
+    ],
+    "world": [
+     -6.5,
+     -7.5,
+     -11.6
+    ]
+   },
+   {
+    "contact": 2,
+    "electrode": "A",
+    "errorToContactMm": 0.091703329,
+    "name": "A02",
+    "shiftMm": 0.409737836,
+    "snappedWorld": [
+     -5.146662237,
+     -5.758051968,
+     -7.929547102
+    ],
+    "world": [
+     -5.122804263,
+     -6.021925968,
+     -8.242095345
+    ]
+   },
+   {
+    "contact": 3,
+    "electrode": "A",
+    "errorToContactMm": 0.086403912,
+    "name": "A03",
+    "shiftMm": 0.513626531,
+    "snappedWorld": [
+     -4.246485822,
+     -4.547394583,
+     -4.770517488
+    ],
+    "world": [
+     -3.745608525,
+     -4.543851935,
+     -4.88419069
+    ]
+   },
+   {
+    "contact": 4,
+    "electrode": "A",
+    "errorToContactMm": 0.075759403,
+    "name": "A04",
+    "shiftMm": 0.566751931,
+    "snappedWorld": [
+     -3.35830873,
+     -3.301506317,
+     -1.599999785
+    ],
+    "world": [
+     -3.868412788,
+     -3.065777903,
+     -1.526286035
+    ]
+   },
+   {
+    "contact": 5,
+    "electrode": "A",
+    "errorToContactMm": 0.041891935,
+    "name": "A05",
+    "shiftMm": 0.573076796,
+    "snappedWorld": [
+     -2.477856432,
+     -2.111718608,
+     1.600000262
+    ],
+    "world": [
+     -2.49121705,
+     -1.58770387,
+     1.831618619
+    ]
+   },
+   {
+    "contact": 6,
+    "electrode": "A",
+    "errorToContactMm": 0.03198081,
+    "name": "A06",
+    "shiftMm": 0.824356032,
+    "snappedWorld": [
+     -1.610889793,
+     -0.829576593,
+     4.80000031
+    ],
+    "world": [
+     -1.114021313,
+     -1.359629838,
+     5.189523274
+    ]
+   },
+   {
+    "contact": 1,
+    "electrode": "B",
+    "errorToContactMm": 0.019376905,
+    "name": "B01",
+    "shiftMm": 0.807545596,
+    "snappedWorld": [
+     5.995859247,
+     -5.992016964,
+     -9.982836383
+    ],
+    "world": [
+     5.5,
+     -6.25,
+     -9.4
+    ]
+   },
+   {
+    "contact": 2,
+    "electrode": "B",
+    "errorToContactMm": 0.067779727,
+    "name": "B02",
+    "shiftMm": 0.665230647,
+    "snappedWorld": [
+     5.474262782,
+     -5.138694128,
+     -6.589073772
+    ],
+    "world": [
+     5.471687664,
+     -5.119479441,
+     -7.254021874
+    ]
+   },
+   {
+    "contact": 3,
+    "electrode": "B",
+    "errorToContactMm": 0.0812827,
+    "name": "B03",
+    "shiftMm": 0.753098096,
+    "snappedWorld": [
+     4.921691353,
+     -4.247016247,
+     -3.23012224
+    ],
+    "world": [
+     5.443375329,
+     -3.988958881,
+     -3.708043748
+    ]
+   },
+   {
+    "contact": 4,
+    "electrode": "B",
+    "errorToContactMm": 0.048868177,
+    "name": "B04",
+    "shiftMm": 0.701945866,
+    "snappedWorld": [
+     4.411132215,
+     -3.327882655,
+     2.38e-07
+    ],
+    "world": [
+     3.915062993,
+     -2.858438322,
+     -0.162065622
+    ]
+   },
+   {
+    "contact": 5,
+    "electrode": "B",
+    "errorToContactMm": 0.125551226,
+    "name": "B05",
+    "shiftMm": 0.512728901,
+    "snappedWorld": [
+     3.890700595,
+     -2.480789946,
+     3.258456301
+    ],
+    "world": [
+     3.886750657,
+     -2.977917762,
+     3.383912504
+    ]
+   },
+   {
+    "contact": 1,
+    "electrode": "C",
+    "errorToContactMm": 0.131744567,
+    "name": "C01",
+    "shiftMm": 0.477814213,
+    "snappedWorld": [
+     -3.918898614,
+     6.45327319,
+     -5.907286456
+    ],
+    "world": [
+     -3.5,
+     6.25,
+     -5.8
+    ]
+   },
+   {
+    "contact": 2,
+    "electrode": "C",
+    "errorToContactMm": 0.074596592,
+    "name": "C02",
+    "shiftMm": 0.607654419,
+    "snappedWorld": [
+     -2.065204134,
+     5.431040892,
+     -3.199999809
+    ],
+    "world": [
+     -2.575865666,
+     5.450472181,
+     -2.871227671
+    ]
+   },
+   {
+    "contact": 3,
+    "electrode": "C",
+    "errorToContactMm": 0.235727742,
+    "name": "C03",
+    "shiftMm": 0.607745158,
+    "snappedWorld": [
+     0.009504805,
+     4.294409149,
+     -0.407471178
+    ],
+    "world": [
+     -0.151731331,
+     4.650944363,
+     0.057544657
+    ]
+   },
+   {
+    "contact": 4,
+    "electrode": "C",
+    "errorToContactMm": 0.073778911,
+    "name": "C04",
+    "shiftMm": 0.984836676,
+    "snappedWorld": [
+     1.760848013,
+     3.345682572,
+     2.258959476
+    ],
+    "world": [
+     2.272403003,
+     3.851416544,
+     1.586316986
+    ]
+   }
+  ],
+  "conventions": {
+   "axis": "PCA first component, sign-canonicalised so the largest-|component| is positive",
+   "floats": "value, and the string Python's repr() writes for it",
+   "pitchMm": "median gap along the fitted line",
+   "refitWorld": "respace at the median gap, ascending along the line, then ordered tip-first",
+   "rmsMm": "sqrt(mean(|p - (c + t*axis)|^2))",
+   "snappedWorld": "peakCentroid at radius 1.5 mm (see voxelBox for the box rule)",
+   "spacingCv": "std(gaps)/mean(gaps), population std (ddof=0); null for fewer than 3 contacts",
+   "tip": "'low'/'high' end of the fitted line; contact 1 is the end NEARER tipReference"
+  },
+  "electrodes": [
+   {
+    "axis": [
+     0.265838987,
+     0.348597583,
+     0.898782153
+    ],
+    "electrode": "A",
+    "metrics": {
+     "pitchMm": 3.89939013,
+     "rmsMm": 0.486543292,
+     "spacingCv": 0.054854987
+    },
+    "n": 6,
+    "namesTipFirst": [
+     "A01",
+     "A02",
+     "A03",
+     "A04",
+     "A05",
+     "A06"
+    ],
+    "refitMetrics": {
+     "pitchMm": 3.89939013,
+     "rmsMm": 0.0,
+     "spacingCv": 0.0
+    },
+    "refitWorld": [
+     [
+      -1.143176649,
+      -0.520033469,
+      5.800989377
+     ],
+     [
+      -2.179786573,
+      -1.879351444,
+      2.296287123
+     ],
+     [
+      -3.216396497,
+      -3.238669419,
+      -1.208415131
+     ],
+     [
+      -4.25300642,
+      -4.597987395,
+      -4.713117386
+     ],
+     [
+      -5.289616344,
+      -5.95730537,
+      -8.21781964
+     ],
+     [
+      -6.326226267,
+      -7.316623345,
+      -11.722521894
+     ]
+    ],
+    "tip": "high"
+   },
+   {
+    "axis": [
+     -0.14340382,
+     0.254681061,
+     0.956333049
+    ],
+    "electrode": "B",
+    "metrics": {
+     "pitchMm": 3.523942684,
+     "rmsMm": 0.523507099,
+     "spacingCv": 0.179339939
+    },
+    "n": 5,
+    "namesTipFirst": [
+     "B01",
+     "B02",
+     "B03",
+     "B04",
+     "B05"
+    ],
+    "refitMetrics": {
+     "pitchMm": 3.523942684,
+     "rmsMm": 0.0,
+     "spacingCv": 0.0
+    },
+    "refitWorld": [
+     [
+      3.727943841,
+      -2.257984637,
+      4.010558605
+     ],
+     [
+      4.233290685,
+      -3.155466099,
+      0.640495752
+     ],
+     [
+      4.738637529,
+      -4.052947561,
+      -2.729567102
+     ],
+     [
+      5.243984372,
+      -4.950429022,
+      -6.099629955
+     ],
+     [
+      5.749331216,
+      -5.847910484,
+      -9.469692808
+     ]
+    ],
+    "tip": "high"
+   },
+   {
+    "axis": [
+     0.599196688,
+     -0.242050217,
+     0.763134996
+    ],
+    "electrode": "C",
+    "metrics": {
+     "pitchMm": 2.982312773,
+     "rmsMm": 0.51536937,
+     "spacingCv": 0.145350483
+    },
+    "n": 4,
+    "namesTipFirst": [
+     "C01",
+     "C02",
+     "C03",
+     "C04"
+    ],
+    "refitMetrics": {
+     "pitchMm": 2.982312773,
+     "rmsMm": 0.0,
+     "spacingCv": 0.0
+    },
+    "refitWorld": [
+     [
+      1.447816936,
+      4.066418293,
+      1.346424162
+     ],
+     [
+      -0.339174999,
+      4.788287747,
+      -0.929483084
+     ],
+     [
+      -2.126166934,
+      5.510157201,
+      -3.205390329
+     ],
+     [
+      -3.913158869,
+      6.232026656,
+      -5.481297575
+     ]
+    ],
+    "tip": "high"
+   }
+  ],
+  "floats": [
+   {
+    "repr": "0.0",
+    "value": 0.0
+   },
+   {
+    "repr": "-0.0",
+    "value": -0.0
+   },
+   {
+    "repr": "1.0",
+    "value": 1.0
+   },
+   {
+    "repr": "3.0",
+    "value": 3.0
+   },
+   {
+    "repr": "100.0",
+    "value": 100.0
+   },
+   {
+    "repr": "-22.62",
+    "value": -22.62
+   },
+   {
+    "repr": "49.38",
+    "value": 49.38
+   },
+   {
+    "repr": "0.1",
+    "value": 0.1
+   },
+   {
+    "repr": "0.3333333333333333",
+    "value": 0.3333333333333333
+   },
+   {
+    "repr": "1e-05",
+    "value": 1e-05
+   },
+   {
+    "repr": "0.0001",
+    "value": 0.0001
+   },
+   {
+    "repr": "1000000000000000.0",
+    "value": 1000000000000000.0
+   },
+   {
+    "repr": "1e+16",
+    "value": 1e+16
+   },
+   {
+    "repr": "1e+21",
+    "value": 1e+21
+   },
+   {
+    "repr": "1e+100",
+    "value": 1e+100
+   },
+   {
+    "repr": "1e-300",
+    "value": 1e-300
+   },
+   {
+    "repr": "-1.5e-09",
+    "value": -1.5e-09
+   },
+   {
+    "repr": "3.14159265358979",
+    "value": 3.14159265358979
+   },
+   {
+    "repr": "0.30000000000000004",
+    "value": 0.30000000000000004
+   },
+   {
+    "repr": "2.5e-323",
+    "value": 2.5e-323
+   },
+   {
+    "repr": "5e-324",
+    "value": 5e-324
+   },
+   {
+    "repr": "1.7976931348623157e+308",
+    "value": 1.7976931348623157e+308
+   },
+   {
+    "repr": "-0.000123456",
+    "value": -0.000123456
+   }
+  ],
+  "groundTruth": "numpy over the tables and ct_shafts.nii.gz, read back with nibabel",
+  "messyTable": "seeg_messy.csv",
+  "snapRadiusMm": 1.5,
+  "table": "seeg_contacts.tsv",
+  "tipReference": [
+   -0.199999645,
+   -0.25,
+   -0.399999768
+  ]
+ },
  "sidecars": {
   "labels_freesurfer_LUT.txt": {
    "appliesTo": [
@@ -4722,7 +5258,7 @@
    "reader": "gmsh 4.14.0 python api"
   }
  },
- "totalFixtureBytes": 139279,
+ "totalFixtureBytes": 140428,
  "version": 1,
  "volumes": {
   "ct_shafts.nii.gz": {

@@ -298,7 +298,13 @@ export function contactSetFrom(parsed: ParsedTable): ContactSetResult {
       ordinalCell !== null ? Math.trunc(ordinalCell) : (ordinalFromName(name) ?? seen);
 
     const extra: Record<string, string> = {};
-    for (const field of fieldnames) extra[field] = row[field] ?? '';
+    // Only the cells this row really had. A ragged row's missing cell stays **absent** rather than
+    // becoming `''`, because the writer distinguishes the two: absent is written as `n/a`, and an
+    // empty string is written back as the empty cell the file had.
+    for (const field of fieldnames) {
+      const cell = row[field];
+      if (cell !== undefined) extra[field] = cell;
+    }
     const statusCell = columns.status === null ? null : (row[columns.status] ?? '').trim();
 
     contacts.push({
