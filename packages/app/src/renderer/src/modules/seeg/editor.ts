@@ -87,7 +87,7 @@ import {
   tipReference,
 } from './shaft';
 import type { SeegBlock, SeegBlockSource } from './block';
-import { fromBlock, mergeBlockIntoSet, shrinkBlock, toBlock } from './block';
+import { contactFromDeleted, fromBlock, mergeBlockIntoSet, shrinkBlock, toBlock } from './block';
 import {
   baseNameOf,
   bundleOf,
@@ -327,7 +327,7 @@ export function createModel(host: ModuleHost): SeegModel {
    * §13.2's 256 KiB cap. The host throws for an oversized block; two fallbacks, then a warning.
    */
   const writeBlock = (): void => {
-    const input = { set, source, snapRadiusMm, namePad, ghost };
+    const input = { set, deleted, source, snapRadiusMm, namePad, ghost };
     const attempts: SeegBlock[] = [
       toBlock(input),
       shrinkBlock(toBlock(input), 1),
@@ -1377,7 +1377,11 @@ export function createModel(host: ModuleHost): SeegModel {
       ghost = data?.ghost ?? true;
       electrode = set.groups[0]?.name ?? null;
       selectedId = null;
-      deleted = [];
+      // The deletions come back with the block: the layer cannot carry them — a deleted contact is
+      // simply not a point any more — so without this the editlog written after a scene round trip
+      // would report `deleted: 0` beside a table that is missing the rows, and Revert would quietly
+      // stop being able to put them back.
+      deleted = (data?.deleted ?? []).map(contactFromDeleted);
       history.clear();
       // The operations that ran before this scene was written are the file's history, not this
       // session's: what a save writes now is what happened to *this* restored table.

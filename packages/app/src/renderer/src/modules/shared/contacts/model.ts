@@ -37,6 +37,16 @@ export interface Contact {
   position: vec3;
   /** Where the file put it, or `null` for a contact added in this session. */
   original: vec3 | null;
+  /**
+   * The **name** the file gave it, or `null` for a contact added in this session.
+   *
+   * The twin of `original` and there for the same reason: a renumber rewrites `name` and `ordinal`
+   * and moves nothing, so without this the one edit that rewires a table's `csc`/channel mapping
+   * produces a diff of nothing at all — `added: 0`, `edited: 0`, no contact entries — and the panel
+   * footer says "0 changed" beside a dirty dot. `null` is not "unchanged": it is "there was no row
+   * behind this contact", exactly as it is for `original`.
+   */
+  originalName: string | null;
   /** The `status` cell the file carried, or `null`. Preserved on a contact that did not move. */
   loadedStatus: string | null;
   /** Every other cell of the row this contact came from, by the file's own column name. */
@@ -79,6 +89,16 @@ export function statusOf(contact: Contact): string {
   if (hasMoved(contact)) return 'edited';
   const loaded = contact.loadedStatus;
   return loaded !== null && loaded !== '' ? loaded : 'kept';
+}
+
+/**
+ * Whether a relabel changed this contact's name since the file was read.
+ *
+ * `false` for a contact the file never had: an added contact has no name to have been renamed
+ * *from*, and calling it renamed would double-count it against `added`.
+ */
+export function wasRenamed(contact: Contact): boolean {
+  return contact.originalName !== null && contact.originalName !== contact.name;
 }
 
 /** The distance a contact has been moved from where the file put it, or 0. */
@@ -166,11 +186,17 @@ export function emptySet(): ContactSet {
   return { contacts: [], groups: [] };
 }
 
-/** How many contacts of the set differ from what the file said, plus how many are new. */
+/**
+ * How many contacts of the set differ from what the file said, plus how many are new.
+ *
+ * A renamed contact counts (2026-08-30): a renumber changes every name on a shaft and moves
+ * nothing, and a footer reading "0 changed" beside the dirty dot is a panel disagreeing with itself
+ * about the one edit that rewires the recording system's channel mapping.
+ */
 export function dirtyCount(set: ContactSet, deleted: number = 0): number {
   let n = deleted;
   for (const contact of set.contacts) {
-    if (contact.original === null || hasMoved(contact)) n += 1;
+    if (contact.original === null || hasMoved(contact) || wasRenamed(contact)) n += 1;
   }
   return n;
 }

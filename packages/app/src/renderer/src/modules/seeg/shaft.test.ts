@@ -52,6 +52,7 @@ function shaft(
         start[1] + u[1] * pitch * i + wobble[1],
         start[2] + u[2] * pitch * i + wobble[2],
       ] as vec3,
+      originalName: `${group}${String(i + 1).padStart(2, '0')}`,
       loadedStatus: null,
       extra: {},
     };

@@ -180,6 +180,9 @@ export function contactSetFromLayer(layer: Layer): ContactSet {
       ordinal: point.ordinal ?? ordinalFromName(name) ?? count,
       position: [...point.position] as vec3,
       original: null,
+      // The layer carries the name it carries and nothing about where that name came from; a block
+      // that knows better puts it back (`mergeBlockIntoSet`).
+      originalName: null,
       loadedStatus: null,
       extra: {},
     });

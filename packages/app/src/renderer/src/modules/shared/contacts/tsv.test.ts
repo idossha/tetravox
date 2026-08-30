@@ -214,6 +214,7 @@ describe('writeTable', () => {
       ordinal: 2,
       position: [1, 2, 3],
       original: null,
+      originalName: null,
       loadedStatus: null,
       extra: {},
     });
@@ -242,6 +243,7 @@ describe('writeTable', () => {
       ordinal: 2,
       position: [4, 5, 6],
       original: null,
+      originalName: null,
       loadedStatus: null,
       extra: {},
     });

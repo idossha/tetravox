@@ -325,6 +325,7 @@ export function contactSetFrom(parsed: ParsedTable): ContactSetResult {
       ordinal,
       position,
       original: [...position] as vec3,
+      originalName: name,
       loadedStatus: statusCell === null || statusCell === '' ? null : statusCell,
       extra,
     });
@@ -515,6 +516,7 @@ export function newContact(
     ordinal,
     position,
     original: null,
+    originalName: null,
     loadedStatus: null,
     extra: {},
   };

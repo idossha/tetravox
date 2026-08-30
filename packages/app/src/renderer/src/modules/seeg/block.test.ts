@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { vec3 } from '@tetravox/engine';
 import type { Contact, ContactSet } from '../shared/contacts/model';
 import { paletteColor } from '../shared/contacts/palette';
 import { resolveColumns } from '../shared/contacts/tsv';
@@ -15,17 +16,19 @@ import type { SeegBlockSource } from './block';
 import { fromBlock, mergeBlockIntoSet, SEEG_BLOCK_VERSION, shrinkBlock, toBlock } from './block';
 
 function contact(id: string, partial: Partial<Contact> = {}): Contact {
-  return {
+  const base = {
     id,
     name: 'A01',
     group: 'A',
     ordinal: 1,
-    position: [1, 2, 3],
-    original: [1, 2, 3],
-    loadedStatus: 'located',
-    extra: { name: 'A01', x: '1', y: '2', z: '3', csc: '17' },
+    position: [1, 2, 3] as vec3,
+    original: [1, 2, 3] as vec3 | null,
+    loadedStatus: 'located' as string | null,
+    extra: { name: 'A01', x: '1', y: '2', z: '3', csc: '17' } as Record<string, string>,
     ...partial,
   };
+  // The loaded name is the name; a contact with no row behind it never had one.
+  return { originalName: base.original === null ? null : base.name, ...base };
 }
 
 const SET: ContactSet = {
@@ -44,7 +47,14 @@ const SOURCE: SeegBlockSource = {
   delimiter: 'tab',
 };
 
-const INPUT = { set: SET, source: SOURCE, snapRadiusMm: 2.25, namePad: 2, ghost: false };
+const INPUT = {
+  set: SET,
+  deleted: [] as Contact[],
+  source: SOURCE,
+  snapRadiusMm: 2.25,
+  namePad: 2,
+  ghost: false,
+};
 
 describe('toBlock', () => {
   const block = toBlock(INPUT);
@@ -60,6 +70,7 @@ describe('toBlock', () => {
   it('carries the provenance a `points[]` entry has no field for', () => {
     expect(block.rows['c1']).toEqual({
       original: [1, 2, 3],
+      name: 'A01',
       status: 'located',
       extra: { name: 'A01', x: '1', y: '2', z: '3', csc: '17' },
     });
@@ -93,6 +104,20 @@ describe('shrinkBlock', () => {
     const smallest = shrinkBlock(toBlock(INPUT), 2);
     expect(smallest.rows).toEqual({});
     expect(smallest.electrodes).toHaveLength(1);
+    // …and the deletions with them: level 2 loses every `original`, and a deletion whose position
+    // is unknown is a worse editlog entry than a missing one.
+    expect(smallest.deleted).toEqual([]);
+  });
+
+  it('keeps a deletion’s identity through the level-1 shrink, minus its columns', () => {
+    const smaller = shrinkBlock(
+      toBlock({ ...INPUT, deleted: [contact('c9', { name: 'A09' })] }),
+      1
+    );
+    expect(smaller.deleted).toHaveLength(1);
+    expect(smaller.deleted[0]).toMatchObject({ id: 'c9', name: 'A09', position: [1, 2, 3] });
+    expect(smaller.deleted[0]?.row.original).toEqual([1, 2, 3]);
+    expect(smaller.deleted[0]?.row.extra).toEqual({});
   });
 });
 
@@ -129,13 +154,51 @@ describe('fromBlock', () => {
     });
     expect(read).not.toBeNull();
     expect(read?.source).toBeNull();
-    expect(read?.rows['c1']).toEqual({ original: null, status: null, extra: { ok: 'yes' } });
+    expect(read?.rows['c1']).toEqual({
+      original: null,
+      name: null,
+      status: null,
+      extra: { ok: 'yes' },
+    });
     expect(read?.rows).not.toHaveProperty('c2');
     expect(read?.electrodes).toEqual([{ name: 'A', color: paletteColor(0), tip: 'auto' }]);
     expect(read?.snapRadiusMm).toBe(1.5);
     expect(read?.namePad).toBe(2);
     // Absent means the ghost is ON, which is the module's own default.
     expect(read?.ghost).toBe(true);
+  });
+
+  /**
+   * `deleted` and `rows[].name` were appended 2026-08-30 and the version did **not** move, which is
+   * a claim about the blocks already written: one with neither key restores to no deletions and no
+   * remembered names, which is exactly what this build did before they existed.
+   */
+  it('reads a block written before deletions and loaded names were carried', () => {
+    const { deleted: _gone, ...older } = toBlock({
+      ...INPUT,
+      deleted: [contact('c9', { name: 'A09' })],
+    });
+    const read = fromBlock({
+      ...older,
+      rows: { c1: { original: [1, 2, 3], status: 'located', extra: {} } },
+    });
+    expect(read?.deleted).toEqual([]);
+    expect(read?.rows['c1']?.name).toBeNull();
+  });
+
+  it('drops a deletion record it cannot use, rather than restoring a contact with no position', () => {
+    const read = fromBlock({
+      ...toBlock(INPUT),
+      deleted: [
+        { id: 'c9', name: 'A09', group: 'A', ordinal: 9, position: [1, 2, 3], row: {} },
+        { name: 'no id', position: [1, 2, 3] },
+        { id: 'c8', name: 'A08', position: 'over there' },
+        7,
+      ],
+    });
+    expect(read?.deleted).toHaveLength(1);
+    expect(read?.deleted[0]).toMatchObject({ id: 'c9', group: 'A', ordinal: 9 });
+    expect(read?.deleted[0]?.row).toEqual({ original: null, name: null, status: null, extra: {} });
   });
 
   it('is null only for something that is not an object at all', () => {
@@ -170,6 +233,19 @@ describe('mergeBlockIntoSet', () => {
     expect(merged.contacts[1]?.original).toBeNull();
     // The group's colour and its pinned tip come back too.
     expect(merged.groups[0]).toEqual({ name: 'A', color: paletteColor(0), tip: 'high' });
+  });
+
+  it('puts the name the table had back, so a relabel survives a scene reopen', () => {
+    // What `contactSetFromLayer` produces: the layer's own names and no memory of any other.
+    const rebuilt: ContactSet = {
+      contacts: [{ ...contact('c1'), original: null, originalName: null, extra: {} }],
+      groups: [{ name: 'A', color: paletteColor(0), tip: 'auto' }],
+    };
+    const renumbered = toBlock({
+      ...INPUT,
+      set: { ...SET, contacts: [contact('c1', { name: 'A06', originalName: 'A01' })] },
+    });
+    expect(mergeBlockIntoSet(rebuilt, renumbered).contacts[0]?.originalName).toBe('A01');
   });
 
   it('leaves a contact the block has never heard of alone', () => {

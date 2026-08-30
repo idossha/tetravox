@@ -14,15 +14,28 @@
  * three months later when the electrode is in a paper. Each entry names the contact, its electrode,
  * where it was, where it is, and how far that is; a deletion has no `to` and an addition has no
  * `from`. Counts stay beside them so the two can never disagree.
+ *
+ * **A relabel is a change even when nothing moved** (2026-08-30). Renumber and Re-fit rewrite names
+ * and ordinals; a diff keyed on position alone reported `added: 0`, `edited: 0` and no entries at all
+ * for the one edit that changes how a table's `csc` column maps onto the recording system. The
+ * `renamed` change and the `renamed_from` field are additive beside Slicer's keys.
  */
 
 import type { vec3 } from '@tetravox/engine';
 import type { Contact, ContactSet } from './model';
-import { hasMoved, shiftMm } from './model';
+import { hasMoved, shiftMm, wasRenamed } from './model';
 
 export const EDITLOG_SCHEMA = 'tetravox.contacts/editlog@1';
 
-export type EditlogChange = 'added' | 'edited' | 'deleted';
+/**
+ * `renamed` is the fourth change, added 2026-08-30.
+ *
+ * A renumber rewrites names and ordinals and moves nothing, so it used to produce an editlog with
+ * `added: 0`, `edited: 0` and no contact entries at all — silent about the one edit that rewires a
+ * table's `csc`/channel mapping. It is a *change kind* rather than a flag on `edited` because a
+ * contact can be renamed without moving, and the old→new pair is the thing a reader needs.
+ */
+export type EditlogChange = 'added' | 'edited' | 'deleted' | 'renamed';
 
 export interface EditlogEntry {
   name: string;
@@ -33,6 +46,8 @@ export interface EditlogEntry {
   to?: [number, number, number];
   /** Euclidean, millimetres. Absent for an addition and a deletion. */
   shift_mm?: number;
+  /** The name the table had, when a re-fit or a renumber changed it. */
+  renamed_from?: string;
 }
 
 export interface EditlogElectrode {
@@ -54,6 +69,14 @@ export interface Editlog {
   n_contacts: number;
   added: number;
   edited: number;
+  /**
+   * How many contacts a relabel renamed without moving (2026-08-30).
+   *
+   * Additive beside the counts Slicer's editor wrote: a reader that knows only `added` / `edited` /
+   * `deleted` is unaffected, and a log written before this key existed reads as zero, which is what
+   * it was. The schema string does not move for it.
+   */
+  renamed: number;
   deleted: number;
   kept: number;
   snap_radius_mm: number;
@@ -103,7 +126,20 @@ function entryFor(contact: Contact): EditlogEntry | null {
       to: triple(contact.position),
     };
   }
-  if (!hasMoved(contact)) return null;
+  const renamedFrom = wasRenamed(contact) ? (contact.originalName as string) : null;
+  // Moved and renamed is **one** entry: a re-fit does both to the same contact, and two entries for
+  // it would make the counts beside them disagree with the rows.
+  if (!hasMoved(contact)) {
+    if (renamedFrom === null) return null;
+    return {
+      name: contact.name,
+      electrode: contact.group,
+      contact: contact.ordinal,
+      change: 'renamed',
+      renamed_from: renamedFrom,
+      to: triple(contact.position),
+    };
+  }
   return {
     name: contact.name,
     electrode: contact.group,
@@ -112,6 +148,7 @@ function entryFor(contact: Contact): EditlogEntry | null {
     from: triple(contact.original),
     to: triple(contact.position),
     shift_mm: shiftMm(contact),
+    ...(renamedFrom === null ? {} : { renamed_from: renamedFrom }),
   };
 }
 
@@ -124,6 +161,7 @@ export function buildEditlog(input: EditlogInput): Editlog {
   const contacts: EditlogEntry[] = [];
   let added = 0;
   let edited = 0;
+  let renamed = 0;
   let kept = 0;
   for (const contact of input.set.contacts) {
     const entry = entryFor(contact);
@@ -132,7 +170,11 @@ export function buildEditlog(input: EditlogInput): Editlog {
       continue;
     }
     if (entry.change === 'added') added += 1;
+    else if (entry.change === 'renamed') renamed += 1;
     else edited += 1;
+    // A contact that moved *and* was relabelled is one `edited` row carrying `renamed_from`, so the
+    // rename count is "renamed and nothing else" — the sum of the four counts is still the number
+    // of rows, which is what makes the counts and the diff impossible to disagree.
     contacts.push(entry);
   }
   for (const gone of input.deleted) {
@@ -164,6 +206,7 @@ export function buildEditlog(input: EditlogInput): Editlog {
     n_contacts: input.set.contacts.length,
     added,
     edited,
+    renamed,
     deleted: input.deleted.length,
     kept,
     snap_radius_mm: input.snapRadiusMm,

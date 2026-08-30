@@ -510,6 +510,65 @@ describe('saving', () => {
     expect(log.electrodes.map((e) => e.name)).toContain('A');
     expect(log.electrodes.some((e) => e.snapped || e.refit)).toBe(false);
   });
+
+  /**
+   * A renumber is the one edit that rewires a table's `csc` / channel mapping, and it moves nothing
+   * — so a diff keyed on position alone reported `added: 0, edited: 0` and no rows at all for it.
+   */
+  it('names every contact a renumber renamed, old name beside new', async () => {
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'renumber');
+    // The panel's own counter agrees: a renumber is a change, not "0 changed" beside a dirty dot.
+    expect(h.store.getState().moduleStatus[SEEG]).toContain('edited');
+
+    h.fs.savePath = TSV;
+    await h.controller.moduleCommand(SEEG, 'save-as');
+    const log = JSON.parse(h.fs.writes.at(-1)?.text ?? '{}') as {
+      renamed: number;
+      edited: number;
+      contacts: { name: string; change: string; renamed_from?: string }[];
+    };
+    // The phantom's A is numbered from the entry, so Renumber reverses all six names.
+    expect(log.renamed).toBe(6);
+    expect(log.edited).toBe(0);
+    const renamed = log.contacts.filter((c) => c.change === 'renamed');
+    expect(renamed).toHaveLength(6);
+    expect(renamed.find((c) => c.name === 'A06')?.renamed_from).toBe('A01');
+  });
+
+  /**
+   * §13.2 calls leaving the slot non-destructive *because* the module restores through its block —
+   * which was true of everything except the deletions, the one edit the layer cannot carry.
+   */
+  it('remembers the contacts it deleted across a trip through the block', async () => {
+    const h = await loadSubject();
+    for (const name of ['A03', 'A04']) {
+      const target = pointNamed(h, name);
+      h.engine.setPointSelection({ layerId: contactsLayer(h).id, pointId: target.id });
+      await h.controller.moduleCommand(SEEG, 'delete');
+    }
+    expect(contactsLayer(h).points).toHaveLength(13);
+
+    h.controller.deactivateModule();
+    expect(await h.controller.activateModule(SEEG)).toBe(true);
+    expect(contactsLayer(h).points).toHaveLength(13);
+
+    h.fs.savePath = TSV;
+    await h.controller.moduleCommand(SEEG, 'save-as');
+    const log = JSON.parse(h.fs.writes.at(-1)?.text ?? '{}') as {
+      deleted: number;
+      contacts: { name: string; change: string }[];
+    };
+    expect(log.deleted).toBe(2);
+    expect(log.contacts.filter((c) => c.change === 'deleted').map((c) => c.name)).toEqual([
+      'A03',
+      'A04',
+    ]);
+
+    // …and Revert can still keep the promise its own toast makes.
+    await h.controller.moduleCommand(SEEG, 'revert');
+    expect(contactsLayer(h).points).toHaveLength(15);
+  });
 });
 
 describe('the scene block', () => {

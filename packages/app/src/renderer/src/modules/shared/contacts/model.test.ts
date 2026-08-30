@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { vec3 } from '@tetravox/engine';
 import type { Contact, ContactSet } from './model';
 import {
   cloneSet,
@@ -19,20 +20,23 @@ import {
   ordinalFromName,
   shiftMm,
   statusOf,
+  wasRenamed,
 } from './model';
 import { paletteColor } from './palette';
 
 function contact(partial: Partial<Contact> & Pick<Contact, 'id'>): Contact {
-  return {
+  const base = {
     name: 'A01',
     group: 'A',
     ordinal: 1,
-    position: [0, 0, 0],
-    original: [0, 0, 0],
+    position: [0, 0, 0] as vec3,
+    original: [0, 0, 0] as vec3 | null,
     loadedStatus: null,
     extra: {},
     ...partial,
   };
+  // The loaded name is the name, unless a case says a relabel changed it.
+  return { originalName: base.original === null ? null : base.name, ...base };
 }
 
 function setOf(...contacts: Contact[]): ContactSet {
@@ -118,6 +122,17 @@ describe('set helpers', () => {
     );
     expect(dirtyCount(edited)).toBe(2);
     expect(dirtyCount(edited, 3)).toBe(5);
+  });
+
+  it('counts a contact a relabel renamed, and never an added one', () => {
+    // A renumber changes every name on a shaft and moves nothing: a footer reading "0 changed"
+    // beside the dirty dot is the panel disagreeing with itself.
+    const renumbered = setOf(contact({ id: 'c1', name: 'A06', originalName: 'A01' }));
+    expect(dirtyCount(renumbered)).toBe(1);
+    expect(wasRenamed(contact({ id: 'c1', name: 'A06', originalName: 'A01' }))).toBe(true);
+    // An added contact has no name in the file to have been renamed from, and is already counted.
+    expect(wasRenamed(contact({ id: 'p1', original: null }))).toBe(false);
+    expect(dirtyCount(setOf(contact({ id: 'p1', original: null })))).toBe(1);
   });
 
   it('clones deeply enough that a snapshot survives the next edit', () => {
