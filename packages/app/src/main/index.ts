@@ -29,6 +29,7 @@ import {
 } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
+import { registerModuleIpc } from './module-io';
 import { discoverSubjectSpaces } from './subject-spaces';
 import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
@@ -426,6 +427,9 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // The `--job` channels (`job-runner.ts`). Registered unconditionally: a normal launch asks for a
   // spec once, is told `null`, and takes the UI path.
   registerJobIpc();
+  // §13's module file IO (`module-io.ts`, §5 rule 11). Registered unconditionally for the same
+  // reason: a build whose modules never open a file simply never calls these.
+  registerModuleIpc();
 
   ipcMain.on('tetravox:log', (_event, message: unknown) => {
     console.log(`[tetravox:renderer] ${String(message)}`);

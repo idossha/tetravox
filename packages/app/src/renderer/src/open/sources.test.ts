@@ -80,6 +80,11 @@ function stubBridge(existing: readonly string[], droppedPath = ''): Stub {
       startupScene: async () => null,
       rememberScene: async () => null,
       onSceneCommand: () => () => {},
+      // §5 rule 11's module channels: no module is under test here, so every one refuses.
+      moduleReadText: async () => ({ ok: false as const, error: 'no module io in this test' }),
+      moduleOpenDialog: async () => [],
+      moduleSaveDialog: async () => null,
+      moduleWriteText: async () => ({ ok: false as const, error: 'no module io in this test' }),
     },
   };
   (globalThis as { tetravox?: TetravoxBridge }).tetravox = stub.bridge;
