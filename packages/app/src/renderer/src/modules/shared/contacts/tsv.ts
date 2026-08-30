@@ -64,6 +64,17 @@ export class ContactTableError extends Error {
 
 const REQUIRED: readonly (keyof ColumnMap)[] = ['name', 'x', 'y', 'z'];
 
+/**
+ * Every spelling of the electrode field, and the reason this list is exported to the writer.
+ *
+ * `seegprep`'s canonical `electrodes.tsv` carries **both** `group` and `electrode`, with the shaft
+ * label in each; `resolveColumns` picks `electrode`, which leaves `group` an ordinary extra column.
+ * A contact added here has no cell for it, so the writer's absent → `n/a` rule would put the literal
+ * string `n/a` there — and `seegprep`'s reader is `r.get("group") or r.get("electrode")`, where the
+ * *truthy* `'n/a'` wins over the real label and the contact comes back detached from its shaft into
+ * a phantom `n/a` group. Slicer wrote `''`, which is falsy and falls through, so this was a
+ * regression against the reference rather than a difference of opinion.
+ */
 const ALIASES: Record<keyof ColumnMap, readonly string[]> = {
   name: ['name', 'label', 'contact_name', 'contactlabel'],
   x: ['x', 'pos_x', 'x_mm', 'xmm'],
@@ -433,6 +444,9 @@ export function outputFieldnames(source: WriteSource): string[] {
 export function writeTable(set: ContactSet, source: WriteSource): string {
   const fields = outputFieldnames(source);
   const nameColumn = source.columns.name ?? 'name';
+  // The columns that are *also* the electrode field but are not the one this writer owns — `group`
+  // beside `electrode` on `seegprep`'s own header. See {@link ALIASES}.
+  const electrodeAliases = new Set(ALIASES.electrode);
   const xColumn = source.columns.x ?? 'x';
   const yColumn = source.columns.y ?? 'y';
   const zColumn = source.columns.z ?? 'z';
@@ -470,6 +484,15 @@ export function writeTable(set: ContactSet, source: WriteSource): string {
     put(yColumn, formatFloat(contact.position[1]));
     put(zColumn, formatFloat(contact.position[2]));
     put(electrodeColumn, contact.group);
+    // A sibling column that means the same thing gets the same label — but only where this contact
+    // never had a cell of its own, so a row the file really did write is still written back byte for
+    // byte and an added one never carries `n/a` where a shaft label belongs.
+    for (const field of fields) {
+      if (field === electrodeColumn) continue;
+      if (!electrodeAliases.has(field.trim().toLowerCase())) continue;
+      if (contact.extra[field] !== undefined) continue;
+      put(field, contact.group);
+    }
     put(contactColumn, String(contact.ordinal));
     put(statusColumn, statusOf(contact));
     lines.push(cells.join('\t'));
