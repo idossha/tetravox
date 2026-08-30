@@ -7,8 +7,8 @@ nav_order: 7
 
 # Tetravox — Architecture Contract
 
-> Desktop viewer for **voxel volumes** (NIfTI) and **finite-element / surface meshes** (Gmsh `.msh`, GIfTI,
-> FreeSurfer, STL/PLY/OBJ) with a linked **3D view + sagittal/axial/coronal 2D slices**. macOS + Linux.
+> Desktop viewer for **voxel volumes** (NIfTI, FreeSurfer MGH/MGZ, NRRD, MetaImage) and **finite-element /
+> surface meshes** (Gmsh `.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ) with a linked **3D view + sagittal/axial/coronal 2D slices**. macOS + Linux.
 
 This file is the **contract**. Deviating from it requires editing this file in the same commit and appending
 an entry to `docs/DECISIONS.md`. Section numbers are cited from code comments and tests — do not renumber.
@@ -45,7 +45,7 @@ tetravox/
 ├── rust-toolchain.toml           # pinned stable; nightly is forbidden
 ├── crates/
 │   ├── tvx-core/                 # shared types: Plane, BitMask, Field, LabelTable, Aabb, Error, ProgressSink
-│   ├── tvx-nifti/                # NIfTI-1/2 reader (+gzip), stats, GPU payload selection
+│   ├── tvx-nifti/                # NIfTI-1/2, MGH/MGZ, NRRD, MetaImage readers (+gzip), stats, GPU payload selection
 │   ├── tvx-mesh-io/              # Gmsh .msh v2/v4.1, .msh.opt, .geo/.pos views, GIfTI, FreeSurfer, STL/PLY/OBJ
 │   ├── tvx-geom/                 # surfaces, boundary extraction, Morton order, tet blocks, plane cut, isolation,
 │   │                             #   marching cubes/tets, elm↔node, contours, point location, orientation
@@ -1001,6 +1001,16 @@ pub enum TimeUnit  { Unknown, Second, Millisecond, Microsecond, Hz, Ppm, Rads }
 pub struct LabelIndex { pub ids: Vec<u32>, pub dense_of: Vec<u32> }   // dense_of[id] -> index; cap 65535
 
 pub fn read_nifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;
+pub fn read_mgh(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;        // .mgh / .mgz
+pub fn read_nrrd(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;       // .nrrd (attached)
+pub fn read_metaimage(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;  // .mha (attached)
+
+pub enum VolumeFormat { Nifti, Mgh, Nrrd, MetaImage }
+/// Content first (NIfTI `sizeof_hdr`, MGH big-endian `version = 1`, `NRRD000x`, a MetaImage `Key = Value`
+/// line), `hint_ext` only for bytes the content cannot place. A gzip member is peeked, not inflated.
+pub fn sniff_volume(bytes: &[u8], hint_ext: Option<&str>) -> Result<VolumeFormat>;
+/// `None` = sniff. Every format yields the same `Volume`; a gzip member is inflated exactly once.
+pub fn read_volume(bytes: Vec<u8>, format: Option<VolumeFormat>, p: &mut dyn ProgressSink) -> Result<Volume>;
 
 impl Volume {
     pub fn stats(&self, vol: usize) -> FieldStats;                    // PHYSICAL units
@@ -1016,6 +1026,34 @@ Rules:
   Accepted datatypes: uint8, int8, uint16, int16, uint32, int32, float32, float64 (→ f32 at GPU time only),
   RGB24, RGBA32. `Error::Unsupported` **by name** for complex64/128, int64, uint64. Two-file `ni1` ⇒
   `Error::Unsupported("two-file NIfTI")`.
+* **One `Volume` from every reader.** `read_mgh`, `read_nrrd` and `read_metaimage` share `read_nifti`'s
+  datatype decode, slope/inter rule, `is_label` test and stats (`common::finish`); each carries
+  `scl_slope/inter = (1, 0)`, `cal_min/max = 0`, `intent_code = 0`, a short `descrip` (`"MGH"`, the NRRD
+  `content:`, `"MetaImage"`), `xyz_units = Millimeter` (NRRD: `space units` when given), and **every parsed
+  header field in `header_json`** with an `affineSource` string saying what the affine was built from.
+  * **MGH/MGZ** — big-endian throughout; `version` must be 1; the fixed header is padded to **284 bytes** and
+    the samples start there; `nvols = nframes`; types `UCHAR 0`, `INT 1`, `FLOAT 3`, `SHORT 4`, `USHRT 10`
+    (`LONG`, `BITMAP`, `TENSOR` are `Unsupported` by name). The affine is nibabel's `MGHHeader.get_affine`:
+    `M = [x_ras y_ras z_ras]·diag(delta)`, `t = Pxyz_c − M·(dims/2)` (float division), and when
+    `goodRASFlag == 0` nibabel's default geometry (`delta = 1`, LIA cosines `[[-1,0,0],[0,0,1],[0,-1,0]]`,
+    `Pxyz_c = 0`). The optional footer (`TR`, `flip_angle`, `TE`, `TI`, `FoV`) is parsed into `header_json`.
+  * **NRRD** — **attached header only**: a `data file:` field (`.nhdr`) is `Unsupported` naming the sibling
+    file. `dimension` 3 or 4; every spelling of the eight scalar types; encodings `raw`, `gzip`/`gz`,
+    `ascii`/`txt`/`text` (`bzip2`, `hex` `Unsupported` by name); `endian`, `byte skip`, `line skip`.
+    Spatial axes are the `kinds` `domain`/`space` axes (else the non-`none` `space directions`, else the first
+    three); a non-spatial **last** axis is `nvols`; a non-spatial **first** axis is read only as
+    `3-color`/`4-color` over `uint8` → RGB24/RGBA32, anything else channel-first is `Unsupported`. Affine =
+    `space directions` columns + `space origin`, `spacing = |column|`, converted to RAS by negating the rows
+    whose `space` letter is L, P or I (`left-posterior-superior` → flip x, y); **no `space` reads as LPS**, as
+    ITK does; a non-anatomical space is taken as-is. `measurement frame`, `centerings` and comments are ignored.
+  * **MetaImage** — **`.mha` only**: `ElementDataFile` other than `LOCAL` (`.mhd`) is `Unsupported` naming
+    the sibling file. `NDims` 3 or 4 (4th = `nvols`), `MET_UCHAR/CHAR/USHORT/SHORT/UINT/INT/FLOAT/DOUBLE`,
+    `ElementNumberOfChannels` 1, or 3/4 over `MET_UCHAR` → RGB24/RGBA32; `BinaryData`,
+    `BinaryDataByteOrderMSB`, `CompressedData` (one **zlib** stream of `CompressedDataSize` bytes),
+    `HeaderSize` (`-1` = the last N bytes). `TransformMatrix` holds the per-axis direction vectors
+    consecutively (the direction matrix column-major, as ITK writes it); the affine is
+    `[TransformMatrix·diag(ElementSpacing) | Offset]` with the **x and y rows negated** (LPS → RAS), i.e.
+    exactly `sitk` direction/origin/spacing converted the way a SimpleITK→nibabel bridge does.
 * **Scaling is never folded.** Apply slope/inter only when
   `slope.is_finite() && slope != 0.0 && inter.is_finite() && (slope != 1.0 || inter != 0.0)`; otherwise
   normalise to `(1.0, 0.0)`. The affine is carried in `GpuPayload{scale, offset}` and applied as
@@ -1054,8 +1092,9 @@ Rules:
   `want_linear` is false when the layer is a label or `interpolation === 'nearest'`.
 * Volumes whose `max(dims) > caps.max_3d` fail loudly at load with a downsample offer — never a silently
   incomplete texture at draw time.
-* `read_nifti` **takes ownership of the byte vector and frees it before returning**, so §4.6's `fingerprint`
-  is taken by the caller over `&bytes` on the line above the call.
+* Every reader (`read_nifti`, `read_mgh`, `read_nrrd`, `read_metaimage`, `read_volume`) **takes ownership of
+  the byte vector and frees it before returning**, so §4.6's `fingerprint` is taken by the caller over
+  `&bytes` on the line above the call. Each reports `Read` → `Inflate` → `Parse` → `Index` like `read_nifti`.
 
 ### 6.2 `tvx-mesh-io`
 
@@ -1396,6 +1435,9 @@ is present wherever an op can exceed one frame, and is called at section boundar
 // `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2). Both loaders call
 // `tvx_core::fingerprint(&bytes)` BEFORE handing the vector to the parser — it is the only field of
 // either meta that cannot be recovered from the parsed dataset, because the bytes are gone by then.
+// `load_volume` takes no format argument: the bytes are NIfTI-1/2, MGH/MGZ, NRRD or MetaImage and
+// `tvx_nifti::read_volume(bytes, None, …)` sniffs them by content (§6.1), so NIfTI bytes behave
+// exactly as before the other formats existed.
 #[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, lut_bytes: Option<Vec<u8>>,
                                    float_linear: bool, norm16: bool, max_3d: u32, want_linear: bool,
                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
@@ -1480,7 +1522,7 @@ pub struct CutOut {
 | `morton_reorder`, `build_tet_blocks`, `build_point_locator`, `orient_surface`, `vertex_normals`, `face_normals` | Run inside `load_mesh` / `mesh_surface`; load-time invariants, not client-callable state |
 | `read_msh_opt` | Run inside `load_mesh` from the optional sibling bytes; result appears as `MeshMeta.opt` |
 | `read_msh` / `read_gifti` / `read_fs_*` / `read_stl` / `read_ply` / `read_obj` / `sniff` | Dispatched by `load_mesh(format)` |
-| `read_nifti` | Run inside `load_volume` |
+| `read_volume` (→ `read_nifti` / `read_mgh` / `read_nrrd` / `read_metaimage`, `sniff_volume`) | Run inside `load_volume`, sniffed by content |
 | `Volume::sample_nearest` | Probes are served from the UI thread's retained `data` array (§4.3); native/CLI only |
 | `Volume::stats` / `label_index` / `gpu_payload` | `load_volume` runs them for index 0, `volume_frame` for any other |
 | `LabelTable::parse_*` | Sidecar LUT text is parsed in the worker as part of `load_volume` / `load_mesh`. The **worker** fetches the sidecar; the crates never touch the filesystem |
@@ -2433,7 +2475,8 @@ channel, and outlines by dilation-tolerant IoU ≥ 0.9.
 
 **Fixture expectations.** `scripts/gen-fixtures.py` writes `testdata/manifest.json` and **commits** it, so
 Rust tests assert numbers without needing Python at test time. **Every number in it comes from an
-independent reader, never from the writer beside it**: nibabel for NIfTI / GIfTI / FreeSurfer,
+independent reader, never from the writer beside it**: nibabel for NIfTI / MGH / GIfTI / FreeSurfer,
+SimpleITK for NRRD / MetaImage (it loads LPS; the manifest stores the RAS affine after the x/y flip),
 `simnibs.mesh_io.read_msh` for Gmsh v2.2, and the Gmsh Python API for Gmsh v4.1 and for STL/PLY/OBJ. The
 handful of expectations no third-party reader produces are marked `"groundTruth": "authored"`. Reference
 values for the *real* dataset come from `scripts/refvalues/` and are transcribed into `AGENTS.md`.

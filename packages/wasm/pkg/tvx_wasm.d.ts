@@ -78,6 +78,10 @@ export function load_mesh(bytes: Uint8Array, format: string, opt_bytes: Uint8Arr
  * `load_volume` produces volume 0's payload; [`volume_frame`] produces any other index's. Both run
  * §6.1's `stats` / `label_index` / `gpu_payload` for that index.
  *
+ * The bytes may be NIfTI-1/2, FreeSurfer MGH/MGZ, NRRD (attached header) or MetaImage (`.mha`);
+ * the format is sniffed by content (`tvx_nifti::read_volume`), never by a name the worker would
+ * have to pass — the signature is frozen (§6.4).
+ *
  * Resolves to the `loadVolume` op result: `{ meta, data, gpuBytes, labelIds?, denseIndexOf? }` (§6.5.2).
  * `meta.name` comes back empty — the worker owns the `LoadSource` and fills it in.
  */

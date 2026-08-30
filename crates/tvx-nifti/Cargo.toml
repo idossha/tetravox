@@ -1,6 +1,6 @@
 [package]
 name = "tvx-nifti"
-description = "NIfTI-1/2 reader (+gzip), exact stats, GPU payload selection (ARCHITECTURE.md §6.1)"
+description = "NIfTI-1/2, FreeSurfer MGH/MGZ, NRRD and MetaImage readers (+gzip), exact stats, GPU payload selection (ARCHITECTURE.md §6.1)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -217,6 +217,154 @@ def write_nifti(
     return raw
 
 
+
+# --------------------------------------------------------------------------------------
+# MGH / NRRD / MetaImage fixtures — the "other voxel formats" of §6.1
+# --------------------------------------------------------------------------------------
+
+NUMPY_DTYPE_NAMES = {
+    "uint8": "u8", "int8": "i8", "uint16": "u16", "int16": "i16", "uint32": "u32",
+    "int32": "i32", "float32": "f32", "float64": "f64",
+}
+
+# NRRD `type` spellings and MetaImage `ElementType`s, per numpy dtype.
+NRRD_TYPES = {
+    "uint8": "uchar", "int8": "signed char", "uint16": "ushort", "int16": "short",
+    "uint32": "uint", "int32": "int", "float32": "float", "float64": "double",
+}
+MET_TYPES = {
+    "uint8": "MET_UCHAR", "int8": "MET_CHAR", "uint16": "MET_USHORT", "int16": "MET_SHORT",
+    "uint32": "MET_UINT", "int32": "MET_INT", "float32": "MET_FLOAT", "float64": "MET_DOUBLE",
+}
+
+
+def write_mgh(path: Path, arr, affine, *, gzip_it=False):
+    """FreeSurfer MGH through nibabel, serialised to bytes so the .mgz gzip is deterministic."""
+    import io
+
+    img = nib.MGHImage(np.asanyarray(arr), np.asarray(affine, dtype=np.float64))
+    fh = nib.FileHolder(fileobj=io.BytesIO())
+    img.to_file_map({"image": fh})
+    raw = fh.fileobj.getvalue()
+    if gzip_it:
+        raw = gz(raw)
+    w(path, raw)
+    return raw
+
+
+def _ras_to_lps(affine: np.ndarray) -> np.ndarray:
+    """The affine an LPS writer must store so that an LPS→RAS reader recovers `affine`."""
+    m = np.asarray(affine, dtype=np.float64).copy()
+    m[0, :] *= -1
+    m[1, :] *= -1
+    return m
+
+
+def write_nrrd(
+    path: Path, arr, affine, *, encoding="raw", space="left-posterior-superior",
+    kinds=None, content="tetravox fixture", endian="little",
+):
+    """A hand-written attached-header NRRD.  `arr` is (nx, ny, nz[, nvols]) with i fastest —
+    NRRD's first `sizes` axis is the fastest — so the samples are `arr.tobytes(order="F")`.
+    The affine is RAS (what the reader must produce); it is written in `space`, so an LPS
+    file stores the x/y-negated matrix.  A 4D array puts `nvols` on a trailing `list` axis."""
+    arr = np.asarray(arr)
+    dims = list(arr.shape)
+    ndim = len(dims)
+    stored = _ras_to_lps(affine) if space.startswith("left-posterior") else np.asarray(affine)
+    dirs = " ".join(
+        "(" + ",".join(repr(float(v)) for v in stored[:3, a]) + ")" for a in range(3)
+    )
+    if ndim == 4:
+        dirs += " none"
+        kinds = kinds or "domain domain domain list"
+    else:
+        kinds = kinds or "domain domain domain"
+    origin = "(" + ",".join(repr(float(v)) for v in stored[:3, 3]) + ")"
+    lines = [
+        "NRRD0004",
+        "# tetravox synthetic fixture (scripts/gen-fixtures.py)",
+        f"content: {content}",
+        f"type: {NRRD_TYPES[arr.dtype.name]}",
+        f"dimension: {ndim}",
+        f"space: {space}",
+        "sizes: " + " ".join(str(d) for d in dims),
+        f"space directions: {dirs}",
+        f"kinds: {kinds}",
+        f"encoding: {encoding}",
+        f"space origin: {origin}",
+        'space units: "mm" "mm" "mm"',
+    ]
+    if encoding != "ascii":
+        lines.insert(9, f"endian: {endian}")
+    header = ("\n".join(lines) + "\n\n").encode("ascii")
+    flat = arr.ravel(order="F")
+    if encoding == "raw":
+        data = flat.astype(arr.dtype.newbyteorder("<" if endian == "little" else ">")).tobytes()
+    elif encoding == "gzip":
+        data = gz(flat.astype(arr.dtype.newbyteorder("<" if endian == "little" else ">")).tobytes())
+    elif encoding == "ascii":
+        fmt = (lambda v: repr(float(v))) if arr.dtype.kind == "f" else (lambda v: str(int(v)))
+        rows = [" ".join(fmt(v) for v in flat[i : i + 16]) for i in range(0, flat.size, 16)]
+        data = ("\n".join(rows) + "\n").encode("ascii")
+    else:
+        raise ValueError(encoding)
+    w(path, header + data)
+
+
+def write_mha(path: Path, arr, affine, *, compressed=False, channels=1, msb=False):
+    """A hand-written attached-header MetaImage.  `arr` is (nx, ny, nz[, nvols]) i-fastest for
+    scalars, or (nx, ny, nz, channels) for a multi-channel image (channel fastest on disk).
+    MetaImage is LPS, so the RAS `affine` is x/y-negated on the way in; `TransformMatrix`
+    stores the per-axis direction vectors consecutively (the direction matrix column-major),
+    which is what ITK writes and reads."""
+    arr = np.asarray(arr)
+    if channels > 1:
+        assert arr.shape[-1] == channels
+        dims = list(arr.shape[:-1])
+        flat = np.moveaxis(arr, -1, 0).ravel(order="F")
+    else:
+        dims = list(arr.shape)
+        flat = arr.ravel(order="F")
+    ndim = len(dims)
+    lps = _ras_to_lps(affine)
+    spacing = np.linalg.norm(lps[:3, :3], axis=0)
+    direction = lps[:3, :3] / spacing
+    if ndim == 4:
+        spacing = np.append(spacing, 1.0)
+        d4 = np.eye(4)
+        d4[:3, :3] = direction
+        direction = d4
+        offset = np.append(lps[:3, 3], 0.0)
+    else:
+        offset = lps[:3, 3]
+    # column-major: axis a's direction vector is direction[:, a]
+    tm = " ".join(repr(float(direction[r, a])) for a in range(ndim) for r in range(ndim))
+    data = flat.astype(arr.dtype.newbyteorder(">" if msb else "<")).tobytes()
+    lines = [
+        "ObjectType = Image",
+        f"NDims = {ndim}",
+        "BinaryData = True",
+        f"BinaryDataByteOrderMSB = {'True' if msb else 'False'}",
+        f"CompressedData = {'True' if compressed else 'False'}",
+    ]
+    if compressed:
+        data = zlib.compress(data, 9)
+        lines.append(f"CompressedDataSize = {len(data)}")
+    lines += [
+        f"TransformMatrix = {tm}",
+        "Offset = " + " ".join(repr(float(v)) for v in offset),
+        "CenterOfRotation = " + " ".join("0" for _ in range(ndim)),
+        "AnatomicalOrientation = RAI",
+        "ElementSpacing = " + " ".join(repr(float(v)) for v in spacing),
+        "DimSize = " + " ".join(str(d) for d in dims),
+    ]
+    if channels > 1:
+        lines.append(f"ElementNumberOfChannels = {channels}")
+    lines += [f"ElementType = {MET_TYPES[arr.dtype.name]}", "ElementDataFile = LOCAL"]
+    header = ("\n".join(lines) + "\n").encode("ascii")
+    w(path, header + data)
+
 # --------------------------------------------------------------------------------------
 # the tet mesh: a 2x2x2 lattice of unit cubes, each split into 6 tets
 # --------------------------------------------------------------------------------------
@@ -893,6 +1041,34 @@ def generate(out: Path) -> dict:
     aff_asym[:3, 3] = (-3.5, -3.5, -3.5)
     write_nifti(out / "vol_asym.nii", asym, aff_asym)
 
+    # ---------------- MGH / NRRD / MetaImage (§6.1's other voxel formats) ----------------
+    # Same ramps, same oblique affine, so a reader that gets an axis or a sign wrong is caught by
+    # the very numbers the NIfTI fixtures already pin.
+    write_mgh(out / "vol_u8.mgh", ramp(DIMS, dtype=np.uint8), aff_ob)
+    write_mgh(out / "vol_f32.mgz", ramp(DIMS, dtype=np.float32), aff_ex, gzip_it=True)
+    write_mgh(out / "vol_i16_4d.mgz", ramp(DIMS, nvols=3, dtype=np.int16), aff_ob, gzip_it=True)
+
+    write_nrrd(out / "vol_u8_raw.nrrd", ramp(DIMS, dtype=np.uint8), aff_ob)
+    # a negative diagonal element in the stored (LPS) directions: aff_qfac's third column is
+    # negated, and the LPS x/y rows are negated again on the way in
+    write_nrrd(
+        out / "vol_i16_gzip_lps.nrrd", ramp(DIMS, dtype=np.int16), aff_qfac, encoding="gzip",
+        content="i16 gzip LPS",
+    )
+    write_nrrd(
+        out / "vol_f32_ascii.nrrd", ramp(DIMS, dtype=np.float32), aff_ob, encoding="ascii",
+        space="right-anterior-superior",
+    )
+    write_nrrd(out / "vol_4d_list.nrrd", ramp(DIMS, nvols=3, dtype=np.float32), aff_ob)
+
+    write_mha(out / "vol_u8_raw.mha", ramp(DIMS, dtype=np.uint8), aff_ob)
+    write_mha(out / "vol_i16_zlib.mha", ramp(DIMS, dtype=np.int16), aff_ob, compressed=True)
+    write_mha(out / "vol_rgb.mha", rgb, aff_ex, channels=3)
+    notes["voxelFormats"] = {
+        "lps": "NRRD (space: left-posterior-superior) and MetaImage store the x/y-negated affine; "
+               "the manifest's `affine` is RAS, as the reader must produce it",
+    }
+
     # ---------------- Gmsh .msh ----------------
     nodes, tets, tet_tags, tris, tri_tags, n_ext, n_iface = build_lattice()
     fields = mesh_fields(nodes, tris, tets)
@@ -1116,6 +1292,133 @@ def inspect_nifti(path: Path) -> dict:
     if uniq.size <= 32:
         rec["uniqueValues"] = fl(uniq)
     return rec
+
+
+# --------------------------------------------------------------------------------------
+# verification — the other voxel formats
+# --------------------------------------------------------------------------------------
+
+VOXEL_SPOTS = [(0, 0, 0), (4, 0, 0), (0, 3, 0), (0, 0, 2), (2, 1, 1), (4, 3, 2)]
+
+
+def _voxel_record(path: Path, fmt: str, ground_truth: str, dims, nvols, dtype, affine, spacing,
+                  sample) -> dict:
+    """`sample(i, j, k, t)` -> raw value (scalar or a component tuple) of one voxel; the
+    record's stats come from `sample` over every voxel, so they never touch the writer."""
+    affine = np.asarray(affine, dtype=np.float64)
+    is_color = dtype in ("rgb24", "rgba32")
+    per_vol = []
+    for t in range(nvols):
+        vals = np.array(
+            [sample(i, j, k, t) for k in range(dims[2]) for j in range(dims[1]) for i in range(dims[0])],
+            dtype=np.float64,
+        )
+        per_vol.append(vals.ravel())
+    allv = np.concatenate(per_vol)
+    spots = []
+    for (i, j, k) in VOXEL_SPOTS:
+        if i >= dims[0] or j >= dims[1] or k >= dims[2]:
+            continue
+        for t in range(min(nvols, 3)):
+            rv = sample(i, j, k, t)
+            spots.append({
+                "voxel": [i, j, k], "volume": t,
+                "raw": fl(rv) if np.ndim(rv) else f(rv),
+                "world": fl(affine @ np.array([i, j, k, 1.0])),
+            })
+    uniq = np.unique(allv[np.isfinite(allv)]) if not is_color else np.array([])
+    return {
+        "bytes": path.stat().st_size,
+        "format": fmt,
+        "groundTruth": ground_truth,
+        "dims": [int(d) for d in dims],
+        "nvols": int(nvols),
+        "dtype": dtype,
+        "affine": mat(affine),
+        "spacing": fl(spacing),
+        "stats": None if is_color else arr_stats(allv),
+        "volumeStats": None if is_color else [arr_stats(v) for v in per_vol],
+        "uniqueCount": None if is_color else int(uniq.size),
+        "allIntegralNonNegative": None if is_color else bool(
+            uniq.size and np.all(uniq == np.round(uniq)) and uniq.min() >= 0
+        ),
+        "spotValues": spots,
+    }
+
+
+def inspect_mgh(path: Path) -> dict:
+    img = nib.load(str(path))
+    shape = img.shape
+    dims = [int(x) for x in shape[:3]]
+    nvols = int(shape[3]) if len(shape) > 3 else 1
+    data = np.asanyarray(img.dataobj)
+    if data.ndim == 3:
+        data = data[..., None]
+    rec = _voxel_record(
+        path, "mgh", f"nibabel {nib.__version__} nib.load (MGHImage.affine)", dims, nvols,
+        NUMPY_DTYPE_NAMES[img.get_data_dtype().name], img.affine,
+        img.header["delta"], lambda i, j, k, t: data[i, j, k, t],
+    )
+    hdr = img.header
+    rec["goodRASFlag"] = int(hdr["goodRASFlag"])
+    rec["Pxyz_c"] = fl(hdr["Pxyz_c"])
+    rec["Mdc"] = mat(hdr["Mdc"])
+    rec["vox2rasTkr"] = mat(hdr.get_vox2ras_tkr())
+    return rec
+
+
+def inspect_itk_volumes(out: Path) -> dict:
+    """Runs under simnibs_python.  SimpleITK is the reference reader for NRRD and MetaImage;
+    it loads every image in LPS, and the record stores the RAS affine after negating the x
+    and y rows — the one conversion a SimpleITK→nibabel bridge performs."""
+    import SimpleITK as sitk
+
+    recs = {}
+    for p in sorted(out.glob("*.nrrd")) + sorted(out.glob("*.mha")):
+        img = sitk.ReadImage(str(p))
+        size = list(img.GetSize())
+        ndim = img.GetDimension()
+        ncomp = img.GetNumberOfComponentsPerPixel()
+        arr = sitk.GetArrayFromImage(img)  # (z,y,x) | (t,z,y,x) | (z,y,x,c)
+        dims = size[:3]
+        d = np.array(img.GetDirection(), dtype=np.float64).reshape(ndim, ndim)[:3, :3]
+        sp = np.array(img.GetSpacing(), dtype=np.float64)[:3]
+        org = np.array(img.GetOrigin(), dtype=np.float64)[:3]
+        lps = np.eye(4)
+        lps[:3, :3] = d * sp[None, :]
+        lps[:3, 3] = org
+        ras = lps.copy()
+        ras[0, :] *= -1
+        ras[1, :] *= -1
+        base = arr.dtype.name
+        if ncomp > 1 and base == "uint8" and ncomp in (3, 4) and p.suffix == ".mha":
+            dtype, nvols = ("rgb24" if ncomp == 3 else "rgba32"), 1
+            sample = lambda i, j, k, t, a=arr: a[k, j, i, :].tolist()
+        elif ncomp > 1:
+            # a `kinds: ... list` NRRD: SimpleITK folds the list axis into components
+            dtype, nvols = NUMPY_DTYPE_NAMES[base], ncomp
+            sample = lambda i, j, k, t, a=arr: a[k, j, i, t]
+        elif ndim == 4:
+            dtype, nvols = NUMPY_DTYPE_NAMES[base], size[3]
+            sample = lambda i, j, k, t, a=arr: a[t, k, j, i]
+        else:
+            dtype, nvols = NUMPY_DTYPE_NAMES[base], 1
+            sample = lambda i, j, k, t, a=arr: a[k, j, i]
+        fmt = "nrrd" if p.suffix == ".nrrd" else "metaimage"
+        rec = _voxel_record(
+            p, fmt,
+            f"SimpleITK {sitk.Version_MajorVersion()}.{sitk.Version_MinorVersion()}."
+            f"{sitk.Version_PatchVersion()} sitk.ReadImage; LPS -> RAS by negating rows 0 and 1",
+            dims, nvols, dtype, ras, sp, sample,
+        )
+        rec["itk"] = {
+            "size": size, "dimension": ndim, "componentsPerPixel": ncomp,
+            "direction": fl(img.GetDirection()), "origin": fl(img.GetOrigin()),
+            "spacing": fl(img.GetSpacing()), "pixelType": img.GetPixelIDTypeAsString(),
+            "lpsAffine": mat(lps),
+        }
+        recs[p.name] = rec
+    return recs
 
 
 # GIfTI attribute codes -> the strings that appear verbatim in the XML (§6.2).
@@ -1524,7 +1827,8 @@ SCHEMA = {
     "description": (
         "Ground truth for the committed synthetic fixtures in testdata/. "
         "Every number here was produced by an INDEPENDENT reader — nibabel for NIfTI/GIfTI/"
-        "FreeSurfer, simnibs.mesh_io.read_msh for Gmsh v2.2, the Gmsh 4.14 Python API for Gmsh "
+        "FreeSurfer (MGH/MGZ included), SimpleITK for NRRD/MetaImage (loaded in LPS, stored here as "
+        "RAS), simnibs.mesh_io.read_msh for Gmsh v2.2, the Gmsh 4.14 Python API for Gmsh "
         "v4.1 and for STL/PLY/OBJ — never by the writer in scripts/gen-fixtures.py. Regenerate "
         "with `python3 scripts/gen-fixtures.py`."
     ),
@@ -1549,7 +1853,9 @@ def main() -> int:
 
     if args.inspect:
         out = Path(args.inspect[0])
-        Path(args.inspect[1]).write_text(json.dumps(inspect_meshes(out)))
+        result = inspect_meshes(out)
+        result["voxelFormats"] = inspect_itk_volumes(out)
+        Path(args.inspect[1]).write_text(json.dumps(result))
         return 0
 
     repo = Path(__file__).resolve().parent.parent
@@ -1564,6 +1870,9 @@ def main() -> int:
     manifest["volumes"] = {}
     for p in sorted(out.glob("*.nii")) + sorted(out.glob("*.nii.gz")):
         manifest["volumes"][p.name] = inspect_nifti(p)
+    manifest["voxelFormats"] = {
+        p.name: inspect_mgh(p) for p in sorted(out.glob("*.mgh")) + sorted(out.glob("*.mgz"))
+    }
     manifest["gifti"] = {p.name: inspect_gifti(p) for p in sorted(out.glob("*.gii"))}
     manifest["freesurfer"] = inspect_fs(out)
 
@@ -1574,6 +1883,7 @@ def main() -> int:
     )
     mesh = json.loads(tmp.read_text())
     tmp.unlink()
+    manifest["voxelFormats"].update(mesh.pop("voxelFormats"))
     manifest.update(mesh)
 
     manifest["sidecars"] = {
@@ -1641,6 +1951,12 @@ def main() -> int:
             "why": "§6.1 rejects it by name (Error::Unsupported(\"two-file NIfTI\")); "
                    "no valid fixture is needed to assert a rejection.",
             "instead": "the Rust test truncates vol_u8.nii's magic to `ni1\\0` in memory.",
+        },
+        {
+            "what": "a detached-header NRRD (.nhdr) or MetaImage (.mhd), or a bzip2 NRRD",
+            "why": "§6.1 rejects them by name; the byte-slice signature has no sibling-file "
+                   "access and bzip2 is not a dependency.",
+            "instead": "the Rust tests rewrite an attached fixture's header in memory.",
         },
         {
             "what": "GIfTI ExternalFileBinary",
