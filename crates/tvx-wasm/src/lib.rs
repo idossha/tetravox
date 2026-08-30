@@ -104,7 +104,8 @@ pub fn load_volume(
     .map_err(err::map)
 }
 
-/// `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'`; `auto` dispatches through
+/// `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'|'geo'|'vtk'|'vtu'|'vtp'|'off'|'medit'`;
+/// `auto` dispatches through
 /// [`tvx_mesh_io::sniff`]. Morton reorder, [`tvx_geom::build_tet_blocks`] and
 /// [`tvx_geom::build_point_locator`] are built here. Result is `{ meta: MeshMeta }` — no bulk arrays.
 #[wasm_bindgen]

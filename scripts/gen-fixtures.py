@@ -748,6 +748,184 @@ def write_obj(path: Path, verts, faces):
     w(path, out.encode("ascii"))
 
 
+# --------------------------------------------------------------------------------------
+# VTK legacy / VTK XML / OFF / MEDIT (§6.2's general-purpose formats)
+# --------------------------------------------------------------------------------------
+# All written with plain `struct` — the `vtk` module is not installed and would be the
+# writer anyway; the independent readers are Gmsh (legacy .vtk, .off, .mesh) and meshio.
+
+import base64
+
+
+def _vtk_cells(tris, tets):
+    """(connectivity lists, types) in tris-then-tets order — the same order mesh_fields uses."""
+    cells = [[int(i) for i in t] for t in tris] + [[int(i) for i in t] for t in tets]
+    types = [5] * len(tris) + [10] * len(tets)
+    return cells, types
+
+
+def write_vtk_legacy(path: Path, nodes, tris, tri_tags, tets, tet_tags, fields, binary: bool):
+    """DATASET UNSTRUCTURED_GRID with a cell scalar `material` (the tags), a cell scalar
+    `elm_scalar`, a point scalar `node_scalar` and a point vector `node_vector`.
+    BINARY payloads are big-endian, as the legacy format requires (§6.2)."""
+    cells, types = _vtk_cells(tris, tets)
+    material = [int(t) for t in tri_tags] + [int(t) for t in tet_tags]
+    ncomp, elm_scalar = fields["elm_scalar"]
+    _, node_scalar = fields["node_scalar"]
+    _, node_vector = fields["node_vector"]
+    flat_cells = []
+    for c in cells:
+        flat_cells += [len(c)] + c
+    out = bytearray()
+    out += b"# vtk DataFile Version 3.0\ntetravox lattice fixture\n"
+    out += b"BINARY\n" if binary else b"ASCII\n"
+    out += b"DATASET UNSTRUCTURED_GRID\n"
+
+    def arr(kind, vals):
+        if binary:
+            if kind == "f":
+                return struct.pack(">%df" % len(vals), *[float(v) for v in vals])
+            return struct.pack(">%di" % len(vals), *[int(v) for v in vals])
+        if kind == "f":
+            return ("\n".join("%.9g" % float(v) for v in vals) + "\n").encode()
+        return ("\n".join(str(int(v)) for v in vals) + "\n").encode()
+
+    out += b"POINTS %d float\n" % len(nodes) + arr("f", nodes.reshape(-1)) + (b"\n" if binary else b"")
+    out += b"CELLS %d %d\n" % (len(cells), len(flat_cells)) + arr("i", flat_cells) + (b"\n" if binary else b"")
+    out += b"CELL_TYPES %d\n" % len(cells) + arr("i", types) + (b"\n" if binary else b"")
+    out += b"CELL_DATA %d\n" % len(cells)
+    out += b"SCALARS material int 1\nLOOKUP_TABLE default\n" + arr("i", material) + (b"\n" if binary else b"")
+    out += b"SCALARS elm_scalar float 1\nLOOKUP_TABLE default\n" + arr("f", elm_scalar.reshape(-1)) + (b"\n" if binary else b"")
+    out += b"POINT_DATA %d\n" % len(nodes)
+    out += b"SCALARS node_scalar float 1\nLOOKUP_TABLE default\n" + arr("f", node_scalar.reshape(-1)) + (b"\n" if binary else b"")
+    out += b"VECTORS node_vector float\n" + arr("f", node_vector.reshape(-1)) + (b"\n" if binary else b"")
+    w(path, bytes(out))
+
+
+def write_vtk_polydata(path: Path, verts, quads):
+    """DATASET POLYDATA whose POLYGONS are quads (exercises tri_edge_mask), plus a point scalar."""
+    out = "# vtk DataFile Version 3.0\ntetravox patch fixture\nASCII\nDATASET POLYDATA\n"
+    out += "POINTS %d float\n" % len(verts)
+    out += "".join("%.9g %.9g %.9g\n" % tuple(v) for v in verts)
+    out += "POLYGONS %d %d\n" % (len(quads), 5 * len(quads))
+    out += "".join("4 %s\n" % " ".join(str(int(i)) for i in q) for q in quads)
+    out += "POINT_DATA %d\nSCALARS height float 1\nLOOKUP_TABLE default\n" % len(verts)
+    out += "".join("%.9g\n" % float(v[2]) for v in verts)
+    w(path, out.encode("ascii"))
+
+
+class _Vtu:
+    """VTK XML writer for the three encodings the reader must handle (§6.2)."""
+
+    DTYPE = {"Float32": "<f", "Float64": "<d", "Int32": "<i", "Int64": "<q", "UInt8": "<B"}
+    BLOCK = 256  # small, so the point array spans two zlib blocks
+
+    def __init__(self, mode: str):
+        assert mode in ("ascii", "b64", "appended_zlib")
+        self.mode = mode
+        self.appended = bytearray()
+
+    def header_attrs(self):
+        if self.mode == "appended_zlib":
+            return ' byte_order="LittleEndian" header_type="UInt64" compressor="vtkZLibDataCompressor"'
+        return ' byte_order="LittleEndian" header_type="UInt32"'
+
+    def array(self, name, vtype, values, ncomp=1):
+        values = [x for x in values]
+        raw = struct.pack(self.DTYPE[vtype][0] + str(len(values)) + self.DTYPE[vtype][1], *values)
+        attrs = 'type="%s"' % vtype
+        if name:
+            attrs += ' Name="%s"' % name
+        if ncomp != 1:
+            attrs += ' NumberOfComponents="%d"' % ncomp
+        if self.mode == "ascii":
+            if vtype.startswith("Float"):
+                text = " ".join("%.9g" % float(v) for v in values)
+            else:
+                text = " ".join(str(int(v)) for v in values)
+            return '<DataArray %s format="ascii">%s</DataArray>\n' % (attrs, text)
+        if self.mode == "b64":
+            blob = struct.pack("<I", len(raw)) + raw
+            return '<DataArray %s format="binary">%s</DataArray>\n' % (attrs, base64.b64encode(blob).decode())
+        # appended, raw, zlib: [nblocks, blocksize, last_size, size_i...] as UInt64 + blocks
+        blocks = [raw[i : i + self.BLOCK] for i in range(0, len(raw), self.BLOCK)] or [b""]
+        comp = [zlib.compress(b, 6) for b in blocks]
+        head = struct.pack("<%dQ" % (3 + len(comp)), len(comp), self.BLOCK, len(blocks[-1]), *[len(c) for c in comp])
+        offset = len(self.appended)
+        self.appended += head + b"".join(comp)
+        return '<DataArray %s format="appended" offset="%d"/>\n' % (attrs, offset)
+
+    def finish(self, body: str) -> bytes:
+        out = '<?xml version="1.0"?>\n' + body
+        if self.mode == "appended_zlib":
+            return out.encode() + b'<AppendedData encoding="raw">\n_' + bytes(self.appended) + b"\n</AppendedData>\n</VTKFile>\n"
+        return (out + "</VTKFile>\n").encode()
+
+
+def write_vtu(path: Path, nodes, tris, tri_tags, tets, tet_tags, fields, mode: str):
+    """UnstructuredGrid with the same arrays as write_vtk_legacy."""
+    cells, types = _vtk_cells(tris, tets)
+    material = [int(t) for t in tri_tags] + [int(t) for t in tet_tags]
+    conn = [i for c in cells for i in c]
+    offsets = np.cumsum([len(c) for c in cells]).tolist()
+    v = _Vtu(mode)
+    body = "<VTKFile type=\"UnstructuredGrid\" version=\"1.0\"%s>\n<UnstructuredGrid>\n" % v.header_attrs()
+    body += '<Piece NumberOfPoints="%d" NumberOfCells="%d">\n' % (len(nodes), len(cells))
+    body += "<Points>\n" + v.array(None, "Float32", nodes.reshape(-1), 3) + "</Points>\n"
+    body += "<Cells>\n"
+    body += v.array("connectivity", "Int64", conn)
+    body += v.array("offsets", "Int64", offsets)
+    body += v.array("types", "UInt8", types)
+    body += "</Cells>\n"
+    body += "<PointData>\n"
+    body += v.array("node_scalar", "Float32", fields["node_scalar"][1].reshape(-1))
+    body += v.array("node_vector", "Float32", fields["node_vector"][1].reshape(-1), 3)
+    body += "</PointData>\n<CellData>\n"
+    body += v.array("material", "Int32", material)
+    body += v.array("elm_scalar", "Float64", fields["elm_scalar"][1].reshape(-1))
+    body += "</CellData>\n</Piece>\n</UnstructuredGrid>\n"
+    w(path, v.finish(body))
+
+
+def write_vtp(path: Path, verts, quads):
+    """PolyData whose Polys are quads, ascii, with a point scalar."""
+    v = _Vtu("ascii")
+    conn = [int(i) for q in quads for i in q]
+    offsets = [4 * (k + 1) for k in range(len(quads))]
+    body = "<VTKFile type=\"PolyData\" version=\"1.0\"%s>\n<PolyData>\n" % v.header_attrs()
+    body += '<Piece NumberOfPoints="%d" NumberOfPolys="%d">\n' % (len(verts), len(quads))
+    body += "<Points>\n" + v.array(None, "Float32", verts.reshape(-1), 3) + "</Points>\n"
+    body += "<Polys>\n" + v.array("connectivity", "Int32", conn) + v.array("offsets", "Int32", offsets) + "</Polys>\n"
+    body += "<PointData>\n" + v.array("height", "Float32", verts[:, 2]) + "</PointData>\n"
+    body += "</Piece>\n</PolyData>\n"
+    w(path, v.finish(body))
+
+
+def write_off(path: Path, verts, faces):
+    # Gmsh's OFF reader accepts no `#` comment lines at all, so none is written here.
+    out = "OFF\n%d %d 0\n" % (len(verts), len(faces))
+    out += "".join("%.9g %.9g %.9g\n" % tuple(v) for v in verts)
+    out += "".join("%d %s\n" % (len(fc), " ".join(str(int(i)) for i in fc)) for fc in faces)
+    w(path, out.encode("ascii"))
+
+
+def write_medit(path: Path, nodes, tris, tri_tags, tets, tet_tags):
+    """MEDIT ascii; the trailing reference of each record is the tag (§6.2). Two `Edges`
+    exercise the skipped-block path (Gmsh element type 1)."""
+    # Gmsh's own layout puts the dimension on the line after `Dimension`; with `Dimension 3`
+    # on one line Gmsh's reader consumes the comment below as the dimension and fails.
+    out = "MeshVersionFormatted 2\nDimension\n3\n# tetravox lattice fixture\n"
+    out += "Vertices\n%d\n" % len(nodes)
+    out += "".join("%.9g %.9g %.9g 0\n" % tuple(v) for v in nodes)
+    out += "Edges\n2\n1 2 7\n2 3 7\n"
+    out += "Triangles\n%d\n" % len(tris)
+    out += "".join("%d %d %d %d\n" % (t[0] + 1, t[1] + 1, t[2] + 1, int(tag)) for t, tag in zip(tris, tri_tags))
+    out += "Tetrahedra\n%d\n" % len(tets)
+    out += "".join("%d %d %d %d %d\n" % (t[0] + 1, t[1] + 1, t[2] + 1, t[3] + 1, int(tag)) for t, tag in zip(tets, tet_tags))
+    out += "End\n"
+    w(path, out.encode("ascii"))
+
+
 FS_LUT = """# Tetravox fixture LUT - FreeSurferColorLUT.txt format
 #No. Label Name:                            R   G   B   A
 
@@ -988,6 +1166,28 @@ def generate(out: Path) -> dict:
     write_obj(out / "patch_quad.obj", verts, squads)
 
     notes["patch"] = {"vertices": len(verts), "triangles": len(stris), "quads": len(squads)}
+
+    # VTK legacy / VTK XML / OFF / MEDIT of the SAME lattice and the SAME patch.  The lattice
+    # files carry `material` (= the tags), `elm_scalar`, `node_scalar` and `node_vector`.
+    nodes, tets, tet_tags, tris, tri_tags, _, _ = build_lattice()
+    lat_fields = mesh_fields(nodes, tris, tets)
+    write_vtk_legacy(out / "lattice_ascii.vtk", nodes, tris, tri_tags, tets, tet_tags, lat_fields, binary=False)
+    write_vtk_legacy(out / "lattice_binary.vtk", nodes, tris, tri_tags, tets, tet_tags, lat_fields, binary=True)
+    write_vtk_polydata(out / "patch_polydata.vtk", verts, squads)
+    write_vtu(out / "lattice_ascii.vtu", nodes, tris, tri_tags, tets, tet_tags, lat_fields, "ascii")
+    write_vtu(out / "lattice_b64.vtu", nodes, tris, tri_tags, tets, tet_tags, lat_fields, "b64")
+    write_vtu(out / "lattice_appended_zlib.vtu", nodes, tris, tri_tags, tets, tet_tags, lat_fields, "appended_zlib")
+    write_vtp(out / "patch.vtp", verts, squads)
+    write_off(out / "patch_quad.off", verts, squads)
+    write_medit(out / "lattice.mesh", nodes, tris, tri_tags, tets, tet_tags)
+    notes["meshFormats"] = {
+        "lattice": ["lattice_ascii.vtk", "lattice_binary.vtk", "lattice_ascii.vtu", "lattice_b64.vtu",
+                    "lattice_appended_zlib.vtu", "lattice.mesh"],
+        "patch": ["patch_polydata.vtk", "patch.vtp", "patch_quad.off"],
+        "meditEdges": 2,
+        "vtuAppendedZlibBlockBytes": _Vtu.BLOCK,
+        "cellOrder": "tris then tets, matching mesh_fields()'s elm_scalar rows",
+    }
     return notes
 
 
@@ -1217,6 +1417,82 @@ def inspect_fs(out: Path) -> dict:
         ],
     }
     return rec
+
+
+# --------------------------------------------------------------------------------------
+# verification — meshio side (pure Python, runs under the generating interpreter)
+# --------------------------------------------------------------------------------------
+
+MESHIO_PATH = os.environ.get(
+    "TETRAVOX_MESHIO_PATH",
+    "/private/tmp/claude-501/-Users-idohaber-00-development-tetravox/"
+    "53a0ff99-ccf8-46da-8460-95e420e7192a/scratchpad/pydeps",
+)
+
+MESH_FORMAT_FIXTURES = [
+    "lattice_ascii.vtk",
+    "lattice_binary.vtk",
+    "patch_polydata.vtk",
+    "lattice_ascii.vtu",
+    "lattice_b64.vtu",
+    "lattice_appended_zlib.vtu",
+    "patch.vtp",
+    "patch_quad.off",
+    "lattice.mesh",
+]
+
+
+def inspect_meshio(out: Path) -> dict:
+    """meshio (an independent, pure-Python reader) for every §6.2 general-purpose fixture.
+    Returns {} when meshio is not importable; the manifest then says so."""
+    if MESHIO_PATH and MESHIO_PATH not in sys.path:
+        sys.path.insert(0, MESHIO_PATH)
+    try:
+        import meshio
+    except ImportError:
+        return {}
+    res = {}
+    for name in MESH_FORMAT_FIXTURES:
+        p = out / name
+        try:
+            m = meshio.read(str(p))
+        except BaseException as e:  # noqa: BLE001 — meshio SystemExits on some refusals
+            msg = str(e).strip() if isinstance(e, Exception) else "SystemExit %s" % e
+            res[name] = {"reader": "meshio %s" % meshio.__version__, "error": msg}
+            continue
+        by_type: dict = {}
+        for blk in m.cells:
+            by_type[blk.type] = by_type.get(blk.type, 0) + len(blk.data)
+        rec = {
+            "reader": "meshio %s" % meshio.__version__,
+            "nodes": int(len(m.points)),
+            "cellsByType": {k: int(v) for k, v in sorted(by_type.items())},
+            "bbox": {"min": fl(m.points.min(axis=0)), "max": fl(m.points.max(axis=0))},
+            "pointData": {},
+            "cellData": {},
+        }
+        for k, v in m.point_data.items():
+            v = np.asarray(v, dtype=np.float64)
+            ncomp = 1 if v.ndim == 1 else int(v.shape[1])
+            rec["pointData"][k] = {
+                "ncomp": ncomp,
+                "stats": arr_stats(v),
+                "magnitudeStats": arr_stats(np.linalg.norm(v, axis=1)) if ncomp > 1 else None,
+            }
+        for k, blocks in m.cell_data.items():
+            v = np.concatenate([np.asarray(b, dtype=np.float64).reshape(len(b), -1) for b in blocks])
+            ncomp = int(v.shape[1])
+            entry = {"ncomp": ncomp, "stats": arr_stats(v), "n": int(len(v))}
+            if k in ("material", "medit:ref", "gmsh:physical") and ncomp == 1:
+                counts = {}
+                for blk, b in zip(m.cells, blocks):
+                    for t in np.asarray(b).reshape(-1):
+                        counts.setdefault(blk.type, {})
+                        counts[blk.type][str(int(t))] = counts[blk.type].get(str(int(t)), 0) + 1
+                entry["tagCountsByCellType"] = counts
+            rec["cellData"][k] = entry
+        res[name] = rec
+    return res
 
 
 # --------------------------------------------------------------------------------------
@@ -1512,6 +1788,21 @@ def inspect_meshes(out: Path) -> dict:
         k: res["surfaces"]["patch_quad.obj"][k]
         for k in ("nodes", "elementsByGmshType", "bbox", "connectivity1Based")
     }
+
+    # §6.2's general-purpose formats: Gmsh reads legacy .vtk, .off and MEDIT .mesh.  It
+    # does not read VTK XML; those entries carry meshio only (see inspect_meshio) and are
+    # the same lattice as lattice_ascii.vtk, which Gmsh does read.
+    # Gmsh 4.14's BINARY legacy-VTK reader fails on every binary file, its own output
+    # included (Mesh.Binary=1 round trip: "Error loading"), so lattice_binary.vtk is
+    # meshio-only.
+    res["meshFormatsGmsh"] = {}
+    for name in [
+        "lattice_ascii.vtk",
+        "patch_polydata.vtk",
+        "patch_quad.off",
+        "lattice.mesh",
+    ]:
+        res["meshFormatsGmsh"][name] = gmsh_rec(out / name, views=True, connectivity=True)
     return res
 
 
@@ -1525,7 +1816,8 @@ SCHEMA = {
         "Ground truth for the committed synthetic fixtures in testdata/. "
         "Every number here was produced by an INDEPENDENT reader — nibabel for NIfTI/GIfTI/"
         "FreeSurfer, simnibs.mesh_io.read_msh for Gmsh v2.2, the Gmsh 4.14 Python API for Gmsh "
-        "v4.1 and for STL/PLY/OBJ — never by the writer in scripts/gen-fixtures.py. Regenerate "
+        "v4.1, for STL/PLY/OBJ and for legacy VTK/OFF/MEDIT, meshio for VTK legacy+XML/OFF/MEDIT — "
+        "never by the writer in scripts/gen-fixtures.py. Regenerate "
         "with `python3 scripts/gen-fixtures.py`."
     ),
     "conventions": {
@@ -1535,6 +1827,8 @@ SCHEMA = {
         "colors": "rgba255 = 0..255 bytes, the §4.1 wire form",
         "meshElementNumbers": "1-based Gmsh element numbers (§6.2); tris are the first block",
         "gmshElementTypes": "2 = tri3, 4 = tet4, 3 = quad4 (n-gon, exercises tri_edge_mask)",
+        "meshFormats": "§6.2's VTK legacy / VTK XML / OFF / MEDIT fixtures; `gmsh` = the Gmsh 4.14 "
+                       "Python API (legacy .vtk, .off, .mesh only), `meshio` = meshio (all nine)",
         "nonFinite": '"NaN" / "Infinity" / "-Infinity" appear as JSON strings',
     },
 }
@@ -1575,6 +1869,47 @@ def main() -> int:
     mesh = json.loads(tmp.read_text())
     tmp.unlink()
     manifest.update(mesh)
+    gm = manifest.pop("meshFormatsGmsh", {})
+    mi = inspect_meshio(out)
+    manifest["meshFormats"] = {}
+    for name in MESH_FORMAT_FIXTURES:
+        rec = {"bytes": (out / name).stat().st_size}
+        if name in gm:
+            rec["gmsh"] = gm[name]
+        if name in mi and "error" not in mi[name]:
+            rec["meshio"] = mi[name]
+        elif name in mi:
+            why = {
+                "patch_polydata.vtk": "meshio's legacy reader supports UNSTRUCTURED_GRID only, not POLYDATA",
+                "patch_quad.off": "meshio's OFF reader reads triangular faces only",
+                "patch.vtp": "meshio has no .vtp reader",
+            }.get(name, mi[name]["error"])
+            rec["readerNote"] = "meshio refused the file (%s)" % why
+            if name in gm:
+                rec["readerNote"] += "; the Gmsh record is the ground truth."
+            else:
+                rec["readerNote"] += (
+                    "; patch_polydata.vtk holds the same 16 vertices and 9 quads and Gmsh reads "
+                    "that one — its record is copied here as expectedFromEquivalentLegacy."
+                )
+                rec["expectedFromEquivalentLegacy"] = {
+                    k: gm["patch_polydata.vtk"][k] for k in ("nodes", "elementsByGmshType", "bbox")
+                }
+        if name == "lattice_binary.vtk":
+            rec["readerNote"] = (
+                "Gmsh 4.14 cannot load a BINARY legacy .vtk (not even one it wrote itself), so "
+                "meshio is the only independent reader here; lattice_ascii.vtk is the same "
+                "lattice and carries the Gmsh record."
+            )
+        if name.endswith((".vtu", ".vtp")) and name not in mi:
+            rec["readerNote"] = (
+                "meshio was not importable when this manifest was generated and Gmsh does not "
+                "read VTK XML; the expectation for this file is the Gmsh record of the legacy "
+                "`.vtk` of the same lattice/patch (lattice_ascii.vtk / patch_polydata.vtk): "
+                "same nodes, cells and fields."
+            )
+        manifest["meshFormats"][name] = rec
+    manifest["writerNotes"]["meshFormats"]["meshioAvailable"] = bool(mi)
 
     manifest["sidecars"] = {
         "mesh_v2_binary.msh.opt": {

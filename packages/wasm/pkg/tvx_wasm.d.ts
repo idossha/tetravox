@@ -64,7 +64,8 @@ export function free(handle: number): void;
 export function free_mask(handle: number, mask_id: number): void;
 
 /**
- * `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'`; `auto` dispatches through
+ * `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'|'geo'|'vtk'|'vtu'|'vtp'|'off'|'medit'`;
+ * `auto` dispatches through
  * [`tvx_mesh_io::sniff`]. Morton reorder, [`tvx_geom::build_tet_blocks`] and
  * [`tvx_geom::build_point_locator`] are built here. Result is `{ meta: MeshMeta }` — no bulk arrays.
  */

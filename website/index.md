@@ -5,10 +5,11 @@ title: Tetravox
 # Tetravox
 
 Tetravox is a desktop viewer for voxel volumes and meshes. It opens NIfTI volumes (`.nii`, `.nii.gz`,
-including 4D series), Gmsh finite-element meshes (`.msh` v2.2 and v4.1) and parsed Gmsh views (`.geo` /
-`.pos` — SimNIBS electrode nets), GIfTI surfaces (`.gii`, `.func.gii`, `.shape.gii`, `.label.gii`),
-FreeSurfer surfaces with their `curv` data and `.annot` labels, and STL/PLY/OBJ meshes — all in one linked
-scene, not one file type at a time.
+including 4D series), FreeSurfer volumes (`.mgh`, `.mgz`), NRRD (`.nrrd`) and MetaImage (`.mha`) volumes,
+Gmsh finite-element meshes (`.msh` v2.2 and v4.1) and parsed Gmsh views (`.geo` / `.pos` — SimNIBS
+electrode nets), VTK meshes (legacy `.vtk`, XML `.vtu` / `.vtp`), MEDIT `.mesh`, GIfTI surfaces (`.gii`,
+`.func.gii`, `.shape.gii`, `.label.gii`), FreeSurfer surfaces with their `curv` data and `.annot` labels,
+and STL/PLY/OBJ/OFF meshes — all in one linked scene, not one file type at a time.
 
 Everything on screen shares a single crosshair. A 3D view sits beside sagittal, axial and coronal slices,
 and moving the crosshair in any pane moves it everywhere: volume layers with independent colour maps,

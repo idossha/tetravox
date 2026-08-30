@@ -8,7 +8,7 @@ nav_order: 3
 # Tetravox — user guide
 
 A viewer for **voxel volumes** (NIfTI — MRI, CT, label maps) and **finite-element / surface meshes** (Gmsh
-`.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ), with a 3D view and sagittal / axial / coronal slices that all follow
+`.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ, VTK `.vtk`/`.vtu`/`.vtp`, OFF, MEDIT `.mesh`), with a 3D view and sagittal / axial / coronal slices that all follow
 one crosshair. Head models and neuroimaging are what it was built for first, but every control in this guide
 works the same on a chest CT or a lumbar MRI — where that matters, it is said in place. This guide is split
 by topic; for installing the app see the website's
@@ -159,7 +159,7 @@ for how surface meshes appear in the 2D panes.
 
 ## Surfaces & annotations
 
-A surface mesh (GIfTI, FreeSurfer, STL/PLY/OBJ) draws its intersection with each 2D plane as a coloured
+A surface mesh (GIfTI, FreeSurfer, STL/PLY/OBJ, OFF, `.vtp`) draws its intersection with each 2D plane as a coloured
 outline, Freeview-style, and sweeps with the slice. Clicking an outline selects that surface. In 3D it draws
 as a shaded surface like any other mesh layer.
 
