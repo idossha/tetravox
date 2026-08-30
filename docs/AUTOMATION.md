@@ -371,6 +371,25 @@ from the manifests themselves.
 file: `ok: false` with the reasons in `errors`, which is what makes a failed batch diagnosable from a
 log rather than from a screen.
 
+A job that ran a **module** operation also carries `modules` — every module it used and the version
+that ran it, so a figure produced by one is re-derivable a year later:
+
+```json
+{
+  "modules": [{ "id": "tetravox.seeg", "version": "0.1.0" }],
+  "outputs": [
+    { "action": 0, "type": "module", "module": "tetravox.seeg", "op": "snap",
+      "files": [], "ms": 412, "result": { "moved": 96, "meanShiftMm": 0.42 } },
+    { "action": 1, "type": "module", "module": "tetravox.seeg", "op": "save",
+      "files": ["contacts.tsv"], "ms": 38, "result": { "path": "contacts.tsv" } }
+  ]
+}
+```
+
+The key is **absent** when no module ran, so every job written before modules existed produces the
+same result file it always did. `result` is whatever the operation returned, and `files` are its
+`out` arguments — relative to `outDir`, like every other action's.
+
 ### 2.5 Video
 
 **PNG frames and a GIF are always written**, by a GIF encoder inside the app — no external tool is
