@@ -51,6 +51,16 @@ export const OPEN_FILTERS = [
   // Gmsh **parsed post-processing views** — SimNIBS's `eeg_positions/*.geo`, and the `.pos` a
   // Gmsh "Save As" writes. Not the geometry-script `.geo`, which the reader rejects by name.
   { name: 'Gmsh view (electrode positions)', extensions: ['geo', 'pos'] },
+  // Contact tables a §13 module opens (2026-08-30): a BIDS-iEEG `*_electrodes.tsv`, the same table
+  // as `.csv`, and a Slicer `.fcsv`. No dataset reader takes these — a module claims the path and
+  // reads the text over `tetravox:module-read-text` (§5 rule 11) — so the entry is here to make the
+  // file reachable from ⌘O, not to promise the viewer will load one as a dataset.
+  //
+  // **Not in the combined first filter, and no installer association.** That filter is named
+  // "Volumes, meshes and scenes" and a contact table is none of the three; and `.tsv`/`.csv` are as
+  // generic as `.geo` (DECISIONS 2026-08-28), so claiming to be the system-wide handler for every
+  // spreadsheet export on the machine would hijack files this app then refuses.
+  { name: 'Electrode tables (tsv, csv, fcsv)', extensions: ['tsv', 'csv', 'fcsv'] },
   { name: 'All files', extensions: ['*'] },
 ];
 
