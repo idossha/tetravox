@@ -24,12 +24,38 @@ const SPHERE = { shape: 'sphere' as const, radiusMm: 2 };
 const DOT = { shape: 'dot' as const, radiusMm: 2 };
 
 describe('discRadiusPx', () => {
-  it('is the sphere ∩ plane radius, in pixels', () => {
-    // 3-4-5: a 5 mm sphere whose centre is 3 mm off the plane cuts a 4 mm circle. At 0.05 mm/px
-    // that is 80 px, and at uiScale 2 it is 160 device pixels.
+  it('is the sphere ∩ plane radius, in DEVICE pixels', () => {
+    // 3-4-5: a 5 mm sphere whose centre is 3 mm off the plane cuts a 4 mm circle. At 0.05 mm per
+    // device pixel that is 80 device pixels.
     expect(discRadiusPx({ shape: 'sphere', radiusMm: 5 }, 5, 3, 0.05, 1)).toBeCloseTo(80, 9);
     expect(discRadiusPx({ shape: 'sphere', radiusMm: 5 }, 5, -3, 0.05, 1)).toBeCloseTo(80, 9);
-    expect(discRadiusPx({ shape: 'sphere', radiusMm: 5 }, 5, 3, 0.05, 2)).toBeCloseTo(160, 9);
+  });
+
+  it('does NOT scale a world radius by uiScale — mmPerPx is already per device pixel', () => {
+    // The regression this case exists for. `Camera2D.mmPerPx` is millimetres per *device* pixel
+    // (`fitMmPerPx` is fed device-pixel rects; `sliceViewProj`'s ortho box is `widthPx · mmPerPx`
+    // over a device-pixel width), and the shader draws a world-space quad of radius `r` mm with no
+    // `uiScale` anywhere in it. A CPU rule that multiplied by `uiScale` put the ring and the hit
+    // radius at twice the drawn disc on every Retina display, where DPR-1 §11 panes cannot see it.
+    for (const uiScale of [1, 2, 3]) {
+      expect(discRadiusPx({ shape: 'sphere', radiusMm: 5 }, 5, 3, 0.05, uiScale)).toBeCloseTo(
+        80,
+        9
+      );
+    }
+    // The equivalent statement about the picture: at DPR 2 the same physical pane has half the
+    // millimetres per pixel, so the disc is twice as many device pixels — and it gets there through
+    // `mmPerPx`, not through `uiScale`.
+    expect(discRadiusPx(SPHERE, 2, 0, 0.1, 1)).toBeCloseTo(20, 9);
+    expect(discRadiusPx(SPHERE, 2, 0, 0.05, 2)).toBeCloseTo(40, 9);
+  });
+
+  it('scales the `dot` branch by uiScale, because THAT radius is authored in CSS pixels', () => {
+    // `derived.ts` sends `uDotPx = 4 * uiScale` and the shader turns it into `uDotPx * uMmPerPx`
+    // millimetres, i.e. `4 * uiScale` device pixels. The asymmetry with the sphere branch is the
+    // whole point: one radius is a world quantity and the other is a screen one.
+    expect(discRadiusPx(DOT, 2, 0, 0.05, 2)).toBe(DOT_RADIUS_PX * 2);
+    expect(discRadiusPx(DOT, 2, 0, 0.05, 1)).toBe(DOT_RADIUS_PX);
   });
 
   it('is the whole radius on the plane, and shrinks to nothing at the edge', () => {

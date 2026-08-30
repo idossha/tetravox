@@ -73,10 +73,10 @@ const SELECT_RGBA: [number, number, number] = [
   Math.round(DEFAULT_OVERLAY_THEME.select[2] * 255),
 ];
 
-async function openScene(page: Page): Promise<string[]> {
+async function openScene(page: Page, query = ''): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/test/pages/scene.html?aa=off');
+  await page.goto(`/test/pages/scene.html?aa=off${query}`);
   await page.waitForFunction(() => window.__tvxEngine !== undefined);
   return errors;
 }
@@ -461,6 +461,91 @@ test('@angle the drag ends once from pointercancel, and once from a second point
     (await eventsOf(page)).filter((e) => e.kind === 'dragEnd'),
     'the second finger ends the drag, and the release does not end it twice'
   ).toHaveLength(1);
+});
+
+// ===============================================================================================
+// DPR 2 — the one place the CPU disc rule and the shader's could disagree
+//
+// Every other pane in §11 is DPR 1, where `uiScale` is 1 and a stray `* uiScale` in the CPU rule is
+// invisible. The claim here is the parity claim itself, measured off the framebuffer: the ring the
+// overlay draws and the radius the hit test uses are both the radius the SHADER drew, on a canvas
+// whose backing store really is twice its CSS size.
+// ===============================================================================================
+
+test('@angle at DPR 2 the ring and the hit radius are the disc the shader drew', async ({
+  page,
+}) => {
+  // `?dpr=2` is the page's `EngineOptions.dpr`; the CSS size below is what makes the canvas element
+  // agree with it, so `#devicePoint`'s own ratio (`canvas.width / rect.width`) is 2 as well. Both
+  // halves are needed: one alone would be a fake DPR rather than a HiDPI pane.
+  const errors = await openScene(page, '&dpr=2');
+  await page.evaluate(() => {
+    const canvas = document.querySelector('canvas')!;
+    canvas.style.width = '384px';
+    canvas.style.height = '384px';
+  });
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  expect(
+    await page.evaluate(() => window.__tvxEngine!.dpr()),
+    'the pane really is DPR 2'
+  ).toBeCloseTo(2, 9);
+  await arm(page, { layerId, mode: 'select' });
+
+  // The ruler, in DEVICE pixels: the pane is the whole 768 px backing store at 0.05 mm per device
+  // pixel, so the 2 mm sphere on the plane is a 40 device-pixel disc — exactly as at DPR 1, because
+  // a world radius is not a screen quantity. `page.mouse` speaks CSS pixels, which are half of them.
+  const cssCentre: [number, number] = [PANE / 4, PANE / 4];
+  await clickAt(page, ...cssCentre);
+  expect(await selectionOf(page)).toEqual({ pointId: 'c1', index: 0 });
+
+  // -- what the shader drew, read back --------------------------------------------------------
+  // The layer's red along the centre row, in device pixels. The fragment shader writes the point's
+  // colour exactly for an on-slice disc (no shading on a cross-section), so this is the disc.
+  const drawnPx = await page.evaluate(async () => {
+    const canvas = document.querySelector('canvas')!;
+    const gl = canvas.getContext('webgl2')!;
+    const row = new Uint8Array(canvas.width * 4);
+    // `readPixels` is bottom-up; the disc's centre row is the pane's own centre either way.
+    gl.readPixels(0, canvas.height / 2, canvas.width, 1, gl.RGBA, gl.UNSIGNED_BYTE, row);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let x = 0; x < canvas.width; x += 1) {
+      const o = x * 4;
+      if ((row[o] ?? 0) > 200 && (row[o + 1] ?? 0) < 60 && (row[o + 2] ?? 0) < 60) {
+        lo = Math.min(lo, x);
+        hi = Math.max(hi, x);
+      }
+    }
+    return Number.isFinite(lo) ? (hi - lo + 1) / 2 : null;
+  });
+  expect(drawnPx, 'a 2 mm sphere at 0.05 mm per device pixel').not.toBeNull();
+  expect(drawnPx!).toBeGreaterThanOrEqual(DISC_PX - 1.5);
+  expect(drawnPx!).toBeLessThanOrEqual(DISC_PX + 1.5);
+
+  // -- the ring is at that radius, not at twice it ---------------------------------------------
+  // `overlayMetrics` scales the 2 px gap by `uiScale`, so at DPR 2 the ring sits 4 device pixels
+  // outside a 40 device-pixel disc. The old rule put it at 80 + 4, visibly detached from its point.
+  const radii = await ringRadii(page, PANE / 2 - 0.5, PANE / 2 - 0.5, 110);
+  expect(radii.length, 'the selection ring is drawn').toBeGreaterThan(80);
+  // The band is `POINT_RING_WIDTH_PX * uiScale` = 4 device pixels wide, so a ring pixel is within
+  // 2 of the radius, plus the chord sag and the rasteriser's coverage — 3.5 covers all three and is
+  // an order of magnitude tighter than the 84 px the doubled rule would have put it at.
+  expect(Math.min(...radii)).toBeGreaterThanOrEqual(DISC_PX + 4 - 3.5);
+  expect(Math.max(...radii)).toBeLessThanOrEqual(DISC_PX + 4 + 3.5);
+
+  // -- and the hit rule is the same radius ------------------------------------------------------
+  // `pointAtScreen` takes CSS pixels like `pick()`, so the 40 device-pixel disc is 20 CSS pixels.
+  const hitAt = async (dxCss: number): Promise<string | null> =>
+    await page.evaluate(
+      ([x, y]) =>
+        window.__tvxEngine!.pointAtScreen('coronal', x as number, y as number)?.pointId ?? null,
+      [cssCentre[0] + dxCss, cssCentre[1]] as const
+    );
+  const discCss = DISC_PX / 2;
+  expect(await hitAt(discCss * 0.9), '0.9 r is inside the disc').toBe('c1');
+  // The regression: the old `* uiScale` rule made this 0.55 r of an 80 device-pixel radius.
+  expect(await hitAt(discCss * 1.1), '1.1 r is outside it').toBeNull();
+  expect(errors).toEqual([]);
 });
 
 // ===============================================================================================

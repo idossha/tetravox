@@ -2447,7 +2447,12 @@ Input (Freeview-like):
     pane the nearest projected centre within 14 px, and **no drag** in v1. The disc radius is
     `overlay/point-ring.ts`'s `discRadiusPx` — the same function §7.2 sizes the selection ring with, so the
     hit rule cannot drift away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with the
-    gizmo it draws.
+    gizmo it draws. **Every one of those pixel numbers is a device pixel**, and `Camera2D.mmPerPx` is
+    millimetres per device pixel, so a world radius reaches the screen as `radiusMm / mmPerPx` and is
+    **not** scaled by `uiScale` again — only the `dot` branch's constant is, because `uDotPx = 4 · uiScale`
+    is the one radius authored in CSS pixels (2026-08-30). The `8 px` and `14 px` floors stay device pixels
+    deliberately, the same convention as the gizmo's `HANDLE_HIT_PX`: the frame's grabbable things use one
+    unit.
   * **The drag is `GestureKind 'point'`**, resolved in `resolveGesture`'s **2D** branch after the ctrl/meta
     and `Shift` tests and before the `space` one, so `Shift`+drag over a contact is still the layer's opacity
     and `space`+drag is still the pan. Each move writes `paneToWorld` into a **replaced** `points` array.

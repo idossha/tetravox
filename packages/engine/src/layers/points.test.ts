@@ -213,6 +213,28 @@ describe('pointAtPane (§7.5, §13)', () => {
     expect(pointAtPane(big, place, cx + 20 * 1.1, cy)).toBeNull();
   });
 
+  it('grabs the same PHYSICAL target at DPR 2 — the disc, not twice it', () => {
+    // The same pane on a Retina display: twice the device pixels across the same millimetres, so
+    // `mmPerPx` halves and every device-pixel coordinate doubles. `uiScale` is 2 and must change
+    // nothing about a *world* radius — a 10 mm sphere is a 40 device-pixel disc here because
+    // `mmPerPx` says so, and the hit boundary is that disc and not 80 px.
+    const hidpi: PanePlacement = {
+      ...place,
+      view: { ...axial, camera: { center: [0, 0], mmPerPx: 0.25 } },
+      rect: { width: 400, height: 400 },
+      uiScale: 2,
+    };
+    const big = layer({ radiusMm: 10, points: [{ position: [0, 0, 0], id: 'a' }] });
+    const cx = 200 - 0.5;
+    const cy = 200 - 0.5;
+    const hit = pointAtPane(big, hidpi, cx, cy);
+    expect(hit).not.toBeNull();
+    expect(hit!.discPx, '10 mm at 0.25 mm per device pixel').toBeCloseTo(40, 9);
+    expect(pointAtPane(big, hidpi, cx + 40 * 0.9, cy), '0.9 r is inside').not.toBeNull();
+    // The regression: with the old `* uiScale` rule this was 0.55 r of an 80 px radius and hit.
+    expect(pointAtPane(big, hidpi, cx + 40 * 1.1, cy), '1.1 r is outside').toBeNull();
+  });
+
   it('falls back to the 8 px floor when the disc is smaller than a hand can aim at', () => {
     // 0.5 mm radius at 0.5 mm/px is a 1 px disc; without a floor nothing but the exact centre hits.
     const tiny = layer({ radiusMm: 0.5, points: [{ position: [0, 0, 0], id: 'a' }] });

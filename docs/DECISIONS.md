@@ -4010,3 +4010,38 @@ paths emit `cleared` alone, exactly as before, rather than a `dragEnd` for a con
 
 `NoGlEngine` mirrors it in the same commit. The app's E2E drives `?engine=mock`, and a rule that held only in
 the WebGL2 engine would be a rule the shell is never tested against.
+
+## 2026-08-30 — `discRadiusPx` is in device pixels, because `mmPerPx` already is
+
+`Camera2D.mmPerPx` is millimetres per **device** pixel. Everything upstream says so: `fitMmPerPx` is fed
+device-pixel viewport rectangles, `sliceViewProj`'s orthographic box is `widthPx · mmPerPx` over a
+device-pixel `widthPx`, and `paneToWorld` / `worldToPane` take device-pixel pane coordinates. The points
+shader expands a world-space quad of radius `sqrt(r² − d²)` millimetres and applies nothing else, so the
+cross-section rasterises at exactly `radiusMm / mmPerPx` device pixels.
+
+`discRadiusPx`'s sphere branch multiplied that by `uiScale`, and its docstring said `mmPerPx` was "in CSS
+pixels". Both were wrong, and they were wrong in the one place where being wrong is invisible: **every §11
+pane is DPR 1**, where `uiScale` is 1. On a Retina display the two consumers of that function — the
+selection/hover ring (`passes/overlay.ts`) and the CPU hit test (`layers/points.ts#pointAtPane`, and through
+it `pointAtScreen` and every armed click) — were both computed at **twice** the radius of the disc the pane
+had drawn: a ring visibly detached from its contact, and a click a whole disc-radius outside a contact still
+grabbing it. The `dot` branch was right on both sides all along, which is what identified this as a unit
+error rather than a choice: `derived.ts` sends `uDotPx = 4 · uiScale`, so `DOT_RADIUS_PX · uiScale` is the
+matching CPU constant. One radius is a world quantity and the other is a screen one.
+
+So the `* uiScale` is dropped from the sphere branch only, and the same doubled expression is removed from
+the 2D point-label lift in `passes/overlay.ts` — its 3D twin was already `6 · m.scale`, six *CSS* pixels
+scaled, which is the other convention and correctly applied. Nothing moves at DPR 1, so no golden changes.
+
+**`POINT_HIT_MIN_PX` stays 8 *device* pixels, deliberately, against the review's suggestion.** Scaling the
+floor by `uiScale` would keep the minimum target a constant physical size, which is the better ergonomic
+argument — but §7.5 states the rule as `max(disc px, 8 px)` and the constant's own comment ties it to the
+cut-plane gizmo's `HANDLE_HIT_PX`, so that "the two grabbable things in the frame use one convention". A
+change here is a change to both, and to a documented number, for a floor that only matters on a contact
+whose disc is under 8 px. It is recorded here as a known asymmetry rather than made silently: the floor
+shrinks to 4 CSS pixels at DPR 2, and if it is ever raised, the gizmo's goes with it.
+
+**A DPR-2 case now exists**, because a rule the suite cannot see is a rule that drifts back. `?dpr=2` plus a
+CSS-sized canvas gives `points-tool.spec.ts` a pane whose backing store really is twice its CSS size, and
+the test reads the drawn disc's own width off the framebuffer, then asserts the ring sits one scaled gap
+outside *that* and the hit boundary is *that* — the shader is the reference, not the CPU rule.
