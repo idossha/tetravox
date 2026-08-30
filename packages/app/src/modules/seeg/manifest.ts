@@ -9,10 +9,15 @@
  * import outside this directory, because `main/job.ts` validates a `type: "module"` job action
  * against `MANIFESTS` before a window exists (§13.6).
  *
- * **Every command is also an operation**, which is §13.6's "there is no automation-only code path"
- * applied to a module: the seven `operations` below are what a job file drives, and each one is the
- * same function the panel's button calls. The commands that are *not* operations are the ones with
- * no meaning without a person — next/prev, undo/redo, the file dialogs, the tip flip.
+ * **Every scene-mutating command is also an operation**, which is §13.6's "there is no
+ * automation-only code path" applied to a module: the `operations` below are what a job file drives,
+ * and each one is the same function the panel's button calls. The commands that are *not* operations
+ * are the ones with no meaning without a person, and there is a rule rather than a list: a command
+ * that needs a **live pointer** (`add` arms place mode), a **file sheet** (`save-as`), the session's
+ * own **undo stack** (`undo`, `redo`), or that only moves the **selection** (`next`, `prev`) has
+ * nothing to do in a batch run; `snap-electrode` and `snap-all` are the `snap` operation's `scope`.
+ * `modules.test.ts` holds this manifest to that rule, so a scene-mutating command added without an
+ * operation fails the build rather than becoming an automation-only gap.
  *
  * **Command ids are kebab-case, not camelCase.** `modules.test.ts` requires every contributed id to
  * match `^[a-z][a-z0-9-]*$` — the shape the host namespaces as `<moduleId>/<id>` — so `snap-electrode`
@@ -117,6 +122,17 @@ export const seegManifest: ModuleManifest = {
     { id: 'ghost', args: { on: 'boolean' } },
     { id: 'stats', args: {} },
     { id: 'save', args: { out: 'out' } },
+    // Appended 2026-08-30. `tip: 'auto'` is a heuristic — DECISIONS says an occipital shaft entering
+    // near the midline defeats it — and `renumber` applies whatever the tip currently is, so without
+    // a way to flip it a job could number a shaft tip-last and had no remedy at all short of an
+    // interactive session that saved a scene first. `revert` and `delete` are here for the same
+    // reason: both are deterministic, neither needs a person, and a batch pipeline that can localise
+    // but cannot drop an artefact contact is a pipeline with a hole in it.
+    { id: 'flip-tip', args: { electrode: 'string?' } },
+    { id: 'revert', args: {} },
+    // Named, never "the selected one": a job has no selection to speak of. Matches the table's own
+    // contact name (`LINS01`) or the id the scene block keys on.
+    { id: 'delete', args: { contact: 'string' } },
   ],
   sceneBlock: { version: 1 },
 };

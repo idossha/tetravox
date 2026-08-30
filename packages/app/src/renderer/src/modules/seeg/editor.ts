@@ -811,17 +811,43 @@ export function createModel(host: ModuleHost): SeegModel {
     notify();
   };
 
-  const doDelete = (id: string): void => {
+  /** The contact a job named, by the name in the table or by the id the block keys on. */
+  const findContact = (wanted: string): Contact | null =>
+    set.contacts.find((c) => c.name === wanted || c.id === wanted) ?? null;
+
+  const doDelete = (id: string): Contact | null => {
     const contact = set.contacts.find((c) => c.id === id);
-    if (contact === undefined) return;
+    if (contact === undefined) return null;
     const before = snapshot();
     set = { groups: set.groups, contacts: set.contacts.filter((c) => c.id !== id) };
     if (contact.original !== null) deleted = [...deleted, contact];
     if (selectedId === id) selectedId = null;
     commit(before);
+    return contact;
   };
 
-  const doRevert = (): void => {
+  /** Pin the other end of one electrode as contact 1. Answers the end that is now the tip. */
+  const doFlipTip = (group: string): 'low' | 'high' | null => {
+    const spec = set.groups.find((g) => g.name === group);
+    if (spec === undefined) return null;
+    const contacts = contactsOf(set, group);
+    if (contacts.length === 0) return null;
+    const tip = flippedTip(
+      spec,
+      contacts.map((c) => c.position),
+      reference()
+    );
+    set = {
+      contacts: set.contacts,
+      groups: set.groups.map((g) => (g.name === group ? { ...g, tip } : g)),
+    };
+    writeBlock();
+    markDirty(true);
+    // `tip` is only ever `'low'` or `'high'` here: `flippedTip` resolves `'auto'` before flipping it.
+    return tip === 'auto' ? null : tip;
+  };
+
+  const doRevert = (): { contacts: number; restored: number } => {
     const before = snapshot();
     const restored = deleted;
     set = {
@@ -836,7 +862,7 @@ export function createModel(host: ModuleHost): SeegModel {
     deleted = [];
     selectedId = null;
     commit(before);
-    host.ui.toast('info', 'Every contact is back where the table put it.');
+    return { contacts: set.contacts.length, restored: restored.length };
   };
 
   const doUndo = (): void => {
@@ -1204,20 +1230,7 @@ export function createModel(host: ModuleHost): SeegModel {
       }
       case 'flip-tip': {
         if (electrode === null) return;
-        const group = set.groups.find((g) => g.name === electrode);
-        if (group === undefined) return;
-        const contacts = contactsOf(set, electrode);
-        const tip = flippedTip(
-          group,
-          contacts.map((c) => c.position),
-          reference()
-        );
-        set = {
-          contacts: set.contacts,
-          groups: set.groups.map((g) => (g.name === electrode ? { ...g, tip } : g)),
-        };
-        writeBlock();
-        notify();
+        if (doFlipTip(electrode) === null) return;
         host.ui.toast(
           'info',
           `The other end of ${electrode} is now the tip. Renumber to apply it to the names.`
@@ -1259,8 +1272,11 @@ export function createModel(host: ModuleHost): SeegModel {
         }
         return;
       }
-      case 'revert':
-        return doRevert();
+      case 'revert': {
+        doRevert();
+        host.ui.toast('info', 'Every contact is back where the table put it.');
+        return;
+      }
       default:
         host.ui.toast('warn', `sEEG has no command "${command}"`);
     }
@@ -1356,6 +1372,31 @@ export function createModel(host: ModuleHost): SeegModel {
       }
       case 'stats':
         return { electrodes: allShaftStats(set) };
+      // The three appended 2026-08-30. Each is a deterministic edit to a **named** electrode or
+      // contact — no pointer, no dialog, no confirmation — so §13.6's "every panel action is also an
+      // operation" is true of them and a headless run has the remedies a person has. The motivating
+      // one is `flip-tip`: `tip: 'auto'` is a heuristic this module's own DECISIONS entry concedes
+      // an occipital shaft can defeat, and without it a job could only renumber tip-last and live
+      // with it.
+      case 'flip-tip': {
+        const wanted = args['electrode'];
+        // Every electrode when none is named — the shape `refit` and `renumber` already read.
+        const groups = typeof wanted === 'string' ? [wanted] : set.groups.map((g) => g.name);
+        const electrodes = groups
+          .map((group) => ({ electrode: group, tip: doFlipTip(group) }))
+          .filter((r): r is { electrode: string; tip: 'low' | 'high' } => r.tip !== null);
+        return { electrodes };
+      }
+      case 'revert':
+        return doRevert();
+      case 'delete': {
+        const wanted = String(args['contact'] ?? '');
+        if (wanted === '') throw new ModuleHostError('delete needs a `contact` name');
+        const found = findContact(wanted);
+        if (found === null) throw new ModuleHostError(`no contact called "${wanted}"`);
+        doDelete(found.id);
+        return { deleted: found.name, contacts: set.contacts.length };
+      }
       case 'save': {
         const out = String(args['out'] ?? '');
         if (out === '') throw new ModuleHostError('save needs an `out` name');

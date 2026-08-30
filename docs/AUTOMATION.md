@@ -446,6 +446,9 @@ script rather than editing the table. CI checks it with `--check`.
 | `ghost` | `on` true or false |
 | `stats` | — |
 | `save` | `out` a file name under `--out` |
+| `flip-tip` | `electrode` a string *(optional)* |
+| `revert` | — |
+| `delete` | `contact` a string |
 
 ---
 

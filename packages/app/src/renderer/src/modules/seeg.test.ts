@@ -885,6 +885,55 @@ describe('operations (§13.6)', () => {
     expect(volumeOn(preop?.id)?.threshold?.lo).not.toBe(150);
   });
 
+  /**
+   * The three appended 2026-08-30, and the workflow that made them necessary.
+   *
+   * `tip: 'auto'` is a heuristic, `renumber` applies whatever the tip currently is, and a job had no
+   * way to say "the other end" — so a headless load → renumber → save on a shaft the heuristic read
+   * backwards numbered it tip-last with no remedy at all. That is the automation-only gap §13.6
+   * says cannot exist, on the very workflow this module was written for.
+   */
+  it('flips a tip, reverts and deletes from a job, exactly as the panel does', async () => {
+    const h = await loadSubject();
+    const instance = h.controller.moduleInstance();
+    const nameOf = (id: string): string =>
+      (contactsLayer(h).points ?? []).find((p) => p.id === id)?.name ?? '';
+
+    // The phantom's A is numbered from the entry, so the heuristic renumbers it in reverse …
+    await instance?.runOperation?.('renumber', { electrode: 'A' });
+    expect(nameOf('c1')).toBe('A06');
+    // … and the flip is the remedy a panel user has with `t`, now available to a job file.
+    expect(await instance?.runOperation?.('flip-tip', { electrode: 'A' })).toEqual({
+      electrodes: [{ electrode: 'A', tip: expect.stringMatching(/^(low|high)$/) as unknown }],
+    });
+    await instance?.runOperation?.('renumber', { electrode: 'A' });
+    expect(nameOf('c1')).toBe('A01');
+
+    // Named, never "the selected one" — a job has no selection.
+    expect(await instance?.runOperation?.('delete', { contact: 'A03' })).toEqual({
+      deleted: 'A03',
+      contacts: 14,
+    });
+    expect(contactsLayer(h).points).toHaveLength(14);
+
+    // Revert brings the deletion back and puts every position where the table had it.
+    expect(await instance?.runOperation?.('revert', {})).toEqual({ contacts: 15, restored: 1 });
+    expect(contactsLayer(h).points).toHaveLength(15);
+  });
+
+  it('flips every electrode when the job names none, and refuses a contact it has not got', async () => {
+    const h = await loadSubject();
+    const instance = h.controller.moduleInstance();
+    const flipped = (await instance?.runOperation?.('flip-tip', {})) as {
+      electrodes: { electrode: string }[];
+    };
+    expect(flipped.electrodes.map((e) => e.electrode)).toEqual(['A', 'B', 'C']);
+    await expect(instance?.runOperation?.('delete', { contact: 'Z99' })).rejects.toThrow(
+      /no contact called/
+    );
+    await expect(instance?.runOperation?.('delete', {})).rejects.toThrow(/needs a `contact`/);
+  });
+
   it('refuses an operation it does not have, and a bad snap scope', async () => {
     const h = await loadSubject();
     const instance = h.controller.moduleInstance();

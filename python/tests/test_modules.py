@@ -122,6 +122,36 @@ class TestSeegWrappers(unittest.TestCase):
     def test_stats_takes_nothing_and_writes_nothing(self) -> None:
         self.assertEqual(action(seeg.stats(Job(files=["/a.nii"])))["op"], "stats")
 
+    def test_flip_tip_takes_an_optional_electrode_like_the_other_shaft_operations(self) -> None:
+        self.assertNotIn("args", action(seeg.flip_tip(Job(files=["/a.nii"]))))
+        self.assertEqual(
+            action(seeg.flip_tip(Job(files=["/a.nii"]), electrode="LOCC")),
+            {
+                "type": "module",
+                "module": "tetravox.seeg",
+                "op": "flip-tip",
+                "args": {"electrode": "LOCC"},
+            },
+        )
+
+    def test_the_op_id_is_the_manifests_kebab_case_not_the_functions(self) -> None:
+        # `flip_tip` is Python; `flip-tip` is what the validator in `main/job.ts` checks against.
+        self.assertEqual(action(seeg.flip_tip(Job(files=["/a.nii"])))["op"], "flip-tip")
+
+    def test_revert_takes_nothing(self) -> None:
+        self.assertEqual(
+            action(seeg.revert(Job(files=["/a.nii"]))),
+            {"type": "module", "module": "tetravox.seeg", "op": "revert"},
+        )
+
+    def test_delete_names_a_contact_and_refuses_to_name_nothing(self) -> None:
+        self.assertEqual(
+            action(seeg.delete(Job(files=["/a.nii"]), contact="LINS01"))["args"],
+            {"contact": "LINS01"},
+        )
+        with self.assertRaises(JobError):
+            seeg.delete(Job(files=["/a.nii"]), contact="")
+
     def test_save_holds_out_to_the_rule_the_app_holds_it_to(self) -> None:
         self.assertEqual(
             action(seeg.save(Job(files=["/a.nii"]), out="sub-01_electrodes.tsv"))["args"],
@@ -136,7 +166,7 @@ class TestSeegWrappers(unittest.TestCase):
         self.assertIs(seeg.stats(job), job)
         self.assertIs(seeg.ghost(job, on=True).screenshot("a.png"), job)
 
-    def test_the_seven_operations_of_the_manifest_are_all_here(self) -> None:
+    def test_every_operation_of_the_manifest_is_here(self) -> None:
         # If an operation is added to the manifest, this is the line that says the client has not
         # been told about it yet.
         offered = {
@@ -146,7 +176,23 @@ class TestSeegWrappers(unittest.TestCase):
             and callable(value)
             and getattr(value, "__module__", "") == seeg.__name__
         }
-        self.assertEqual(offered, {"load", "snap", "refit", "renumber", "ghost", "stats", "save"})
+        self.assertEqual(
+            offered,
+            {
+                "load",
+                "snap",
+                "refit",
+                "renumber",
+                "ghost",
+                "stats",
+                "save",
+                # Appended 2026-08-30 with §13.6's parity rule: a deterministic edit to a named
+                # electrode or contact belongs in a job file too.
+                "flip_tip",
+                "revert",
+                "delete",
+            },
+        )
         self.assertEqual(seeg.MODULE_ID, "tetravox.seeg")
 
 

@@ -3202,6 +3202,18 @@ cannot answer a question.
 literally true for modules: `ModuleInstance.runCommand` is what a button and a key call, `runOperation` is
 what a job calls, and a module that let them diverge would be shipping two products.
 
+Said precisely, because it is a rule a test enforces rather than an aspiration: **a command that changes the
+scene and needs neither a live pointer nor a dialog is an operation of the same id**, and its command and its
+operation call the same function. Four kinds of command are exempt, and only these four — one that arms a
+pointer mode (`add`), one that opens a file sheet (`save-as`), one that moves the session's own undo stack
+(`undo`, `redo`), and one that only moves the selection (`next`, `prev`) — plus a command that *is* another
+operation's argument (`snap-all` is `snap` with `scope: "all"`). `modules.test.ts` compares each manifest's
+commands-without-an-operation against a written list of exemptions **for equality**, so a scene-mutating
+command added without one fails the build until somebody writes the operation or writes down why there
+cannot be one. That is what closed the gap `tetravox.seeg` shipped with: `flip-tip`, `revert` and `delete`
+were panel-only, and a headless renumber of a shaft whose `tip: 'auto'` heuristic guessed wrong therefore had
+no remedy at all (DECISIONS, 2026-08-30).
+
 ### 13.7 The checklist for adding one
 
 1. A directory under `packages/app/src/modules/<name>/` with `manifest.ts`, and one under

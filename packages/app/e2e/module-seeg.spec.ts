@@ -433,8 +433,10 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     // `load` command that opens the module's own All-files sheet has no key and no menu entry, so
     // without this button nothing could reach it. `showOpenDialog` is OS-modal, stubbed in main
     // exactly as `showSaveDialog` is above; everything under it stays real.
+    // The committed fixture rather than `tree.tsv`, which the save above rewrote: this asserts a
+    // count, and it should be the count of the file it opened.
     const named = join(tree.ieeg, 'DIXI_locs.tsv');
-    writeFileSync(named, readFileSync(tree.tsv, 'utf8'));
+    copyFileSync(join(TESTDATA, 'seeg_contacts.tsv'), named);
     await app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = (async () => ({
         canceled: false,

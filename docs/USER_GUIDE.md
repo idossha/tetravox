@@ -450,7 +450,10 @@ writing a table in which everything looks new.
 ### From a job file
 
 Every button is also a job-file operation, so a batch can do what the panel does — `load`, `snap`,
-`refit`, `renumber`, `ghost`, `stats` and `save`. See [Automation]({{ site.baseurl }}/AUTOMATION.html).
+`refit`, `renumber`, `flip-tip`, `revert`, `delete`, `ghost`, `stats` and `save`. `flip-tip` matters more
+than it looks: which end of a shaft is contact 1 comes from a heuristic, `renumber` applies whatever the
+tip currently is, and this is how a batch corrects the shaft the heuristic read backwards — the same thing
+`t` does in the panel. See [Automation]({{ site.baseurl }}/AUTOMATION.html).
 
 
 ## Coordinates
