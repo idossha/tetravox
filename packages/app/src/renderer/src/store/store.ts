@@ -48,6 +48,9 @@ import type { EngineImpl } from '../engine/factory';
 import type { ThemeChoice } from '../theme/theme';
 import type { ThemeName } from '../theme/tokens';
 import { loadPanelPrefs } from '../lib/panels';
+// Modules (2026-08-30, §13). Types only — the store holds a module's *record*, never its code.
+import type { ModuleId } from '../../../modules/manifest-types';
+import type { ExtensionBlock } from '../modules/host';
 
 /**
  * §8's coordinate bar space, as a `CoordSpaceRef` (directed task 8, 2026-08-28).
@@ -294,6 +297,42 @@ export interface UiState {
   rightPanelCollapsed: boolean;
   /** The info panel's `Mouse` block, collapsed by default (`lib/panels.ts`). Same persistence. */
   mouseBlockCollapsed: boolean;
+
+  // -- Modules (2026-08-30; ARCHITECTURE.md §13) -------------------------------------------------
+  /**
+   * The module in the slot, or null. **One at a time** (§13.3): the slot is one section of a 20 rem
+   * column, and two modules in it would be two editors fighting for the same clicks in the panes.
+   *
+   * Set only once `activate` has resolved, so a component that sees a non-null id can rely on the
+   * instance — and on its `Panel` — existing.
+   */
+  activeModule: ModuleId | null;
+  /**
+   * Per module, its status-bar cell text (`host.ui.status`). Keyed by `ModuleId` rather than held as
+   * one string because a module keeps its cell across a deactivate/re-activate cycle, exactly as it
+   * keeps its block.
+   */
+  moduleStatus: Record<string, string | null>;
+  /**
+   * Per module, "this module has unsaved work" (`host.ui.setDirty`).
+   *
+   * **Not** `sceneDirty`, and the distinction is the whole point: `sceneDirty` is set by any cursor
+   * click (it is deliberately conservative, `controller.markDirty`), so it can never mean "the
+   * contacts were edited". The title's `•` is the OR of the two; the discard guard reads only this.
+   */
+  moduleDirty: Record<string, boolean>;
+  /**
+   * Every module block the current scene carries — this build's modules and, verbatim, the ones it
+   * has never heard of (§13.2). `serialiseScene` writes the whole map back out, which is what makes
+   * "open a colleague's scene, save it, hand it back intact" true rather than hoped for.
+   */
+  moduleBlocks: Record<string, ExtensionBlock>;
+  /**
+   * The question `host.ui.confirm` is asking, or null. The *answer* travels back through
+   * `ShellController.resolveConfirm`, so no promise resolver is ever stored here: state that a
+   * selector compares with `Object.is` is no place for a closure.
+   */
+  confirm: ConfirmRequest | null;
 }
 
 /** Where this scene lives on disk, and when it was last written there. */
@@ -304,7 +343,16 @@ export interface SceneFileRecord {
 }
 
 export type DialogKind =
-  'none' | 'screenshot' | 'relocate' | 'keyboard' | 'settings' | 'sampleData';
+  | 'none'
+  | 'screenshot'
+  | 'relocate'
+  | 'keyboard'
+  | 'settings'
+  | 'sampleData'
+  // Appended 2026-08-30 (§13.3): the host's own two- or three-button question, raised by
+  // `host.ui.confirm` and by the module-dirty guard. Full-window like every other dialog, so it is
+  // one more case of `dialog` rather than a second modal layer.
+  | 'confirm';
 
 /** The unified settings dialog's tabs (directed task: unified settings, 2026-08-28). */
 export type SettingsTab = 'appearance' | 'capture' | 'paths' | 'startup';
@@ -412,6 +460,13 @@ export const INITIAL_UI: UiState = {
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
   mouseBlockCollapsed: true,
+  // Modules (2026-08-30, §13). Every one of these is empty in a build with no module active, which
+  // is what makes "the DOM is byte-identical while the slot is idle" true.
+  activeModule: null,
+  moduleStatus: {},
+  moduleDirty: {},
+  moduleBlocks: {},
+  confirm: null,
 };
 
 export type UiStore = StoreApi<UiState>;
@@ -530,4 +585,31 @@ export function pruneCollapsed(
   const out: Record<LayerId, boolean> = {};
   for (const id of keys) if (live.has(id)) out[id] = collapsed[id] as boolean;
   return out;
+}
+
+// -- Modules (2026-08-30, §13) -------------------------------------------------------------------
+
+/**
+ * One question, with two or three buttons, raised by `host.ui.confirm` and by the module-dirty guard.
+ *
+ * `id` is what pairs an answer with the question that was asked: the guard awaits a promise the
+ * controller holds, and a stale click on a dialog that has already been replaced must not resolve the
+ * new one. Two or three buttons, never more — a question with four answers is a form.
+ */
+export interface ConfirmRequest {
+  id: number;
+  title: string;
+  body: string;
+  /** In index order; the **last** is the cancelling one, and `Esc` chooses it. */
+  buttons: [string, string] | [string, string, string];
+}
+
+/** Is any module holding unsaved work? What the discard guard and the title's `•` both ask. */
+export function anyModuleDirty(state: UiState): boolean {
+  return Object.values(state.moduleDirty).some((dirty) => dirty);
+}
+
+/** The ids of the modules with unsaved work, for a guard that names them in its question. */
+export function dirtyModuleIds(state: UiState): string[] {
+  return Object.keys(state.moduleDirty).filter((id) => state.moduleDirty[id] === true);
 }
