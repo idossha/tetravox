@@ -32,6 +32,11 @@ import { isActive } from '../lib/loads';
 import { dirName, serialiseScene } from '../lib/scene';
 import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
+// §13.6's envelope: the manifest is the schema, and the renderer reads the same barrel main
+// validated the action against — so `out` is resolved against `--out` by the one list of argument
+// types there is. Nothing here names a module.
+import { MANIFESTS } from '../../../modules/manifests';
+import type { ModuleManifest } from '../../../modules/manifest-types';
 import { planPreset } from './presets';
 import type { PresetName } from './presets';
 import {
@@ -58,6 +63,10 @@ interface Recorded {
   type: string;
   files: string[];
   ms: number;
+  /** `type: 'module'` only (§13.6): which module ran, which operation, and what it reported. */
+  module?: string;
+  op?: string;
+  result?: Record<string, unknown> | null;
 }
 
 type Bag = Record<string, unknown>;
@@ -150,6 +159,62 @@ function baseName(name: string): string {
 }
 
 // ------------------------------------------------------------------------------------------------
+// Modules (§13.6) — the two decisions a module action needs, as pure functions
+// ------------------------------------------------------------------------------------------------
+
+/** The module ids a job's actions name, deduplicated, in first-use order. */
+export function modulesNamedBy(actions: readonly Bag[]): string[] {
+  return [
+    ...new Set(actions.filter((a) => a['type'] === 'module').map((a) => String(a['module']))),
+  ];
+}
+
+/**
+ * The registry filter a `--job` window runs with: whatever it was launched with, plus the modules
+ * the job names.
+ *
+ * A `--job` window's URL carries no `?modules=`, so a fixture would be invisible to it — while main
+ * has already validated the action against `MANIFESTS`, which carries every module the build has,
+ * fixtures included. Refusing here what main accepted there would be two answers to one question.
+ * The launch query is kept rather than replaced, so `?engine=mock` still means what it meant.
+ */
+export function moduleSearchFor(search: string, ids: readonly string[]): string {
+  const params = new URLSearchParams(search);
+  const already = params.get('modules');
+  params.set('modules', [already, ...ids].filter((v) => v !== null && v !== '').join(','));
+  return `?${params.toString()}`;
+}
+
+/**
+ * An operation's arguments as the module receives them, and the files it is expected to write.
+ *
+ * Only `out` is rewritten, and only because the module cannot resolve it: it is a name *relative to
+ * `--out`*, a directory the renderer knows and a module has no business knowing. Main has already
+ * admitted the same resolved path for writing (`job-runner.ts`), so this is the second half of one
+ * decision rather than a path invented here. `path` arguments arrived resolved, exactly as
+ * `scene.files` did, and everything else is passed through untouched.
+ */
+export function moduleOperationArgs(
+  action: Bag,
+  outDir: string,
+  manifests: readonly ModuleManifest[] = MANIFESTS
+): { args: Record<string, unknown>; files: string[] } {
+  const given = (action['args'] ?? {}) as Bag;
+  const operation = manifests
+    .find((m) => m.id === action['module'])
+    ?.operations?.find((o) => o.id === String(action['op']));
+  const args: Record<string, unknown> = { ...given };
+  const files: string[] = [];
+  for (const [key, type] of Object.entries(operation?.args ?? {})) {
+    const name = given[key];
+    if (type !== 'out' || typeof name !== 'string') continue;
+    files.push(name);
+    args[key] = `${outDir}/${name}`;
+  }
+  return { args, files };
+}
+
+// ------------------------------------------------------------------------------------------------
 // The runner
 // ------------------------------------------------------------------------------------------------
 
@@ -188,6 +253,7 @@ export class JobRunner {
       if (caps !== undefined) {
         this.log(`gl: ${caps.renderer} (${caps.isSoftware ? 'software' : 'hardware'})`);
       }
+      this.enableNamedModules();
       const startedLoad = this.now();
       await this.loadScene();
       // **Nothing is framed for you.** A job's picture is the picture the app would show for the same
@@ -309,6 +375,10 @@ export class JobRunner {
       case 'tween':
         await this.runTween(index, action, started);
         return;
+      case 'module': {
+        await this.runModule(index, action, started);
+        return;
+      }
       case 'save-scene': {
         // The scene as File ▸ Save Scene would write it (§4.6): dataset paths relative to the file,
         // which lands under `--out` like every other output. This is how the shipped sample-data
@@ -353,8 +423,61 @@ export class JobRunner {
     return new Uint8Array(await blob.arrayBuffer());
   }
 
-  private record(index: number, type: string, files: string[], started: number): void {
-    this.outputs.push({ action: index, type, files, ms: Math.round(this.now() - started) });
+  // ---- modules (§13.6) -------------------------------------------------------------------------
+
+  /** Offer every module this job names, whatever the launch query said ({@link moduleSearchFor}). */
+  private enableNamedModules(): void {
+    const ids = modulesNamedBy(this.spec.job.actions);
+    if (ids.length === 0) return;
+    this.env.controller.setModuleSearch(moduleSearchFor(globalThis.location?.search ?? '', ids));
+  }
+
+  /**
+   * One module operation: activate the module, run it, record what it reported.
+   *
+   * `activateModule` is the switcher's own call and `runOperation` is what a panel button's
+   * `runCommand` is the twin of (§13.6), so a job takes the path a user takes and there is no
+   * automation-only way into a module. The engine is settled on both sides of the call: before, so
+   * an operation reads a scene that has finished loading; after, so a `screenshot` that follows
+   * photographs what the operation did.
+   */
+  private async runModule(index: number, action: Bag, started: number): Promise<void> {
+    const id = String(action['module']);
+    const op = String(action['op']);
+    if (!(await this.env.controller.activateModule(id))) {
+      throw new Error(`actions[${index}]: this build has no module ${id}`);
+    }
+    const instance = this.env.controller.moduleInstance();
+    if (instance?.runOperation === undefined) {
+      throw new Error(`actions[${index}]: ${id} has no operation ${op}`);
+    }
+    const { args, files } = moduleOperationArgs(action, this.spec.outDir);
+    await this.env.engine.whenSettled();
+    const result = await instance.runOperation(op, args);
+    this.env.engine.requestRender();
+    await this.env.engine.whenSettled();
+    this.log(`module ${id}/${op}: ${files.length} files`);
+    this.record(index, 'module', files, started, {
+      module: id,
+      op,
+      result: result ?? null,
+    });
+  }
+
+  private record(
+    index: number,
+    type: string,
+    files: string[],
+    started: number,
+    extra: Omit<Recorded, 'action' | 'type' | 'files' | 'ms'> = {}
+  ): void {
+    this.outputs.push({
+      action: index,
+      type,
+      files,
+      ms: Math.round(this.now() - started),
+      ...extra,
+    });
   }
 
   /**
