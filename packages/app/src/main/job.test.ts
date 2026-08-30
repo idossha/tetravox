@@ -165,6 +165,64 @@ describe('validateJob — the shape of a valid job', () => {
   });
 });
 
+/**
+ * `view: "figure"` was documented (§2.3) and dispatched (`automation/run.ts`) before it was ever
+ * accepted here, so the one action the feature exists for was refused by the validator. These are
+ * the claims that keep the three ends together.
+ */
+describe('validateJob — view: "figure"', () => {
+  const figureJob = (figure: unknown, view: unknown = 'figure'): unknown => ({
+    ...minimal,
+    actions: [{ type: 'screenshot', out: 'figure-1.png', view, dpi: 300, figure }],
+  });
+
+  it('accepts the publication figure `docs/AUTOMATION.md` prints', () => {
+    const result = validateJob(
+      figureJob({ columns: 2, gutterMm: 3, labels: 'upper', labelPt: 10, background: 'white' })
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts `view: "figure"` with no options at all — every field has a default', () => {
+    expect(validateJob(figureJob(undefined)).ok).toBe(true);
+  });
+
+  it('names the panes it does not recognise', () => {
+    expect(errorsFor(figureJob({ panels: ['axial', 'oblique'] }))).toEqual([
+      'actions[0].figure.panels[1]: must be one of axial, coronal, sagittal, view3d',
+    ]);
+    expect(errorsFor(figureJob({ panels: [] }))).toEqual([
+      'actions[0].figure.panels: must be a non-empty array of view ids',
+    ]);
+  });
+
+  it('names an unknown figure key, a bad label style and a negative gutter', () => {
+    expect(errorsFor(figureJob({ gutter: 3 }))).toEqual([
+      'actions[0].figure.gutter: unknown key (expected panels, columns, gutterMm, labels, labelPt, background)',
+    ]);
+    expect(errorsFor(figureJob({ labels: 'roman' }))).toEqual([
+      'actions[0].figure.labels: must be one of upper, lower, none',
+    ]);
+    expect(errorsFor(figureJob({ background: 'black' }))).toEqual([
+      'actions[0].figure.background: must be one of white, transparent',
+    ]);
+    expect(errorsFor(figureJob({ columns: -1, gutterMm: -2, labelPt: 0 }))).toEqual([
+      'actions[0].figure.columns: must be 0 (automatic) or more',
+      'actions[0].figure.gutterMm: must be 0 or more',
+      'actions[0].figure.labelPt: must be greater than 0',
+    ]);
+  });
+
+  it('says so when `figure` sits beside a view that ignores it', () => {
+    // Silence would be worse than an error here: the bag is read only by the figure path, so a
+    // `figure` under `view: "grid"` is a picture that is not the one the job asked for.
+    expect(errorsFor(figureJob({ columns: 2 }, 'grid'))).toEqual([
+      'actions[0].figure: only applies to `view: "figure"`, and is ignored otherwise',
+    ]);
+  });
+});
+
 describe('validateJob — what a bad job is told', () => {
   it('rejects a non-boolean window.panels', () => {
     expect(errorsFor({ ...minimal, window: { width: 10, height: 10, panels: 'yes' } })).toEqual([

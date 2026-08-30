@@ -82,6 +82,10 @@ export const SEQUENCE_ROLES: readonly SequenceRole[] = ['start', 'continue', 'en
 export type BackgroundName = 'scene' | 'white' | 'black' | 'transparent';
 export const BACKGROUNDS: readonly BackgroundName[] = ['scene', 'white', 'black', 'transparent'];
 
+/** `figure.labels` — the panel letters, as `lib/figure.ts`'s `FigureLabelStyle` spells them. */
+export type FigureLabelStyle = 'upper' | 'lower' | 'none';
+export const FIGURE_LABELS: readonly FigureLabelStyle[] = ['upper', 'lower', 'none'];
+
 /**
  * Which layer a `set` action patches.
  *
@@ -141,16 +145,37 @@ export interface SetAction {
   annotations?: IncludeSpec;
 }
 
+/**
+ * `view: "figure"` — several panes captured separately and laid out on one labelled page
+ * (`lib/figure.ts`, `docs/AUTOMATION.md` §2.3). Every field is optional; the defaults are
+ * `DEFAULT_FIGURE`'s.
+ */
+export interface FigureSpec {
+  /** View ids, in reading order. Default: every pane of the current layout. */
+  panels?: ViewName[];
+  /** Panels per row; `0` (the default) is automatic — 4 → 2×2, 3 → 2 + 1. */
+  columns?: number;
+  /** Gutter between panels and around the page, in millimetres at `dpi`. Default 2. */
+  gutterMm?: number;
+  /** Panel letters. Default `'upper'`. */
+  labels?: FigureLabelStyle;
+  /** Label size in points at `dpi`. Default 10. */
+  labelPt?: number;
+  /** The page behind the panels. Default `'white'`. */
+  background?: 'white' | 'transparent';
+}
+
 export interface ScreenshotAction {
   type: 'screenshot';
   /** File name, relative to `--out`. `.png` is appended when missing. */
   out: string;
   /**
    * A view id captures that pane; `'grid'` captures the whole view grid; `'window'` captures the
-   * whole window, panels and toolbar included (`window.panels: true` is what puts them there).
-   * Default: `'grid'`.
+   * whole window, panels and toolbar included (`window.panels: true` is what puts them there);
+   * `'figure'` captures each pane of {@link ScreenshotAction.figure} separately and assembles them
+   * on one labelled page. Default: `'grid'`.
    */
-  view?: ViewName | 'grid' | 'window';
+  view?: ViewName | 'grid' | 'window' | 'figure';
   width?: number;
   height?: number;
   scale?: number;
@@ -158,6 +183,8 @@ export interface ScreenshotAction {
   background?: BackgroundName;
   include?: IncludeSpec;
   autoTrim?: boolean;
+  /** Only with `view: 'figure'`. */
+  figure?: FigureSpec;
 }
 
 export interface SweepAction {
@@ -480,6 +507,49 @@ class Errors {
       this.enum(at, entry, FRAME_FORMATS);
     }
   }
+  /**
+   * A `screenshot`'s `figure` bag (`view: "figure"`).
+   *
+   * It was documented in `docs/AUTOMATION.md` §2.3 and dispatched by `automation/run.ts` from the
+   * day the figure target landed, but `view` was checked against a list that did not contain
+   * `figure` — so the one action the feature exists for was refused by the validator and the bag
+   * itself was never checked at all. Both halves are here now: a `figure` beside any other `view`
+   * is a mistake worth naming, because it is silently ignored rather than obeyed.
+   */
+  figure(path: string, value: unknown, view: unknown): void {
+    if (value === undefined) return;
+    if (!isBag(value)) {
+      this.push(path, 'must be an object of figure options (panels, columns, gutterMm, labels)');
+      return;
+    }
+    if (view !== 'figure') {
+      this.push(path, 'only applies to `view: "figure"`, and is ignored otherwise');
+    }
+    const known = ['panels', 'columns', 'gutterMm', 'labels', 'labelPt', 'background'];
+    for (const key of Object.keys(value)) {
+      if (!known.includes(key))
+        this.push(`${path}.${key}`, `unknown key (expected ${known.join(', ')})`);
+    }
+    const panels = value['panels'];
+    if (panels !== undefined) {
+      if (!Array.isArray(panels) || panels.length === 0) {
+        this.push(`${path}.panels`, 'must be a non-empty array of view ids');
+      } else {
+        for (const [i, id] of panels.entries()) this.enum(`${path}.panels[${i}]`, id, VIEWS);
+      }
+    }
+    this.number(`${path}.columns`, value['columns']);
+    if (typeof value['columns'] === 'number' && value['columns'] < 0) {
+      this.push(`${path}.columns`, 'must be 0 (automatic) or more');
+    }
+    this.number(`${path}.gutterMm`, value['gutterMm']);
+    if (typeof value['gutterMm'] === 'number' && value['gutterMm'] < 0) {
+      this.push(`${path}.gutterMm`, 'must be 0 or more');
+    }
+    this.enum(`${path}.labels`, value['labels'], FIGURE_LABELS);
+    this.number(`${path}.labelPt`, value['labelPt'], { positive: true });
+    this.enum(`${path}.background`, value['background'], ['white', 'transparent']);
+  }
   /** `n` finite numbers, or nothing. */
   numbers(path: string, value: unknown, n: number, what: string): void {
     if (value === undefined) return;
@@ -670,7 +740,8 @@ function validateAction(action: unknown, path: string, errors: Errors): void {
     }
     case 'screenshot': {
       errors.outName(`${path}.out`, action['out']);
-      errors.enum(`${path}.view`, action['view'], [...VIEWS, 'grid', 'window']);
+      errors.enum(`${path}.view`, action['view'], [...VIEWS, 'grid', 'window', 'figure']);
+      errors.figure(`${path}.figure`, action['figure'], action['view']);
       errors.number(`${path}.width`, action['width'], { positive: true });
       errors.number(`${path}.height`, action['height'], { positive: true });
       errors.number(`${path}.scale`, action['scale'], { positive: true });
