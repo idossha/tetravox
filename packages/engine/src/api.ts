@@ -219,7 +219,7 @@ export interface ScreenshotOptions {
   scale?: number;
   /** Written to the PNG `pHYs` chunk. */
   dpi?: number;
-  background: 'scene' | 'white' | 'transparent';
+  background: 'scene' | 'white' | 'black' | 'transparent';
   include: {
     colorbar: boolean;
     orientationLabels: boolean;

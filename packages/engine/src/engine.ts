@@ -1905,7 +1905,7 @@ export class TetravoxEngine implements Engine, PointerHost {
    *
    * Three temporary overrides, each restored in a `finally`, and none of them a second code path:
    *
-   * * **`background`** — `'white'` clears to opaque white; `'transparent'` draws the frame **twice**,
+   * * **`background`** — `'white'` / `'black'` clear to that opaque colour; `'transparent'` draws the frame **twice**,
    *   over black and over white, and solves for the coverage
    *   (`render/screenshot.ts`'s `matteOverBlackAndWhite`). The context is created with `alpha: false`
    *   (`gl/context.ts`), so the drawing buffer has no alpha to read back and clearing to `[0,0,0,0]`
@@ -1945,7 +1945,13 @@ export class TetravoxEngine implements Engine, PointerHost {
         const overBlack = shoot(OPAQUE_BLACK);
         frame = matteOverBlackAndWhite(overBlack, shoot(OPAQUE_WHITE));
       } else {
-        frame = shoot(opts.background === 'white' ? OPAQUE_WHITE : null);
+        frame = shoot(
+          opts.background === 'white'
+            ? OPAQUE_WHITE
+            : opts.background === 'black'
+              ? OPAQUE_BLACK
+              : null
+        );
       }
       const crop =
         opts.target === 'view' && opts.viewId !== undefined

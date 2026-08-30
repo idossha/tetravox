@@ -115,7 +115,7 @@
     {
       "type": "tween",
       "out": "field-threshold-rise",
-      "frames": 15,
+      "frames": 29,
       "from": {
         "layers": [
           {
@@ -143,7 +143,7 @@
       "view": "grid",
       "fps": 12,
       "format": "mp4",
-      "colors": 40,
+      "colors": 32,
       "sequence": "start",
       "width": 560,
       "height": 560,
@@ -154,14 +154,14 @@
     {
       "type": "tween",
       "out": "field-threshold-rise",
-      "frames": 13,
+      "frames": 27,
       "from": {
         "layers": [
           {
             "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
             "patch": {
               "threshold": {
-                "lo": 0.1288214285714286
+                "lo": 0.1306607142857143
               }
             }
           }
@@ -173,7 +173,7 @@
             "layer": "grey_Thalamus_TI_subject_TI_max.nii.gz",
             "patch": {
               "threshold": {
-                "lo": 0.08467857142857144
+                "lo": 0.08283928571428571
               }
             }
           }
@@ -182,7 +182,7 @@
       "view": "grid",
       "fps": 12,
       "format": "mp4",
-      "colors": 40,
+      "colors": 32,
       "sequence": "end",
       "width": 560,
       "height": 560,

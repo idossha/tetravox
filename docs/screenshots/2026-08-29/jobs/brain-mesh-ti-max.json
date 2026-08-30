@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "grey_Thalamus_TI.msh",
+      "patch": {
+        "colorMode": "field",
+        "field": {
+          "source": "elm",
+          "name": "TI_max",
+          "component": "mag"
+        },
+        "colormap": "jet",
+        "scale": {
+          "kind": "linear",
+          "lo": 0.01,
+          "hi": 0.2
+        },
+        "threshold": {
+          "lo": -1000000000.0,
+          "hi": 1000000000.0,
+          "symmetric": false,
+          "mode": "clamp",
+          "softEdge": 0
+        },
+        "showColorbar": true,
+        "fillIn2D": true,
+        "contoursIn2D": false,
+        "faceMode": "both"
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        3.8,
+        19.0,
+        18.0
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 330,
+      "type": "set"
+    },
+    {
+      "view": "grid",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "cornerInfo": true,
+        "orientationLabels": true
+      },
+      "type": "screenshot",
+      "out": "brain-mesh-ti-max-2x2"
+    }
+  ]
+}

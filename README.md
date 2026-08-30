@@ -44,7 +44,7 @@ segmentations opens exactly the same way.
 Loading, parsing and geometry work happen off the UI thread, one worker per dataset, so opening a new file
 never freezes the window you're already looking at. The app runs on macOS and Linux.
 
-![A T1 with an atlas overlay in the 2x2 layout, cortex isosurface in the 3D pane](docs/screenshots/2026-08-29/hero/hero-t1-atlas-2x2.png)
+![A T1 in the 2x2 layout with both pial surfaces: contours on the slices, the hemispheres in the 3D pane](docs/screenshots/2026-08-29/brain/brain-t1-pial-both.png)
 
 ### Not only brain
 
@@ -59,7 +59,7 @@ Window/level, label fill and outline, isosurfaces, clip planes, measurements and
 not know or care which part of the body they are looking at. More in the
 [gallery](https://idossha.github.io/tetravox/gallery).
 
-![A translucent head mesh orbiting in the 3D pane](docs/screenshots/2026-08-29/motion/orbit-head-translucent.gif)
+![Per-vertebra isosurfaces from a labelled spine CT, orbiting](docs/screenshots/2026-08-29/motion/orbit-spine-vertebrae.gif)
 
 ## Features
 

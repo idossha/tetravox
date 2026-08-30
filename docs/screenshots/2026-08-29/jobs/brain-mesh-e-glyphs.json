@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh"
+    ],
+    "preset": "mesh-tissues-translucent"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "colorMode": "tag",
+        "colormap": "jet",
+        "tagStyle": {
+          "1005": {
+            "visible": true,
+            "opacity": 0.3
+          },
+          "1007": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1008": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1003": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1099": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1006": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1010": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1002": {
+            "visible": true,
+            "opacity": 0.25
+          },
+          "1001": {
+            "visible": true,
+            "opacity": 0.25
+          }
+        },
+        "faceMode": "both",
+        "fillIn2D": true,
+        "contoursIn2D": false,
+        "glyphs": {
+          "field": {
+            "source": "elm",
+            "name": "E"
+          },
+          "shape": "arrow",
+          "subsample": {
+            "everyNth": 120
+          },
+          "scale": {
+            "mode": "log",
+            "lengthMm": 6.0,
+            "normalizeTo": "p99",
+            "logFloor": 0.026
+          },
+          "lengthMm": 6.0,
+          "colorBy": "magnitude",
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "clipToCutPlane": false,
+          "origins": "volume"
+        },
+        "showColorbar": true
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        -0.5,
+        13.5,
+        20.5
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 430,
+      "type": "set"
+    },
+    {
+      "view": "grid",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "cornerInfo": true,
+        "orientationLabels": true
+      },
+      "type": "screenshot",
+      "out": "brain-mesh-e-glyphs-2x2"
+    },
+    {
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 380,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "colorbar": true,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "brain-mesh-e-glyphs-3d"
+    }
+  ]
+}

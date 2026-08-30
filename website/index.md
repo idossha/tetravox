@@ -25,20 +25,20 @@ subject's own segmentation — and, with no change of tool, a CT of the chest or
 organ and vertebra segmentations that come with them. It is not a general-purpose 3D modelling tool, and it
 doesn't process or analyse data — it shows you exactly what's on disk, precisely and quickly.
 
-![A T1 with an atlas overlay in the 2x2 layout, cortex isosurface in the 3D pane](/shots/hero/hero-t1-atlas-2x2.png)
+![A T1 in the 2x2 layout with both pial surfaces: contours on the slices, the hemispheres in the 3D pane](/shots/brain/brain-t1-pial-both.png)
 
 <div class="motion-row">
   <figure>
-    <video src="/shots/motion/orbit-head-translucent.mp4" autoplay loop muted playsinline></video>
-    <figcaption>A head model orbiting, scalp and skull translucent over the brain.</figcaption>
+    <video src="/shots/motion/sweep-axial-t1-atlas.mp4" autoplay loop muted playsinline></video>
+    <figcaption>An axial sweep through a T1, inferior to superior, with the atlas outlined.</figcaption>
   </figure>
   <figure>
-    <video src="/shots/motion/sweep-coronal-abdomen-ct.mp4" autoplay loop muted playsinline></video>
-    <figcaption>A coronal sweep through an abdominal CT with its organ labels.</figcaption>
+    <video src="/shots/motion/field-threshold-rise.mp4" autoplay loop muted playsinline></video>
+    <figcaption>A simulated field's threshold rising from p50 to p97 over the anatomy.</figcaption>
   </figure>
   <figure>
-    <video src="/shots/motion/clip-head-sagittal.mp4" autoplay loop muted playsinline></video>
-    <figcaption>A sagittal clip plane driven through a tetrahedral mesh, capped per element.</figcaption>
+    <video src="/shots/motion/orbit-spine-vertebrae.mp4" autoplay loop muted playsinline></video>
+    <figcaption>Per-vertebra isosurfaces from a labelled spine CT, orbiting.</figcaption>
   </figure>
 </div>
 
@@ -50,12 +50,12 @@ chest CT and a lumbar spine.
 
 <div class="modality-strip">
   <figure>
-    <img src="/shots/modalities/mod-brain-t1-axial.png" alt="A brain T1 in a single axial pane" loading="lazy">
-    <figcaption>Brain MRI — T1, single axial pane</figcaption>
+    <img src="/shots/brain/brain-t1-2x2.png" alt="A brain T1 in the 2x2 layout" loading="lazy">
+    <figcaption>Brain MRI — T1, four panes</figcaption>
   </figure>
   <figure>
-    <img src="/shots/modalities/mod-head-ct-axial.png" alt="A head CT in a brain window" loading="lazy">
-    <figcaption>Head CT — brain window</figcaption>
+    <img src="/shots/modalities/mod-pelvis-mri-labels-3d.png" alt="Pelvic structures from an MRI as isosurfaces" loading="lazy">
+    <figcaption>Pelvis MRI — structures as surfaces</figcaption>
   </figure>
   <figure>
     <img src="/shots/modalities/mod-chest-ct-lung-2x2.png" alt="A chest CT in a lung window, 2x2 layout" loading="lazy">

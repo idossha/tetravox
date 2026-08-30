@@ -14,7 +14,7 @@ works the same on a chest CT or a lumbar MRI — where that matters, it is said 
 by topic; for install and dev-build instructions see the website's
 [Get started](https://tetravox.dev/get-started) page or this repo's `README.md`.
 
-![The 1+3 layout: a 3D head model beside three linked slices](screenshots/2026-08-29/features/feat-layouts-1plus3.png)
+![The 2x2 layout: three linked slices of a T1 and the 3D pane](screenshots/2026-08-29/brain/brain-t1-2x2.png)
 
 ## Opening data & formats
 
@@ -54,10 +54,6 @@ it the tissue table reads `tag 1`, `tag 2`, … and the head is drawn in a fallb
 Zoom is per pane: `+` / `-` zoom about the pane centre. Zoom is real resampling of the volume, not a scaled
 bitmap — the detail view below is the same slice at 0.12 mm per pixel.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-zoom-overview.png" width="45%" alt="An axial slice at overview zoom">
-  <img src="screenshots/2026-08-29/features/feat-zoom-detail.png" width="45%" alt="The same slice zoomed onto one structure">
-</p>
 
 Every 2D pane carries orientation letters on all four edges, a corner block (view, slice index, world RAS)
 and a persistent **RAD** / **NEU** badge — the neurological/radiological convention is never implicit. The
@@ -66,10 +62,6 @@ faces you can click to snap the camera (also `1`–`6` for A/P/L/R/S/I). Toggle 
 from the toolbar; it mirrors the image about the vertical axis and nothing else — the badge says which you
 are in, always.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-convention-neu.png" width="45%" alt="Neurological convention, NEU badge">
-  <img src="screenshots/2026-08-29/features/feat-convention-rad.png" width="45%" alt="Radiological convention, RAD badge">
-</p>
 
 `o` toggles orthographic projection in the 3D pane, `c` toggles the crosshair, `Home` resets every pane and sends the cursor to world
 origin.
@@ -92,21 +84,13 @@ threshold handles and presets (`min–max`, `2–98 %`, `p50–p99.9`, `symmetri
 whether the data is an MRI, a CT (where the presets stand in for the usual bone / soft-tissue / lung windows)
 or a scalar field.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-window-minmax.png" width="45%" alt="A volume windowed min to max">
-  <img src="screenshots/2026-08-29/features/feat-window-p2-98.png" width="45%" alt="The same volume windowed 2 to 98 percent">
-</p>
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-colormap-hot.png" width="45%" alt="A hot colormap">
-  <img src="screenshots/2026-08-29/features/feat-colormap-viridis.png" width="45%" alt="A viridis colormap">
-</p>
 
 An overlay of a **simulated field** — tES (`TI_max`, a tDCS or tACS magnitude) or a TMS E-field — is an
 ordinary volume layer on a `hot` scale with its threshold set from its own percentiles, drawn over the
 anatomy with a colour bar.
 
-![A simulated field thresholded at its 90th percentile over a T1](screenshots/2026-08-29/features/feat-threshold-field-on-t1.png)
+![A simulated field thresholded at its 90th percentile over a T1, and on the grey-matter mesh in 3D](screenshots/2026-08-29/hero/hero-field-on-mesh.png)
 
 A label volume (an atlas or tissue map) gets fill / outline / both instead of a window — see [Atlases & regions]({{ site.baseurl }}/guide/atlases-regions.html).
 A 4D volume gets a frame index you step with `,` / `.`.
@@ -124,9 +108,8 @@ anatomical atlas, a SimNIBS tissue segmentation and an organ or per-vertebra seg
 the same kind of layer here.
 
 <p align="center">
-  <img src="screenshots/2026-08-29/features/feat-labels-fill.png" width="31%" alt="Labels drawn filled">
-  <img src="screenshots/2026-08-29/features/feat-labels-outline.png" width="31%" alt="Labels drawn as outlines">
-  <img src="screenshots/2026-08-29/features/feat-labels-both.png" width="31%" alt="Labels drawn as fill plus outline">
+  <img src="screenshots/2026-08-29/modalities/mod-abdomen-ct-labels-axial.png" width="45%" alt="Organ labels drawn as outlines over a CT">
+  <img src="screenshots/2026-08-29/modalities/mod-spine-ct-labels-sagittal.png" width="45%" alt="Vertebra labels drawn as fill plus outline">
 </p>
 
 The **region panel** lists everything labelled — atlas and tissue-map regions, mesh tissue tags, and surface
@@ -135,7 +118,7 @@ and emphasise, ⇧/⌘-click for several, **Alt-click to solo** (mute all others
 crosshair to that region's centroid. Show all / Hide all / Invert are at the top. Clicking a labelled voxel
 or tissue in a pane selects its row.
 
-![One region soloed, every other label muted](screenshots/2026-08-29/features/feat-labels-solo-thalamus.png)
+![One region soloed, every other label muted, and the same region as a 3D surface](screenshots/2026-08-29/brain/brain-t1-thalamus.png)
 
 Colours you override and regions you hide are **saved in the scene**. Your edits sit on top of the file's own
 table, so a per-row Reset restores the original, and *Save LUT…* writes the merged result out.
@@ -145,7 +128,7 @@ table, so a per-row Reset restores the original, and *Save LUT…* writes the me
 A tissue table (name, colour swatch, eye, opacity) rather than a list of checkboxes. Colour by tag, by a
 solid colour, by a node or element field with a component selector, or by a `.annot` label.
 
-![Tissue surfaces of a head mesh in the 3D pane](screenshots/2026-08-29/features/feat-mesh-tissues-3d.png)
+![A head mesh: its tissue cross-section in the slice panes and the scalp surface in 3D](screenshots/2026-08-29/brain/brain-tissues-2x2.png)
 
 Per-tissue opacity is a real paint, not a global fade: one tissue can carry a field's colouring while the
 others stay in their own fixed colours, so an outer surface can be made translucent without washing out what
@@ -161,21 +144,18 @@ orbit. **Clip planes** — up to six, with a drag gizmo and a "follow cursor" op
 with exact per-element polygons rather than a hollow shell. **Isolation** keeps only the elements matching
 tags, a field range, a sphere, a box, or the regions of a label volume.
 
-<p align="center">
-  <img src="screenshots/2026-08-29/features/feat-mesh-clip-caps.png" width="45%" alt="A clip plane with exact per-element caps">
-  <img src="screenshots/2026-08-29/features/feat-mesh-isolate-brain.png" width="45%" alt="Only the brain tissues kept">
-</p>
+![The skull through a translucent scalp, the brain tissues hidden](screenshots/2026-08-29/brain/brain-mesh-skull-3d.png)
 
 A scalar field carried by the mesh — `TI_max`, an `E` magnitude from a tDCS run, a TMS E-field — colours the
 surface directly, with the colour bar reading that field's own units.
 
-![A tDCS E-field magnitude on the grey-matter surface](screenshots/2026-08-29/features/feat-mesh-field-tdcs-3d.png)
+![TI_max on the grey-matter mesh, cut by the slices in 2D and whole in 3D](screenshots/2026-08-29/brain/brain-mesh-ti-max-2x2.png)
 
 **In the 2D panes**, a tet mesh shows its cross-section — filled tissue polygons and boundary contours — and
 it sweeps with the slice, with or without a volume loaded. See [Surfaces & annotations]({{ site.baseurl }}/guide/surfaces-annotations.html)
 for how surface meshes appear in the 2D panes.
 
-![A mesh's tissue cross-section against a T1 volume](screenshots/2026-08-29/features/feat-mesh-cut-2d.png)
+![A mesh's cross-section in the slice panes, filled by its field with the tissue boundaries outlined](screenshots/2026-08-29/brain/brain-mesh-tdcs-magne-2x2.png)
 
 ## Surfaces & annotations
 
@@ -188,8 +168,8 @@ A FreeSurfer `.annot` file colours a surface by its own region labels rather tha
 the [region panel]({{ site.baseurl }}/guide/atlases-regions.html) alongside atlases and tissue tags.
 
 <p align="center">
-  <img src="screenshots/2026-08-29/features/feat-surface-pial-3d.png" width="45%" alt="A pial surface shaded in the 3D pane">
-  <img src="screenshots/2026-08-29/features/feat-surface-contours-2x2.png" width="45%" alt="The same surface as contours in all three planes">
+  <img src="screenshots/2026-08-29/brain/brain-t1-pial-left.png" width="45%" alt="The left pial surface as contours in the slices and shaded in 3D">
+  <img src="screenshots/2026-08-29/brain/brain-t1-pial-both.png" width="45%" alt="Both pial surfaces, each contour in its own colour">
 </p>
 
 ## Isosurfaces
@@ -216,8 +196,8 @@ scalar field (no direction) never appears in the glyph selector — only fields 
 can drive an arrow.
 
 <p align="center">
-  <img src="screenshots/2026-08-29/features/feat-glyphs-arrows.png" width="45%" alt="Vector-field glyphs drawn as arrows">
-  <img src="screenshots/2026-08-29/features/feat-glyphs-lines.png" width="45%" alt="The same field drawn as lines">
+  <img src="screenshots/2026-08-29/brain/brain-mesh-e-glyphs-2x2.png" width="45%" alt="Vector-field glyphs drawn as arrows in the 3D pane of a 2x2">
+  <img src="screenshots/2026-08-29/brain/brain-mesh-e-glyphs-3d.png" width="45%" alt="The same glyphs filling a single 3D pane">
 </p>
 
 ## Points & electrodes
@@ -233,10 +213,9 @@ sources that actually have labels to size.
 
 <p align="center">
   <img src="screenshots/2026-08-29/features/feat-points-eeg-3d.png" width="45%" alt="An EEG net as labelled points in 3D">
-  <img src="screenshots/2026-08-29/features/feat-seeg-contacts-axial.png" width="45%" alt="sEEG lead contacts over an axial slice">
+  <img src="screenshots/2026-08-29/brain/brain-t1-eeg.png" width="45%" alt="The same net on the slices it touches, and over the head in 3D">
 </p>
 
-![sEEG leads as mesh geometry in the 3D pane](screenshots/2026-08-29/features/feat-seeg-mesh-3d.png)
 
 ## Measurements
 
@@ -325,10 +304,9 @@ remembered scene.
 The toolbar's screenshot button saves one pane or the whole grid as a PNG, at a size or scale you choose,
 with the DPI written into the file so it drops into a manuscript at the right physical size. Choose which
 chrome to include — colour bar, orientation letters, crosshair, corner info, scale bar, cube — and whether
-the background is the scene's, white, or transparent. The **figure** presets go further: a labelled
+the background is the scene's, white, black, or transparent. The **figure** presets go further: a labelled
 multi-panel export on white, sized in millimetres at the DPI a journal asks for.
 
-![A 2×2 export on a white page at 300 dpi, chrome off, auto-trimmed](screenshots/2026-08-29/features/feat-figure-export-2x2.png)
 
 For a batch of figures, or a video, drive the app from a script instead: it runs with no window and never
 takes the focus, so a sweep through 200 slices can render while you work. See

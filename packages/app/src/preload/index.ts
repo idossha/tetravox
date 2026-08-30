@@ -197,7 +197,7 @@ export interface JobDonePayload {
 
 /** Mirrors `main/settings.ts`'s `ScreenshotDefaults`; duplicated for the same reason as `AppSettings`. */
 export interface ScreenshotDefaults {
-  background: 'scene' | 'white' | 'transparent';
+  background: 'scene' | 'white' | 'black' | 'transparent';
   dpi: number;
   scale?: number;
   autoTrim: boolean;

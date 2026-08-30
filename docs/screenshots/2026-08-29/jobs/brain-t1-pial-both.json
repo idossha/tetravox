@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_TESTDATA}/m2m_ernie/surfaces/lh.pial.gii",
+      "${TETRAVOX_TESTDATA}/m2m_ernie/surfaces/rh.pial.gii"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showIn3D": true,
+        "showColorbar": true,
+        "scale": {
+          "kind": "linear",
+          "lo": 889,
+          "hi": 19896
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layer": "lh.pial.gii",
+      "patch": {
+        "contoursIn2D": true,
+        "contourWidthPx": 3,
+        "contourColor": [
+          0.45,
+          0.85,
+          0.35,
+          1
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "layer": "rh.pial.gii",
+      "patch": {
+        "contoursIn2D": true,
+        "contourWidthPx": 3,
+        "contourColor": [
+          0.95,
+          0.85,
+          0.2,
+          1
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        47.6,
+        40.8,
+        0.7
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "A",
+      "distance": 400,
+      "type": "set"
+    },
+    {
+      "view": "grid",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "cornerInfo": true,
+        "orientationLabels": true
+      },
+      "type": "screenshot",
+      "out": "brain-t1-pial-both"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/surfaces/lh.pial.gii"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showIn3D": true,
+        "showColorbar": true,
+        "scale": {
+          "kind": "linear",
+          "lo": 889,
+          "hi": 19896
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layer": "lh.pial.gii",
+      "patch": {
+        "contoursIn2D": true,
+        "contourWidthPx": 3,
+        "contourColor": [
+          0.45,
+          0.85,
+          0.35,
+          1
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        -29.0,
+        -3.7,
+        14.8
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "L",
+      "distance": 400,
+      "type": "set"
+    },
+    {
+      "type": "tween",
+      "out": "_camera-oblique",
+      "frames": 1,
+      "view": "view3d",
+      "width": 64,
+      "height": 64,
+      "gif": false,
+      "orbit": {
+        "degrees": -35,
+        "axis": "z"
+      },
+      "to": {
+        "distance": 400
+      }
+    },
+    {
+      "view": "grid",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "cornerInfo": true,
+        "orientationLabels": true
+      },
+      "type": "screenshot",
+      "out": "brain-t1-pial-left"
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "ernie_TDCS_1_scalar.msh",
+      "patch": {
+        "colorMode": "field",
+        "field": {
+          "source": "elm",
+          "name": "magnE",
+          "component": "mag"
+        },
+        "colormap": "jet",
+        "scale": {
+          "kind": "linear",
+          "lo": 0.0,
+          "hi": 1.0
+        },
+        "threshold": {
+          "lo": -1000000000.0,
+          "hi": 1000000000.0,
+          "symmetric": false,
+          "mode": "clamp",
+          "softEdge": 0
+        },
+        "showColorbar": true,
+        "fillIn2D": true,
+        "contoursIn2D": true,
+        "contourWidthPx": 1,
+        "contourColor": [
+          0,
+          0,
+          0,
+          1
+        ]
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        -0.5,
+        35.9,
+        33.8
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "A",
+      "distance": 430,
+      "type": "set"
+    },
+    {
+      "view": "grid",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "cornerInfo": true,
+        "orientationLabels": true
+      },
+      "type": "screenshot",
+      "out": "brain-mesh-tdcs-magne-2x2"
+    }
+  ]
+}

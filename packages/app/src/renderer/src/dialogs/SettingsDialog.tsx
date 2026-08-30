@@ -60,7 +60,12 @@ const TABS: readonly { id: SettingsTab; label: string }[] = [
   { id: 'startup', label: 'Startup' },
 ];
 
-const BACKGROUNDS: readonly ScreenshotOptions['background'][] = ['scene', 'white', 'transparent'];
+const BACKGROUNDS: readonly ScreenshotOptions['background'][] = [
+  'scene',
+  'white',
+  'black',
+  'transparent',
+];
 
 export function SettingsDialog({
   tab,

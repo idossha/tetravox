@@ -30,7 +30,7 @@ import { homedir } from 'node:os';
  * not a standing preference.
  */
 export interface ScreenshotDefaults {
-  background: 'scene' | 'white' | 'transparent';
+  background: 'scene' | 'white' | 'black' | 'transparent';
   dpi: number;
   scale?: number;
   autoTrim: boolean;

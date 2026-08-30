@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/T1.nii.gz",
+      "${TETRAVOX_DATA}/m2m_ernie/segmentation/labeling.nii.gz"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "T1.nii.gz",
+      "patch": {
+        "showIn3D": true,
+        "showColorbar": true,
+        "scale": {
+          "kind": "linear",
+          "lo": 889,
+          "hi": 19896
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layer": "labeling.nii.gz",
+      "patch": {
+        "labelMode": "fill",
+        "opacity": 1.0,
+        "visibleLabels": [
+          10,
+          49
+        ],
+        "showIn3D": true,
+        "iso3d": {
+          "enabled": true,
+          "iso": 0,
+          "color": [
+            0,
+            0.46,
+            0.05,
+            1
+          ],
+          "opacity": 1.0,
+          "smooth": true,
+          "faceMode": "both"
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        11.1,
+        10.4,
+        17.4
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "A",
+      "distance": 220,
+      "type": "set"
+    },
+    {
+      "type": "tween",
+      "out": "_camera-oblique",
+      "frames": 1,
+      "view": "view3d",
+      "width": 64,
+      "height": 64,
+      "gif": false,
+      "orbit": {
+        "degrees": 35,
+        "axis": "z"
+      },
+      "to": {
+        "target": [
+          11.1,
+          10.4,
+          17.4
+        ],
+        "distance": 220
+      }
+    },
+    {
+      "view": "grid",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "crosshair": true,
+        "colorbar": true,
+        "cornerInfo": true,
+        "orientationLabels": true
+      },
+      "type": "screenshot",
+      "out": "brain-t1-thalamus"
+    }
+  ]
+}

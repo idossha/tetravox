@@ -6,7 +6,7 @@
  * and 404s in the browser. This walks the prose that ships — README.md,
  * docs/*.md, website/*.md and everything sync.mjs/gallery.mjs generated under
  * website/src/ — collects every markdown `![](…)` and every `src=` on an
- * `<img>`/`<video>`/`<source>`, and resolves each one:
+ * `<img>`/`<video>`/`<source>` (and a `<video>`'s `poster`), and resolves each one:
  *
  *   /foo/bar.png   -> website/public/foo/bar.png   (site-absolute)
  *   foo/bar.png    -> relative to the file's own directory
@@ -50,6 +50,7 @@ function references(text) {
   const found = [];
   for (const m of text.matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) found.push(m[1]);
   for (const m of text.matchAll(/<(?:img|video|source)\b[^>]*?\bsrc="([^"]+)"/gi)) found.push(m[1]);
+  for (const m of text.matchAll(/<video\b[^>]*?\bposter="([^"]+)"/gi)) found.push(m[1]);
   for (const m of text.matchAll(/<source\b[^>]*?\bsrcset="([^"]+)"/gi)) found.push(m[1]);
   return found;
 }

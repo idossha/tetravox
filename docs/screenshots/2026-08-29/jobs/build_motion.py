@@ -7,8 +7,8 @@
     export TETRAVOX_APP_ARGS="$PWD/packages/app"
     python3 docs/screenshots/2026-08-29/jobs/build_motion.py [name ...]
 
-Eight clips, 560 px wide, 24–48 frames, GIF under 4 MB with an MP4 beside it (the website embeds the
-MP4, the README the GIF). The PNG frames a job also writes are deleted afterwards: 300-odd frames of
+Four clips, 560 px wide, 56–72 frames at 12 fps — a 5–6 s loop, slow enough to read — with an MP4
+beside each GIF (the website embeds the MP4, the README the GIF). The PNG frames a job also writes are deleted afterwards: 300-odd frames of
 2 MB each are not a thing to keep in `docs/`.
 
 **Every clip has to loop.** An `orbit` already does — its last frame stops one step short of the
@@ -59,8 +59,6 @@ BRAIN_C = (2.3, 11.2, 15.9)
 
 # T1's world bounding box centre — the in-plane origin `center` is measured from (§7.5 planeAnchor).
 T1_C = (3.8, 26.7, -16.1)
-# `labeling.nii.gz` label 17, the left hippocampus: the zoom's destination, located by the atlas.
-HIPPOCAMPUS_L = (-22.8, 5.3, 0.5)
 
 # The grey-matter TI volume over its 702,214 non-zero voxels:
 #   p50 0.0810  p90 0.1121  p97 0.1325  p99 0.1529  p99.9 0.1903  max 0.4043 V/m
@@ -86,15 +84,8 @@ SPINE_CT = f"{PUB}/ctspine1k/volume-covid19-A-0377_ct.nii.gz"
 SPINE_CT_SEG = f"{PUB}/ctspine1k/volume-covid19-A-0377_ct_seg.nii.gz"
 SPINE_COLUMN = (1.6, -35.2, -74.4)
 
-# The sagittal clip's two ends, as **plane offsets**. The shader keeps `dot(n, p) + offset >= 0`
-# with n = +x, so the surviving half is `x >= -offset` and the plane sits at `x = -offset`: +72 is
-# the left scalp, -12 is a centimetre past the midline.
-CLIP_X_FROM, CLIP_X_TO = 72.0, -12.0
-# The cranium's centre, which the clip clip's camera aims at.
-HEAD_C = (0.0, 12.0, 30.0)
 
 BONE = {"kind": "linear", "lo": -450, "hi": 1050}
-SOFT = {"kind": "linear", "lo": -160, "hi": 240}
 
 
 # ------------------------------------------------------------------------------------------------
@@ -193,15 +184,6 @@ CLIP = dict(
 # ================================================================================================
 
 
-def orbit_head_translucent():
-    """`ernie.msh` turned about the superior axis: scalp 0.3, skull 0.5, brain opaque."""
-    j = Job(files=[ERNIE_MESH], preset="mesh-tissues-translucent", window=(WIDTH, WIDTH))
-    j.set(layout="3d-only")
-    j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": False})
-    j.set(view="view3d", camera="A", distance=290)
-    j.orbit("orbit-head-translucent", frames=36, degrees=360, axis="z", **CLIP)
-    run("orbit-head-translucent", j)
-
 
 def orbit_spine_vertebrae():
     """The CTSpine1K vertebra surfaces turning inside the CT's own three planes."""
@@ -224,7 +206,7 @@ def orbit_spine_vertebrae():
     j.set(layout="3d-only", cursor=SPINE_COLUMN)
     j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": False})
     j.set(view="view3d", camera="A", distance=400)
-    j.orbit("orbit-spine-vertebrae", frames=36, degrees=360, axis="z", **CLIP)
+    j.orbit("orbit-spine-vertebrae", frames=72, degrees=360, axis="z", **CLIP)
     run("orbit-spine-vertebrae", j)
 
 
@@ -245,7 +227,7 @@ def orbit_abdomen_organs():
     j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": False})
     j.set(view="view3d", camera="A")
     aim(j, AMOS_ORGAN_MASS, 430)
-    j.orbit("orbit-abdomen-organs", frames=36, degrees=360, axis="z", **CLIP)
+    j.orbit("orbit-abdomen-organs", frames=72, degrees=360, axis="z", **CLIP)
     run("orbit-abdomen-organs", j)
 
 
@@ -271,25 +253,9 @@ def sweep_axial_t1_atlas():
     j.set(layout="1x3", cursor=(0.0, 0.0, 0.0), radiological=False)
     j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": False})
     j.set(view="axial", mm_per_px=0.36, center=pan_axial(T1_C, (0.0, 8.0, 0.0)))
-    pingpong_sweep(j, "sweep-axial-t1-atlas", "axial", -45.0, 70.0, 17, **CLIP)
+    pingpong_sweep(j, "sweep-axial-t1-atlas", "axial", -45.0, 70.0, 33, **CLIP)
     run("sweep-axial-t1-atlas", j)
 
-
-def sweep_coronal_abdomen_ct():
-    """Front to back through the AMOS22 CT with the organ labels filled, and back."""
-    j = Job(files=[AMOS_CT, AMOS_CT_SEG], window=(WIDTH, WIDTH))
-    j.set(layer="amos_0004_ct.nii.gz", patch={"scale": SOFT, "showIn3D": False})
-    j.set(
-        layer="amos_0004_seg.nii.gz",
-        patch={"labelMode": "fill", "opacity": 0.55, "interpolation": "nearest"},
-    )
-    j.set(layout="1x3", cursor=AMOS_ORGAN_MASS, radiological=False)
-    j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": False})
-    j.set(view="coronal", mm_per_px=0.50, center=pan_coronal(AMOS_CT_C, (7.6, 0.0, 1370.0)))
-    # `from`/`to` are millimetres along the **view's normal**, and coronal's normal is -Y, so these
-    # run from world y = +25 (the front of the abdominal wall) to y = -55 (behind the kidneys).
-    pingpong_sweep(j, "sweep-coronal-abdomen-ct", "coronal", -25.0, 55.0, 17, **CLIP)
-    run("sweep-coronal-abdomen-ct", j)
 
 
 # ================================================================================================
@@ -297,91 +263,6 @@ def sweep_coronal_abdomen_ct():
 # ================================================================================================
 
 
-def clip_head_sagittal():
-    """A sagittal clip plane driven through the head mesh, with capped cuts, and back.
-
-    The plane is installed by a `set` first: a tween names *leaves* and deep-merges onto what is
-    already there, so there has to be a plane for its `offset` to be a leaf of.
-
-    Filmed from the **left**, not from in front. The plane's normal is +x and the shader keeps
-    `dot(normal, p) + offset >= 0`, so the material that survives is the right-hand side and the
-    capped cut face looks left: an anterior camera sees it edge-on, and the ends of the loop are a
-    sliver. From `camera: "L"` the cut face is what fills the frame for every frame of the sweep.
-    """
-    j = Job(files=[ERNIE_MESH], preset="mesh-tissues-translucent", window=(WIDTH, WIDTH))
-    j.set(
-        layer="ernie.msh",
-        patch={
-            "tagStyle": {str(SCALP): {"opacity": 1.0}, str(COMPACT_BONE): {"opacity": 1.0}},
-            "clip": {
-                "planes": [{"plane": {"normal": [1, 0, 0], "offset": CLIP_X_FROM}, "enabled": True}],
-                "caps": True,
-            },
-        },
-    )
-    j.set(layout="3d-only")
-    j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": False})
-    j.set(view="view3d", camera="L", distance=270)
-    # The mesh runs 143 mm down into the neck, so the scene's centre is not the head's: aim at the
-    # cranium and pull back far enough for the whole cut face to sit inside the 560 px frame.
-    aim(j, HEAD_C, 360)
-
-    def state(offset):
-        return {
-            "layers": [
-                {
-                    "layer": "ernie.msh",
-                    "patch": {"clip": {"planes": [{"plane": {"offset": offset}}]}},
-                }
-            ]
-        }
-
-    # The plane travels from x = -72 (just inside the left scalp, so frame 0 already shows a cap)
-    # to x = +12, a centimetre past the midline. `offset = -x`, hence +72 -> -12.
-    pingpong_tween(j, "clip-head-sagittal", CLIP_X_FROM, CLIP_X_TO, 25, state, view="view3d", **CLIP)
-    run("clip-head-sagittal", j)
-
-
-def zoom_axial_detail():
-    """The axial pane stepping from a whole-head overview into the left hippocampus, and back."""
-    j = Job(files=[T1, LABELS], window=(WIDTH, WIDTH))
-    j.set(layer="T1.nii.gz", patch={"showIn3D": False})
-    j.set(
-        layer="labeling.nii.gz",
-        patch={
-            "labelMode": "outline",
-            "outlineWidthPx": 2,
-            "opacity": 0.9,
-            "interpolation": "nearest",
-            "visibleLabels": INTRACRANIAL,
-        },
-    )
-    j.set(layout="1x3", cursor=HIPPOCAMPUS_L, radiological=False)
-    j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": True})
-
-    over = pan_axial(T1_C, (0.0, 8.0, 0.0))
-    into = pan_axial(T1_C, HIPPOCAMPUS_L)
-
-    def state(t):
-        """`t` runs 0 (overview) to 1 (detail); zoom and pan move together on the same clock."""
-        return {
-            "views": {
-                "axial": {
-                    # 0.20 mm/px, not 0.13: the T1 is 1 mm isotropic, and past about 5x the pane is
-                    # showing the interpolator rather than the scan.
-                    "mmPerPx": 0.40 + (0.20 - 0.40) * t,
-                    "center": [
-                        over[0] + (into[0] - over[0]) * t,
-                        over[1] + (into[1] - over[1]) * t,
-                    ],
-                }
-            }
-        }
-
-    pingpong_tween(
-        j, "zoom-axial-detail", 0.0, 1.0, 19, state, view="axial", scale_bar=True, **CLIP
-    )
-    run("zoom-axial-detail", j)
 
 
 def field_threshold_rise():
@@ -422,24 +303,19 @@ def field_threshold_rise():
         "field-threshold-rise",
         FIELD_P50,
         FIELD_P97,
-        15,
+        29,
         state,
         view="grid",
-        # Four T1 panes is the densest frame in the set: 36 frames at 64 colours is 4.15 MB, so this
-        # one runs 28 frames at 40 colours to stay under the 4 MB budget.
-        **{**CLIP, "colorbar": True, "colors": 40},
+        # Four T1 panes is the densest frame in the set, so this one runs at 32 colours.
+        **{**CLIP, "colorbar": True, "colors": 32},
     )
     run("field-threshold-rise", j)
 
 
 CLIPS = {
-    "orbit-head-translucent": orbit_head_translucent,
     "orbit-spine-vertebrae": orbit_spine_vertebrae,
     "orbit-abdomen-organs": orbit_abdomen_organs,
     "sweep-axial-t1-atlas": sweep_axial_t1_atlas,
-    "sweep-coronal-abdomen-ct": sweep_coronal_abdomen_ct,
-    "clip-head-sagittal": clip_head_sagittal,
-    "zoom-axial-detail": zoom_axial_detail,
     "field-threshold-rise": field_threshold_rise,
 }
 

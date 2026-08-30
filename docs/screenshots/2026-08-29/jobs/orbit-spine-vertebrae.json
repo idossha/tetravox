@@ -65,7 +65,7 @@
       "type": "orbit",
       "out": "orbit-spine-vertebrae",
       "degrees": 360,
-      "frames": 36,
+      "frames": 72,
       "axis": "z",
       "fps": 12,
       "format": "mp4",

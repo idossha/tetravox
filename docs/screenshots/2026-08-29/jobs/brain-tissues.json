@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/ernie.msh"
+    ],
+    "preset": "plain"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "ernie.msh",
+      "patch": {
+        "tagStyle": {
+          "1": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "2": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "3": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "4": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "5": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "6": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "7": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "8": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "9": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "10": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "11": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "12": {
+            "visible": true,
+            "opacity": 1.0
+          }
+        },
+        "contoursIn2D": true,
+        "contourWidthPx": 1,
+        "contourColor": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "fillIn2D": true
+      },
+      "type": "set"
+    },
+    {
+      "layout": "2x2",
+      "cursor": [
+        -0.5,
+        21.9,
+        -14.5
+      ],
+      "type": "set"
+    },
+    {
+      "view": "axial",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "coronal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "sagittal",
+      "mmPerPx": 0.3,
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "A",
+      "distance": 430,
+      "type": "set"
+    },
+    {
+      "type": "tween",
+      "out": "_camera-oblique",
+      "frames": 1,
+      "view": "view3d",
+      "width": 64,
+      "height": 64,
+      "gif": false,
+      "orbit": {
+        "degrees": -30,
+        "axis": "z"
+      },
+      "to": {
+        "distance": 430
+      }
+    },
+    {
+      "view": "grid",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "crosshair": true,
+        "colorbar": false,
+        "cornerInfo": true,
+        "orientationLabels": true
+      },
+      "type": "screenshot",
+      "out": "brain-tissues-2x2"
+    }
+  ]
+}

@@ -142,7 +142,7 @@ rmSync(SRC_OUT, { recursive: true, force: true });
 mkdirSync(SRC_OUT, { recursive: true });
 
 // -------------------------------------------------------------------- assets
-// The whole capture set, subdirectories and all (hero/, modalities/, features/,
+// The whole capture set, subdirectories and all (hero/, brain/, modalities/, features/,
 // motion/, ui/), so a doc's `screenshots/2026-08-29/hero/x.png` becomes
 // `/shots/hero/x.png` on the site - see rewriteLinks() above.
 const SHOTS_SRC = join(DOCS, 'screenshots', '2026-08-29');

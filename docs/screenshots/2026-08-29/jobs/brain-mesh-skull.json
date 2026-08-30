@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "scene": {
+    "files": [
+      "${TETRAVOX_DATA}/m2m_ernie/ernie.msh"
+    ],
+    "preset": "mesh-tissues-translucent"
+  },
+  "window": {
+    "width": 1400,
+    "height": 1140
+  },
+  "actions": [
+    {
+      "layer": "ernie.msh",
+      "patch": {
+        "tagStyle": {
+          "1005": {
+            "visible": true,
+            "opacity": 0.3
+          },
+          "1007": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1008": {
+            "visible": true,
+            "opacity": 1.0
+          },
+          "1001": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1002": {
+            "visible": false,
+            "opacity": 1.0
+          },
+          "1003": {
+            "visible": false,
+            "opacity": 1.0
+          }
+        }
+      },
+      "type": "set"
+    },
+    {
+      "layout": "3d-only",
+      "type": "set"
+    },
+    {
+      "view": "view3d",
+      "camera": "A",
+      "distance": 400,
+      "type": "set"
+    },
+    {
+      "type": "tween",
+      "out": "_camera-oblique",
+      "frames": 1,
+      "view": "view3d",
+      "width": 64,
+      "height": 64,
+      "gif": false,
+      "orbit": {
+        "degrees": -30,
+        "axis": "z"
+      },
+      "to": {
+        "distance": 400
+      }
+    },
+    {
+      "view": "view3d",
+      "width": 2344,
+      "height": 1904,
+      "background": "black",
+      "include": {
+        "colorbar": false,
+        "crosshair": false
+      },
+      "type": "screenshot",
+      "out": "brain-mesh-skull-3d"
+    }
+  ]
+}

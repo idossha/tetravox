@@ -25,8 +25,8 @@ Exit status is `0` when every action succeeded and `1` otherwise, and `figures/j
 what was written, how long it took, and what went wrong.
 
 <p align="center">
-  <img src="screenshots/2026-08-29/features/feat-threshold-field-on-t1.png" width="480"
-       alt="A simulated field as a thresholded heat overlay on a T1, produced by a four-line job">
+  <img src="screenshots/2026-08-29/hero/hero-field-on-mesh.png" width="480"
+       alt="A simulated field as a thresholded heat overlay on a T1 and on the grey-matter mesh, produced by a job">
 </p>
 
 ---
@@ -167,7 +167,7 @@ never invents a lookalike.
 | `width` / `height` | the pane's | The **output** size. The frame is *rendered* at this size rather than upscaled, so 2400 px is 2400 px of detail. Give one and the aspect ratio is kept. |
 | `scale` | 1 | Supersampling: render this much larger and average down. |
 | `dpi` | — | Written to the PNG's `pHYs` chunk. |
-| `background` | `scene` | `scene`, `white`, or `transparent`. |
+| `background` | `scene` | `scene`, `white`, `black`, or `transparent`. `black` is the imaging-convention canvas for a plate that will sit on a black page. |
 | `autoTrim` | `false` | Crop the border away. |
 | `include` | see below | `colorbar`, `orientationLabels`, `crosshair`, `cornerInfo`, `scaleBar`. Defaults: colour bar, orientation labels and corner info **on**, crosshair and scale bar off. The `RAD`/`NEU` badge is never optional (§8) — a screenshot that could drop it would be a laterality hazard the moment it left the application. |
 
@@ -202,8 +202,8 @@ A publication figure in one action — every pane at 85 mm (1004 px at 300 dpi) 
 #### `orbit` — turntable the 3D view
 
 <p align="center">
-  <img src="screenshots/2026-08-29/motion/orbit-head-translucent.gif" width="320"
-       alt="A turntable of the head mesh with translucent scalp and skull">
+  <img src="screenshots/2026-08-29/motion/orbit-spine-vertebrae.gif" width="320"
+       alt="A turntable of per-vertebra isosurfaces from a labelled spine CT">
 </p>
 
 | Key | Default | Meaning |
@@ -418,8 +418,8 @@ SimNIBS subject directory; each stops with the list of files it could not find. 
 | [`showcase.py`](../examples/capture/showcase.py) | The whole showcase film: six jobs, ~2,900 frames, captions burned on with ffmpeg. |
 
 <p align="center">
-  <img src="screenshots/2026-08-29/modalities/mod-brain-t1-axial.png" width="360"
-       alt="An axial T1 slice captured by screenshot.py">
+  <img src="screenshots/2026-08-29/brain/brain-t1-2x2.png" width="360"
+       alt="A T1 in the 2x2 layout, captured by screenshot.py">
   <img src="screenshots/2026-08-29/features/feat-mesh-translucent.png" width="360"
        alt="The head mesh with translucent scalp and skull, captured by screenshot.py">
 </p>

@@ -404,16 +404,6 @@ def chest_ct():
     run("mod-chest-ct-lung", j, MOD)
 
 
-def chest_ct_zoom():
-    j = Job(files=[CHEST_CT], window=(1000, 800))
-    j.set(layer="CT_Abdo.nii.gz", patch={"scale": LUNG, "showIn3D": False})
-    j.set(layout="1x3", cursor=(-36.7, -30.0, -20.0), radiological=False)
-    j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": True})
-    # 0.22 mm/px on a 1.49 mm isotropic CT is about 7x the voxel — past that the pane is showing
-    # the interpolator rather than the scan. 2.5x the overview's 0.55, on the left lung base.
-    j.set(view="coronal", mm_per_px=0.22, center=pan_coronal(CHEST_CT_C, (-105.0, -30.0, -10.0)))
-    j.screenshot("mod-chest-ct-lung-zoom", view="coronal", width=900, height=800, scale_bar=True, colorbar=False)
-    run("mod-chest-ct-lung-zoom", j, MOD)
 
 
 # ================================================================================================
@@ -421,18 +411,6 @@ def chest_ct_zoom():
 # ================================================================================================
 
 
-def abdomen_mri():
-    lo, hi = MR_SCALE["amos"]
-    j = Job(files=[AMOS_MR, AMOS_MR_SEG], window=(1000, 700))
-    j.set(layer="amos_0555_mri.nii.gz", patch={"scale": lin(lo, hi), "showIn3D": False})
-    j.set(layer="amos_0555_seg.nii.gz", patch={"visible": False})
-    j.set(layout="1x3", cursor=AMOS_MR_ORGANS, radiological=False)
-    j.set(annotations={"crosshair": False, "colorbar": False, "scaleBar": False})
-    j.set(view="coronal", mm_per_px=0.40, center=pan_coronal(AMOS_MR_C, (-3.0, 9.6, 73.3)))
-    j.screenshot(
-        "mod-abdomen-mri-t1-coronal", view="coronal", width=900, height=540, colorbar=False
-    )
-    run("mod-abdomen-mri-t1", j, MOD)
 
 
 def abdomen_mri_labels():
@@ -537,8 +515,6 @@ SHOTS = {
     "feat-isosurface-organs-abdomen": abdomen_organs_iso,
     "mod-spine-ct": spine_ct_panes,
     "mod-chest-ct-lung": chest_ct,
-    "mod-chest-ct-lung-zoom": chest_ct_zoom,
-    "mod-abdomen-mri-t1": abdomen_mri,
     "mod-abdomen-mri-labels": abdomen_mri_labels,
     "mod-spine-mri": spine_mri,
     "mod-pelvis-mri": pelvis_mri,

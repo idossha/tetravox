@@ -79,8 +79,8 @@ export const EASES: readonly EaseName[] = ['linear', 'in', 'out', 'inOut'];
 export type SequenceRole = 'start' | 'continue' | 'end';
 export const SEQUENCE_ROLES: readonly SequenceRole[] = ['start', 'continue', 'end'];
 
-export type BackgroundName = 'scene' | 'white' | 'transparent';
-export const BACKGROUNDS: readonly BackgroundName[] = ['scene', 'white', 'transparent'];
+export type BackgroundName = 'scene' | 'white' | 'black' | 'transparent';
+export const BACKGROUNDS: readonly BackgroundName[] = ['scene', 'white', 'black', 'transparent'];
 
 /**
  * Which layer a `set` action patches.

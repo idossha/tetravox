@@ -46,7 +46,7 @@ LAYOUTS: Tuple[str, ...] = (
     "3d+1",
 )
 FORMATS: Tuple[str, ...] = ("png", "gif", "mp4")
-BACKGROUNDS: Tuple[str, ...] = ("scene", "white", "transparent")
+BACKGROUNDS: Tuple[str, ...] = ("scene", "white", "black", "transparent")
 
 Vec3 = Sequence[float]
 

@@ -11,7 +11,7 @@ user makes with the mouse (see [Automation & Python](/automation)), and ffmpeg j
 the captions. The full storyboard — shot list, timings and the reasoning behind each — is in
 [`docs/media/SHOWCASE.md`](https://github.com/idossha/tetravox/blob/main/docs/media/SHOWCASE.md).
 
-<video controls preload="metadata" poster="/shots/hero/hero-t1-atlas-2x2.png">
+<video controls preload="metadata" poster="/shots/brain/brain-t1-pial-both.png">
   <source src="/media/showcase.mp4" type="video/mp4">
   Your browser does not support the video tag — see the GIF below instead.
 </video>
@@ -26,51 +26,26 @@ For anywhere a `<video>` tag doesn't reach:
 
 The film is a head model because that is what Tetravox was built for first. Nothing in the viewer is
 head-specific: below is the same build, the same controls and the same job runner on public CT and MRI of
-the chest, abdomen, spine and pelvis. Each row is an overview and the detail you get by zooming into it —
-zoom is per pane, in millimetres per pixel, so a detail view is the same data, not a resampled thumbnail.
-The datasets and their licences are listed in
+the chest, abdomen, spine and pelvis, each as the plain contrast and then with the segmentation that came
+with it. The datasets and their licences are listed in
 [`docs/screenshots/2026-08-29/DATASETS.md`](https://github.com/idossha/tetravox/blob/main/docs/screenshots/2026-08-29/DATASETS.md).
 
 ### Brain MRI
 
 <div class="shot-pair">
   <figure>
-    <img src="/shots/modalities/mod-brain-t1-axial.png" alt="A T1 in a single axial pane" loading="lazy">
-    <figcaption>A T1 filling one axial pane — the starting point for everything else.</figcaption>
+    <img src="/shots/brain/brain-t1-2x2.png" alt="A T1 in the 2x2 layout" loading="lazy">
+    <figcaption>The T1 in four panes — the starting point for everything else.</figcaption>
   </figure>
   <figure>
-    <img src="/shots/modalities/mod-brain-t1-axial-zoom.png" alt="The same axial slice zoomed onto the hippocampus with a scale bar" loading="lazy">
-    <figcaption>The same slice at 0.12 mm/px on the hippocampus, scale bar on.</figcaption>
-  </figure>
-</div>
-
-![A T2 coronal slice — the subject's second contrast](/shots/modalities/mod-brain-t2-coronal.png)
-
-### Head CT
-
-<div class="shot-pair">
-  <figure>
-    <img src="/shots/modalities/mod-head-ct-axial.png" alt="A head CT in a brain window" loading="lazy">
-    <figcaption>Brain window: the window/level presets are the same control an MRI uses.</figcaption>
-  </figure>
-  <figure>
-    <img src="/shots/modalities/mod-head-ct-bone-3d.png" alt="A head CT in a bone window drawn as 3D planes" loading="lazy">
-    <figcaption>Bone window, the three planes drawn in the 3D pane.</figcaption>
+    <img src="/shots/brain/brain-t1-pial-both.png" alt="The T1 with both pial surfaces as contours and in 3D" loading="lazy">
+    <figcaption>Both pial surfaces: a contour on every slice they cross, the hemispheres in 3D.</figcaption>
   </figure>
 </div>
 
 ### Chest CT
 
-<div class="shot-pair">
-  <figure>
-    <img src="/shots/modalities/mod-chest-ct-lung-2x2.png" alt="A chest CT in a lung window, 2x2 layout" loading="lazy">
-    <figcaption>Lung window across all four panes.</figcaption>
-  </figure>
-  <figure>
-    <img src="/shots/modalities/mod-chest-ct-lung-zoom.png" alt="The lung bases, zoomed" loading="lazy">
-    <figcaption>Zoomed on the lung bases.</figcaption>
-  </figure>
-</div>
+![A chest CT in a lung window, 2x2 layout](/shots/modalities/mod-chest-ct-lung-2x2.png)
 
 ### Abdominal CT and MRI
 
@@ -86,10 +61,6 @@ The datasets and their licences are listed in
   <figure>
     <img src="/shots/modalities/mod-abdomen-ct-labels-3d.png" alt="Organ labels as isosurfaces in the 3D pane" loading="lazy">
     <figcaption>The same labels as isosurfaces, one per region, in each region's colour.</figcaption>
-  </figure>
-  <figure>
-    <img src="/shots/modalities/mod-abdomen-mri-t1-coronal.png" alt="An abdominal T1-weighted MRI, coronal" loading="lazy">
-    <figcaption>AMOS22 MRI, T1-weighted coronal.</figcaption>
   </figure>
   <figure>
     <img src="/shots/modalities/mod-abdomen-mri-labels-2x2.png" alt="The abdominal MRI with its labels filled, 2x2" loading="lazy">
@@ -146,16 +117,8 @@ The datasets and their licences are listed in
     <figcaption>An axial sweep, inferior to superior, with the atlas outlined.</figcaption>
   </figure>
   <figure>
-    <video src="/shots/motion/zoom-axial-detail.mp4" autoplay loop muted playsinline></video>
-    <figcaption>Zooming one axial pane from overview into detail.</figcaption>
-  </figure>
-  <figure>
     <video src="/shots/motion/field-threshold-rise.mp4" autoplay loop muted playsinline></video>
     <figcaption>A simulated field's threshold rising from p50 to p97 over the anatomy.</figcaption>
-  </figure>
-  <figure>
-    <video src="/shots/motion/clip-head-sagittal.mp4" autoplay loop muted playsinline></video>
-    <figcaption>A sagittal clip plane through a tetrahedral mesh, capped per element.</figcaption>
   </figure>
 </div>
 

@@ -79,7 +79,12 @@ const INCLUDES: readonly { key: keyof ScreenshotOptions['include']; label: strin
   { key: 'orientationCube', label: 'Orientation cube' },
 ];
 
-const BACKGROUNDS: readonly ScreenshotOptions['background'][] = ['scene', 'white', 'transparent'];
+const BACKGROUNDS: readonly ScreenshotOptions['background'][] = [
+  'scene',
+  'white',
+  'black',
+  'transparent',
+];
 
 /** An optional numeric field: empty text means "leave it to the engine", not zero. */
 function numberOrUndefined(text: string): number | undefined {

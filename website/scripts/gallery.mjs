@@ -25,12 +25,18 @@ const MANIFEST = join(SHOTS_DIR, 'manifest.json');
 const SRC_OUT = join(WEBSITE, 'src');
 
 // Order is the reading order of the page: what it looks like, what it opens,
-// what it does, what it does in motion, and finally the app's own chrome.
+// the head model, what it opens, what it does, what it does in motion, and finally the app's own chrome.
 const GROUPS = [
   {
     id: 'hero',
     heading: 'Hero',
     blurb: 'The pictures the home page and README lead with — one scene per data domain.',
+  },
+  {
+    id: 'brain',
+    heading: 'Brain',
+    blurb:
+      'The SimNIBS head model the viewer was built around: the T1, its surfaces, atlas and electrodes, the tissue mesh, and simulated tES fields on it.',
   },
   {
     id: 'modalities',
