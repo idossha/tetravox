@@ -36,6 +36,7 @@ retype a number from memory or from an older revision:
 python3 scripts/refvalues/nifti_refvalues.py
 python3 scripts/refvalues/contour_refvalues.py
 python3 scripts/refvalues/mni_refvalues.py
+python3 scripts/refvalues/mgz_refvalues.py > scripts/refvalues/mgz_refvalues.json   # TETRAVOX_MGZ; see its docstring
 ```
 
 The files that matter and why:
