@@ -3056,7 +3056,10 @@ one of them. Three rules make it portable:
   module's own settings — not a second copy of the data.
 * **A block for a module this build does not have is carried through verbatim.** Opening a colleague's scene
   and re-saving it must not delete their work. A build that *does* have the module but is older reads the
-  block's `version` and decides for itself.
+  block's `version` and decides for itself. Verbatim is the **whole envelope**, not the four fields a given
+  build knows about: `sceneExtensions` validates `module` / `version` / `moduleVersion` and re-states them
+  over the block it was handed, so a fifth field a later host adds under §12.3's additive rule survives an
+  open and a re-save by the build that predates it rather than being stripped from every block in the file.
 
 The read side is strict about the envelope and tolerant about `data`: a block whose key and `module` field
 disagree, or whose `version` is not a number, is **dropped**, because handing a malformed block to

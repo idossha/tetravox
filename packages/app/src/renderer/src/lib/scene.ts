@@ -249,6 +249,12 @@ export function parseScene(text: string): ParsedScene {
  * The key is checked against the block's own `module` field: a file whose key and field disagree is
  * one where an editor renamed one of them, and guessing which is right would silently reattribute
  * someone's work.
+ *
+ * **Verbatim means the whole envelope**, not the three fields this build happens to know about
+ * (2026-08-30). §12.3's additive rule lets a later host put a fourth field beside `data` and
+ * requires that its absence reproduce today's behaviour — which it cannot if today's build deletes
+ * it from every block it opens and re-saves, including the blocks of modules it has never heard of.
+ * So an accepted block is spread through and only the three validated fields are re-stated over it.
  */
 export function sceneExtensions(spec: ViewSpec): Record<string, ExtensionBlock> {
   const raw: unknown = spec.extensions;
@@ -262,11 +268,12 @@ export function sceneExtensions(spec: ViewSpec): Record<string, ExtensionBlock> 
     if (typeof block.version !== 'number' || !Number.isFinite(block.version)) continue;
     if (typeof block.moduleVersion !== 'string') continue;
     out[id] = {
+      ...(value as Record<string, unknown>),
       module: owner,
       version: block.version,
       moduleVersion: block.moduleVersion,
       data: block.data ?? null,
-    };
+    } as ExtensionBlock;
   }
   return out;
 }
