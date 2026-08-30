@@ -18,38 +18,14 @@
 
 ---
 
-Tetravox opens NIfTI volumes and Gmsh, GIfTI, FreeSurfer, STL, PLY and OBJ meshes side by side: a 3D view
-linked to sagittal, axial and coronal slices, so a click in any pane moves the cursor everywhere else. It
-reads MRI and CT, label maps and atlases, cortical surfaces and tetrahedral simulation meshes, and renders
-them with its own Rust-and-WebGL2 engine, so large meshes and 4D volumes stay responsive. Everything heavy
-happens off the interface thread, one worker per dataset, and opening a new file never freezes the window
-you are already looking at.
-
-![A T1 in the 2x2 layout with both pial surfaces: contours on the slices, the hemispheres in the 3D pane](docs/screenshots/2026-08-29/brain/brain-t1-pial-both.png)
+Tetravox is an advanced high-performance medical viewer that can handle both voxelized volumes and finite-element meshes. It reads MRI and CT, label maps and atlases, cortical surfaces and tetrahedral meshes, and renders them with its own Rust-and-WebGL2 engine, so large meshes and 4D volumees renders instantenously.
 
 It was built for neuroimaging first — segmented head models, atlases, and simulated tES or TMS fields
 checked against the anatomy they were computed on — but nothing in it is head-specific. A chest CT with
-organ labels or a lumbar MRI with per-vertebra segmentations opens exactly the same way, with the same
-window and level, the same label fill and outline, the same isosurfaces, clip planes, measurements and
-coordinate read-out.
+organ labels or a lumbar MRI with per-vertebra segmentations opens exactly the same way.
 
-<p align="center">
-  <img src="docs/screenshots/2026-08-29/hero/hero-abdomen-ct-2x2.png" width="46%"
-       alt="An abdominal CT with organ labels and organ isosurfaces">
-  <img src="docs/screenshots/2026-08-29/hero/hero-spine-ct-2x2.png" width="46%"
-       alt="A chest CT with per-vertebra labels and vertebra isosurfaces">
-</p>
-
-The same engine runs headlessly: a job file, or four lines of Python, renders screenshots, slice sweeps,
-orbits and animated parameters exactly as the window would, which is how every picture on the website was
-made.
-
-![Per-vertebra isosurfaces from a labelled spine CT, orbiting](docs/screenshots/2026-08-29/motion/orbit-spine-vertebrae.gif)
-
-Official builds for macOS (signed and notarised), Linux and Windows are on the
-[releases page](https://github.com/idossha/tetravox/releases/latest). Everything else — installing, a
-tour of the window, the guide to every control, the automation reference, the gallery, and the
-architecture and release process for contributors — lives on the website at
 **[idossha.github.io/tetravox](https://idossha.github.io/tetravox/)**.
 
-Tetravox is MIT licensed. Contributions are welcome; start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Tetravox is MIT licensed. 
+
+Contributions are welcome; start with [`CONTRIBUTING.md`](CONTRIBUTING.md).
