@@ -387,7 +387,14 @@ export class JobRunner {
         const name = withExtension(String(action['out']), '.tetravox.json');
         const path = `${this.spec.outDir}/${name}`;
         this.env.engine.setSceneDir?.(dirName(path));
-        const text = serialiseScene(this.env.engine.serialize(), path);
+        const text = serialiseScene(this.env.engine.serialize(), path, {
+          // §13.2: a module's block is the **app's** to write — `Engine.serialize()` enumerates
+          // engine fields and a module's record is not one of them. So a job that saves a scene
+          // writes them for the same reason File ▸ Save Scene does, including the blocks of modules
+          // this build does not carry, which a re-save must never delete. The map is empty for every
+          // job that runs no module and opens no scene carrying one, so nothing else moves.
+          extensions: this.env.store.getState().moduleBlocks,
+        });
         const written = await bridge().jobWrite(name, new TextEncoder().encode(text));
         if (!written.ok) throw new Error(`writing ${name}: ${written.error ?? 'unknown error'}`);
         this.record(index, type, [name], started);
