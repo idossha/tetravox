@@ -13,6 +13,10 @@
  * No module exists on this branch yet, so the renderer marks the window through the bridge member a
  * module's `ui.setDirty` will reach: `window.tetravox.setDocumentEdited`. That is the whole of the
  * renderer's side of this feature.
+ *
+ * Every test here holds the app open past its last window (`holdOpen` below) and gives that hold
+ * back in `shutdown`. See `holdOpen`'s comment: without it, two of these three tests are green on
+ * macOS and red on Linux for a reason that has nothing to do with the guard they assert.
  */
 
 /* eslint-disable no-empty-pattern */
@@ -36,7 +40,48 @@ async function boot(
   });
   const page = await app.firstWindow();
   await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });
+  await holdOpen(app);
   return { app, page };
+}
+
+/**
+ * Hold the app open after its last window closes, so an assertion made *after* the close can still
+ * reach main.
+ *
+ * `main/index.ts` quits on `window-all-closed` on every platform except macOS. Every one of these
+ * tests closes the only window and then asks main a question about it, so on Linux and Windows the
+ * question races the process exit — which is exactly how `a window with nothing unsaved closes
+ * without asking` and the E2E-seam test failed on ubuntu (`electronApplication.evaluate: Target
+ * page, context or browser has been closed`, CI run 33335197110) while passing on every macOS run.
+ *
+ * The honest fix is to take the app's *lifetime* out of an assertion about the *close guard*, not to
+ * phrase the assertion around one platform's lifetime: a `before-quit` veto in main keeps the
+ * process alive, and `shutdown` drops the veto before `app.close()` — which quits the app, so a
+ * still-vetoed quit would hang the teardown instead. Nothing the guard does is stubbed or skipped:
+ * the `close` handler, the edited flag, `preventDefault` and the `destroy` are all still the real
+ * ones, and after this every platform takes the same path through the test, which is what lets a
+ * macOS machine reason about the ubuntu leg at all.
+ */
+async function holdOpen(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ app: electronApp }) => {
+    const store = globalThis as unknown as { __tvxHold?: boolean };
+    store.__tvxHold = true;
+    electronApp.on('before-quit', (event) => {
+      if ((globalThis as unknown as { __tvxHold?: boolean }).__tvxHold === true) {
+        event.preventDefault();
+      }
+    });
+  });
+}
+
+/** Give `holdOpen`'s veto back, then close the app. Tolerates an app that is already gone. */
+async function shutdown(app: ElectronApplication): Promise<void> {
+  await app
+    .evaluate(() => {
+      (globalThis as unknown as { __tvxHold?: boolean }).__tvxHold = false;
+    })
+    .catch(() => {});
+  await app.close();
 }
 
 /**
@@ -95,7 +140,7 @@ test.describe('closing a window with unsaved module edits', () => {
       await closed;
       expect(page.isClosed()).toBe(true);
     } finally {
-      await app.close();
+      await shutdown(app);
     }
   });
 
@@ -117,7 +162,7 @@ test.describe('closing a window with unsaved module edits', () => {
       expect(page.isClosed()).toBe(true);
       expect(await boxesShown(app)).toBe(0);
     } finally {
-      await app.close();
+      await shutdown(app);
     }
   });
 
@@ -161,7 +206,7 @@ test.describe('closing a window with unsaved module edits', () => {
       expect(page.isClosed()).toBe(true);
       expect(await boxesShown(app)).toBe(0);
     } finally {
-      await app.close();
+      await shutdown(app);
     }
   });
 });

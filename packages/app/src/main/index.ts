@@ -584,7 +584,10 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
         mainWindow.on('closed', () => {
           mainWindow = null;
         });
-        installCloseGuard(mainWindow, { isJob: isJobRun() });
+        // The same guard, with the same `packaged` seam-closing argument as the first window's:
+        // a window re-created after a macOS dock click protects unsaved module edits exactly as
+        // the one it replaced did (§5 rule 12).
+        installCloseGuard(mainWindow, { isJob: isJobRun(), packaged: app.isPackaged });
       }
     });
   });
