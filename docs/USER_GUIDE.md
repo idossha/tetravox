@@ -460,6 +460,11 @@ the app, grouped in tabs by what each binding acts on.
 Drag the gizmo ring handles to rotate the plane; drag its stem to slide it along the normal. Plane-from-3-points
 takes the next three clicks in any 2D pane. A camera preset puts the pane back on axial / coronal / sagittal.
 
+**Module keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
+lent to whichever [module](#modules) is open and mean nothing when none is. They are resolved **after**
+everything above, so no module can change what any key on this page does, and `Esc` is never one of them.
+The `?` sheet grows a **Modules** tab listing the active module's own chords.
+
 `⌘O` / `Ctrl+O` (Open…) is bound in the Electron application menu, not in this map, so it is never double-bound.
 
 ## Troubleshooting
