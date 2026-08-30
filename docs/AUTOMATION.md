@@ -422,6 +422,19 @@ path into the document:
 An input file that does not exist is named. A job that produces no result at all within
 `TETRAVOX_JOB_TIMEOUT_MS` (default 600 000) fails rather than hanging.
 
+### 2.7 Module operations
+
+Every operation every module in this build declares, with the arguments each one takes.
+**This section is generated** from the manifests by `scripts/sync-module-docs.mjs` — the same
+declarations the job validator checks an action against — so edit a manifest and re-run the
+script rather than editing the table. CI checks it with `--check`.
+
+#### `tetravox.hello` — Hello 1.0.0
+
+| Operation | Arguments |
+|---|---|
+| `echo` | `text` a string |
+
 ---
 
 ## 3. The Python client

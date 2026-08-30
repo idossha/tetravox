@@ -3776,3 +3776,49 @@ No shipped manifest declares every `ArgType`, so a validator driven only by what
 untested branches; the seam is the same one `shouldPromptOnClose` takes `env` for, and the tests still run
 the whole envelope against the real barrel through `tetravox.hello`'s `echo` so the default binding is
 proven and not assumed.
+
+## 2026-08-30 — AUTOMATION §2.7 is generated from the manifests, and CI grows its first Python step
+
+**Decision.** The table of module operations in `docs/AUTOMATION.md` is written by
+`scripts/sync-module-docs.mjs` from the manifests themselves, and `docs-guard` runs it with
+`--check`. A hand-written table would be a **second declaration** of the automation surface, and the
+two would agree exactly until somebody added an argument — at which point the documentation would be
+the thing telling a user their job was legal and the validator the thing refusing it. Generating it
+is how "the manifest is the schema" stays true of the documentation as well as of the code.
+
+**It imports each `<id>/manifest.ts`, not the `manifests.ts` barrel.** Node runs TypeScript by
+stripping the types, and a manifest's own imports are all `import type` and vanish with them — so a
+manifest file is a standalone ES module the moment the annotations are gone, which is the same
+property `modules.test.ts` already enforces for its own reasons. The barrel is not: it carries a real
+`import { helloManifest } from './hello/manifest'`, extensionless, which is a TypeScript convention
+Node's resolver does not implement. Type stripping is unflagged from Node 23.6 (CI's Node 24 and a
+local Node 25 both need nothing) and behind `--experimental-strip-types` from 22.6 to 23.5, so the
+script re-execs **itself** once with the flag if the import fails the way an older Node fails it —
+one retry, guarded by an environment variable, rather than a build step and a generated JSON file
+nobody would remember to regenerate.
+
+**The section is delimited by markdown, not by an HTML comment.** `<!-- BEGIN GENERATED -->` was the
+obvious marker and is the wrong one here: `website/scripts/sync.mjs` escapes every tag it does not
+recognise, so the marker would appear as visible text on the published page. The script instead owns
+everything from its `### 2.7` heading to the next heading **at that level or above**, or the next
+`---` rule. Both halves of that sentence are load-bearing and both were found by a failing test: a
+scan that stopped at any heading stopped at the first `####` of the section's own body and
+re-inserted the section in front of the tables it had just written, and a splice done on strings
+rather than on lines ate the blank line above the heading and then glued the heading to the
+paragraph above it. A generator whose first run looks right is exactly the kind that needs its own
+tests.
+
+**CI's first Python step, and its own job.** `python -m unittest discover -s python/tests` runs under
+`actions/setup-python`, pinned to 3.12, installing nothing: the client is standard library only, and
+that is a design decision rather than an omission (`python/pyproject.toml`). It is a separate job for
+the reasons `docs-guard` is one — no pnpm install, no toolchains, ~20 seconds — and specifically not
+a step of `test`, where it would run a second time on the macOS leg at 10x the minutes for identical
+coverage. The end-to-end halves (`test_client.py`'s example run, `test_capture_examples.py`) skip
+when there is no build and no data, exactly as every real-data test in the repository does; what CI
+gates is the **documents** a `Job` builds, which is the half that is the contract with
+`main/job.ts` — and the half whose other end `job.test.ts` asserts.
+
+This is the first non-JavaScript, non-Rust dependency in the workflow, and it is worth naming as a
+cost: the Python client has shipped untested by CI since it was written, its schema is the same
+schema the validator implements, and the two drifting is a class of bug no other test in the
+repository can see.
