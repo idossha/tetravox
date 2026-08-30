@@ -114,7 +114,8 @@ def renumber(job: Job, electrode: Optional[str] = None) -> Job:
     """Renumber a shaft's contacts tip-first, 1 at the deepest.
 
     Every electrode when `electrode` is omitted. Reports
-    `{"electrodes": [{"electrode", "renamed": [{"from", "to"}, ...]}, ...]}`.
+    `{"electrodes": [{"electrode", "renamed": n}, ...]}` — `renamed` is how many names changed, so
+    a shaft that was already numbered tip-first reports 0 rather than a diff of nothing.
     """
     return job.module(MODULE_ID, "renumber", electrode=electrode)
 
