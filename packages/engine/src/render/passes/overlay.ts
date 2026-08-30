@@ -277,7 +277,10 @@ function drawPointLabelsFor(
           width: rect.width,
           height: rect.height,
           slab: { ...slicePlane(view, input.scene.cursor), slabMm },
-          liftPx: (layer.radiusMm / view.camera.mmPerPx) * input.uiScale,
+          // No `uiScale`: `camera.mmPerPx` is millimetres per **device** pixel, so this is already
+          // in the render target's pixels (`overlay/point-ring.ts`'s units note). The 3D branch's
+          // `6 * m.scale` is the other convention — six CSS pixels, scaled — and both are right.
+          liftPx: layer.radiusMm / view.camera.mmPerPx,
         }
       : { width: rect.width, height: rect.height, liftPx: 6 * m.scale };
 

@@ -315,13 +315,23 @@ thread sees only draw-ready buffers (uploaded to GL, then dropped) and probe res
 *neighbourhood*, which on a 0.5 mm CT at a 1.5 mm radius is a few hundred voxels and well under a millisecond.
 `derived/voxel-box.ts` is the whole of that permission and it carries the bound with it:
 `sampleVoxelBox(ds, world, radiusMm)` returns the physical values (`raw * sclSlope + sclInter`, applied once)
-in a box whose half-extent is `ceil(radiusMm / spacing)` voxels **per axis**, clipped to the volume and capped
-at `MAX_BOX_VOXELS` = 32 voxels on an axis; it returns `null` for `rgb24`/`rgba32`, whose samples are
-interleaved components with no single value, and for a point outside the volume — never a clamp, because a
-snap that silently pulled a click back inside the head would be worse than one that refused. `peakCentroid`
+in a box whose half-extent is `max(trunc(radiusMm / spacing), 1)` voxels **per axis**, clipped to the volume
+and capped at `MAX_BOX_VOXELS` = 32 voxels on an axis; it returns `null` for `rgb24`/`rgba32`, whose samples
+are interleaved components with no single value, and for a point outside the volume — never a clamp, because
+a snap that silently pulled a click back inside the head would be worse than one that refused. `peakCentroid`
 is the one consumer the engine ships: the intensity-weighted centroid of that box above the **midpoint of its
 own range** (`clip(v − (max − ½(max − min)), 0)`), computed in voxel indices and mapped through the affine, so
 it is sub-voxel and needs no absolute threshold. It is `null` on a flat box, where there is no peak to report.
+
+**That half-extent is a parity rule, not a numerical preference** (2026-08-30): it is
+`SEEGContactEditor.snapToMetal`'s `rad_vox = np.maximum((radius_mm / spacing).astype(int), 1)`, character for
+character — truncation, floor of one voxel. §13's sEEG module tells users it reproduces the 3D Slicer editor's
+workflow "so the two can be used on the same subject interchangeably", and a snap is interchangeable only if
+it searches the same neighbourhood. `ceil` differs on every non-integer `radius / spacing`: at the module's
+default 1.5 mm it is 5×5×5 on a 1 mm CT where Slicer is 3×3×3. Two things here are deliberately **not**
+Slicer's, and both are argued in `DECISIONS.md`: the query's voxel index is rounded HALF-UP (`Math.round`)
+where Python's `round` is half-to-even, and a **flat** box answers `null` where Slicer's `+ 1e-6` in the
+threshold makes it return the box centroid.
 Both are pure and exported from `@tetravox/engine`, so the app's no-GL engine gives the same answers. The cap
 is what makes this an exception rather than a hole: without it "read `data` on the UI thread" is a door to a
 512³ loop inside a `pointermove`, and §5's worker-per-dataset arrangement leaks through it. A caller who wants
@@ -2425,8 +2435,20 @@ Input (Freeview-like):
   is not eaten by a handle the pointer happens to be over. **At most one click-consuming mode is armed**:
   arming the point tool disarms measure mode and `setMeasureMode(true)` disarms the point tool, because a user
   cannot be told which mode a click went to.
-  * **`place`: every left click places**, with no hit test first — 2D on the pointer ray ∩ the pane's derived
-    plane, 3D on the §7.2.3 `pick`, where a click on nothing places nothing and is still swallowed. Contacts
+  * **The tool is only offered the presses §7.5 does not already bind** (`input/gestures.ts`'s
+    `pointToolTakesPress`, 2026-08-30). A left press carrying `Shift`, `space` or a platform modifier
+    (`⌘`/`Ctrl`), and **any** press that lands while a gesture is already in flight, never reaches the tool at
+    all — in either mode. `Shift`+drag is still the active layer's opacity, `space`+drag is still the pan, a
+    `⌘`+click is still not a drag, and a second finger landing mid-drag still ends the drag it interrupted
+    rather than grabbing whatever it touched. Gating the *press* and not only the *gesture* is the point: the
+    tool's press already selected a contact, moved the crosshair and re-cut three panes before
+    `resolveGesture` was ever asked. `Alt` is not reserved by §7.5 and is not gated. **Measure mode is
+    deliberately not gated this way**: it is stated above as "while it is on, a left-click places a
+    measurement point", without qualification, and narrowing it would be a behaviour change rather than a
+    repair.
+  * **`place`: every unmodified left click places**, with no hit test first — 2D on the pointer ray ∩ the
+    pane's derived plane, 3D on the §7.2.3 `pick`, where a click on nothing places nothing and is still
+    swallowed. Contacts
     sit about five pixels apart at a default zoom, and the click that matters most is the one filling the gap
     *between* two that were found; a hit-first rule would answer it by selecting a neighbour. The point is
     `{ ...template, id: 'p<n>', position }`, it becomes the selection, and one `placed` event says so.
@@ -2435,16 +2457,34 @@ Input (Freeview-like):
     pane the nearest projected centre within 14 px, and **no drag** in v1. The disc radius is
     `overlay/point-ring.ts`'s `discRadiusPx` — the same function §7.2 sizes the selection ring with, so the
     hit rule cannot drift away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with the
-    gizmo it draws.
+    gizmo it draws. **Every one of those pixel numbers is a device pixel**, and `Camera2D.mmPerPx` is
+    millimetres per device pixel, so a world radius reaches the screen as `radiusMm / mmPerPx` and is
+    **not** scaled by `uiScale` again — only the `dot` branch's constant is, because `uDotPx = 4 · uiScale`
+    is the one radius authored in CSS pixels (2026-08-30). The `8 px` and `14 px` floors stay device pixels
+    deliberately, the same convention as the gizmo's `HANDLE_HIT_PX`: the frame's grabbable things use one
+    unit.
   * **The drag is `GestureKind 'point'`**, resolved in `resolveGesture`'s **2D** branch after the ctrl/meta
     and `Shift` tests and before the `space` one, so `Shift`+drag over a contact is still the layer's opacity
     and `space`+drag is still the pan. Each move writes `paneToWorld` into a **replaced** `points` array.
     The gesture's `end` is forwarded to the tool from **all three exits** — `#onUp`, `#onCancel`
     (`pointercancel`, and the window `blur` bound to it) and the second-pointer branch of `down()` — and
     becomes exactly one `dragEnd`, which is what makes one drag one undo step and one dirty mark for the host.
+    **A plain click is a zero-length drag and emits one too**: a `select`-mode click grabs the point under
+    it, so clicking through contacts produces `selected`, `dragEnd`, `selected`, `dragEnd`, … "One drag is
+    one undo step" is therefore not "every `dragEnd` is an undo step" — a host compares positions against
+    the snapshot it took at `selected` and commits only what moved. The engine does not suppress the event:
+    the grab really did happen, a host may want it, and a silent exception in a frozen contract is worse
+    than a stated one (2026-08-30).
   * **`Esc` is `place` → `select` → off**, in the engine's own keydown beside `cancelMeasurement`'s and before
     the "is the pointer over a pane" test, because the app's `keymap.ts` answers `Escape` unconditionally and
-    "core first, module on null" could never deliver it here.
+    "core first, module on null" could never deliver it here. **A disarm that lands mid-drag commits the drag
+    first** (2026-08-30): `setPointTool(null)` — whether it came from `Esc` with the button still down or from
+    a module — emits that drag's `dragEnd`, at the position the drag reached, *before* `cleared`. `Esc`
+    cannot be gated on "is a gesture running" without ceasing to be the mode key, so the only two honest
+    exits are commit and revert; commit is chosen because it makes `Esc` mean what `pointerup` means and keeps
+    "one drag is one undo step" true however the drag ended. The scene has already moved by then — every
+    intermediate position was written into the layer — so dropping the drag left an edit with no commit
+    point: no undo entry, no dirty mark, nothing for the discard guard to ask about.
   * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
     `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). A user who
     is not editing points pays one property read per move, so §8's 16 ms hover budget is untouched.
@@ -2792,7 +2832,7 @@ values for the *real* dataset come from `scripts/refvalues/` and are transcribed
 | Point selection ring | The ring's **radius is measured off the framebuffer**, the way the scale bar's length is: every pixel of `OverlayTheme.select` around the point is `disc + 2 px` from its centre, for an on-slice disc and for a ghosted one (which has no cross-section, so only its full radius can produce a ring). A culled point and a stale index draw **no** ring, and a hover ring that names the selected point is dropped |
 | Names as labels | `labelSource: 'names'` drawn and **decoded back out of the framebuffer** with §11's glyph matcher; with `labelSource` absent the same layer decodes its `labels` array instead. A ghosted point's disc is drawn and its name is not, which is the 2D-rule divergence §4.4 and §7.2 state |
 | Point tool | The drag is asserted as an identity derived from §3 rather than from the engine: a 40 px drag moves the contact `40 · mmPerPx ± 0.05 mm`, the same claim §11 makes of the measurement tool from the other side. Around it, the grammar: in `place` mode **every** click appends (three clicks, three points, none of them a hit test); in `select` mode a press at 0.9 r grabs and one at 1.1 r + the 8 px floor does not; exactly **one** `dragEnd` per drag from each of the three gesture exits, `pointercancel` included; the selection survives an `updateLayer` that replaces `points` and is `cleared` when its id is not in the new array; `Esc` walks `place` → `select` → off; and arming the point tool turns measure mode off |
-| Bounded local reads | `sampleVoxelBox` / `peakCentroid` against **numpy twice**: on `testdata/ct_shafts.nii.gz` (three depth electrodes, 3.5 mm pitch, anisotropic spacing so the per-axis half-extent differs, `HU + 1024` on disk so a forgotten `scl_inter` is off by exactly 1024) through `testdata/manifest.json`, and on `m2m_ernie/T1.nii.gz` through `scripts/refvalues/voxelbox_refvalues.json`. Box `ijk0`/`dims`/min/max/sum plus five spot values a transposed window cannot reproduce; the centroid to 1e-4 mm; and the property numpy cannot check — a click 0.8 mm off a contact lands within 0.15 mm of it |
+| Bounded local reads | `sampleVoxelBox` / `peakCentroid` against **numpy twice**: on `testdata/ct_shafts.nii.gz` (three depth electrodes, 3.5 mm pitch, anisotropic spacing so the per-axis half-extent differs, `HU + 1024` on disk so a forgotten `scl_inter` is off by exactly 1024) through `testdata/manifest.json`, and on `m2m_ernie/T1.nii.gz` through `scripts/refvalues/voxelbox_refvalues.json`. Box `ijk0`/`dims`/min/max/sum plus five spot values a transposed window cannot reproduce; the centroid to 1e-4 mm; and the property numpy cannot check — a click 0.8 mm off a contact lands within 0.15 mm of it. Two cases exist for the **parity** rule alone: `off-toward-neighbour`, a mislocalised click where Slicer's `rad_vox` and `ceil` answer 0.86 mm apart, and `default-radius`, the one T1 query with a non-integer radius (on 1 mm spacing every integer radius makes the two rules agree) |
 
 ---
 

@@ -3931,3 +3931,192 @@ geometry; `gen-fixtures.py` writes a table with the same column set over the CT 
 one deliberately awkward file (BOM, commas, CRLF, `R`/`A`/`S`, no group column, a ragged row) for the
 reader's tolerance. The real-data half is gated on `TETRAVOX_SEEG_TESTDATA` and asserts properties
 rather than numbers, because a real table's numbers belong to the site that produced it.
+
+## 2026-08-30 — the point tool is offered a press only when §7.5 has not already bound it
+
+`resolveGesture` has carried this promise since the `'point'` kind was added: "`Shift`+drag over a contact
+is still the layer's opacity and `space`+drag is still the pan … a new tool does not get to quietly take
+them". It was true of the **drag** and false of the **press**. `pointer.ts`'s `#onDown` asked the tool about
+every left press before the gesture machine resolved anything, and `pointToolDown(viewId, x, y, is3D)` has
+no modifiers in its signature, so a `Shift`+opacity drag that happened to start on a contact selected it,
+emitted `selected`, moved the crosshair through the sEEG editor's handler and re-cut all three slice panes —
+mid-gesture, before the opacity drag it was supposed to be had moved a pixel. In `place` mode it was worse:
+the press returned `'consumed'`, so `Shift`+opacity and `space`+pan were simply unreachable in a 2D pane
+while the tool was armed, and a Windows/Linux `Ctrl`+click placed a contact and an undo step where §7.5 says
+a platform-modified press "is not a drag".
+
+The same slot had no idea whether a gesture was **already running**. A second finger landing mid-drag ran the
+tool's press logic first: in `select` mode it selected whatever that finger touched and overwrote the engine's
+`#pointDrag`, and only then did `GestureMachine.down` end the interrupted gesture — so the `dragEnd` that
+followed named the *second* contact. The sEEG editor compares positions against the snapshot its `selected`
+handler had just replaced, found nothing moved, and skipped the commit: a real contact edit with no history
+entry and no dirty mark, on a designed-for touch path (`touchAction: 'none'`).
+
+**One gate, in front of the tool, expressed as a pure function.** `input/gestures.ts` gains
+`pointToolTakesPress(button, mods, gestureActive)` beside `resolveGesture`, and `#onDown` consults it before
+`pointToolDown`. It declines a non-primary button, a press carrying `ctrl`/`meta`/`shift`/`space`, and any
+press arriving while `GestureMachine.active`. It lives next to the resolver rather than in the DOM layer
+because it is the same decision about the same press, and `gestures.test.ts` pins the property that ties them
+together: over all sixteen modifier combinations, `pointToolTakesPress` is true **exactly** when
+`resolveGesture` would answer `'point'`. `alt` is deliberately not gated — §7.5 reserves nothing for it on
+the primary button, so an `Alt`+press is still an ordinary tool click.
+
+**§7.5's `place` bullet is amended rather than the code bent to it.** It said "every left click places"; it
+now says "every *unmodified* left click places", which is the behaviour that leaves the three gestures §7.5
+binds where §7.5 puts them. This is a documented behaviour change, and it is the one the same section already
+demanded two bullets further down.
+
+**Measure mode is left exactly as it was.** It shares the ungated shape — `#onDown` offers it every left
+press too — but §7.5 states it without qualification ("while it is on, a left-click **places a measurement
+point** instead of setting the cursor"), and it predates §13. Gating it would be a behaviour change with no
+contract asking for it, so it is not made here; the asymmetry is now written into §7.5 so the next reader
+finds it stated rather than inferred.
+
+**What this does not fix, deliberately.** A pinch attempted in `place` mode still places a contact per finger.
+That is not the ordering bug: `place` returns `'consumed'` and returns *before* `machine.down` ever runs, so
+no gesture is in flight when the second finger lands and no `gestureActive` guard can see it. It is the direct
+consequence of place-on-`pointerdown`, which §7.5 chooses on purpose and `points-tool.spec.ts` pins as
+intended, and every one of those placements is committed and undoable.
+
+## 2026-08-30 — a disarm mid-drag commits the drag: `Esc` means what `pointerup` means
+
+`Esc` is §7.5's `place` → `select` → off key, handled in the engine's own keydown before the "is the pointer
+over a pane" test — which is what makes it work with the pointer over the panel, and which also means it is
+**not** gated on a gesture being in flight. It cannot be: a key that only worked when no button was down
+would not be the mode key. So a user who grabs a contact, drags it three millimetres and presses `Esc`
+before releasing was reaching `setPointTool(null)` with `#pointDrag` still live. It threw the drag away and
+emitted only `cleared`.
+
+That left the edit in neither state. Every intermediate position had already been written into the layer by
+`pointToolDrag` and adopted by the host through the `layers` event, so the contact stayed where the drag had
+put it — but the commit point never arrived: no history entry, no `ui.setDirty(true)`, no `•` in the title,
+and `confirmDiscardModuleEdits` waving the next scene open straight through. Worse, the *next* commit's
+before-snapshot bakes the moved position in, so the `Esc`'d move becomes permanently un-undoable. On the
+later `pointerup`, `endPointDrag` found `#pointDrag === null` and emitted nothing; `pointercancel` never
+fires for a key press, so no other exit rescued it.
+
+**Committed, not reverted.** The two honest exits are "the drag happened" and "the drag never happened", and
+`Esc` is made to mean the first: `setPointTool(null)` calls `endPointDrag()` before it clears anything, so
+`dragEnd` arrives — carrying the position the drag actually reached — and then `cleared`. That order is the
+one a host is written for (commit on `dragEnd`, reset on `cleared`), and it keeps §7.5's "one drag is one
+undo step and one dirty mark" true however the drag ended. Reverting was the alternative and was rejected:
+`Esc` in this tool is documented as a *mode* key, not an undo, and a key that silently rolled a movement back
+would be the only place in the app where a scene edit vanishes without a history entry. A user who wants the
+move undone has an undo.
+
+**It is skipped when there is nothing left to commit.** `removeLayer` disarms *after* the layer has gone and
+`Engine.load` replaces every layer id, so the guard is "does the dragged point still resolve" — those two
+paths emit `cleared` alone, exactly as before, rather than a `dragEnd` for a contact that no longer exists.
+
+`NoGlEngine` mirrors it in the same commit. The app's E2E drives `?engine=mock`, and a rule that held only in
+the WebGL2 engine would be a rule the shell is never tested against.
+
+## 2026-08-30 — `discRadiusPx` is in device pixels, because `mmPerPx` already is
+
+`Camera2D.mmPerPx` is millimetres per **device** pixel. Everything upstream says so: `fitMmPerPx` is fed
+device-pixel viewport rectangles, `sliceViewProj`'s orthographic box is `widthPx · mmPerPx` over a
+device-pixel `widthPx`, and `paneToWorld` / `worldToPane` take device-pixel pane coordinates. The points
+shader expands a world-space quad of radius `sqrt(r² − d²)` millimetres and applies nothing else, so the
+cross-section rasterises at exactly `radiusMm / mmPerPx` device pixels.
+
+`discRadiusPx`'s sphere branch multiplied that by `uiScale`, and its docstring said `mmPerPx` was "in CSS
+pixels". Both were wrong, and they were wrong in the one place where being wrong is invisible: **every §11
+pane is DPR 1**, where `uiScale` is 1. On a Retina display the two consumers of that function — the
+selection/hover ring (`passes/overlay.ts`) and the CPU hit test (`layers/points.ts#pointAtPane`, and through
+it `pointAtScreen` and every armed click) — were both computed at **twice** the radius of the disc the pane
+had drawn: a ring visibly detached from its contact, and a click a whole disc-radius outside a contact still
+grabbing it. The `dot` branch was right on both sides all along, which is what identified this as a unit
+error rather than a choice: `derived.ts` sends `uDotPx = 4 · uiScale`, so `DOT_RADIUS_PX · uiScale` is the
+matching CPU constant. One radius is a world quantity and the other is a screen one.
+
+So the `* uiScale` is dropped from the sphere branch only, and the same doubled expression is removed from
+the 2D point-label lift in `passes/overlay.ts` — its 3D twin was already `6 · m.scale`, six *CSS* pixels
+scaled, which is the other convention and correctly applied. Nothing moves at DPR 1, so no golden changes.
+
+**`POINT_HIT_MIN_PX` stays 8 *device* pixels, deliberately, against the review's suggestion.** Scaling the
+floor by `uiScale` would keep the minimum target a constant physical size, which is the better ergonomic
+argument — but §7.5 states the rule as `max(disc px, 8 px)` and the constant's own comment ties it to the
+cut-plane gizmo's `HANDLE_HIT_PX`, so that "the two grabbable things in the frame use one convention". A
+change here is a change to both, and to a documented number, for a floor that only matters on a contact
+whose disc is under 8 px. It is recorded here as a known asymmetry rather than made silently: the floor
+shrinks to 4 CSS pixels at DPR 2, and if it is ever raised, the gizmo's goes with it.
+
+**A DPR-2 case now exists**, because a rule the suite cannot see is a rule that drifts back. `?dpr=2` plus a
+CSS-sized canvas gives `points-tool.spec.ts` a pane whose backing store really is twice its CSS size, and
+the test reads the drawn disc's own width off the framebuffer, then asserts the ring sits one scaled gap
+outside *that* and the hit boundary is *that* — the shader is the reference, not the CPU rule.
+
+## 2026-08-30 — the snap neighbourhood is Slicer's `rad_vox`, not `ceil`
+
+`sampleVoxelBox` computed its half-extent as `ceil(radiusMm / spacing)` per axis. Slicer's sEEG editor
+computes `rad_vox = np.maximum((radius_mm / spacing).astype(int), 1)` — truncation, never below one voxel
+(`SEEGContactEditor.snapToMetal`). The two agree only when `radius / spacing` is an integer, and they are
+different on every CT anyone actually snaps on: at the module's default 1.5 mm radius, a 1 mm CT gets a
+5×5×5 window here against Slicer's 3×3×3, and a 0.45/0.45/0.6 mm bone CT gets half-extents (4,4,3) against
+(3,3,2).
+
+**This is a parity rule, so `ceil` was simply wrong.** `USER_GUIDE.md` tells users the module "reproduces the
+3D Slicer SEEG Contact Editor workflow … so the two can be used on the same subject interchangeably", and a
+snap is interchangeable only if it searches the same neighbourhood. The extra shells are not free either: on
+a 3.5 mm contact pitch the larger box reaches along the shaft, and the divergence appears exactly in the case
+snap exists for — a click that is 1 mm *off* the intended contact. On the phantom, a click 1.2 mm off contact
+A2 toward A3 lands 0.77 mm from A2 under Slicer's rule and 1.64 mm under `ceil`.
+
+Three pieces of evidence say the `ceil` was an accident and not a decision. The old worked examples in
+`voxel-box.ts` and in this file — "1.5 mm is a 3-voxel half-extent on ernie's 1 mm T1 and 15 on a 0.2 mm
+micro-CT" — are wrong for `ceil` (which gives 2 and 8) and are exactly Slicer's box *widths*. This file
+claimed "the weighting is Slicer's, verbatim" while the neighbourhood it weighted was not. And **no test
+could have caught it**: both numpy references, `gen-fixtures.py`'s `_box_indices` and
+`refvalues/voxelbox_refvalues.py`'s `box_indices`, re-implemented `ceil` from the same wrong spec, so the two
+"independent" implementations agreed on the wrong rule.
+
+So all three now compute `max(trunc(r / s), 1)`, `testdata/manifest.json` and
+`scripts/refvalues/voxelbox_refvalues.json` are regenerated, and two cases exist for this rule alone:
+`off-toward-neighbour` on the phantom (the mislocalised click above), and `default-radius` on `T1.nii.gz` —
+because every other real-data query uses an integer radius on 1 mm spacing, where `ceil` and `trunc` are the
+same number and the file could not tell them apart.
+
+**Two deviations from Slicer stay, and are named rather than left to be discovered.** The query's voxel index
+is rounded HALF-UP (`Math.round`); Python's `round` is half-to-even. It differs only for an index exactly on
+a half, and half-up is this repository's convention wherever a pixel or a voxel index is rounded. And a
+**flat** box answers `null` where Slicer's threshold carries a `+ 1e-6` that makes every weight
+`0.5 × 1e-6 > 0`, so Slicer returns the box's geometric centroid. Uniform background has no peak; returning
+its centre would be a snap pretending to have found something, and the module counts a refusal as "did not
+move" rather than moving a contact to the middle of a window.
+
+**One fixture constant moved with it.** `seeg_offset`'s per-contact miss was `0.5 / 0.25 / 0.2` mm, which put
+contact A01 at world z = −11.6 — voxel index **5.5 exactly**. Which voxel a box is centred on then turns on
+the last bits of an inverse affine (float64 in numpy, a float32-valued matrix inverted in the engine), and
+`gen-fixtures.py` already refuses to let a fixture turn on a tie-break for precisely this reason. The
+`ceil` box was two voxels deeper than it needed to be and absorbed the one-voxel shift; Slicer's is tighter,
+and the same tie moved the centroid 0.08 mm. The offsets are now `0.47 / 0.29 / 0.19`, which keeps every
+query at least 0.03 of a voxel from a half-index on every axis.
+
+## 2026-08-30 — the zero-length `dragEnd` is written into the contract, not suppressed
+
+A `select`-mode click grabs the point under it, and a grab is a drag: the press starts a `'point'` gesture
+and the release ends it. So a plain click emits `selected` and then one **zero-length** `dragEnd`, and
+clicking through a list of contacts emits `selected`, `dragEnd`, `selected`, `dragEnd`, …
+
+`api.ts`'s `PointToolEvent` described `dragEnd` only as "a `select`-mode drag finished, **once** … this is the
+commit point, not the change", and §7.5 said the gesture's end "becomes exactly one `dragEnd`, which is what
+makes one drag one undo step and one dirty mark for the host". Read as instructions — which is how a module
+author reads a frozen interface — those two sentences say "push undo and set dirty on every `dragEnd`", and
+a host that does exactly that marks itself dirty for merely *looking* at contacts: the OS close guard arms,
+§13.3's discard prompts start appearing, and the 50-slot history fills with no-ops.
+
+The knowledge existed. It was in `points-tool.spec.ts`'s comment ("a host that treats every `dragEnd` as an
+edit would otherwise record an undo step per selection"), in `tetravox.seeg`'s editor header, and in this
+file's own sEEG undo-coalescing entry. None of those is the contract a *second* module is written against.
+
+**Stated, not suppressed.** Suppressing the event when nothing moved would make §7.5's sentence true as
+written, and it was the tempting fix. It is the wrong one: the grab genuinely happened, a host may want to
+know a drag began and ended on the same pixel, and removing an event that a frozen interface has emitted
+since it was frozen is a behaviour change to `Engine` in a contract whose whole promise is "absent reproduces
+the previous behaviour". A documented exception is worse than no exception and far better than a silent one.
+So `PointToolEvent`'s docstring and §7.5 both now say a click emits a zero-length `dragEnd` and that a host
+compares positions against the snapshot taken at `selected` before committing — which is what the first-party
+module already does, and now for a reason a reader can find.
+
+`api.ts` is §12.3-frozen, so this documentation-only edit lands with its `ARCHITECTURE.md` change in the same
+commit, exactly as a signature change would.

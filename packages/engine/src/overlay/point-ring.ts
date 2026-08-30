@@ -39,7 +39,10 @@ export const POINT_HOT_RING_WIDTH_PX = 1;
 /** No ring smaller than this, in unscaled overlay pixels: a 1 px circle is a dot, not a ring. */
 export const POINT_RING_MIN_RADIUS_PX = 4;
 /**
- * The `dot` branch's screen radius, in CSS pixels — `derived.ts`'s `uDotPx` before `uiScale`.
+ * The `dot` branch's screen radius, in **CSS** pixels — `derived.ts`'s `uDotPx` before `uiScale`.
+ *
+ * The one radius in this file that is authored in CSS pixels rather than world millimetres, which
+ * is why it is the one the CPU rule multiplies by `uiScale`.
  *
  * Exported so the two are one number: a hit test or a ring that hard-coded 4 here would silently
  * stop matching the picture the day the marker got bigger.
@@ -65,8 +68,22 @@ export interface DiscShape {
  * * `shape: 'dot'` replaces whichever of those radii applies with a constant `4 · uiScale` pixels,
  *   after the same cull — a screen-space marker is culled by world distance and drawn by pixels.
  *
- * `mmPerPx` is the pane camera's, in CSS pixels; `uiScale` converts to the render target's, which is
- * what the overlay and the framebuffer are both in.
+ * **The units, because getting them wrong is the failure this function exists to prevent.**
+ * `mmPerPx` is `Camera2D.mmPerPx`, and that is millimetres per **device** pixel, not per CSS pixel:
+ * `fitMmPerPx` is fed device-pixel viewport rectangles, `sliceViewProj`'s ortho box is
+ * `widthPx · mmPerPx` over a device-pixel `widthPx`, and `paneToWorld`/`worldToPane` take
+ * device-pixel pane coordinates. So `radiusMm / mmPerPx` is **already** in the render target's
+ * pixels and must not be scaled again — the shader draws the sphere's cross-section at exactly that
+ * many device pixels (`shaders/points.ts` expands a world-space quad of radius `r` mm and nothing
+ * else is applied to it). `uiScale` appears in the `dot` branch alone, because that branch is the
+ * only one whose radius is authored in CSS pixels: `derived.ts` sends `uDotPx = 4 · uiScale`, so the
+ * CPU's constant is `DOT_RADIUS_PX · uiScale` and the two agree at every DPR.
+ *
+ * Until 2026-08-30 the sphere branch multiplied by `uiScale` too, which on a Retina display put the
+ * selection ring and the CPU hit radius at **twice** the radius of the disc the pane had drawn: a
+ * ring visibly detached from its contact, and a click a whole disc-radius outside a contact still
+ * grabbing it. Every §11 pane is DPR 1, where `uiScale` is 1 and the error is invisible, which is
+ * why the suite could not see it — `point-ring.test.ts` now pins the DPR-2 case explicitly.
  */
 export function discRadiusPx(
   layer: DiscShape,
@@ -87,7 +104,8 @@ export function discRadiusPx(
   }
   if (layer.shape === 'dot') return DOT_RADIUS_PX * uiScale;
   if (!(mmPerPx > 0)) return null;
-  return (radiusMm / mmPerPx) * uiScale;
+  // No `uiScale`: `mmPerPx` is already per device pixel. See the units note above.
+  return radiusMm / mmPerPx;
 }
 
 /**

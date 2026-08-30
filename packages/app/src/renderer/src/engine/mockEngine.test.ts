@@ -192,6 +192,49 @@ describe('NoGlEngine: the point tool (§13)', () => {
     expect(engine.cancelPointTool(), 'a third Esc is not the tool s any more').toBe(false);
   });
 
+  it('commits the drag it was in the middle of before it disarms', async () => {
+    // The `Esc`-mid-drag case. `Esc` is the documented `place` → `select` → off key and is not
+    // gated on a gesture being in flight, so a disarm can land with a contact half-dragged: every
+    // intermediate position is already in the layer and already adopted by the host, and dropping
+    // the drag would leave that edit with no commit point at all — no undo entry, no dirty mark.
+    const { engine, layerId, events } = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    engine.setPointTool({ layerId, mode: 'select' });
+    engine.pointToolClick('axial', ...at(0, 0));
+    engine.pointToolDrag('axial', at(0, 0)[0] + 40, at(0, 0)[1]);
+    expect(
+      pointsOf(engine, layerId)[0]!.position[0],
+      'the scene moved during the drag'
+    ).toBeCloseTo(20, 6);
+
+    // The zero-length `dragEnd` of the click itself has not been emitted (no exit ran yet), so the
+    // one below is the drag's, and it arrives BEFORE `cleared` — a host that commits on `dragEnd`
+    // and resets on `cleared` needs them in that order.
+    expect(events.map((e) => e.kind)).toEqual(['selected']);
+    expect(engine.cancelPointTool()).toBe(true);
+    expect(events.map((e) => e.kind)).toEqual(['selected', 'dragEnd', 'cleared']);
+
+    const end = events.find((e) => e.kind === 'dragEnd')!;
+    expect(end.pointId).toBe('c1');
+    expect(end.world![0], 'the commit names where the contact actually is').toBeCloseTo(20, 6);
+    // …and the contact stayed where the drag left it: this exit is a commit, not a revert.
+    expect(pointsOf(engine, layerId)[0]!.position[0]).toBeCloseTo(20, 6);
+    // The drag is committed once, not again on a later exit.
+    engine.pointToolDragEnd();
+    expect(events.filter((e) => e.kind === 'dragEnd')).toHaveLength(1);
+  });
+
+  it('has nothing to commit when the drag`s point went with its layer', async () => {
+    // `removeLayer` disarms *after* the layer has gone, so the commit above must not fire a
+    // `dragEnd` for a contact that no longer exists.
+    const { engine, layerId, events } = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    engine.setPointTool({ layerId, mode: 'select' });
+    engine.pointToolClick('axial', ...at(0, 0));
+    engine.pointToolDrag('axial', at(0, 0)[0] + 40, at(0, 0)[1]);
+    engine.removeLayer(layerId);
+    expect(engine.pointTool()).toBeNull();
+    expect(events.filter((e) => e.kind === 'dragEnd')).toHaveLength(0);
+  });
+
   it('disarms when its layer goes, and when a scene is loaded over it', async () => {
     const first = await harness([{ position: [0, 0, 0], id: 'c1' }]);
     first.engine.setPointTool({ layerId: first.layerId, mode: 'select' });

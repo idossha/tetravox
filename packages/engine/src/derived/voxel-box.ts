@@ -16,11 +16,18 @@
  * them against numpy with no GL context and no engine at all, and the app's `NoGlEngine` gives the
  * same numbers as the real one because there is only one implementation.
  *
- * The weighting is Slicer's, deliberately and verbatim: `w = clip(v − (max − ½(max − min)), 0)` over
- * the box. It is a **half-maximum-above-background** threshold — the midpoint of the local range,
- * not a fixed HU floor — which is what makes it work on a CT whose background is soft tissue at
- * ~40 HU and whose contacts are metal at ~3000, and equally on one that has been rescaled. A fixed
- * threshold would have to be re-tuned per scanner; this one has no parameters but the radius.
+ * The neighbourhood and the weighting are **Slicer's**, deliberately: the box's half-extent is
+ * `max(trunc(radiusMm / spacing), 1)` voxels per axis — `SEEGContactEditor.snapToMetal`'s `rad_vox`
+ * — and `w = clip(v − (max − ½(max − min)), 0)` over it. The weighting is a
+ * **half-maximum-above-background** threshold — the midpoint of the local range, not a fixed HU
+ * floor — which is what makes it work on a CT whose background is soft tissue at ~40 HU and whose
+ * contacts are metal at ~3000, and equally on one that has been rescaled. A fixed threshold would
+ * have to be re-tuned per scanner; this one has no parameters but the radius.
+ *
+ * **Two things here are not Slicer's, on purpose**, and both are argued in `docs/DECISIONS.md`
+ * (2026-08-30): the centre voxel is rounded HALF-UP (`Math.round`) where Python's `round` is
+ * half-to-even, and a **flat** box answers `null` where Slicer's `+ 1e-6` in the threshold makes it
+ * return the box centroid. Neither is a numerical accident and neither is hidden.
  */
 
 import { transformPoint } from '../view/m4';
@@ -31,10 +38,11 @@ import type { VolumeDataset, vec3 } from '../scene/types';
  * The most voxels a bounded local read may span on one axis — §4.3's cap, and the reason this is a
  * *bounded* read rather than a scan.
  *
- * 32 rather than a millimetre limit because the bound has to hold whatever the spacing is: 1.5 mm on
- * ernie's 1 mm T1 is a 3-voxel half-extent, and on a 0.2 mm micro-CT it would be 15. A caller that
- * asks for more gets the largest window inside the cap, centred on the same voxel — never a silent
- * 512³ loop.
+ * 32 rather than a millimetre limit because the bound has to hold whatever the spacing is: a 1.5 mm
+ * radius is a **3-voxel-wide** box on ernie's 1 mm T1 and a 15-voxel-wide one on a 0.2 mm micro-CT
+ * (half-extents 1 and 7 — see {@link sampleVoxelBox} for the rule), and on a 0.05 mm scan it would
+ * ask for 61, which is what the cap is for. A caller that asks for more gets the largest window
+ * inside the cap, centred on the same voxel — never a silent 512³ loop.
  */
 export const MAX_BOX_VOXELS = 32;
 const MAX_HALF = (MAX_BOX_VOXELS - 1) >> 1;
@@ -53,10 +61,22 @@ export interface VoxelBox {
  * The physical values in a box of world radius `radiusMm` around `world`, or `null`.
  *
  * The box is axis-aligned **in voxel space**, not in world space: its half-extent on axis `a` is
- * `ceil(radiusMm / spacing[a])` voxels, so it covers the requested radius in every direction on an
- * oblique volume too (a world-aligned box would need the affine's row norms and would still have to
- * be padded to whole voxels). It is then clipped to the volume, so a point near a face reads a
- * smaller box rather than nothing — `dims` and `ijk0` say which one.
+ * `max(trunc(radiusMm / spacing[a]), 1)` voxels, so it covers the requested radius in every
+ * direction on an oblique volume too (a world-aligned box would need the affine's row norms and
+ * would still have to be padded to whole voxels). It is then clipped to the volume, so a point near
+ * a face reads a smaller box rather than nothing — `dims` and `ijk0` say which one.
+ *
+ * **That half-extent is Slicer's `rad_vox`, character for character** (2026-08-30):
+ * `np.maximum((radius_mm / spacing).astype(int), 1)` in `SEEGContactEditor.snapToMetal`. Truncation,
+ * not `ceil`, and never smaller than one voxel. It is a parity rule rather than a numerical
+ * preference — the sEEG module tells users it "reproduces the 3D Slicer SEEG Contact Editor
+ * workflow … so the two can be used on the same subject interchangeably", and a snap is
+ * interchangeable only if it searches the same neighbourhood. `ceil` differs on every non-integer
+ * `radius / spacing`: at the module's default 1.5 mm radius it is 5×5×5 on a 1 mm CT where Slicer
+ * is 3×3×3, and half-extents (4,4,3) on a 0.45/0.45/0.6 mm bone CT where Slicer is (3,3,2). Those
+ * extra shells are not free — on a 3.5 mm contact pitch the larger box reaches the *neighbouring*
+ * contact's metal, and a click 1 mm off the intended contact then snaps up to 1 mm further wrong.
+ * See `docs/DECISIONS.md`, 2026-08-30, for the two deviations from Slicer that are deliberate.
  *
  * `null` when:
  *
@@ -97,7 +117,10 @@ export function sampleVoxelBox(
   const half = (axis: 0 | 1 | 2): number => {
     const s = Math.abs(ds.spacing[axis]);
     if (!(s > 0) || !Number.isFinite(radiusMm) || radiusMm < 0) return 0;
-    return Math.min(MAX_HALF, Math.ceil(radiusMm / s));
+    // Slicer's `rad_vox`: `np.maximum((radius_mm / spacing).astype(int), 1)`. `Math.trunc` is
+    // `astype(int)` for a non-negative ratio, and the floor of 1 is what keeps a radius smaller
+    // than one voxel from reading a single voxel and calling it a neighbourhood.
+    return Math.min(MAX_HALF, Math.max(1, Math.trunc(radiusMm / s)));
   };
   const hi = half(0);
   const hj = half(1);

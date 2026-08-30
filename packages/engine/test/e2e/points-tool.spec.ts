@@ -73,10 +73,10 @@ const SELECT_RGBA: [number, number, number] = [
   Math.round(DEFAULT_OVERLAY_THEME.select[2] * 255),
 ];
 
-async function openScene(page: Page): Promise<string[]> {
+async function openScene(page: Page, query = ''): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto('/test/pages/scene.html?aa=off');
+  await page.goto(`/test/pages/scene.html?aa=off${query}`);
   await page.waitForFunction(() => window.__tvxEngine !== undefined);
   return errors;
 }
@@ -464,6 +464,246 @@ test('@angle the drag ends once from pointercancel, and once from a second point
 });
 
 // ===============================================================================================
+// DPR 2 — the one place the CPU disc rule and the shader's could disagree
+//
+// Every other pane in §11 is DPR 1, where `uiScale` is 1 and a stray `* uiScale` in the CPU rule is
+// invisible. The claim here is the parity claim itself, measured off the framebuffer: the ring the
+// overlay draws and the radius the hit test uses are both the radius the SHADER drew, on a canvas
+// whose backing store really is twice its CSS size.
+// ===============================================================================================
+
+test('@angle at DPR 2 the ring and the hit radius are the disc the shader drew', async ({
+  page,
+}) => {
+  // `?dpr=2` is the page's `EngineOptions.dpr`; the CSS size below is what makes the canvas element
+  // agree with it, so `#devicePoint`'s own ratio (`canvas.width / rect.width`) is 2 as well. Both
+  // halves are needed: one alone would be a fake DPR rather than a HiDPI pane.
+  const errors = await openScene(page, '&dpr=2');
+  await page.evaluate(() => {
+    const canvas = document.querySelector('canvas')!;
+    canvas.style.width = '384px';
+    canvas.style.height = '384px';
+  });
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  expect(
+    await page.evaluate(() => window.__tvxEngine!.dpr()),
+    'the pane really is DPR 2'
+  ).toBeCloseTo(2, 9);
+  await arm(page, { layerId, mode: 'select' });
+
+  // The ruler, in DEVICE pixels: the pane is the whole 768 px backing store at 0.05 mm per device
+  // pixel, so the 2 mm sphere on the plane is a 40 device-pixel disc — exactly as at DPR 1, because
+  // a world radius is not a screen quantity. `page.mouse` speaks CSS pixels, which are half of them.
+  const cssCentre: [number, number] = [PANE / 4, PANE / 4];
+  await clickAt(page, ...cssCentre);
+  expect(await selectionOf(page)).toEqual({ pointId: 'c1', index: 0 });
+
+  // -- what the shader drew, read back --------------------------------------------------------
+  // The layer's red along the centre row, in device pixels. The fragment shader writes the point's
+  // colour exactly for an on-slice disc (no shading on a cross-section), so this is the disc.
+  const drawnPx = await page.evaluate(async () => {
+    const canvas = document.querySelector('canvas')!;
+    const gl = canvas.getContext('webgl2')!;
+    const row = new Uint8Array(canvas.width * 4);
+    // `readPixels` is bottom-up; the disc's centre row is the pane's own centre either way.
+    gl.readPixels(0, canvas.height / 2, canvas.width, 1, gl.RGBA, gl.UNSIGNED_BYTE, row);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let x = 0; x < canvas.width; x += 1) {
+      const o = x * 4;
+      if ((row[o] ?? 0) > 200 && (row[o + 1] ?? 0) < 60 && (row[o + 2] ?? 0) < 60) {
+        lo = Math.min(lo, x);
+        hi = Math.max(hi, x);
+      }
+    }
+    return Number.isFinite(lo) ? (hi - lo + 1) / 2 : null;
+  });
+  expect(drawnPx, 'a 2 mm sphere at 0.05 mm per device pixel').not.toBeNull();
+  expect(drawnPx!).toBeGreaterThanOrEqual(DISC_PX - 1.5);
+  expect(drawnPx!).toBeLessThanOrEqual(DISC_PX + 1.5);
+
+  // -- the ring is at that radius, not at twice it ---------------------------------------------
+  // `overlayMetrics` scales the 2 px gap by `uiScale`, so at DPR 2 the ring sits 4 device pixels
+  // outside a 40 device-pixel disc. The old rule put it at 80 + 4, visibly detached from its point.
+  const radii = await ringRadii(page, PANE / 2 - 0.5, PANE / 2 - 0.5, 110);
+  expect(radii.length, 'the selection ring is drawn').toBeGreaterThan(80);
+  // The band is `POINT_RING_WIDTH_PX * uiScale` = 4 device pixels wide, so a ring pixel is within
+  // 2 of the radius, plus the chord sag and the rasteriser's coverage — 3.5 covers all three and is
+  // an order of magnitude tighter than the 84 px the doubled rule would have put it at.
+  expect(Math.min(...radii)).toBeGreaterThanOrEqual(DISC_PX + 4 - 3.5);
+  expect(Math.max(...radii)).toBeLessThanOrEqual(DISC_PX + 4 + 3.5);
+
+  // -- and the hit rule is the same radius ------------------------------------------------------
+  // `pointAtScreen` takes CSS pixels like `pick()`, so the 40 device-pixel disc is 20 CSS pixels.
+  const hitAt = async (dxCss: number): Promise<string | null> =>
+    await page.evaluate(
+      ([x, y]) =>
+        window.__tvxEngine!.pointAtScreen('coronal', x as number, y as number)?.pointId ?? null,
+      [cssCentre[0] + dxCss, cssCentre[1]] as const
+    );
+  const discCss = DISC_PX / 2;
+  expect(await hitAt(discCss * 0.9), '0.9 r is inside the disc').toBe('c1');
+  // The regression: the old `* uiScale` rule made this 0.55 r of an 80 device-pixel radius.
+  expect(await hitAt(discCss * 1.1), '1.1 r is outside it').toBeNull();
+  expect(errors).toEqual([]);
+});
+
+// ===============================================================================================
+// the presses the tool must NOT take (§7.5's reserved modifiers, and a gesture already in flight)
+// ===============================================================================================
+
+test('@angle Shift+press over a contact is the layer opacity and NOTHING else', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  // §7.5's `Shift`+drag acts on the **active** layer; make it the points layer and start below 1,
+  // because dragging up raises opacity and 1 has nowhere to go.
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    engine.setActiveLayer(id as never);
+    engine.updateLayer(id as never, { opacity: 0.5 } as never);
+    await engine.whenSettled();
+  }, layerId);
+  await arm(page, { layerId, mode: 'select' });
+
+  const [cx, cy] = at(0, 0);
+  const cursor0 = await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3);
+
+  // The press lands squarely on the 40 px disc — the case the tool would have taken.
+  await page.mouse.move(cx, cy);
+  await page.keyboard.down('Shift');
+  await page.mouse.down();
+  await page.mouse.move(cx, cy - 100, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await settle(page);
+
+  // The gesture §7.5 promises ran, and it ran alone: 100 px up of 768 is 100/768 of opacity.
+  const opacity = await page.evaluate(
+    (id) => window.__tvxEngine!.scene.layers.find((l) => l.id === id)!.opacity,
+    layerId
+  );
+  expect(opacity).toBeCloseTo(0.5 + 100 / PANE, 6);
+  // …and the tool never saw the press: no selection, no event, and the crosshair did not jump onto
+  // the contact — which is what re-cut all three panes mid-opacity-drag before this gate existed.
+  expect(await selectionOf(page)).toBeNull();
+  expect(await eventsOf(page)).toEqual([]);
+  expect(await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3)).toEqual(cursor0);
+  expect(errors).toEqual([]);
+});
+
+test('@angle space+press in place mode pans the pane and places nothing', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, []);
+  await arm(page, { layerId, mode: 'place' });
+  const cam0 = await page.evaluate(() => {
+    const v = window.__tvxEngine!.views.find((view) => view.id === 'coronal') as {
+      camera: { center: [number, number]; mmPerPx: number };
+    };
+    return { center: [...v.camera.center] as [number, number], mmPerPx: v.camera.mmPerPx };
+  });
+
+  await page.mouse.move(...at(0, 0));
+  await page.keyboard.down('Space');
+  await page.mouse.down();
+  await page.mouse.move(at(0, 0)[0] + 50, at(0, 0)[1] - 20, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up('Space');
+  await settle(page);
+
+  // R3's pan happened, by the pixels the pointer travelled…
+  const cam1 = await page.evaluate(() => {
+    const v = window.__tvxEngine!.views.find((view) => view.id === 'coronal') as {
+      camera: { center: [number, number] };
+    };
+    return [...v.camera.center] as [number, number];
+  });
+  expect(cam1[0]).toBeCloseTo(cam0.center[0] - 50 * cam0.mmPerPx, 6);
+  expect(cam1[1]).toBeCloseTo(cam0.center[1] - 20 * cam0.mmPerPx, 6);
+  // …and `place` placed nothing: a trackpad user can pan while the tool is armed.
+  expect(await pointsOf(page, layerId)).toEqual([]);
+  expect(await eventsOf(page)).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('@angle a platform-modified click neither places nor selects', async ({ page }) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+
+  // `resolveGesture` calls a `⌘`/`Ctrl`+left press "not a drag" — a menu accelerator, or macOS's
+  // own right-click emulation. It is not a tool click either, in either mode.
+  await arm(page, { layerId, mode: 'place' });
+  await page.keyboard.down('Control');
+  await clickAt(page, ...at(4, 4));
+  await page.keyboard.up('Control');
+  expect(await pointsOf(page, layerId)).toHaveLength(1);
+
+  await arm(page, { layerId, mode: 'select' });
+  await page.keyboard.down('Meta');
+  await clickAt(page, ...at(0, 0));
+  await page.keyboard.up('Meta');
+  expect(await selectionOf(page)).toBeNull();
+  expect((await eventsOf(page)).filter((e) => e.kind !== 'cleared')).toEqual([]);
+});
+
+test('@angle a second pointer mid-drag commits the FIRST contact, and grabs nothing', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [
+    { id: 'c1', position: [0, 2.5, 0] },
+    { id: 'c2', position: [6, 2.5, 0] },
+  ]);
+  await arm(page, { layerId, mode: 'select' });
+  const [cx, cy] = at(0, 0);
+
+  // Grab `c1` and drag it 40 px right — it is now 2 mm from where it started and still 4 mm short
+  // of `c2`, so the two discs do not overlap and the second finger lands on `c2` alone.
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy, { steps: 4 });
+  await settle(page);
+  const moved = (await pointsOf(page, layerId))[0]!.position;
+
+  await page.evaluate(
+    ([x, y]) => {
+      const canvas = document.querySelector('canvas')!;
+      const r = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          pointerId: 2,
+          button: 0,
+          buttons: 1,
+          clientX: r.left + (x as number),
+          clientY: r.top + (y as number),
+          bubbles: true,
+        })
+      );
+    },
+    at(6, 0) as [number, number]
+  );
+  await settle(page);
+  await page.mouse.up();
+  await settle(page);
+
+  const events = await eventsOf(page);
+  const ends = events.filter((e) => e.kind === 'dragEnd');
+  expect(ends, 'the second finger ends the drag exactly once').toHaveLength(1);
+  // The whole of the bug: the end must name the contact the drag was about. The second finger used
+  // to select `c2` and overwrite the drag first, so `dragEnd` arrived for a point that had not
+  // moved and the module's moved-comparison skipped the commit — no undo step, no dirty mark.
+  expect(ends[0]!.pointId, 'the end is the dragged contact, not the one the finger landed on').toBe(
+    'c1'
+  );
+  expect(ends[0]!.world![0]).toBeCloseTo(moved[0], 6);
+  // …and `c2` was never selected: the press that landed mid-gesture was not the tool's.
+  expect(events.filter((e) => e.kind === 'selected').map((e) => e.pointId)).toEqual(['c1']);
+  expect(await selectionOf(page)).toEqual({ pointId: 'c1', index: 0 });
+  expect(errors).toEqual([]);
+});
+
+// ===============================================================================================
 // selection lifetime, Esc, and the one-armed-mode invariant
 // ===============================================================================================
 
@@ -535,6 +775,45 @@ test('@angle Esc walks place → select → off, wherever the pointer is', async
   expect(await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3)).not.toEqual(
     before
   );
+});
+
+test('@angle Esc mid-drag COMMITS the drag before it disarms', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  await arm(page, { layerId, mode: 'select' });
+  const [cx, cy] = at(0, 0);
+
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 60, cy, { steps: 4 });
+  await settle(page);
+  const moved = (await pointsOf(page, layerId))[0]!.position;
+  // Where the last pointer pixel addresses, half-pixel convention included — the drag is 3 mm from
+  // where the contact started, which is what makes losing it a visible edit.
+  expect(moved[0], 'the scene moved during the drag').toBeCloseTo(worldOfPixel(cx + 60, cy)[0], 6);
+
+  // `Esc` is the documented `place` → `select` → off key and is deliberately not gated on a
+  // gesture being in flight — so it lands here, with the button still down and the contact already
+  // 3 mm from where it started.
+  await page.keyboard.press('Escape');
+  await settle(page);
+
+  const kinds = (await eventsOf(page)).map((e) => e.kind);
+  // The commit arrives, and it arrives BEFORE `cleared`: a host commits on `dragEnd` and resets on
+  // `cleared`, and the other order would hand it the commit after it had thrown the base away.
+  expect(kinds).toEqual(['selected', 'dragEnd', 'cleared']);
+  const end = (await eventsOf(page)).find((e) => e.kind === 'dragEnd')!;
+  expect(end.pointId).toBe('c1');
+  expect(end.world![0]).toBeCloseTo(moved[0], 6);
+  // Committed, not reverted: the contact is where the drag left it, which is what makes the exit
+  // one of the two honest ones rather than half of each.
+  expect((await pointsOf(page, layerId))[0]!.position).toEqual(moved);
+
+  // The release that follows commits nothing a second time.
+  await page.mouse.up();
+  await settle(page);
+  expect((await eventsOf(page)).filter((e) => e.kind === 'dragEnd')).toHaveLength(1);
+  expect(errors).toEqual([]);
 });
 
 test('@angle at most one click-consuming mode is armed', async ({ page }) => {

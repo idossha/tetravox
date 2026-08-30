@@ -666,6 +666,15 @@ export class NoGlEngine implements Engine {
     if (spec === null) {
       const tool = this.pointToolSpec;
       if (tool === null) return;
+      // §13 (2026-08-30): a drag in flight is committed on the way out, never dropped — the real
+      // engine's rule, mirrored here because `?engine=mock` is what the app's E2E drives and
+      // "Esc mid-drag lost the undo entry" has to be false in both engines.
+      if (
+        this.pointDragState !== null &&
+        this.indexOfPointId(this.pointDragState.layerId, this.pointDragState.pointId) !== null
+      ) {
+        this.pointToolDragEnd();
+      }
       this.pointToolSpec = null;
       this.pointDragState = null;
       const layerId = this.pointSelectionId?.layerId ?? tool.layerId;

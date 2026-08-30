@@ -115,6 +115,47 @@ export function resolveGesture(
   return null;
 }
 
+/**
+ * Whether a press may be offered to §13's point tool at all, **before** the tool is consulted
+ * (2026-08-30).
+ *
+ * {@link resolveGesture} decides what a press *means*; this decides whether the press is even the
+ * tool's to answer. The two have to agree, and until now only the first of them existed: the DOM
+ * layer asked the tool about every left press and the tool has no modifiers in its signature, so a
+ * `Shift`+press that `resolveGesture` correctly routed to `'opacity'` had already selected a
+ * contact, moved the crosshair and switched a module's electrode on the way past. The guarantee
+ * three lines of the branch above spell out — "`Shift`+drag over a contact is still the layer's
+ * opacity … a new tool does not get to quietly take them" — was true of the *drag* and false of
+ * everything the press did first.
+ *
+ * So the tool declines exactly the presses §7.5 reserves, and it declines them here rather than
+ * inside the tool, where the modifiers are not:
+ *
+ * * **`ctrl` / `meta` on the primary button** — a menu accelerator or macOS's right-click
+ *   emulation. `resolveGesture` calls it "not a drag"; it is not a click for a tool either.
+ * * **`Shift`** — the active layer's opacity, in every pane and whatever is under the pointer.
+ * * **`space`** — R3's explicit pan modifier.
+ * * **a gesture already in flight** (`gestureActive`) — a second finger landing mid-drag. The
+ *   {@link GestureMachine} abandons its one-pointer gesture when that happens; running the tool's
+ *   press logic first would place a contact per finger of a pinch, or (in `select` mode) select
+ *   whatever the second finger landed on and hand the *first* drag's `end` to the wrong point.
+ *
+ * `alt` is deliberately absent: `resolveGesture` does not reserve it on the primary button either,
+ * so an `Alt`+press still resolves to `'cursor'`/`'point'` and still belongs to the tool.
+ *
+ * Pure, and beside `resolveGesture` rather than in `pointer.ts`, because it is the same decision
+ * about the same press and `gestures.test.ts` can script both without a browser.
+ */
+export function pointToolTakesPress(
+  button: number,
+  mods: Modifiers,
+  gestureActive: boolean
+): boolean {
+  if (button !== 0) return false;
+  if (gestureActive) return false;
+  return !mods.ctrl && !mods.meta && !mods.shift && !mods.space;
+}
+
 /** A pointer position in **pane-local device pixels, top-left origin**. */
 export interface PanePoint {
   viewId: string;
