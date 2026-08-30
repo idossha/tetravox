@@ -29,6 +29,8 @@ golden PNG for regression. Never "verify" a rendering change by looking at a pic
 | `pnpm --filter @tetravox/engine run e2e` | the engine suite — **two projects**: `chromium-swiftshader` (everything, goldens included) and `chromium-angle` (`@angle` only, on the real GPU) |
 | `pnpm --filter @tetravox/app run e2e` | the Playwright-Electron suite — **two projects**: `dev` and `packaged` |
 | `scripts/e2e-quiet-check.sh` | runs `pnpm e2e` and proves it took neither the screen nor the focus (§2.2) |
+| `node --test scripts/sync-module-docs.test.mjs` · `node scripts/sync-module-docs.mjs --check` | the module-docs generator's own fixtures, then the check that `docs/AUTOMATION.md` §2.7 still matches the manifests (the `docs-guard` job) |
+| `python -m unittest discover -s python/tests` | the Python client's document tests — standard library only, no install (the `python` job) |
 
 Prettier does **not** format `docs/` — keep it that way; a reflowed contract makes every diff unreadable.
 
@@ -107,11 +109,23 @@ The **docs guard** has its own fixtures and does not run under vitest:
 ```sh
 node --test scripts/check-frozen-docs.test.mjs   # its own rules, driven red
 node scripts/check-frozen-docs.mjs --base origin/main
+node --test scripts/sync-module-docs.test.mjs    # the generator's own fixtures, same idiom
+node scripts/sync-module-docs.mjs --check        # §2.7 still says what the manifests say
 ```
 
-CI runs both in the `docs-guard` job, which checks out with `fetch-depth: 0` because rule one is a merge-base
-diff. Locally, without `--base`, the script says it has nothing to diff and checks only the rule that needs no
-diff — a guard that failed when it could not do half its job would be switched off within a week.
+CI runs all four in the `docs-guard` job, which checks out with `fetch-depth: 0` because rule one is a
+merge-base diff. Locally, without `--base`, the script says it has nothing to diff and checks only the rule
+that needs no diff — a guard that failed when it could not do half its job would be switched off within a
+week. The last two are §13.6's half of the same idea: §2.7 is *generated* from the manifests
+(`node scripts/sync-module-docs.mjs` rewrites it), so a table that drifted would promise a user a job the
+validator refuses.
+
+The Python client's tests are the `python` job and need nothing installed — the client is standard library
+only:
+
+```sh
+python -m unittest discover -s python/tests
+```
 
 ### The test page server
 

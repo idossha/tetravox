@@ -435,6 +435,18 @@ script rather than editing the table. CI checks it with `--check`.
 |---|---|
 | `echo` | `text` a string |
 
+#### `tetravox.seeg` — sEEG contacts 0.1.0
+
+| Operation | Arguments |
+|---|---|
+| `load` | `ct` a path to an existing file<br>`tsv` a path to an existing file<br>`t1` a path to an existing file *(optional)* |
+| `snap` | `scope` a string<br>`electrode` a string *(optional)*<br>`contact` a string *(optional)*<br>`radiusMm` a number *(optional)* |
+| `refit` | `electrode` a string *(optional)* |
+| `renumber` | `electrode` a string *(optional)* |
+| `ghost` | `on` true or false |
+| `stats` | — |
+| `save` | `out` a file name under `--out` |
+
 ---
 
 ## 3. The Python client
