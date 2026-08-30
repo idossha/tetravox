@@ -252,9 +252,32 @@ export function isModuleWritable(moduleId: string, candidate: string): boolean {
   return list.stamped.some((entry) => entry.dir === dir && entry.name.test(name));
 }
 
+/**
+ * **Revocation** (2026-08-30): drop one module's admissions.
+ *
+ * A Save sheet admits a path for the *editing session* that opened it, not for the process. The
+ * module's own `savePath` lives on its instance and dies with it (`seeg/editor.ts`), so once the
+ * module leaves the slot nothing legitimate can write to those paths again without a new sheet —
+ * and leaving them admitted is a capability against a subject the user has since navigated away
+ * from. `tetravox:module-clear-writes` is the renderer's call on deactivate; `sendOpenScene` and
+ * `sendSceneCommand('new'|'open')` are main's, for the routes that replace the whole document.
+ *
+ * This scopes **accidents**, not attacks: a compromised renderer simply never sends the message.
+ * The durable fix is a narrower `allowPath`, which is out of scope here and is in `docs/ROADMAP.md`.
+ */
+export function revokeModuleWrites(moduleId: unknown): boolean {
+  if (typeof moduleId !== 'string' || moduleId === '') return false;
+  return writeLists.delete(moduleId);
+}
+
+/** Every module's admissions at once: a new or newly-opened document is a new editing session. */
+export function revokeAllModuleWrites(): void {
+  writeLists.clear();
+}
+
 /** Test seam, mirroring `paths.ts`'s and `scene-io.ts`'s. */
 export function clearModuleWriteLists(): void {
-  writeLists.clear();
+  revokeAllModuleWrites();
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -518,13 +541,23 @@ export function documentEdited(win: BrowserWindow | null): boolean {
  * answer the box (it would hang until the 45-minute CI cap), and an e2e teardown closes a window it
  * deliberately made dirty. `TETRAVOX_E2E_DISCARD=1` is that seam, read at close time so a spec can
  * set it per launch.
+ *
+ * **`packaged` closes the seam** (2026-08-30). The variable is ambient state: a dotfile, a wrapper
+ * script or a leftover `export` in the shell a user launches from would silently switch off the
+ * only protection a dirty window has, and losing unsaved contact edits to an environment variable
+ * is not a trade a shipped build gets to make. A test seam belongs to the builds that run tests, so
+ * a packaged build ignores it and always asks. Absent — every existing caller — is the developer
+ * build, which is what it was before.
  */
 export function shouldPromptOnClose(opts: {
   edited: boolean;
   isJob: boolean;
   env?: NodeJS.ProcessEnv;
+  /** `app.isPackaged`. Passed in rather than read here so the function stays pure and testable. */
+  packaged?: boolean;
 }): boolean {
   if (!opts.edited || opts.isJob) return false;
+  if (opts.packaged === true) return true;
   return (opts.env ?? process.env)['TETRAVOX_E2E_DISCARD'] !== '1';
 }
 
@@ -534,11 +567,25 @@ export function shouldPromptOnClose(opts: {
  * Two buttons, Discard and Cancel — and deliberately no Save. Saving is the module's own write path
  * through the Save sheet and `module-write-text`; a Save button here would be a second write path
  * driven from main, which is the one thing §5's write rule exists to prevent.
+ *
+ * `packaged` is `app.isPackaged`, handed in by main so this file needs no `app` — it is what keeps
+ * `TETRAVOX_E2E_DISCARD` out of a shipped build (2026-08-30).
  */
-export function installCloseGuard(win: BrowserWindow, opts: { isJob: boolean }): void {
+export function installCloseGuard(
+  win: BrowserWindow,
+  opts: { isJob: boolean; packaged?: boolean }
+): void {
   if (opts.isJob) return;
   win.on('close', (event) => {
-    if (!shouldPromptOnClose({ edited: documentEdited(win), isJob: false })) return;
+    if (
+      !shouldPromptOnClose({
+        edited: documentEdited(win),
+        isJob: false,
+        ...(opts.packaged === undefined ? {} : { packaged: opts.packaged }),
+      })
+    ) {
+      return;
+    }
     event.preventDefault();
     if (prompting.has(win.id)) return;
     prompting.add(win.id);
@@ -584,8 +631,14 @@ function windowOf(event: IpcMainInvokeEvent | IpcMainEvent): BrowserWindow | nul
 /**
  * Register the module IPC. Called unconditionally from main, like `registerJobIpc()`: a build with
  * no modules simply never sees a call on these channels.
+ *
+ * `isJob` makes `tetravox:module-clear-writes` inert for a `--job` run (2026-08-30). A batch run's
+ * admissions come from the envelope's `out` arguments, admitted once in `prepareJob` before there
+ * is a window; its actions activate modules in whatever order the job lists them, and an
+ * `activateModule` that switches away from a module calls `deactivateModule` on it — so honouring
+ * the revocation there would drop an `out` target the job still has an action for.
  */
-export function registerModuleIpc(): void {
+export function registerModuleIpc(opts: { isJob?: boolean } = {}): void {
   ipcMain.handle('tetravox:module-read-text', (_event, moduleId: unknown, path: unknown) =>
     moduleReadText(moduleId, path)
   );
@@ -603,4 +656,11 @@ export function registerModuleIpc(): void {
   ipcMain.on('tetravox:set-document-edited', (event, edited: unknown) =>
     setDocumentEdited(windowOf(event), edited)
   );
+  // The renderer's half of revocation: a module leaving the slot gives its admissions back. `send`,
+  // not `invoke` — dropping a capability cannot fail and nothing waits on the answer — and it can
+  // only ever *narrow* what a module may write, so it needs no gesture and no window check.
+  ipcMain.on('tetravox:module-clear-writes', (_event, moduleId: unknown) => {
+    if (opts.isJob === true) return;
+    revokeModuleWrites(moduleId);
+  });
 }

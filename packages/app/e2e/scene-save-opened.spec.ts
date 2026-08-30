@@ -18,7 +18,7 @@
 
 /* eslint-disable no-empty-pattern */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -147,6 +147,26 @@ test.describe('saving a scene that was opened from disk', () => {
         .toEqual({ name: 'study.tetravox.json', dirty: false, error: null });
       // The layer survived the round trip, so this is a saved scene and not a truncated file.
       expect(sceneOnDisk(scenePath).layers).toHaveLength(1);
+
+      // The other half of §5 rule 10 (2026-08-30). The save above is a capability **main** minted,
+      // where main handed this path to the renderer; the renderer cannot mint one for itself. Every
+      // call below is on the real bridge, in the real window, with no dialog and no gesture: put a
+      // second scene on the read allow-list, read it — and be refused the write.
+      const bystander = join(dir, 'bystander.tetravox.json');
+      writeFileSync(bystander, '{"keep":"me"}', 'utf8');
+      const escalation = await page.evaluate(async (path) => {
+        const admitted = await window.tetravox.allowPath(path);
+        if (admitted === null) return { admitted: false, read: false, wrote: null };
+        const read = await window.tetravox.readSceneFile(admitted.path);
+        const wrote = await window.tetravox.writeSceneFile(admitted.path, '{"clobbered":true}');
+        return { admitted: true, read: read.ok, wrote };
+      }, bystander);
+      // The read still works — that is what `allowPath` is for, and it is not the bug.
+      expect(escalation.admitted).toBe(true);
+      expect(escalation.read).toBe(true);
+      // The write does not, and the bytes on disk are the proof.
+      expect(escalation.wrote).toEqual({ ok: false, error: 'not on the write list' });
+      expect(readFileSync(bystander, 'utf8')).toBe('{"keep":"me"}');
     } finally {
       await app.close();
       rmSync(dir, { recursive: true, force: true });
