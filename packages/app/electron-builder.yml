@@ -59,6 +59,74 @@ fileAssociations:
     mimeType: application/x-nifti
     role: Viewer
     rank: Owner
+  - ext: mgz
+    name: FreeSurfer volume
+    description: FreeSurfer MGZ volume
+    mimeType: application/x-mgz
+    role: Viewer
+    rank: Owner
+  - ext: mgh
+    name: FreeSurfer volume
+    description: FreeSurfer MGH volume
+    mimeType: application/x-mgh
+    role: Viewer
+    rank: Owner
+  - ext: nrrd
+    name: NRRD volume
+    description: NRRD volume (attached header)
+    mimeType: application/x-nrrd
+    role: Viewer
+    rank: Default
+  - ext: mha
+    name: MetaImage volume
+    description: MetaImage volume (attached header)
+    mimeType: application/x-metaimage
+    role: Viewer
+    rank: Default
+  # VTK and the generic surface formats are `rank: Default`: they are shared with ParaView, CAD and
+  # 3D-printing tools, and this app must not claim to be the system-wide handler for every STL.
+  - ext: vtk
+    name: VTK mesh
+    description: VTK legacy polydata or unstructured grid
+    mimeType: model/vtk
+    role: Viewer
+    rank: Default
+  - ext: vtu
+    name: VTK unstructured grid
+    description: VTK XML unstructured grid
+    mimeType: model/vtk
+    role: Viewer
+    rank: Default
+  - ext: vtp
+    name: VTK polydata
+    description: VTK XML polydata
+    mimeType: model/vtk
+    role: Viewer
+    rank: Default
+  - ext: stl
+    name: STL surface
+    description: STL triangle surface
+    mimeType: model/stl
+    role: Viewer
+    rank: Default
+  - ext: ply
+    name: PLY surface
+    description: Stanford PLY surface
+    mimeType: model/ply
+    role: Viewer
+    rank: Default
+  - ext: obj
+    name: OBJ surface
+    description: Wavefront OBJ surface
+    mimeType: model/obj
+    role: Viewer
+    rank: Default
+  - ext: off
+    name: OFF surface
+    description: Object File Format surface
+    mimeType: model/off
+    role: Viewer
+    rank: Default
   - ext: msh
     name: Gmsh mesh
     description: Gmsh 2.2 / 4.1 mesh

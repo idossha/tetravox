@@ -110,11 +110,26 @@ function boundsOf(dims: vec3, spacing: vec3, origin: vec3): Aabb {
   };
 }
 
-/** `.nii` / `.nii.gz` / `.mgz` → volume; everything else the viewer accepts → mesh. */
+/** NIfTI / MGH / NRRD / MetaImage → volume; everything else the viewer accepts → mesh. */
 export type DatasetKindGuess = 'volume' | 'mesh' | 'unsupported';
 
-const VOLUME_EXT = ['.nii', '.nii.gz', '.mgz', '.mgh'];
-const MESH_EXT = ['.msh', '.gii', '.stl', '.ply', '.obj', '.surf', '.pial', '.white', '.central'];
+const VOLUME_EXT = ['.nii', '.nii.gz', '.mgz', '.mgh', '.nrrd', '.mha'];
+const MESH_EXT = [
+  '.msh',
+  '.gii',
+  '.vtk',
+  '.vtu',
+  '.vtp',
+  '.stl',
+  '.ply',
+  '.obj',
+  '.off',
+  '.mesh',
+  '.surf',
+  '.pial',
+  '.white',
+  '.central',
+];
 
 export function guessKind(name: string): DatasetKindGuess {
   const lower = name.toLowerCase();

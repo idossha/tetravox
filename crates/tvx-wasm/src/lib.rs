@@ -81,6 +81,10 @@ fn caps_of(float_linear: bool, norm16: bool, max_3d: u32) -> GpuCaps {
 /// `load_volume` produces volume 0's payload; [`volume_frame`] produces any other index's. Both run
 /// §6.1's `stats` / `label_index` / `gpu_payload` for that index.
 ///
+/// The bytes may be NIfTI-1/2, FreeSurfer MGH/MGZ, NRRD (attached header) or MetaImage (`.mha`);
+/// the format is sniffed by content (`tvx_nifti::read_volume`), never by a name the worker would
+/// have to pass — the signature is frozen (§6.4).
+///
 /// Resolves to the `loadVolume` op result: `{ meta, data, gpuBytes, labelIds?, denseIndexOf? }` (§6.5.2).
 /// `meta.name` comes back empty — the worker owns the `LoadSource` and fills it in.
 #[wasm_bindgen]
@@ -104,7 +108,8 @@ pub fn load_volume(
     .map_err(err::map)
 }
 
-/// `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'`; `auto` dispatches through
+/// `format` is `'auto'|'msh'|'gii'|'fs'|'stl'|'ply'|'obj'|'geo'|'vtk'|'vtu'|'vtp'|'off'|'medit'`;
+/// `auto` dispatches through
 /// [`tvx_mesh_io::sniff`]. Morton reorder, [`tvx_geom::build_tet_blocks`] and
 /// [`tvx_geom::build_point_locator`] are built here. Result is `{ meta: MeshMeta }` — no bulk arrays.
 #[wasm_bindgen]

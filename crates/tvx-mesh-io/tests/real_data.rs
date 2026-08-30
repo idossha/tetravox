@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 
 use tvx_core::{NoProgress, Phase, ProgressSink};
 use tvx_mesh_io::{
-    read_fs_annot, read_fs_surface, read_geo_view, read_gifti, read_msh, read_msh_opt, Mesh,
+    read_fs_annot, read_fs_surface, read_geo_view, read_gifti, read_medit, read_msh, read_msh_opt,
+    read_vtk, read_vtk_xml, Mesh,
 };
 
 /// `None` ⇒ the whole test skips (§11 rule 2 / TESTING.md).
@@ -622,5 +623,69 @@ fn gsn_hydrocel_185_is_187_points_and_187_labels() {
         let v = &vs[0];
         assert_eq!(v.points.len(), v.labels.len(), "{name}");
         assert!(!v.points.is_empty(), "{name}");
+    }
+}
+
+// -------------------------------------------------------------------------------------
+// VTK legacy / VTK XML / MEDIT (§6.2)
+// -------------------------------------------------------------------------------------
+
+/// The SimNIBS reference dataset ships no `.vtk` / `.vtu` / `.mesh`, so there is no real-data
+/// leg for these readers (AGENTS.md rule 2 is honoured in spirit instead): the committed
+/// `lattice_*` fixtures are the very lattice `testdata/mesh_v2_binary.msh` holds, so the
+/// Gmsh reader — proven against ernie above — is the cross-check. Not gated on
+/// `TETRAVOX_TESTDATA`; the fixtures are always present.
+#[test]
+fn the_general_format_lattices_are_the_gmsh_v2_lattice() {
+    let td = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata");
+    let base = mesh(&td.join("mesh_v2_binary.msh"));
+    for name in [
+        "lattice_ascii.vtk",
+        "lattice_binary.vtk",
+        "lattice_ascii.vtu",
+        "lattice_b64.vtu",
+        "lattice_appended_zlib.vtu",
+        "lattice.mesh",
+    ] {
+        let b = bytes(&td.join(name));
+        let m = if name.ends_with(".vtk") {
+            read_vtk(b, &mut NoProgress)
+        } else if name.ends_with(".vtu") {
+            read_vtk_xml(b, &mut NoProgress)
+        } else {
+            read_medit(b)
+        }
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(m.nodes.len(), base.nodes.len(), "{name}: nodes");
+        assert_eq!(m.tris.len(), base.tris.len(), "{name}: tris");
+        assert_eq!(m.tets.len(), base.tets.len(), "{name}: tets");
+        for k in 0..3 {
+            close(
+                &format!("{name}: min[{k}]"),
+                m.bounds.min[k] as f64,
+                base.bounds.min[k] as f64,
+                1e-4,
+            );
+            close(
+                &format!("{name}: max[{k}]"),
+                m.bounds.max[k] as f64,
+                base.bounds.max[k] as f64,
+                1e-4,
+            );
+        }
+        for tag in [1, 2] {
+            assert_eq!(
+                count_tag(&m.tet_tags, tag),
+                count_tag(&base.tet_tags, tag),
+                "{name}: tet tag {tag}"
+            );
+        }
+        for tag in [1001, 1002] {
+            assert_eq!(
+                count_tag(&m.tri_tags, tag),
+                count_tag(&base.tri_tags, tag),
+                "{name}: tri tag {tag}"
+            );
+        }
     }
 }

@@ -23,9 +23,12 @@ not scene state), and **?** opens the key-map dialog, whose tabs group every bin
 
 ## File formats and file associations
 
-Tetravox opens NIfTI (`.nii`, `.nii.gz`), Gmsh meshes (`.msh`), GIfTI, FreeSurfer surfaces, STL/PLY/OBJ,
-and its own scene format (`*.tetravox.json`) — drag a file onto the window, use **Open…**, or pass a path
-on the command line.
+Tetravox opens NIfTI (`.nii`, `.nii.gz`), FreeSurfer (`.mgh`, `.mgz`), NRRD (`.nrrd`) and MetaImage
+(`.mha`) volumes; Gmsh (`.msh`), VTK (`.vtk`, `.vtu`, `.vtp`), MEDIT (`.mesh`), GIfTI and FreeSurfer
+surfaces, STL/PLY/OBJ/OFF; and its own scene format (`*.tetravox.json`) — drag a file onto the window,
+use **Open…**, or pass a path on the command line. NRRD and MetaImage must carry their data in the same
+file: a detached `.nhdr` / `.mhd` header is reported, not read. DICOM is out of scope — convert with
+`dcm2niix` first.
 
 ## Where to go next
 

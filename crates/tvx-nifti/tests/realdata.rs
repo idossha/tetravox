@@ -589,3 +589,145 @@ fn the_only_4d_volumes_in_the_dataset_are_the_to_mni_warp_fields() {
     assert_eq!(probe(1) as f64, 47.0106201171875);
     assert_eq!(probe(2) as f64, -101.68490600585938);
 }
+
+// -------------------------------------------------------------------------------------
+// FreeSurfer MGZ — gated on TETRAVOX_MGZ (§6.1)
+// -------------------------------------------------------------------------------------
+
+/// **Skipped, never failed, when `TETRAVOX_MGZ` is unset.** The reference subject ships no `.mgz`;
+/// on the reference machine the only one is nibabel's own `tests/data/test.mgz` inside the SimNIBS
+/// environment, which is what `scripts/refvalues/mgz_refvalues.json` describes:
+///
+/// ```sh
+/// export TETRAVOX_MGZ=~/Applications/SimNIBS-4.6/simnibs_env/lib/python3.11/site-packages/nibabel/tests/data/test.mgz
+/// python3 scripts/refvalues/mgz_refvalues.py > scripts/refvalues/mgz_refvalues.json
+/// ```
+///
+/// Every expected number is nibabel's (`MGHImage.affine`, `header['delta']`, the array). The test
+/// also skips, with a message, when the file `TETRAVOX_MGZ` names is not the one the JSON was made
+/// from (name and size), rather than asserting one file's numbers against another.
+#[test]
+fn mgz_matches_nibabel() {
+    let Some(path) = std::env::var_os("TETRAVOX_MGZ") else {
+        eprintln!("skipping: TETRAVOX_MGZ is unset");
+        return;
+    };
+    let path = PathBuf::from(path);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("skipping: {}: {e}", path.display());
+            return;
+        }
+    };
+    let refs: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../scripts/refvalues/mgz_refvalues.json"
+    ))
+    .unwrap();
+    let file = path.file_name().unwrap().to_string_lossy().into_owned();
+    if refs["file"] != file || refs["bytes"].as_u64() != Some(bytes.len() as u64) {
+        eprintln!(
+            "skipping: {} ({} B) is not the {} ({} B) that mgz_refvalues.json describes; \
+             regenerate it with scripts/refvalues/mgz_refvalues.py",
+            file,
+            bytes.len(),
+            refs["file"],
+            refs["bytes"]
+        );
+        return;
+    }
+
+    let v = tvx_nifti::read_mgh(bytes, &mut NoProgress).unwrap();
+    let dims: Vec<usize> = refs["dims"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d.as_u64().unwrap() as usize)
+        .collect();
+    assert_eq!(v.dims.to_vec(), dims);
+    assert_eq!(v.nvols, refs["nvols"].as_u64().unwrap() as usize);
+    let want_dt = match refs["typeCode"].as_i64().unwrap() {
+        0 => DataType::U8,
+        1 => DataType::I32,
+        3 => DataType::F32,
+        4 => DataType::I16,
+        10 => DataType::U16,
+        other => panic!("type code {other}"),
+    };
+    assert_eq!(v.datatype, want_dt);
+    for r in 0..4 {
+        for c in 0..4 {
+            close(
+                &format!("affine[{r}][{c}]"),
+                v.affine[r][c],
+                refs["affine"][r][c].as_f64().unwrap(),
+                1e-4,
+            );
+        }
+    }
+    for (i, d) in refs["delta"].as_array().unwrap().iter().enumerate() {
+        close(
+            &format!("spacing[{i}]"),
+            v.spacing[i],
+            d.as_f64().unwrap().abs(),
+            1e-6,
+        );
+    }
+    for (t, want) in refs["volumeStats"].as_array().unwrap().iter().enumerate() {
+        let s = v.stats(t);
+        close(
+            &format!("vol {t} min"),
+            s.min as f64,
+            want["min"].as_f64().unwrap(),
+            1e-4,
+        );
+        close(
+            &format!("vol {t} max"),
+            s.max as f64,
+            want["max"].as_f64().unwrap(),
+            1e-4,
+        );
+        close(
+            &format!("vol {t} mean"),
+            s.mean,
+            want["mean"].as_f64().unwrap(),
+            1e-4,
+        );
+    }
+    for spot in refs["spotValues"].as_array().unwrap() {
+        let ijk: Vec<usize> = spot["voxel"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d.as_u64().unwrap() as usize)
+            .collect();
+        let t = spot["volume"].as_u64().unwrap() as usize;
+        let ijk3 = [ijk[0], ijk[1], ijk[2]];
+        let linear = ijk[0] + v.dims[0] * (ijk[1] + v.dims[1] * (ijk[2] + v.dims[2] * t));
+        let raw = match &v.data {
+            tvx_nifti::VolumeData::F32(d) => d[linear] as f64,
+            tvx_nifti::VolumeData::U8(d) => d[linear] as f64,
+            tvx_nifti::VolumeData::I16(d) => d[linear] as f64,
+            tvx_nifti::VolumeData::U16(d) => d[linear] as f64,
+            tvx_nifti::VolumeData::I32(d) => d[linear] as f64,
+            other => panic!("unexpected MGH data {other:?}"),
+        };
+        close(
+            &format!("raw{ijk:?}[{t}]"),
+            raw,
+            spot["raw"].as_f64().unwrap(),
+            1e-6,
+        );
+        let world = world_of(&v, ijk3);
+        for r in 0..3 {
+            close(
+                &format!("world{ijk:?}[{r}]"),
+                world[r],
+                spot["world"][r].as_f64().unwrap(),
+                1e-4,
+            );
+        }
+    }
+    assert_eq!(v.xyz_units.space, SpaceUnit::Millimeter);
+    assert!(v.gpu_payload(0, &CAPS_FULL, true).is_ok());
+}

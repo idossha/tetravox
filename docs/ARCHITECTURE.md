@@ -7,8 +7,8 @@ nav_order: 7
 
 # Tetravox — Architecture Contract
 
-> Desktop viewer for **voxel volumes** (NIfTI) and **finite-element / surface meshes** (Gmsh `.msh`, GIfTI,
-> FreeSurfer, STL/PLY/OBJ) with a linked **3D view + sagittal/axial/coronal 2D slices**. macOS + Linux.
+> Desktop viewer for **voxel volumes** (NIfTI, FreeSurfer MGH/MGZ, NRRD, MetaImage) and **finite-element /
+> surface meshes** (Gmsh `.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ) with a linked **3D view + sagittal/axial/coronal 2D slices**. macOS + Linux.
 
 This file is the **contract**. Deviating from it requires editing this file in the same commit and appending
 an entry to `docs/DECISIONS.md`. Section numbers are cited from code comments and tests — do not renumber.
@@ -45,8 +45,8 @@ tetravox/
 ├── rust-toolchain.toml           # pinned stable; nightly is forbidden
 ├── crates/
 │   ├── tvx-core/                 # shared types: Plane, BitMask, Field, LabelTable, Aabb, Error, ProgressSink
-│   ├── tvx-nifti/                # NIfTI-1/2 reader (+gzip), stats, GPU payload selection
-│   ├── tvx-mesh-io/              # Gmsh .msh v2/v4.1, .msh.opt, .geo/.pos views, GIfTI, FreeSurfer, STL/PLY/OBJ
+│   ├── tvx-nifti/                # NIfTI-1/2, MGH/MGZ, NRRD, MetaImage readers (+gzip), stats, GPU payload selection
+│   ├── tvx-mesh-io/              # Gmsh .msh v2/v4.1, .msh.opt, .geo/.pos views, GIfTI, FreeSurfer, STL/PLY/OBJ, VTK, OFF, MEDIT
 │   ├── tvx-geom/                 # surfaces, boundary extraction, Morton order, tet blocks, plane cut, isolation,
 │   │                             #   marching cubes/tets, elm↔node, contours, point location, orientation
 │   └── tvx-wasm/                 # wasm-bindgen bindings (handle-based) → packages/wasm/pkg (git-ignored)
@@ -1001,6 +1001,16 @@ pub enum TimeUnit  { Unknown, Second, Millisecond, Microsecond, Hz, Ppm, Rads }
 pub struct LabelIndex { pub ids: Vec<u32>, pub dense_of: Vec<u32> }   // dense_of[id] -> index; cap 65535
 
 pub fn read_nifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;
+pub fn read_mgh(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;        // .mgh / .mgz
+pub fn read_nrrd(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;       // .nrrd (attached)
+pub fn read_metaimage(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Volume>;  // .mha (attached)
+
+pub enum VolumeFormat { Nifti, Mgh, Nrrd, MetaImage }
+/// Content first (NIfTI `sizeof_hdr`, MGH big-endian `version = 1`, `NRRD000x`, a MetaImage `Key = Value`
+/// line), `hint_ext` only for bytes the content cannot place. A gzip member is peeked, not inflated.
+pub fn sniff_volume(bytes: &[u8], hint_ext: Option<&str>) -> Result<VolumeFormat>;
+/// `None` = sniff. Every format yields the same `Volume`; a gzip member is inflated exactly once.
+pub fn read_volume(bytes: Vec<u8>, format: Option<VolumeFormat>, p: &mut dyn ProgressSink) -> Result<Volume>;
 
 impl Volume {
     pub fn stats(&self, vol: usize) -> FieldStats;                    // PHYSICAL units
@@ -1016,6 +1026,34 @@ Rules:
   Accepted datatypes: uint8, int8, uint16, int16, uint32, int32, float32, float64 (→ f32 at GPU time only),
   RGB24, RGBA32. `Error::Unsupported` **by name** for complex64/128, int64, uint64. Two-file `ni1` ⇒
   `Error::Unsupported("two-file NIfTI")`.
+* **One `Volume` from every reader.** `read_mgh`, `read_nrrd` and `read_metaimage` share `read_nifti`'s
+  datatype decode, slope/inter rule, `is_label` test and stats (`common::finish`); each carries
+  `scl_slope/inter = (1, 0)`, `cal_min/max = 0`, `intent_code = 0`, a short `descrip` (`"MGH"`, the NRRD
+  `content:`, `"MetaImage"`), `xyz_units = Millimeter` (NRRD: `space units` when given), and **every parsed
+  header field in `header_json`** with an `affineSource` string saying what the affine was built from.
+  * **MGH/MGZ** — big-endian throughout; `version` must be 1; the fixed header is padded to **284 bytes** and
+    the samples start there; `nvols = nframes`; types `UCHAR 0`, `INT 1`, `FLOAT 3`, `SHORT 4`, `USHRT 10`
+    (`LONG`, `BITMAP`, `TENSOR` are `Unsupported` by name). The affine is nibabel's `MGHHeader.get_affine`:
+    `M = [x_ras y_ras z_ras]·diag(delta)`, `t = Pxyz_c − M·(dims/2)` (float division), and when
+    `goodRASFlag == 0` nibabel's default geometry (`delta = 1`, LIA cosines `[[-1,0,0],[0,0,1],[0,-1,0]]`,
+    `Pxyz_c = 0`). The optional footer (`TR`, `flip_angle`, `TE`, `TI`, `FoV`) is parsed into `header_json`.
+  * **NRRD** — **attached header only**: a `data file:` field (`.nhdr`) is `Unsupported` naming the sibling
+    file. `dimension` 3 or 4; every spelling of the eight scalar types; encodings `raw`, `gzip`/`gz`,
+    `ascii`/`txt`/`text` (`bzip2`, `hex` `Unsupported` by name); `endian`, `byte skip`, `line skip`.
+    Spatial axes are the `kinds` `domain`/`space` axes (else the non-`none` `space directions`, else the first
+    three); a non-spatial **last** axis is `nvols`; a non-spatial **first** axis is read only as
+    `3-color`/`4-color` over `uint8` → RGB24/RGBA32, anything else channel-first is `Unsupported`. Affine =
+    `space directions` columns + `space origin`, `spacing = |column|`, converted to RAS by negating the rows
+    whose `space` letter is L, P or I (`left-posterior-superior` → flip x, y); **no `space` reads as LPS**, as
+    ITK does; a non-anatomical space is taken as-is. `measurement frame`, `centerings` and comments are ignored.
+  * **MetaImage** — **`.mha` only**: `ElementDataFile` other than `LOCAL` (`.mhd`) is `Unsupported` naming
+    the sibling file. `NDims` 3 or 4 (4th = `nvols`), `MET_UCHAR/CHAR/USHORT/SHORT/UINT/INT/FLOAT/DOUBLE`,
+    `ElementNumberOfChannels` 1, or 3/4 over `MET_UCHAR` → RGB24/RGBA32; `BinaryData`,
+    `BinaryDataByteOrderMSB`, `CompressedData` (one **zlib** stream of `CompressedDataSize` bytes),
+    `HeaderSize` (`-1` = the last N bytes). `TransformMatrix` holds the per-axis direction vectors
+    consecutively (the direction matrix column-major, as ITK writes it); the affine is
+    `[TransformMatrix·diag(ElementSpacing) | Offset]` with the **x and y rows negated** (LPS → RAS), i.e.
+    exactly `sitk` direction/origin/spacing converted the way a SimpleITK→nibabel bridge does.
 * **Scaling is never folded.** Apply slope/inter only when
   `slope.is_finite() && slope != 0.0 && inter.is_finite() && (slope != 1.0 || inter != 0.0)`; otherwise
   normalise to `(1.0, 0.0)`. The affine is carried in `GpuPayload{scale, offset}` and applied as
@@ -1054,8 +1092,9 @@ Rules:
   `want_linear` is false when the layer is a label or `interpolation === 'nearest'`.
 * Volumes whose `max(dims) > caps.max_3d` fail loudly at load with a downsample offer — never a silently
   incomplete texture at draw time.
-* `read_nifti` **takes ownership of the byte vector and frees it before returning**, so §4.6's `fingerprint`
-  is taken by the caller over `&bytes` on the line above the call.
+* Every reader (`read_nifti`, `read_mgh`, `read_nrrd`, `read_metaimage`, `read_volume`) **takes ownership of
+  the byte vector and frees it before returning**, so §4.6's `fingerprint` is taken by the caller over
+  `&bytes` on the line above the call. Each reports `Read` → `Inflate` → `Parse` → `Index` like `read_nifti`.
 
 ### 6.2 `tvx-mesh-io`
 
@@ -1102,9 +1141,13 @@ pub fn read_fs_annot(bytes: &[u8]) -> Result<(Field, LabelTable)>;   // Field = 
 pub fn read_stl(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_ply(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_obj(bytes: Vec<u8>) -> Result<Mesh>;
+pub fn read_vtk(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh>;      // legacy `.vtk`
+pub fn read_vtk_xml(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh>;  // `.vtu` / `.vtp`
+pub fn read_off(bytes: Vec<u8>) -> Result<Mesh>;
+pub fn read_medit(bytes: Vec<u8>) -> Result<Mesh>;                              // MEDIT `.mesh`
 pub fn read_geo_view(bytes: Vec<u8>) -> Result<Vec<GeoView>>;   // Gmsh parsed views: `.geo` / `.pos`
 pub fn sniff(bytes: &[u8], hint_ext: Option<&str>) -> Result<Format>;
-pub enum Format { Msh, Gifti, FsSurface, Stl, Ply, Obj, Geo }
+pub enum Format { Msh, Gifti, FsSurface, Stl, Ply, Obj, Geo, Vtk, VtkXml, Off, Medit }
 
 /// One `View "name" { … };` block. De-indexed: a parsed view has no node table.
 pub struct GeoView {
@@ -1195,9 +1238,50 @@ annotation values to **dense 0..N−1** through the embedded colortable at parse
 colortable, with the original id preserved in `LabelEntry.id`. Unassigned vertices (`-1`) map to dense index
 0 with a transparent entry.
 
-Loaders that triangulate n-gons (`read_fs_surface` quad file, `read_ply`, `read_obj`) must emit a matching
-`tri_edge_mask`. `read_msh` and `read_stl` emit `None`, which the engine maps to the constant-attribute fast
+Loaders that triangulate n-gons (`read_fs_surface` quad file, `read_ply`, `read_obj`, `read_vtk`,
+`read_vtk_xml`, `read_off`) must emit a matching `tri_edge_mask`, and only when an n-gon really occurred.
+`read_msh`, `read_stl` and `read_medit` emit `None`, which the engine maps to the constant-attribute fast
 path.
+
+**General-purpose mesh formats (VTK legacy, VTK XML, OFF, MEDIT) — normative.** All four produce nodes in
+f32 mm, 0-based ids validated against the node count at parse time, `label_table: None`, no
+`physical_names`, identity `tet_perm`, `gmsh_*_numbers: None` (the synthesised `1..N` rule above).
+
+* **VTK legacy `.vtk`** (`# vtk DataFile Version x.y`): `DATASET POLYDATA` (`POINTS` + `POLYGONS`; `VERTICES`
+  / `LINES` / `TRIANGLE_STRIPS` are counted into `skipped` as VTK types 2 / 4 / 6 and keep their cell-data
+  rows) and `DATASET UNSTRUCTURED_GRID` (`POINTS` + `CELLS` + `CELL_TYPES`, both the classic
+  `count, i…` stream and the VTK 9 `OFFSETS` / `CONNECTIVITY` sub-arrays). Any other `DATASET` is
+  `Error::Unsupported`. **BINARY payloads are big-endian regardless of host.** Cell types kept: 5 triangle,
+  7 polygon, 9 quad, 8 pixel (reordered `0,1,3,2`) → `tris`, fanned with a mask when not a triangle;
+  10 tetra → `tets`. Every other type is counted into `skipped` under its **VTK** cell-type code (the `.msh`
+  and MEDIT readers use Gmsh codes there). `POINT_DATA` / `CELL_DATA` attributes `SCALARS name type [ncomp]`
+  (+ `LOOKUP_TABLE default`), `VECTORS`, `NORMALS` (kept as a 3-component field), `TENSORS` and
+  `FIELD FieldData n` arrays become `node_fields` / `elm_fields`; `TEXTURE_COORDINATES`, `COLOR_SCALARS`
+  and `LOOKUP_TABLE` tables are read and dropped; VTK ≥ 8 `METADATA` blocks are skipped.
+* **VTK XML `.vtu` / `.vtp`** (`<VTKFile type="UnstructuredGrid"|"PolyData">`): `format="ascii"`,
+  `"binary"` (base64 inline) and `"appended"` (raw or base64 after the `_` of `<AppendedData>`);
+  `byte_order` honoured, little-endian by default; `header_type` `UInt32` (default) or `UInt64`. An
+  uncompressed array is `[nbytes][data]`. With `compressor="vtkZLibDataCompressor"` the header is
+  `[nblocks, blocksize, last_size, csize_0 … csize_{nblocks−1}]` followed by that many zlib streams, and
+  **inline base64 encodes the header and the block data as two separate runs** (padding may sit between
+  them), so the header is decoded first and the data run starts at the next 4-character boundary. Same
+  cell-type mapping as legacy; a PolyData's cells are in `Verts, Lines, Polys, Strips` order. Several
+  `<Piece>`s concatenate with node-index offsets; an array missing from some piece is NaN-padded with
+  `partial = true`.
+* **Cell-data tag rule (VTK legacy and XML).** A cell array named, case-insensitively, `material`, `tag`,
+  `tags`, `region`, `label`, `labels`, `gmsh:physical`, `ElementTag`, `elem_tags`, `medit:ref` or `ref`, with
+  one component, becomes `tri_tags` / `tet_tags` (values rounded to `i32`) **and** stays an `ElmField`. The
+  first such array wins; a file with none has tag 0 throughout.
+* **OFF** (`[ST][C][N][4][n]OFF`, counts on the header line or the next, `#` comments): vertices take the
+  first three coordinates (divided by `w` for `4OFF`), extra colour / normal / texture columns are ignored,
+  n-gon faces are fanned with a mask. Tag 0 throughout.
+* **MEDIT `.mesh`** (ASCII, `MeshVersionFormatted`): `Vertices`, `Triangles`, `Tetrahedra`; **each record's
+  trailing reference integer is its `tri_tags` / `tet_tags` entry.** `Edges`, `Quadrilaterals`, `Hexahedra`,
+  `Prisms`, `Pyramids` are counted into `skipped` under Gmsh element types 1 / 3 / 5 / 6 / 7; any other block
+  is skipped silently. Binary `.meshb` (leading native-i32 keyword code 1) is `Error::Unsupported`.
+* `sniff` recognises each by content — `# vtk DataFile`, `<VTKFile`, a leading `…OFF` word,
+  `MeshVersionFormatted` (or the `.meshb` magic) — and by extension hint `vtk`, `vtu`, `vtp`, `off`,
+  `mesh` / `meshb`.
 
 ### 6.3 `tvx-geom`
 
@@ -1396,10 +1480,14 @@ is present wherever an op can exceed one frame, and is called at section boundar
 // `probeCapabilities()` on the UI thread and travel in the op args (§6.5.2). Both loaders call
 // `tvx_core::fingerprint(&bytes)` BEFORE handing the vector to the parser — it is the only field of
 // either meta that cannot be recovered from the parsed dataset, because the bytes are gone by then.
+// `load_volume` takes no format argument: the bytes are NIfTI-1/2, MGH/MGZ, NRRD or MetaImage and
+// `tvx_nifti::read_volume(bytes, None, …)` sniffs them by content (§6.1), so NIfTI bytes behave
+// exactly as before the other formats existed.
 #[wasm_bindgen] pub fn load_volume(bytes: Vec<u8>, lut_bytes: Option<Vec<u8>>,
                                    float_linear: bool, norm16: bool, max_3d: u32, want_linear: bool,
                                    on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
-// `format` is §6.5's `MeshFormatSel`. `"geo"` is the Gmsh parsed-view path: `read_geo_view`, then the
+// `format` is §6.5's `MeshFormatSel`: `auto|msh|gii|fs|stl|ply|obj|geo|vtk|vtu|vtp|off|medit`
+// (`vtu` and `vtp` both dispatch to `read_vtk_xml`). `"geo"` is the Gmsh parsed-view path: `read_geo_view`, then the
 // views' triangles folded into ONE de-indexed `Mesh` (a `tri_tag` per view, per-corner values on a node
 // field named `value`), and the points / labels / `SL` segments returned as the additive `geo` half of
 // the result (§6.5.1 `GeoPayloadT`). No new op and no new export — a parsed view's triangles are a
@@ -1479,8 +1567,8 @@ pub struct CutOut {
 |---|---|
 | `morton_reorder`, `build_tet_blocks`, `build_point_locator`, `orient_surface`, `vertex_normals`, `face_normals` | Run inside `load_mesh` / `mesh_surface`; load-time invariants, not client-callable state |
 | `read_msh_opt` | Run inside `load_mesh` from the optional sibling bytes; result appears as `MeshMeta.opt` |
-| `read_msh` / `read_gifti` / `read_fs_*` / `read_stl` / `read_ply` / `read_obj` / `sniff` | Dispatched by `load_mesh(format)` |
-| `read_nifti` | Run inside `load_volume` |
+| `read_msh` / `read_gifti` / `read_fs_*` / `read_stl` / `read_ply` / `read_obj` / `read_vtk` / `read_vtk_xml` / `read_off` / `read_medit` / `sniff` | Dispatched by `load_mesh(format)` |
+| `read_volume` (→ `read_nifti` / `read_mgh` / `read_nrrd` / `read_metaimage`, `sniff_volume`) | Run inside `load_volume`, sniffed by content |
 | `Volume::sample_nearest` | Probes are served from the UI thread's retained `data` array (§4.3); native/CLI only |
 | `Volume::stats` / `label_index` / `gpu_payload` | `load_volume` runs them for index 0, `volume_frame` for any other |
 | `LabelTable::parse_*` | Sidecar LUT text is parsed in the worker as part of `load_volume` / `load_mesh`. The **worker** fetches the sidecar; the crates never touch the filesystem |
@@ -1648,7 +1736,7 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | op | args | result | notes |
 |---|---|---|---|
 | `loadVolume` | `{ source: LoadSource; caps; wantLinear }` | `{ meta: VolumeMeta; data; gpuBytes: ArrayBuffer; labelIds?; denseIndexOf? }` | `data` = raw samples for probes; `gpuBytes` = the `gpu_payload` texture bytes |
-| `loadMesh` | `{ source: LoadSource; format: 'auto'\|'msh'\|'gii'\|'fs'\|'stl'\|'ply'\|'obj'\|'geo' }` | `{ meta: MeshMeta; geo?: GeoPayloadT }` | no bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` built here. `geo` present **only** for `'geo'` |
+| `loadMesh` | `{ source: LoadSource; format: 'auto'\|'msh'\|'gii'\|'fs'\|'stl'\|'ply'\|'obj'\|'geo'\|'vtk'\|'vtu'\|'vtp'\|'off'\|'medit' }` | `{ meta: MeshMeta; geo?: GeoPayloadT }` | no bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` built here. `geo` present **only** for `'geo'` |
 | `volumeFrame` | `{ handle; volumeIndex; caps; wantLinear }` | `VolumeFrameT` | the **only** way to display a 4D index ≠ 0 |
 | `surface` | `{ handle; variant; maskId? }` | `SurfacePayload` | `tag_surfaces` when `hasTris`, else `extract_boundary` |
 | `boundary` | `{ handle; maskId?; variant }` | `SurfacePayload` | always `extract_boundary`; used after isolation/clip |
@@ -2045,7 +2133,7 @@ shaders declare `invariant gl_Position;`.
 * **Lighting:** headlight Blinn-Phong with configurable ambient; flat shading optional; two-sided lighting.
 * **Surfaces on 2D slices:** `contours` line segments drawn in the overlay pass as instanced screen-space
   quads; tet cut polygons drawn in the opaque pass with tag/field colour when `fillIn2D`.
-  A **surface** layer — a triangle-only mesh, `nTets === 0`: GIfTI, FreeSurfer, STL/PLY/OBJ, `.geo`
+  A **surface** layer — a triangle-only mesh, `nTets === 0`: GIfTI, FreeSurfer, STL/PLY/OBJ, OFF, `.vtp`, `.geo`
   triangles — opens with `contoursIn2D: true`, `fillIn2D: false` and `contourWidthPx: 1.5`, and takes its own
   `contourColor` from `SURFACE_CONTOUR_PALETTE` (`scene/defaults.ts`) in load order, first entry Freeview
   yellow. A tet mesh's defaults do not move: `fillIn2D: true`, width 1, no `contourColor`. Clicking within
@@ -2433,8 +2521,11 @@ channel, and outlines by dilation-tolerant IoU ≥ 0.9.
 
 **Fixture expectations.** `scripts/gen-fixtures.py` writes `testdata/manifest.json` and **commits** it, so
 Rust tests assert numbers without needing Python at test time. **Every number in it comes from an
-independent reader, never from the writer beside it**: nibabel for NIfTI / GIfTI / FreeSurfer,
-`simnibs.mesh_io.read_msh` for Gmsh v2.2, and the Gmsh Python API for Gmsh v4.1 and for STL/PLY/OBJ. The
+independent reader, never from the writer beside it**: nibabel for NIfTI / MGH / GIfTI / FreeSurfer,
+SimpleITK for NRRD / MetaImage (it loads LPS; the manifest stores the RAS affine after the x/y flip),
+`simnibs.mesh_io.read_msh` for Gmsh v2.2, the Gmsh Python API for Gmsh v4.1, STL/PLY/OBJ and the ascii
+legacy `.vtk` / `.off` / MEDIT `.mesh`, and meshio for VTK legacy + XML and MEDIT (Gmsh 4.14 reads no VTK XML
+and no binary legacy VTK; each such gap is a `readerNote` in the manifest). The
 handful of expectations no third-party reader produces are marked `"groundTruth": "authored"`. Reference
 values for the *real* dataset come from `scripts/refvalues/` and are transcribed into `AGENTS.md`.
 
