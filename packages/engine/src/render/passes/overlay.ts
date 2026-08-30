@@ -34,7 +34,7 @@ import {
   overlayMetrics,
   volumeColorbarSpec,
 } from '../../overlay';
-import { drawPointLabels, placePointLabels } from '../../overlay/point-labels';
+import { drawPointLabels, placePointLabels, pointLabelAnchors } from '../../overlay/point-labels';
 import { drawMeasurement, onPlane } from '../../overlay/measure';
 import type { PlacedMeasurement } from '../../overlay/measure';
 import { formatMeasurement } from '../../derived/measure';
@@ -254,7 +254,9 @@ function drawPointLabelsFor(
   for (const layer of input.scene.layers) {
     if (layer.kind !== 'points' || !visibleIn(layer, view)) continue;
     if (layer.showLabels !== true) continue;
-    const labels = layer.labels ?? [];
+    // §4.4's `labelSource` (2026-08-30). Absent — and every layer that predates the field — resolves
+    // to `layer.labels` verbatim, so this pane draws exactly what it drew before.
+    const labels = pointLabelAnchors(layer);
     if (labels.length === 0) continue;
 
     const slabMm = Math.max(layer.radiusMm, 1);

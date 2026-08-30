@@ -1990,6 +1990,15 @@ Rules:
      the eye or outside the pane, and — in a 2D pane — every anchor further than one point radius from the
      slice, because a 187-electrode net projected whole onto one axial slice is a smear of names belonging to
      slices 80 mm away.
+   * **`PointsLayer.labelSource`** (2026-08-30) picks which array that text comes from: `'labels'` —
+     absent, and every layer written before the field — is the `labels` array above; `'names'` draws
+     `points[].name` at each point's **own** position, dropping the points that have no name. One
+     resolver, `pointLabelAnchors`, so the pass has no branch inside its loop and §11 can assert
+     which strings a layer emits with no GL context. **The slab rule does not follow the ghost**: a
+     layer with `offPlaneOpacity > 0` draws its off-slice discs and still drops every label further
+     than `max(radiusMm, 1 mm)` from the plane. The two 2D rules diverge deliberately — a disc at
+     0.6 alpha is a legible hint of where the shaft goes, and a whole shaft's worth of names on one
+     slice is the smear this bullet's slab exists to prevent.
    * The **scale bar** (2D panes) and the **orientation cube** (3D panes) both take the pane's
      **bottom-right** corner, which they can never contend for. The bar's length is snapped to
      `1 / 2 / 5 / 10 / 20 / 50 / 100 mm` so it lands in 60…160 px, and the **drawn length is exactly

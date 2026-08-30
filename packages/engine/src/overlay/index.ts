@@ -47,6 +47,8 @@ export { CONTOUR_PICK_PX, nearestContourDistanceSqPx, segmentDistanceSqPx } from
 export type { ContourQuad } from './contours';
 // Appended for parsed Gmsh views (task 6): a points layer's screen-projected 3D text labels.
 export { drawPointLabels, labelHeightPx, placePointLabels } from './point-labels';
+// §4.4's `labelSource` (2026-08-30): which array a points layer's text comes from, resolved once.
+export { pointLabelAnchors } from './point-labels';
 export type { LabelPlacement, PlacedLabel } from './point-labels';
 // Directed task 9 (2026-08-28): the pass-3 chrome palette, so `setAnnotations`'s neighbour
 // `setTheme` has something to carry and the halo flips with the embedder's theme.

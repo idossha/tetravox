@@ -21,6 +21,8 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { expectPixel } from '../helpers/pixels';
+import { readChromeText } from '../helpers/chrome';
+import { CELL_W } from '../../src/render/font';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
@@ -206,5 +208,73 @@ test("shape 'dot' ghosts at its constant pixel radius, at every zoom", async ({ 
   await expectPixel(page, zx, zy, over(RED, TAG2, GHOST), 2);
   await expectPixel(page, zx + 3, zy, over(RED, TAG2, GHOST), 2);
   await expectPixel(page, zx + 6, zy, [...TAG2, 255]);
+  expect(errors).toEqual([]);
+});
+
+// -------------------------------------------------------------------------------------------
+// §4.4's `labelSource` — which array the in-pane text comes from
+// -------------------------------------------------------------------------------------------
+
+/**
+ * The lower-left corner, in pane pixels with a bottom-left origin, of a label centred on the world
+ * point `at(x, z)` draws at.
+ *
+ * Derived from §7.2's rule rather than measured: `placePointLabels` flips the top-down projection
+ * (`height − 1 − y`) and lifts by `radiusMm / mmPerPx` pixels; `drawPointLabels` centres the string
+ * on the anchor, so the left edge is half its width back. `CELL_W` is the font's own cell pitch.
+ */
+function labelCorner(x: number, z: number, length: number): { xLocal: number; yLocal: number } {
+  const [ax, ayTop] = at(x, z);
+  const liftPx = 2 / 0.05; // radiusMm / mmPerPx, at uiScale 1
+  return {
+    xLocal: Math.round(ax) - (length * CELL_W) / 2,
+    yLocal: Math.round(PANE - 1 - ayTop + liftPx),
+  };
+}
+
+/** Decode `length` glyphs at a label's corner. The text is white here, so the default ink applies. */
+async function readLabel(page: Page, corner: { xLocal: number; yLocal: number }, length: number) {
+  return readChromeText(page, {
+    canvasHeight: PANE,
+    pane: { x: 0, y: 0, width: PANE, height: PANE },
+    ...corner,
+    length,
+  });
+}
+
+test("labelSource 'names' draws points[].name, and the slab still culls the ghosted ones", async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  // White text so §11's glyph matcher can use its own near-white ink predicate: the red discs, the
+  // 0.6 ghost blend over them and the grey tag are all outside it, so anything it reads IS a glyph.
+  await ghostScene(page, {
+    showLabels: true,
+    labelSource: 'names',
+    labelColor: [1, 1, 1, 1],
+    offPlaneOpacity: GHOST,
+  });
+
+  // The on-slice point's name, decoded back out of the framebuffer rather than eyeballed.
+  expect(await readLabel(page, labelCorner(-5, 5, 2), 2)).toBe('ON');
+
+  // **The labels do not follow the discs.** The second point is 10 mm off the plane: its disc is
+  // ghosted (the test above proves that pixel is a blend) and its name is *not* drawn, because
+  // §7.2's slab is `max(radiusMm, 1) = 2 mm`. That divergence is stated in §4.4 and §7.2; this is it
+  // asserted — nothing but background arithmetic where `OFF` would have been.
+  expect(await readLabel(page, labelCorner(5, 5, 3), 3)).toBe('');
+  expect(errors).toEqual([]);
+});
+
+test("labelSource absent still reads the labels array, not the points' names", async ({ page }) => {
+  const errors = await openScene(page);
+  // `labels[0].text` differs from every `points[].name`, so the two sources cannot be confused: a
+  // resolver that fell through to the names would decode `ON` here.
+  await ghostScene(page, {
+    showLabels: true,
+    labelColor: [1, 1, 1, 1],
+    labels: [{ position: [-5, 2.5, 5], text: 'LBL' }],
+  });
+  expect(await readLabel(page, labelCorner(-5, 5, 3), 3)).toBe('LBL');
   expect(errors).toEqual([]);
 });
