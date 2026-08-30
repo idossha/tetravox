@@ -62,6 +62,8 @@ test('every §12.3 TypeScript contract is watched', () => {
     'packages/engine/src/scene/types.ts',
     'packages/engine/src/api.ts',
     'packages/wasm/src/index.ts',
+    // Item 6, frozen 2026-08-30 with the module host's wiring commit (§13.1).
+    'packages/app/src/renderer/src/modules/host.ts',
   ]) {
     ok(FROZEN_PATHS.includes(path), path);
     strictEqual(frozenViolations([path]).length, 1);

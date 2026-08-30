@@ -14,12 +14,10 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import type { TetravoxBridge } from '../../../preload/index';
-import {
-  createHostFiles,
-  resolveSibling,
-  substituteCandidate,
-  type HostFilesManifest,
-} from './hostFiles';
+import { createHostFiles, type HostFilesManifest } from './hostFiles';
+// The candidate arithmetic moved to the module both callers share (§13.1); it is still asserted
+// from here, because this file is where a path that leaves the anchor's tree would be a live bug.
+import { resolveSibling } from './siblings';
 
 const MANIFEST: HostFilesManifest = {
   id: 'tetravox.seeg',
@@ -145,18 +143,6 @@ describe('resolveSibling', () => {
   });
 });
 
-describe('substituteCandidate', () => {
-  it('fills the pattern’s named groups', () => {
-    expect(
-      substituteCandidate('{sub}_space-{space}_electrodes.tsv', { sub: 'sub-1', space: 'T1w' })
-    ).toBe('sub-1_space-T1w_electrodes.tsv');
-  });
-
-  it('refuses a token the pattern never captured', () => {
-    expect(substituteCandidate('{sub}_{missing}.tsv', { sub: 'sub-1' })).toBeNull();
-  });
-});
-
 describe('siblings()', () => {
   const CT = '/bids/sub-P076/ct/sub-P076_space-T1w_acq-bone_ct.nii.gz';
   const TSV = '/bids/sub-P076/ieeg/sub-P076_space-T1w_electrodes.tsv';
@@ -230,6 +216,9 @@ describe('the four bridge calls', () => {
     expect(calls.open[0]).toEqual([
       'tetravox.seeg',
       {
+        // The id main looks the reader up by in `MANIFESTS`; the title and filters beside it are
+        // the fallback for a build whose barrel does not carry this module.
+        readerId: 'electrodes',
         title: 'Electrode table',
         filters: [
           { name: 'Electrode table', extensions: ['tsv', 'csv'] },
@@ -250,6 +239,7 @@ describe('the four bridge calls', () => {
     expect(calls.save[0]).toEqual([
       'tetravox.seeg',
       {
+        writerId: 'electrodes',
         title: 'Save electrodes',
         filters: [{ name: 'Electrode table', extensions: ['tsv'] }],
         siblings: ['{name}.{stamp}.bak', '{stem}_editlog.json'],

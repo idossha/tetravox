@@ -27,6 +27,7 @@ import type {
   LoadProgress,
   MeshLayer,
   NewLayer,
+  PointToolEvent,
   ProbeResult,
   ScreenshotOptions,
   ViewId,
@@ -38,6 +39,8 @@ import type {
 import {
   measurementFocus,
   parseTextAffine,
+  // Modules (2026-08-30, §13.1): the §4.3 bounded local read `host.scene.peakCentroid` is.
+  peakCentroid,
   sidecarPathsFor,
   subjectToMniAffine,
 } from '@tetravox/engine';
@@ -103,6 +106,7 @@ import type { ModuleKeyEvent } from '../modules/keys';
 import { readerClaim } from '../modules/readers';
 import type { ReaderClaim } from '../modules/readers';
 import { instantiateSiblings } from '../modules/siblings';
+import { createHostFiles } from '../modules/hostFiles';
 import { moduleOfLayer } from '../modules/ownership';
 import { anyModuleDirty, dirtyModuleIds } from './store';
 
@@ -255,7 +259,12 @@ export class ShellController {
       // Directed task 11: the measurement list. Its own event, so a click in measure mode does not
       // rebuild the layer panel (see `EngineEvents.measurements`).
       engine.on('measurements', (measurements) => store.setState({ measurements })),
-      engine.on('error', (error) => this.onEngineError(error))
+      engine.on('error', (error) => this.onEngineError(error)),
+      // Modules (2026-08-30, §13.1), appended: §7.5's point tool, forwarded to the module in the
+      // slot. Not a store projection — a `dragEnd` is an edge, and the store holds no point-tool
+      // state to diff — so it travels like `measurements`: one engine subscription, fanned out to
+      // whoever asked for it.
+      engine.on('pointTool', (event: PointToolEvent) => this.emitPointTool(event))
     );
 
     // §8: "fps = frames drawn in the last second (0 when idle is correct under render-on-demand)".
@@ -2169,6 +2178,9 @@ export class ShellController {
   /** Listeners on the app-level scene edges a module can subscribe to (`ModuleEvents`). */
   private readonly sceneListeners = new Set<(event: ModuleSceneEvent) => void>();
 
+  /** Listeners on the engine's `pointTool` event (`ModuleEvents.pointTool`). */
+  private readonly pointToolListeners = new Set<(event: PointToolEvent) => void>();
+
   /** The confirm question in flight, paired with its `ConfirmRequest.id`. */
   private pendingConfirm: { id: number; resolve: (choice: 0 | 1 | 2) => void } | null = null;
   private confirmSeq = 0;
@@ -2199,6 +2211,18 @@ export class ShellController {
   }
 
   /**
+   * The active module's host, or null.
+   *
+   * The wiring's own seam: it is the object `activateModule` built out of the engine, the bridge and
+   * this controller, and a test that arms the point tool or asks for a peak centroid through it is
+   * testing the wiring rather than a re-creation of it. Read-only in practice — the module holds the
+   * same object — and never a way for the shell to act *as* a module: everything here is generic.
+   */
+  moduleHost(): ModuleHost | null {
+    return this.moduleSession?.host ?? null;
+  }
+
+  /**
    * Put a module in the slot, loading it the first time (§13.1).
    *
    * Idempotent for the module that is already there. Another module in the slot is disposed first —
@@ -2218,7 +2242,19 @@ export class ShellController {
     let host: ModuleHost;
     try {
       const loaded = await registration.load();
-      host = createModuleHost({ controller: this, store: this.store }, registration.manifest);
+      host = createModuleHost(
+        {
+          controller: this,
+          store: this.store,
+          tool: this.moduleTool(),
+          // §5 rule 11's channels, with the manifest that names the reader, the writer and the
+          // sibling patterns; `allowPath` is the renderer's existing sidecar probe (§13.1).
+          files: createHostFiles(registration.manifest, (path) => bridge().allowPath(path)),
+          peakCentroid: (datasetId, world, radiusMm) =>
+            this.modulePeakCentroid(datasetId, world, radiusMm),
+        },
+        registration.manifest
+      );
       instance = await loaded.activate(host);
     } catch (error: unknown) {
       this.toast('io', registration.manifest.title, errorMessage(error));
@@ -2284,12 +2320,13 @@ export class ShellController {
   handleModuleKey(event: ModuleKeyEvent): boolean {
     const session = this.moduleSession;
     if (session === null) return false;
+    // §13.5's two gates, read off the engine: a `when: 'selection'` key is live only with a point
+    // actually selected, and a `when: 'toolArmed'` one only while the tool is armed. Both are the
+    // engine's state rather than the module's belief about it, which is what makes the exception to
+    // "a plain key stays harmless" a narrow one.
     const command = resolveModuleKey(session.manifest, event, {
-      // INTEGRATION(P2): both come from the engine's point tool once it exists. Until then a
-      // `when: 'selection'` or `when: 'toolArmed'` binding never fires, which is the safe default —
-      // §13.5's exception exists to let a key act on an *explicit* selection, and there is none.
-      hasSelection: false,
-      toolArmed: false,
+      hasSelection: this.engine.pointSelection() !== null,
+      toolArmed: this.engine.pointTool() !== null,
     });
     if (command === null) return false;
     void this.moduleCommand(session.manifest.id, command.id);
@@ -2316,17 +2353,13 @@ export class ShellController {
   /**
    * `host.scene.addLayer`, stamped with the module that owns it.
    *
-   * INTEGRATION(P1): `LayerBase.module` is the frozen field that carries the stamp; until it lands
-   * the property rides the untyped spread `addLayer` already passes through, which is exactly how a
-   * saved scene has always carried unknown layer keys. The layer panel reads it back the same way,
-   * so the summary-instead-of-editor rule works on this branch and keeps working on P1's.
+   * `LayerBase.module` is a declared optional field on the frozen `scene/types.ts` (§4.4), so the
+   * stamp is typed rather than smuggled through a spread — and it rides `serialize` → `load` →
+   * `addLayer` like every other layer field, which is how a module finds its own layer again after
+   * a scene reassigns every id. The engine never interprets it.
    */
   addModuleLayer(moduleId: string, spec: NewLayer): Layer {
-    // The double cast is the honest form of "this key is not on `NewLayer` **yet**": `Partial<Layer>`
-    // has no `module` until P1 declares it, and a single `as NewLayer` would be TS refusing two
-    // types that do not overlap rather than a widening.
-    const spread = { ...spec, module: moduleId } as unknown as NewLayer;
-    const layer = this.engine.addLayer(spread);
+    const layer = this.engine.addLayer({ ...spec, module: moduleId });
     this.engine.requestRender();
     return layer;
   }
@@ -2376,14 +2409,11 @@ export class ShellController {
   /**
    * Tell main the window has unsaved work, so the OS close button can ask before it discards it.
    *
-   * INTEGRATION(P3): `setDocumentEdited` is a preload member P3 adds, reached here through an
-   * optional structural cast so this branch compiles and runs against a bridge that does not have it
-   * yet. When it lands the cast is deleted and nothing else changes.
+   * `setDocumentEdited` is a real preload member with a real main-side handler (§5 rule 12), and the
+   * `ABSENT` bridge answers it as a no-op — so this is one call with no cast and no optional chain.
    */
   syncDocumentEdited(): void {
-    const edited = anyModuleDirty(this.store.getState());
-    const channel = bridge() as unknown as { setDocumentEdited?: (edited: boolean) => void };
-    channel.setDocumentEdited?.(edited);
+    bridge().setDocumentEdited(anyModuleDirty(this.store.getState()));
   }
 
   /** `host.scene.block`. */
@@ -2456,6 +2486,47 @@ export class ShellController {
 
   private emitSceneEvent(event: ModuleSceneEvent): void {
     for (const listener of [...this.sceneListeners]) listener(event);
+  }
+
+  /** `ModuleEvents.pointTool` — the engine's event, subscribed to once in {@link attach}. */
+  onPointTool(listener: (event: PointToolEvent) => void): () => void {
+    this.pointToolListeners.add(listener);
+    return () => this.pointToolListeners.delete(listener);
+  }
+
+  private emitPointTool(event: PointToolEvent): void {
+    for (const listener of [...this.pointToolListeners]) listener(event);
+  }
+
+  /**
+   * `host.tool` — §4.7's five members as the four calls §13.1 publishes.
+   *
+   * Every one is on the frozen facade, so this is a rename and not a translation; `select` is the
+   * one that changes shape, because a module says "this point of this layer" and the engine takes a
+   * pair or a null.
+   */
+  private moduleTool(): ModuleHost['tool'] {
+    const { engine } = this;
+    return {
+      setPointTool: (spec) => engine.setPointTool(spec),
+      pointTool: () => engine.pointTool(),
+      select: (layerId, pointId) =>
+        engine.setPointSelection(pointId === null ? null : { layerId, pointId }),
+      selection: () => engine.pointSelection(),
+    };
+  }
+
+  /**
+   * `host.scene.peakCentroid` — the engine's §4.3 helper over the dataset the module names.
+   *
+   * The dataset lookup is here rather than in the module because `Scene.datasets` is the engine's
+   * map and `host.scene` publishes ids; a mesh id and an unknown id are both `null`, which is the
+   * same answer `peakCentroid` gives for a query outside the volume.
+   */
+  private modulePeakCentroid(datasetId: DatasetId, world: vec3, radiusMm: number): vec3 | null {
+    const dataset = this.engine.scene.datasets.get(datasetId);
+    if (dataset === undefined || dataset.kind !== 'volume') return null;
+    return peakCentroid(dataset, world, radiusMm);
   }
 
   // ---- activation routes other than the switcher ------------------------------------------------

@@ -3675,3 +3675,52 @@ frame that predates a tool, and `resolveGesture` returns exactly what it returne
 over a point with a tool armed. The full engine e2e suite (both renderer projects) and every golden are
 unchanged; the new coverage is `points-tool.spec.ts`, which asserts the drag as `40 · mmPerPx ± 0.05 mm`
 derived from §3 rather than from the engine.
+
+## 2026-08-30 — the module host is wired, and frozen: §12.3 gains item 6
+
+**Decision.** `packages/app/src/renderer/src/modules/host.ts` is a §12.3 frozen interface from this
+commit, at `MODULE_HOST_VERSION = 1`, because this is the commit in which its last three unwired
+members stopped being stubs: `host.tool` is the engine's §4.7 point tool, `host.files` is
+`createHostFiles(manifest, bridge().allowPath)` over §5 rule 11's channels, and
+`host.scene.peakCentroid` is the engine's §4.3 bounded local read over the dataset the module names.
+`ModuleEvents.pointTool` **is** `EngineEvents.pointTool` — the three point-tool shapes are re-exported
+from `@tetravox/engine` rather than declared a second time — and the event reaches a module the way
+`layers` and `measurements` reach the store: one `engine.on('pointTool', …)` in
+`ShellController.attach`, fanned out to whoever subscribed.
+
+**Why the freeze is here and not in Phase 0.** A surface frozen before the work behind it exists is a
+surface frozen around stubs, and every one of the three would have had to be amended: `addLayer`
+stamps a field `scene/types.ts` did not have, `peakCentroid` needs a helper the engine did not
+export, `tool` and `files` had no implementation at all. The design named this moment ("Phase 3
+completes the surface") precisely so the governance round would happen **once**, with the whole
+surface in front of the reviewer, rather than four times with a quarter of it each. `MODULE_HOST_VERSION`
+is what a module names in `manifest.hostApi`, so the freeze is not a promise never to change the host
+— it is the promise that a change is additive, documented in the same commit, and that a breaking one
+bumps an integer the registry test checks.
+
+**The stubs stay.** `createModuleHost`'s `tool`, `files` and `peakCentroid` remain optional
+dependencies whose defaults throw `ModuleHostError`, even though the shipping build passes all three.
+Two reasons. A harness builds a host with none of them and asserts exactly that distinction — "this
+build has no point tool" is a different answer from "nothing is selected", and a module written
+against the second must not silently do nothing against the first. And a module compiled against a
+later host will meet an older build one day; a member that throws is the only shape in which that is
+reportable rather than invisible.
+
+**The dialogs take their title, filters and templates from the manifest.** `main/module-io.ts` now
+imports `MANIFESTS` — the data-only barrel main already validates job actions against — and looks up
+the reader or writer a sheet names, so an Open sheet offers a declared reader's extensions and a Save
+sheet admits a declared writer's sibling templates. The renderer still sends its own copies and they
+are still sanitised on arrival, because they are the fallback for a module a build's barrel does not
+carry (a harness, or a `--job` window told about one). The half that matters is the sibling template:
+it is what admits a *second* path for writing, so it is the one that stops being renderer-supplied
+the moment main can look it up. Nothing is trusted for coming from a manifest — every template is
+still validated before substitution and its result again after.
+
+**One sibling resolver, not two.** `modules/siblings.ts` owns the manifest's token rules, the
+filename-segment rule, the three-ascent limit and `resolveSibling`; `hostFiles.ts` imports them and
+`ShellController.dispatchSiblings` calls the same function. The two had grown independently on
+parallel branches with different strictness — one normalised `a/../b` and the other refused it — and
+a path rule that is right in one of two places is a path rule that will be wrong in the other. The
+stricter reading won: a re-descent, a climb past the root, an empty segment and a backslash are all
+refused rather than normalised, because `../a/../../etc/passwd` normalises to something perfectly
+ordinary and this is the last place either a manifest's template or a filename on disk can be caught.

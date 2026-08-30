@@ -2636,10 +2636,10 @@ export class TetravoxEngine implements Engine, PointerHost {
    * layer that is not a points layer simply draws no ring, which is the behaviour the pass has to
    * have anyway for a highlight that goes stale between the set and the frame.
    *
-   * INTEGRATION(P2): `setPointSelection(layerId, pointId)` resolves `points[].id` to an index and
-   * calls this; the hit test sets the hot half per pointer move while the tool is armed. Selection
-   * is by id because an index does not survive an edit (§4.4) — this method is the last step, not
-   * the interface.
+   * The facade's `setPointSelection({ layerId, pointId })` resolves `points[].id` to an index and
+   * calls this, and the armed hover hit test sets the hot half per pointer move. Selection is by id
+   * because an index does not survive an edit (§4.4) — this method is the last step, not the
+   * interface, and nothing outside the engine holds an index across a call.
    */
   setPointHighlight(
     highlight: {

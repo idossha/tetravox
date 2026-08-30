@@ -46,8 +46,18 @@ window and threshold handles, and a screenshot dialog writing DPI into the PNG.
 **Modules.** A first-party extension surface (§13): a docked panel slot in the right column with one active
 module at a time, a toolbar switcher, a status cell, a key pool that resolves after the §7.5 map, a confirm
 dialog, per-module scene blocks carried through save and load — including for modules a build does not have —
-and an import wall that keeps a module to `ModuleHost`. The fixture module `tetravox.hello` (`?modules=hello`)
-is the worked example; the sEEG contact editor is the first real one.
+and an import wall that keeps a module to `ModuleHost`. The host is complete and **frozen** (§12.3 item 6):
+its scene, tool and file members are the engine's point tool, the engine's bounded local reads and the
+main-process IO channels. The fixture module `tetravox.hello` (`?modules=hello`) is the worked example; the
+sEEG contact editor is the first real one.
+
+**The point-set substrate.** Per-point identity (`id` / `group` / `ordinal`), off-plane ghosting, a selection
+ring, `sampleVoxelBox` / `peakCentroid`, and a 2D point tool with place, select and drag — the engine half
+every later point-set tool inherits.
+
+**Module file IO.** A read-text channel capped at 1 MiB over the existing allow-list, a Save sheet that admits
+the manifest's same-directory siblings into a per-module write list, a main-side timestamped `.bak` and a
+temp+rename write, and the codebase's first `BrowserWindow 'close'` guard on unsaved module edits.
 
 **Scenes.** `*.tetravox.json` — every layer setting, region edit, measurement, camera, layout and the theme.
 ⌘S / Save As / Open Recent, drop-to-open, file association, relative paths with a fingerprint-keyed relocate
@@ -95,10 +105,6 @@ macOS, with the packaging matrix carried in the workflow.
 **Modules** (§13)
 - The **sEEG contact editor**: BIDS `electrodes.tsv` in and out, intensity-weighted snap, shaft re-fit,
   renumbering, an editlog beside the table and a `.bak` of what it replaced.
-- The engine substrate every later point-set tool inherits: per-point identity, ghosted off-plane discs, a
-  selection ring, and a 2D point tool with place/select/drag.
-- Main-process module IO: a read-text channel, a Save sheet that admits the manifest's same-directory
-  siblings, a backup and a temp+rename write, and the first `BrowserWindow 'close'` guard.
 - Job-file operations (`{"type":"module", …}`) and their Python wrappers, so every panel action is reachable
   headlessly.
 - A **resizable right aside**. The column is 320 px and the slot lives in it; there is no splitter primitive

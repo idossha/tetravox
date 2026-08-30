@@ -8,10 +8,11 @@
  * `await`s, and nothing in between.
  *
  * **Unwired members throw rather than lie.** `tool`, `files` and `scene.peakCentroid` are optional
- * dependencies whose defaults raise `ModuleHostError`. A module written against P2 running on a P0
- * build therefore reports "the point tool is not available in this build" rather than silently
- * behaving as though nothing were selected. The integrator replaces a default by passing the real
- * one in `ModuleHostDeps`; nothing else moves.
+ * dependencies whose defaults raise `ModuleHostError`, so a build that does not wire one reports
+ * "the point tool is not available in this build" rather than silently behaving as though nothing
+ * were selected. The shipping build wires all three — `ShellController.activateModule` passes the
+ * engine's tool, `createHostFiles` and the engine's `peakCentroid` — and the stubs stay because the
+ * distinction is what a harness and a future host version are built on.
  */
 
 import type { Layer, LayerId, NewLayer, ProbeResult, CoordSpaceRef, vec3 } from '@tetravox/engine';
@@ -32,19 +33,20 @@ import { ModuleHostError } from './host';
 /**
  * What the host is built over.
  *
- * `controller` and `store` are the shell. The other three are the phases that have not landed:
- * absent, each becomes a stub that throws — which is why they are optional rather than required-with-
- * a-null, since "this build has no point tool" is a property of the build, not a value a caller
- * chooses per call.
+ * `controller` and `store` are the shell. The other three are injected rather than reached for, so
+ * `hostImpl.ts` stays testable without an engine and a build may legitimately ship without one of
+ * them: absent, each becomes a stub that throws. They are optional rather than required-with-a-null
+ * because "this build has no point tool" is a property of the build, not a value a caller chooses
+ * per call.
  */
 export interface ModuleHostDeps {
   controller: ShellController;
   store: UiStore;
-  /** INTEGRATION(P2): the engine's point tool, through the controller. */
+  /** §4.7's point tool, as the four calls `host.tool` publishes. Absent: every member throws. */
   tool?: ModuleHost['tool'];
-  /** INTEGRATION(P3): `createHostFiles(manifest, allowPath)`. */
+  /** `createHostFiles(manifest, allowPath)` over §5 rule 11's channels. Absent: every call rejects. */
   files?: ModuleHost['files'];
-  /** INTEGRATION(P1): the engine's `peakCentroid` helper. */
+  /** The engine's `peakCentroid`, bound to a dataset lookup. Absent: it throws. */
   peakCentroid?: ModuleHost['scene']['peakCentroid'];
 }
 
@@ -177,11 +179,15 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
         return controller.onSceneEvent((e: ModuleSceneEvent) => {
           if (e.kind === 'cleared') emit(undefined);
         });
+      case 'pointTool':
+        // The engine's own event, forwarded by `controller.attach()` the way `layers` and
+        // `measurements` are — not a store projection, because a `dragEnd` is an edge and the store
+        // holds no point-tool state to diff.
+        return controller.onPointTool(emit);
       default:
-        // INTEGRATION(P2): `pointTool` is the engine's event and has no producer on this branch.
-        // A no-op unsubscribe rather than a throw: a module may legitimately subscribe at activate
-        // time and only *use* the tool later, and refusing the subscription would break activation
-        // rather than the feature.
+        // Unreachable while `ModuleEvents` and this switch agree; a no-op unsubscribe rather than a
+        // throw, because a module subscribes at activate time and refusing the subscription would
+        // break activation rather than the feature.
         return () => {};
     }
   };

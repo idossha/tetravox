@@ -2861,7 +2861,10 @@ and `DECISIONS.md` in the same diff fails the job. Both, because one says what t
 and the other says why it changed, and a repository with one and not the other has lost the half
 nobody wrote. Item 5 of §12.3 — the Rust signatures — is deliberately *not* enforced by path: it is
 a rule about signatures spread over many files, and a `crates/**` trigger would fire on every
-implementation change and teach everyone to ignore the job. Second, **§13.1**: every module
+implementation change and teach everyone to ignore the job. Item 6 — `modules/host.ts` — **is**
+enforced by path from the day it was frozen (2026-08-30), for the reason the four before it are: for
+a file that *is* the interface, "the file changed" and "the interface changed" are the same event.
+Second, **§13.1**: every module
 manifest's `docs` heading must exist as a `## ` section in `docs/USER_GUIDE.md` **and** in
 `website/scripts/sync.mjs`'s `GUIDE_PAGES`, because the website's splitter throws on a section it
 has no page for — a late, confusing failure this turns into an early, specific one.
@@ -2913,6 +2916,14 @@ wasm pre-built on the host.
 4. `packages/wasm/src/index.ts` — the client interface; `pkg/tvx_wasm.d.ts` stub committed so `tsc` works
    before the first wasm build.
 5. Every Rust signature in §6.0–§6.4.
+6. `packages/app/src/renderer/src/modules/host.ts` — §13.1's `ModuleHost` / `ModuleInstance`, frozen from
+   2026-08-30 at `MODULE_HOST_VERSION = 1`, when the wiring commit made `tool`, `files` and
+   `scene.peakCentroid` real. It is the surface every module is written against and the one a
+   worker-hosted stage 2 (§13.8) would have to honour, so it changes the way `api.ts` does. The
+   **manifests** it is paired with (`packages/app/src/modules/**`) are not frozen but are typechecked by
+   all three tsconfigs — `tsconfig.node.json`, `tsconfig.web.json`, `tsconfig.e2e.json` — because main
+   validates a job action against them before a window exists, and a manifest that only the renderer
+   compiled would fail in the process that has no way to report it.
 
 Additive changes are the normal case and are still edits: a new optional field, a new appended op, a new
 facade member. **Absent must always reproduce the previous behaviour**, so a scene file or a build that
@@ -2962,7 +2973,7 @@ shell reads every module-specific fact out of a manifest. `modules.test.ts` is w
 packages/app/src/modules/manifest-types.ts        # ModuleManifest, ArgShape — no DOM, no node:
 packages/app/src/modules/<id>/manifest.ts         # data only; read by main, the renderer AND scripts
 packages/app/src/modules/manifests.ts             # MANIFESTS — the main-safe barrel
-packages/app/src/renderer/src/modules/host.ts     # ModuleHost / ModuleInstance (pre-freeze, see below)
+packages/app/src/renderer/src/modules/host.ts     # ModuleHost / ModuleInstance — FROZEN, §12.3 item 6
 packages/app/src/renderer/src/modules/registry.ts # [{ manifest, load: () => import('./<id>') }]
 packages/app/src/renderer/src/modules/hostImpl.ts # createModuleHost — the ONLY file that sees both sides
 packages/app/src/renderer/src/modules/<id>/…      # index.ts, Panel.tsx, kernels, tests
@@ -2988,13 +2999,18 @@ lint rule can be switched off inline, so `modules.test.ts` re-proves the same pr
 That wall is the precondition for §13.8, and it means the blast radius of a worker-hosted module tier is
 `hostImpl.ts` and nothing else.
 
-**Pre-freeze, deliberately.** `host.ts` is **not** a §12.3 frozen interface yet, and the reason is dated
-rather than vague: `scene.peakCentroid` needs the engine's bounded local read, `tool` needs the engine's point
-tool, and `files` needs the main-process channels. A surface frozen before those exist would be frozen around
-stubs. It grows additively until they are all in and is declared frozen — with `MODULE_HOST_VERSION` as its
-version — in the commit that lands the last of them. Until then, an unwired member **throws
-`ModuleHostError`** rather than returning a plausible `null`: "this build has no point tool" and "nothing is
-selected" must not be the same answer.
+**Frozen (§12.3 item 6), at `MODULE_HOST_VERSION = 1`.** It was pre-freeze for exactly as long as the
+reason was dated rather than vague: `scene.peakCentroid` needed the engine's bounded local read, `tool` the
+engine's point tool, `files` the main-process channels, and a surface frozen before those existed would have
+been frozen around stubs. All three were wired on 2026-08-30 and the surface was declared frozen in that
+commit — one governance round, not four. From here it changes additively, with the `ARCHITECTURE.md` edit and
+the `DECISIONS.md` entry in the same commit, and absent must reproduce the previous behaviour.
+
+A member a build does not wire **throws `ModuleHostError`** rather than returning a plausible `null`: "this
+build has no point tool" and "nothing is selected" must not be the same answer. Every member is wired in the
+shipping build — `ShellController.activateModule` passes the engine's tool, `createHostFiles(manifest,
+bridge().allowPath)` and the engine's `peakCentroid` — and the optional dependencies stay because the
+distinction is what a harness, and a host version that outruns a build, are built on.
 
 **Versioning.** `MODULE_HOST_VERSION` is an integer and `manifest.hostApi` names the version a module was
 written against. Host changes are additive under §12.3 exactly like `api.ts`; a breaking change bumps the

@@ -12,176 +12,44 @@
  *    file. A resolver in main would need a listing IPC this app does not have and would add no
  *    admission-policy gain (DECISIONS 2026-08-30).
  *
- * The candidate arithmetic is pure string work — `resolveSibling` — so it is unit-testable with no
- * disk, no bridge and no Electron, exactly like `lib/sidecars.ts`.
+ * The candidate arithmetic is not here. `modules/siblings.ts` owns the manifest's token rules, its
+ * segment rule, its ascent limit and `resolveSibling` — the same pure functions
+ * `ShellController.dispatchSiblings` instantiates the `onSibling` route with — so "which paths does
+ * this pattern name" has one answer whether a module asks or the app does.
  */
 
 import { bridge } from '../bridge';
-import { baseName } from '../lib/sidecars';
-
-// ------------------------------------------------------------------------------------------------
-// Manifest shapes
-// ------------------------------------------------------------------------------------------------
-
-// INTEGRATION(P0): local structural copies of the three IO members of
-// `packages/app/src/modules/manifest-types.ts`, so this file compiles and is tested before that
-// module lands. When it does, the integrator deletes these four declarations and imports
-// `ModuleReader`, `ModuleSibling`, `ModuleWriter` and `ModuleManifest` from
-// `../../../modules/manifest-types` — they are structurally identical, so nothing else here moves.
-
-/** A format the module claims by extension (and optionally by a name pattern). */
-export interface ModuleReader {
-  id: string;
-  title: string;
-  extensions: string[];
-  /** RegExp source over the basename. */
-  match?: string;
-}
-
-/**
- * A rule for finding files that belong with an anchor the user opened.
- *
- * `from` is a RegExp source matched against the anchor's **basename**; its **named groups** are the
- * tokens a candidate may use. `candidates` are relative to the anchor's directory, use `/` as their
- * separator whatever the platform, and may climb at most three `..` — a BIDS `ct/` to `ieeg/` hop is
- * one, and three is already further than any layout this app opens.
- */
-export interface ModuleSibling {
-  from: string;
-  candidates: string[];
-}
-
-/** A file the module writes, with the same-directory siblings its Save sheet should admit. */
-export interface ModuleWriter {
-  id: string;
-  title: string;
-  filters: { name: string; extensions: string[] }[];
-  /** Templates over the chosen path: `{name}.{stamp}.bak`, `{stem}_editlog.json`. */
-  siblings: string[];
-  backup?: 'timestamped';
-}
-
-/** The part of `ModuleManifest` this file needs. */
-export interface HostFilesManifest {
-  id: string;
-  readers?: ModuleReader[];
-  siblings?: ModuleSibling[];
-  writers?: ModuleWriter[];
-}
-
-/** `ModuleHost['files']` (P0's `host.ts`), declared here for the same reason as the types above. */
-export interface HostFiles {
-  readText(path: string): Promise<string | null>;
-  siblings(anchor: string): Promise<Record<string, string | null>>;
-  openDialog(readerId: string): Promise<string[] | null>;
-  saveDialog(
-    writerId: string,
-    defaultPath: string | null
-  ): Promise<{ path: string; siblings: Record<string, string> } | null>;
-  writeText(
-    path: string,
-    text: string,
-    opts?: { backup?: boolean }
-  ): Promise<{ ok: true; backupPath: string | null } | { ok: false; error: string }>;
-}
+import type { ModuleManifest } from '../../../modules/manifest-types';
+import type { ModuleHost } from './host';
+import { anchorMatches, instantiateSiblings } from './siblings';
 
 /** `bridge().allowPath`, structurally: admit a path and say whether it exists. */
 export type AllowPath = (path: string) => Promise<{ path: string } | null>;
 
-/** How far a candidate may climb. Three is a BIDS hop and then some. */
-export const MAX_SIBLING_ASCENTS = 3;
-
-// ------------------------------------------------------------------------------------------------
-// Candidate paths, as pure string work
-// ------------------------------------------------------------------------------------------------
-
-/** The separator the anchor is written with, so a Windows path stays a Windows path. */
-function separatorOf(path: string): string {
-  return path.includes('\\') && !path.includes('/') ? '\\' : '/';
-}
-
 /**
- * The anchor's directory, keeping its own separator, or null when the anchor names no directory at
- * all. `''` is a real answer — a file at the root — and joins back to `/sibling`.
- */
-function dirNameOf(path: string): string | null {
-  const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-  return slash < 0 ? null : path.slice(0, slash);
-}
-
-/**
- * `candidate`, resolved against the directory `anchor` lives in — or null when it is not a relative
- * sibling path this host will probe.
+ * The part of a manifest this file reads.
  *
- * Refused: an absolute candidate (POSIX, UNC or drive-lettered), a backslash (candidates are written
- * with `/` so one manifest reads the same on every platform), more than {@link MAX_SIBLING_ASCENTS}
- * `..` segments, and a climb past the root. `.` segments are dropped.
+ * A `ModuleManifest` satisfies it, and so does the partial literal a test builds: `createHostFiles`
+ * needs three optional arrays and an id, and asking for a whole manifest to test a Save sheet would
+ * make every fixture carry a `docs` heading and an activation list it has no use for.
  */
-export function resolveSibling(anchor: string, candidate: string): string | null {
-  if (candidate === '' || candidate.includes('\\')) return null;
-  if (candidate.startsWith('/') || /^[A-Za-z]:/.test(candidate)) return null;
-  const parts = candidate.split('/');
-  if (parts.some((part) => part === '')) return null;
-
-  const separator = separatorOf(anchor);
-  const parent = dirNameOf(anchor);
-  const dir = parent === null ? [] : parent.split(separator);
-  let ascents = 0;
-  const tail: string[] = [];
-  for (const part of parts) {
-    if (part === '.') continue;
-    if (part !== '..') {
-      tail.push(part);
-      continue;
-    }
-    // A `..` after a name would be a re-descent the manifest could have written directly, and
-    // allowing it would make the ascent count a lie.
-    if (tail.length > 0) return null;
-    ascents += 1;
-    if (ascents > MAX_SIBLING_ASCENTS) return null;
-    // `['', 'data']` is `/data`: the leading empty segment is the root and may not be popped.
-    if (dir.length <= 1) return null;
-    dir.pop();
-  }
-  return tail.length === 0 ? null : [...dir, ...tail].join(separator);
+export interface HostFilesManifest extends Pick<
+  ModuleManifest,
+  'readers' | 'siblings' | 'writers'
+> {
+  id: string;
 }
-
-/**
- * Substitute `{group}` for each of the pattern's **named groups**, or null when a token is left
- * over. An unknown token is a manifest that named a group it did not capture, and guessing what it
- * meant would be worse than not probing.
- */
-export function substituteCandidate(
-  candidate: string,
-  groups: Record<string, string | undefined>
-): string | null {
-  const filled = candidate.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (whole, token: string) => {
-    const value = groups[token];
-    return value === undefined ? whole : value;
-  });
-  return filled.includes('{') || filled.includes('}') ? null : filled;
-}
-
-/** `new RegExp(source)` without letting a malformed manifest take the renderer down. */
-function compile(source: string): RegExp | null {
-  try {
-    return new RegExp(source);
-  } catch {
-    return null;
-  }
-}
-
-// ------------------------------------------------------------------------------------------------
-// The host member
-// ------------------------------------------------------------------------------------------------
 
 /**
  * Build the `files` half of a module's host.
  *
  * `allowPath` is injected rather than reached for so the sibling probe is testable without a bridge;
- * `hostImpl.ts` passes `bridge().allowPath`.
+ * `ShellController.activateModule` passes `bridge().allowPath`.
  */
-export function createHostFiles(manifest: HostFilesManifest, allowPath: AllowPath): HostFiles {
+export function createHostFiles(
+  manifest: HostFilesManifest,
+  allowPath: AllowPath
+): ModuleHost['files'] {
   const id = manifest.id;
 
   return {
@@ -193,28 +61,29 @@ export function createHostFiles(manifest: HostFilesManifest, allowPath: AllowPat
     },
 
     async siblings(anchor) {
-      const name = baseName(anchor);
       const found: Record<string, string | null> = {};
       for (const rule of manifest.siblings ?? []) {
-        const pattern = compile(rule.from);
-        if (pattern === null) continue;
-        const match = pattern.exec(name);
-        if (match === null) continue;
-        const groups = match.groups ?? {};
-        for (const candidate of rule.candidates) {
+        // A rule that does not claim this anchor says **nothing** — not even a `null` per candidate.
+        // The two are different answers: "no rule for this file" and "declared, probed, not there".
+        if (!anchorMatches(rule, anchor)) continue;
+        const resolved = new Map(
+          instantiateSiblings(rule, anchor).map((candidate) => [candidate.template, candidate.path])
+        );
+        for (const template of rule.candidates) {
           // First rule to find a file wins; a later rule may still fill a candidate that missed.
-          const already = found[candidate];
+          const already = found[template];
           if (already !== undefined && already !== null) continue;
-          const filled = substituteCandidate(candidate, groups);
-          const path = filled === null ? null : resolveSibling(anchor, filled);
-          if (path === null) {
-            found[candidate] = null;
+          const path = resolved.get(template);
+          // Refused by the token, segment or ascent rules — declared, so it is reported, and never
+          // probed, so a manifest cannot name a file outside the tree it was pointed at.
+          if (path === undefined) {
+            found[template] = null;
             continue;
           }
           // `allowPath` doubles as the existence check (§5 rule 9's sidecar consequence), which is
           // why nothing here stats a file — the renderer cannot.
           const admitted = await allowPath(path);
-          found[candidate] = admitted === null ? null : admitted.path;
+          found[template] = admitted === null ? null : admitted.path;
         }
       }
       return found;
@@ -223,7 +92,11 @@ export function createHostFiles(manifest: HostFilesManifest, allowPath: AllowPat
     async openDialog(readerId) {
       const reader = (manifest.readers ?? []).find((r) => r.id === readerId);
       if (reader === undefined) return null;
+      // `readerId` is what main looks the reader up by in `MANIFESTS`; the title and filters below
+      // are the fallback for a build whose barrel does not carry this module, and main sanitises
+      // them either way. Sending both is how one signature serves both cases.
       const opened = await bridge().moduleOpenDialog(id, {
+        readerId,
         title: reader.title,
         filters: [
           { name: reader.title, extensions: [...reader.extensions] },
@@ -238,6 +111,7 @@ export function createHostFiles(manifest: HostFilesManifest, allowPath: AllowPat
       const writer = (manifest.writers ?? []).find((w) => w.id === writerId);
       if (writer === undefined) return null;
       return bridge().moduleSaveDialog(id, {
+        writerId,
         title: writer.title,
         filters: writer.filters.map((f) => ({ name: f.name, extensions: [...f.extensions] })),
         siblings: [...writer.siblings],

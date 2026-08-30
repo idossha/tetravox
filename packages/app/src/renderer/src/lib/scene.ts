@@ -171,9 +171,9 @@ export interface SceneExtras {
    * heard of — carried through verbatim, so opening a colleague's scene and re-saving it does not
    * quietly delete their work.
    *
-   * INTEGRATION(P1): `ViewSpec.extensions?` becomes a declared optional field on the frozen
-   * `scene/types.ts`. Until then it rides the same structural cast a v1 file's unknown top-level
-   * keys always have, and the shape written is byte-identical either way.
+   * `ViewSpec.extensions?` is a declared optional field on the frozen `scene/types.ts` (§4.6), typed
+   * there exactly like `theme?` and, like `theme`, never produced by `Engine.serialize()` — a
+   * roundtrip test pins that. The app writes it here and reads it back in `sceneExtensions`.
    */
   extensions?: Record<string, ExtensionBlock>;
   // **Measurements are NOT an extra any more** (directed task 11). Task 13 carried them through
@@ -197,7 +197,7 @@ export function serialiseScene(
     // An empty map is not written, for the same reason an empty `measurements` array is not: a file
     // that says `"extensions": {}` claims a thing it has nothing to say about.
     ...(Object.keys(blocks).length > 0 ? { extensions: blocks } : {}),
-  } as ViewSpec;
+  };
   // An empty list is not written: it is indistinguishable from having none, and a file that says
   // `"measurements": []` claims a thing it has nothing to say about.
   if (out.measurements !== undefined && out.measurements.length === 0) delete out.measurements;
@@ -251,7 +251,7 @@ export function parseScene(text: string): ParsedScene {
  * someone's work.
  */
 export function sceneExtensions(spec: ViewSpec): Record<string, ExtensionBlock> {
-  const raw = (spec as { extensions?: unknown }).extensions;
+  const raw: unknown = spec.extensions;
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
   const out: Record<string, ExtensionBlock> = {};
   for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {

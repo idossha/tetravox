@@ -1,12 +1,14 @@
 /**
  * `ModuleHost` — everything a module is allowed to do (ARCHITECTURE.md §13.1).
  *
- * **Pre-freeze.** This file is not yet a §12.3 frozen interface, and the reason is dated rather than
- * vague: three of its members are backed by work that has not landed. `scene.peakCentroid` needs the
- * engine's bounded local read, the whole of `tool` needs the engine's point tool, and the whole of
- * `files` needs the main-process IO channels. A surface frozen before those exist would be frozen
- * around stubs. It grows additively until they are all in, and is declared frozen — with
- * `MODULE_HOST_VERSION` as its version — in the same commit that lands the last of them.
+ * **FROZEN (§12.3 item 6), at `MODULE_HOST_VERSION = 1`.** It was pre-freeze for exactly as long as
+ * three of its members were backed by work that had not landed — `scene.peakCentroid` needed the
+ * engine's bounded local read, `tool` the engine's point tool, `files` the main-process IO channels
+ * — because a surface frozen before those existed would have been frozen around stubs. All three are
+ * wired, so the surface is complete and this is the commit §13.1 said would freeze it. From here it
+ * changes the way `api.ts` does: **additively**, with the `ARCHITECTURE.md` edit and the
+ * `DECISIONS.md` entry in the same commit, and absent must reproduce the previous behaviour. A
+ * breaking change bumps `MODULE_HOST_VERSION` and the registry test then refuses stale manifests.
  *
  * **Sync for the scene, async only where the app already is.** Reading and writing scene state is a
  * synchronous call into the engine through the controller, exactly as every §8 panel's is; files,
@@ -28,10 +30,11 @@ import type {
   Layer,
   LayerId,
   NewLayer,
+  PointSelection,
+  PointToolEvent,
+  PointToolSpec,
   ProbeResult,
-  ViewId,
   vec3,
-  vec4,
 } from '@tetravox/engine';
 import type { ModuleId } from '../../../modules/manifest-types';
 
@@ -55,33 +58,14 @@ export interface ExtensionBlock {
   data: unknown;
 }
 
-// -- INTEGRATION(P2): the point tool's shapes ----------------------------------------------------
-// Declared here until the engine's `api.ts` exports them, so a module can be written against the
-// final names now. When P2 lands, these three become re-exports of the engine's and nothing that
-// consumes them changes.
+// -- The point tool's shapes -----------------------------------------------------------------
+// **The engine's, re-exported, not restated.** `host.tool` is a facade over §4.7's five members and
+// `ModuleEvents.pointTool` *is* `EngineEvents.pointTool`, so a second declaration of these three
+// would be a second thing to keep in step with a frozen file. A module imports them from `../host`
+// and never from `@tetravox/engine`, which is what the ESLint wall on `modules/<id>/**` requires
+// (types from the engine are allowed there, but one import site is one place to change for §13.8).
 
-/** What arming the point tool asks for: a layer, a mode, and the shape of a placed point. */
-export interface PointToolSpec {
-  layerId: LayerId;
-  mode: 'select' | 'place';
-  template?: { color?: vec4; radiusMm?: number; group?: string };
-}
-
-/** The selected point, identified by its **id** — the array index is transient (§4.4). */
-export interface PointSelection {
-  layerId: LayerId;
-  pointId: string;
-  index: number;
-}
-
-export interface PointToolEvent {
-  layerId: LayerId;
-  kind: 'placed' | 'selected' | 'dragEnd' | 'cleared';
-  pointId: string | null;
-  index: number;
-  world?: vec3;
-  viewId?: ViewId;
-}
+export type { PointSelection, PointToolEvent, PointToolSpec };
 
 /**
  * What a module can subscribe to.
@@ -94,7 +78,7 @@ export interface ModuleEvents {
   layers: readonly Layer[];
   datasets: readonly Dataset[];
   cursor: vec3;
-  /** INTEGRATION(P2): fired by the engine's point tool. Never fires before P2 lands. */
+  /** The engine's own `pointTool` event (§4.7), forwarded to the module in the slot. */
   pointTool: PointToolEvent;
   sceneLoaded: { blocks: Record<string, ExtensionBlock> };
   sceneCleared: void;
@@ -136,11 +120,12 @@ export interface ModuleHost {
     toSpace(ref: CoordSpaceRef, w: vec3): vec3 | null;
     fromSpace(ref: CoordSpaceRef, p: vec3): vec3 | null;
     /**
-     * INTEGRATION(P1): the intensity-weighted peak inside a small box, in world millimetres.
+     * The intensity-weighted peak inside a small box, in world millimetres.
      *
      * A §4.3 **bounded local read** (≤ 32³ voxels), not a scan — and it is the engine's arithmetic
-     * rather than a module's precisely because §4.3 keeps `VolumeDataset.data` out of reach for
-     * anything larger. Until the engine helper lands, calling it throws `ModuleHostError`.
+     * (`derived/voxel-box.ts#peakCentroid`) rather than a module's precisely because §4.3 keeps
+     * `VolumeDataset.data` out of reach for anything larger. `null` for a dataset that is not a
+     * volume, for a query outside it, and for a box with nothing in it to weigh.
      */
     peakCentroid(datasetId: DatasetId, world: vec3, radiusMm: number): vec3 | null;
     /** This module's scene block (§13.2), or null. `≤ 256 KiB` of JSON. */
@@ -149,7 +134,13 @@ export interface ModuleHost {
     on<E extends keyof ModuleEvents>(e: E, cb: (payload: ModuleEvents[E]) => void): () => void;
   };
 
-  /** INTEGRATION(P2): backed by the engine's point tool. Every member throws until it lands. */
+  /**
+   * §7.5's point tool, as the four calls a module makes — the frozen §4.7 facade underneath.
+   *
+   * `select(layerId, null)` clears the selection; `setPointTool(null)` disarms and emits one
+   * `cleared`. Arming **mutates the layer**: the engine materialises `p<index>` ids on a layer whose
+   * points carry none, so a `layers` event fires on arm.
+   */
   tool: {
     setPointTool(spec: PointToolSpec | null): void;
     pointTool(): PointToolSpec | null;
@@ -157,7 +148,7 @@ export interface ModuleHost {
     selection(): PointSelection | null;
   };
 
-  /** INTEGRATION(P3): backed by `hostFiles.ts` over the main-process channels. Rejects until then. */
+  /** §5 rule 11's four channels, through `hostFiles.ts`. Paths and small text, never bytes. */
   files: {
     readText(path: string): Promise<string | null>;
     /** Keys are the manifest's candidate templates; a value is the path that resolved, or null. */
@@ -225,9 +216,11 @@ export type ModuleActivate = (host: ModuleHost) => ModuleInstance | Promise<Modu
 /**
  * What the host throws rather than pretending.
  *
- * A member that is not wired in this build throws this instead of returning a plausible-looking
- * `null`: "the engine has no point tool yet" and "there is no point selected" must not be the same
- * answer, or a module written against the second would silently do nothing against the first.
+ * A member a build does not wire throws this instead of returning a plausible-looking `null`: "this
+ * build has no point tool" and "there is no point selected" must not be the same answer, or a module
+ * written against the second would silently do nothing against the first. Every member is wired in
+ * the shipping build; `createModuleHost`'s optional dependencies keep the distinction available to a
+ * harness, and a module still uses it for its own refusals.
  */
 export class ModuleHostError extends Error {
   constructor(message: string) {

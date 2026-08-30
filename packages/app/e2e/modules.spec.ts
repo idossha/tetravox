@@ -177,8 +177,9 @@ test.describe('the module surface (stand-in engine)', () => {
   });
 
   test('a `when: "selection"` key stays harmless with nothing selected', async () => {
-    // INTEGRATION(P2): there is no point selection on this branch, which is exactly the state
-    // §13.5's exception is scoped to. `s` must do nothing at all — not merely nothing visible.
+    // The engine's `pointSelection()` is null here — no module armed a tool and nothing was
+    // clicked — which is exactly the state §13.5's exception is scoped to. `s` must do nothing at
+    // all, not merely nothing visible.
     await focusShell(page);
     const count = page.locator('[data-testid="hello-count"]');
     const before = await count.textContent();

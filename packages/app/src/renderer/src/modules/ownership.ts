@@ -6,18 +6,19 @@
  * guard (closing this dataset closes a module's layers with it), and a module finding its own layer
  * after `Engine.load` reassigned every id.
  *
- * INTEGRATION(P1): the field is `LayerBase.module`, which P1 adds to the frozen `scene/types.ts`. It
- * is read through a structural cast here so this branch works before that lands — and the cast is
- * not a workaround for the *persistence*: a layer's unknown keys have always ridden the untyped
- * spreads through `serialize` → `load` → `addLayer` (§4.6), which is exactly what carries the stamp
- * across a save today. When P1 lands, this narrows to `layer.module` and nothing else changes.
+ * The field is `LayerBase.module` — a declared optional on the frozen `scene/types.ts` (§4.4), which
+ * the engine carries and never interprets. It survives a save because every layer field does: the
+ * `{ ...layer }` spreads through `serialize` → `load` → `addLayer` are §4.6's stated guarantee, not
+ * an accident this relies on.
  */
 
 import type { Layer } from '@tetravox/engine';
 
 /** The owning module's id, or null for a core-owned layer. */
 export function moduleOfLayer(layer: Layer): string | null {
-  const owner = (layer as { module?: unknown }).module;
+  // Still guarded rather than returned straight: `module` arrives from a scene file as often as from
+  // `addModuleLayer`, and `''` in a hand-edited file must read as "core-owned", not as a module id.
+  const owner = layer.module;
   return typeof owner === 'string' && owner !== '' ? owner : null;
 }
 

@@ -12,9 +12,11 @@
  * reproduces `shaders/points.ts` exactly — the sphere ∩ plane radius, the `dot` branch's constant
  * pixel radius, and the ghost's full radius — and returns `null` for a point the shader culls. A
  * ring at a radius the disc does not have is worse than no ring: it says the tool has selected
- * something other than what the user sees. **The same function is the CPU hit test's** — an
- * `INTEGRATION(P2)` note, because a hit rule restated in a second place is a hit rule that drifts
- * away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with `drawGizmo`.
+ * something other than what the user sees. **The same function is the CPU hit test's**:
+ * `layers/points.ts#pointAtPane` imports it and re-exports it under its own name, because a hit rule
+ * restated in a second place is a hit rule that drifts away from the picture — exactly as
+ * `gizmoHandleAt` shares `handlePoints` with `drawGizmo`. Calling it with `offPlaneOpacity: 0` is
+ * the whole of §4.7's "ghosts are never hit".
  *
  * **It is screen-space quad expansion**, like the gizmo's ring and the measurement's segment:
  * `gl.lineWidth()` is a no-op (§7.0.6), so a "1 px" ring is a strip of quads and its width is in

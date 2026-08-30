@@ -18,6 +18,8 @@ import { ShellController } from '../store/controller';
 import { anyModuleDirty, createUiStore, dirtyModuleIds } from '../store/store';
 import type { UiStore } from '../store/store';
 import { parseScene, sceneExtensions } from '../lib/scene';
+import type { Dataset, PointToolEvent } from '@tetravox/engine';
+import type { ModuleHost } from './host';
 import { ModuleHostError } from './host';
 import { blockBytes, createHistory, createModuleHost, MAX_BLOCK_BYTES } from './hostImpl';
 import { readerClaim } from './readers';
@@ -69,6 +71,9 @@ function fakeBridge(files: Record<string, string> = {}): FakeFs {
     startupScene: async () => null,
     subjectSpaces: async () => null,
     surfaceSpaces: async () => null,
+    // §5 rule 12's flag. A real member with a real handler now, so `syncDocumentEdited` calls it
+    // outright — a fake bridge that omits it is a fake bridge the controller throws against.
+    setDocumentEdited: () => {},
     log: () => {},
   } as unknown as TetravoxBridge;
   (globalThis as { tetravox?: TetravoxBridge }).tetravox = bridge;
@@ -226,8 +231,10 @@ describe('keys (§13.5)', () => {
   });
 
   it('leaves a `when: "selection"` key unclaimed while nothing is selected', async () => {
-    // INTEGRATION(P2): there is no point selection on this branch, which is exactly the state
-    // §13.5's exception is scoped to — the key must stay harmless, not fire on nothing.
+    // `hasSelection` is `engine.pointSelection() !== null` and nothing is selected, which is
+    // exactly the state §13.5's exception is scoped to: the key stays harmless rather than firing
+    // on nothing. The other half — the same key claimed once a point *is* selected — is asserted
+    // in 'the wired host' below.
     const { controller } = harness();
     await controller.activateModule(HELLO);
     expect(
@@ -627,5 +634,143 @@ describe('readerClaim (§13.1’s onReader)', () => {
   it('is what the controller asks, so the fixture claims nothing at all', () => {
     const { controller } = harness();
     expect(controller.readerFor('/d/x.tsv')).toBeNull();
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// The wired host: the three members that were stubs until the phases they need landed
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * A volume with one bright voxel, for `peakCentroid`.
+ *
+ * Spacing 1 mm and the origin at the world origin, so the affine and its inverse are the identity
+ * and voxel `(i, j, k)` **is** world `(i, j, k)` — the arithmetic a reader can redo on the page. The
+ * weights are `clip(v − (max − ½(max − min)), 0)`, so with one voxel at 100 among zeros the
+ * threshold is 50 and the only voxel with any weight is the bright one: the centroid is exactly it.
+ */
+function brightVoxelVolume(id: string, at: [number, number, number]): Dataset {
+  const dims: [number, number, number] = [5, 5, 5];
+  const values = new Float32Array(dims[0] * dims[1] * dims[2]);
+  values[at[0] + dims[0] * (at[1] + dims[1] * at[2])] = 100;
+  const identity = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  return {
+    kind: 'volume',
+    id,
+    name: 'bright.nii.gz',
+    dims,
+    nvols: 1,
+    spacing: [1, 1, 1],
+    affine: identity,
+    inverseAffine: identity,
+    data: values,
+    sclSlope: 1,
+    sclInter: 0,
+    dtype: 'f32',
+    isLabel: false,
+  } as unknown as Dataset;
+}
+
+describe('the wired host (§13.1)', () => {
+  it('arms the engine’s point tool through `host.tool` and hears the event back', async () => {
+    const { engine, controller } = harness();
+    await controller.activateModule(HELLO);
+    const host = controller.moduleHost();
+    expect(host).not.toBeNull();
+    const h = host as ModuleHost;
+
+    // The pane the stand-in measures in: 200×200 at 0.5 mm/px with the cursor at the origin, so
+    // world `(x, y, ·)` is at `(100 + x / 0.5 − 0.5, 100 − y / 0.5 − 0.5)` — `mockEngine.test.ts`'s
+    // own ruler, restated here because a placement's `world` is asserted below.
+    const dataset = await engine.addDataset({ kind: 'path', path: '/tmp/t1.nii.gz' });
+    const layer = h.scene.addLayer({
+      datasetId: dataset.id,
+      kind: 'points',
+      points: [],
+      shape: 'dot',
+      radiusMm: 1.5,
+      color: [1, 0, 0, 1],
+      showLabels: false,
+    } as unknown as Parameters<ModuleHost['scene']['addLayer']>[0]);
+    // The stamp §4.4 declares, so the layer panel shows a summary instead of the core editor.
+    expect(layer.module).toBe(HELLO);
+
+    engine.pointPane = { width: 200, height: 200 };
+    engine.setCursor([0, 0, 0]);
+    engine.setView('axial', { camera: { center: [0, 0], mmPerPx: 0.5 } });
+
+    const events: PointToolEvent[] = [];
+    const off = h.scene.on('pointTool', (event) => events.push(event));
+
+    h.tool.setPointTool({ layerId: layer.id, mode: 'place' });
+    expect(h.tool.pointTool()?.mode).toBe('place');
+    // Arming is not an event: `setPointTool` emits nothing until something happens with the tool.
+    expect(events).toEqual([]);
+
+    engine.pointToolClick('axial', 100 + 6 / 0.5 - 0.5, 100 - 4 / 0.5 - 0.5);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe('placed');
+    expect(events[0]?.layerId).toBe(layer.id);
+    expect(events[0]?.world?.[0]).toBeCloseTo(6, 6);
+    expect(events[0]?.world?.[1]).toBeCloseTo(4, 6);
+
+    // A placement is also the selection, which is what `when: 'selection'` gates on — so the key
+    // that stayed unclaimed with nothing selected is claimed now.
+    const placed = events[0]?.pointId as string;
+    expect(h.tool.selection()?.pointId).toBe(placed);
+    expect(
+      controller.handleModuleKey({
+        key: 's',
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+        editable: false,
+      })
+    ).toBe(true);
+
+    // `select(layerId, null)` clears it; disarming emits one `cleared` whatever was selected.
+    h.tool.select(layer.id, null);
+    expect(h.tool.selection()).toBeNull();
+    expect(events.at(-1)?.kind).toBe('cleared');
+    const before = events.length;
+    h.tool.setPointTool(null);
+    expect(h.tool.pointTool()).toBeNull();
+    expect(events.slice(before).map((e) => e.kind)).toEqual(['cleared']);
+
+    // The subscription is the module's to drop, and dropping it stops the fan-out.
+    off();
+    h.tool.setPointTool({ layerId: layer.id, mode: 'select' });
+    h.tool.setPointTool(null);
+    expect(events.slice(before)).toHaveLength(1);
+  });
+
+  it('reads a peak centroid out of the dataset the module names, and null for anything else', async () => {
+    const { engine, controller } = harness();
+    await controller.activateModule(HELLO);
+    const h = controller.moduleHost() as ModuleHost;
+
+    engine.scene.datasets.set('ds-bright', brightVoxelVolume('ds-bright', [2, 2, 2]));
+    // A 1.5 mm radius on 1 mm spacing is a 3³ box around the query, which reaches the bright voxel
+    // from a millimetre away — and answers with the voxel, not with the query.
+    expect(h.scene.peakCentroid('ds-bright', [1, 2, 2], 1.5)).toEqual([2, 2, 2]);
+    // Far enough away that the box holds nothing but zeros: no peak, rather than a made-up one.
+    expect(h.scene.peakCentroid('ds-bright', [0, 0, 0], 0.5)).toBeNull();
+    // A dataset that is not there, and one that is not a volume, are the same `null`.
+    expect(h.scene.peakCentroid('ds-nope', [2, 2, 2], 1.5)).toBeNull();
+    const mesh = await engine.addDataset({ kind: 'path', path: '/tmp/head.msh' });
+    expect(h.scene.peakCentroid(mesh.id, [2, 2, 2], 1.5)).toBeNull();
+  });
+
+  it('gives the module a real files surface, over the module channels', async () => {
+    const { controller } = harness();
+    await controller.activateModule(HELLO);
+    const h = controller.moduleHost() as ModuleHost;
+    // The fixture declares no readers, writers or sibling rules, so what is asserted is that the
+    // surface is `createHostFiles` over the bridge and not the stub that rejects: an undeclared
+    // reader answers null, and the manifest with no sibling rules answers nothing at all.
+    await expect(h.files.openDialog('nope')).resolves.toBeNull();
+    await expect(h.files.saveDialog('nope', null)).resolves.toBeNull();
+    await expect(h.files.siblings('/data/T1.nii.gz')).resolves.toEqual({});
   });
 });

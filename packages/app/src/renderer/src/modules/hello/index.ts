@@ -138,9 +138,10 @@ export const activate = (host: ModuleHost): ModuleInstance => {
         case 'undo':
           return model.undo();
         case 'select-demo': {
-          // The fixture's demonstration of an unwired member: P0 has no point tool, so this throws
-          // `ModuleHostError` and the module reports it rather than silently doing nothing.
-          // INTEGRATION(P2): once the engine has the tool, this reports the real selection.
+          // The fixture's demonstration of `when: 'selection'` (§13.5): the binding is live only
+          // with a point selected, so this reports the selection the engine holds. The `catch` is
+          // not dead code — `ModuleHostError` is what a build that does not wire `tool` raises, and
+          // a module reporting that is the difference between "no tool here" and "nothing selected".
           try {
             const selection = host.tool.selection();
             host.ui.toast('info', selection === null ? 'nothing selected' : selection.pointId);

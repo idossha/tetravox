@@ -38,14 +38,17 @@ export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  *
  * Item 5 of §12.3 — "every Rust signature in §6.0–§6.4" — is deliberately **not** here: it is a rule
  * about signatures spread across many files, and a file-level rule over `crates/**` would fire on
- * every implementation change and teach everyone to ignore this job. The four TypeScript contracts
- * are exactly the ones where "the file changed" and "the interface changed" are the same event.
+ * every implementation change and teach everyone to ignore this job. The TypeScript contracts are
+ * exactly the ones where "the file changed" and "the interface changed" are the same event.
  */
 export const FROZEN_PATHS = [
   'packages/protocol/src/index.ts',
   'packages/engine/src/scene/types.ts',
   'packages/engine/src/api.ts',
   'packages/wasm/src/index.ts',
+  // Item 6, frozen 2026-08-30 when the module host's `tool`, `files` and `scene.peakCentroid` stopped
+  // being stubs (§13.1). Same class as the four above: the file *is* the interface.
+  'packages/app/src/renderer/src/modules/host.ts',
 ];
 
 export const ARCHITECTURE = 'docs/ARCHITECTURE.md';
