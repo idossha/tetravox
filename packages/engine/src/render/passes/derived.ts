@@ -400,6 +400,10 @@ export class DerivedPass implements FramePass {
     prog.float('uDotPx', item.layer.shape === 'dot' ? 4 * input.uiScale : 0);
     prog.float('uAmbient', input.scene.lighting.ambient);
     prog.float('uOpacity', item.layer.opacity);
+    // §4.4's `offPlaneOpacity` (2026-08-30): 0 or absent is the cull this pane has always done, so
+    // an unchanged layer draws unchanged pixels. Clamped because it is an alpha and a scene file is
+    // user-editable text — a 3.0 here would brighten the ghosts past the on-slice discs.
+    prog.float('uGhostAlpha', Math.min(1, Math.max(0, item.layer.offPlaneOpacity ?? 0)));
     inst.vao.bind();
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, POINT_QUAD_VERTICES, inst.count);
     VertexArray.unbind(gl);

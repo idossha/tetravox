@@ -1941,6 +1941,15 @@ Rules:
 1. **Opaque** — volume base slices (2D: the slice; 3D: the plane of each `SliceView` whose owning volume
    layer has `showIn3D`), opaque meshes, opaque isosurfaces, points, a points layer's `SL` segments, and the
    cut caps of opaque layers.
+   * **Points in a 2D pane are the sphere ∩ plane disc**, radius `sqrt(r² − d²)` for a signed plane distance
+     `d`, drawn *on* the plane; a point with `|d| ≥ r` is not on this slice and the vertex shader drops it
+     off screen. `shape: 'dot'` is culled by the same world rule and then drawn at a constant **4 px**
+     screen radius. §4.4's **`offPlaneOpacity > 0` adds the second case**: the dropped points are drawn as
+     well, at the **full** radius `r` (a `dot` at its same 4 px) and at that alpha, through a `uGhostAlpha`
+     uniform on the existing `POINTS_2D` program rather than a third variant — `derived.ts` already writes
+     per-layer uniforms there, and the value is clamped to 0…1 because a scene file is editable text. At 0,
+     which is what absent means, the shader takes the cull branch verbatim and the pixels are the ones every
+     §11 golden was captured with.
 2. **Transparent, scene-wide, two phases:**
    * **2a — back faces:** `cullFace(FRONT)`, depth test on, depth write off; objects sorted back-to-front by
      the depth of their **far** extent.
