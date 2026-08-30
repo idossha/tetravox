@@ -113,3 +113,16 @@ export {
   nextMeasurementName,
   pointsNeeded,
 } from './derived/measure';
+
+/**
+ * §4.3's **bounded local reads** (2026-08-30) — the neighbourhood arithmetic §13's point tools snap
+ * with.
+ *
+ * Exported for the same reason the colormaps and the coordinate spaces are: the app's `NoGlEngine`
+ * has to give the *same* answer as the real engine without a GL context, and a module that
+ * re-implemented "move this contact to the local intensity peak" would be a second source of truth
+ * for where a electrode is. Pure functions over §4.3 values; nothing here touches GL, and the cap on
+ * how much of `data` they may read is `MAX_BOX_VOXELS`, not the caller's discretion.
+ */
+export { MAX_BOX_VOXELS, peakCentroid, sampleVoxelBox } from './derived/voxel-box';
+export type { VoxelBox } from './derived/voxel-box';

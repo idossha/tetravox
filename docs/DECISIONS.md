@@ -3310,3 +3310,56 @@ need nothing for this phase.
 and `pointHot` are absent on every frame nothing sets them on, and `offPlaneOpacity` / `labelSource`
 are absent on every layer. The full engine e2e suite, goldens included, is green unchanged; the one
 new picture is `derived-points-ghost`.
+
+## 2026-08-30 — `sampleVoxelBox` / `peakCentroid`: §4.3's "for probes only" becomes "and bounded local reads"
+
+§4.3 kept `VolumeDataset.data` on the UI thread "for probes only", and a probe is one voxel. Snapping an
+sEEG contact to the metal it is inside needs the neighbourhood — Slicer's editor takes a box of radius
+1.5 mm and moves the contact to the intensity-weighted peak, which on a 0.5 mm CT is a few hundred voxels
+and well under a millisecond. So §4.3's sentence is amended in the same commit as the code, and the
+amendment carries its own bound: `derived/voxel-box.ts` reads at most `MAX_BOX_VOXELS` = **32 voxels on an
+axis**, and a whole-volume scan is still not a probe.
+
+**The cap is the decision, not a performance note.** Without one, "you may read `data` on the UI thread"
+is a door to a 512³ loop inside a `pointermove` handler, and §5's whole worker-per-dataset arrangement
+leaks through it. 32 rather than a millimetre limit because the bound has to hold whatever the spacing is:
+1.5 mm is a 3-voxel half-extent on ernie's 1 mm T1 and 15 on a 0.2 mm micro-CT. A caller who wants more
+than a box asks a worker (§6.5).
+
+**The box is axis-aligned in voxel space, half-extent `ceil(radiusMm / spacing)` per axis.** A world-aligned
+box would need the affine's row norms and would still have to be padded to whole voxels; this covers the
+requested radius in every direction on an oblique volume and is one `ceil` per axis. It is clipped to the
+volume rather than refused there, so a contact near a face reads a smaller box and says so through `ijk0`
+and `dims`. It **refuses** two things instead of coping: `rgb24`/`rgba32`, whose samples are interleaved
+components with no single value (§4.2's scalar model does not cover them either), and a query point outside
+the volume — never clamped, because a snap that silently pulled a click 40 mm back inside the head is worse
+than one that says no.
+
+**The weighting is Slicer's, verbatim: `clip(v − (max − ½(max − min)), 0)`.** Half way up the box's *own*
+range, not a fixed HU floor — which is what makes it work unchanged on a CT whose background is soft tissue
+at ~40 HU and whose contacts are metal at ~3000, and on the same scan rescaled. It has no parameter but the
+radius. The centroid is computed in **voxel indices** and mapped through the affine at the end, so the
+weights and the coordinates stay in one frame; on a flat box every weight is zero and the answer is `null`,
+because uniform background has no peak and returning the box centre would be a snap pretending to have found
+something.
+
+**Both are pure and exported from `@tetravox/engine`.** The app's `NoGlEngine` must give the same answers as
+the real engine, and a module that re-implemented "where is this contact really" would be a second source of
+truth for an electrode position. Exported for the reason the colormaps and the coordinate spaces are.
+
+**Two references, and neither is this code.** The synthetic fixture is `testdata/ct_shafts.nii.gz` — a CT
+phantom with three depth electrodes at a 3.5 mm contact pitch, oblique to every axis, on **anisotropic**
+spacing (0.4 / 0.5 / 0.8 mm) so that `ceil(1.5 / spacing)` is 4, 3 and 2 voxels and an implementation that
+used one spacing for all three axes is right on an isotropic volume and wrong here. It is stored as
+`HU + 1024` with `scl = (1, −1024)`, so a reader that forgets §6.1's scaling is off by exactly 1024 rather
+than subtly wrong. `scripts/gen-fixtures.py`'s verification half re-reads the file with **nibabel** and
+recomputes every expectation in numpy, per AGENTS.md "Test data". The real-data half is
+`scripts/refvalues/voxelbox_refvalues.py` over `m2m_ernie/T1.nii.gz`, which is the file that matters —
+float32 with a max of exactly 65535 and a non-diagonal sform, where a box built from `dims` and `spacing`
+instead of the inverse affine would pass on the phantom and fail on a subject.
+
+**One convention had to be pinned to make the two agree: the query's voxel index rounds HALF-UP**, like
+JavaScript's `Math.round`. `np.rint` is half-to-even and disagreed on every index landing exactly between
+two voxels. Both references now state the rule, and the fixture's origin puts an integer voxel index at
+world 0 on every axis with no query on a half-index — a test whose expectations turn on a tie-break is
+pinning the tie-break rather than the rule.

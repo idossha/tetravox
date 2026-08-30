@@ -1,0 +1,495 @@
+{
+ "affine": [
+  [
+   0.0,
+   0.0,
+   1.0,
+   -99.737457275
+  ],
+  [
+   -1.0,
+   0.0,
+   0.0,
+   154.1875
+  ],
+  [
+   0.0,
+   1.0,
+   0.0,
+   -143.642272949
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   1.0
+  ]
+ ],
+ "bytes": 13109495,
+ "cases": [
+  {
+   "box": {
+    "dims": [
+     7,
+     7,
+     7
+    ],
+    "ijk0": [
+     125,
+     125,
+     101
+    ],
+    "spotValues": [
+     {
+      "offset": [
+       0,
+       0,
+       0
+      ],
+      "value": 559.0
+     },
+     {
+      "offset": [
+       6,
+       0,
+       0
+      ],
+      "value": 6263.0
+     },
+     {
+      "offset": [
+       0,
+       6,
+       0
+      ],
+      "value": 11854.0
+     },
+     {
+      "offset": [
+       0,
+       0,
+       6
+      ],
+      "value": 447.0
+     },
+     {
+      "offset": [
+       3,
+       3,
+       3
+      ],
+      "value": 2125.0
+     }
+    ],
+    "valueMax": 23262.0,
+    "valueMin": 0.0,
+    "valueSum": 1734674.0,
+    "voxelCount": 343
+   },
+   "name": "centre",
+   "peakCentroidWorld": [
+    4.270681164,
+    28.593571869,
+    -13.372531468
+   ],
+   "radiusMm": 3.0,
+   "world": [
+    3.762542725,
+    26.6875,
+    -16.142272949
+   ]
+  },
+  {
+   "box": {
+    "dims": [
+     7,
+     7,
+     7
+    ],
+    "ijk0": [
+     174,
+     172,
+     78
+    ],
+    "spotValues": [
+     {
+      "offset": [
+       0,
+       0,
+       0
+      ],
+      "value": 21472.0
+     },
+     {
+      "offset": [
+       6,
+       0,
+       0
+      ],
+      "value": 20801.0
+     },
+     {
+      "offset": [
+       0,
+       6,
+       0
+      ],
+      "value": 20130.0
+     },
+     {
+      "offset": [
+       0,
+       0,
+       6
+      ],
+      "value": 22591.0
+     },
+     {
+      "offset": [
+       3,
+       3,
+       3
+      ],
+      "value": 20689.0
+     }
+    ],
+    "valueMax": 23821.0,
+    "valueMin": 17670.0,
+    "valueSum": 7279540.0,
+    "voxelCount": 343
+   },
+   "name": "intracranial-lps",
+   "peakCentroidWorld": [
+    -18.09302987,
+    -22.605643705,
+    30.786683271
+   ],
+   "radiusMm": 3.0,
+   "world": [
+    -18.3,
+    -22.7,
+    31.4
+   ]
+  },
+  {
+   "box": {
+    "dims": [
+     7,
+     7,
+     7
+    ],
+    "ijk0": [
+     133,
+     154,
+     118
+    ],
+    "spotValues": [
+     {
+      "offset": [
+       0,
+       0,
+       0
+      ],
+      "value": 22479.0
+     },
+     {
+      "offset": [
+       6,
+       0,
+       0
+      ],
+      "value": 24492.0
+     },
+     {
+      "offset": [
+       0,
+       6,
+       0
+      ],
+      "value": 23485.0
+     },
+     {
+      "offset": [
+       0,
+       0,
+       6
+      ],
+      "value": 22814.0
+     },
+     {
+      "offset": [
+       3,
+       3,
+       3
+      ],
+      "value": 25834.0
+     }
+    ],
+    "valueMax": 27064.0,
+    "valueMin": 17446.0,
+    "valueSum": 8011598.0,
+    "voxelCount": 343
+   },
+   "name": "intracranial-ras",
+   "peakCentroidWorld": [
+    20.552009168,
+    17.898029083,
+    13.498844095
+   ],
+   "radiusMm": 3.0,
+   "world": [
+    21.7,
+    18.3,
+    12.9
+   ]
+  },
+  {
+   "box": {
+    "dims": [
+     11,
+     11,
+     11
+    ],
+    "ijk0": [
+     159,
+     101,
+     97
+    ],
+    "spotValues": [
+     {
+      "offset": [
+       0,
+       0,
+       0
+      ],
+      "value": 21360.0
+     },
+     {
+      "offset": [
+       10,
+       0,
+       0
+      ],
+      "value": 19907.0
+     },
+     {
+      "offset": [
+       0,
+       10,
+       0
+      ],
+      "value": 22702.0
+     },
+     {
+      "offset": [
+       0,
+       0,
+       10
+      ],
+      "value": 21472.0
+     },
+     {
+      "offset": [
+       5,
+       5,
+       5
+      ],
+      "value": 21920.0
+     }
+    ],
+    "valueMax": 24715.0,
+    "valueMin": 4026.0,
+    "valueSum": 25092569.0,
+    "voxelCount": 1331
+   },
+   "name": "inferior",
+   "peakCentroidWorld": [
+    2.350609852,
+    -8.892332765,
+    -37.693366956
+   ],
+   "radiusMm": 5.0,
+   "world": [
+    2.3,
+    -9.7,
+    -38.1
+   ]
+  },
+  {
+   "box": {
+    "dims": [
+     5,
+     5,
+     5
+    ],
+    "ijk0": [
+     145,
+     184,
+     39
+    ],
+    "spotValues": [
+     {
+      "offset": [
+       0,
+       0,
+       0
+      ],
+      "value": 9170.0
+     },
+     {
+      "offset": [
+       4,
+       0,
+       0
+      ],
+      "value": 9282.0
+     },
+     {
+      "offset": [
+       0,
+       4,
+       0
+      ],
+      "value": 5368.0
+     },
+     {
+      "offset": [
+       0,
+       0,
+       4
+      ],
+      "value": 8835.0
+     },
+     {
+      "offset": [
+       2,
+       2,
+       2
+      ],
+      "value": 3243.0
+     }
+    ],
+    "valueMax": 12302.0,
+    "valueMin": 1342.0,
+    "valueSum": 888187.0,
+    "voxelCount": 125
+   },
+   "name": "scalp",
+   "peakCentroidWorld": [
+    -58.209897893,
+    6.797301397,
+    42.100937338
+   ],
+   "radiusMm": 2.0,
+   "world": [
+    -58.3,
+    6.7,
+    41.9
+   ]
+  },
+  {
+   "box": {
+    "dims": [
+     31,
+     31,
+     31
+    ],
+    "ijk0": [
+     138,
+     130,
+     85
+    ],
+    "spotValues": [
+     {
+      "offset": [
+       0,
+       0,
+       0
+      ],
+      "value": 19236.0
+     },
+     {
+      "offset": [
+       30,
+       0,
+       0
+      ],
+      "value": 21696.0
+     },
+     {
+      "offset": [
+       0,
+       30,
+       0
+      ],
+      "value": 22702.0
+     },
+     {
+      "offset": [
+       0,
+       0,
+       30
+      ],
+      "value": 17334.0
+     },
+     {
+      "offset": [
+       15,
+       15,
+       15
+      ],
+      "value": 25722.0
+     }
+    ],
+    "valueMax": 42721.0,
+    "valueMin": 1678.0,
+    "valueSum": 551269677.0,
+    "voxelCount": 29791
+   },
+   "name": "capped-radius",
+   "peakCentroidWorld": [
+    1.680234102,
+    6.437714362,
+    0.674634608
+   ],
+   "radiusMm": 60.0,
+   "world": [
+    0.3,
+    0.7,
+    0.9
+   ]
+  },
+  {
+   "box": null,
+   "name": "outside",
+   "peakCentroidWorld": null,
+   "radiusMm": 3.0,
+   "world": [
+    1000.0,
+    0.0,
+    0.0
+   ]
+  }
+ ],
+ "conventions": {
+  "box": "half-extent ceil(radiusMm / spacing) voxels PER AXIS, clipped to the volume, capped at 32 voxels on an axis (ARCHITECTURE.md \u00a74.3)",
+  "peakCentroid": "weights clip(v - (max - 0.5*(max - min)), 0); centroid in voxel indices, then through the affine",
+  "rounding": "the query's voxel index is rounded HALF-UP, like JavaScript's Math.round",
+  "spotValues": "offset is [i, j, k] within the box; i fastest, like VolumeDataset.data",
+  "values": "physical = raw * sclSlope + sclInter, applied once, slope from the RAW header"
+ },
+ "dims": [
+  256,
+  256,
+  208
+ ],
+ "file": "m2m_ernie/T1.nii.gz",
+ "producedBy": "nibabel + numpy (scripts/refvalues/voxelbox_refvalues.py)",
+ "sclInterOnDisk": 0.0,
+ "sclSlopeOnDisk": 1.0,
+ "spacing": [
+  1.0,
+  1.0,
+  1.0
+ ]
+}

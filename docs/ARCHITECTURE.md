@@ -240,7 +240,7 @@ export interface VolumeDataset {
   affine: mat4; inverseAffine: mat4; spacing: vec3; bounds: Aabb;
   dtype: 'u8' | 'i8' | 'u16' | 'i16' | 'u32' | 'i32' | 'f32' | 'f64' | 'rgb24' | 'rgba32';
   data: TypedArray;                   // RAW on-disk samples, nx*ny*nz*nvols, i fastest. Kept on the UI thread
-                                      // for probes only; never re-sent to a worker.
+                                      // for probes AND BOUNDED LOCAL READS; never re-sent to a worker.
   sclSlope: number; sclInter: number;  // identity (1, 0) when the header says no scaling
   isLabel: boolean;
   labelIds?: Uint32Array;             // sorted unique ids, present iff isLabel
@@ -308,6 +308,23 @@ edit, applied on top by the engine's model matrix and serialised in `ViewSpec`.
 
 **Mesh bulk arrays never reach the UI thread.** Nodes/tets/tris/fields stay in the dataset's worker; the UI
 thread sees only draw-ready buffers (uploaded to GL, then dropped) and probe results.
+
+**`VolumeDataset.data` is for probes and bounded local reads — a whole-volume scan is still not a probe**
+(2026-08-30). A probe is one voxel; a point tool that snaps a contact to the local intensity peak needs the
+*neighbourhood*, which on a 0.5 mm CT at a 1.5 mm radius is a few hundred voxels and well under a millisecond.
+`derived/voxel-box.ts` is the whole of that permission and it carries the bound with it:
+`sampleVoxelBox(ds, world, radiusMm)` returns the physical values (`raw * sclSlope + sclInter`, applied once)
+in a box whose half-extent is `ceil(radiusMm / spacing)` voxels **per axis**, clipped to the volume and capped
+at `MAX_BOX_VOXELS` = 32 voxels on an axis; it returns `null` for `rgb24`/`rgba32`, whose samples are
+interleaved components with no single value, and for a point outside the volume — never a clamp, because a
+snap that silently pulled a click back inside the head would be worse than one that refused. `peakCentroid`
+is the one consumer the engine ships: the intensity-weighted centroid of that box above the **midpoint of its
+own range** (`clip(v − (max − ½(max − min)), 0)`), computed in voxel indices and mapped through the affine, so
+it is sub-voxel and needs no absolute threshold. It is `null` on a flat box, where there is no peak to report.
+Both are pure and exported from `@tetravox/engine`, so the app's no-GL engine gives the same answers. The cap
+is what makes this an exception rather than a hole: without it "read `data` on the UI thread" is a door to a
+512³ loop inside a `pointermove`, and §5's worker-per-dataset arrangement leaks through it. A caller who wants
+more than a box asks a worker (§6.5).
 
 ### 4.4 Layers
 

@@ -8,6 +8,7 @@ test reads back. Re-run them instead of retyping numbers.
 python3 scripts/refvalues/nifti_refvalues.py                                                   > scripts/refvalues/nifti_refvalues.json
 python3 scripts/refvalues/contour_refvalues.py                                                 > scripts/refvalues/contour_refvalues.json
 python3 scripts/refvalues/mgz_refvalues.py                                                     > scripts/refvalues/mgz_refvalues.json
+python3 scripts/refvalues/voxelbox_refvalues.py                                                > scripts/refvalues/voxelbox_refvalues.json
 ```
 
 Both take an optional testdata root as `argv[1]`, defaulting to `$TETRAVOX_TESTDATA` and then to
@@ -39,3 +40,13 @@ change, not a test failure.
   `.mgz` on the reference machine. It reports dims, frames, the FreeSurfer type code, `delta`, nibabel's
   `MGHImage.affine`, `vox2ras-tkr`, per-frame min/max/mean and spot values; the file's name and size are
   recorded so `tests/realdata.rs::mgz_matches_nibabel` skips rather than misjudges another file.
+
+* `voxelbox_refvalues.py` needs nibabel + numpy only. It is the real-data half of AGENTS.md rule 2 for
+  §4.3's bounded local reads (`packages/engine/src/derived/voxel-box.ts`): `sampleVoxelBox` and
+  `peakCentroid` re-implemented in numpy over `m2m_ernie/T1.nii.gz`, at seven world points including
+  one outside the volume and one whose radius hits the 32-voxel cap. It reports each box's `ijk0`,
+  `dims`, min/max/sum and five spot values (corners and centre, which a transposed window cannot
+  reproduce), plus the peak centroid in world mm.
+  `packages/engine/src/derived/voxel-box.realdata.test.ts` reads it and skips without
+  `TETRAVOX_TESTDATA`. The synthetic half is `testdata/ct_shafts.nii.gz`, whose expectations live in
+  `testdata/manifest.json` under `voxelBox` and come from `scripts/gen-fixtures.py`.
