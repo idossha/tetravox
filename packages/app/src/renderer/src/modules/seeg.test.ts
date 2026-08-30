@@ -588,6 +588,86 @@ describe('operations (§13.6)', () => {
   });
 });
 
+/**
+ * `load`'s optional `t1` (§13.6's `t1: 'path?'`).
+ *
+ * The argument was declared and never read: a job could name a T1, main would allow-list it, and
+ * nothing whatsoever happened. What the module can *honestly* do with it is bounded by §13.1 — it
+ * has no `addDataset`, so it cannot open the file — which leaves two outcomes, and both are asserted
+ * because the difference between them is the whole value of the argument. Either the volume is
+ * already in the scene, and it gets the T1 half of the display preset plus a line of provenance in
+ * the block, or it is not, and the operation *says so* in its result, where a job author reading
+ * `job-result.json` will find it.
+ */
+describe('the load operation’s T1', () => {
+  const T1 = '/bids/derivatives/SimNIBS/sub-P076/m2m_P076/T1.nii.gz';
+
+  function volumeLayerFor(h: Harness, path: string): Layer | undefined {
+    const dataset = h.store.getState().datasets.find((d) => d.path === path);
+    if (dataset === undefined) return undefined;
+    return h.store.getState().layers.find((l) => l.kind === 'volume' && l.datasetId === dataset.id);
+  }
+
+  /** `loadSubject`, plus the T1 opened as a second volume — the way a job's `scene.files` opens it. */
+  async function withT1(): Promise<Harness> {
+    const h = await loadSubject();
+    h.controller.open([{ name: 'T1.nii.gz', path: T1, source: { kind: 'path', path: T1 } }]);
+    await until(() => volumeLayerFor(h, T1) !== undefined, 'the T1 layer');
+    return h;
+  }
+
+  it('shows an open T1 in plain grey and records it in the block', async () => {
+    const h = await withT1();
+    const before = volumeLayerFor(h, T1) as Layer;
+    // Hidden and half-transparent first, so "visible, grey, opaque" is something the operation did
+    // rather than something the layer already was.
+    h.controller.toggleVisible(before.id);
+    h.controller.setOpacity(before.id, 0.4);
+    expect(volumeLayerFor(h, T1)?.visible).toBe(false);
+
+    const result = await h.controller
+      .moduleInstance()
+      ?.runOperation?.('load', { ct: CT, tsv: TSV, t1: T1 });
+    expect(result).toMatchObject({ contacts: 15, electrodes: 3, bound: true, t1: 'shown' });
+
+    expect(volumeLayerFor(h, T1)).toMatchObject({ visible: true, opacity: 1, colormap: 'gray' });
+    // The CT keeps its own half: the 150 HU floor is what makes the T1 underneath worth showing.
+    const ct = volumeLayerFor(h, CT) as unknown as { colormap: string; threshold: { lo: number } };
+    expect(ct.colormap).toBe('gray');
+    expect(ct.threshold.lo).toBe(150);
+
+    // Provenance — and §13.2's rule about what a block may name is still true with a path in it.
+    const block = h.store.getState().moduleBlocks[SEEG];
+    expect((block?.data as { source: { t1: string } }).source.t1).toBe(T1);
+    expect(block?.version).toBe(1);
+    expect(JSON.stringify(block?.data)).not.toContain(before.id);
+  });
+
+  it('reports `not-open` for a T1 the scene does not have, and loads the table anyway', async () => {
+    const h = await loadSubject();
+    const result = await h.controller
+      .moduleInstance()
+      ?.runOperation?.('load', { ct: CT, tsv: TSV, t1: T1 });
+    // Everything else the operation did still stands: this is a report, not a failure.
+    expect(result).toMatchObject({ contacts: 15, electrodes: 3, bound: true, t1: 'not-open' });
+    // And nothing was opened, because a module cannot — which is why the answer is a message.
+    expect(h.store.getState().layers.filter((l) => l.kind === 'volume')).toHaveLength(1);
+    const block = h.store.getState().moduleBlocks[SEEG];
+    expect((block?.data as { source: { t1: string | null } }).source.t1).toBeNull();
+  });
+
+  it('says nothing at all about a T1 the job never named', async () => {
+    const h = await withT1();
+    const result = (await h.controller
+      .moduleInstance()
+      ?.runOperation?.('load', { ct: CT, tsv: TSV })) as Record<string, unknown>;
+    // Absent reproduces the previous behaviour exactly, which is what makes the field additive.
+    expect(Object.keys(result)).toEqual(['contacts', 'electrodes', 'bound']);
+    const block = h.store.getState().moduleBlocks[SEEG];
+    expect((block?.data as { source: { t1: string | null } }).source.t1).toBeNull();
+  });
+});
+
 describe('the host’s active plane', () => {
   it('is the active pane’s normal through the cursor, and null in 3D', async () => {
     const h = await loadSubject();

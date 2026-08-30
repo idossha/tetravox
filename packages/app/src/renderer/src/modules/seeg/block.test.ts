@@ -36,6 +36,9 @@ const SET: ContactSet = {
 const SOURCE: SeegBlockSource = {
   tsv: '/data/sub-01_electrodes.tsv',
   coordsystem: null,
+  // The T1 a `load` operation named and found open (§13.6). A path, so the round trip below is
+  // evidence the field survives one rather than that `null === null`.
+  t1: '/data/derivatives/SimNIBS/sub-01/m2m_01/T1.nii.gz',
   fieldnames: ['name', 'x', 'y', 'z', 'csc'],
   columns: resolveColumns(['name', 'x', 'y', 'z', 'csc']),
   delimiter: 'tab',
@@ -98,6 +101,19 @@ describe('fromBlock', () => {
     const block = toBlock(INPUT);
     expect(fromBlock(JSON.parse(JSON.stringify(block)))).toEqual(block);
     expect(SEEG_BLOCK_VERSION).toBe(1);
+  });
+
+  /**
+   * `source.t1` was appended 2026-08-30 with the `load` operation's `t1` argument, and the version
+   * did **not** move — which is a claim about blocks written before it existed, not about this one.
+   * A block with no `t1` reads back as "there isn't one", which is the state the module starts in,
+   * so nothing it does afterwards can tell the difference.
+   */
+  it('reads a block written before `source.t1` existed as having no T1', () => {
+    const { t1: _dropped, ...older } = SOURCE;
+    const read = fromBlock({ ...toBlock(INPUT), source: older });
+    expect(read?.source?.t1).toBeNull();
+    expect(read?.source?.tsv).toBe('/data/sub-01_electrodes.tsv');
   });
 
   it('defaults every field rather than throwing on a malformed one', () => {

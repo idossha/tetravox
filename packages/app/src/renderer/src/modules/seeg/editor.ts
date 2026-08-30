@@ -67,6 +67,7 @@ import {
   ctDisplayPreset,
   layerPatch,
   namePadOfLayer,
+  t1DisplayPreset,
 } from '../shared/contacts/layer';
 import {
   applySnap,
@@ -171,6 +172,7 @@ function canonicalSource(): SeegBlockSource {
   return {
     tsv: null,
     coordsystem: null,
+    t1: null,
     fieldnames: [...CANONICAL_FIELDNAMES],
     columns: resolveColumns(CANONICAL_FIELDNAMES),
     delimiter: 'tab',
@@ -215,6 +217,8 @@ export function createModel(host: ModuleHost): SeegModel {
   let datasetId: string | null = null;
   let ctName: string | null = null;
   let tsvPath: string | null = null;
+  /** The T1 a `load` operation named and found open, for the block's `source` (§13.6). */
+  let t1Path: string | null = null;
   let pendingTsv: string | null = null;
   let isDirty = false;
   let armed = false;
@@ -399,6 +403,46 @@ export function createModel(host: ModuleHost): SeegModel {
     }
   };
 
+  /**
+   * The `load` operation's optional `t1` (§13.6), resolved honestly.
+   *
+   * A module has no `addDataset`, so it cannot open the file: the T1 is the job's to open, the same
+   * way the CT is (`scene.files`, or an `open` action, before this one). All this can do is find the
+   * dataset that is already there and give its layer the T1 half of Slicer's preset — grey, opaque
+   * and **visible**, since an open-but-hidden T1 shows nothing through the CT's 150 HU floor — and
+   * record which file it was in the block's `source`.
+   *
+   * Matched on the resolved path, with the basename as the fallback, exactly as the CT is: main
+   * `${VAR}`-expands, resolves and allow-lists a `path?` before the window exists, so the string
+   * here and the dataset's `path` are the same string unless the build opened it under a symlink.
+   *
+   * `'not-open'` is the answer when it is not there, and it is an answer rather than a throw: the
+   * contacts loaded, the table is editable and every other number the operation reports is true.
+   * Only the anatomy underneath is missing, and the job author is the one who can fix it.
+   */
+  const showT1 = (candidate: string): 'shown' | 'not-open' => {
+    const name = baseNameOf(candidate);
+    const dataset = host.scene
+      .datasets()
+      .find(
+        (d) =>
+          d.kind === 'volume' &&
+          d.id !== datasetId &&
+          (d.path === candidate || baseNameOf(d.path ?? '') === name)
+      );
+    if (dataset === undefined) return 'not-open';
+    const layer = host.scene
+      .layers()
+      .find((l) => l.kind === 'volume' && l.datasetId === dataset.id);
+    if (layer !== undefined) host.scene.updateLayer<VolumeLayer>(layer.id, t1DisplayPreset());
+    t1Path = dataset.path ?? candidate;
+    if (source !== null) {
+      source = { ...source, t1: t1Path };
+      writeBlock();
+    }
+    return 'shown';
+  };
+
   const buildLayer = (): void => {
     const dataset = host.scene.datasets().find((d) => d.id === datasetId);
     if (dataset === undefined) return;
@@ -461,6 +505,7 @@ export function createModel(host: ModuleHost): SeegModel {
     source = {
       tsv: path,
       coordsystem: null,
+      t1: t1Path,
       fieldnames: parsed.fieldnames,
       columns: parsed.columns,
       delimiter: parsed.delimiter,
@@ -908,6 +953,7 @@ export function createModel(host: ModuleHost): SeegModel {
       layerId = null;
       datasetId = null;
       tsvPath = null;
+      t1Path = null;
       source = null;
       savePath = null;
       saveSiblings = {};
@@ -1089,10 +1135,22 @@ export function createModel(host: ModuleHost): SeegModel {
         if (text === null) throw new ModuleHostError(`could not read ${tsv}`);
         const ok = applyTable(tsv, text);
         if (!ok) throw new ModuleHostError(`${baseNameOf(tsv)} is not a usable electrodes table`);
+        // After the CT binds, because {@link showT1} writes the block and `applyTable` is what
+        // creates the `source` it writes into. Absent `t1` reports nothing at all, which is what
+        // makes the field additive for every job written before it did anything.
+        const wanted = args['t1'];
+        const t1 = typeof wanted === 'string' && wanted !== '' ? showT1(wanted) : null;
+        if (t1 === 'not-open') {
+          host.ui.toast(
+            'warn',
+            `${baseNameOf(String(wanted))} is not open, so the contacts have no anatomy under them. Add it to the job's scene files.`
+          );
+        }
         return {
           contacts: set.contacts.length,
           electrodes: set.groups.length,
           bound: layerId !== null,
+          ...(t1 === null ? {} : { t1 }),
         };
       }
       case 'snap': {
@@ -1182,6 +1240,7 @@ export function createModel(host: ModuleHost): SeegModel {
     namePad = namePadOfLayer(layer);
     source = null;
     tsvPath = null;
+    t1Path = null;
     electrode = set.groups[0]?.name ?? null;
     ghost = (layer.offPlaneOpacity ?? 0) > 0;
     message =
@@ -1265,6 +1324,8 @@ export function createModel(host: ModuleHost): SeegModel {
       set = data === null ? rebuilt : mergeBlockIntoSet(rebuilt, data);
       source = data?.source ?? null;
       tsvPath = source?.tsv ?? null;
+      // Provenance only: the T1 is not reopened from here, because a module cannot open a dataset.
+      t1Path = source?.t1 ?? null;
       savePath = null;
       saveSiblings = {};
       snapRadiusMm = clampSnapRadius(data?.snapRadiusMm ?? SNAP_RADIUS_DEFAULT_MM);

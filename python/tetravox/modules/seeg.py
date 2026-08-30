@@ -58,11 +58,18 @@ def load(job: Job, ct: PathLike, tsv: PathLike, t1: Optional[PathLike] = None) -
     """Open a CT and an electrode table, and bind the contacts to the CT.
 
     `ct` is the bone-window CT the contacts were localised in, `tsv` a BIDS `*_electrodes.tsv`, and
-    `t1` the anatomy to show underneath if there is one. Every path is allow-listed by the app before
-    the window opens, which is why they are `path` arguments rather than strings.
+    `t1` the anatomy to show underneath. Every path is allow-listed by the app before the window
+    opens, which is why they are `path` arguments rather than strings.
+
+    **The module opens no files.** It cannot add a dataset, so the CT and — if you name one — the T1
+    have to be in the scene already: put them in `Job(files=[...])`, or open them with an earlier
+    action. Given a T1 that is open, `load` makes that layer visible in plain grey under the CT's
+    150 HU floor and records the file in the saved scene.
 
     Reports `{"contacts": n, "electrodes": n, "bound": bool}` — `bound` is false when the CT was
-    not open, which is the one failure a job can produce that still writes a table.
+    not open, which is the one failure a job can produce that still writes a table. A `t1` you asked
+    for adds `{"t1": "shown"}`, or `{"t1": "not-open"}` when the scene does not have that file;
+    omitting `t1` reports nothing about it.
     """
     return job.module(
         MODULE_ID,

@@ -99,6 +99,13 @@ export const seegManifest: ModuleManifest = {
     // for exactly this argument. A `path?` is `${VAR}`-expanded, resolved against the job file's
     // directory and allow-listed before the window opens; a `string?` would have named a file the
     // module is told about and main never admitted, which is the wrong promise to make about a T1.
+    //
+    // What the module does with it: a module cannot open a dataset, so `t1` names a volume the job
+    // has **already opened** (`scene.files`, or an earlier `open` action). `load` gives that layer
+    // the T1 half of the display preset — visible, grey, opaque: the anatomy the CT's 150 HU floor
+    // exists to reveal — and records the file in the scene block's `source`. When it is not open the
+    // operation reports `{ t1: 'not-open' }` and everything else it did still stands, so a job
+    // author learns which file the scene is missing instead of getting contacts over nothing.
     { id: 'load', args: { ct: 'path', tsv: 'path', t1: 'path?' } },
     // `scope` is contact | electrode | all.
     {

@@ -33,6 +33,14 @@ export interface SeegBlockSource {
   /** The table this set was read from. `null` after a degraded restore — Save becomes Save as…. */
   tsv: string | null;
   coordsystem: string | null;
+  /**
+   * The T1 these contacts are being read against, when a `load` operation named one that was already
+   * open (§13.6's `t1: 'path?'`). **Additive and optional**: absent is exactly what every block
+   * written before this field existed says, and it restores to the same state, which is why
+   * `sceneBlock.version` is still 1. It is provenance, not a dependency — nothing reopens from it,
+   * because a module cannot open a dataset.
+   */
+  t1?: string | null;
   /** The file's header, in its own order, so the writer can reproduce it. */
   fieldnames: string[];
   columns: ColumnMap;
@@ -151,6 +159,9 @@ function sourceOf(value: unknown): SeegBlockSource | null {
   return {
     tsv: typeof raw['tsv'] === 'string' ? raw['tsv'] : null,
     coordsystem: typeof raw['coordsystem'] === 'string' ? raw['coordsystem'] : null,
+    // A block from before this field, or one written with no T1, reads back as `null` — the same
+    // "there isn't one" the module started from.
+    t1: typeof raw['t1'] === 'string' ? raw['t1'] : null,
     fieldnames: Array.isArray(raw['fieldnames'])
       ? (raw['fieldnames'] as unknown[]).filter((f): f is string => typeof f === 'string')
       : [],

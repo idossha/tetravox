@@ -136,6 +136,22 @@ export function ctDisplayPreset(): {
 }
 
 /**
+ * The **other half** of that preset: the anatomy the CT's 150 HU floor exists to reveal.
+ *
+ * Grey, fully opaque and *visible*, and visible is the field that does any work — a T1 the app has
+ * open but not drawn shows nothing under the floor, and a job that named one meant to see it. There
+ * is no threshold here on purpose: the CT hides its own soft tissue, and thresholding the layer
+ * underneath as well would leave a hole rather than a head.
+ *
+ * `ctDisplayPreset`'s comment names the half this host still cannot do — putting the CT *above* the
+ * T1, which needs a `reorderLayers` `ModuleHost` does not have — and applying this does not change
+ * that: the module says so in a toast instead.
+ */
+export function t1DisplayPreset(): { colormap: string; opacity: number; visible: boolean } {
+  return { colormap: 'gray', opacity: 1, visible: true };
+}
+
+/**
  * Rebuild a contact set from a layer alone — §13.2's **degradation contract**.
  *
  * A scene re-saved by a build without this module keeps the layer and every per-point field (they
