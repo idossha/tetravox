@@ -1,0 +1,611 @@
+/**
+ * §7.5's point tool — §13's contact editing, the analytic gate.
+ *
+ * §11 rule 0: an agent cannot judge a picture, it can judge a number. The claim this file exists
+ * for is stated as a number and derived **independently of the engine**, the way `measure.spec.ts`
+ * derives its length:
+ *
+ * > a `select`-mode drag of `n` pane pixels moves the contact `n · mmPerPx` in world millimetres.
+ *
+ * That identity is exact rather than approximate: §3's in-plane basis is orthonormal, the drag never
+ * leaves the pane's plane (every move is `paneToWorld` at the pointer), and an orthographic 2D
+ * camera is a uniform `mmPerPx` scaling of that basis. The engine reaches the same number by a
+ * different route — `paneToWorld` per move, then a 3-D Euclidean norm in scanner RAS — which is what
+ * makes the agreement evidence and not a tautology. The tolerance is §11's 0.05 mm.
+ *
+ * The rest is the grammar §7.5 states, each clause as its own case: place-on-every-click, the hit
+ * boundary at 0.9 r and 1.1 r, exactly one `dragEnd` from each of the three gesture exits, a
+ * selection that survives its array being replaced and is `cleared` when its id is not in the new
+ * one, `Esc`, and the one-armed-mode invariant. Every pointer event is a real
+ * `pointerdown`/`pointermove`/`pointerup` through Chromium's input pipeline, so what is tested is
+ * the path a user's hand takes.
+ *
+ * Tagged `@angle` so both Playwright projects run it: this is a gesture a user performs on the real
+ * GPU, and the selection ring it leaves behind is part of the frame.
+ */
+
+import { expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+import { readCanvasRect } from '../helpers/pixels';
+import { DEFAULT_OVERLAY_THEME } from '../../src/overlay/theme';
+
+const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
+const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
+
+const LATTICE = fixture('mesh_v2_binary.msh');
+
+/** The canvas in `test/pages/scene.html`; with `1x1` the pane *is* the canvas. */
+const PANE = 768;
+const CX = PANE / 2;
+const CY = PANE / 2;
+
+/** The pane's ruler: `mmPerPx = 0.05` around a cursor at the origin is exactly 20 px per mm. */
+const MM_PER_PX = 0.05;
+/** The layer's radius, so the on-slice disc is `2 / 0.05 = 40 px` — well clear of the 8 px floor. */
+const RADIUS_MM = 2;
+const DISC_PX = RADIUS_MM / MM_PER_PX;
+
+type Vec3 = [number, number, number];
+
+interface ToolEvent {
+  layerId: string;
+  kind: string;
+  pointId: string | null;
+  index: number;
+  world?: number[];
+  viewId?: string;
+}
+
+interface StoredPoint {
+  id?: string;
+  name?: string;
+  group?: string;
+  position: Vec3;
+  radiusMm?: number;
+}
+
+/** `OverlayTheme.select`, as the bytes `readPixel` returns (§4.1's exact round trip). */
+const SELECT_RGBA: [number, number, number] = [
+  Math.round(DEFAULT_OVERLAY_THEME.select[0] * 255),
+  Math.round(DEFAULT_OVERLAY_THEME.select[1] * 255),
+  Math.round(DEFAULT_OVERLAY_THEME.select[2] * 255),
+];
+
+async function openScene(page: Page): Promise<string[]> {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/test/pages/scene.html?aa=off');
+  await page.waitForFunction(() => window.__tvxEngine !== undefined);
+  return errors;
+}
+
+/**
+ * A coronal pane over `derived.spec.ts`'s lattice, with one points layer on the same dataset.
+ *
+ * The cursor is at `[0, 2.5, 0]` and the camera at `{ center: [0, 0], mmPerPx: 0.05 }`, which makes
+ * the pane an exact ruler: world `(x, ·, z)` is at canvas pixel `(CX + x/0.05, CY − z/0.05)`. Every
+ * pixel named below follows from that rather than from a measurement.
+ *
+ * The `pointTool` events are collected into `window.__toolEvents` from the first frame, so a case
+ * can assert what was emitted **and** how many times.
+ */
+async function toolScene(
+  page: Page,
+  points: StoredPoint[],
+  layerPatch: Record<string, unknown> = {}
+): Promise<{ layerId: string }> {
+  return await page.evaluate(
+    async ([url, pts, patch]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({ kind: 'path', path: url as string });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({
+        datasetId: ds.id,
+        kind: 'points',
+        points: pts as never,
+        color: [1, 0, 0, 1],
+        radiusMm: 2,
+        ...(patch as Record<string, unknown>),
+      });
+      engine.setLayout({ kind: '1x1', cells: ['coronal'] });
+      engine.setCursor([0, 2.5, 0]);
+      engine.setView('coronal', { camera: { center: [0, 0], mmPerPx: 0.05 } });
+      engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+      const events: unknown[] = [];
+      engine.on('pointTool', (e) => events.push(JSON.parse(JSON.stringify(e))));
+      (window as unknown as { __toolEvents: unknown[] }).__toolEvents = events;
+      await engine.whenSettled();
+      return { layerId: layer.id };
+    },
+    [LATTICE, points, layerPatch] as const
+  );
+}
+
+/**
+ * Pane pixels of a world point in this coronal pane: right = +X, up = +Z, 0.05 mm/px.
+ *
+ * Rounded to the pixel a click can actually land on, so it is within half a pixel of the point's
+ * exact projection — which is 0.025 mm here, four hundred times inside the 40 px disc it aims at.
+ * Where a *world* answer is asserted the test uses {@link worldOfPixel} instead, which is the same
+ * ruler read the other way and carries the half-pixel.
+ */
+const at = (x: number, z: number): [number, number] => [CX + x / MM_PER_PX, CY - z / MM_PER_PX];
+
+/**
+ * The world point a pane pixel addresses, from §11's pixel-centre convention (`p + 0.5`) and §3's
+ * coronal basis — derived here rather than asked of `paneToWorld`, which is the thing under test.
+ */
+const worldOfPixel = (px: number, py: number): Vec3 => [
+  (px + 0.5 - CX) * MM_PER_PX,
+  2.5,
+  (CY - py - 0.5) * MM_PER_PX,
+];
+
+const arm = async (page: Page, spec: unknown): Promise<void> => {
+  await page.evaluate(async (s) => {
+    window.__tvxEngine!.setPointTool(s as never);
+    await window.__tvxEngine!.whenSettled();
+  }, spec);
+};
+
+const pointsOf = async (page: Page, layerId: string): Promise<StoredPoint[]> =>
+  await page.evaluate((id) => {
+    const layer = window.__tvxEngine!.scene.layers.find((l) => l.id === id);
+    return JSON.parse(
+      JSON.stringify(layer !== undefined && layer.kind === 'points' ? layer.points : [])
+    ) as StoredPoint[];
+  }, layerId);
+
+const eventsOf = async (page: Page): Promise<ToolEvent[]> =>
+  await page.evaluate(
+    () => (window as unknown as { __toolEvents: ToolEvent[] }).__toolEvents ?? []
+  );
+
+const selectionOf = async (page: Page): Promise<{ pointId: string; index: number } | null> =>
+  await page.evaluate(() => {
+    const sel = window.__tvxEngine!.pointSelection();
+    return sel === null ? null : { pointId: sel.pointId, index: sel.index };
+  });
+
+/** A real click through Chromium's input pipeline, then a settled frame. */
+async function clickAt(page: Page, x: number, y: number): Promise<void> {
+  await page.mouse.click(x, y);
+  await page.evaluate(async () => {
+    await window.__tvxEngine!.whenSettled();
+  });
+}
+
+const settle = async (page: Page): Promise<void> => {
+  await page.evaluate(async () => {
+    await window.__tvxEngine!.whenSettled();
+  });
+};
+
+const dist = (a: Vec3, b: Vec3): number => Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+
+// ===============================================================================================
+// place mode
+// ===============================================================================================
+
+test('@angle place mode appends a point on EVERY left click, hit test or not', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, []);
+  await arm(page, { layerId, mode: 'place', template: { group: 'LINS', radiusMm: 2 } });
+
+  const first: [number, number] = at(-6, 4);
+  await clickAt(page, ...first);
+  await clickAt(page, ...at(0, 4));
+  // The third click lands **on the first point's disc**. Place mode has no hit test, so it places a
+  // third point rather than selecting the one under it — §7.5's whole reason for the rule.
+  await clickAt(page, first[0] + 2, first[1]);
+
+  const points = await pointsOf(page, layerId);
+  expect(points).toHaveLength(3);
+  // The template rode along, and the engine minted an id per point — unique within the layer.
+  expect(points.map((p) => p.group)).toEqual(['LINS', 'LINS', 'LINS']);
+  const ids = points.map((p) => p.id);
+  expect(new Set(ids).size, 'every placed point has its own id').toBe(3);
+  for (const id of ids) expect(id).toMatch(/^p\d+$/);
+
+  // Where they landed: the world each clicked pixel addresses, derived from §11's pixel-centre
+  // convention rather than read back from the engine.
+  const expected = [
+    worldOfPixel(...first),
+    worldOfPixel(...at(0, 4)),
+    worldOfPixel(first[0] + 2, first[1]),
+  ];
+  for (let i = 0; i < 3; i += 1) {
+    for (const k of [0, 1, 2] as const) {
+      expect(points[i]!.position[k]).toBeCloseTo(expected[i]![k], 6);
+    }
+  }
+  // …and every one of them is on the pane's own plane, which is the cursor's `y`.
+  for (const p of points) expect(p.position[1]).toBeCloseTo(2.5, 6);
+
+  // One `placed` per click, each naming the point it made, and each carrying its world and pane.
+  const placed = (await eventsOf(page)).filter((e) => e.kind === 'placed');
+  expect(placed).toHaveLength(3);
+  expect(placed.map((e) => e.pointId)).toEqual(ids);
+  expect(placed.map((e) => e.index)).toEqual([0, 1, 2]);
+  expect(placed[0]!.viewId).toBe('coronal');
+  expect(placed[0]!.world![0]).toBeCloseTo(expected[0]![0], 6);
+  // A placement selects what it placed — and says so once, as `placed`, not twice.
+  expect(await selectionOf(page)).toEqual({ pointId: ids[2], index: 2 });
+  expect((await eventsOf(page)).filter((e) => e.kind === 'selected')).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('@angle place mode does not move the cursor, and select mode does not place', async ({
+  page,
+}) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, []);
+  const before = await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3);
+
+  await arm(page, { layerId, mode: 'place' });
+  await clickAt(page, ...at(5, -5));
+  expect(
+    await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3),
+    'the click was the tool s, so R1 s cursor gesture never ran'
+  ).toEqual(before);
+
+  await arm(page, { layerId, mode: 'select' });
+  await clickAt(page, ...at(-9, -9));
+  expect(await pointsOf(page, layerId), 'select mode places nothing').toHaveLength(1);
+  // …and a click on nothing in select mode is not the tool's: R1's cursor gesture runs as usual.
+  expect(await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3)).not.toEqual(
+    before
+  );
+});
+
+// ===============================================================================================
+// select mode: the hit boundary, the ring, and the drag identity
+// ===============================================================================================
+
+test('@angle a select-mode click grabs the disc under it and rings it', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [
+    { id: 'c1', position: [-5, 2.5, 5], name: 'LINS01' },
+    { id: 'c2', position: [5, 2.5, 5], name: 'LINS02' },
+  ]);
+  await arm(page, { layerId, mode: 'select' });
+
+  await clickAt(page, ...at(5, 5));
+  expect(await selectionOf(page)).toEqual({ pointId: 'c2', index: 1 });
+  const selected = (await eventsOf(page)).filter((e) => e.kind === 'selected');
+  expect(selected).toHaveLength(1);
+  expect(selected[0]!.pointId).toBe('c2');
+
+  // The ring is on the picture, at the disc's radius plus §7.2's 2 px gap — measured off the
+  // framebuffer, the way §11 measures the scale bar's length.
+  const [rx, ry] = at(5, 5);
+  const radii = await ringRadii(page, rx, ry);
+  expect(radii.length, 'the selection ring is drawn').toBeGreaterThan(80);
+  expect(Math.min(...radii)).toBeGreaterThanOrEqual(DISC_PX + 2 - 2);
+  expect(Math.max(...radii)).toBeLessThanOrEqual(DISC_PX + 2 + 2);
+  expect(errors).toEqual([]);
+});
+
+test('@angle the hit boundary is the disc, with the 8 px floor under it', async ({ page }) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  await arm(page, { layerId, mode: 'select' });
+  const [cx, cy] = at(0, 0);
+
+  // `pointAtScreen` is the rule on its own — CSS pixels, like `pick()`, and DPR is 1 here.
+  const hitAt = async (dx: number): Promise<string | null> =>
+    await page.evaluate(
+      ([x, y]) =>
+        window.__tvxEngine!.pointAtScreen('coronal', x as number, y as number)?.pointId ?? null,
+      [cx + dx, cy] as const
+    );
+
+  expect(await hitAt(DISC_PX * 0.9), '0.9 r is inside the disc').toBe('c1');
+  expect(await hitAt(DISC_PX * 1.1), '1.1 r is outside it, and past the 8 px floor').toBeNull();
+
+  // …and the click path agrees with the rule, which is the point of there being one rule.
+  await clickAt(page, cx + DISC_PX * 1.1, cy);
+  expect(await selectionOf(page)).toBeNull();
+  await clickAt(page, cx + DISC_PX * 0.9, cy);
+  expect(await selectionOf(page)).toEqual({ pointId: 'c1', index: 0 });
+});
+
+test('@angle a ghost is never hit, however visibly it is drawn', async ({ page }) => {
+  await openScene(page);
+  // 10 mm off the pane's plane with a 2 mm radius: no cross-section, so only a ghost can draw it.
+  const { layerId } = await toolScene(page, [{ id: 'ghost', position: [0, 12.5, 0] }], {
+    offPlaneOpacity: 0.6,
+  });
+  await arm(page, { layerId, mode: 'select' });
+  const [cx, cy] = at(0, 0);
+
+  // It IS drawn — the ghost paints the layer's red over the pane at 0.6.
+  const px = await readCanvasRect(page, Math.round(cx), Math.round(cy), 1, 1);
+  expect(px[0]!, 'the ghost is on the picture').toBeGreaterThan(120);
+  // …and it is not selectable, from either the query or the click.
+  expect(
+    await page.evaluate(
+      ([x, y]) => window.__tvxEngine!.pointAtScreen('coronal', x as number, y as number),
+      [cx, cy] as const
+    )
+  ).toBeNull();
+  await clickAt(page, cx, cy);
+  expect(await selectionOf(page)).toBeNull();
+});
+
+test('@angle a 40 px drag moves the contact 40 · mmPerPx, and ends exactly once', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  await arm(page, { layerId, mode: 'select' });
+
+  const [cx, cy] = at(0, 0);
+  const DRAG_PX = 40;
+  const before = (await pointsOf(page, layerId))[0]!.position;
+
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  // Two moves, and the identity is asserted **between them**: each move puts the contact under the
+  // pointer (§7.5), so the difference between two pointer positions is the whole of the movement
+  // and the press's own sub-pixel offset cancels out of it.
+  await page.mouse.move(cx + 10, cy);
+  await settle(page);
+  const p1 = (await pointsOf(page, layerId))[0]!.position;
+  expect(dist(before, p1), 'the scene moves DURING the drag, not on release').toBeGreaterThan(0.3);
+
+  await page.mouse.move(cx + 10 + DRAG_PX, cy);
+  await settle(page);
+  const p2 = (await pointsOf(page, layerId))[0]!.position;
+
+  // -- the analytic assertion -------------------------------------------------------------------
+  // An orthographic 2D pane is a uniform `mmPerPx` scaling of an orthonormal in-plane basis, so a
+  // 40 px drag is 40 · mmPerPx of world millimetres. Derived from §3, not read back from the engine.
+  expect(Math.abs(dist(p1, p2) - DRAG_PX * MM_PER_PX)).toBeLessThan(0.05);
+  // …along the pane's `right`, which is +X in a coronal pane, and in-plane: the drag was
+  // horizontal, so the pane's `up` (+Z) did not move, and the along-normal coordinate is still the
+  // plane's — a contact dragged in a slice stays in that slice.
+  expect(p2[0] - p1[0]).toBeCloseTo(DRAG_PX * MM_PER_PX, 6);
+  expect(p2[2] - p1[2]).toBeCloseTo(0, 6);
+  expect(p2[1]).toBeCloseTo(before[1], 6);
+
+  await page.mouse.up();
+  await settle(page);
+  const after = (await pointsOf(page, layerId))[0]!.position;
+  // The release changes nothing: the scene already moved, and `dragEnd` is a commit, not an edit.
+  expect(after).toEqual(p2);
+  // And where it ended is the world the last pointer pixel addresses.
+  const target = worldOfPixel(cx + 10 + DRAG_PX, cy);
+  for (const k of [0, 1, 2] as const) expect(after[k]).toBeCloseTo(target[k], 6);
+
+  const ends = (await eventsOf(page)).filter((e) => e.kind === 'dragEnd');
+  expect(ends, 'one drag is one dragEnd').toHaveLength(1);
+  expect(ends[0]!.pointId).toBe('c1');
+  expect(ends[0]!.viewId).toBe('coronal');
+  expect(ends[0]!.world![0]).toBeCloseTo(after[0], 6);
+  expect(errors).toEqual([]);
+});
+
+test('@angle the drag ends once from pointercancel, and once from a second pointer', async ({
+  page,
+}) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  await arm(page, { layerId, mode: 'select' });
+  const [cx, cy] = at(0, 0);
+
+  // -- exit 2: `pointercancel` (and the window `blur` bound to the same handler) ------------------
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 20, cy);
+  await page.evaluate(() => {
+    const canvas = document.querySelector('canvas')!;
+    canvas.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, bubbles: true }));
+  });
+  await settle(page);
+  await page.mouse.up();
+  await settle(page);
+  expect(
+    (await eventsOf(page)).filter((e) => e.kind === 'dragEnd'),
+    'cancel ends it, and the up that follows does not end it again'
+  ).toHaveLength(1);
+
+  // -- exit 3: a second pointer lands mid-drag and the gesture becomes a pinch --------------------
+  await page.evaluate(() => {
+    (window as unknown as { __toolEvents: unknown[] }).__toolEvents.length = 0;
+  });
+  const after = (await pointsOf(page, layerId))[0]!.position;
+  await page.mouse.move(...at(after[0], after[2]));
+  await page.mouse.down();
+  await page.mouse.move(cx + 30, cy + 10);
+  await page.evaluate(
+    ([x, y]) => {
+      const canvas = document.querySelector('canvas')!;
+      const r = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(
+        new PointerEvent('pointerdown', {
+          pointerId: 2,
+          button: 0,
+          buttons: 1,
+          clientX: r.left + (x as number),
+          clientY: r.top + (y as number),
+          bubbles: true,
+        })
+      );
+    },
+    [cx + 120, cy] as const
+  );
+  await settle(page);
+  await page.mouse.up();
+  await settle(page);
+  expect(
+    (await eventsOf(page)).filter((e) => e.kind === 'dragEnd'),
+    'the second finger ends the drag, and the release does not end it twice'
+  ).toHaveLength(1);
+});
+
+// ===============================================================================================
+// selection lifetime, Esc, and the one-armed-mode invariant
+// ===============================================================================================
+
+test('@angle the selection survives its array being replaced, and clears when its id goes', async ({
+  page,
+}) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [
+    { id: 'c1', position: [-5, 2.5, 5] },
+    { id: 'c2', position: [5, 2.5, 5] },
+  ]);
+  await arm(page, { layerId, mode: 'select' });
+  await clickAt(page, ...at(5, 5));
+  expect(await selectionOf(page)).toEqual({ pointId: 'c2', index: 1 });
+
+  // A module deletes the FIRST contact: the array is replaced and `c2` is now index 0.
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    engine.updateLayer(id, {
+      points: [{ id: 'c2', position: [5, 2.5, 5] }],
+    } as never);
+    await engine.whenSettled();
+  }, layerId);
+  expect(
+    await selectionOf(page),
+    'the selection followed its id, it did not stay on index 1'
+  ).toEqual({ pointId: 'c2', index: 0 });
+  expect((await eventsOf(page)).filter((e) => e.kind === 'cleared')).toEqual([]);
+
+  // Now `c2` itself goes: the selection is cleared, once, with an event that says so.
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    engine.updateLayer(id, { points: [{ id: 'c9', position: [0, 2.5, 0] }] } as never);
+    await engine.whenSettled();
+  }, layerId);
+  expect(await selectionOf(page)).toBeNull();
+  const cleared = (await eventsOf(page)).filter((e) => e.kind === 'cleared');
+  expect(cleared).toHaveLength(1);
+  expect(cleared[0]!.pointId).toBeNull();
+  expect(cleared[0]!.index).toBe(-1);
+});
+
+test('@angle Esc walks place → select → off, wherever the pointer is', async ({ page }) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  await arm(page, { layerId, mode: 'place' });
+  await clickAt(page, ...at(0, 0));
+  expect(await selectionOf(page)).not.toBeNull();
+
+  // The pointer is deliberately left off the canvas: this Esc is handled before the pointer layer's
+  // "which pane are we over" test, which is what makes it work from the panel.
+  await page.mouse.move(4, 4);
+  await page.keyboard.press('Escape');
+  await settle(page);
+  expect(await page.evaluate(() => window.__tvxEngine!.pointTool()?.mode ?? null)).toBe('select');
+  // Still armed, so a click still does not move the cursor onto a contact by accident.
+  expect(await selectionOf(page), 'the first Esc left the selection alone').not.toBeNull();
+
+  await page.keyboard.press('Escape');
+  await settle(page);
+  expect(await page.evaluate(() => window.__tvxEngine!.pointTool())).toBeNull();
+  expect(await selectionOf(page)).toBeNull();
+  expect((await eventsOf(page)).filter((e) => e.kind === 'cleared')).toHaveLength(1);
+
+  // A third Esc is not the tool's any more, and the click that follows is R1's cursor gesture.
+  const before = await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3);
+  await page.keyboard.press('Escape');
+  await clickAt(page, ...at(8, 8));
+  expect(await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3)).not.toEqual(
+    before
+  );
+});
+
+test('@angle at most one click-consuming mode is armed', async ({ page }) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+
+  await page.evaluate(() => {
+    window.__tvxEngine!.setMeasureMode(true);
+  });
+  await arm(page, { layerId, mode: 'place' });
+  expect(
+    await page.evaluate(() => window.__tvxEngine!.measureMode()),
+    'arming the point tool disarmed measure mode'
+  ).toBe(false);
+
+  await page.evaluate(() => {
+    window.__tvxEngine!.setMeasureMode(true);
+  });
+  await settle(page);
+  expect(
+    await page.evaluate(() => window.__tvxEngine!.pointTool()),
+    'and measure mode disarms the point tool'
+  ).toBeNull();
+
+  // The proof that matters: a click now measures and does not place.
+  await clickAt(page, ...at(3, 3));
+  await clickAt(page, ...at(6, 3));
+  expect(await pointsOf(page, layerId)).toHaveLength(1);
+  expect(await page.evaluate(() => window.__tvxEngine!.scene.measurements.length)).toBe(1);
+});
+
+test('@angle the hover ring and the cursor follow the pointer, only while select is armed', async ({
+  page,
+}) => {
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'c1', position: [0, 2.5, 0] }]);
+  const [cx, cy] = at(0, 0);
+  const cursorStyle = async (): Promise<string> =>
+    await page.evaluate(() => document.querySelector('canvas')!.style.cursor);
+  const hot = async (): Promise<number | null> =>
+    await page.evaluate(() => window.__tvxEngine!.pointHighlight().hot?.index ?? null);
+
+  // Unarmed: the hover path does no hit test at all.
+  await page.mouse.move(cx, cy);
+  await settle(page);
+  expect(await hot()).toBeNull();
+  expect(await cursorStyle()).toBe('');
+
+  await arm(page, { layerId, mode: 'select' });
+  await page.mouse.move(cx + 1, cy);
+  await settle(page);
+  expect(await hot(), 'the pointer is over the disc').toBe(0);
+  expect(await cursorStyle()).toBe('grab');
+
+  // Off the disc — but still in the pane — the hot half clears and the cursor goes back.
+  await page.mouse.move(cx + DISC_PX * 2, cy);
+  await settle(page);
+  expect(await hot()).toBeNull();
+  expect(await cursorStyle()).toBe('');
+
+  // Place mode has nothing to be over: crosshair, and no hit test.
+  await arm(page, { layerId, mode: 'place' });
+  await page.mouse.move(cx, cy);
+  await settle(page);
+  expect(await cursorStyle()).toBe('crosshair');
+  expect(await hot()).toBeNull();
+});
+
+/**
+ * Every distance from `(cx, cyTop)` at which `OverlayTheme.select` appears, over a box around it.
+ *
+ * A ring *is* a radius, so the test measures the radius instead of poking one pixel and trusting
+ * the rasteriser — §11's scale-bar idiom.
+ */
+async function ringRadii(page: Page, cx: number, cyTop: number, half = 70): Promise<number[]> {
+  const x0 = Math.round(cx - half);
+  const y0 = Math.round(cyTop - half);
+  const size = half * 2;
+  const px = await readCanvasRect(page, x0, y0, size, size);
+  const out: number[] = [];
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const o = (y * size + x) * 4;
+      const hit =
+        Math.abs((px[o] ?? 0) - SELECT_RGBA[0]) <= 1 &&
+        Math.abs((px[o + 1] ?? 0) - SELECT_RGBA[1]) <= 1 &&
+        Math.abs((px[o + 2] ?? 0) - SELECT_RGBA[2]) <= 1;
+      if (hit) out.push(Math.hypot(x0 + x - cx, y0 + y - cyTop));
+    }
+  }
+  return out;
+}
