@@ -345,12 +345,18 @@ test.describe('a build that offers no module', () => {
     await app?.close();
   });
 
-  test('offers no switcher, no slot and no cell — the toolbar it always had', async () => {
-    await expect(page.locator('[data-testid="module-switcher"]')).toHaveCount(0);
+  test('does not list the fixture, and puts nothing in the slot', async () => {
+    // The switcher itself is there, because a build carries product modules too from 2026-08-30
+    // (`tetravox.seeg`). What "offers no module" means here is the FIXTURE: compiled into every
+    // build and listed only behind `?modules=`, so a launch that did not name it is in exactly the
+    // state a build that never had it is in.
+    await page.click('[data-testid="module-switcher"]');
+    await expect(page.locator('[data-testid="module-switcher-list"]')).toBeVisible();
+    await expect(page.locator(`[data-testid="module-switcher-${HELLO}"]`)).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
     await expect(page.locator('[data-testid="module-slot"]')).toHaveCount(0);
     await expect(page.locator('[data-testid^="status-module-"]')).toHaveCount(0);
-    // A fixture is compiled into every build; being hidden means the registry does not offer it,
-    // which is the same state a build that never had the module is in.
     expect(await page.evaluate(() => window.__tetravox?.store.getState().activeModule)).toBeNull();
   });
 
