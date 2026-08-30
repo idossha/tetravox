@@ -36,8 +36,21 @@
       "interpolation": "linear",
       "labelMode": "fill",
       "outlineWidthPx": 1,
-      "showIn3D": false,
-      "precision": "auto"
+      "showIn3D": true,
+      "precision": "auto",
+      "iso3d": {
+        "enabled": false,
+        "iso": 15991.169921875,
+        "color": [
+          0.85,
+          0.78,
+          0.72,
+          1
+        ],
+        "opacity": 1,
+        "smooth": true,
+        "faceMode": "both"
+      }
     }
   ],
   "activeLayerId": "layer2",
@@ -110,16 +123,16 @@
     "id": "view3d",
     "camera": {
       "target": [
-        3.762542724609375,
-        26.6875,
-        -16.14227294921875
+        2.4000721037012016,
+        8.028745510163947,
+        -35.68642345658111
       ],
-      "distance": 691.3921446550164,
+      "distance": 550.488034331129,
       "rotation": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
+        0.28016209602355957,
+        -0.5695971250534058,
+        -0.6938381195068359,
+        0.3400837481021881
       ],
       "fovYDeg": 35,
       "orthographic": false,

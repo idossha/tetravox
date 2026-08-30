@@ -36,7 +36,7 @@
       "interpolation": "linear",
       "labelMode": "fill",
       "outlineWidthPx": 1,
-      "showIn3D": false,
+      "showIn3D": true,
       "precision": "auto"
     }
   ],

@@ -2,14 +2,14 @@
   "version": 2,
   "datasets": [
     {
-      "id": "ds1",
+      "id": "ds17",
       "kind": "volume",
       "name": "volume-covid19-A-0377_ct.nii.gz",
       "path": "volume-covid19-A-0377_ct.nii.gz",
       "fingerprint": "tvxfp1-0000000001980160-e98582183a2ebbd8"
     },
     {
-      "id": "ds3",
+      "id": "ds18",
       "kind": "volume",
       "name": "volume-covid19-A-0377_ct_seg.nii.gz",
       "path": "volume-covid19-A-0377_ct_seg.nii.gz",
@@ -17,15 +17,15 @@
       "sidecars": {
         "lut": {
           "path": "volume-covid19-A-0377_ct_seg_LUT.txt",
-          "absPath": "/private/tmp/claude-501/-Users-idohaber-00-development-tetravox/53a0ff99-ccf8-46da-8460-95e420e7192a/scratchpad/sample-cache/spine-ct/volume-covid19-A-0377_ct_seg_LUT.txt"
+          "absPath": "/Users/idohaber/Library/Application Support/@tetravox/app/sample-data/spine-ct/volume-covid19-A-0377_ct_seg_LUT.txt"
         }
       }
     }
   ],
   "layers": [
     {
-      "id": "layer2",
-      "datasetId": "ds1",
+      "id": "layer19",
+      "datasetId": "ds17",
       "name": "volume-covid19-A-0377_ct.nii.gz",
       "visible": true,
       "opacity": 1,
@@ -36,8 +36,8 @@
       "colormap": "gray",
       "scale": {
         "kind": "linear",
-        "lo": -2048,
-        "hi": 267
+        "lo": -1575.6169057166512,
+        "hi": 626.1973917971314
       },
       "threshold": {
         "lo": null,
@@ -49,12 +49,12 @@
       "interpolation": "linear",
       "labelMode": "fill",
       "outlineWidthPx": 1,
-      "showIn3D": false,
+      "showIn3D": true,
       "precision": "auto"
     },
     {
-      "id": "layer4",
-      "datasetId": "ds3",
+      "id": "layer20",
+      "datasetId": "ds18",
       "name": "volume-covid19-A-0377_ct_seg.nii.gz",
       "visible": true,
       "opacity": 1,
@@ -76,13 +76,26 @@
         "softEdge": 0
       },
       "interpolation": "nearest",
-      "labelMode": "outline",
+      "labelMode": "fill",
       "outlineWidthPx": 2,
       "showIn3D": false,
-      "precision": "auto"
+      "precision": "auto",
+      "iso3d": {
+        "enabled": true,
+        "iso": 0,
+        "color": [
+          0.85,
+          0.78,
+          0.72,
+          1
+        ],
+        "opacity": 1,
+        "smooth": true,
+        "faceMode": "both"
+      }
     }
   ],
-  "activeLayerId": "layer2",
+  "activeLayerId": "layer20",
   "slices": [
     {
       "id": "axial",
@@ -152,16 +165,16 @@
     "id": "view3d",
     "camera": {
       "target": [
-        -3.75950488448143,
-        0.14740124344825745,
-        -67.5
+        7.218050349575439,
+        -22.21968883565455,
+        -65.7687211869146
       ],
-      "distance": 982.6488958360359,
+      "distance": 650.8018134480644,
       "rotation": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
+        0.5999131202697754,
+        -0.373927503824234,
+        -0.3740348815917969,
+        0.6003169417381287
       ],
       "fovYDeg": 35,
       "orthographic": false,
@@ -181,8 +194,8 @@
   },
   "cursor": [
     -3.75950488448143,
-    0.14740124344825745,
-    -67.5
+    -26.55474974219021,
+    -62.28411791080686
   ],
   "radiological": false,
   "background": [

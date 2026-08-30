@@ -49,7 +49,7 @@
       "interpolation": "linear",
       "labelMode": "fill",
       "outlineWidthPx": 1,
-      "showIn3D": false,
+      "showIn3D": true,
       "precision": "auto"
     },
     {
@@ -76,13 +76,26 @@
         "softEdge": 0
       },
       "interpolation": "nearest",
-      "labelMode": "outline",
+      "labelMode": "fill",
       "outlineWidthPx": 2,
-      "showIn3D": false,
-      "precision": "auto"
+      "showIn3D": true,
+      "precision": "auto",
+      "iso3d": {
+        "enabled": true,
+        "iso": 0,
+        "color": [
+          0.85,
+          0.78,
+          0.72,
+          1
+        ],
+        "faceMode": "both",
+        "opacity": 1,
+        "smooth": true
+      }
     }
   ],
-  "activeLayerId": "layer2",
+  "activeLayerId": "layer4",
   "slices": [
     {
       "id": "axial",

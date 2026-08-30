@@ -2,14 +2,14 @@
   "version": 2,
   "datasets": [
     {
-      "id": "ds1",
+      "id": "ds13",
       "kind": "volume",
       "name": "T1.nii.gz",
       "path": "T1.nii.gz",
       "fingerprint": "tvxfp1-0000000003400160-8192ec923b9c8951"
     },
     {
-      "id": "ds3",
+      "id": "ds14",
       "kind": "mesh",
       "name": "EEG10-10_UI_Jurak_2007.geo",
       "path": "EEG10-10_UI_Jurak_2007.geo",
@@ -18,8 +18,8 @@
   ],
   "layers": [
     {
-      "id": "layer2",
-      "datasetId": "ds1",
+      "id": "layer15",
+      "datasetId": "ds13",
       "name": "T1.nii.gz",
       "visible": true,
       "opacity": 1,
@@ -43,12 +43,12 @@
       "interpolation": "linear",
       "labelMode": "fill",
       "outlineWidthPx": 1,
-      "showIn3D": false,
+      "showIn3D": true,
       "precision": "auto"
     },
     {
-      "id": "layer4",
-      "datasetId": "ds3",
+      "id": "layer16",
+      "datasetId": "ds14",
       "name": "view 1",
       "visible": true,
       "opacity": 1,
@@ -796,7 +796,7 @@
       "lineWidthPx": 2
     }
   ],
-  "activeLayerId": "layer2",
+  "activeLayerId": "layer15",
   "slices": [
     {
       "id": "axial",
@@ -866,16 +866,16 @@
     "id": "view3d",
     "camera": {
       "target": [
-        3.762542724609375,
-        26.6875,
-        -16.14227294921875
+        0.8211917746021509,
+        22.90522940018465,
+        10.36045807834976
       ],
-      "distance": 420,
+      "distance": 374.42523012870186,
       "rotation": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
+        0.17896491289138794,
+        -0.6596900224685669,
+        -0.7028928399085999,
+        0.19677993655204773
       ],
       "fovYDeg": 35,
       "orthographic": false,
@@ -895,8 +895,8 @@
   },
   "cursor": [
     3.762542724609375,
-    26.6875,
-    -16.14227294921875
+    11.44387250125295,
+    -7.149089503475492
   ],
   "radiological": false,
   "background": [

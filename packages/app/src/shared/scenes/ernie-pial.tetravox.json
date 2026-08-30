@@ -2,21 +2,21 @@
   "version": 2,
   "datasets": [
     {
-      "id": "ds1",
+      "id": "ds7",
       "kind": "volume",
       "name": "T1.nii.gz",
       "path": "T1.nii.gz",
       "fingerprint": "tvxfp1-0000000003400160-8192ec923b9c8951"
     },
     {
-      "id": "ds3",
+      "id": "ds8",
       "kind": "mesh",
       "name": "lh.pial.gii",
       "path": "lh.pial.gii",
       "fingerprint": "tvxfp1-00000000007a09c9-c9c284d6884e29a8"
     },
     {
-      "id": "ds5",
+      "id": "ds9",
       "kind": "mesh",
       "name": "rh.pial.gii",
       "path": "rh.pial.gii",
@@ -25,8 +25,8 @@
   ],
   "layers": [
     {
-      "id": "layer2",
-      "datasetId": "ds1",
+      "id": "layer10",
+      "datasetId": "ds7",
       "name": "T1.nii.gz",
       "visible": true,
       "opacity": 1,
@@ -54,8 +54,8 @@
       "precision": "auto"
     },
     {
-      "id": "layer4",
-      "datasetId": "ds3",
+      "id": "layer11",
+      "datasetId": "ds8",
       "name": "lh.pial.gii",
       "visible": true,
       "opacity": 1,
@@ -117,8 +117,8 @@
       ]
     },
     {
-      "id": "layer6",
-      "datasetId": "ds5",
+      "id": "layer12",
+      "datasetId": "ds9",
       "name": "rh.pial.gii",
       "visible": true,
       "opacity": 1,
@@ -180,7 +180,7 @@
       ]
     }
   ],
-  "activeLayerId": "layer2",
+  "activeLayerId": "layer11",
   "slices": [
     {
       "id": "axial",
@@ -250,16 +250,16 @@
     "id": "view3d",
     "camera": {
       "target": [
-        3.762542724609375,
-        26.6875,
-        -16.14227294921875
+        0.6187763761437612,
+        24.884992950505016,
+        21.49856856152185
       ],
-      "distance": 420,
+      "distance": 331.9750790554811,
       "rotation": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
+        0.1742926836013794,
+        -0.6845183372497559,
+        -0.6859665513038635,
+        0.17466144263744354
       ],
       "fovYDeg": 35,
       "orthographic": false,

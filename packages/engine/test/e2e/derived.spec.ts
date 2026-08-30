@@ -282,6 +282,7 @@ test('a points layer lands on the pixel the projection names, and only on its ow
 async function isoSphereScene(page: Page): Promise<{
   kind: string;
   iso: number;
+  probeKinds: string[];
   expectedPx: number;
   ops: string[];
   errors: string[];
@@ -334,6 +335,9 @@ async function isoSphereScene(page: Page): Promise<{
     return {
       kind: layer.kind,
       iso: R,
+      // An isosurface has no answer for a point, so it contributes **no** probe row — a label
+      // volume with 24 per-vertebra isosurfaces used to put 24 empty blocks under the cursor.
+      probeKinds: engine.probe(engine.scene.cursor).rows.map((r) => r.kind),
       // `2r` in pixels: the pane is `2·halfH` mm tall over 768 px.
       expectedPx: (2 * R * 768) / (2 * halfH),
       ops: window.__tvxOps ?? [],
@@ -352,6 +356,8 @@ test('an isosurface of an analytic sphere has the silhouette its radius implies'
   expect(info.errors).toEqual([]);
   expect(info.kind, 'addLayer({kind:"iso"}) must produce an iso layer').toBe('iso');
   expect(info.ops).toContain('marchingCubes');
+  // The scene's only layer is the isosurface, so the probe has nothing to list.
+  expect(info.probeKinds, 'an isosurface contributes no probe row').toEqual([]);
 
   // Measure the silhouette across the pane's middle row.
   const row = await readCanvasRect(page, 0, PANE / 2, PANE, 1);

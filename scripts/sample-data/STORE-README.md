@@ -6,7 +6,7 @@ file is an asset of the single `SHA256` release, **named by its own sha256**, so
 
     https://github.com/idossha/tetravox-sample-data/releases/download/SHA256/<sha256>
 
-and the app verifies what it downloaded against the name. What each hash *is* — file name, sample,
+and the app verifies what it downloaded against the name. What each hash _is_ — file name, sample,
 source, licence — is listed on the website's
 [Sample data](https://idossha.github.io/tetravox/sample-data) page and in
 `packages/app/src/shared/sample-catalog.json` in the Tetravox repository, which is also where new

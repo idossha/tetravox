@@ -2,14 +2,14 @@
   "version": 2,
   "datasets": [
     {
-      "id": "ds1",
+      "id": "ds3",
       "kind": "volume",
       "name": "T1.nii.gz",
       "path": "T1.nii.gz",
       "fingerprint": "tvxfp1-0000000003400160-8192ec923b9c8951"
     },
     {
-      "id": "ds3",
+      "id": "ds4",
       "kind": "volume",
       "name": "labeling.nii.gz",
       "path": "labeling.nii.gz",
@@ -17,15 +17,15 @@
       "sidecars": {
         "lut": {
           "path": "labeling_LUT.txt",
-          "absPath": "/private/tmp/claude-501/-Users-idohaber-00-development-tetravox/53a0ff99-ccf8-46da-8460-95e420e7192a/scratchpad/sample-cache/ernie-tissues/labeling_LUT.txt"
+          "absPath": "/Users/idohaber/Library/Application Support/@tetravox/app/sample-data/ernie-tissues/labeling_LUT.txt"
         }
       }
     }
   ],
   "layers": [
     {
-      "id": "layer2",
-      "datasetId": "ds1",
+      "id": "layer5",
+      "datasetId": "ds3",
       "name": "T1.nii.gz",
       "visible": true,
       "opacity": 1,
@@ -53,8 +53,8 @@
       "precision": "auto"
     },
     {
-      "id": "layer4",
-      "datasetId": "ds3",
+      "id": "layer6",
+      "datasetId": "ds4",
       "name": "labeling.nii.gz",
       "visible": true,
       "opacity": 1,
@@ -66,7 +66,7 @@
       "scale": {
         "kind": "linear",
         "lo": 0,
-        "hi": 525
+        "hi": 530
       },
       "threshold": {
         "lo": null,
@@ -76,13 +76,71 @@
         "softEdge": 0
       },
       "interpolation": "nearest",
-      "labelMode": "outline",
+      "labelMode": "fill",
       "outlineWidthPx": 2,
-      "showIn3D": false,
-      "precision": "auto"
+      "showIn3D": true,
+      "precision": "auto",
+      "visibleLabels": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        7,
+        8,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        24,
+        26,
+        28,
+        29,
+        30,
+        31,
+        41,
+        42,
+        43,
+        44,
+        46,
+        47,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        58,
+        60,
+        62,
+        63,
+        72,
+        77,
+        80,
+        85,
+        501,
+        502,
+        506,
+        507,
+        508,
+        509,
+        511,
+        512,
+        514,
+        515,
+        516,
+        520,
+        525,
+        530
+      ]
     }
   ],
-  "activeLayerId": "layer2",
+  "activeLayerId": "layer6",
   "slices": [
     {
       "id": "axial",
@@ -152,16 +210,16 @@
     "id": "view3d",
     "camera": {
       "target": [
-        3.762542724609375,
-        26.6875,
-        -16.14227294921875
+        4.2123865935511855,
+        27.42806725888451,
+        -17.77765702276987
       ],
-      "distance": 691.3921446550164,
+      "distance": 530.7764362452164,
       "rotation": [
-        0.5,
-        -0.5,
-        -0.5,
-        0.5
+        0.33167099952697754,
+        -0.6157538890838623,
+        -0.6306635141372681,
+        0.33631083369255066
       ],
       "fovYDeg": 35,
       "orthographic": false,

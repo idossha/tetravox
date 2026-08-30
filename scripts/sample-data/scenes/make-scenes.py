@@ -35,56 +35,51 @@ APP = ROOT / "packages" / "app"
 
 TWO_BY_TWO = {"type": "set", "layout": "2x2"}
 
+# The look of the hand-saved scenes (ernie-*, spine-ct), applied to the generated ones so the set
+# reads as one: anatomy shown in the 3D pane too, labels drawn as fill on the slices and as smooth
+# label isosurfaces in 3D. Everything numeric (scales, thresholds) still comes from the preset.
+ANATOMY_3D = {"showIn3D": True}
+LABELS_FILL_ISO = {
+    "labelMode": "fill",
+    "showIn3D": True,
+    "iso3d": {
+        "enabled": True,
+        "iso": 0,
+        "color": [0.85, 0.78, 0.72, 1],
+        "faceMode": "both",
+        "opacity": 1,
+        "smooth": True,
+    },
+}
+
 
 def job(files: list[str], preset: str, *actions: dict) -> dict:
     return {"scene": {"files": files, "preset": preset}, "actions": [*actions]}
 
 
-# sample id -> job (files are catalogue names; the sample's directory is prepended)
+def labelled(anatomy: str, labels: str, camera: str) -> dict:
+    return job(
+        [anatomy, labels],
+        "atlas-outline",
+        TWO_BY_TWO,
+        {"type": "set", "layer": anatomy, "patch": ANATOMY_3D},
+        {"type": "set", "layer": labels, "patch": LABELS_FILL_ISO},
+        {"type": "set", "active": labels, "camera": camera},
+    )
+
+
+# sample id -> job (files are catalogue names; the sample's directory is prepended). Samples
+# without an entry ship a scene saved by hand from the app (ernie-*, spine-ct).
 JOBS: dict[str, dict] = {
-    "ernie-t1": job(["T1.nii.gz"], "plain", TWO_BY_TWO, {"type": "set", "camera": "L"}),
-    "ernie-tissues": job(
-        ["T1.nii.gz", "labeling.nii.gz"],
-        "atlas-outline",
-        TWO_BY_TWO,
-        {"type": "set", "camera": "L"},
-    ),
-    "ernie-pial": job(
-        ["T1.nii.gz", "lh.pial.gii", "rh.pial.gii"],
+    "totalseg-ct": labelled("example_ct_sm.nii.gz", "example_seg_fast.nii.gz", "A"),
+    "amos-ct": labelled("amos_0004_ct.nii.gz", "amos_0004_seg.nii.gz", "A"),
+    "amos-mri": labelled("amos_0555_mri.nii.gz", "amos_0555_seg.nii.gz", "A"),
+    "ct-abdo": job(
+        ["CT_Abdo.nii.gz"],
         "plain",
         TWO_BY_TWO,
-        {"type": "set", "camera": "L", "distance": 420},
-    ),
-    "ernie-eeg": job(
-        ["T1.nii.gz", "EEG10-10_UI_Jurak_2007.geo"],
-        "plain",
-        TWO_BY_TWO,
-        {"type": "set", "camera": "L", "distance": 420},
-    ),
-    "totalseg-ct": job(
-        ["example_ct_sm.nii.gz", "example_seg_fast.nii.gz"],
-        "atlas-outline",
-        TWO_BY_TWO,
+        {"type": "set", "layer": "CT_Abdo.nii.gz", "patch": ANATOMY_3D},
         {"type": "set", "camera": "A"},
-    ),
-    "amos-ct": job(
-        ["amos_0004_ct.nii.gz", "amos_0004_seg.nii.gz"],
-        "atlas-outline",
-        TWO_BY_TWO,
-        {"type": "set", "camera": "A"},
-    ),
-    "amos-mri": job(
-        ["amos_0555_mri.nii.gz", "amos_0555_seg.nii.gz"],
-        "atlas-outline",
-        TWO_BY_TWO,
-        {"type": "set", "camera": "A"},
-    ),
-    "ct-abdo": job(["CT_Abdo.nii.gz"], "plain", TWO_BY_TWO, {"type": "set", "camera": "A"}),
-    "spine-ct": job(
-        ["volume-covid19-A-0377_ct.nii.gz", "volume-covid19-A-0377_ct_seg.nii.gz"],
-        "atlas-outline",
-        TWO_BY_TWO,
-        {"type": "set", "camera": "L"},
     ),
 }
 

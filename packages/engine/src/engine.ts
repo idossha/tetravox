@@ -1471,7 +1471,12 @@ export class TetravoxEngine implements Engine, PointerHost {
    */
   probe(world: vec3): ProbeResult {
     const atCursor = dist3(world, this.#scene.cursor) < 1e-6;
-    const rows = this.#runtimesInOrder().map((rt) => {
+    // An isosurface has nothing to say about a point: no voxel, no element, no vertex — its runtime
+    // returns a bare row, and a label volume with 24 per-vertebra isosurfaces would put 24 empty
+    // "element / tag / vertex —" blocks under the cursor. Those layers are skipped here rather than
+    // hidden in the panel so `rows` means the same thing to every reader of `ProbeResult`.
+    const probed = this.#runtimesInOrder().filter((rt) => rt.layer.kind !== 'iso');
+    const rows = probed.map((rt) => {
       const row = rt.probeRow(world);
       if (!atCursor) return row;
       // P2-04: hovering re-points each mesh layer's single `locate` key at the pointer, so the
