@@ -418,6 +418,69 @@ describe('commands', () => {
     h.engine.pointToolDragEnd();
     expect(h.store.getState().moduleDirty[SEEG]).toBeUndefined();
   });
+
+  /**
+   * The engine's Esc grammar is place → select → off (§4.7), and it has to reach `off`.
+   *
+   * The first step emits nothing at all — `setPointTool`'s non-null branch is silent — so a module
+   * mirroring the mode in a flag of its own goes stale on the first press; the second step emits
+   * `cleared`, and a handler that re-armed on every `cleared` put the tool straight back into place
+   * mode, so Escape cycled for ever and every click kept dropping a contact.
+   */
+  it('lets Escape disarm the tool for good, place → select → off', async () => {
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+    h.engine.pointToolClick('axial', 260, 260);
+    expect(contactsLayer(h).points).toHaveLength(16);
+
+    // Esc #1: place → select. Silent, which is exactly the step a module-local flag misses.
+    expect(h.engine.cancelPointTool()).toBe(true);
+    expect(h.engine.pointTool()?.mode).toBe('select');
+    // Esc #2: select → off, and it stays off.
+    expect(h.engine.cancelPointTool()).toBe(true);
+    expect(h.engine.pointTool()).toBeNull();
+
+    // A click now places nothing, which is the whole point of having pressed Escape.
+    h.engine.pointToolClick('axial', 240, 240);
+    expect(contactsLayer(h).points).toHaveLength(16);
+    // …and `a` arms it again: Escape turned the tool off rather than breaking it.
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+  });
+
+  it('takes the Add toggle from the engine, not from a flag that Escape left stale', async () => {
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+    h.engine.cancelPointTool(); // place → select, with no event
+
+    // One press of Add has to put place mode back. With a module-local `placing` still reading
+    // true this pressed "off" and left the tool selecting, while the panel's `aria-pressed` — the
+    // same field — showed the button held down the whole time.
+    await h.controller.moduleCommand(SEEG, 'add');
+    expect(h.engine.pointTool()?.mode).toBe('place');
+    // The status cell is the module's own view of the flag, and it agrees with the engine.
+    expect(h.store.getState().moduleStatus[SEEG]).toContain('place');
+  });
+
+  it('comes back armed when the scene puts a new layer under it', async () => {
+    // The other half of `cleared`: `Engine.load` disarms at its start and removing the tool's layer
+    // disarms with it. Neither is a request to stop, so the module re-arms against the layer the
+    // scene put back — which is what the Escape rule above must not have cost.
+    const h = await loadSubject();
+    const gone = contactsLayer(h);
+    h.engine.removeLayer(gone.id);
+    expect(h.engine.pointTool()).toBeNull();
+
+    const rebuilt = h.engine.addLayer({
+      datasetId: gone.datasetId,
+      kind: 'points',
+      module: SEEG,
+      points: [{ id: 'c1', name: 'A01', group: 'A', ordinal: 1, position: [0, 0, 0] }],
+    });
+    expect(h.engine.pointTool()).toMatchObject({ layerId: rebuilt.id, mode: 'select' });
+  });
 });
 
 describe('saving', () => {

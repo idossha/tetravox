@@ -272,6 +272,47 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await page.click('[data-testid="seeg-add"]');
   });
 
+  test('Escape takes the Add button with it, one step at a time', async () => {
+    // The engine's Esc grammar is place → select → off, and the first step emits **no event** — so
+    // a panel mirroring the mode in the module's own state shows Add held down while every click
+    // selects. `cancelPointTool` is the call the engine's own keydown makes; `?engine=mock` has no
+    // canvas for it to listen on, exactly as `pointToolClick` above is the call `#onDown` makes.
+    const escape = (): Promise<boolean> =>
+      page.evaluate(() =>
+        (window.__tetravox?.engine as unknown as { cancelPointTool(): boolean }).cancelPointTool()
+      );
+    const mode = (): Promise<string | null> =>
+      page.evaluate(
+        () =>
+          (
+            window.__tetravox?.engine as unknown as { pointTool(): { mode: string } | null }
+          ).pointTool()?.mode ?? null
+      );
+
+    await page.click('[data-testid="seeg-add"]');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
+
+    // Esc #1: place → select, silently. The button's state is read off the engine now, so the next
+    // render is right; there is no event to render *on*, which is why the assertion below is about
+    // the press after it rather than about the pixel in between.
+    expect(await escape()).toBe(true);
+    expect(await mode()).toBe('select');
+
+    // Esc #2 emits `cleared`, the panel renders, and the button is not pressed — where the old
+    // handler re-armed place mode inside this very keydown and left it held down.
+    expect(await escape()).toBe(true);
+    expect(await mode()).toBeNull();
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'false');
+
+    // One press arms place mode again — Escape turned the tool off rather than breaking it — and a
+    // second leaves the tool where the specs after this one expect it: armed, selecting.
+    await page.click('[data-testid="seeg-add"]');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
+    expect(await mode()).toBe('place');
+    await page.click('[data-testid="seeg-add"]');
+    expect(await mode()).toBe('select');
+  });
+
   test('a drag is one undo step, and a re-fit straightens the shaft', async () => {
     const id = await layerId(page);
     await page.evaluate((layer) => {
