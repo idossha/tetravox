@@ -3203,3 +3203,52 @@ for. Multiplying keeps the ghost-shell case (`iso3d.opacity < 1`) and makes the 
 surfaces as it governs the slices. The default `iso3d.opacity` is 1, so every scene saved before
 this renders the same unless its slider was below 1 — in which case it now renders as the user
 expected when they dragged it. Additive: no `ViewSpec` field changes.
+
+## 2026-08-30 — §13's five scene fields: a module tags its layer, a point has an identity, `ViewSpec` carries a block
+
+Phase 1 of the modules build (`feat/points-engine`). `scene/types.ts` is frozen (§12.3), so ARCHITECTURE
+§4.4 and §4.6 change in this commit with it. Five additions, every one optional, and **absent reproduces the
+previous behaviour** — which for these five is checkable rather than asserted: three of them are read by
+nobody in the engine at all.
+
+* `LayerBase.module?: string` — which module owns a layer's edits.
+* `points[].id?` / `.group?` / `.ordinal?` — a stable identity, its electrode, its 1-based contact number.
+* `PointsLayer.offPlaneOpacity?` and `.labelSource?` — the two rendering fields, decided in the entry below.
+* `ViewSpec.extensions?` — the per-module state blocks.
+
+**`module` is a `string`, not a union, and the engine never reads it.** §4.4 is the scene model; a union of
+module ids would put the app's registry inside the frozen engine and make adding a module a frozen-file
+change. The field exists because §4.6 reassigns every `LayerId` on load, so a module looking for its own
+layer afterwards has only dataset, kind and name to match on — which two subjects' contact layers share, and
+which two runs of the same subject share exactly. The app is the only reader: a module-owned layer gets a
+read-only summary row where the core property editor would be, so the core per-point colour reset and the
+0.5–20 mm radius slider cannot rewrite a module's invariants behind its back.
+
+**Why a per-point `id` when the array index already identifies a point.** It does, to the engine, and it
+still does: `ProbeRow.labelId`, `nearestPoint` and the instance row are all the index, and none of that
+changes. But an index is not an identity across an edit. Deleting the second of twelve contacts renumbers
+ten, so a selection held as an index then names a different electrode, and an undo step holding one restores
+the wrong contact. Selection is therefore by `id` and survives a wholesale `points` replacement — which is
+how every edit reaches the engine, since the instance buffer is keyed on the array's identity and a layer is
+patched by handing it a new array.
+
+**Why one layer with `group`/`ordinal` and not one layer per electrode.** Twelve same-kind rows each mount a
+full property editor, add a stop to `[` / `]`, take a probe row and put a ✕ on the layer panel that closes
+the carrier dataset. One layer with a `group` tag costs two optional fields and no rendering change at all.
+`ordinal` is separate from array order because the array is drawing order and the ordinal is anatomy: a
+contact inserted between 4 and 5 sits wherever the editor put it and is still ordinal 5 after a renumber.
+
+**`ViewSpec.extensions` is written by the app, like `theme`.** `Engine.serialize()` enumerates `Scene`, and
+there is no module state in `Scene` to enumerate — deliberately, because the engine has no module registry
+and must not grow one. So the field is *typed* here (a scene file is one schema, not two) and *written*
+there, and the app carries an unregistered module's block forward verbatim so that opening a colleague's
+scene in a build without their module does not delete their work. §13.2 caps a block at 256 KiB of JSON and
+forbids a `LayerId` or `DatasetId` inside one: both are reassigned on load, so a block that named one would
+be silently wrong rather than loudly broken.
+
+**The degradation contract, and the guarantee it rests on.** A scene re-saved by a build that predates a
+module keeps the layer and every per-point field — they ride `serializableLayer`'s `{ ...layer }` spread and
+`remapLayer`'s — and drops only `extensions`. That pass-through was already true and was undocumented; §4.6
+now states it as a guarantee, so narrowing `SerializableLayer` to an explicit field list is recognisable as
+the breaking change it would be. `roundtrip.test.ts` pins it by deep-equality over every key of a fully
+populated layer of each kind.

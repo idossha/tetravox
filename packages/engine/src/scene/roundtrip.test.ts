@@ -163,8 +163,17 @@ function fullPointsLayer(): Layer {
     ...defaultPointsLayer('layer4', meshDataset('ds2')),
     name: 'GSN-HydroCel-185',
     points: [
-      { name: 'E001', position: [1, 2, 3], color: [1, 0, 0, 1], radiusMm: 3, value: 0.5 },
-      { name: 'E002', position: [4, 5, 6] },
+      {
+        name: 'E001',
+        position: [1, 2, 3],
+        color: [1, 0, 0, 1],
+        radiusMm: 3,
+        value: 0.5,
+        id: 'c1',
+        group: 'LINS',
+        ordinal: 1,
+      },
+      { name: 'E002', position: [4, 5, 6], id: 'c2', group: 'LINS', ordinal: 2 },
     ],
     shape: 'sphere',
     radiusMm: 2.5,
@@ -177,6 +186,12 @@ function fullPointsLayer(): Layer {
     valueMode: 'value',
     colormap: 'hot',
     valueRange: { lo: 0, hi: 1 },
+    // §13's five fields (2026-08-30): a module tag on the layer, an identity/electrode/ordinal on
+    // every point, and the two rendering fields. All optional, so this layer is the one that says
+    // they are persisted — the loop below asserts every key of it survives the trip.
+    module: 'tetravox.seeg',
+    offPlaneOpacity: 0.6,
+    labelSource: 'names',
     // Dataset-derived: written by the loader, never by the scene file.
     labels: [{ position: [1, 2, 3], text: 'E001' }],
     lineSegments: Float32Array.from([0, 0, 0, 1, 1, 1]),
@@ -250,6 +265,80 @@ describe('the §4.6 round trip on a full scene', () => {
     // written: `JSON.stringify` turns a Float32Array into `{"0":…}`, megabytes that restore garbage.
     expect(out['labels']).toBeUndefined();
     expect(out['lineSegments']).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------------------------
+  // §13's module fields (2026-08-30). The loop above already covers them for a points layer; these
+  // three name the specific promises §4.4 / §4.6 make about them, so a regression reads as the
+  // broken promise rather than as "a key differs".
+  // -------------------------------------------------------------------------------------------
+
+  it("keeps a point's id, group and ordinal — identity is what a tool selects by", () => {
+    const out = roundTrip(fullPointsLayer());
+    expect(out['points']).toEqual([
+      {
+        name: 'E001',
+        position: [1, 2, 3],
+        color: [1, 0, 0, 1],
+        radiusMm: 3,
+        value: 0.5,
+        id: 'c1',
+        group: 'LINS',
+        ordinal: 1,
+      },
+      { name: 'E002', position: [4, 5, 6], id: 'c2', group: 'LINS', ordinal: 2 },
+    ]);
+    expect(out['module']).toBe('tetravox.seeg');
+    expect(out['offPlaneOpacity']).toBe(0.6);
+    expect(out['labelSource']).toBe('names');
+  });
+
+  it('never writes `extensions` from the engine — §4.6 says the app does', () => {
+    const store = new SceneStore();
+    store.addLayer(fullPointsLayer());
+    const spec = toViewSpec(store.scene);
+    // `toViewSpec` enumerates `Scene`, and there is no module state in `Scene`. A key written here
+    // would mean the engine had grown a module registry, which §4.4 forbids.
+    expect('extensions' in spec).toBe(false);
+  });
+
+  it('carries an app-written `extensions` block through the file unchanged', () => {
+    const store = new SceneStore();
+    store.addLayer(fullPointsLayer());
+    // What `lib/scene.ts` does on save: the engine's spec, plus the blocks the app is holding.
+    const spec: ViewSpec = {
+      ...toViewSpec(store.scene),
+      extensions: {
+        'tetravox.seeg': {
+          module: 'tetravox.seeg',
+          version: 1,
+          moduleVersion: '0.1.0',
+          data: { rows: { c1: { status: 'kept' } }, namePad: 2 },
+        },
+      },
+    };
+    const reread = migrateViewSpec(JSON.parse(JSON.stringify(spec)) as ViewSpec);
+    expect(reread.extensions).toEqual(spec.extensions);
+  });
+
+  it('degrades to a plain points layer when an older build drops the block', () => {
+    // §4.6's degradation contract: a build that has never heard of the module re-saves the scene.
+    // It drops `extensions` (it holds no blocks) and keeps every per-point field, because those
+    // ride `serializableLayer`'s spread — which is why §4.6 states that pass-through as a guarantee.
+    const store = new SceneStore();
+    store.addLayer(fullPointsLayer());
+    const spec: ViewSpec = {
+      ...toViewSpec(store.scene),
+      extensions: {
+        'tetravox.seeg': { module: 'tetravox.seeg', version: 1, moduleVersion: '0.1.0', data: {} },
+      },
+    };
+    const { extensions: _dropped, ...withoutBlock } = spec;
+    const reread = migrateViewSpec(JSON.parse(JSON.stringify(withoutBlock)) as ViewSpec);
+    expect(reread.extensions).toBeUndefined();
+    const points = (reread.layers[0] as unknown as { points: { group?: string }[] }).points;
+    expect(points.map((p) => p.group)).toEqual(['LINS', 'LINS']);
+    expect((reread.layers[0] as unknown as { module?: string }).module).toBe('tetravox.seeg');
   });
 
   it('survives JSON as a whole scene: four layers, four kinds, one file', () => {

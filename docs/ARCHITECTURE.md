@@ -315,6 +315,8 @@ thread sees only draw-ready buffers (uploaded to GL, then dropped) and probe res
 export interface LayerBase {
   id: LayerId; datasetId: DatasetId; name: string;
   visible: boolean; opacity: number; pickable: boolean; showColorbar: boolean;
+  module?: string;                    // §13: the module that owns this layer's edits. A TAG the engine
+                                      // never interprets; absent = core-owned
 }
 
 export interface VolumeLayer extends LayerBase {
@@ -408,7 +410,12 @@ export interface IsosurfaceLayer extends LayerBase {
 
 export interface PointsLayer extends LayerBase {
   kind: 'points';
-  points: { name?: string; position: vec3; color?: vec4; radiusMm?: number; value?: number }[];
+  points: { name?: string; position: vec3; color?: vec4; radiusMm?: number; value?: number;
+            // §13 (2026-08-30). All optional; the array index stays the ENGINE's key (ProbeRow.labelId,
+            // nearestPoint) and a tool's selection is by `id`, which survives array replacement.
+            id?: string;              // stable identity, unique within the layer
+            group?: string;           // the set it belongs to — an sEEG electrode, a montage
+            ordinal?: number }[];     // 1-based position within `group`; 1 = deepest contact
   shape: 'sphere' | 'dot'; radiusMm: number; color: vec4; showLabels: boolean;
 
   // A Gmsh parsed view's extras (§6.2). EVERY field below is optional and absent reproduces the
@@ -422,6 +429,12 @@ export interface PointsLayer extends LayerBase {
   valueMode?: 'solid' | 'value';
   colormap?: ColormapName | string;
   valueRange?: { lo: number; hi: number };       // absent = the layer's own min..max
+
+  // §13 (2026-08-30). Both optional; both default to the Phase-2 behaviour, so no golden moves.
+  offPlaneOpacity?: number;                      // 0/absent = today's 2D cull; > 0 draws the off-slice
+                                                 // points as full-radius discs at this alpha
+  labelSource?: 'labels' | 'names';              // 'labels' (default) = the `labels` array;
+                                                 // 'names' = points[].name at each point's position
 }
 
 export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
@@ -453,6 +466,29 @@ table would be lost on the next open. `labelColors` is therefore an *override*: 
 readable underneath it, a per-row Reset is deleting a key, and "Save LUT…" writes the override merged over
 the table. `selectedLabels` is a plain `number[]`, unlike `visibleLabels`' `Uint32Array`: a selection is a
 handful of ids a panel edits click by click, not a filter over up to 65535 of them.
+
+**A points layer's five §13 fields, and what "additive" guarantees here** (2026-08-30). `LayerBase.module`,
+`points[].id` / `.group` / `.ordinal`, `PointsLayer.offPlaneOpacity` and `.labelSource` are every one of them
+optional, and **absent reproduces the previous behaviour exactly** — that is the whole of §12.3's additive
+rule, and for these fields it is checkable: `module`, `group` and `ordinal` are read by nobody in the engine,
+`id` is read only by a tool's selection, and the two rendering fields both default to the branch the shader
+and the overlay took before they existed. No existing scene changes and no §11 golden moves.
+
+**The 2D cull and the ghost.** §7.2's 2D rule for a points layer is the sphere ∩ plane disc, and a point
+further than its own radius from the plane is dropped entirely — which is what makes a points layer sweep
+with the cursor. `offPlaneOpacity > 0` adds the other case: the off-slice points are also drawn, as the
+**full-radius** disc projected onto the plane at that alpha (`shape: 'dot'` at its constant pixel radius,
+which is the size it draws at on-slice). A depth electrode is twelve contacts on a line no single slice
+contains, so under the cull alone the shaft is never visible as a shaft. **The labels do not follow the
+discs**: they stay slab-culled at `max(radiusMm, 1 mm)` even when the discs are ghosted, because a whole net's
+names projected onto one slice is exactly the smear the slab rule exists to prevent. §7.2 states that
+divergence beside the rule it diverges from.
+
+**Identity: the index is the engine's, the id is the tool's.** `points[]` is an array and the index is what
+the engine keys on — `ProbeRow.labelId`, `nearestPoint`, the instance row. It cannot also be an identity:
+deleting the second of twelve contacts renumbers ten of them, so a selection or an undo step holding an index
+afterwards names the wrong electrode. `id` is the identity a tool selects by and survives an insertion, a
+deletion, and a wholesale `points` replacement.
 
 ### 4.5 Views, layout, scene
 
@@ -593,6 +629,8 @@ export interface ViewSpec {
   transparency: Scene['transparency'];
   theme?: 'system' | 'light' | 'dark';   // v2, optional — the app's, not the engine's
   measurements?: Measurement[];          // v2, optional: absent = NONE, never "keep what the live scene had"
+  extensions?: Record<string, { module: string; version: number;   // §13 module blocks, optional, absent = NONE.
+                                moduleVersion: string; data: unknown }>;  // written by the APP, like `theme`
 }
 ```
 
@@ -604,6 +642,24 @@ points layer's `labels` and `lineSegments` are re-derived from the parsed `.geo`
 `lineSegments` is a `Float32Array`, which `JSON.stringify` turns into `{"0":…}`, so persisting it would write
 megabytes that restore garbage. Everything the *user* chose about a points layer is persisted. `measurements`
 is the opposite case: it is plain JSON, there is nothing to re-derive it from, and it is written as-is.
+
+**Per-layer fields ride the spread, and that is a guarantee, not an accident** (2026-08-30). `serializableLayer`
+is `{ ...layer }` minus the two derived points fields and plus the JSON forms of `threshold` /
+`visibleLabels` / `label`; `remapLayer` is the same spread with the dataset ids remapped. So **every**
+kind-specific field — including one this build has never heard of — survives save → load → `addLayer`. It was
+already true, it was undocumented, and §13 depends on it: a scene re-saved by an older build must keep a
+module's points with their `id`, `group` and `ordinal` even though that build drops the `extensions` block it
+cannot describe. It is stated here so that a future `SerializableLayer` narrowed to an explicit field list is
+recognised as the breaking change it would be, and it is pinned by `roundtrip.test.ts`, which asserts deep
+equality over every key of a fully-populated layer of each kind.
+
+**`extensions` — §13's per-module blocks, written by the app.** Typed on `ViewSpec` exactly like `theme`, and
+for the same reason: it belongs to the file, but `Engine.serialize()` cannot produce it. `toViewSpec`
+enumerates `Scene` fields, and there is no module state in `Scene` — `LayerBase.module` is a tag the engine
+never interprets — so the **app** writes this field on save and hands each block back to its module on load,
+carrying an unknown module's block forward verbatim. §13.2 owns the rules: ≤ 256 KiB of JSON per block, and
+never a `LayerId` or `DatasetId` inside one, because both are reassigned on load. A module finds its layer
+again through `LayerBase.module`.
 
 **`sidecars` — because "re-derived from the dataset and its LUT" needs the LUT.** `ernie.msh` carries no
 `$PhysicalNames`, so `ernie.msh.opt` is the only source of the tissue names and colours the head is drawn in,

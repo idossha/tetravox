@@ -355,6 +355,26 @@ export interface LayerBase {
   opacity: number;
   pickable: boolean;
   showColorbar: boolean;
+
+  // -------------------------------------------------------------------------------------------
+  // Appended for §13's modules (2026-08-30 — see `docs/DECISIONS.md`). Optional, and absent means
+  // exactly what every layer written before today said: nobody but the core owns this layer.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * The id of the module whose edits this layer carries (`<vendor>.<name>`), or absent for a
+   * core-owned layer.
+   *
+   * A plain `string`, not a union, and **nothing in the engine reads it**: §4.4 is the scene model,
+   * not the app's module table, so this is a tag the engine carries and never interprets. It exists
+   * because §4.6 reassigns every `LayerId` on load, so a module looking for its own layer after a
+   * scene opens has nothing else to match on — dataset, kind and name are shared by two subjects'
+   * contact layers, and by two runs of the same one.
+   *
+   * The app uses it to put a read-only summary row where the core property editor would go, so a
+   * module's invariants (per-point colour, radius, ordering) cannot be edited around its back.
+   */
+  module?: string;
 }
 
 export interface VolumeLayer extends LayerBase {
@@ -630,6 +650,43 @@ export interface PointsLayer extends LayerBase {
      * work without reloading the file.
      */
     value?: number;
+
+    // -----------------------------------------------------------------------------------------
+    // Appended for §13's modules (2026-08-30 — see `docs/DECISIONS.md`). All three are optional,
+    // and a points layer with none of them behaves exactly as it did: the array index stays the
+    // engine's own key (`ProbeRow.labelId`, `nearestPoint`), and nothing here changes a pixel.
+    // -----------------------------------------------------------------------------------------
+
+    /**
+     * A **stable identity** for this point, unique within the layer.
+     *
+     * The array index is the engine's transient key and cannot be an identity: deleting the second
+     * of twelve contacts renumbers ten of them, and a selection or an undo step holding an index
+     * then points at the wrong electrode. An id survives an insertion, a deletion and a whole
+     * `points` array replacement, which is what a point-editing tool selects by.
+     *
+     * The engine mints `p<n>` for points it places; an importer mints its own (`c<n>` for a row
+     * read out of a table). Nothing derives meaning from the string.
+     */
+    id?: string;
+
+    /**
+     * Which set this point belongs to — an sEEG electrode, a montage, a parcel.
+     *
+     * Uninterpreted by the engine, exactly like {@link LayerBase.module}: it exists so that one
+     * points layer can hold twelve shafts without twelve layers, each of which would mount a full
+     * property editor, add a `[`/`]` stop and take a probe row of its own (§4.4).
+     */
+    group?: string;
+
+    /**
+     * This point's 1-based position **within its {@link group}** — contact 1 is the deepest.
+     *
+     * Separate from the array order because the array is drawing order and the ordinal is anatomy:
+     * a contact inserted between 4 and 5 lands wherever the editor put it in the array and is still
+     * ordinal 5 once the shaft is renumbered.
+     */
+    ordinal?: number;
   }[];
   shape: 'sphere' | 'dot';
   radiusMm: number;
@@ -681,6 +738,44 @@ export interface PointsLayer extends LayerBase {
   colormap?: ColormapName | string;
   /** The value range `colorMode: 'value'` maps across. Absent = the layer's own min..max. */
   valueRange?: { lo: number; hi: number };
+
+  // -------------------------------------------------------------------------------------------
+  // Appended for §13's modules (2026-08-30 — see `docs/DECISIONS.md`). Both are optional and both
+  // default to the behaviour a points layer has had since Phase 2, so no existing scene and no
+  // §11 golden moves.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * How visible a point is in a 2D pane it is **not** on — 0 or absent keeps today's hard cull.
+   *
+   * §7.2's 2D rule is the sphere ∩ plane disc, and a point further than its own radius from the
+   * plane is dropped entirely (`shaders/points.ts`), which is what makes a points layer sweep with
+   * the cursor. That is right for a net of scalp electrodes and wrong for a depth electrode: a
+   * shaft is 12 contacts on a line that no single slice contains, so scrolling through it shows one
+   * contact at a time and never the shaft. Above 0 the off-slice points are drawn as well — the
+   * **full-radius** disc at this alpha, projected onto the plane, exactly as Slicer's slice
+   * projection draws them — so the shaft stays visible while the slice moves through it.
+   *
+   * `shape: 'dot'` ghosts at its constant pixel radius, because that is the radius it draws at when
+   * it is on the slice; there is no second size to fade to.
+   *
+   * **The labels do not follow.** A label is text, and text drawn for every point of a 187-electrode
+   * net projected onto one axial slice is the unreadable smear §7.2's slab rule exists to prevent,
+   * so labels stay slab-culled even when the discs are ghosted. §7.2 states that divergence.
+   */
+  offPlaneOpacity?: number;
+
+  /**
+   * Where the in-pane text comes from — `'labels'` (the default, and the Phase-2 behaviour) draws
+   * {@link PointsLayer.labels}; `'names'` draws `points[].name` at each point's own position.
+   *
+   * `labels` is a Gmsh `T3` array: independent anchors, lifted 5 mm off the electrodes, and a legal
+   * file may carry more of them than there are points or none at all (§6.2). A layer whose text
+   * simply *is* its points' names had to maintain a parallel array to say so — one that §4.6 does
+   * not even serialise, since `labels` is re-derived from the dataset on load. `'names'` is the
+   * other, equally common case stated once.
+   */
+  labelSource?: 'labels' | 'names';
 }
 
 /** A parsed view's points, labels and lines, as they sit on a {@link MeshDataset} (§6.5.1). */
@@ -994,4 +1089,25 @@ export interface ViewSpec {
    * additive rule a frozen file is changed under (§12.3).
    */
   measurements?: Measurement[];
+  /**
+   * §13's per-module state blocks, keyed by module id — optional, and absent means **none**
+   * (2026-08-30, see `docs/DECISIONS.md`).
+   *
+   * Typed here exactly like {@link ViewSpec.theme}, and for the same reason: it belongs to the file
+   * and has to survive a round trip, but `Engine.serialize()` cannot produce it and does not. There
+   * is no module state in `Scene` — the engine has no module registry (§4.4's `LayerBase.module` is
+   * a tag it never interprets) — so `toViewSpec` enumerates engine fields only and the **app**
+   * writes this field on save and hands the blocks back to their modules on load. A build without a
+   * module carries that module's block forward verbatim, which is what stops opening a scene in a
+   * plain viewer from deleting a colleague's work.
+   *
+   * `data` is `unknown` because it is the module's, not the engine's; §13.2 caps it at 256 KiB of
+   * JSON and forbids it from naming a `LayerId` or a `DatasetId`, both of which are reassigned on
+   * load. `version` is the block's schema version and `moduleVersion` the module's own semver, so a
+   * module that meets a block from the future can say so instead of guessing.
+   */
+  extensions?: Record<
+    string,
+    { module: string; version: number; moduleVersion: string; data: unknown }
+  >;
 }
