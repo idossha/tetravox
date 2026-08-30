@@ -417,7 +417,13 @@ export class DerivedPass implements FramePass {
     this.#state.apply(GL_STATE.opaque3d);
     this.#state.clipDistances(0);
 
-    // Isosurfaces — §7.2 pass 1, through the mesh program.
+    // Isosurfaces, through the mesh program. Opaque ones are §7.2 pass 1; a translucent one
+    // (`opacity < 1` — the layer slider, `iso3d.opacity` or a region slider) takes the same
+    // two-phase blended pass a translucent mesh takes (`passes/mesh.ts`): back faces then front
+    // faces, depth test on, depth writes off, so the slider is a real gradient rather than the
+    // all-or-nothing an opaque-state draw made of it (2026-08-30). A surface payload carries no
+    // bounds, so translucent surfaces are not sorted against each other — for the per-region
+    // surfaces of one label volume, which share a bounding box, no sort would help anyway.
     const isos = items.filter((d): d is IsoDrawItem => d.kind === 'iso');
     if (isos.length > 0) {
       const prog = this.#iso;
@@ -426,8 +432,7 @@ export class DerivedPass implements FramePass {
       prog.vec3('uEye', eye);
       prog.float('uAmbient', input.scene.lighting.ambient);
       prog.mat4('uModel', IDENTITY);
-      for (const d of isos) {
-        this.#state.cull(d.layer.faceMode === 'cull' ? 'back' : 'none');
+      const drawIso = (d: IsoDrawItem): void => {
         prog.vec4('uColor', d.layer.color);
         prog.float('uOpacity', d.layer.opacity);
         d.geom.vao.bind();
@@ -437,8 +442,25 @@ export class DerivedPass implements FramePass {
           gl.drawArrays(gl.TRIANGLES, 0, d.geom.vertexCount);
         }
         VertexArray.unbind(gl);
+      };
+      const opaque = isos.filter((d) => d.layer.opacity >= 1);
+      const translucent = isos.filter((d) => d.layer.opacity < 1 && d.layer.opacity > 0);
+      for (const d of opaque) {
+        this.#state.cull(d.layer.faceMode === 'cull' ? 'back' : 'none');
+        drawIso(d);
       }
       this.#state.cull('none');
+      if (translucent.length > 0) {
+        // 2a — back faces of every translucent surface, then 2b — front faces. A `cull` surface
+        // has no back sheet to show, so it joins only 2b.
+        this.#state.apply(GL_STATE.transparentBack);
+        for (const d of translucent) if (d.layer.faceMode === 'both') drawIso(d);
+        this.#state.apply(GL_STATE.transparentFront);
+        for (const d of translucent) drawIso(d);
+        // Depth writes back on (`gl.clear(DEPTH_BUFFER_BIT)` is masked by `depthMask`) before the
+        // glyphs and points below, which are pass-1 draws.
+        this.#state.apply(GL_STATE.opaque3d);
+      }
     }
 
     // Vector glyphs — §7.4's instanced cone+shaft, opaque pass.

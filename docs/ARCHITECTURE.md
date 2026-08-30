@@ -1890,6 +1890,9 @@ Rules:
      the depth of their **far** extent.
    * **2b — front faces:** `cullFace(BACK)`, depth test on, depth write off; objects sorted back-to-front by
      the depth of their **near** extent.
+   * Translucent **isosurfaces** (`passes/derived.ts`, which runs after the mesh pass) take 2a then 2b as
+     well, unsorted among themselves — a `SurfacePayload` carries no bounds, and the per-region surfaces of
+     one label volume share a box anyway. A `cull` surface has no back sheet and joins 2b only.
 
    Unified rule: *in each phase, objects are sorted back-to-front by the depth of the sheet that phase
    draws.* Exact for nested, individually near-convex shells (scalp, skull, CSF, blood — median 2 crossings);

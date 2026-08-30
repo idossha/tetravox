@@ -279,7 +279,10 @@ test('a points layer lands on the pixel the projection names, and only on its ow
  * the ledger asks for beside it, and building it from the same function is what keeps the two
  * about the same picture.
  */
-async function isoSphereScene(page: Page): Promise<{
+async function isoSphereScene(
+  page: Page,
+  opacity = 1
+): Promise<{
   kind: string;
   iso: number;
   probeKinds: string[];
@@ -287,7 +290,7 @@ async function isoSphereScene(page: Page): Promise<{
   ops: string[];
   errors: string[];
 }> {
-  return page.evaluate(async () => {
+  return page.evaluate(async (opacity) => {
     const engine = window.__tvxEngine!;
     const N = 48;
     const R = 12;
@@ -321,7 +324,13 @@ async function isoSphereScene(page: Page): Promise<{
     }
 
     const ds = await engine.addDataset({ kind: 'bytes', name: 'sphere.nii', bytes: buf });
-    const layer = engine.addLayer({ datasetId: ds.id, kind: 'iso', iso: R, color: [1, 1, 1, 1] });
+    const layer = engine.addLayer({
+      datasetId: ds.id,
+      kind: 'iso',
+      iso: R,
+      color: [1, 1, 1, 1],
+      opacity,
+    });
     engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
     engine.resetView('view3d');
     engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
@@ -343,8 +352,26 @@ async function isoSphereScene(page: Page): Promise<{
       ops: window.__tvxOps ?? [],
       errors: window.__tvxErrors ?? [],
     };
-  });
+  }, opacity);
 }
+
+/**
+ * A translucent isosurface is a gradient, not a switch: at opacity 0.5 a white sphere over the
+ * black background composites to grey — back sheet 0.5·white over black, front sheet 0.5·white
+ * over that — where an opaque-state draw (the pre-2026-08-30 path) painted it solid white.
+ */
+test('a translucent isosurface blends with what is behind it', async ({ page }) => {
+  const errors = await openScene(page);
+  const info = await isoSphereScene(page, 0.5);
+  expect(errors).toEqual([]);
+  expect(info.errors).toEqual([]);
+  const centre = await readCanvasRect(page, PANE / 2, PANE / 2, 1, 1);
+  const lum = Math.max(centre[0] ?? 0, centre[1] ?? 0, centre[2] ?? 0);
+  // Lit but not solid: the headlight makes the front sheet's centre the brightest point of the
+  // sphere, so at opacity 1 it is near 255; at 0.5 it must sit well inside (0, 255).
+  expect(lum, 'the sphere is visible').toBeGreaterThan(40);
+  expect(lum, 'and not opaque').toBeLessThan(230);
+});
 
 test('an isosurface of an analytic sphere has the silhouette its radius implies', async ({
   page,
