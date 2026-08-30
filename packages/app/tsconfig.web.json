@@ -7,5 +7,11 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
     "types": ["vite/client"]
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/renderer/**/*.d.ts"]
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/renderer/**/*.d.ts",
+    // §13.1: the same manifests, from the renderer's side of §5.
+    "src/modules/**/*.ts"
+  ]
 }
