@@ -159,6 +159,128 @@ export function mniToTemplate(): NonNullable<VolumeDataset['toTemplate']> {
   return { name: 'MNI152', kind: 'affine', matrix: scaleTranslate([1, 1, 1], [0, 12, 0]) };
 }
 
+// ------------------------------------------------------------------------------------------------
+// The sEEG CT phantom (§13, 2026-08-30)
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * The stand-in's samples for `testdata/ct_shafts.nii.gz`, recomputed rather than parsed.
+ *
+ * `NoGlEngine` never opens a file — it makes a plausible `Dataset` from the *name* — and the plain
+ * stand-in volume carries 64 samples over a 256³ grid, which is a flat box wherever anything looks.
+ * A contact editor snapping to "the local intensity peak" needs metal to find, so a name that says
+ * `ct_shafts` gets the same phantom `scripts/gen-fixtures.py` writes: three oblique depth electrodes
+ * at a 3.5 mm contact pitch, on **anisotropic** 0.4 / 0.5 / 0.8 mm spacing, contacts as Gaussian
+ * blobs at 3000 HU over soft tissue at ~40.
+ *
+ * Keyed on the name, like `looksLikeLabels` and the 4-D check above it, so nothing else changes and
+ * no existing test moves. The values are physical HU with `scl = (1, 0)`: the real fixture stores
+ * `HU + 1024` with `scl = (1, −1024)` and §6.1's scaling is the loader's job, which this stand-in
+ * does not have.
+ *
+ * The geometry is duplicated from `gen-fixtures.py` and pinned against it by
+ * `modules/seeg-fixtures.test.ts`, which replays the manifest's own `peakCentroid` expectations
+ * through this data. A drift in either direction fails there.
+ */
+export const CT_PHANTOM = {
+  dims: [56, 48, 40] as vec3,
+  spacing: [0.4, 0.5, 0.8] as vec3,
+  origin: [-11.2, -12.0, -16.0] as vec3,
+  pitchMm: 3.5,
+  contactHu: 3000,
+  contactSigmaMm: 0.85,
+  shaftHu: 200,
+  shaftSigmaMm: 0.5,
+  shafts: [
+    { group: 'A', entry: [-6.0, -7.0, -11.0] as vec3, dir: [0.25, 0.35, 0.9] as vec3, contacts: 6 },
+    {
+      group: 'B',
+      entry: [6.0, -6.0, -10.0] as vec3,
+      dir: [-0.15, 0.25, 0.95] as vec3,
+      contacts: 5,
+    },
+    { group: 'C', entry: [-4.0, 6.5, -6.0] as vec3, dir: [0.55, -0.3, 0.78] as vec3, contacts: 4 },
+  ],
+};
+
+/** Every contact of the phantom, as `(group, ordinal, world mm)` — ordinal 1 is the entry end. */
+export function ctPhantomContacts(): { group: string; ordinal: number; world: vec3 }[] {
+  const out: { group: string; ordinal: number; world: vec3 }[] = [];
+  for (const shaft of CT_PHANTOM.shafts) {
+    const length = Math.hypot(shaft.dir[0], shaft.dir[1], shaft.dir[2]);
+    const d: vec3 = [shaft.dir[0] / length, shaft.dir[1] / length, shaft.dir[2] / length];
+    for (let n = 0; n < shaft.contacts; n += 1) {
+      out.push({
+        group: shaft.group,
+        ordinal: n + 1,
+        world: [
+          shaft.entry[0] + d[0] * CT_PHANTOM.pitchMm * n,
+          shaft.entry[1] + d[1] * CT_PHANTOM.pitchMm * n,
+          shaft.entry[2] + d[2] * CT_PHANTOM.pitchMm * n,
+        ],
+      });
+    }
+  }
+  return out;
+}
+
+/** The phantom's samples, i fastest — the layout `VolumeDataset.data` uses. */
+export function ctPhantomData(): Float32Array {
+  const [nx, ny, nz] = CT_PHANTOM.dims;
+  const data = new Float32Array(nx * ny * nz);
+  const contacts = ctPhantomContacts();
+  const shafts = CT_PHANTOM.shafts.map((shaft) => {
+    const length = Math.hypot(shaft.dir[0], shaft.dir[1], shaft.dir[2]);
+    const d: vec3 = [shaft.dir[0] / length, shaft.dir[1] / length, shaft.dir[2] / length];
+    const span = CT_PHANTOM.pitchMm * (shaft.contacts - 1);
+    return { entry: shaft.entry, d, span };
+  });
+  let at = 0;
+  for (let k = 0; k < nz; k += 1) {
+    const z = CT_PHANTOM.origin[2] + k * CT_PHANTOM.spacing[2];
+    for (let j = 0; j < ny; j += 1) {
+      const y = CT_PHANTOM.origin[1] + j * CT_PHANTOM.spacing[1];
+      for (let i = 0; i < nx; i += 1) {
+        const x = CT_PHANTOM.origin[0] + i * CT_PHANTOM.spacing[0];
+        let v = 40 + 6 * Math.sin(0.7 * x) + 5 * Math.cos(0.5 * y) + 4 * Math.sin(0.3 * z);
+        for (const shaft of shafts) {
+          const rx = x - shaft.entry[0];
+          const ry = y - shaft.entry[1];
+          const rz = z - shaft.entry[2];
+          const t = Math.min(
+            Math.max(rx * shaft.d[0] + ry * shaft.d[1] + rz * shaft.d[2], 0),
+            shaft.span
+          );
+          const perp = Math.hypot(rx - t * shaft.d[0], ry - t * shaft.d[1], rz - t * shaft.d[2]);
+          v += CT_PHANTOM.shaftHu * Math.exp(-((perp / CT_PHANTOM.shaftSigmaMm) ** 2));
+        }
+        for (const contact of contacts) {
+          const dd =
+            (x - contact.world[0]) ** 2 + (y - contact.world[1]) ** 2 + (z - contact.world[2]) ** 2;
+          v += CT_PHANTOM.contactHu * Math.exp(-dd / CT_PHANTOM.contactSigmaMm ** 2);
+        }
+        // `Math.round` matches the fixture writer's `np.rint(v + 1024)` minus the 1024 offset only
+        // for values that are not exactly on a half; the phantom's are not, and nothing here reads
+        // a single sample by name — the tests read the peak-centroid of a box.
+        data[at] = Math.round(v);
+        at += 1;
+      }
+    }
+  }
+  return data;
+}
+
+/**
+ * True when this name should get the sEEG CT phantom.
+ *
+ * Two names, both narrow: `ct_shafts` is the fixture `gen-fixtures.py` writes, and `acq-bone` is the
+ * BIDS entity a post-op CT registered for contact localisation carries
+ * (`sub-<id>_acq-bone_space-T1w_ct.nii.gz`). Nothing else in the tree is called either.
+ */
+function looksLikeCtPhantom(name: string): boolean {
+  return /ct_shafts|acq-bone/i.test(name);
+}
+
 export function makeVolume(
   id: DatasetId,
   name: string,
@@ -168,12 +290,19 @@ export function makeVolume(
   options: { toTemplate?: boolean } = {}
 ): VolumeDataset {
   const isLabel = looksLikeLabels(name);
-  const dims: vec3 = [256, 256, 208];
-  const spacing: vec3 = [1, 1, 1];
-  const origin: vec3 = [-99.737457, -128.1875, -143.642273];
-  const data = isLabel ? new Uint16Array(64) : new Float32Array(64);
-  for (let i = 0; i < data.length; i++) data[i] = isLabel ? i % 11 : i * 3.5;
-  const stats = isLabel ? makeStats(0, 10) : makeStats(-41.807507, 65535);
+  const phantom = looksLikeCtPhantom(name);
+  const dims: vec3 = phantom ? [...CT_PHANTOM.dims] : [256, 256, 208];
+  const spacing: vec3 = phantom ? [...CT_PHANTOM.spacing] : [1, 1, 1];
+  const origin: vec3 = phantom ? [...CT_PHANTOM.origin] : [-99.737457, -128.1875, -143.642273];
+  const data = phantom ? ctPhantomData() : isLabel ? new Uint16Array(64) : new Float32Array(64);
+  if (!phantom) {
+    for (let i = 0; i < data.length; i++) data[i] = isLabel ? i % 11 : i * 3.5;
+  }
+  const stats = phantom
+    ? makeStats(20, CT_PHANTOM.contactHu + 240)
+    : isLabel
+      ? makeStats(0, 10)
+      : makeStats(-41.807507, 65535);
   const labelIds = isLabel ? Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) : undefined;
   const denseIndexOf = isLabel ? Uint32Array.from([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) : undefined;
   const entries = isLabel

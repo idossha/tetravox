@@ -2223,6 +2223,18 @@ export class ShellController {
   }
 
   /**
+   * The active module's `ModuleInstance`, or null (appended 2026-08-30).
+   *
+   * §13.6's entry point: a job file's `{ type: "module" }` action is `activateModule(id)` and then
+   * `instance.runOperation(op, args)`, and a harness that drives an operation needs the same handle.
+   * Read-only, like {@link moduleHost}: the shell never *acts as* a module, and everything here is
+   * generic — no line in this file names one.
+   */
+  moduleInstance(): ModuleInstance | null {
+    return this.moduleSession?.instance ?? null;
+  }
+
+  /**
    * Put a module in the slot, loading it the first time (§13.1).
    *
    * Idempotent for the module that is already there. Another module in the slot is disposed first —
