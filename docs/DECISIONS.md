@@ -3203,3 +3203,36 @@ for. Multiplying keeps the ghost-shell case (`iso3d.opacity < 1`) and makes the 
 surfaces as it governs the slices. The default `iso3d.opacity` is 1, so every scene saved before
 this renders the same unless its slider was below 1 — in which case it now renders as the user
 expected when they dragged it. Additive: no `ViewSpec` field changes.
+
+## 2026-08-30 — `worker-src blob:` is removed from the renderer CSP
+
+**Decision.** `main/protocol.ts`'s policy for `tetravox://app` drops `blob:` from `worker-src`,
+leaving `worker-src 'self'`. `img-src 'self' data: blob:` is unchanged.
+
+**Why it was there, and why it is not.** Nothing ever asked for it. Both of this app's workers are
+built from a `new URL(…, import.meta.url)` that Vite emits as a same-origin asset under
+`tetravox://app/assets/…` — the engine's dataset worker (`packages/engine/src/engine.ts`) and the
+Phase-0 skeleton's (`renderer/src/Phase0App.tsx`) — so `'self'` covers every worker that is supposed
+to exist. What `blob:` covered was the one that is not: a module Worker constructed from a Blob of
+text the page fetched, which is a working script-execution path through a policy whose whole point is
+`script-src 'self'`. It is an undesigned door, and closing it costs this build nothing.
+
+**Why now.** The modules surface (§13) is first-party and compiled into `out/renderer`; §13.8
+describes a later stage where a module's code is loaded at runtime, and a Blob module Worker is
+exactly the mechanism that stage would reach for. Closing the door **before** anything wants it is
+what makes opening it later a deliberate, argued change rather than an accident that was already
+permitted. Nothing in §13 needs a CSP change: no new scheme, no `tetravox://ext`, no `script-src`
+edit.
+
+**The directive is narrowed, not deleted.** Removing `worker-src` entirely would fall back to
+`child-src` and then to `default-src 'none'`, which forbids *every* worker — the dataset worker
+included, i.e. the whole application. `worker-src 'self'` is the change; the empty diff would be a
+catastrophe.
+
+**How it is verified.** `packages/app/e2e/csp.spec.ts`, which asserts the policy from inside the page
+it governs — the CSP is a response header, not a `<meta>`, so there is nothing in the DOM to read.
+Constructing a Blob module Worker fires a `securitypolicyviolation` naming `worker-src`; a Blob PNG
+still loads into an `<img>`, which is the screenshot dialog's preview; and every other app E2E that
+opens a dataset exercises the same-origin worker that must keep working. The dev server carries no
+CSP, so this is a built-app assertion, as `e2e:packaged` is.
+
