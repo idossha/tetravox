@@ -242,21 +242,31 @@ describe('the module import wall (§13.1)', () => {
           if (specifier !== '@tetravox/engine') continue;
           // Types only. A value import would put engine code inside a module, which §13.8's worker
           // tier could never allow — and would make the wall a style rule rather than a boundary.
-          const value = new RegExp(`import\\s+(?!type\\b)[^;]*?from\\s*['"]@tetravox/engine['"]`);
+          // Anchored at a line start, the way `importsOf` matches: an import statement always
+          // begins one, and an unanchored pattern also matches the word "import" in a doc comment
+          // that happens to sit above the file's own type import.
+          const value = new RegExp(
+            `(?:^|\\n)\\s*import\\s+(?!type\\b)[^;]*?from\\s*['"]@tetravox/engine['"]`
+          );
           expect(value.test(text), where).toBe(false);
         }
       }
     }
   });
 
-  it('reaches the shell only through `../host`', () => {
+  it('reaches the shell only through `../host`, the control kit or `../shared`', () => {
     for (const dir of moduleDirs) {
       for (const file of sourcesUnder(dir)) {
         for (const specifier of importsOf(file)) {
           if (!specifier.startsWith('..')) continue;
-          // One legal way out of a module's directory, and it is the host.
+          // Three legal ways out of a module's directory, and none of them is the shell: the host,
+          // the shared control kit, and `modules/shared/**` — the hardware-independent libraries a
+          // second module of the same family is built from (`shared/contacts/README.md`). The last
+          // one is inside the wall rather than outside it: everything under `shared/` is checked by
+          // this very loop, so a library that reached the store would fail here for its own file.
+          // One extra `..` is allowed because a library lives one level deeper than a module's root.
           expect(specifier, `${relative(CODE_DIR, file)} imports ${specifier}`).toMatch(
-            /^\.\.\/(host|ui\/)/
+            /^\.\.\/(\.\.\/)?(host|ui\/|shared\/)/
           );
         }
       }

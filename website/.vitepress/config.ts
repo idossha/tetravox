@@ -106,6 +106,7 @@ export default defineConfig({
               { text: 'Points & electrodes', link: '/guide/points-electrodes' },
               { text: 'Measurements', link: '/guide/measurements' },
               { text: 'Modules', link: '/guide/modules' },
+              { text: 'sEEG contacts', link: '/guide/seeg-contacts' },
               { text: 'Coordinates', link: '/guide/coordinates' },
               { text: 'Themes & settings', link: '/guide/themes-settings' },
               { text: 'Scenes', link: '/guide/scenes' },

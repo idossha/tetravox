@@ -104,15 +104,17 @@ function harness(search = '?modules=hello'): {
 
 describe('the registry gate', () => {
   it('offers a fixture only when the launch query names it', () => {
-    expect(harness('').controller.modules()).toHaveLength(0);
-    expect(
-      harness('?modules=hello')
+    // Asked by id rather than by count, because product modules are in this list too from
+    // 2026-08-30 (`tetravox.seeg`) and a count would say "the fixture is hidden" by accident.
+    const ids = (search: string): string[] =>
+      harness(search)
         .controller.modules()
-        .map((m) => m.manifest.id)
-    ).toEqual([HELLO]);
+        .map((m) => m.manifest.id);
+    expect(ids('')).not.toContain(HELLO);
+    expect(ids('?modules=hello')).toContain(HELLO);
     // The full id and `all` work too, so a developer poking at the surface does not have to guess.
-    expect(harness('?modules=tetravox.hello').controller.modules()).toHaveLength(1);
-    expect(harness('?engine=mock&modules=all').controller.modules()).toHaveLength(1);
+    expect(ids('?modules=tetravox.hello')).toContain(HELLO);
+    expect(ids('?engine=mock&modules=all')).toContain(HELLO);
   });
 
   it('refuses to activate a module this window does not offer', async () => {

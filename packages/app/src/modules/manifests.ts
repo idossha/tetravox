@@ -12,8 +12,10 @@
 
 import type { ModuleManifest } from './manifest-types';
 import { helloManifest } from './hello/manifest';
+// §13.7's "one line in MANIFESTS", 2026-08-30: the sEEG contact editor.
+import { seegManifest } from './seeg/manifest';
 
-export const MANIFESTS: readonly ModuleManifest[] = [helloManifest];
+export const MANIFESTS: readonly ModuleManifest[] = [helloManifest, seegManifest];
 
 /** The manifest with this id, or null. Ids are unique — `modules.test.ts` proves it. */
 export function manifestFor(id: string): ModuleManifest | null {

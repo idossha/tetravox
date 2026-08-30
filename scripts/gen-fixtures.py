@@ -1318,6 +1318,11 @@ def generate(out: Path) -> dict:
         scl=(1.0, -1024.0),
     )
 
+    # §13's electrode tables (2026-08-30): the contacts of the CT phantom above, missed by a
+    # deterministic sub-millimetre offset so a snap has something to find, plus one deliberately
+    # awkward table for the reader's tolerance.  Both are text and together under 2 kB.
+    write_seeg_tables(out)
+
     # ---------------- MGH / NRRD / MetaImage (§6.1's other voxel formats) ----------------
     # Same ramps, same oblique affine, so a reader that gets an axis or a sign wrong is caught by
     # the very numbers the NIfTI fixtures already pin.
@@ -1744,6 +1749,216 @@ def inspect_voxel_box(out: Path) -> dict:
             for g, n, c in contacts
         ],
         "cases": cases,
+    }
+
+
+# --------------------------------------------------------------------------------------
+# the sEEG contact tables (§13, 2026-08-30)
+# --------------------------------------------------------------------------------------
+
+# The clean table: the phantom's own contacts, each nudged off the metal by a deterministic
+# sub-millimetre offset, so a snap has something to find and the answer is not the input.
+# Columns are the seegprep set a real site exports (`name electrode contact csc x y z status`).
+SEEG_TABLE = "seeg_contacts.tsv"
+SEEG_MESSY = "seeg_messy.csv"
+
+
+def seeg_offset(i: int) -> np.ndarray:
+    """A deterministic per-contact miss, in millimetres. Not random: a fixture is reproducible."""
+    return np.array([((i % 3) - 1) * 0.5, ((i % 5) - 2) * 0.25, ((i % 7) - 3) * 0.2])
+
+
+def seeg_rows():
+    """`(name, electrode, contact, csc, xyz)` for the clean table, in file order."""
+    rows = []
+    for i, (group, ordinal, centre) in enumerate(ct_contact_centres()):
+        rows.append(
+            (
+                f"{group}{ordinal:02d}",
+                group,
+                ordinal,
+                i + 1,
+                np.asarray(centre, dtype=np.float64) + seeg_offset(i),
+            )
+        )
+    return rows
+
+
+def write_seeg_tables(out: Path) -> None:
+    """The two electrode tables: one canonical, one deliberately awkward."""
+    lines = ["name\telectrode\tcontact\tcsc\tx\ty\tz\tstatus"]
+    for name, group, ordinal, csc, xyz in seeg_rows():
+        lines.append(
+            "\t".join(
+                # `repr(float(...))`, not `repr(np.float64(...))`: numpy 2 prints the latter as
+                # `np.float64(-6.5)`, and this file is a BIDS table, not a numpy session.
+                [
+                    name,
+                    group,
+                    str(ordinal),
+                    str(csc),
+                    repr(float(xyz[0])),
+                    repr(float(xyz[1])),
+                    repr(float(xyz[2])),
+                    "located",
+                ]
+            )
+        )
+    (out / SEEG_TABLE).write_text("\n".join(lines) + "\n", newline="")
+
+    # Every tolerance the reader claims, in one file: a UTF-8 BOM, comma separators, CRLF, R/A/S
+    # instead of x/y/z, no electrode column at all (the group is stripped off the name), a blank
+    # line in the middle, and a ragged final row that is one cell short of the header.
+    messy = (
+        "﻿Name,R,A,S,csc\r\n"
+        "LHIP8,-6.0,-7.0,-11.0,1\r\n"
+        "\r\n"
+        "LHIP9,-5.125,-5.775,-7.85,2\r\n"
+        "LHIP10,-4.25,-4.55,-4.7\r\n"
+    )
+    (out / SEEG_MESSY).write_text(messy, newline="")
+
+
+# --------------------------------------------------------------------------------------
+# verification — the sEEG kernels, in numpy
+# --------------------------------------------------------------------------------------
+
+
+def _canonical_axis(axis: np.ndarray) -> np.ndarray:
+    """The sign convention `shared/contacts/geometry.ts#canonicaliseAxis` pins, restated here.
+
+    An eigenvector is defined up to sign and numpy hands back whichever LAPACK returned, so without
+    a rule the two implementations would be compared on a tie-break rather than on the fit."""
+    best = int(np.argmax(np.abs(axis)))
+    return -axis if axis[best] < 0 else axis
+
+
+def _fit_line(pts: np.ndarray):
+    """Slicer's `_fitLine`, with the axis sign canonicalised. Returns (centroid, axis, t, rms)."""
+    c = pts.mean(axis=0)
+    _u, _s, vt = np.linalg.svd(pts - c)
+    axis = _canonical_axis(np.asarray(vt[0], dtype=np.float64))
+    t = (pts - c) @ axis
+    resid = (pts - c) - np.outer(t, axis)
+    rms = float(np.sqrt((resid**2).sum(axis=1).mean()))
+    return c, axis, t, rms
+
+
+def _line_metrics(pts: np.ndarray) -> dict:
+    _c, _axis, t, rms = _fit_line(pts)
+    gaps = np.diff(np.sort(t))
+    # Population std (numpy's default ddof=0) and a MEDIAN pitch, robust to one missing contact.
+    cv = float(gaps.std() / gaps.mean()) if len(gaps) >= 2 and gaps.mean() else None
+    pitch = float(np.median(gaps)) if len(gaps) else None
+    return {"rmsMm": f(rms), "spacingCv": None if cv is None else f(cv), "pitchMm": None if pitch is None else f(pitch)}
+
+
+def _respace(pts: np.ndarray) -> np.ndarray:
+    """`respaceEven`: n points on the fitted line at the median gap, ascending along it."""
+    c, axis, t, _rms = _fit_line(pts)
+    t_sorted = np.sort(t)
+    step = float(np.median(np.diff(t_sorted))) if len(t_sorted) > 1 else 0.0
+    new_t = t_sorted[0] + step * np.arange(len(pts))
+    return c + np.outer(new_t, axis)
+
+
+# Doubles whose `repr` JavaScript's own `String()` does NOT reproduce, plus a handful that it does.
+# The module's writer formats floats like Python so a table round-trips between the two languages.
+SEEG_FLOAT_CASES = [
+    0.0, -0.0, 1.0, 3.0, 100.0, -22.62, 49.38, 0.1, 1 / 3, 1e-5, 1e-4, 1e15, 1e16,
+    1e21, 1e100, 1e-300, -1.5e-9, 3.14159265358979, 0.30000000000000004,
+    2.5e-323, 5e-324, 1.7976931348623157e308, -0.000123456,
+]
+
+
+def inspect_seeg(out: Path) -> dict:
+    """§13's sEEG expectations, in numpy, reading the fixtures BACK (AGENTS.md 'Test data')."""
+    path = out / "ct_shafts.nii.gz"
+    img = nib.load(str(path))
+    raw = np.asarray(img.dataobj.get_unscaled(), dtype=np.float64)
+    hdr = raw_nifti_header(path)
+    slope, inter = struct.unpack("<2f", hdr[OFF_SCL_SLOPE : OFF_SCL_SLOPE + 8])
+    slope = slope if np.isfinite(slope) and slope != 0 else 1.0
+    inter = inter if np.isfinite(inter) else 0.0
+    phys = raw * slope + inter
+    affine = np.vstack(
+        [np.array(img.header["srow_x"]), np.array(img.header["srow_y"]),
+         np.array(img.header["srow_z"]), [0, 0, 0, 1]]
+    ).astype(np.float64)
+    inv = np.linalg.inv(affine)
+    dims = list(phys.shape[:3])
+    spacing = [float(np.linalg.norm(affine[:3, a])) for a in range(3)]
+
+    # The tip rule's reference: the centre of the volume's bounding box, which is what
+    # `seeg/shaft.ts#tipReference` uses when a volume is bound.
+    origin = affine[:3, 3]
+    far = affine[:3, :3] @ (np.asarray(dims, dtype=np.float64) - 1.0) + origin
+    centre = (origin + far) / 2.0
+
+    truth = {(g, n): np.asarray(c, dtype=np.float64) for g, n, c in ct_contact_centres()}
+    rows = seeg_rows()
+
+    snapped = []
+    for name, group, ordinal, _csc, xyz in rows:
+        win = _box_indices(inv, dims, spacing, xyz, 1.5)
+        rec = {"name": name, "electrode": group, "contact": ordinal, "world": fl(xyz)}
+        if win is None:
+            rec["snappedWorld"] = None
+            snapped.append(rec)
+            continue
+        lo, hi = win
+        box = phys[lo[0] : hi[0] + 1, lo[1] : hi[1] + 1, lo[2] : hi[2] + 1]
+        peak = _peak_centroid(affine, lo, box)
+        rec["snappedWorld"] = None if peak is None else fl(peak[:3])
+        if peak is not None:
+            rec["errorToContactMm"] = f(float(np.linalg.norm(peak[:3] - truth[(group, ordinal)])))
+            rec["shiftMm"] = f(float(np.linalg.norm(peak[:3] - xyz)))
+        snapped.append(rec)
+
+    electrodes = []
+    for group in ["A", "B", "C"]:
+        pts = np.array([xyz for _n, g, _o, _c, xyz in rows if g == group])
+        _c, axis, t, _rms = _fit_line(pts)
+        order = np.argsort(t)
+        low = pts[order[0]]
+        high = pts[order[-1]]
+        # `tipEnd`: contact 1 is the END NEARER the reference centre; a tie keeps the low end.
+        tip = "high" if np.linalg.norm(high - centre) < np.linalg.norm(low - centre) - 1e-6 else "low"
+        spaced = _respace(pts)
+        slots = spaced if tip == "low" else spaced[::-1]
+        electrodes.append(
+            {
+                "electrode": group,
+                "n": int(len(pts)),
+                "axis": fl(axis),
+                "metrics": _line_metrics(pts),
+                "tip": tip,
+                # Tip-first: slot k is contact k+1, and the names are zero-padded to width 2.
+                "refitWorld": [fl(p) for p in slots],
+                "refitMetrics": _line_metrics(slots),
+                "namesTipFirst": [f"{group}{k + 1:02d}" for k in range(len(pts))],
+            }
+        )
+
+    return {
+        "table": SEEG_TABLE,
+        "messyTable": SEEG_MESSY,
+        "groundTruth": "numpy over the tables and ct_shafts.nii.gz, read back with nibabel",
+        "conventions": {
+            "axis": "PCA first component, sign-canonicalised so the largest-|component| is positive",
+            "rmsMm": "sqrt(mean(|p - (c + t*axis)|^2))",
+            "spacingCv": "std(gaps)/mean(gaps), population std (ddof=0); null for fewer than 3 contacts",
+            "pitchMm": "median gap along the fitted line",
+            "refitWorld": "respace at the median gap, ascending along the line, then ordered tip-first",
+            "tip": "'low'/'high' end of the fitted line; contact 1 is the end NEARER tipReference",
+            "snappedWorld": "peakCentroid at radius 1.5 mm (see voxelBox for the box rule)",
+            "floats": "value, and the string Python's repr() writes for it",
+        },
+        "tipReference": fl(centre),
+        "snapRadiusMm": f(1.5),
+        "contacts": snapped,
+        "electrodes": electrodes,
+        "floats": [{"value": v, "repr": repr(v)} for v in SEEG_FLOAT_CASES],
     }
 
 
@@ -2422,6 +2637,7 @@ def main() -> int:
     }
     manifest["gifti"] = {p.name: inspect_gifti(p) for p in sorted(out.glob("*.gii"))}
     manifest["voxelBox"] = inspect_voxel_box(out)
+    manifest["seeg"] = inspect_seeg(out)
     manifest["freesurfer"] = inspect_fs(out)
 
     tmp = out / ".mesh-inspect.json"

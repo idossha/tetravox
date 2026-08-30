@@ -2673,6 +2673,28 @@ export class ShellController {
    * Blocks for modules this build does not have are kept **verbatim** so `serialiseScene` writes
    * them back out — opening and re-saving a colleague's scene must not delete their work.
    */
+  /**
+   * `host.scene.activePlane` — the plane the active 2-D pane is showing (§13.1, 2026-08-30).
+   *
+   * `null` for the 3-D pane and for no active pane at all. The point is the cursor, because §7.5's
+   * rule is that a slice pane shows the plane with the view's normal **through the crosshair**; the
+   * normal is re-normalised on the way out rather than trusted, since a hand-edited `*.tetravox.json`
+   * is where a non-unit one would come from.
+   */
+  activePlane(): { normal: vec3; point: vec3 } | null {
+    const id = this.store.getState().activeViewId;
+    if (id === null) return null;
+    const slice = this.engine.scene.slices.find((s) => s.id === id);
+    if (slice === undefined) return null;
+    const n = slice.normal;
+    const length = Math.hypot(n[0], n[1], n[2]);
+    if (!(length > 0)) return null;
+    return {
+      normal: [n[0] / length, n[1] / length, n[2] / length],
+      point: [...this.engine.scene.cursor] as vec3,
+    };
+  }
+
   private async restoreModuleBlocks(spec: ViewSpec): Promise<void> {
     const blocks = sceneExtensions(spec);
     if (Object.keys(blocks).length === 0) return;

@@ -249,6 +249,13 @@ carries per-point values (a parsed Gmsh view with data attached), the layer can 
 solid colour, with the same colormap choices as mesh field colouring, and a label-size control appears for
 sources that actually have labels to size.
 
+**A points layer a [module]({{ site.baseurl }}/guide/modules.html) owns is different**, and the layer panel says so: it shows a read-only
+summary where that editor would be, and the module's own panel is the only way to change it. Contacts read
+from an electrodes table belong to the [sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module — its editor is where they are
+placed, snapped, re-fitted, renumbered and saved, because the core editor here would rewrite the electrode
+colours and the radius it is not allowed to touch, and its edits would go around the module's own undo. What
+stays on the row is what belongs to the panel: visibility, opacity and the stacking order.
+
 <div class="shot-pair">
   <figure>
     <img src="screenshots/2026-08-29/features/feat-points-eeg-3d.png" alt="An EEG net as labelled points in 3D" loading="lazy">
@@ -316,6 +323,131 @@ it here: the block is carried through untouched.
 **Layers a module owns** are marked in the layer panel and show a read-only summary instead of the usual
 editor, so the module's own controls stay the only way to change them; closing such a layer's dataset
 closes the module's layers with it.
+
+
+## sEEG contacts
+
+The **sEEG contacts** module is a contact editor for stereo-EEG depth electrodes: open a registered CT
+and the BIDS `electrodes.tsv` that was localised on it, fix what the localiser got wrong, and write the
+table back — reversibly, with a backup and a provenance sidecar. It reproduces the 3D Slicer *SEEG
+Contact Editor* workflow (`seegprep`'s `slicer/SEEGContactEditor`) in Tetravox's own panes, and reads
+and writes the same files, so the two can be used on the same subject interchangeably.
+
+Open it from the toolbar's module switcher (`▾`, right of the panes), or just open one of the files.
+
+### Opening a subject
+
+Drop, or **Open…**, either of these and the module finds the other beside it:
+
+| File | Where |
+|---|---|
+| the registered CT | `derivatives/seegprep/sub-<id>/ct/sub-<id>_acq-bone_space-T1w_ct.nii.gz` |
+| the electrodes table | `derivatives/seegprep/sub-<id>/ieeg/sub-<id>_space-T1w_electrodes.tsv` |
+
+From the CT it also looks for the `_coordsystem.json`, an existing `_editlog.json`, and the subject's
+T1 at `derivatives/SimNIBS/sub-<id>/m2m_<id>/T1.nii.gz`. Nothing is searched for: the module knows those
+four names and asks whether each one exists.
+
+Opening the **table first** is fine — it is read and held until a volume arrives, and the panel says so.
+The CT has to be open for anything that needs image intensities (that is Snap), because a module reads
+the volume through the app rather than opening files itself.
+
+The reader is deliberately forgiving. It detects tab, comma, semicolon or whitespace; strips a UTF-8
+BOM; matches column names case-insensitively (`name`/`label`, `x`/`pos_x`/`x_mm`, or `R`/`A`/`S`);
+takes the electrode from `electrode`, `group`, `shaft` or `lead`, or infers it by stripping the trailing
+digits off the contact name (`LHIP8` → `LHIP`); and truncates a ragged row rather than refusing the file.
+A 3D Slicer `.fcsv` markups file works too, LPS coordinates and all. A missing required column is the one
+thing it refuses, and the message names the delimiter it detected and the columns it found.
+
+On load the CT is set the way the Slicer editor sets it — grey, fully opaque, and everything below
+**150 HU hidden**, so soft tissue drops away and bone and metal are what is left. Colormap, opacity and
+the intensity floor stay in the ordinary volume-layer editor on the left; the module sets them once and
+then leaves them to you. If a T1 is loaded above the CT in the layer list, raise the CT above it — the
+floor only reveals what is underneath.
+
+If an `_editlog.json` already sits beside the table, the panel shows a banner saying when it was
+hand-edited: somebody has been here before you.
+
+### Editing
+
+The contacts are one points layer named `Contacts · <table stem>`, one dot per contact, coloured by
+electrode, labelled with its name, with the shaft drawn as a line between consecutive contacts. Contacts
+that are not on the current slice are drawn as **ghosts** at 0.6 opacity so a shaft reads as a shaft
+while you scroll; `g` turns that off and on.
+
+| Do this | With |
+|---|---|
+| select a contact | click it in a pane, or click its row in the list |
+| move one | drag it in a 2D pane |
+| add contacts | **Add** (`a`) — then every click in a pane drops a new contact on the chosen electrode |
+| walk the electrode | `n` / `p`, or the list — the crosshair follows, so every pane slices through the contact |
+| snap to the metal | `s` for the selected contact, `⇧S` for the whole electrode, **Snap all…** for every one |
+| re-fit the shaft | `f` |
+| renumber from the tip | **Renumber tip-first** |
+| flip which end is the tip | `t` |
+| delete | `Delete` or `⌫` |
+| undo / redo | `z` / `⇧Z` |
+
+**Snap** moves a contact to the intensity-weighted peak of a small box around it — the metal it is
+inside — at the radius the panel's field sets (0.5–5 mm, 1.5 mm by default). A contact with nothing
+bright near it does not move and is not counted. *Snap all* asks first, because it touches every
+electrode at once; one snap of any scope is a single undo step.
+
+**Re-fit shaft** fits a line through the electrode's contacts, projects them onto it, re-spaces them
+evenly at the *median* observed gap — median, so one missing contact does not stretch the rest — and
+relabels them from the tip. It reports the line RMS and the spacing CV, which are the two numbers that
+say whether the shaft is straight and evenly spaced.
+
+**Numbering only ever changes when you ask.** Loading, placing, dragging, snapping and deleting all leave
+every contact's number and name exactly as they were — a clinical table's numbering is wired to the
+recording system through its `csc` column, and nothing should renumber it behind your back. Only
+*Re-fit* and *Renumber tip-first* relabel, and both say so on the button. New names keep the zero-padding
+the file used (`LINS01`, not `LINS1`).
+
+**Which end is the tip** is a heuristic, and the panel shows the answer: *contact 1 is the end of the
+shaft nearer the centre of the volume*, and the other end is the entry. That is right for nearly every
+depth electrode and wrong for some — a shaft entering near the midline can defeat it — so the tip
+contact is marked in the list and `t` flips it. A flip is remembered per electrode and saved with the
+scene.
+
+### Saving
+
+**Save** writes the table back over the file it came from; **Save as…** picks a new one. Either way three
+things happen, in this order:
+
+1. the previous table is copied to `<name>.<YYYYMMDD-HHMMSS>.bak`;
+2. the table is written — tab-separated, LF, **your original columns in their original order**, with
+   `electrode`, `contact` and `status` appended if they were not already there. `status` is `kept`,
+   `edited` (moved by more than 0.001 mm) or `added`; a row that has not moved keeps whatever status the
+   localiser gave it, so `located` and `gapfilled` survive;
+3. `<stem>_editlog.json` is written beside it, recording what changed — counts, and one entry per
+   contact added, moved or deleted, with where it was and where it is now.
+
+That editlog name matters: `seegprep` looks for `*_electrodes_editlog.json` in the subject's `ieeg/`
+directory and **refuses to re-run over a hand-edited subject unless you pass `--force`**. If you save
+under a name whose stem does not end in `_electrodes`, or outside an `ieeg/` directory, the module warns
+you that the guard will not see it.
+
+**Revert to loaded positions** puts every contact back where the file had it and forgets the additions,
+which is the in-session undo of everything; the `.bak` is the on-disk one.
+
+⌘S saves the **scene**, not the table. When contacts are unsaved the module says so, the window title
+carries a `•`, and closing the window, starting a new scene, opening another one or closing the CT all
+ask first.
+
+### Scenes, and a build without the module
+
+The contacts are ordinary scene layers, so a `*.tetravox.json` written here opens anywhere — including
+in a build that has no sEEG module, which still draws every contact with its name, its electrode and its
+number. What that build cannot carry is the module's own record: which table the contacts came from,
+where that table put each one, and its other columns. Re-open such a scene here and the module rebuilds
+the electrodes from the layer, tells you the provenance is gone, and turns Save into Save as… rather than
+writing a table in which everything looks new.
+
+### From a job file
+
+Every button is also a job-file operation, so a batch can do what the panel does — `load`, `snap`,
+`refit`, `renumber`, `ghost`, `stats` and `save`. See [Automation]({{ site.baseurl }}/AUTOMATION.html).
 
 
 ## Coordinates
@@ -463,7 +595,20 @@ takes the next three clicks in any 2D pane. A camera preset puts the pane back o
 **Module keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
 lent to whichever [module](#modules) is open and mean nothing when none is. They are resolved **after**
 everything above, so no module can change what any key on this page does, and `Esc` is never one of them.
-The `?` sheet grows a **Modules** tab listing the active module's own chords.
+The `?` sheet grows a **Modules** tab listing the active module's own chords. The
+[sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module binds these:
+
+| Key | Action |
+|---|---|
+| `a` | Add contacts (place mode) |
+| `s` | Snap the selected contact to the metal |
+| `⇧S` | Snap the whole electrode |
+| `n` / `p` | Next / previous contact |
+| `f` | Re-fit the shaft |
+| `t` | Flip which end is the tip |
+| `g` | Contacts visible through slices |
+| `Delete` / `⌫` | Delete the selected contact |
+| `z` / `⇧Z` | Undo / redo |
 
 `⌘O` / `Ctrl+O` (Open…) is bound in the Electron application menu, not in this map, so it is never double-bound.
 
