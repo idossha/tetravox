@@ -11,8 +11,8 @@ A viewer for **voxel volumes** (NIfTI — MRI, CT, label maps) and **finite-elem
 `.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ), with a 3D view and sagittal / axial / coronal slices that all follow
 one crosshair. Head models and neuroimaging are what it was built for first, but every control in this guide
 works the same on a chest CT or a lumbar MRI — where that matters, it is said in place. This guide is split
-by topic; for install and dev-build instructions see the website's
-[Get started](https://tetravox.dev/get-started) page or this repo's `README.md`.
+by topic; for installing the app see the website's
+[Install](https://idossha.github.io/tetravox/install) and [Get started](https://idossha.github.io/tetravox/get-started) pages.
 
 ![The 2x2 layout: three linked slices of a T1 and the 3D pane](screenshots/2026-08-29/brain/brain-t1-2x2.png)
 
@@ -388,8 +388,10 @@ takes the next three clicks in any 2D pane. A camera preset puts the pane back o
 * **A large mesh is slow to load or the app feels sluggish** — a head mesh can be well over 100 MB; loading
   and re-loading it (for example via "reopen last scene on launch") costs real time and memory. Keep that
   setting off unless you want it, and prefer opening one heavy dataset at a time when memory is tight.
-* **macOS refuses to open the app ("Tetravox is damaged and can't be opened")** — the app isn't signed or
-  notarised; this is Gatekeeper's message for any unsigned app from the internet, not a corrupted download.
+* **macOS refuses to open the app ("Tetravox is damaged and can't be opened")** — the official releases are
+  signed and notarised and open directly; this is Gatekeeper's message for an **unsigned local build**
+  (`pnpm package` without a certificate), not a corrupted download. `xattr -dr com.apple.quarantine
+  /Applications/Tetravox.app` clears it once.
   Clear the quarantine attribute: `xattr -dr com.apple.quarantine /Applications/Tetravox.app`.
 * **A scene won't fully load — "Locate" dialog appears** — Tetravox couldn't find one or more files at any
   of the three places it checks (path relative to the scene, the absolute path it had when saved, or the

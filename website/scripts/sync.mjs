@@ -178,6 +178,7 @@ const DOC_PAGES = [
   { src: 'TESTING.md', out: 'developers/testing.md', title: 'Testing' },
   { src: 'BENCHMARKS.md', out: 'developers/benchmarks.md', title: 'Benchmarks' },
   { src: 'ROADMAP.md', out: 'developers/roadmap.md', title: 'Roadmap' },
+  { src: 'RELEASING.md', out: 'developers/releasing.md', title: 'Releasing' },
 ];
 
 for (const page of DOC_PAGES) {

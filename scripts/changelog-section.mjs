@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Print CHANGELOG.md's section for one version, plus the unsigned-build note, as GitHub Release body
+ * Print CHANGELOG.md's section for one version, plus the install note, as GitHub Release body
  * text. `.github/workflows/release.yml` pipes this into `GITHUB_OUTPUT`; `generate_release_notes`
  * then appends the commit/PR summary underneath, so the notes are a human paragraph followed by a
  * machine one rather than only the machine one.
@@ -36,14 +36,14 @@ if (start === -1) {
 }
 
 const unsigned = [
-  '### Unsigned builds',
+  '### Installing',
   '',
-  'Every artefact here is unsigned (ARCHITECTURE.md §12.2). Signing and notarisation are a documented',
-  'switch, not a plan; auto-update stays out of scope while unsigned.',
+  'Full steps: https://idossha.github.io/tetravox/install',
   '',
-  '- **macOS** — Gatekeeper refuses the first launch. `xattr -dr com.apple.quarantine /Applications/Tetravox.app`',
-  '- **Windows** — SmartScreen warns. More info → Run anyway.',
-  '- **Linux** — the AppImage needs `--no-sandbox`, or a root-owned setuid `chrome-sandbox`.',
+  '- **macOS** — the `.dmg` is signed with a Developer ID and notarised; drag to Applications and open.',
+  '  (A build from a fork without a certificate is unsigned: `xattr -dr com.apple.quarantine /Applications/Tetravox.app`.)',
+  '- **Linux** — `chmod +x` the AppImage and run it, or `apt install ./Tetravox-*-linux-amd64.deb`.',
+  '- **Windows** — the installer is unsigned; SmartScreen warns. More info → Run anyway.',
 ].join('\n');
 
 process.stdout.write(`${body ? `${body}\n\n---\n\n` : ''}${unsigned}\n`);

@@ -4,41 +4,8 @@ title: Get started
 
 # Get started
 
-## Packaged app
-
-Download the artefact for your platform from the [releases page](https://github.com/idossha/tetravox/releases),
-or build one yourself with `pnpm package` (produces a `.dmg` on macOS, `.AppImage`/`.deb` on Linux — this
-platform's artefacts only).
-
-**macOS — the app is unsigned.** Gatekeeper will refuse to open it ("Tetravox is damaged and can't be
-opened"). Clear the quarantine attribute once:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Tetravox.app
-```
-
-See the [home page](/) for why. On Linux the AppImage needs a correctly-owned `chrome-sandbox`, or run it
-with `--no-sandbox`; if the status bar reports a software renderer the GPU was blocklisted — Tetravox still
-runs, just slowly, and says so rather than pretending otherwise.
-
-## Dev build
-
-```sh
-pnpm install
-pnpm exec electron --version   # warms the ~100 MB binary on a cold machine
-pnpm dev                       # the app, against the dev server
-```
-
-```sh
-pnpm build      # wasm + every package
-pnpm package    # this platform's artefacts only
-pnpm test       # cargo test --workspace + vitest
-pnpm e2e        # Playwright, in Chromium and in Electron
-pnpm typecheck · pnpm lint
-```
-
-`pnpm wasm` builds `crates/tvx-wasm` → `packages/wasm/pkg` and is a prerequisite of `build` / `test` /
-`typecheck`.
+Install the app first — the [Install](/install) page has the official macOS, Linux and Windows builds
+and the two-line setup for each. This page is what you see once it opens.
 
 ## A first look
 
@@ -68,5 +35,5 @@ on the command line.
 - **[Showcase](/showcase)** — the film, and the same viewer across CT and MRI of the head, chest, abdomen
   and spine.
 - **[Automation & Python](/automation)** — driving the same engine headlessly from a script.
-- **[Architecture](/developers/architecture)** — the full technical contract, if you're building or
-  contributing.
+- **[Developers](/developers/building)** — building from source, the architecture and how releases are
+  cut, if you're contributing.

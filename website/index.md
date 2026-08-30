@@ -102,17 +102,12 @@ windows.
 
 ## Getting started
 
-Download the artefact for your platform from the
-[releases page](https://github.com/idossha/tetravox/releases) — a `.dmg` on macOS, an `.AppImage` or `.deb`
-on Linux. macOS needs the quarantine attribute cleared once, because the app is unsigned:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Tetravox.app
-```
+Download the official build for your platform from the
+[releases page](https://github.com/idossha/tetravox/releases/latest) — a signed, notarised `.dmg` for
+macOS (Apple silicon and Intel), an `.AppImage`, `.deb` or `.tar.gz` for Linux, and an installer for
+Windows. The [Install](/install) page has the steps for each.
 
 Then drag files onto the window, press **⌘O / Ctrl+O**, or name them on the command line
 (`Tetravox T1.nii.gz ernie.msh`). Opening data **adds** it to what's already on screen; opening a saved
-scene (`*.tetravox.json`) **replaces** the scene.
-
-Install details, the Linux `chrome-sandbox` note and the dev build are on the [Get started](/get-started)
-page; the interface, the keyboard map and every control are in the [Guide](/guide/opening-data).
+scene (`*.tetravox.json`) **replaces** the scene. The [Get started](/get-started) page walks through the
+window; the interface, the keyboard map and every control are in the [Guide](/guide/opening-data).
