@@ -282,6 +282,29 @@ test('index.d.ts declares exactly the shim run-time exports, and re-exports type
   ok(/^export type \* from '\.\/types\/contacts\/index';$/m.test(dts));
 });
 
+// -- the contract the renderer has to satisfy ------------------------------------------------------
+
+test('the shim reads one global, and its name is pinned here as well as in the renderer', () => {
+  const shim = readFileSync(join(REPO_ROOT, 'scripts/module-sdk/sdk-runtime.ts'), 'utf8');
+  // The renderer assigns this exact key before any module is activated. It is asserted here because
+  // the two halves live in different waves and in different processes' code, and a typo in either
+  // one is a module that throws "not running inside a Tetravox module host" at load with nothing
+  // else to go on.
+  ok(shim.includes('globalThis.__tetravoxModuleSdk'));
+  strictEqual((shim.match(/globalThis\.__tetravox\w*/g) ?? []).length > 0, true);
+  for (const key of [...shim.matchAll(/globalThis\.(__\w+)/g)].map((m) => m[1])) {
+    strictEqual(key, '__tetravoxModuleSdk', 'the shim reads exactly one global');
+  }
+});
+
+test('TetravoxModuleSdk is the five members the renderer must provide, and no more', () => {
+  const shim = readFileSync(join(REPO_ROOT, 'scripts/module-sdk/sdk-runtime.ts'), 'utf8');
+  const body = /export interface TetravoxModuleSdk \{([\s\S]*?)\n\}/.exec(shim);
+  ok(body !== null, 'the interface is declared');
+  const members = [...body[1].matchAll(/^ {2}(\w+)[?:]/gm)].map((m) => m[1]).sort();
+  deepStrictEqual(members, ['ModuleHostError', 'contacts', 'hostVersion', 'react', 'stemOf']);
+});
+
 test('the contacts barrel re-exports every module of the kit, in order', () => {
   const text = contactsBarrel(['model', 'tsv']);
   ok(text.includes("export * from './model';"));
