@@ -25,8 +25,9 @@ const MANIFEST = join(SHOTS_DIR, 'manifest.json');
 const INTRO = join(WEBSITE, 'gallery-intro.md');
 const SRC_OUT = join(WEBSITE, 'src');
 
-// Order is the reading order of the page: what it looks like, what it opens,
-// the head model, what it opens, what it does, what it does in motion, and finally the app's own chrome.
+// Order is the reading order of the page: the pictures that lead everything, the head model the
+// viewer was built around, the same viewer on every other body region, then what it does, what it
+// does in motion, and finally the app's own chrome.
 const GROUPS = [
   {
     id: 'hero',
@@ -43,7 +44,7 @@ const GROUPS = [
     id: 'modalities',
     heading: 'Modalities',
     blurb:
-      'The same viewer across MRI, CT and segmentations of the head, chest, abdomen, spine and pelvis — each dataset as an overview and a zoomed detail.',
+      "Nothing in the viewer is head-specific. The same build, controls and job runner across MRI, CT and segmentations of the head, chest, abdomen, spine and pelvis — each dataset as the plain contrast and then with the segmentation that came with it.",
   },
   {
     id: 'features',
@@ -111,7 +112,9 @@ function card(entry) {
 const sections = GROUPS.map((group) => {
   const items = entries.filter((e) => e.group === group.id);
   if (items.length === 0) return '';
-  return `## ${group.heading}
+  // H3: every group sits under the page's "## The plates" heading, so the outline reads
+  // film / plates / group rather than a flat list of siblings.
+  return `### ${group.heading}
 
 ${group.blurb}
 
@@ -136,11 +139,12 @@ title: Gallery
 
 # Gallery
 
-${entries.length} plates captured from the datasets listed in
-[\`docs/screenshots/2026-08-29/DATASETS.md\`](https://github.com/idossha/tetravox/blob/main/docs/screenshots/2026-08-29/DATASETS.md)
-— brain MRI and head models, head/chest/abdomen CT, abdominal and spinal MRI, and the segmentations that
-go with them. Every plate is rendered offscreen by the same engine the window uses, from a job document in
-[\`docs/screenshots/2026-08-29/jobs/\`](https://github.com/idossha/tetravox/tree/main/docs/screenshots/2026-08-29/jobs).
+A film of the viewer in use, then ${entries.length} plates of what it renders — brain MRI and head models,
+head/chest/abdomen CT, abdominal and spinal MRI, and the segmentations that go with them. Every frame and
+every plate is rendered offscreen by the same engine the window uses, from a job document in
+[\`docs/screenshots/2026-08-29/jobs/\`](https://github.com/idossha/tetravox/tree/main/docs/screenshots/2026-08-29/jobs);
+the datasets and their licences are listed in
+[\`docs/screenshots/2026-08-29/DATASETS.md\`](https://github.com/idossha/tetravox/blob/main/docs/screenshots/2026-08-29/DATASETS.md).
 
 ${intro}
 
