@@ -289,8 +289,8 @@ a jump-to and a delete, and saved with the scene.
 An **extension** is a first-party tool that Tetravox does not ship with: bigger than a toolbar
 toggle and smaller than a second application — an editor for one kind of data, with its own panel,
 its own keys and its own file formats — downloaded, checked, and turned on by hand. Nothing is built
-in: every extension arrives the same way, through **File ▸ Extensions…**. One extension is active at
-a time.
+in: every extension arrives the same way, through **File ▸ Extensions…**. One extension at a time sits
+in the panel; any number can be open at once in **their own windows** (below).
 
 **The switcher** is the `▾` button in the toolbar's right cluster, beside `?` and `⚙`. It lists every
 extension this machine carries; picking one opens its panel, picking it again closes it. The panel
@@ -299,8 +299,18 @@ read-out stays visible while you work — that is the feedback most extension ac
 The slot never takes more than a bit over half the column and scrolls inside itself; with no
 extension active it is not there at all.
 
+**Its own window.** The `⧉` in the slot's header — and the `⧉` beside any row in the switcher — opens
+that extension in a window of its own, which you can move to a second monitor and make as large as
+the work needs. Nothing is unloaded by the move: the same editor, the same undo history, the same
+unsaved edits, and closing the window brings it straight back to the panel. It is what makes several
+extensions usable at once — one in the panel, the rest in windows — and what gives an extension with
+a lot to show more than a 320 px column. A window's keys belong to the extension in it, and the
+panel's keys to the extension in the panel, so two open extensions never fight over a key. Opening a
+second extension into the panel moves the first one to a window rather than closing it. (An
+extension whose panel only makes sense beside the crosshair read-out can decline the button.)
+
 Below about 1000 px the sidebars normally collapse into overlays that close on the next click in a
-pane. While an extension is active the right sidebar stays **in flow** instead, because an extension
+pane. While an extension is in the panel the right sidebar stays **in flow** instead, because an extension
 asks you to click in the panes and an editor that closed itself on the first click would be unusable.
 
 **Keys.** An extension may bind `a s d f g n p t z Delete Backspace`, on their own or with Shift, and
