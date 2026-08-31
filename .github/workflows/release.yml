@@ -83,6 +83,81 @@ jobs:
           prerelease: false
 
   # ------------------------------------------------------------------------------------------------
+  # 1b. `@tetravox/module-sdk` — the tarball a module repository pins by URL (§13.8).
+  #
+  # Its own job, and a cheap one: `node scripts/emit-module-sdk.mjs` needs an install and nothing
+  # else — no Rust, no wasm, no electron — because the SDK is declarations plus a forty-line shim.
+  # Emitting it beside the platform legs rather than inside one of them means the tarball is
+  # attached even when a platform leg is still running, and that a module author's dependency does
+  # not depend on which runner was slow.
+  #
+  # There is NO npm publishing here, deliberately: an SDK belongs to exactly one core release, and a
+  # release URL says which. `verify` below requires the asset, so a Release cannot be published
+  # without it.
+  # ------------------------------------------------------------------------------------------------
+  sdk:
+    name: Module SDK
+    needs: create-release
+    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      asset: ${{ steps.emit.outputs.asset }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Resolve the pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-ubuntu-24.04-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-ubuntu-24.04-
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      # The script is three gates — every staged import resolves inside the SDK, the shim has no
+      # imports at all, and the emitted package typechecks against a probe that imports it the way a
+      # module does — so a failure here is a failure to produce a *usable* SDK, not just a missing
+      # file.
+      - name: Emit the SDK
+        id: emit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/emit-module-sdk.mjs
+          asset="$(basename "$(ls dist/module-sdk/*.tgz)")"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "emitted $asset"
+
+      - name: Upload the workflow artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tetravox-module-sdk
+          path: dist/module-sdk/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach to the Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: dist/module-sdk/*.tgz
+          fail_on_unmatched_files: true
+
+  # ------------------------------------------------------------------------------------------------
   # 2. One job per OS/arch: build, smoke-test, upload a workflow artefact, attach to the Release.
   # ------------------------------------------------------------------------------------------------
   build:
@@ -210,6 +285,16 @@ jobs:
 
       - name: pnpm install
         run: pnpm install --frozen-lockfile
+
+      # §13.8: the modules `modules.lock` bundles, downloaded from their own repositories' releases
+      # and sha256-verified into `packages/app/resources/modules/` — which `electron-builder.yml`
+      # already ships as `extraResources`, so no packaging configuration changes. A hash that does
+      # not match fails the leg here, before anything is built: an unverified module must never
+      # reach a packaged app. The layout is defined in the script's header, and it is a no-op while
+      # the lock is empty.
+      - name: Bundle the locked modules
+        shell: bash
+        run: node scripts/fetch-locked-modules.mjs
 
       # The Linux smoke test launches the packaged binary, so this leg needs the same runtime
       # libraries and display the `test` job provides. `libasound2t64` is the 24.04 name — the
@@ -389,7 +474,7 @@ jobs:
   # ------------------------------------------------------------------------------------------------
   verify:
     name: Verify the Release assets
-    needs: [create-release, build]
+    needs: [create-release, sdk, build]
     if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.create-release.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
@@ -400,6 +485,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.create-release.outputs.version }}
           TAG: ${{ github.ref_name }}
+          SDK_ASSET: ${{ needs.sdk.outputs.asset }}
         shell: bash
         run: |
           set -euo pipefail
@@ -419,10 +505,21 @@ jobs:
             "Tetravox-$VERSION-linux-amd64.deb"
             "Tetravox-$VERSION-linux-x64.tar.gz"
           )
+          # The module SDK is required too: a release that ships a module host and no SDK is one
+          # nobody can build a module against. Its name carries the host API and the core version
+          # (`scripts/emit-module-sdk.mjs`), so it is taken from the job that emitted it rather than
+          # spelled a second time here — a leg that did not run leaves it empty, which is reported
+          # as the missing asset it is.
+          if [ -n "${SDK_ASSET:-}" ]; then
+            required+=("$SDK_ASSET")
+          else
+            echo "MISSING  the module SDK tarball (the sdk job produced no asset name)" >&2
+            missing_sdk=1
+          fi
           # OPTIONAL — Windows is a bonus leg. Absence is reported, not fatal.
           optional=("Tetravox-$VERSION-win-x64.exe")
 
-          missing=0
+          missing="${missing_sdk:-0}"
           for asset in "${required[@]}"; do
             if grep -qxF "$asset" /tmp/attached.txt; then
               echo "ok       $asset"

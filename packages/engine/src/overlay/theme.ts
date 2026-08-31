@@ -44,6 +44,20 @@ export interface OverlayTheme {
    */
   measure: vec4;
   /**
+   * §7.2's point-selection and point-hover rings (§13's point editing, 2026-08-30).
+   *
+   * A ring is drawn around the point a tool has selected and, thinner, around the one the pointer is
+   * over. Both take this one colour: they never appear at once on the same point, and two tokens for
+   * one affordance would be a theme decision an embedder has to make twice.
+   *
+   * Violet, and chosen the way the gizmo's cyan and the measurement's magenta were: a ring sits
+   * *on* a coloured disc, inside a pane that may also hold the amber crosshair and the blue active
+   * border, so §11 has to be able to name it without a tolerance that also matches one of those. It
+   * is far from all three in at least one channel by a wide margin, and — this is the part a green
+   * would fail — it is not `gizmoHot`.
+   */
+  select: vec4;
+  /**
    * The pane clear colour, forwarded to `Scene.background`.
    *
    * Imaging convention keeps this dark in **both** of the app's themes; it is a theme field rather
@@ -70,6 +84,10 @@ export const DEFAULT_OVERLAY_THEME: OverlayTheme = {
   // Magenta: far from the crosshair's amber, the gizmo's cyan and the active border's blue in every
   // channel, so `expectPixel` can name it without a tolerance that would also match its neighbours.
   measure: [1, 0.45, 0.85, 1],
+  // Violet: the amber crosshair and the blue active border are both far from it in G, the cyan
+  // gizmo in G, the magenta measurement in R. Appended 2026-08-30; nothing draws it by default, so
+  // §11's goldens are unmoved.
+  select: [0.55, 0.35, 1, 1],
   background: [0.04, 0.05, 0.07, 1],
 };
 
@@ -90,6 +108,7 @@ export function resolveOverlayTheme(
     gizmo: pick('gizmo'),
     gizmoHot: pick('gizmoHot'),
     measure: pick('measure'),
+    select: pick('select'),
     background: pick('background'),
   };
 }

@@ -218,6 +218,19 @@ jobs:
       - name: pnpm lint
         run: pnpm lint
 
+      # §13.8: `@tetravox/module-sdk` is generated from `host.ts`, the manifest contract and the
+      # engine's frozen type files, so a change to any of them that would break a module's typecheck
+      # is red HERE, in the run that made it — not in a module repository a week later. This is the
+      # emission in full, gates and all (`--no-tarball`: the release workflow is what packs one).
+      - name: Emit the module SDK
+        run: node scripts/emit-module-sdk.mjs --no-tarball
+
+      # The bundling step without the download: the lock is valid, and anything already in
+      # `packages/app/resources/modules/` still hashes to what the lock says. A lock/hash drift is
+      # then a red pull request without pulling a module in every leg.
+      - name: modules.lock agrees with the tree
+        run: node scripts/fetch-locked-modules.mjs --verify-only
+
       - name: pnpm test
         run: pnpm test
 
@@ -238,6 +251,14 @@ jobs:
         env:
           TETRAVOX_ALLOW_SOFTWARE_ANGLE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: pnpm e2e
+
+      # §13.8's loader guard, and the only place it can run: the extension loader's *variable* dynamic
+      # import is rewritten by Vite into an EMPTY glob helper if the `@vite-ignore` comment is ever lost
+      # — silently, with no build warning and no failing unit test — so the claim is checked against the
+      # emitted chunk. It sits after `pnpm e2e` because the app's `e2e` script is `electron-vite build &&
+      # playwright test`, so `out/renderer/assets/` is fresh here and no second build is needed.
+      - name: The extension loader survived the build
+        run: node scripts/check-module-loader.mjs
 
       # Both suites `pnpm e2e` runs, not just the engine's: the app's dev-leg report was uploaded on
       # no runner at all (the `packaged` step below collects packages/app, but only on macOS), so an
@@ -293,6 +314,97 @@ jobs:
             packages/app/test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  # The §12.1 docs guard (ARCHITECTURE.md §12.1, §12.3, §13.7). Its **own** job, and not a step of
+  # `test`, for two reasons: it needs `fetch-depth: 0` (actions/checkout@v5 defaults to depth 1 and a
+  # merge-base diff cannot be computed from one commit), and it must report on a pull request even
+  # when the test leg is still running — "you changed a frozen interface and not its documentation"
+  # is the kind of thing a reviewer should read before the tests finish, not after.
+  #
+  # It costs ~20 seconds: node, a diff and two file reads. No pnpm install, no toolchains.
+  docs-guard:
+    name: docs-guard
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The whole history: `git merge-base` is the point of this job.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # A guard nobody has seen fail is a guard nobody trusts, so its own fixtures run first — a
+      # frozen path with no docs, with half the docs, a manifest naming a heading nobody wrote.
+      - name: Self-test the guard
+        run: node --test scripts/check-frozen-docs.test.mjs
+
+      # `github.event.pull_request.base.sha` on a PR; `github.event.before` on a push. Neither exists
+      # for a `workflow_dispatch`, and the script then says so and checks only the rule that needs no
+      # diff, rather than failing because it could not do half its job.
+      - name: Frozen interfaces and module docs headings
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: node scripts/check-frozen-docs.mjs --base "$BASE"
+
+      # The generated half of the same rule (§13.6): `docs/AUTOMATION.md` §2.7 is written from the
+      # module manifests, so a table that drifts from the manifest the job validator reads would tell
+      # a user a job is legal that the validator refuses. Same class of failure as the two above, and
+      # the same 20-second runner: node, a diff and two file reads.
+      - name: Self-test the module-docs generator
+        run: node --test scripts/sync-module-docs.test.mjs
+
+      - name: AUTOMATION.md §2.7 matches the manifests
+        run: node scripts/sync-module-docs.mjs --check
+
+      # §13.8's node-only guards, here rather than in `test` for this job's own reason: neither needs
+      # an install or a toolchain, and "your lock entry is malformed" / "the SDK's engine subset no
+      # longer closes" are things a reviewer should read before the tests finish. The *full* SDK
+      # emission needs `tsc` and runs in `test`; what runs here are its rules.
+      - name: Self-test the modules.lock validator
+        run: node --test scripts/check-modules-lock.test.mjs
+
+      - name: modules.lock is valid
+        run: node scripts/check-modules-lock.mjs
+
+      - name: Self-test the module SDK emitter
+        run: node --test scripts/emit-module-sdk.test.mjs
+
+      # §13.8's loader guard, self-tested here and *run* in `test` (it needs a build). Its fixtures are
+      # the three ways the loader can stop working, driven red — one of which is silent in every other
+      # test the repository has.
+      - name: Self-test the extension loader guard
+        run: node --test scripts/check-module-loader.test.mjs
+
+  # The Python client's document tests (`docs/AUTOMATION.md` §3) — **the first Python step in this
+  # workflow**, and its own job for the docs guard's reasons rather than a step of `test`: it needs
+  # no pnpm install, no toolchain and no build, it is ~20 seconds, and putting it in `test` would run
+  # it a second time on the macOS leg at 10x the minutes for identical coverage.
+  #
+  # The client is standard library only (that is a design decision, not an omission — see
+  # `python/pyproject.toml`), so this installs nothing at all. `test_client.py`'s end-to-end half and
+  # `test_capture_examples.py` skip when there is no build and no data, which is the same
+  # skip-never-fail rule every real-data test in the repository follows: CI checks the documents a
+  # `Job` builds, which is the half that is the contract with `main/job.ts`.
+  python:
+    name: python
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Client document tests
+        run: python -m unittest discover -s python/tests --verbose
 
   # The §12.1 `package` matrix, now real (ROADMAP Phase 3). Each leg builds one slice with
   # electron-builder, runs the artefact smoke test §12.1 requires, and uploads the result as a
@@ -412,6 +524,14 @@ jobs:
 
       - name: pnpm install
         run: pnpm install --frozen-lockfile
+
+      # §13.8, and the same step release.yml runs: the modules `modules.lock` bundles, downloaded
+      # and sha256-verified into `packages/app/resources/modules/` before electron-builder ships
+      # them as `extraResources`. It is here as well as in release.yml so a push to `main` produces
+      # the artefact a release would, rather than one missing its bundled modules.
+      - name: Bundle the locked modules
+        shell: bash
+        run: node scripts/fetch-locked-modules.mjs
 
       # The smoke test launches the packaged binary, so this leg needs the same runtime libraries and
       # display the `test` leg does. `libasound2t64` is the 24.04 name (§12.2 / the t64 rename).

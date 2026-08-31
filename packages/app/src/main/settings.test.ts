@@ -38,7 +38,29 @@ import {
   rcPath,
   readSettings,
   writeSettings,
+  writeSettingsFromRenderer,
 } from './settings';
+
+/**
+ * A temp `TETRAVOX_HOME` **and** `userData`, so `tetravoxrc` and `settings.json` both land somewhere
+ * this file owns. Module-scope since 2026-08-30: the extensions block below needs the same seam.
+ */
+function withTempHome<T>(fn: (dir: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), 'tvx-settings-'));
+  const prevHome = process.env['TETRAVOX_HOME'];
+  const prevUserData = process.env['TETRAVOX_TEST_USERDATA'];
+  process.env['TETRAVOX_HOME'] = dir;
+  process.env['TETRAVOX_TEST_USERDATA'] = dir;
+  try {
+    return fn(dir);
+  } finally {
+    if (prevHome === undefined) delete process.env['TETRAVOX_HOME'];
+    else process.env['TETRAVOX_HOME'] = prevHome;
+    if (prevUserData === undefined) delete process.env['TETRAVOX_TEST_USERDATA'];
+    else process.env['TETRAVOX_TEST_USERDATA'] = prevUserData;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 describe('coerceSettings', () => {
   it('fills every field, because a file is a whole settings object', () => {
@@ -48,6 +70,7 @@ describe('coerceSettings', () => {
       recentScenes: [],
       reopenLastScene: false,
       screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
+      extensions: {},
     });
   });
 
@@ -90,6 +113,7 @@ describe('coercePatch', () => {
       recentScenes: [],
       reopenLastScene: false,
       screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
+      extensions: {},
     });
     // …and what it would have been with `coerceSettings` on the patch: the theme, silently lost.
     expect(coerceSettings({ ...onDisk, ...coerceSettings(patch) }).theme).toBe('system');
@@ -190,23 +214,6 @@ describe('screenshotDefaults coercion', () => {
  * mocked at the top of this file.
  */
 describe('tetravoxrc precedence', () => {
-  function withTempHome<T>(fn: (dir: string) => T): T {
-    const dir = mkdtempSync(join(tmpdir(), 'tvx-settings-'));
-    const prevHome = process.env['TETRAVOX_HOME'];
-    const prevUserData = process.env['TETRAVOX_TEST_USERDATA'];
-    process.env['TETRAVOX_HOME'] = dir;
-    process.env['TETRAVOX_TEST_USERDATA'] = dir;
-    try {
-      return fn(dir);
-    } finally {
-      if (prevHome === undefined) delete process.env['TETRAVOX_HOME'];
-      else process.env['TETRAVOX_HOME'] = prevHome;
-      if (prevUserData === undefined) delete process.env['TETRAVOX_TEST_USERDATA'];
-      else process.env['TETRAVOX_TEST_USERDATA'] = prevUserData;
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }
-
   it('degrades to the hardcoded defaults when neither file exists', () => {
     withTempHome(() => {
       expect(readSettings()).toEqual(DEFAULT_SETTINGS);
@@ -257,6 +264,106 @@ describe('tetravoxrc precedence', () => {
       const settings = readSettings();
       expect(settings.theme).toBe('dark');
       expect(settings.freesurferSubjectsDir).toBe('/opt/fs/subjects');
+    });
+  });
+});
+
+/**
+ * `extensions` — the consent record (§13, downloadable extensions, 2026-08-30).
+ *
+ * The one key here whose coercion is a **security** property rather than a preference. Every other
+ * field degrades to a default when it is corrupt; this one degrades to *absent*, because a filled-in
+ * default would be a capability nobody confirmed. The tests below are all one assertion in different
+ * clothes: a record that is not exactly what `enableModule` wrote is a module that is not enabled.
+ */
+describe('the extensions consent record', () => {
+  const good = {
+    version: '1.0.0',
+    hostApi: 1,
+    grantedAt: '2026-08-30T12:00:00.000Z',
+    permissions: ['Read .tsv files you choose'],
+  };
+
+  it('is empty by default, so a fresh profile consents to nothing', () => {
+    expect(DEFAULT_SETTINGS.extensions).toEqual({});
+    expect(coerceSettings({}).extensions).toEqual({});
+  });
+
+  it('round-trips a well-formed grant', () => {
+    expect(coercePatch({ extensions: { 'tetravox.seeg': good } })).toEqual({
+      extensions: { 'tetravox.seeg': good },
+    });
+  });
+
+  it.each([
+    ['no version', { ...good, version: undefined }],
+    ['an empty version', { ...good, version: '' }],
+    ['a non-integer hostApi', { ...good, hostApi: 1.5 }],
+    ['a string hostApi', { ...good, hostApi: '1' }],
+    ['no grantedAt', { ...good, grantedAt: undefined }],
+    ['permissions that are not a list', { ...good, permissions: 'everything' }],
+    ['a whole entry that is not an object', 'yes'],
+    ['a null entry', null],
+  ])('drops an entry with %s rather than repairing it', (_name, entry) => {
+    const patch = coercePatch({ extensions: { 'tetravox.seeg': entry } });
+    expect(patch.extensions).toEqual({});
+  });
+
+  it('drops an id that is not `<vendor>.<name>`, so a key cannot be a path or a wildcard', () => {
+    const patch = coercePatch({
+      extensions: { '../../etc': good, '*': good, Tetravox: good, 'tetravox.ok': good },
+    });
+    expect(Object.keys(patch.extensions ?? {})).toEqual(['tetravox.ok']);
+  });
+
+  it('drops a non-string permission and caps the list, because it is a label, not a payload', () => {
+    const patch = coercePatch({
+      extensions: {
+        'tetravox.seeg': { ...good, permissions: ['read', 7, null, ...Array(64).fill('write')] },
+      },
+    });
+    const permissions = patch.extensions?.['tetravox.seeg']?.permissions ?? [];
+    expect(permissions.length).toBe(32);
+    expect(permissions[0]).toBe('read');
+    expect(permissions.every((p) => typeof p === 'string')).toBe(true);
+  });
+
+  it('is absent from a patch that does not mention it, so a theme write cannot revoke a consent', () => {
+    // The `coercePatch` rule, stated where it bites hardest: `writeSettings({ theme: 'dark' })`
+    // must not be able to disable every installed module as a side effect.
+    expect(coercePatch({ theme: 'dark' })).toEqual({ theme: 'dark' });
+    expect('extensions' in coercePatch({ theme: 'dark' })).toBe(false);
+  });
+
+  it('survives a round trip through the real settings file', () => {
+    withTempHome(() => {
+      writeSettings({ extensions: { 'tetravox.seeg': good } });
+      writeSettings({ theme: 'dark' });
+      const settings = readSettings();
+      expect(settings.theme).toBe('dark');
+      expect(settings.extensions['tetravox.seeg']).toEqual(good);
+    });
+  });
+
+  it('cannot be authored from the renderer settings channel — `writeSettingsFromRenderer` strips it', () => {
+    withTempHome(() => {
+      const forged = {
+        'acme.tool': {
+          version: '9.9.9',
+          hostApi: 1,
+          grantedAt: '2026-08-31T00:00:00.000Z',
+          permissions: ['Read everything'],
+        },
+      };
+      // The renderer channel drops `extensions`: a hostile in-renderer script's forged grant never
+      // lands, while a real preference in the same patch still does (finding, 2026-08-31).
+      const after = writeSettingsFromRenderer({ theme: 'dark', extensions: forged });
+      expect(after.theme).toBe('dark');
+      expect(after.extensions).toEqual({});
+
+      // Why the channel is gated rather than trusting the shape check: `writeSettings` itself — the
+      // path `grantConsent`/`dropConsent` use internally — *would* persist the forged record.
+      expect(writeSettings({ extensions: forged }).extensions['acme.tool']).toBeDefined();
     });
   });
 });

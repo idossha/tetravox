@@ -151,11 +151,14 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
           type="button"
           data-testid={`layer-close-${layer.id}`}
           aria-label="Close dataset"
-          title="Close the dataset — terminates its worker (§5 rule 1)"
+          title="Close the dataset — terminates its worker (§5 rule 1). A module's layers close with it."
           className="tvx-btn tvx-btn-sm"
           onClick={(e) => {
             e.stopPropagation();
-            controller.closeDataset(layer.datasetId);
+            // §13.3: this ✕ is one of the five guarded sites. It reaches the same `closeDataset`
+            // when nothing is at stake, and asks first when a module holding unsaved edits owns a
+            // layer over this dataset — closing the carrier would take those edits with it.
+            void controller.requestCloseDataset(layer.datasetId);
           }}
         >
           ✕

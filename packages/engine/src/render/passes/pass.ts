@@ -118,6 +118,25 @@ export interface DrawInput {
    * finished ones are `Scene.measurements` and are drawn from there.
    */
   measureDraft?: readonly vec3[] | null;
+  /**
+   * The point a tool has **selected**, and the one the pointer is **over** — §13's point editing
+   * (2026-08-30; appended, shared-file rule: additive only).
+   *
+   * They ride the frame rather than `Scene` for the reason `gizmo` and `measureDraft` do: which
+   * contact is selected and which is hot are things a pointer knows for the length of an
+   * interaction, and a `*.tetravox.json` must never carry one — a scene mailed to a colleague would
+   * otherwise open with a stranger's cursor state in it.
+   *
+   * Addressed by **array index**, not by `points[].id`: this is the frame's key into the array the
+   * pass is about to walk, resolved from whatever the tool selects by at the moment the frame is
+   * assembled. An `index` out of range, or a `layerId` that is not a visible points layer, draws
+   * nothing — a stale highlight has to be a missing ring, never a ring around the wrong contact.
+   *
+   * Both are drawn as rings in `OverlayTheme.select` (§7.2). Absent or `null` means no ring, which
+   * is what every frame assembled before today meant, so §11's goldens do not move.
+   */
+  pointSelection?: { layerId: LayerId; index: number } | null;
+  pointHot?: { layerId: LayerId; index: number } | null;
 }
 
 /** The derived pass's half of a frame. See `src/derived/store.ts`. */

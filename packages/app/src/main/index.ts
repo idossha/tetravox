@@ -29,9 +29,11 @@ import {
 } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
+import { installCloseGuard, registerModuleIpc } from './module-io';
 import { discoverSubjectSpaces } from './subject-spaces';
 import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
+import { installedManifests } from '../modules/manifests';
 import {
   cancelSample,
   catalogue,
@@ -43,6 +45,20 @@ import {
   sampleStatuses,
   startSample,
 } from './sample-data';
+// §13's downloadable extensions (`module-store.ts`, 2026-08-30). Imported before `job-runner` is
+// used below, because `bootstrapInstalledModules()` has to have run before a job file is validated.
+import {
+  bootstrapInstalledModules,
+  cancelInstall,
+  catalogue as moduleCatalogue,
+  disableModuleAction,
+  enableModuleAction,
+  installModuleAction,
+  moduleDir,
+  moduleStatuses,
+  removeModuleAction,
+  revealModuleDir,
+} from './module-store';
 import {
   armWatchdog,
   jobRequest,
@@ -53,6 +69,7 @@ import {
   rememberInvocation,
 } from './job-runner';
 import {
+  allowOpenedScene,
   readSceneFile,
   showOpenSceneDialog,
   showRelocateDialog,
@@ -65,7 +82,7 @@ import {
   ensureRcFile,
   readSettings,
   rememberRecentScene,
-  writeSettings,
+  writeSettingsFromRenderer,
 } from './settings';
 
 /**
@@ -157,6 +174,17 @@ const MODE = windowMode();
  * `createWindow` can size the window from the job rather than from the interactive default. A launch
  * with no `--job` gets `null` here and every line below behaves exactly as it did.
  */
+/**
+ * The installed extensions, read **before** `prepareJob` (§13.6, 2026-08-30).
+ *
+ * A `--job` run validates its actions against the modules this launch carries, and an installed
+ * module is one of them — so the set has to be known before the job file is parsed, not after
+ * `whenReady`. It is a handful of small JSON files off disk, which is the same order of work as
+ * reading `settings.json`, and it is what makes "every problem in a job file is reported at once,
+ * before anything is loaded" still true once a module can arrive from outside the build.
+ */
+bootstrapInstalledModules();
+
 const JOB = prepareJob(process.argv, process.cwd());
 if (JOB !== null) rememberInvocation(JOB);
 
@@ -327,6 +355,20 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     return real === null ? null : { path: real, url: fileUrl(real) };
   });
   /**
+   * A path behind a **dropped** `File` (§5 rule 10, 2026-08-30). Sent by preload from
+   * `getDroppedFilePath`, and reachable no other way: `webUtils.getPathForFile` answers only for a
+   * `File` the user really handed the page, and renderer script cannot manufacture one for a path
+   * of its choosing. That is what makes a drop a *gesture* main can trust, and it is why the ⌘S
+   * carve-out survives for a dropped scene while `tetravox:allow-path` — which any script may call
+   * for any existing path — earns nothing.
+   *
+   * `allowOpenedScene` ignores everything that is not a `*.tetravox.json`, so the dropped volumes
+   * and meshes that also come through here are a no-op; the read side is still `allowPath`'s.
+   */
+  ipcMain.on('tetravox:dropped-path', (_event, path: unknown) => {
+    allowOpenedScene(path);
+  });
+  /**
    * §8's MNI spaces (directed task 8): what registration, if any, governs a volume the user opened.
    *
    * The reply carries the affine as **text** (≤ 64 kB) and the warps as allow-listed
@@ -402,9 +444,12 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     startupPaths = [];
     return opened;
   });
+  // The startup scene, and §5 rule 10's admission with it: argv, a double-clicked document and the
+  // "reopen last scene" setting are all main naming the file this launch will save over.
   ipcMain.handle('tetravox:startup-scene', () => {
     const scene = startupScene;
     startupScene = null;
+    if (scene !== null) allowOpenedScene(scene);
     return scene;
   });
   /**
@@ -426,6 +471,11 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // The `--job` channels (`job-runner.ts`). Registered unconditionally: a normal launch asks for a
   // spec once, is told `null`, and takes the UI path.
   registerJobIpc();
+  // §13's module file IO (`module-io.ts`, §5 rule 11). Registered unconditionally for the same
+  // reason: a build whose modules never open a file simply never calls these. `isJob` only silences
+  // the write-revocation channel, whose renderer-side trigger (a module leaving the slot) is a step
+  // a batch run takes between two actions rather than the end of an editing session.
+  registerModuleIpc({ isJob: isJobRun() });
 
   ipcMain.on('tetravox:log', (_event, message: unknown) => {
     console.log(`[tetravox:renderer] ${String(message)}`);
@@ -444,7 +494,13 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // for the persisted choice on boot and writes the new one when the user picks. `set` returns the
   // merged settings, so the renderer never has to guess whether the write landed.
   ipcMain.handle('tetravox:settings', () => readSettings());
-  ipcMain.handle('tetravox:set-settings', (_event, patch: unknown) => writeSettings(patch));
+  // `writeSettingsFromRenderer`, not `writeSettings`: the generic settings channel must never author
+  // the `extensions` consent map — that key is main's alone, granted by `enableModule` and dropped by
+  // `disableModule`. A renderer (or a lingering module closure) that could write it here would forge
+  // consent the sheet never showed (finding, 2026-08-31).
+  ipcMain.handle('tetravox:set-settings', (_event, patch: unknown) =>
+    writeSettingsFromRenderer(patch)
+  );
   // -- rc-style config file (directed task: unified settings, 2026-08-28) ------------------------
   ipcMain.handle('tetravox:config-path', () => configPath());
   ipcMain.handle('tetravox:reveal-config-file', () => {
@@ -492,6 +548,44 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     return sampleStatuses();
   });
   ipcMain.handle('tetravox:sample-reveal-cache', () => revealSampleCache());
+  // -- Extensions (§13, `module-store.ts`, 2026-08-30) ---------------------------------------------
+  // The Sample Data shape, one door further in: main downloads, hashes, consents and serves, and the
+  // renderer sees ids, progress numbers and card states. The one difference from the block above is
+  // that the payload is **script**, so nothing here hands the renderer a path — an enabled module is
+  // reachable only as `tetravox://module/<id>/<version>/<file>`, off a map only `enableModule` fills.
+  ipcMain.handle('tetravox:module-catalog', () => ({
+    modules: moduleCatalogue(),
+    dir: moduleDir(),
+  }));
+  ipcMain.handle('tetravox:module-statuses', () => moduleStatuses());
+  ipcMain.handle('tetravox:module-install', async (_event, id: unknown, version: unknown) =>
+    installModuleAction(id, version, (p) =>
+      getWindow()?.webContents.send('tetravox:module-progress', p)
+    )
+  );
+  ipcMain.handle('tetravox:module-cancel', (_event, id: unknown) =>
+    typeof id === 'string' ? cancelInstall(id) : false
+  );
+  // Enable **is** consent: the renderer shows the sheet, the user says yes, and this is the message
+  // that says so. Everything the consent buys — the protocol map entry, a place in `validateJob`'s
+  // manifest list — is granted here and nowhere else.
+  ipcMain.handle('tetravox:module-enable', (_event, id: unknown) => enableModuleAction(id));
+  // …and withdrawing it is main's own act: the map entries go, the settings key goes, and the
+  // module's write admissions are revoked here rather than being asked for back over
+  // `tetravox:module-clear-writes`, which a renderer that has been taken over simply never sends.
+  ipcMain.handle('tetravox:module-disable', (_event, id: unknown) => disableModuleAction(id));
+  ipcMain.handle('tetravox:module-remove', (_event, id: unknown) => removeModuleAction(id));
+  ipcMain.handle('tetravox:module-reveal-dir', () => revealModuleDir());
+  /**
+   * The installed manifests, for the renderer's own `registerInstalledManifests()`.
+   *
+   * The same array registered in **both** processes (§13.1): main needs it to validate a job action
+   * before a window exists, and the renderer needs it because `manifestFor` is called synchronously
+   * while rendering — a layer's owner badge, the status cells, a toast naming a module. Manifests
+   * are data (no DOM type, no `node:` import), so this is one small JSON round trip and not a
+   * capability: knowing a module's title admits nothing.
+   */
+  ipcMain.handle('tetravox:module-manifests', () => installedManifests());
 
   void app.whenReady().then(() => {
     // No dock icon for a run that has no window: the bounce and the icon are themselves a visible
@@ -535,6 +629,12 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
+    // §5 rule 12: unsaved **module** edits interrupt a close. Inert for a `--job` window, which has
+    // nobody to answer the box and would hang until the watchdog, and inert under
+    // `TETRAVOX_E2E_DISCARD=1`, which is how a windowless e2e closes a window it made dirty — but
+    // only in a build that runs tests: `app.isPackaged` closes that seam, so ambient environment
+    // cannot switch off a shipped build's only unsaved-work guard (2026-08-30).
+    installCloseGuard(mainWindow, { isJob: isJobRun(), packaged: app.isPackaged });
 
     if (isJobRun() && mainWindow !== null) {
       // A job that never reports is a job that hung: without these two the process would sit alive
@@ -554,6 +654,10 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
         mainWindow.on('closed', () => {
           mainWindow = null;
         });
+        // The same guard, with the same `packaged` seam-closing argument as the first window's:
+        // a window re-created after a macOS dock click protects unsaved module edits exactly as
+        // the one it replaced did (§5 rule 12).
+        installCloseGuard(mainWindow, { isJob: isJobRun(), packaged: app.isPackaged });
       }
     });
   });

@@ -46,7 +46,14 @@ export interface SurfaceSpacesReply {
 export interface TetravoxBridge {
   /** File ▸ Open… / ⌘O. Returns paths, never bytes. */
   openDialog(): Promise<OpenedPath[]>;
-  /** The absolute path behind a dropped `File`, or `''` when it has none (§8 fallback). */
+  /**
+   * The absolute path behind a dropped `File`, or `''` when it has none (§8 fallback).
+   *
+   * Also tells main *that a file was dropped*, which is the one drop signal main has (§5 rule 10,
+   * 2026-08-30): `webUtils.getPathForFile` runs in preload and answers only for a `File` the user
+   * really handed the page, so a path that comes out of here was named by a gesture. Main uses it
+   * to admit a dropped `*.tetravox.json` for writing, and ignores everything else.
+   */
   getDroppedFilePath(file: File): string;
   /** Add a dropped path to the `tetravox://file/…` allow-list; returns its fetchable URL. */
   allowPath(path: string): Promise<OpenedPath | null>;
@@ -170,6 +177,95 @@ export interface TetravoxBridge {
   jobLog(message: string): void;
   /** Report the run. Main writes `job-result.json` and exits 0 or 1. */
   jobDone(report: JobDonePayload): Promise<boolean>;
+
+  // -- Module file IO (§5 rule 11, `main/module-io.ts`, 2026-08-30) ------------------------------
+  // Small text and paths, like everything else here, and every call carries the module id: the
+  // write list is per module, so one module's Save sheet admits nothing for another.
+
+  /**
+   * UTF-8 text of a path already on the `tetravox://file/…` allow-list — ≤ 1 MiB, and only
+   * `.tsv .csv .json .txt .fcsv`. It admits nothing; `allowPath` and a user gesture still do that.
+   */
+  moduleReadText(moduleId: string, path: string): Promise<ModuleReadResult>;
+  /** An Open sheet with a reader's own title and filters. The result is allow-listed for reading. */
+  moduleOpenDialog(moduleId: string, opts: ModuleOpenOptions): Promise<OpenedPath[]>;
+  /**
+   * A Save sheet with a writer's title and filters. The chosen path **and** the writer's declared
+   * same-directory siblings are admitted for writing; null when the user cancelled.
+   */
+  moduleSaveDialog(moduleId: string, opts: ModuleSaveOptions): Promise<ModuleSaveTarget | null>;
+  /** Write text to a path this module's Save sheet admitted. `backup` copies the old file first. */
+  moduleWriteText(
+    moduleId: string,
+    path: string,
+    text: string,
+    opts: { backup: boolean }
+  ): Promise<ModuleWriteResult>;
+  /**
+   * Tell main this window has (or no longer has) unsaved module edits.
+   *
+   * Main calls `win.setDocumentEdited` with it and keeps the flag for §5 rule 12's `close` guard.
+   * `send`, not `invoke`: it is a fact about the window, and nothing waits on the answer.
+   */
+  setDocumentEdited(edited: boolean): void;
+  /**
+   * Give this module's write admissions back (§5 rule 11, 2026-08-30).
+   *
+   * Sent when a module leaves the slot: its `savePath` dies with the instance, so nothing
+   * legitimate can write to those paths again without a new Save sheet, and an admission that
+   * outlives its editing session is a live capability against whatever subject the user has since
+   * moved on to. `send`, not `invoke` — dropping a capability cannot fail.
+   *
+   * Optional so that a `TetravoxBridge` written before this member (a test's stand-in, an older
+   * preload beside a newer renderer) is still one; the renderer calls it with `?.`.
+   */
+  moduleClearWrites?(moduleId: string): void;
+
+  // -- Extensions (§13, `main/module-store.ts`, 2026-08-30) --------------------------------------
+  // The Sample Data members again, for code instead of data. Main owns the network, the hashing, the
+  // consent record and the `tetravox://module` map; the renderer sees a catalogue, card states and
+  // progress. **No path ever crosses this half of the bridge**: an enabled module is reachable only
+  // as `tetravox://module/<id>/<version>/<file>`, and only because main put it there.
+  //
+  // Every member is optional for the same reason `moduleClearWrites` is: a `TetravoxBridge` written
+  // before them is still one, and the renderer calls them with `?.`.
+
+  /** The catalogue (`shared/extensions-index.json`, or `TETRAVOX_EXT_INDEX`) and the install root. */
+  moduleCatalog?(): Promise<{ modules: ExtensionEntry[]; dir: string }>;
+  /** One card state per module: installed, enabled, updatable, and the derived permission list. */
+  moduleStatuses?(): Promise<ModuleStatus[]>;
+  /**
+   * The manifests of every installed module, for the renderer's own `registerInstalledManifests()`.
+   * Data, not a capability: knowing a module's title admits nothing.
+   */
+  moduleManifests?(): Promise<unknown[]>;
+  /** Download and verify one version. Installing is **not** enabling; nothing is served by this. */
+  moduleInstall?(id: string, version?: string): Promise<ModuleActionResult>;
+  /** Abort an in-flight install; `false` when none was running. */
+  moduleCancel?(id: string): Promise<boolean>;
+  /**
+   * Record the user's consent and make the module reachable: main re-hashes every file against the
+   * install receipt and only then puts it on the `tetravox://module` map. This call **is** the
+   * consent — the sheet is the renderer's, the grant is main's.
+   */
+  moduleEnable?(id: string): Promise<ModuleActionResult>;
+  /** Withdraw consent: off the map, out of settings, and its write admissions revoked in main. */
+  moduleDisable?(id: string): Promise<ModuleActionResult>;
+  /** Disable, then delete the directory. A bundled module is refused. */
+  moduleRemove?(id: string): Promise<ModuleActionResult>;
+  /** Open `~/.tetravox/modules/` in the OS file manager. */
+  moduleRevealDir?(): Promise<void>;
+  /** Install progress, pushed from main. */
+  onModuleProgress?(listener: (p: ModuleProgress) => void): () => void;
+  /**
+   * Menu File ▸ Extensions…, pushed from main (2026-08-30).
+   *
+   * `onOpenSampleData`'s twin, and appended for the same reason it exists: an accelerator and a
+   * native menu item live in main, and the dialog lives in the renderer. Main sends nothing but the
+   * fact that the item was clicked — no id, no path, no catalogue — so this channel grants nothing
+   * that the six invoke channels above do not already gate.
+   */
+  onOpenExtensions?(listener: () => void): () => void;
 }
 
 /** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
@@ -287,9 +383,97 @@ export interface SceneIoResult {
   error?: string;
 }
 
+// Mirror `main/module-io.ts`'s types; duplicated because preload must not import from main.
+export interface ModuleDialogFilter {
+  name: string;
+  extensions: string[];
+}
+export interface ModuleOpenOptions {
+  title: string;
+  filters: ModuleDialogFilter[];
+  /**
+   * Which of the module's `readers` this sheet is for (2026-08-30, appended).
+   *
+   * Main looks the reader up in `MANIFESTS` and uses **its** title and extensions; the two fields
+   * above are then the fallback for a module main does not know, still sanitised on arrival.
+   */
+  readerId?: string;
+}
+export interface ModuleSaveOptions extends ModuleOpenOptions {
+  /** The writer's sibling templates — `{name}.{stamp}.bak`, `{stem}_editlog.json`. */
+  siblings: string[];
+  defaultPath: string | null;
+  /** Which of the module's `writers` this sheet is for. See {@link ModuleOpenOptions.readerId}. */
+  writerId?: string;
+}
+/** The chosen path, and each declared template's substituted absolute path beside it. */
+export interface ModuleSaveTarget {
+  path: string;
+  siblings: Record<string, string>;
+}
+export type ModuleReadResult = { ok: true; text: string } | { ok: false; error: string };
+export type ModuleWriteResult =
+  { ok: true; backupPath: string | null } | { ok: false; error: string };
+
+// Mirror `main/module-store.ts`'s types; duplicated because preload must not import from main.
+export interface ExtensionFile {
+  name: string;
+  bytes: number;
+  sha256: string;
+  url: string;
+}
+export interface ExtensionVersion {
+  version: string;
+  hostApi: number;
+  published?: string;
+  files: ExtensionFile[];
+}
+export interface ExtensionEntry {
+  id: string;
+  title: string;
+  summary: string;
+  description?: string;
+  repo?: string;
+  author?: string;
+  licence?: string;
+  docs?: string;
+  versions: ExtensionVersion[];
+}
+export interface ModuleStatus {
+  id: string;
+  title: string;
+  installed: string | null;
+  bundled: boolean;
+  enabled: boolean;
+  available: string | null;
+  updatable: boolean;
+  incompatible?: string;
+  permissions: string[];
+}
+export interface ModuleActionResult {
+  ok: boolean;
+  error?: string;
+  statuses: ModuleStatus[];
+}
+export type ModuleProgressState = 'downloading' | 'verifying' | 'done' | 'error' | 'cancelled';
+export interface ModuleProgress {
+  id: string;
+  file: string;
+  received: number;
+  total: number;
+  state: ModuleProgressState;
+  error?: string;
+}
+
 const bridge: TetravoxBridge = {
   openDialog: () => ipcRenderer.invoke('tetravox:open-dialog'),
-  getDroppedFilePath: (file) => webUtils.getPathForFile(file),
+  getDroppedFilePath: (file) => {
+    const path = webUtils.getPathForFile(file);
+    // The drop gesture, reported to main. Only preload can produce this path, so this send is the
+    // one thing renderer script cannot forge for a path of its choosing (§5 rule 10).
+    if (path !== '') ipcRenderer.send('tetravox:dropped-path', path);
+    return path;
+  },
   allowPath: (path) => ipcRenderer.invoke('tetravox:allow-path', path),
   startupPaths: () => ipcRenderer.invoke('tetravox:startup-paths'),
   subjectSpaces: (path, explicitDir) =>
@@ -352,6 +536,36 @@ const bridge: TetravoxBridge = {
       listener(command);
     ipcRenderer.on('tetravox:scene-command', wrapped);
     return () => ipcRenderer.removeListener('tetravox:scene-command', wrapped);
+  },
+  moduleReadText: (moduleId, path) =>
+    ipcRenderer.invoke('tetravox:module-read-text', moduleId, path),
+  moduleOpenDialog: (moduleId, opts) =>
+    ipcRenderer.invoke('tetravox:module-open-dialog', moduleId, opts),
+  moduleSaveDialog: (moduleId, opts) =>
+    ipcRenderer.invoke('tetravox:module-save-dialog', moduleId, opts),
+  moduleWriteText: (moduleId, path, text, opts) =>
+    ipcRenderer.invoke('tetravox:module-write-text', moduleId, path, text, opts),
+  setDocumentEdited: (edited) => ipcRenderer.send('tetravox:set-document-edited', edited),
+  moduleClearWrites: (moduleId) => ipcRenderer.send('tetravox:module-clear-writes', moduleId),
+  // Extensions (§13, 2026-08-30). Ids and card states only — never a path, never a byte.
+  moduleCatalog: () => ipcRenderer.invoke('tetravox:module-catalog'),
+  moduleStatuses: () => ipcRenderer.invoke('tetravox:module-statuses'),
+  moduleManifests: () => ipcRenderer.invoke('tetravox:module-manifests'),
+  moduleInstall: (id, version) => ipcRenderer.invoke('tetravox:module-install', id, version),
+  moduleCancel: (id) => ipcRenderer.invoke('tetravox:module-cancel', id),
+  moduleEnable: (id) => ipcRenderer.invoke('tetravox:module-enable', id),
+  moduleDisable: (id) => ipcRenderer.invoke('tetravox:module-disable', id),
+  moduleRemove: (id) => ipcRenderer.invoke('tetravox:module-remove', id),
+  moduleRevealDir: () => ipcRenderer.invoke('tetravox:module-reveal-dir'),
+  onModuleProgress: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, p: ModuleProgress): void => listener(p);
+    ipcRenderer.on('tetravox:module-progress', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:module-progress', wrapped);
+  },
+  onOpenExtensions: (listener) => {
+    const wrapped = (): void => listener();
+    ipcRenderer.on('tetravox:open-extensions', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:open-extensions', wrapped);
   },
 };
 

@@ -42,6 +42,28 @@ export const DEFAULT_SCREENSHOT_DEFAULTS: ScreenshotDefaults = {
   autoTrim: false,
 };
 
+/**
+ * One recorded **consent** to run an installed extension (§13, downloadable extensions, 2026-08-30).
+ *
+ * The record *is* the enablement: there is no separate `enabled` flag, because a module the user has
+ * withdrawn consent from must not be one keystroke away from running again. Disabling deletes the
+ * entry, which is the same event that empties its `tetravox://module` map entries and revokes its
+ * write list.
+ *
+ * `version` and `hostApi` are what was consented **to**, not what is installed now: an update that
+ * arrives with a different `hostApi` is a different ask, and the sheet has to be shown again.
+ * `permissions` is the derived list the sheet actually displayed (`manifest-schema.ts`'s
+ * `derivePermissions`), stored so a later audit can answer "what was the user shown?" without
+ * re-deriving it from a manifest that may since have been updated.
+ */
+export interface ModuleConsent {
+  version: string;
+  hostApi: number;
+  /** ISO 8601, so the record is readable in the file the user can open. */
+  grantedAt: string;
+  permissions: string[];
+}
+
 /** Everything the app persists. */
 export interface AppSettings {
   /** §8's theme switch: what the user picked, not what it resolved to. */
@@ -75,6 +97,15 @@ export interface AppSettings {
   reopenLastScene: boolean;
   /** Persisted §4.7 screenshot defaults, applied to `screenshotOptions` on startup. */
   screenshotDefaults: ScreenshotDefaults;
+  /**
+   * Which installed extensions the user has consented to run, by module id (2026-08-30).
+   *
+   * The one key here whose absence is a **security** property rather than a preference: an id that
+   * is not in this record is a module main never puts on the `tetravox://module` map, never hands to
+   * a job, and never lists as enabled. Bundled modules are seeded on first run without a sheet —
+   * they shipped inside the signed application, so installing the app *was* the consent.
+   */
+  extensions: Record<string, ModuleConsent>;
 }
 
 /** §8's File ▸ Open Recent holds ten, which is the maintainer's ask for directed task 13. */
@@ -86,6 +117,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   recentScenes: [],
   reopenLastScene: false,
   screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
+  extensions: {},
 };
 
 /** A settings file is a preference, not a document: a megabyte of it is a bug or an attack. */
@@ -192,6 +224,42 @@ export function coercePatch(raw: unknown): Partial<AppSettings> {
   if (typeof reopen === 'boolean') out.reopenLastScene = reopen;
   const screenshotDefaults = coerceScreenshotDefaults(record['screenshotDefaults']);
   if (screenshotDefaults !== undefined) out.screenshotDefaults = screenshotDefaults;
+  const extensions = coerceExtensions(record['extensions']);
+  if (extensions !== undefined) out.extensions = extensions;
+  return out;
+}
+
+/**
+ * The consent record, one entry at a time — the same defensive shape as every other key, and for a
+ * sharper reason: a corrupt entry here must **fail closed**.
+ *
+ * A record that does not parse is a module that is not enabled, which costs the user one click on a
+ * consent sheet they have already seen. The opposite reading — filling a missing field with a
+ * default and running the module anyway — would let a truncated write grant a capability nobody
+ * confirmed, so every field is required and a bad entry is dropped rather than repaired.
+ */
+function coerceExtensions(raw: unknown): Record<string, ModuleConsent> | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, ModuleConsent> = {};
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/.test(id)) continue;
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) continue;
+    const entry = value as Record<string, unknown>;
+    const version = entry['version'];
+    const hostApi = entry['hostApi'];
+    const grantedAt = entry['grantedAt'];
+    const permissions = entry['permissions'];
+    if (typeof version !== 'string' || version === '') continue;
+    if (typeof hostApi !== 'number' || !Number.isInteger(hostApi)) continue;
+    if (typeof grantedAt !== 'string' || grantedAt === '') continue;
+    if (!Array.isArray(permissions)) continue;
+    out[id] = {
+      version,
+      hostApi,
+      grantedAt,
+      permissions: permissions.filter((p): p is string => typeof p === 'string').slice(0, 32),
+    };
+  }
   return out;
 }
 
@@ -280,4 +348,23 @@ export function writeSettings(patch: unknown): AppSettings {
     // applies to this session and the next one simply starts at the default.
   }
   return next;
+}
+
+/**
+ * The **renderer-facing** settings write: {@link writeSettings} with the `extensions` consent map
+ * stripped out (finding, 2026-08-31).
+ *
+ * `extensions` is the one settings key whose absence is a security property (see {@link AppSettings}):
+ * a consent record is authored **only** by main's `grantConsent`/`dropConsent`, which call
+ * `writeSettings` directly and so are unaffected by this. The generic `tetravox:set-settings` channel
+ * is reachable by any in-renderer script — including an enabled module running with the full bridge —
+ * so routing it through here keeps a renderer from forging a consent record (a fabricated
+ * permissions string the sheet never showed, a grant recorded without ever calling `enableModule`)
+ * through the back door of a preferences write. Consent stays exactly what `enableModule` recorded.
+ */
+export function writeSettingsFromRenderer(patch: unknown): AppSettings {
+  if (patch !== null && typeof patch === 'object' && !Array.isArray(patch)) {
+    return writeSettings({ ...(patch as Record<string, unknown>), extensions: undefined });
+  }
+  return writeSettings(patch);
 }

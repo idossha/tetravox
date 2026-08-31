@@ -10,6 +10,12 @@ import { basename, dirname } from 'node:path';
 import { allowPath, allowPaths } from './paths';
 import { fileUrl } from './protocol';
 import { readSettings, writeSettings } from './settings';
+// The write halves of §5 rules 10 and 11, minted and dropped where main hands a *document* over
+// (2026-08-30). `scene-io.ts` imports `OPEN_FILTERS`/`isScenePath` back out of this file, so those
+// two are a cycle — a **call-time** one: neither module reads anything from the other while it is
+// still being evaluated, so the order they initialise in cannot matter.
+import { allowOpenedScene } from './scene-io';
+import { revokeAllModuleWrites } from './module-io';
 
 /** §12.3/§8: the formats the viewer opens. Kept in one place so the menu and the installer agree. */
 export const OPEN_FILTERS = [
@@ -51,6 +57,16 @@ export const OPEN_FILTERS = [
   // Gmsh **parsed post-processing views** — SimNIBS's `eeg_positions/*.geo`, and the `.pos` a
   // Gmsh "Save As" writes. Not the geometry-script `.geo`, which the reader rejects by name.
   { name: 'Gmsh view (electrode positions)', extensions: ['geo', 'pos'] },
+  // Contact tables a §13 module opens (2026-08-30): a BIDS-iEEG `*_electrodes.tsv`, the same table
+  // as `.csv`, and a Slicer `.fcsv`. No dataset reader takes these — a module claims the path and
+  // reads the text over `tetravox:module-read-text` (§5 rule 11) — so the entry is here to make the
+  // file reachable from ⌘O, not to promise the viewer will load one as a dataset.
+  //
+  // **Not in the combined first filter, and no installer association.** That filter is named
+  // "Volumes, meshes and scenes" and a contact table is none of the three; and `.tsv`/`.csv` are as
+  // generic as `.geo` (DECISIONS 2026-08-28), so claiming to be the system-wide handler for every
+  // spreadsheet export on the machine would hijack files this app then refuses.
+  { name: 'Electrode tables (tsv, csv, fcsv)', extensions: ['tsv', 'csv', 'fcsv'] },
   { name: 'All files', extensions: ['*'] },
 ];
 
@@ -115,16 +131,37 @@ export function sendOpened(win: BrowserWindow | null, opened: readonly OpenedPat
   if (last !== undefined) sendOpenScene(win, last.path);
 }
 
-/** Ask the renderer to open one scene file by path (Open Recent, a drop, argv, `open-file`). */
+/**
+ * Ask the renderer to open one scene file by path (Open Recent, a drop, argv, `open-file`).
+ *
+ * This is where §5 rule 10's write admission is minted for every route but the Open sheet and the
+ * startup drain: *main* chose this path, from argv, from `open-file`, from `settings.json`'s recent
+ * list or from a downloaded sample, so it is the file ⌘S is being asked to save over. A renderer
+ * that names a path itself (`tetravox:allow-path` + `tetravox:read-scene`) reaches none of this and
+ * gains no write (DECISIONS 2026-08-30).
+ *
+ * Replacing the scene also ends every module's editing session, so §5 rule 11's write admissions go
+ * with it: the module is disposed and re-`activate`d against the new document, and its own
+ * `savePath` is gone, so a Save sheet is what re-admits a path — not a stale list in main.
+ */
 export function sendOpenScene(win: BrowserWindow | null, path: string): void {
+  allowOpenedScene(path);
+  revokeAllModuleWrites();
   win?.webContents.send('tetravox:open-scene', path);
 }
 
 /** The scene commands the File menu can ask the renderer to run (§4.6, §8). */
 export type SceneCommand = 'new' | 'open' | 'save' | 'saveAs';
 
-/** Ask the renderer to run a scene command. Main never builds or parses a `ViewSpec` itself. */
+/**
+ * Ask the renderer to run a scene command. Main never builds or parses a `ViewSpec` itself.
+ *
+ * `new` and `open` are the two that end a document, and with it every module's editing session
+ * (§13.3 disposes the module on both), so main drops the module write admissions those sessions
+ * earned — the same reason `sendOpenScene` does. `save`/`saveAs` keep them: they *are* the session.
+ */
 export function sendSceneCommand(win: BrowserWindow | null, command: SceneCommand): void {
+  if (command === 'new' || command === 'open') revokeAllModuleWrites();
   win?.webContents.send('tetravox:scene-command', command);
 }
 
@@ -136,6 +173,17 @@ export function sendOpenSettings(win: BrowserWindow | null): void {
 /** Ask the renderer to open the Sample Data dialog (File ▸ Sample Data…). */
 export function sendOpenSampleData(win: BrowserWindow | null): void {
   win?.webContents.send('tetravox:open-sample-data');
+}
+
+/**
+ * Ask the renderer to open the Extensions dialog (File ▸ Extensions…, §13.8, 2026-08-30).
+ *
+ * `sendOpenSampleData`'s twin, and deliberately as empty: the message carries no id, no path and no
+ * catalogue — it says only that the menu item was clicked. Everything the dialog then does goes back
+ * through the `tetravox:module-*` invoke channels, where main decides.
+ */
+export function sendOpenExtensions(win: BrowserWindow | null): void {
+  win?.webContents.send('tetravox:open-extensions');
 }
 
 /**
@@ -202,6 +250,13 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
         {
           label: 'Sample Data…',
           click: () => sendOpenSampleData(getWindow()),
+        },
+        // §13.8, 2026-08-30. Beside Sample Data… rather than in a menu of its own: both are "get
+        // something from the network into this machine, once", and the switcher stays what §13.3
+        // says it is — load and unload, never a place to manage what exists.
+        {
+          label: 'Extensions…',
+          click: () => sendOpenExtensions(getWindow()),
         },
         { type: 'separator' },
         // Scene save/load is *asked for* here and *done* in the renderer: only the renderer holds

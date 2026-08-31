@@ -16,6 +16,10 @@ export default tseslint.config(
       'target/**',
       // wasm-pack output: generated glue, not ours to lint.
       'packages/wasm/pkg/**',
+      // Bundled extensions: downloaded, hash-verified module artefacts placed by
+      // scripts/fetch-locked-modules.mjs and rebuilt from modules.lock on every packaging run
+      // (§13.8). Not committed, not ours to lint.
+      'packages/app/resources/modules/**',
       'test-results/**',
       'playwright-report/**',
       // Jekyll site assets and any agent worktrees checked out under .claude/ are not ours to lint.
@@ -58,7 +62,61 @@ export default tseslint.config(
         // timeout do it, so the failure names the artefact instead of the workflow.
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        // scripts/fetch-locked-modules.mjs downloads the release assets `modules.lock` pins.
+        fetch: 'readonly',
       },
+    },
+  },
+  {
+    // ARCHITECTURE.md §13.1's **module wall**, and the reason stage 3 (§13.9) is a one-file change
+    // rather than a redesign: a module may reach `../host` for its types, the shared control kit
+    // under `ui/`, and `@tetravox/engine` **types only** — never the store, the engine's runtime,
+    // `bridge()`, the automation surface or a panel's internals.
+    //
+    // Two globs because minimatch's `**` and a single-segment `*` do not both cover
+    // `modules/<id>/index.ts` and `modules/<id>/kernels/x.ts`. The host's own files — `host.ts`,
+    // `hostImpl.ts`, the slot, the switcher — sit **directly** in `modules/` and are deliberately
+    // outside this rule: `hostImpl.ts` is the one file that is allowed to see both sides.
+    //
+    // A lint rule can be switched off inline, so `modules.test.ts` re-proves the same thing by
+    // reading the sources. This is the wall; that is the guard.
+    files: [
+      'packages/app/src/renderer/src/modules/*/*.{ts,tsx}',
+      'packages/app/src/renderer/src/modules/*/**/*.{ts,tsx}',
+    ],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tetravox/engine',
+              // `allowTypeImports` is the whole point: a module names `Layer` and `vec3` all day and
+              // must never *call* the engine. Everything it can do goes through `ModuleHost`.
+              allowTypeImports: true,
+              message:
+                'A module may import engine TYPES only (§13.1). Everything it can do goes through ModuleHost.',
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                '**/store',
+                '**/store/*',
+                '**/engine/*',
+                '**/automation/*',
+                '**/panels/**',
+                '**/lib/*',
+                '**/bridge',
+                '**/preload/*',
+                '**/../../../preload',
+              ],
+              message:
+                'A module reaches the shell only through ModuleHost (§13.1): no store, no Engine, no bridge, no automation.',
+            },
+          ],
+        },
+      ],
     },
   },
   {

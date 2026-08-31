@@ -1,0 +1,9 @@
+{
+  "id": "tetravox.future",
+  "title": "A module from the future",
+  "version": "2.0.0",
+  "hostApi": 2,
+  "docs": "https://example.invalid/tetravox-future#readme",
+  "activation": ["onToggle"],
+  "commands": []
+}

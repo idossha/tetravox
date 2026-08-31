@@ -2398,8 +2398,6 @@ Each entry below names the problem, the fix, and the evidence.
   `'T1.nii.gz'` verbatim, which is the only form that can fail if this regresses.
 
 
-
-
 - 2026-08-28 — **§9.2's `buildTopology` memory bar was never measured, and measuring it moved the
   number.** `docs/PHASE2-OWNERSHIP.md` lists it as a Phase-2 gate item explicitly deferred from
   Phase 1 ("nothing in Phase 1 clips or isolates"), owner E-MESH. The only `ernie_seeg.msh` heap
@@ -2544,7 +2542,6 @@ Each entry below names the problem, the fix, and the evidence.
   No frozen interface moved. The GIF encoder and the PNG decoder are written in-repo (`main/gif.ts`,
   `main/png.ts`) rather than installed, per §12.3; ffmpeg stays optional and its absence is a warning,
   never a failure. Python client: `python/`, standard library only.
-
 
 
 - 2026-08-28 — **A user-enabled display feature is never dropped mid-gesture: `edges` leaves the
@@ -2717,7 +2714,6 @@ to click.
   point-in-tetrahedron search, so a 0-tet `.gii` produced no `ProbeRow` at all. `nearestVertex` runs
   for *every* mesh on its own latest-wins key, so `lh.central.gii` now answers with a vertex index and
   that vertex's own coordinate — which is deliberately **not** the probe point.
-
 
 
 - 2026-08-28 — **Gmsh parsed post-processing views (`.geo` / `.pos`) load through `loadMesh`, not
@@ -3203,3 +3199,1662 @@ for. Multiplying keeps the ghost-shell case (`iso3d.opacity < 1`) and makes the 
 surfaces as it governs the slices. The default `iso3d.opacity` is 1, so every scene saved before
 this renders the same unless its slider was below 1 — in which case it now renders as the user
 expected when they dragged it. Additive: no `ViewSpec` field changes.
+
+## 2026-08-30 — `worker-src blob:` is removed from the renderer CSP
+
+**Decision.** `main/protocol.ts`'s policy for `tetravox://app` drops `blob:` from `worker-src`,
+leaving `worker-src 'self'`. `img-src 'self' data: blob:` is unchanged.
+
+**Why it was there, and why it is not.** Nothing ever asked for it. Both of this app's workers are
+built from a `new URL(…, import.meta.url)` that Vite emits as a same-origin asset under
+`tetravox://app/assets/…` — the engine's dataset worker (`packages/engine/src/engine.ts`) and the
+Phase-0 skeleton's (`renderer/src/Phase0App.tsx`) — so `'self'` covers every worker that is supposed
+to exist. What `blob:` covered was the one that is not: a module Worker constructed from a Blob of
+text the page fetched, which is a working script-execution path through a policy whose whole point is
+`script-src 'self'`. It is an undesigned door, and closing it costs this build nothing.
+
+**Why now.** The modules surface (§13) is first-party and compiled into `out/renderer`; §13.8
+describes a later stage where a module's code is loaded at runtime, and a Blob module Worker is
+exactly the mechanism that stage would reach for. Closing the door **before** anything wants it is
+what makes opening it later a deliberate, argued change rather than an accident that was already
+permitted. Nothing in §13 needs a CSP change: no new scheme, no `tetravox://ext`, no `script-src`
+edit.
+
+**The directive is narrowed, not deleted.** Removing `worker-src` entirely would fall back to
+`child-src` and then to `default-src 'none'`, which forbids *every* worker — the dataset worker
+included, i.e. the whole application. `worker-src 'self'` is the change; the empty diff would be a
+catastrophe.
+
+**How it is verified.** `packages/app/e2e/csp.spec.ts`, which asserts the policy from inside the page
+it governs — the CSP is a response header, not a `<meta>`, so there is nothing in the DOM to read.
+Constructing a Blob module Worker fires a `securitypolicyviolation` naming `worker-src`; a Blob PNG
+still loads into an `<img>`, which is the screenshot dialog's preview; and every other app E2E that
+opens a dataset exercises the same-origin worker that must keep working. The dev server carries no
+CSP, so this is a built-app assertion, as `e2e:packaged` is.
+
+## 2026-08-30 — Modules: a first-party extension surface (feat/modules-host)
+
+**Decision.** Tetravox gains a **module** surface: a first-party tool, compiled into `out/renderer`, that owns
+one kind of data end to end — its own panel, keys, files and undo. §1's `plugins` non-goal is **narrowed**,
+not withdrawn: "third-party runtime-loaded plugins (first-party modules are §13)". The whole contract is the
+new ARCHITECTURE §13; this entry records the choices behind it.
+
+**First-party first, and why the alternative was not chosen.** A runtime-loaded tier is a different product:
+a module Worker with no DOM, a JSON-only bridge, permissions with reasons, a Restricted Mode for a scene that
+arrives with an unknown module, a single-file library build, a §5 rule 9 rewrite and a security review — 8–9
+engineer-days and a different threat model. First-party costs none of that and loses nothing that exists
+today, because "community" here means a pull request that adds one directory. §13.8 keeps the path open and
+names its price. The one thing stage 1 does that makes stage 2 a port rather than a rewrite is the **import
+wall**: `modules/<id>/**` may reach `../host`, the shared control kit and `@tetravox/engine` **types**, and
+nothing else. It is an ESLint rule *and* a source scan in `modules.test.ts`, because a lint rule can be
+disabled inline and a test cannot.
+
+**A docked slot in the right column, not a floating palette and not a tab.** The shell has no floating,
+draggable or popover primitive; pane overlays are `pointer-events: none` by contract, so a palette over the
+canvas would fight the WebGL grid for pointer capture; and at 1512 px the sidebars already take 608 px, so a
+floating editor would cover the very pane it asks the user to click in. A *tab* was rejected for a different
+reason: the feedback most module actions are judged by is the info panel's Cursor block — the value under the
+crosshair — and a tab hides it at the moment it matters. The slot renders nothing while idle, so the DOM is
+unchanged with no module active, and it sits outside the info panel's scrolling container, which is what makes
+its 55% cap hard rather than advisory.
+
+**One switcher in the toolbar's right column, never a button per module.** Measured, not aesthetic:
+`Toolbar.tsx` is `flex-wrap`, and a second module's button in the centre cluster wraps the row at 1440 px,
+which grows the header and shrinks the view grid — the same canvas-resize class the status bar was pinned
+against. The status cell goes **before** the dataset cells for the same kind of reason: two BIDS-named
+datasets already overflow `tvx-strip`, which does not scroll, and `ml-auto` cannot pull a cell back inside a
+container that has overflowed.
+
+**A synchronous host with a lint wall, rather than async JSON from day one.** Every scene read and write is a
+call into the engine through the controller, exactly as every §8 panel's is; only files, dialogs and
+confirmations are promises, because those already cross a process boundary or wait for a person. Stage 2 costs
+a mechanical `await` pass over the modules that exist then. Making every call async today would have bought
+that same pass in advance, at the price of every module's readability, for a tier that may never be built.
+
+**`host.ts` is pre-freeze, and says so with dates.** Three of its members are backed by work that has not
+landed — `scene.peakCentroid`, the whole of `tool`, the whole of `files` — so freezing it now would freeze it
+around stubs. It grows additively and is declared frozen (§12.3 item 6) in the commit that lands the last of
+them: one governance round rather than four. Meanwhile an unwired member **throws `ModuleHostError`** rather
+than returning a plausible `null`, because "this build has no point tool" and "nothing is selected" must not
+be the same answer to a module written against the finished surface.
+
+**Persistence is core-typed layers plus one opaque block.** A module's geometry is ordinary `Scene.layers`, so
+a build without the module still draws the scene and no pass or property editor grew a case. Its own record is
+`ViewSpec.extensions[<moduleId>]`, written by the app's `serialiseScene` exactly as `theme` is and for the
+same reason — `Engine.serialize()` enumerates engine fields, and a module's record is not one. A block never
+holds a `LayerId` or a `DatasetId` (both are reassigned on load), is capped at 256 KiB, and — the rule that
+makes the format shareable — **a block belonging to a module this build does not have is carried through
+verbatim**, so opening a colleague's scene and re-saving it cannot silently delete their work. The reader is
+strict about the envelope and does not inspect `data` at all.
+
+**`moduleDirty` is a separate flag from `sceneDirty`, and the guard reads only the new one.** `sceneDirty` is
+set by any cursor click — deliberately conservative, so a gesture that ended where it started still marks the
+scene — and therefore cannot ever mean "the contacts were edited". The title's `•` is the OR of the two. The
+discard guard runs at five sites where work would otherwise vanish without a word: New, opening a scene (which
+covers Open Recent and the drop route, since all three reach `openScenePath`), and a layer row's ✕, which
+closes the dataset a module's layers hang off. `⌘S` saves the scene and says plainly that it did not save the
+module's files, because a module writes those from its own panel.
+
+**Two deviations from the design worth naming.** The guard offers `Save…` only when the dirty module declares
+a `save` command — a three-button question whose first button did nothing would be worse than a two-button
+one. And an answer to a confirm question the controller is not waiting on is **ignored entirely** rather than
+dismissing the dialog: clearing it would leave the awaiting gesture with nothing left to answer it.
+
+**Keys are a closed pool, resolved last.** `a s d f g n p t z Delete Backspace`, unmodified or with Shift,
+live only while their module is active and only after `keymap.ts` has returned `null`. So a module can never
+shadow a documented binding and adding one can never change what a key already does. The single exception to
+"an unmodified key stays harmless" is `when: 'selection' | 'toolArmed'`, and it is an exception with teeth:
+with nothing selected the key resolves to **nothing at all**, not to a command that does nothing.
+
+**The `docs-guard` CI job.** Two rules this repository has always stated and never been able to check: a
+§12.3 frozen path in the merge-base diff without both `ARCHITECTURE.md` and `DECISIONS.md`, and a manifest's
+`docs` heading missing from `USER_GUIDE.md` or from the website's `GUIDE_PAGES`. Its own job, because a
+merge-base diff needs `fetch-depth: 0` and because that failure should reach a reviewer before the test legs
+finish. §12.3 item 5 — the Rust signatures — is deliberately not enforced by path: a `crates/**` trigger would
+fire on every implementation change and teach everyone to ignore the job.
+
+**No new dependency, no lockfile change, and no engine or main-process change** beyond one CSP line, which has
+its own entry above. The fixture module `tetravox.hello` ships in every build and is listed only behind
+`?modules=hello`, because `pnpm e2e` drives the production bundle and a fixture excluded from it would prove
+nothing about the bundle users get.
+
+## 2026-08-30 — an opened scene is admitted for writing, so ⌘S saves it
+
+**Decision.** A successful `readSceneFile` of a path whose whole compound suffix is `.tetravox.json`
+adds that path to `scene-io.ts`'s `writable` set. One line, and it carves a hole in A-SHELL decision 1
+(2026-08-27) that is worth naming: "being able to read `T1.nii.gz` must never imply being able to
+overwrite it" still stands for every other file, and this is the one exception.
+
+**Why it is not the general case.** The rejected primitive was `readTextFile`/`writeTextFile` over
+anything on the read allow-list. This admits **one compound extension** — the app's own scene format,
+matched by `isScenePath` on the whole suffix, so §7.6's `hot_LUT.json` is not a scene — and only after
+a read of a path the user had already named through the Open sheet, a drop, argv or `open-file`.
+Opening `study.tetravox.json` *is* naming the file ⌘S will save over: the write it enables is the one
+write the user just asked to be able to make.
+
+**The bug it fixes.** `ShellController.saveScene` writes to `sceneFile.path` when one is attached, and
+`openScenePath` attaches it after `allowPath` + `readSceneFile` — but only `showSaveSceneDialog` ever
+called `allowWrite`, so ⌘S on an opened scene came back "not on the write list" and the scene silently
+stayed on disk as it was. Save As… worked, which is what hid it: the second save of a session was
+fine, and the first was refused. `e2e/scene-save-opened.spec.ts` opens a saved scene in a fresh window,
+edits it, saves with the File menu's Save Scene item, and reads the change back off disk.
+
+**Scope.** `writeSceneFile` is unchanged: still the exact-path check, still the 8 MiB cap, still
+`allowPath` on the way out. Nothing admits a directory, a pattern or a second extension.
+
+## 2026-08-30 — module file IO: a Save sheet that admits its own siblings, and a backup main makes
+
+**Decision.** `main/module-io.ts` adds four channels for §13 modules — `module-read-text`,
+`module-open-dialog`, `module-save-dialog`, `module-write-text` — registered from main the way
+`registerJobIpc()` registers the `--job` group. This **amends A-SHELL decision 1** (2026-08-27) rather
+than working around it, and the amendment is in two named parts.
+
+**Reading restates a door that is already open.** The 2026-08-27 rejection was of a general
+`readTextFile`/`writeTextFile` pair. `module-read-text` is the read half only, and it is *narrower*
+than what ships today: `readSceneFile` returns up to 8 MiB of any allow-listed path with no content
+check, and `tetravox:subject-spaces` already reads sidecar text in main and hands it back. This one
+answers only for a path already on the `tetravox://file` allow-list, caps at 1 MiB, and takes five
+extensions (`.tsv .csv .json .txt .fcsv`). It admits nothing — a path still gets on the list only
+through the Open sheet, a drop, argv or `open-file` — and it has no write twin. Being able to read
+`T1.nii.gz` still implies nothing about writing it.
+
+**The write family is the real change, and it is bounded by the Save sheet.** A module writes only to
+paths its **own** Save sheet admitted: the file the user chose, plus that writer's declared
+same-directory siblings, in a `Map<moduleId, …>` kept apart from `scene-io.ts`'s `writable`. Three
+things keep "same directory" true rather than intended: a template must match
+`^[A-Za-z0-9_.{}-]{1,96}$` before substitution; the substituted result must still be a plain name with
+no separator, no `..` and no brace left over; and both ends are checked, because the template is what
+a manifest declares and the anchor's basename is what a *file* supplies. A `{stamp}` template is
+admitted as a shape (`\d{8}-\d{6}`), not as one instant, or only the first save of a session could
+make a `.bak`.
+
+**Why main does the backup and the rename.** The `.bak` is a copy of the file that is about to be
+replaced, so main makes it from the path it already holds and no backup bytes cross IPC — §5 rule 3
+is kept by there being nothing to carry. The write itself is `<path>.part` then `renameSync`, the
+`sample-data.ts` precedent: a rename inside one directory is atomic, so an interrupted save leaves the
+previous electrode table intact instead of half of the new one. A writer that did not declare a
+`{name}.{stamp}.bak` gets `backupPath: null` and its write; the backup is a courtesy the manifest opts
+into, not a condition of saving.
+
+**Rejected: a main-side sibling resolver.** BIDS sibling discovery stays in the renderer, where
+`open/sources.ts#firstAllowed` already probes derived sidecar names through `bridge().allowPath` and a
+null return doubles as the existence check. A resolver in main would buy no admission-policy gain over
+that status quo — `allowPath` admits any existing absolute path today — and would be the directory
+listing IPC this app deliberately does not have. Tightening `allowPath` itself is a separate question
+and is not answered here.
+
+**Tested by refusal.** `module-io.test.ts` is new infrastructure (there was no `scene-io` unit test;
+`sample-data.test.ts` is the nearest template): accepted and rejected templates, a traversal that only
+appears after substitution, cross-module isolation, the read cap and extension filter, `.bak` naming,
+`.part` cleanup, and every write that must be refused.
+
+## 2026-08-30 — the window asks before closing on unsaved module edits, and offers no Save
+
+**Decision.** `installCloseGuard` (`main/module-io.ts`) adds the codebase's first `BrowserWindow
+'close'` handler — until today only `'closed'` was listened for. When the window carries the
+module-edited flag, the close is `preventDefault`ed and a two-button `dialog.showMessageBox`
+**{Discard, Cancel}** decides it. The flag arrives on `tetravox:set-document-edited`, which main also
+hands to `win.setDocumentEdited` so macOS draws the dot in the close button.
+
+**Why the flag is pushed and not derived.** `sceneDirty` is set by any cursor click, any layer or
+dataset event and any interacting frame (`controller.ts`), so it cannot mean "a module has edits that
+are not on disk"; a guard keyed on it would stop every close of every session. `UiState.moduleDirty`
+is fed by a module's own `ui.setDirty`, and this channel is the one bit of it main needs.
+
+**Why there is no Save button.** Saving a module's file means its Save sheet, its writer's filters and
+its siblings, and `module-write-text` — all of which live in the renderer and the module. A Save here
+would be a second write path driven from main, on a window that is halfway through closing, and §5's
+write rule exists to keep there being exactly one. The renderer's own five-site guard (New, Open,
+Open Recent, drop, close-dataset) is where a three-button "Save…, Discard, Cancel" belongs, because
+that is where the module is still alive to save.
+
+**Two ways it must stay out of the way.** A `--job` window never installs it: a batch render has
+nobody to answer the box and would sit until the watchdog fires, spending the 45-minute CI cap on a
+hung window. And `TETRAVOX_E2E_DISCARD=1` disables it entirely, read at close time so a spec can set
+it per launch — the seam a windowless e2e needs to tear down a window it deliberately made dirty
+(AGENTS rule 8). Both are asserted: `shouldPromptOnClose` is a pure function with a unit test for all
+four cases, and `e2e/module-guard.spec.ts` closes a real window three times — Cancel keeps it,
+Discard closes it, a cleared flag and the E2E seam close it with no box at all — with
+`dialog.showMessageBox` stubbed in main, because an OS-modal box no click can reach would otherwise
+hang the run.
+
+## 2026-08-30 — §13's five scene fields: a module tags its layer, a point has an identity, `ViewSpec` carries a block
+
+Phase 1 of the modules build (`feat/points-engine`). `scene/types.ts` is frozen (§12.3), so ARCHITECTURE
+§4.4 and §4.6 change in this commit with it. Five additions, every one optional, and **absent reproduces the
+previous behaviour** — which for these five is checkable rather than asserted: three of them are read by
+nobody in the engine at all.
+
+* `LayerBase.module?: string` — which module owns a layer's edits.
+* `points[].id?` / `.group?` / `.ordinal?` — a stable identity, its electrode, its 1-based contact number.
+* `PointsLayer.offPlaneOpacity?` and `.labelSource?` — the two rendering fields, decided in the entry below.
+* `ViewSpec.extensions?` — the per-module state blocks.
+
+**`module` is a `string`, not a union, and the engine never reads it.** §4.4 is the scene model; a union of
+module ids would put the app's registry inside the frozen engine and make adding a module a frozen-file
+change. The field exists because §4.6 reassigns every `LayerId` on load, so a module looking for its own
+layer afterwards has only dataset, kind and name to match on — which two subjects' contact layers share, and
+which two runs of the same subject share exactly. The app is the only reader: a module-owned layer gets a
+read-only summary row where the core property editor would be, so the core per-point colour reset and the
+0.5–20 mm radius slider cannot rewrite a module's invariants behind its back.
+
+**Why a per-point `id` when the array index already identifies a point.** It does, to the engine, and it
+still does: `ProbeRow.labelId`, `nearestPoint` and the instance row are all the index, and none of that
+changes. But an index is not an identity across an edit. Deleting the second of twelve contacts renumbers
+ten, so a selection held as an index then names a different electrode, and an undo step holding one restores
+the wrong contact. Selection is therefore by `id` and survives a wholesale `points` replacement — which is
+how every edit reaches the engine, since the instance buffer is keyed on the array's identity and a layer is
+patched by handing it a new array.
+
+**Why one layer with `group`/`ordinal` and not one layer per electrode.** Twelve same-kind rows each mount a
+full property editor, add a stop to `[` / `]`, take a probe row and put a ✕ on the layer panel that closes
+the carrier dataset. One layer with a `group` tag costs two optional fields and no rendering change at all.
+`ordinal` is separate from array order because the array is drawing order and the ordinal is anatomy: a
+contact inserted between 4 and 5 sits wherever the editor put it and is still ordinal 5 after a renumber.
+
+**`ViewSpec.extensions` is written by the app, like `theme`.** `Engine.serialize()` enumerates `Scene`, and
+there is no module state in `Scene` to enumerate — deliberately, because the engine has no module registry
+and must not grow one. So the field is *typed* here (a scene file is one schema, not two) and *written*
+there, and the app carries an unregistered module's block forward verbatim so that opening a colleague's
+scene in a build without their module does not delete their work. §13.2 caps a block at 256 KiB of JSON and
+forbids a `LayerId` or `DatasetId` inside one: both are reassigned on load, so a block that named one would
+be silently wrong rather than loudly broken.
+
+**The degradation contract, and the guarantee it rests on.** A scene re-saved by a build that predates a
+module keeps the layer and every per-point field — they ride `serializableLayer`'s `{ ...layer }` spread and
+`remapLayer`'s — and drops only `extensions`. That pass-through was already true and was undocumented; §4.6
+now states it as a guarantee, so narrowing `SerializableLayer` to an explicit field list is recognisable as
+the breaking change it would be. `roundtrip.test.ts` pins it by deep-equality over every key of a fully
+populated layer of each kind.
+
+## 2026-08-30 — points ghost off-slice, label themselves, and wear a selection ring
+
+Phase 1 of the modules build, the rendering half. Three things reach §7.2, all default-off, and
+`docs/ARCHITECTURE.md` §7.2 changes in the same commits.
+
+**Ghosting is a uniform, not a program variant.** §7.2's 2D rule for a points layer — the sphere ∩
+plane disc, with `|d| ≥ r` dropped — is what makes a scalp net sweep with the cursor, and it is
+exactly wrong for a depth electrode: a shaft is twelve contacts along a line no single slice
+contains, so scrolling shows one contact at a time and the shaft is never visible as a shaft.
+`offPlaneOpacity > 0` draws the dropped points too, at the **full** radius, because there is no
+cross-section to size them by. It is a `uGhostAlpha` uniform on the existing `POINTS_2D` program:
+`derived.ts` already writes per-layer uniforms there, the branch is one comparison on a draw of a few
+hundred instances, and a variant would double the program cache for a layer flag. At 0 — what absent
+means, and what the 3D variant never sets it to at all — the shader takes the cull branch verbatim.
+The value is clamped to 0…1 in the pass, because a scene file is user-editable text and a 3.0 would
+make the ghosts brighter than the contacts on the slice.
+
+**The two 2D rules diverge under ghosting, and that is the decision.** The discs ghost; the labels
+stay slab-culled at `max(radiusMm, 1 mm)`. A disc at 0.6 alpha is a legible hint of where a shaft
+goes. A whole shaft's worth of names on one slice is the smear the slab rule was added to prevent —
+187 electrodes projected onto one axial plane, names belonging to slices 80 mm away. So `§7.2` states
+both rules next to each other rather than quietly applying one of them.
+
+**`labelSource` exists so a module never maintains a `labels` array.** The overlay read
+`layer.labels` and nothing else, which is right for a parsed Gmsh view (a `T3` is independent of the
+`SP`s and SimNIBS lifts it 5 mm clear of the sphere) and wrong for a layer whose text simply *is* its
+points' names — and §4.6 does not serialise `labels`, so an editor that used it would rebuild it on
+every edit and lose it on every open. One pure resolver, `pointLabelAnchors`, so the pass has no
+branch in its loop and §11 can assert which strings a layer emits with no GL context.
+
+**The selection ring is on the frame, by index, and only where the disc is.** `DrawInput` gains
+`pointSelection` and `pointHot`, beside `gizmo` and `measureDraft` and for the same reason: which
+contact is selected is pointer state, and a `*.tetravox.json` must never carry it — a scene mailed to
+a colleague would open with a stranger's cursor in it. They are addressed by **array index** because
+that is the frame's key into the array the pass walks; a tool selects by `points[].id`, which is what
+survives an edit, and resolves it on the way in. The radius comes from `discRadiusPx`, the shader's
+rule restated once on the CPU and shared with the hit test that P2 adds — `gizmoHandleAt` shares
+`handlePoints` with `drawGizmo` for the same reason, and a hit rule stated twice is a hit rule that
+drifts away from the picture. It returns `null` for a culled point, so a ring is never drawn around
+something the pane does not show, and a stale index draws nothing rather than ringing its neighbour.
+
+**`OverlayTheme` gains `select`, violet, engine default only.** `measure` is not in the app's
+`overlayPalette` either, so this is no app token work. Violet because a ring sits *on* a coloured
+disc in a pane that may also hold the amber crosshair, the cyan gizmo and the blue active border, and
+§11 has to be able to name it without a tolerance that also matches one of those. Notably not a
+green: `gizmoHot` is one.
+
+**`TetravoxEngine.setPointHighlight` is a class member, not a §4.7 facade one.** The facade is what
+§8's "everything the UI can do must be reachable from the `Engine` API alone" is about, and a *ring*
+is not something the UI does — it is what the engine's own pointer layer shows while a tool is armed.
+Same class as `showGizmo`, `gizmoAt` and `worldAtScreen`. So `MockEngine` and the app's `NoGlEngine`
+need nothing for this phase.
+
+**Nothing moves.** `DEFAULT_OVERLAY_THEME`'s existing eight fields are untouched, `pointSelection`
+and `pointHot` are absent on every frame nothing sets them on, and `offPlaneOpacity` / `labelSource`
+are absent on every layer. The full engine e2e suite, goldens included, is green unchanged; the one
+new picture is `derived-points-ghost`.
+
+## 2026-08-30 — `sampleVoxelBox` / `peakCentroid`: §4.3's "for probes only" becomes "and bounded local reads"
+
+§4.3 kept `VolumeDataset.data` on the UI thread "for probes only", and a probe is one voxel. Snapping an
+sEEG contact to the metal it is inside needs the neighbourhood — Slicer's editor takes a box of radius
+1.5 mm and moves the contact to the intensity-weighted peak, which on a 0.5 mm CT is a few hundred voxels
+and well under a millisecond. So §4.3's sentence is amended in the same commit as the code, and the
+amendment carries its own bound: `derived/voxel-box.ts` reads at most `MAX_BOX_VOXELS` = **32 voxels on an
+axis**, and a whole-volume scan is still not a probe.
+
+**The cap is the decision, not a performance note.** Without one, "you may read `data` on the UI thread"
+is a door to a 512³ loop inside a `pointermove` handler, and §5's whole worker-per-dataset arrangement
+leaks through it. 32 rather than a millimetre limit because the bound has to hold whatever the spacing is:
+1.5 mm is a 3-voxel half-extent on ernie's 1 mm T1 and 15 on a 0.2 mm micro-CT. A caller who wants more
+than a box asks a worker (§6.5).
+
+**The box is axis-aligned in voxel space, half-extent `ceil(radiusMm / spacing)` per axis.** A world-aligned
+box would need the affine's row norms and would still have to be padded to whole voxels; this covers the
+requested radius in every direction on an oblique volume and is one `ceil` per axis. It is clipped to the
+volume rather than refused there, so a contact near a face reads a smaller box and says so through `ijk0`
+and `dims`. It **refuses** two things instead of coping: `rgb24`/`rgba32`, whose samples are interleaved
+components with no single value (§4.2's scalar model does not cover them either), and a query point outside
+the volume — never clamped, because a snap that silently pulled a click 40 mm back inside the head is worse
+than one that says no.
+
+**The weighting is Slicer's, verbatim: `clip(v − (max − ½(max − min)), 0)`.** Half way up the box's *own*
+range, not a fixed HU floor — which is what makes it work unchanged on a CT whose background is soft tissue
+at ~40 HU and whose contacts are metal at ~3000, and on the same scan rescaled. It has no parameter but the
+radius. The centroid is computed in **voxel indices** and mapped through the affine at the end, so the
+weights and the coordinates stay in one frame; on a flat box every weight is zero and the answer is `null`,
+because uniform background has no peak and returning the box centre would be a snap pretending to have found
+something.
+
+**Both are pure and exported from `@tetravox/engine`.** The app's `NoGlEngine` must give the same answers as
+the real engine, and a module that re-implemented "where is this contact really" would be a second source of
+truth for an electrode position. Exported for the reason the colormaps and the coordinate spaces are.
+
+**Two references, and neither is this code.** The synthetic fixture is `testdata/ct_shafts.nii.gz` — a CT
+phantom with three depth electrodes at a 3.5 mm contact pitch, oblique to every axis, on **anisotropic**
+spacing (0.4 / 0.5 / 0.8 mm) so that `ceil(1.5 / spacing)` is 4, 3 and 2 voxels and an implementation that
+used one spacing for all three axes is right on an isotropic volume and wrong here. It is stored as
+`HU + 1024` with `scl = (1, −1024)`, so a reader that forgets §6.1's scaling is off by exactly 1024 rather
+than subtly wrong. `scripts/gen-fixtures.py`'s verification half re-reads the file with **nibabel** and
+recomputes every expectation in numpy, per AGENTS.md "Test data". The real-data half is
+`scripts/refvalues/voxelbox_refvalues.py` over `m2m_ernie/T1.nii.gz`, which is the file that matters —
+float32 with a max of exactly 65535 and a non-diagonal sform, where a box built from `dims` and `spacing`
+instead of the inverse affine would pass on the phantom and fail on a subject.
+
+**One convention had to be pinned to make the two agree: the query's voxel index rounds HALF-UP**, like
+JavaScript's `Math.round`. `np.rint` is half-to-even and disagreed on every index landing exactly between
+two voxels. Both references now state the rule, and the fixture's origin puts an integer voxel index at
+world 0 on every axis with no query on a half-index — a test whose expectations turn on a tie-break is
+pinning the tie-break rather than the rule.
+
+## 2026-08-30 — the point tool: place on every click, select by id, and one `dragEnd` per drag
+
+§13's contact editor needs three things the engine had no member for: a mode in which a click edits points
+instead of moving the cursor, a way to say *which* point a tool is about that survives an edit, and a signal
+that a drag is over. `api.ts` gains five members, an event and three types; `engine.ts` implements them;
+`input/gestures.ts` gains a `GestureKind`; `input/pointer.ts` gains one slot in its precedence chain. Two
+frozen files (§12.3) — `api.ts`, and ARCHITECTURE §4.7 / §7.5 / §11 edited in the same commit. Every addition
+is additive and nothing is armed by default, so the whole engine e2e suite, goldens included, is unchanged.
+
+**The template is the measurement tool** (`docs/DECISIONS.md`, 2026-08-28), deliberately and almost line for
+line: the mode is the engine's because only the engine can turn a pane pixel into a world point and §8 forbids
+the app deriving one; the app owns the thing that arms it and nothing else; the pointer layer is where a click
+becomes an edit. What is new is that the thing being edited is **scene state a layer already holds**, not a
+new `Scene` collection — §4.4's `PointsLayer` is the contact model (2026-08-30), so every edit is one
+`updateLayer` and a host that never heard of this tool still sees the points move.
+
+**Place mode does not hit-test first, and that is Slicer's semantics rather than an omission.** In `'place'`
+every left click appends a point. The alternative — hit first, place on a miss — reads as helpful and is
+wrong at the pitch this is for: sEEG contacts are 3.5 mm apart, about five pixels at a default zoom, and the
+click that matters most is the one filling the gap *between* two contacts that were found. A hit-first rule
+answers that click by selecting a neighbour, and the user's correction has silently become a no-op.
+
+**Selection is by `points[].id`, and the engine re-finds it after every `points` replacement.** The array
+index is the frame's key and cannot be an identity: deleting the second of twelve contacts renumbers ten of
+them. So the tool holds `{ layerId, pointId }`, `updateLayer` re-resolves it, and an id that is no longer
+there **clears** the selection with a `cleared` event rather than leaving the ring on whatever took the index.
+Arming the tool also *materialises* ids — a layer whose points carry none gets `p<index>` on every one of
+them — so that the tool, the selection and the saved scene name the same contact by the same string instead of
+the engine answering with ids that are not in the scene.
+
+**A ghost is never hit.** `offPlaneOpacity` draws the off-slice contacts of a shaft so the shaft reads as a
+shaft (2026-08-30), and every one of those discs is at a position the pane is *not* showing a cross-section
+of. Grabbing one and dragging it would move a contact in a plane it is not in, by a delta measured in a plane
+it is not in. So the hit test asks the disc rule with the ghost switched off, which is one argument
+(`offPlaneOpacity: 0`) rather than a second rule: `overlay/point-ring.ts`'s `discRadiusPx` is the shader's
+rule stated once, and the ring, the hit test and the picture cannot drift apart — the arrangement
+`gizmoHandleAt` already has with `handlePoints`. The floor under it is `max(disc, 8 px)`, because a 0.8 mm
+contact at 0.5 mm/px is a 3 px target and a hand does not aim at 3 px.
+
+**One `dragEnd`, delivered from all three of the gesture machine's exits.** The gizmo drag discards its
+`end` (`#onUp` is `void g`) because it has no host that cares; a point drag does — one drag is one undo step
+and one dirty mark, and the module's `.bak` is the only other net. The `end` arrives from `#onUp`, from
+`#onCancel` (which is `pointercancel` **and** the window `blur` bound to the same handler) and from the
+second-pointer branch of `down()`, whose events until now were read only for a `begin`. All three are
+forwarded for kind `'point'` and for no other kind, and `gestures.test.ts` has a case per exit — a tool that
+listened to only the first would leave a half-committed edit behind every time a user switched windows
+mid-drag.
+
+**`GestureKind 'point'` is resolved in the 2D branch, between `Shift` and `space`.** After the ctrl/meta and
+`Shift` tests so a menu accelerator is still not a drag and `Shift`+drag over a contact is still the layer's
+opacity; before the `space` test, and testing `space` itself, so `space`+drag over a contact still pans the
+pane. §7.5 binds those three and a new tool does not get to quietly take them. `GestureMachine.down` and
+`resolveGesture` now take a `GestureTargets` bag where `overGizmo` was a positional boolean — `overPoint`
+would have been a fifth — and a bare boolean is still read as `{ overGizmo }`, so no existing caller changes.
+
+**One armed mode at a time.** Arming the point tool disarms measure mode and `setMeasureMode(true)` disarms
+the point tool. Both take the left click away from the cursor, and there is no place in §8's chrome that could
+honestly show which of two armed modes a click went to. §7.5 states the invariant.
+
+**`Esc` is `place` → `select` → off**, in the engine's own `keydown` beside `cancelMeasurement`'s and
+**before** the "is the pointer over a pane" early return, so it works with the pointer over the panel — which
+is where a user's pointer is when they decide they are done placing. It cannot be the app's: `keymap.ts`
+returns `cancelMeasurement` for `Escape` unconditionally and `Shell.tsx` `preventDefault`s it, so "core first,
+module on null" would never reach a module. Two steps rather than one because the two modes fail differently:
+a user who armed `place` by mistake wants out of *placing*, not out of the tool.
+
+**The hover hit test runs only while `select` is armed.** §8 budgets a volume hover at 16 ms and the 2D
+`#onMove` path is the hottest code in the pointer layer, so an unconditional per-move CPU test over a points
+layer would be a tax on every user who is not editing points. Armed, it sets `DrawInput.pointHot` and the
+canvas cursor; unarmed, it is one property read. `pointer.spec.ts` keeps a timing case on the unarmed path so
+that stays true.
+
+**Both mocks, and one of them behaviourally.** `MockEngine` inside the frozen `api.ts` throws, like every
+other member of it — its job is to be the compile-time proof that the facade needs no GL. The app's
+`NoGlEngine` implements the tool **for real** (arm/disarm, ids, selection by id, place, drag, the events),
+because the app's e2e launches with `?engine=mock` and there is no canvas there for a pointer layer to listen
+to. Its hit test is the engine's own exported `pointAtPane`, so "which contact did that click grab" has one
+answer in both engines; what it cannot borrow is the pane, so its 2D pane is an explicit `pointPane` with its
+in-plane origin at the cursor — the case the real engine reduces to when the scene anchor and the cursor
+coincide — and its 3D hit test answers `null` rather than inventing a projection from a camera matrix that
+never drew anything. `pointToolClick` / `pointToolDrag` / `pointToolDragEnd` are the three calls the real
+pointer layer would have made, exposed as a seam like `terminations` and `theme`, and not on `Engine`.
+
+**One P1 member had to be corrected to make the hover ring work.** `setPointHighlight({ hot: null })` kept the
+old value: the implementation read `highlight.hot ?? this.#pointHot`, and `??` cannot tell `null` — the value
+a caller passes to *clear* one half — from "not mentioned". It now tests `'hot' in highlight`. Without it, a
+pointer leaving a contact could only clear the hover ring by clearing the selection's with it.
+
+**Nothing moves.** No mode is armed unless something arms it, `pointSelection`/`pointHot` stay absent on every
+frame that predates a tool, and `resolveGesture` returns exactly what it returned for every press that is not
+over a point with a tool armed. The full engine e2e suite (both renderer projects) and every golden are
+unchanged; the new coverage is `points-tool.spec.ts`, which asserts the drag as `40 · mmPerPx ± 0.05 mm`
+derived from §3 rather than from the engine.
+
+## 2026-08-30 — the module host is wired, and frozen: §12.3 gains item 6
+
+**Decision.** `packages/app/src/renderer/src/modules/host.ts` is a §12.3 frozen interface from this
+commit, at `MODULE_HOST_VERSION = 1`, because this is the commit in which its last three unwired
+members stopped being stubs: `host.tool` is the engine's §4.7 point tool, `host.files` is
+`createHostFiles(manifest, bridge().allowPath)` over §5 rule 11's channels, and
+`host.scene.peakCentroid` is the engine's §4.3 bounded local read over the dataset the module names.
+`ModuleEvents.pointTool` **is** `EngineEvents.pointTool` — the three point-tool shapes are re-exported
+from `@tetravox/engine` rather than declared a second time — and the event reaches a module the way
+`layers` and `measurements` reach the store: one `engine.on('pointTool', …)` in
+`ShellController.attach`, fanned out to whoever subscribed.
+
+**Why the freeze is here and not in Phase 0.** A surface frozen before the work behind it exists is a
+surface frozen around stubs, and every one of the three would have had to be amended: `addLayer`
+stamps a field `scene/types.ts` did not have, `peakCentroid` needs a helper the engine did not
+export, `tool` and `files` had no implementation at all. The design named this moment ("Phase 3
+completes the surface") precisely so the governance round would happen **once**, with the whole
+surface in front of the reviewer, rather than four times with a quarter of it each. `MODULE_HOST_VERSION`
+is what a module names in `manifest.hostApi`, so the freeze is not a promise never to change the host
+— it is the promise that a change is additive, documented in the same commit, and that a breaking one
+bumps an integer the registry test checks.
+
+**The stubs stay.** `createModuleHost`'s `tool`, `files` and `peakCentroid` remain optional
+dependencies whose defaults throw `ModuleHostError`, even though the shipping build passes all three.
+Two reasons. A harness builds a host with none of them and asserts exactly that distinction — "this
+build has no point tool" is a different answer from "nothing is selected", and a module written
+against the second must not silently do nothing against the first. And a module compiled against a
+later host will meet an older build one day; a member that throws is the only shape in which that is
+reportable rather than invisible.
+
+**The dialogs take their title, filters and templates from the manifest.** `main/module-io.ts` now
+imports `MANIFESTS` — the data-only barrel main already validates job actions against — and looks up
+the reader or writer a sheet names, so an Open sheet offers a declared reader's extensions and a Save
+sheet admits a declared writer's sibling templates. The renderer still sends its own copies and they
+are still sanitised on arrival, because they are the fallback for a module a build's barrel does not
+carry (a harness, or a `--job` window told about one). The half that matters is the sibling template:
+it is what admits a *second* path for writing, so it is the one that stops being renderer-supplied
+the moment main can look it up. Nothing is trusted for coming from a manifest — every template is
+still validated before substitution and its result again after.
+
+**One sibling resolver, not two.** `modules/siblings.ts` owns the manifest's token rules, the
+filename-segment rule, the three-ascent limit and `resolveSibling`; `hostFiles.ts` imports them and
+`ShellController.dispatchSiblings` calls the same function. The two had grown independently on
+parallel branches with different strictness — one normalised `a/../b` and the other refused it — and
+a path rule that is right in one of two places is a path rule that will be wrong in the other. The
+stricter reading won: a re-descent, a climb past the root, an empty segment and a backslash are all
+refused rather than normalised, because `../a/../../etc/passwd` normalises to something perfectly
+ordinary and this is the last place either a manifest's template or a filename on disk can be caught.
+
+## 2026-08-30 — the module job envelope: one action type, and the manifest is its schema
+
+**Decision.** A module operation reaches `--job` as `{ "type": "module", "module", "op", "args" }` and never
+as an action type of its own. The automation surface has two closed switches — `main/job.ts`'s
+`validateAction` and `automation/run.ts`'s `runAction` — and they are the whole cost of a job action; a
+module that wanted `{ "type": "seeg-snap" }` would make every module after it pay that cost again, in two
+files neither module owns. One envelope, edited once, and `modules.test.ts`'s rule that nothing
+module-specific appears in the shell survives into automation.
+
+**The manifest is the schema.** `module` is looked up in `MANIFESTS`, `op` in that manifest's `operations`,
+and `args` against the operation's own `ArgShape` — in **main**, before a window exists, which is what keeps
+§2.6's promise that every problem in a job file is reported at once with a path into the document. Nothing
+new was needed for that: `MANIFESTS` is the data-only barrel `module-io.ts` already imports, and a manifest
+that stopped being erasable data would break this validator first.
+
+**An undeclared `args` key is an error, and a `set`'s `patch` key is not.** The asymmetry is not an
+inconsistency: a `patch` is a `Partial<Layer>` that `updateLayer` merges and nothing here can enumerate,
+while an operation declares every argument it takes. So an undeclared argument is a typo, and a typo that is
+silently dropped is a job that appears to have run — the worst outcome available to an unattended render.
+
+**`path` and `out` are the two types that are about files, and they are opposites.** A `path` is an input and
+gets exactly what `scene.files` get, for the reason §5 directive A2 gives: `${VAR}` expanded, resolved
+against the job file, allow-listed before the window opens, and handed to the renderer already resolved. An
+`out` is a name under `--out`, held to the same `outName` rule every other output is, and admitted to that
+module's write list (§5 rule 11) together with the sibling templates its writers declare — the union of them,
+because an `out` names a file and a job has no vocabulary for "using the electrodes writer". That admission
+is the whole mechanism by which a module can save in a batch run: there is no Save sheet to open, and a
+second write path driven from main is what §5's write rule exists to prevent. It also means an `out` can
+never name the file the job read, so the first save in a fresh `--out` mints no `.bak` — there is nothing
+there to back up.
+
+**`ArgType` gains `path?`.** The sEEG `load` operation takes a T1 it will use if it is given one, and
+`string?` would have carried the same value with none of the meaning: only a `path` joins `jobInputPaths`,
+and a path a job named but main never allow-listed is a file the module is told about and cannot read.
+Additive, and absent reproduces the previous behaviour.
+
+**`JOB_SCHEMA_VERSION` does not move.** It is bumped when a required field appears or a default changes.
+An unknown action type was already rejected with a message naming the types that exist, so a job written
+before today behaves identically, and a job written today against an older build is refused rather than
+half-run. For the same reason `job-result.json` grows `modules: [{ id, version }]` **only when the run
+actually used a module**: a job that uses none produces the result file it produced before, byte for byte,
+and a client parsing it needs no version check to know what it is looking at. The list is main's answer
+rather than the renderer's, since main validated the actions against the manifests and already knows every
+module the run depends on — and a result naming the version that produced a figure is what makes the figure
+re-derivable a year later.
+
+**`validateJob` and the four helpers take the manifest list as a last argument, defaulted to `MANIFESTS`.**
+No shipped manifest declares every `ArgType`, so a validator driven only by what ships would have eight
+untested branches; the seam is the same one `shouldPromptOnClose` takes `env` for, and the tests still run
+the whole envelope against the real barrel through `tetravox.hello`'s `echo` so the default binding is
+proven and not assumed.
+
+## 2026-08-30 — AUTOMATION §2.7 is generated from the manifests, and CI grows its first Python step
+
+**Decision.** The table of module operations in `docs/AUTOMATION.md` is written by
+`scripts/sync-module-docs.mjs` from the manifests themselves, and `docs-guard` runs it with
+`--check`. A hand-written table would be a **second declaration** of the automation surface, and the
+two would agree exactly until somebody added an argument — at which point the documentation would be
+the thing telling a user their job was legal and the validator the thing refusing it. Generating it
+is how "the manifest is the schema" stays true of the documentation as well as of the code.
+
+**It imports each `<id>/manifest.ts`, not the `manifests.ts` barrel.** Node runs TypeScript by
+stripping the types, and a manifest's own imports are all `import type` and vanish with them — so a
+manifest file is a standalone ES module the moment the annotations are gone, which is the same
+property `modules.test.ts` already enforces for its own reasons. The barrel is not: it carries a real
+`import { helloManifest } from './hello/manifest'`, extensionless, which is a TypeScript convention
+Node's resolver does not implement. Type stripping is unflagged from Node 23.6 (CI's Node 24 and a
+local Node 25 both need nothing) and behind `--experimental-strip-types` from 22.6 to 23.5, so the
+script re-execs **itself** once with the flag if the import fails the way an older Node fails it —
+one retry, guarded by an environment variable, rather than a build step and a generated JSON file
+nobody would remember to regenerate.
+
+**The section is delimited by markdown, not by an HTML comment.** `<!-- BEGIN GENERATED -->` was the
+obvious marker and is the wrong one here: `website/scripts/sync.mjs` escapes every tag it does not
+recognise, so the marker would appear as visible text on the published page. The script instead owns
+everything from its `### 2.7` heading to the next heading **at that level or above**, or the next
+`---` rule. Both halves of that sentence are load-bearing and both were found by a failing test: a
+scan that stopped at any heading stopped at the first `####` of the section's own body and
+re-inserted the section in front of the tables it had just written, and a splice done on strings
+rather than on lines ate the blank line above the heading and then glued the heading to the
+paragraph above it. A generator whose first run looks right is exactly the kind that needs its own
+tests.
+
+**CI's first Python step, and its own job.** `python -m unittest discover -s python/tests` runs under
+`actions/setup-python`, pinned to 3.12, installing nothing: the client is standard library only, and
+that is a design decision rather than an omission (`python/pyproject.toml`). It is a separate job for
+the reasons `docs-guard` is one — no pnpm install, no toolchains, ~20 seconds — and specifically not
+a step of `test`, where it would run a second time on the macOS leg at 10x the minutes for identical
+coverage. The end-to-end halves (`test_client.py`'s example run, `test_capture_examples.py`) skip
+when there is no build and no data, exactly as every real-data test in the repository does; what CI
+gates is the **documents** a `Job` builds, which is the half that is the contract with
+`main/job.ts` — and the half whose other end `job.test.ts` asserts.
+
+This is the first non-JavaScript, non-Rust dependency in the workflow, and it is worth naming as a
+cost: the Python client has shipped untested by CI since it was written, its schema is the same
+schema the validator implements, and the two drifting is a class of bug no other test in the
+repository can see.
+
+## 2026-08-30 — the module host gains `scene.activePlane()`, and nothing else about a view
+
+**Decision.** `ModuleHost['scene']` gains one member — `activePlane(): { normal, point } | null` —
+answering the plane the **active 2-D pane** is showing, with the cursor as its point, and `null` for
+the 3-D pane. `host.ts` is frozen (§12.3 item 6), so ARCHITECTURE §13.1 changes in this commit with
+it; `MODULE_HOST_VERSION` does not move, because the addition is additive and absent it was simply
+not askable.
+
+**What made it necessary.** The sEEG editor's contact list quotes each contact's **distance from the
+plane you are looking at** — the number that says "this one is on your slice, that one is 8 mm
+behind it". A module has no other way to know: `ModuleHost` publishes layers, datasets and the
+cursor, and the plane a pane draws is the view's `{normal, up}`, which is engine state. The
+alternatives were all worse in a way §13.7 rule 7 already names. Deriving the normal from the pane's
+`SliceMode` would be a second source of truth that is wrong on an oblique view and does not follow an
+in-plane rotation — the same class of mistake §8 forbids when it tells the app not to turn a pane
+pixel into a world point itself. Quoting the 3-D distance from the crosshair instead would be a
+different quantity wearing the same label: a contact exactly on the slice but 30 mm to the left of
+the crosshair would read 30 mm, which is precisely the reading a clinician must not get from a column
+headed "off-plane".
+
+**Why this shape, and why nothing more.** `{ normal, point }` rather than a `View` or a `ViewId`:
+§7.5's rule is that a slice pane shows the plane with the view's normal **through the cursor**, so
+those two vectors are the whole of the answer, and a module that received a `View` would also receive
+a camera, a zoom and a per-view layer visibility it has no business reading. `null` for the 3-D pane
+is the honest answer rather than a fabricated plane, and a panel that shows a dash for it is showing
+the truth. The normal is re-normalised in the controller rather than trusted: a `*.tetravox.json` is
+user-editable text, and a non-unit normal there would silently scale every distance a module quotes.
+
+**It is always wired.** Unlike `tool`, `files` and `peakCentroid`, this is not an optional dependency
+of `createModuleHost`: it is answered from the controller and the store, which are required, so there
+is no build in which the shell exists and the active pane does not. Nothing here can throw
+`ModuleHostError`.
+
+## 2026-08-30 — `tetravox.seeg`: the contact editor, and the library under it
+
+The first product module (§13), reproducing the 3D Slicer `SEEGContactEditor`'s Inputs → Edit → Save
+loop over a BIDS-iEEG `electrodes.tsv` and the registered CT it was localised on. It reads and writes
+the same files as that module and as `seegprep`, so the two can be used on one subject
+interchangeably. This entry records what it decides that a reader would otherwise have to infer.
+
+**A shared contact library, and a line drawn through it.** The owner's requirement was that DBS leads
+and ECoG grids be addable later without a fork, so `modules/shared/contacts/**` holds everything that
+is true of *any* set of named implanted positions — the model and its identity rules, the tolerant
+reader, the canonical writer, the editlog schema, the PCA line primitives, the palette, the layer
+bridge, the snap scoping — and `modules/seeg/**` holds what is true of a **depth electrode**. The
+test of where the line falls is simple: a rule that a 4×8 grid would also obey is shared, and one
+that mentions a shaft is not. `refitShaft`, the tip rule and the `seegprep` file layout are therefore
+sEEG's; `fitLine` and `respaceEven` are not. Everything under `shared/` is inside §13.1's import wall,
+which is what keeps "shared" from becoming a back door to the store.
+
+**The tip rule is stated, because Slicer's is a stub.** `_tipSign` there has a docstring describing a
+heuristic and a body that returns `1.0`, and the module's own README lists "verify contact 1 =
+deepest" as a known limitation. Here: **contact 1 is the end of the shaft nearer the reference
+centre**, where the reference is the bound volume's bounding-box centre (falling back to the centroid
+of every contact). Not the electrode's own centroid, which lies *between* its ends and would make the
+rule a coin toss. It is a heuristic and not a brain mask — an occipital shaft entering near the
+midline can defeat it — so the tip contact is marked in the panel, `t` pins the other end per
+electrode, and the choice is saved with the scene.
+
+**Only Re-fit and Renumber ever relabel.** Loading, placing, dragging, snapping and deleting leave
+every contact's number and name exactly as they were. A clinical table's numbering is wired to the
+recording system through its `csc` column, so a renumber is a decision, not a side effect — and both
+buttons that make it say so. New names keep the **zero-padding the file used** (`LINS01`, not
+`LINS1`), which is the Slicer defect that made every relabelled contact read as `added` on the next
+load.
+
+**Floats are formatted like Python's `repr`.** `seegprep` writes `repr` so its tables round-trip bit
+for bit, and JavaScript disagrees with it in three places: `String(3)` is `3` where `repr(3.0)` is
+`3.0`, `String(1e-7)` is `1e-7` where `repr` is `1e-07`, and the two switch to exponent notation at
+different magnitudes (21/−7 against 17/−4). `formatFloat` is CPython's layout rule over
+`toExponential()`'s shortest digits, pinned by a generated fixture of two dozen pairs. The
+consequence that matters: **an untouched contact is written back byte for byte**, which is what makes
+the `status` column mean something.
+
+**The save is three files and the editlog's name is a contract.** The table (tab-separated, LF, the
+original columns in their original order with `electrode` / `contact` / `status` appended if absent),
+a `<name>.<stamp>.bak` main copies from the bytes that were there, and `<stem>_editlog.json`.
+`seegprep`'s CLI globs `<derivatives>/sub-<id>/ieeg/*_electrodes_editlog.json` and refuses to re-run
+over a hand-edited subject without `--force`, so a save whose stem does not end in `_electrodes`, or
+which lands outside an `ieeg/` directory, is warned about **before** it is written. The editlog keeps
+every count Slicer's wrote, under the same names, and adds a per-contact diff — counts answer "was
+this hand-edited?", and the reviewer three months later is asking "what was changed?".
+
+**`status` keeps what the localiser said.** `edited` for a contact that moved by more than 1e-3 mm
+(Slicer's L1 test), `added` for one with no row behind it, and otherwise the row's own status if it
+had one — so `located` and `gapfilled` survive a save that did not touch them, rather than being
+flattened to `kept`.
+
+**Undo is a `{ before, after }` pair.** `ModuleHistory` is a stack of states: `undo()` pops the last
+thing pushed and moves it to the redo side, which expresses "restore this snapshot" exactly and
+cannot express a redo on its own — after an undo, `redo()` would hand back the state just restored.
+Pushing the pair makes both directions correct with the published host surface and no second stack.
+A drag is coalesced by comparing positions against the snapshot taken at `selected`, because a plain
+click emits `selected` and then one zero-length `dragEnd`; a snap of any scope is one entry however
+many contacts moved.
+
+**Two things Slicer does that this does not.** Its display preset also puts the CT *above* the T1,
+and `ModuleHost` has no `reorderLayers`; adding one for a display nicety is not worth a §12.3 change,
+so the module applies the colormap, the opacity and the 150 HU `mode: 'hide'` floor and *says* when
+another volume is drawn over the CT. And a table opened before any volume is held rather than
+loaded — a module cannot open a dataset, and inventing a way for it to would be a second load path
+beside `runOne`'s.
+
+**The `sub-P076` sample table was deliberately not committed.** It is patient-derived electrode
+geometry; `gen-fixtures.py` writes a table with the same column set over the CT phantom instead, plus
+one deliberately awkward file (BOM, commas, CRLF, `R`/`A`/`S`, no group column, a ragged row) for the
+reader's tolerance. The real-data half is gated on `TETRAVOX_SEEG_TESTDATA` and asserts properties
+rather than numbers, because a real table's numbers belong to the site that produced it.
+
+## 2026-08-30 — the point tool is offered a press only when §7.5 has not already bound it
+
+`resolveGesture` has carried this promise since the `'point'` kind was added: "`Shift`+drag over a contact
+is still the layer's opacity and `space`+drag is still the pan … a new tool does not get to quietly take
+them". It was true of the **drag** and false of the **press**. `pointer.ts`'s `#onDown` asked the tool about
+every left press before the gesture machine resolved anything, and `pointToolDown(viewId, x, y, is3D)` has
+no modifiers in its signature, so a `Shift`+opacity drag that happened to start on a contact selected it,
+emitted `selected`, moved the crosshair through the sEEG editor's handler and re-cut all three slice panes —
+mid-gesture, before the opacity drag it was supposed to be had moved a pixel. In `place` mode it was worse:
+the press returned `'consumed'`, so `Shift`+opacity and `space`+pan were simply unreachable in a 2D pane
+while the tool was armed, and a Windows/Linux `Ctrl`+click placed a contact and an undo step where §7.5 says
+a platform-modified press "is not a drag".
+
+The same slot had no idea whether a gesture was **already running**. A second finger landing mid-drag ran the
+tool's press logic first: in `select` mode it selected whatever that finger touched and overwrote the engine's
+`#pointDrag`, and only then did `GestureMachine.down` end the interrupted gesture — so the `dragEnd` that
+followed named the *second* contact. The sEEG editor compares positions against the snapshot its `selected`
+handler had just replaced, found nothing moved, and skipped the commit: a real contact edit with no history
+entry and no dirty mark, on a designed-for touch path (`touchAction: 'none'`).
+
+**One gate, in front of the tool, expressed as a pure function.** `input/gestures.ts` gains
+`pointToolTakesPress(button, mods, gestureActive)` beside `resolveGesture`, and `#onDown` consults it before
+`pointToolDown`. It declines a non-primary button, a press carrying `ctrl`/`meta`/`shift`/`space`, and any
+press arriving while `GestureMachine.active`. It lives next to the resolver rather than in the DOM layer
+because it is the same decision about the same press, and `gestures.test.ts` pins the property that ties them
+together: over all sixteen modifier combinations, `pointToolTakesPress` is true **exactly** when
+`resolveGesture` would answer `'point'`. `alt` is deliberately not gated — §7.5 reserves nothing for it on
+the primary button, so an `Alt`+press is still an ordinary tool click.
+
+**§7.5's `place` bullet is amended rather than the code bent to it.** It said "every left click places"; it
+now says "every *unmodified* left click places", which is the behaviour that leaves the three gestures §7.5
+binds where §7.5 puts them. This is a documented behaviour change, and it is the one the same section already
+demanded two bullets further down.
+
+**Measure mode is left exactly as it was.** It shares the ungated shape — `#onDown` offers it every left
+press too — but §7.5 states it without qualification ("while it is on, a left-click **places a measurement
+point** instead of setting the cursor"), and it predates §13. Gating it would be a behaviour change with no
+contract asking for it, so it is not made here; the asymmetry is now written into §7.5 so the next reader
+finds it stated rather than inferred.
+
+**What this does not fix, deliberately.** A pinch attempted in `place` mode still places a contact per finger.
+That is not the ordering bug: `place` returns `'consumed'` and returns *before* `machine.down` ever runs, so
+no gesture is in flight when the second finger lands and no `gestureActive` guard can see it. It is the direct
+consequence of place-on-`pointerdown`, which §7.5 chooses on purpose and `points-tool.spec.ts` pins as
+intended, and every one of those placements is committed and undoable.
+
+## 2026-08-30 — a disarm mid-drag commits the drag: `Esc` means what `pointerup` means
+
+`Esc` is §7.5's `place` → `select` → off key, handled in the engine's own keydown before the "is the pointer
+over a pane" test — which is what makes it work with the pointer over the panel, and which also means it is
+**not** gated on a gesture being in flight. It cannot be: a key that only worked when no button was down
+would not be the mode key. So a user who grabs a contact, drags it three millimetres and presses `Esc`
+before releasing was reaching `setPointTool(null)` with `#pointDrag` still live. It threw the drag away and
+emitted only `cleared`.
+
+That left the edit in neither state. Every intermediate position had already been written into the layer by
+`pointToolDrag` and adopted by the host through the `layers` event, so the contact stayed where the drag had
+put it — but the commit point never arrived: no history entry, no `ui.setDirty(true)`, no `•` in the title,
+and `confirmDiscardModuleEdits` waving the next scene open straight through. Worse, the *next* commit's
+before-snapshot bakes the moved position in, so the `Esc`'d move becomes permanently un-undoable. On the
+later `pointerup`, `endPointDrag` found `#pointDrag === null` and emitted nothing; `pointercancel` never
+fires for a key press, so no other exit rescued it.
+
+**Committed, not reverted.** The two honest exits are "the drag happened" and "the drag never happened", and
+`Esc` is made to mean the first: `setPointTool(null)` calls `endPointDrag()` before it clears anything, so
+`dragEnd` arrives — carrying the position the drag actually reached — and then `cleared`. That order is the
+one a host is written for (commit on `dragEnd`, reset on `cleared`), and it keeps §7.5's "one drag is one
+undo step and one dirty mark" true however the drag ended. Reverting was the alternative and was rejected:
+`Esc` in this tool is documented as a *mode* key, not an undo, and a key that silently rolled a movement back
+would be the only place in the app where a scene edit vanishes without a history entry. A user who wants the
+move undone has an undo.
+
+**It is skipped when there is nothing left to commit.** `removeLayer` disarms *after* the layer has gone and
+`Engine.load` replaces every layer id, so the guard is "does the dragged point still resolve" — those two
+paths emit `cleared` alone, exactly as before, rather than a `dragEnd` for a contact that no longer exists.
+
+`NoGlEngine` mirrors it in the same commit. The app's E2E drives `?engine=mock`, and a rule that held only in
+the WebGL2 engine would be a rule the shell is never tested against.
+
+## 2026-08-30 — `discRadiusPx` is in device pixels, because `mmPerPx` already is
+
+`Camera2D.mmPerPx` is millimetres per **device** pixel. Everything upstream says so: `fitMmPerPx` is fed
+device-pixel viewport rectangles, `sliceViewProj`'s orthographic box is `widthPx · mmPerPx` over a
+device-pixel `widthPx`, and `paneToWorld` / `worldToPane` take device-pixel pane coordinates. The points
+shader expands a world-space quad of radius `sqrt(r² − d²)` millimetres and applies nothing else, so the
+cross-section rasterises at exactly `radiusMm / mmPerPx` device pixels.
+
+`discRadiusPx`'s sphere branch multiplied that by `uiScale`, and its docstring said `mmPerPx` was "in CSS
+pixels". Both were wrong, and they were wrong in the one place where being wrong is invisible: **every §11
+pane is DPR 1**, where `uiScale` is 1. On a Retina display the two consumers of that function — the
+selection/hover ring (`passes/overlay.ts`) and the CPU hit test (`layers/points.ts#pointAtPane`, and through
+it `pointAtScreen` and every armed click) — were both computed at **twice** the radius of the disc the pane
+had drawn: a ring visibly detached from its contact, and a click a whole disc-radius outside a contact still
+grabbing it. The `dot` branch was right on both sides all along, which is what identified this as a unit
+error rather than a choice: `derived.ts` sends `uDotPx = 4 · uiScale`, so `DOT_RADIUS_PX · uiScale` is the
+matching CPU constant. One radius is a world quantity and the other is a screen one.
+
+So the `* uiScale` is dropped from the sphere branch only, and the same doubled expression is removed from
+the 2D point-label lift in `passes/overlay.ts` — its 3D twin was already `6 · m.scale`, six *CSS* pixels
+scaled, which is the other convention and correctly applied. Nothing moves at DPR 1, so no golden changes.
+
+**`POINT_HIT_MIN_PX` stays 8 *device* pixels, deliberately, against the review's suggestion.** Scaling the
+floor by `uiScale` would keep the minimum target a constant physical size, which is the better ergonomic
+argument — but §7.5 states the rule as `max(disc px, 8 px)` and the constant's own comment ties it to the
+cut-plane gizmo's `HANDLE_HIT_PX`, so that "the two grabbable things in the frame use one convention". A
+change here is a change to both, and to a documented number, for a floor that only matters on a contact
+whose disc is under 8 px. It is recorded here as a known asymmetry rather than made silently: the floor
+shrinks to 4 CSS pixels at DPR 2, and if it is ever raised, the gizmo's goes with it.
+
+**A DPR-2 case now exists**, because a rule the suite cannot see is a rule that drifts back. `?dpr=2` plus a
+CSS-sized canvas gives `points-tool.spec.ts` a pane whose backing store really is twice its CSS size, and
+the test reads the drawn disc's own width off the framebuffer, then asserts the ring sits one scaled gap
+outside *that* and the hit boundary is *that* — the shader is the reference, not the CPU rule.
+
+## 2026-08-30 — the snap neighbourhood is Slicer's `rad_vox`, not `ceil`
+
+`sampleVoxelBox` computed its half-extent as `ceil(radiusMm / spacing)` per axis. Slicer's sEEG editor
+computes `rad_vox = np.maximum((radius_mm / spacing).astype(int), 1)` — truncation, never below one voxel
+(`SEEGContactEditor.snapToMetal`). The two agree only when `radius / spacing` is an integer, and they are
+different on every CT anyone actually snaps on: at the module's default 1.5 mm radius, a 1 mm CT gets a
+5×5×5 window here against Slicer's 3×3×3, and a 0.45/0.45/0.6 mm bone CT gets half-extents (4,4,3) against
+(3,3,2).
+
+**This is a parity rule, so `ceil` was simply wrong.** `USER_GUIDE.md` tells users the module "reproduces the
+3D Slicer SEEG Contact Editor workflow … so the two can be used on the same subject interchangeably", and a
+snap is interchangeable only if it searches the same neighbourhood. The extra shells are not free either: on
+a 3.5 mm contact pitch the larger box reaches along the shaft, and the divergence appears exactly in the case
+snap exists for — a click that is 1 mm *off* the intended contact. On the phantom, a click 1.2 mm off contact
+A2 toward A3 lands 0.77 mm from A2 under Slicer's rule and 1.64 mm under `ceil`.
+
+Three pieces of evidence say the `ceil` was an accident and not a decision. The old worked examples in
+`voxel-box.ts` and in this file — "1.5 mm is a 3-voxel half-extent on ernie's 1 mm T1 and 15 on a 0.2 mm
+micro-CT" — are wrong for `ceil` (which gives 2 and 8) and are exactly Slicer's box *widths*. This file
+claimed "the weighting is Slicer's, verbatim" while the neighbourhood it weighted was not. And **no test
+could have caught it**: both numpy references, `gen-fixtures.py`'s `_box_indices` and
+`refvalues/voxelbox_refvalues.py`'s `box_indices`, re-implemented `ceil` from the same wrong spec, so the two
+"independent" implementations agreed on the wrong rule.
+
+So all three now compute `max(trunc(r / s), 1)`, `testdata/manifest.json` and
+`scripts/refvalues/voxelbox_refvalues.json` are regenerated, and two cases exist for this rule alone:
+`off-toward-neighbour` on the phantom (the mislocalised click above), and `default-radius` on `T1.nii.gz` —
+because every other real-data query uses an integer radius on 1 mm spacing, where `ceil` and `trunc` are the
+same number and the file could not tell them apart.
+
+**Two deviations from Slicer stay, and are named rather than left to be discovered.** The query's voxel index
+is rounded HALF-UP (`Math.round`); Python's `round` is half-to-even. It differs only for an index exactly on
+a half, and half-up is this repository's convention wherever a pixel or a voxel index is rounded. And a
+**flat** box answers `null` where Slicer's threshold carries a `+ 1e-6` that makes every weight
+`0.5 × 1e-6 > 0`, so Slicer returns the box's geometric centroid. Uniform background has no peak; returning
+its centre would be a snap pretending to have found something, and the module counts a refusal as "did not
+move" rather than moving a contact to the middle of a window.
+
+**One fixture constant moved with it.** `seeg_offset`'s per-contact miss was `0.5 / 0.25 / 0.2` mm, which put
+contact A01 at world z = −11.6 — voxel index **5.5 exactly**. Which voxel a box is centred on then turns on
+the last bits of an inverse affine (float64 in numpy, a float32-valued matrix inverted in the engine), and
+`gen-fixtures.py` already refuses to let a fixture turn on a tie-break for precisely this reason. The
+`ceil` box was two voxels deeper than it needed to be and absorbed the one-voxel shift; Slicer's is tighter,
+and the same tie moved the centroid 0.08 mm. The offsets are now `0.47 / 0.29 / 0.19`, which keeps every
+query at least 0.03 of a voxel from a half-index on every axis.
+
+## 2026-08-30 — the zero-length `dragEnd` is written into the contract, not suppressed
+
+A `select`-mode click grabs the point under it, and a grab is a drag: the press starts a `'point'` gesture
+and the release ends it. So a plain click emits `selected` and then one **zero-length** `dragEnd`, and
+clicking through a list of contacts emits `selected`, `dragEnd`, `selected`, `dragEnd`, …
+
+`api.ts`'s `PointToolEvent` described `dragEnd` only as "a `select`-mode drag finished, **once** … this is the
+commit point, not the change", and §7.5 said the gesture's end "becomes exactly one `dragEnd`, which is what
+makes one drag one undo step and one dirty mark for the host". Read as instructions — which is how a module
+author reads a frozen interface — those two sentences say "push undo and set dirty on every `dragEnd`", and
+a host that does exactly that marks itself dirty for merely *looking* at contacts: the OS close guard arms,
+§13.3's discard prompts start appearing, and the 50-slot history fills with no-ops.
+
+The knowledge existed. It was in `points-tool.spec.ts`'s comment ("a host that treats every `dragEnd` as an
+edit would otherwise record an undo step per selection"), in `tetravox.seeg`'s editor header, and in this
+file's own sEEG undo-coalescing entry. None of those is the contract a *second* module is written against.
+
+**Stated, not suppressed.** Suppressing the event when nothing moved would make §7.5's sentence true as
+written, and it was the tempting fix. It is the wrong one: the grab genuinely happened, a host may want to
+know a drag began and ended on the same pixel, and removing an event that a frozen interface has emitted
+since it was frozen is a behaviour change to `Engine` in a contract whose whole promise is "absent reproduces
+the previous behaviour". A documented exception is worse than no exception and far better than a silent one.
+So `PointToolEvent`'s docstring and §7.5 both now say a click emits a zero-length `dragEnd` and that a host
+compares positions against the snapshot taken at `selected` before committing — which is what the first-party
+module already does, and now for a reason a reader can find.
+
+`api.ts` is §12.3-frozen, so this documentation-only edit lands with its `ARCHITECTURE.md` change in the same
+commit, exactly as a signature change would.
+
+## 2026-08-30 — the ⌘S carve-out is minted where main hands a scene over, not by reading one
+
+**Decision.** `readSceneFile` admits nothing. The write admission §5 rule 10 grants an opened scene
+is minted by `scene-io.ts#allowOpenedScene`, called at the five places **main** is the one choosing
+the path: `showOpenSceneDialog`'s result, `menu.ts#sendOpenScene` (the scene half of the
+`tetravox:opened` routing — argv, `open-file`, a second instance, File ▸ Open Recent, Sample Data),
+the `tetravox:startup-scene` drain, and a new `tetravox:dropped-path` message. This amends the
+2026-08-30 entry above it, which put the admission in `readSceneFile`.
+
+**What was wrong with the read.** The entry above justified the carve-out as "only after a read of a
+path the user had already named through the Open sheet, a drop, argv or `open-file`". The renderer
+can synthesise that precondition: `tetravox:allow-path` is an unconditional handler that puts *any*
+existing absolute path on the read allow-list and hands back its canonical form — the same entry says
+so, in its own "rejected: a main-side sibling resolver" paragraph. So `allowPath(victim)` +
+`readSceneFile(victim)` + `writeSceneFile(victim, …)` was a silent overwrite of any
+`*.tetravox.json` on the machine, reachable from any script in the renderer, with no dialog and no
+gesture at any step. The threat model in `paths.ts`'s header — "an arbitrary-file-read primitive for
+anything that gets script into the renderer" — is exactly that attacker, and `origin/main` had no
+such write: before the carve-out, only the Save sheet filled `writable`.
+
+**Why the delivery points are the right place.** The justification was always about provenance, and
+provenance is a fact main holds and the renderer cannot forge. At each of these five, main already
+knows the path *because it chose it* — from the picker, from argv, from `settings.json`, from a
+downloaded sample. The renderer's own routes reach none of them.
+
+**The drop is preserved, and it is the interesting one.** A drop never reaches main: the renderer
+gets the path from `bridge().getDroppedFilePath`, which is `webUtils.getPathForFile` in **preload**.
+That is what makes it trustworthy — it answers only for a `File` the user really handed the page, and
+renderer script cannot manufacture one backed by a path of its choosing. So preload sends every
+dropped path on `tetravox:dropped-path` and main admits the ones that are scenes. It is the only
+capability on this bridge that a compromised renderer cannot mint for an arbitrary path, and it is
+now what carries the drop half of §5 rule 10.
+
+**Both spellings of the path.** `sendOpenScene` sends whatever main holds (`settings.json`'s
+remembered string) and the Open sheet sends `realpath`'s, while `writeSceneFile`'s check is
+`resolve()` only. `allowOpenedScene` admits both forms so ⌘S works whichever one the renderer was
+handed and saves back.
+
+**Tested both ways.** `scene-io.test.ts` is new (there was no unit test for this file): a path
+admitted only through `allowPath` reads and is refused the write, with the bytes on disk asserted;
+a path `allowOpenedScene` named saves. `e2e/scene-save-opened.spec.ts` keeps the ⌘S-on-an-opened-scene
+flow green and now also performs the escalation through the real bridge in the real window — allow,
+read, write — and asserts the refusal and the untouched file.
+
+## 2026-08-30 — a module's write admissions end with its editing session
+
+**Decision.** `module-io.ts` grows `revokeModuleWrites(moduleId)` and `revokeAllModuleWrites()`, and
+a fifth channel, `tetravox:module-clear-writes`. The renderer sends it from
+`ShellController.deactivateModule`; main calls `revokeAllModuleWrites()` from `sendOpenScene` and
+from `sendSceneCommand('new'|'open')` — the two places main itself replaces the document.
+
+**The gap.** `writeLists` was filled by every confirmed Save sheet and every job `out` target, and
+emptied only by `clearModuleWriteLists`, whose sole caller was a test. So a user who saved subject
+A's `electrodes.tsv` left A's table, A's editlog and the `<anchor>.<YYYYMMDD-HHMMSS>.bak` *shape* in
+A's directory writable for the rest of the process — including after they moved to subject B and the
+UI stopped mentioning A at all. A stale path in a module, or a replayed `moduleWriteText` with A's
+path and a matching module id, then overwrites a table nothing on screen names.
+
+**Why deactivate is the right hook.** It is where the module's own `savePath` dies: the instance is
+disposed, and its next save calls `saveDialog` again regardless. So revocation takes away nothing a
+legitimate module still had — it makes main's list agree with the module's own state instead of
+outliving it by the length of the session.
+
+**What this does and does not buy.** It scopes **accidents** — a stale path, a module that kept a
+reference, a capability that outlived the subject it was granted for. It does not stop a compromised
+renderer, which simply never sends the message. That is not a flaw in the hook but a property of
+where the admission comes from: `allowPath` admits any existing absolute path today, so every
+admission in this app is only as strong as the renderer. Tightening `allowPath` is the durable fix,
+it is a change to the oldest security surface here, it is out of scope for this branch, and it is
+now written down in `docs/ROADMAP.md` under Modules.
+
+**Inert for `--job`.** A batch run's admissions come from the envelope's `out` arguments, admitted in
+`prepareJob` before a window exists, and its actions activate modules in whatever order they are
+listed — `activateModule` deactivates the previous one, which is a step *between* two actions and not
+the end of an editing session. `registerModuleIpc({ isJob })` drops the message there.
+
+## 2026-08-30 — `TETRAVOX_E2E_DISCARD` is honoured only in a build that runs tests
+
+**Decision.** `shouldPromptOnClose` gains `packaged`, and returns `true` — prompt — whenever it is
+set, whatever the environment says. `installCloseGuard` takes it from main's `app.isPackaged`.
+
+**Why.** The seam was read from `process.env` in every build, packaged and notarised included. It is
+ambient state: a dotfile, a launcher script, a wrapper, or a shell where someone once exported it for
+a test run. A user in that shell makes unsaved sEEG contact edits, presses ⌘W, and the window closes
+with no prompt and no trace — and the module's only reversibility is the `.bak` its *save* writes,
+which never ran. §5 rule 12's guard is the whole of the protection on that gesture, and an
+environment variable should not be able to switch it off.
+
+**Why not read `app.isPackaged` in `module-io.ts`.** `shouldPromptOnClose` is pure, which is why all
+four of its cases have a unit test rather than a window; importing `app` for one boolean would trade
+that for nothing. Main already has it. Absent means "not packaged", so every existing caller —
+including the e2e's — behaves exactly as before.
+
+**The e2e says both halves.** `module-guard.spec.ts`'s seam test now branches on its target: on `dev`
+the seam still closes a dirty window silently, and on `packaged` the box is shown, Cancel keeps the
+window and Discard closes it. `module-seeg.spec.ts` clears the edited flag in `afterAll` instead of
+relying on the seam, so its teardown does not depend on which build it is running.
+
+## 2026-08-30 — the docs guard checks the sidebar §13.7 always said it checked
+
+**Decision.** `scripts/check-frozen-docs.mjs` reads `website/.vitepress/config.ts` and requires a
+`/guide/<slug>` entry for every module manifest's `docs` heading, where the slug is the one
+`GUIDE_PAGES` maps that heading to.
+
+**Why it was a real hole.** §13.7 item 3 has always listed three things — the `## ` section, the
+`GUIDE_PAGES` entry "and the site sidebar" — and said "The `docs-guard` CI job fails without them."
+It checked two. The sidebar is a hand-written literal: `sync.mjs` generates `website/src/guide/
+<slug>.md` but never generates or validates the list that links to it, and VitePress's
+`ignoreDeadLinks: false` fails only the opposite mistake — a sidebar entry with no page. A page with
+no sidebar entry builds perfectly and ships reachable from nothing, which is precisely the late,
+silent failure the guard's own header says it exists to prevent, while the contract claimed CI had
+caught it.
+
+**A grep, not a parser.** The config is TypeScript and this script is plain ESM run by `node --test`
+with no build step. The sidebar is a literal array of `link:` strings, which a regex reads exactly as
+well as a parser would, and a config that stopped being that shape would fail loudly here rather than
+quietly pass. `sidebar` defaults to `''` rather than being optional, so a caller that forgets to pass
+it gets a failure instead of a silently skipped rule — which is the failure mode this fixes.
+
+**Scope.** Manifests only, matching §13.7's wording; the guard does not audit the eighteen core guide
+pages, whose sidebar entries no module PR touches.
+
+## 2026-08-30 — the sEEG review pass: parity made mechanical, and provenance made per-table
+
+Ten confirmed review findings against `tetravox.seeg` and the module host, fixed on
+`fix/seeg-polish`. Most were one-line oversights and need no entry; these six decided something a
+reader would otherwise have to infer.
+
+**§13.6's parity rule is now a rule, with the gap it excused closed.** The contract said flatly that
+every panel action is also an operation, and the flagship module shipped seventeen commands and
+seven operations. Two ways out were available — write down a weaker rule, or write the missing
+operations — and the weaker rule was the wrong one: `flip-tip`, `revert` and `delete` are
+deterministic edits to a **named** electrode or contact, needing no pointer, no dialog and no
+confirmation, so nothing about them was automation-resistant. `flip-tip` is the one that matters:
+`tip: 'auto'` is a heuristic this file's own entry above concedes an occipital shaft can defeat,
+`renumber` applies whatever the tip currently is, and the canonical TSV keeps no tip column — so a
+headless load → renumber → save on a shaft the heuristic read backwards produced a tip-last table
+with **no remedy short of a prior interactive session**, on exactly the Slicer-parity workflow the
+module exists for. §13.6 now states the rule precisely (a scene-mutating command that needs neither a
+live pointer nor a dialog is an operation of the same id; four kinds of command are exempt and only
+those four), and `modules.test.ts` compares each manifest's commands-without-an-operation against a
+written list of exemptions *for equality*. Adding a scene-mutating command with no operation now
+fails the build until somebody writes the operation or writes down why there cannot be one.
+
+**A `cleared` point-tool event is not a message; the module has to work out who sent it.** The
+engine's Esc grammar is place → select → off, and its first step emits nothing at all — so a module
+mirroring the mode in a flag went stale on the first press, and the second step's `cleared` was
+handled by re-arming, which put place mode straight back and made Escape cycle for ever. Two
+decisions come out of it. `placing` is **read off `host.tool.pointTool()`** rather than tracked: the
+engine owns which mode is live and the module owns only the intent, so the panel's pressed Add
+button cannot disagree with what a click does. And a `cleared` the module did not ask for is
+disarmed first and *explained afterwards*, from the `layers` subscription — because
+`host.scene.layers()` is the store's projection and it is written by the event that follows
+`cleared`, so "did my layer survive?" has no answer inside the handler. The layer still being there
+is Esc and the tool stays off; the layer having been replaced is `Engine.load` or a removal, and the
+tool comes back against the layer the scene put there. The alternative — an engine-side reason on the
+event — would have been a frozen-file change for a defect the module can diagnose itself.
+
+**Provenance is per table, not per window.** The `operations` record, the "hand-edited on …" banner
+and the T1 a `load` operation named all survived `applyTable`, so opening the next subject's table in
+the same window wrote *this* subject's snapped/refit flags into the next one's editlog — and
+anatomical naming means the electrode names usually match. The editlog is a contract with
+`seegprep`, so a sidecar reporting operations that never ran on that subject is worse than one
+reporting none. All three are cleared per table.
+
+**The editlog answers "what was changed?", so a relabel is a change.** `entryFor` keyed on position
+alone, and Renumber and Re-fit rewrite names while moving nothing — so the one edit that changes how
+a table's `csc` column maps onto the recording system produced `added: 0, edited: 0` and no rows at
+all, with the panel footer reading "0 changed" beside a dirty dot. `Contact.originalName` is the twin
+of `original` and carries the same meaning for names that `original` carries for positions, `null`
+included; a `renamed` change and a `renamed_from` field are additive beside every count Slicer wrote,
+and a contact that both moved and was relabelled is **one** `edited` row carrying `renamed_from`, so
+the counts and the rows cannot disagree. `EDITLOG_SCHEMA` does not move: a reader that knows only the
+old keys is unaffected, and an old log reads as `renamed: 0`, which is what it was.
+
+**Deletions belong in the scene block.** §13.2 calls leaving the slot non-destructive *because* the
+module restores through its block — true of everything except a deletion, which the layer cannot
+carry, since a deleted contact is simply not a point. So switching module or reopening a scene
+dropped the records, and the next save wrote an editlog claiming nothing was deleted beside a table
+missing the rows, while Revert quietly stopped keeping the promise its own toast makes. `SeegBlock`
+gains a `deleted` list and `rows[].name`, both additive: a block written without them restores to
+exactly what this build did before, which is why `sceneBlock.version` is still 1. `shrinkBlock`
+drops their columns at level 1 and the records themselves at level 2, where every `original` is lost
+and a deletion with no position would be a worse record than a missing one.
+
+**A carried-forward block keeps its whole envelope, and a reader's name pattern is
+case-insensitive.** `sceneExtensions` rebuilt each block as exactly the four fields this build knows,
+which made §12.3's additive rule unusable for the envelope — a later host's fifth field would be
+stripped by every older build that opened and re-saved the file, including from the blocks of modules
+it has never heard of. The three validated fields are now re-stated *over* the block rather than
+copied out of it. Separately, `readers.ts` matched its manifest pattern case-sensitively while the
+extension check lower-cased, so `Electrodes.tsv` reached the mesh loader and came back "unsupported";
+a manifest cannot opt back into case sensitivity, deliberately — a reader that claimed one spelling
+and refused another would be a bug report, not a feature — and the panel now has the Open… button
+that makes the module's own All-files sheet reachable for a name no pattern will ever claim.
+
+## 2026-08-30 — downloadable extensions, main's half: a map, not a directory; consent, not a flag
+
+**Decision.** Main grows a third `tetravox://` host, an install store and a consent record.
+`protocol.ts` serves `tetravox://module/<id>/<version>/<file>` out of a `Map<string, string>` that
+only `module-store.ts#enableModule()` fills, after re-hashing every file against the receipt written
+at install time; the renderer CSP's `script-src` gains the **host source** `tetravox://module`.
+`~/.tetravox/modules/<id>/<version>/` (`TETRAVOX_MODULE_DIR`) holds what was installed, verified the
+way `sample-data.ts` verifies a sample — content-addressed catalogue, `.part` then `renameSync`, a
+cached file re-hashed rather than trusted. `AppSettings.extensions` records who may run.
+`src/modules/manifest-schema.ts` validates the JSON carrier of a manifest, and
+`manifests.ts#registerInstalledManifests()` is called in **both** processes.
+
+**Why a map and not a root directory.** `handleApp` and `handleFile` both join a caller-supplied
+string onto a root and then have to prove containment; the new handler does neither, because the
+pathname is a **key**. There is no traversal surface to defend rather than a well-defended one, and
+three properties fall out for free: a module that is installed but not consented is simply not on the
+map, so **consent gates execution** and not merely the switcher row; only `.js` and `.css` are ever
+reachable, because those are the only names `enableModule` adds; and `disableModule` is a `delete`,
+so withdrawing consent takes effect on the next request rather than on the next relaunch.
+
+**What the CSP grant costs, stated plainly.** `script-src 'self'` meant "the page can only run code
+the build shipped". It now means "…plus code **main** put on an explicit map after verifying its
+sha256 against a manifest the user consented to". That is strictly narrower than the two doors this
+same feature would otherwise reach for and which this repository has already closed: `blob:` in
+`worker-src` (removed the same day — "a working script-execution path through a policy whose whole
+point is `script-src 'self'`") and `'unsafe-inline'`. The **host** source is load-bearing: the scheme
+form `tetravox:` would also admit `tetravox://file/…`, which is every path the user has ever opened,
+and would turn an arbitrary-file-read into an arbitrary-script-execute. The honest cost is that an
+enabled module is *trusted renderer code*, with the DOM and the whole preload bridge; the trust
+boundary is the consent sheet and the registry's PR review, and the CSP only stops **unconsented**
+script. `csp.spec.ts` proves the form from the only side a policy can be proved from — a script
+element under the new host is admitted by the policy and fails on the 404, which is a different
+failure from being blocked.
+
+**Consent is the record, and there is no `enabled` flag.** `settings.extensions[id]` carries the
+version, the `hostApi` and the derived permission list the sheet showed; disabling **deletes** it,
+because a module the user has withdrawn consent from must not be one keystroke away from running
+again. It is also the one settings key whose coercion fails *closed*: every other field degrades to a
+default, and a default here would be a capability nobody confirmed. The version is part of the
+question — an update is a new set of bytes with a new permission list, so a consent for 1.0.0 is not
+one for 1.1.0. Bundled modules are seeded on first run without a sheet: they shipped inside the
+signed application, so installing the app was the consent.
+
+**Revocation is main's own act.** `disableModule` and `removeModule` call `revokeModuleWrites(id)`
+themselves, in the same breath as emptying the protocol map. The renderer-cooperative channel
+(`tetravox:module-clear-writes`, above) is right for "a module left the slot" and exactly wrong here:
+withdrawing a capability cannot be a message main hopes to receive, because a renderer that has been
+taken over simply never sends it.
+
+**`hostApi` is a `number` on an installed manifest, and that is the point.** A compiled-in manifest
+cannot carry a stale one — the literal type `1` makes it a compile error — but an installed manifest
+is a file another repository wrote, and the host has to be able to *hold* a `2` in order to refuse
+it. `InstalledManifest` is `ModuleManifest` with that one field widened, so one list holds both kinds
+and `validateJob` validates against it. The schema deliberately **accepts** a `hostApi` this build
+does not implement: refusing it there would turn "needs Tetravox host API 2" into "not a manifest".
+
+**A job honours the record (settled decision O4).** `validateJob` gains a consent predicate,
+defaulting to "everything is runnable" so nothing that does not pass one changes. Installed manifests
+join the list whether or not they are consented — hiding the *name* would only turn "installed but
+not enabled" into "no such module", which is a worse message — and a job naming an unconsented module
+fails validation with the click that fixes it. Compiled-in modules always pass: they are code the
+build shipped, reviewed in the pull request that added it.
+
+## 2026-08-30 — the module SDK is a release asset, and it reaches the host through one global
+
+**Decision.** `scripts/emit-module-sdk.mjs` builds `@tetravox/module-sdk` from the core tree on
+every release and `release.yml` attaches it to the draft, named
+`tetravox-module-sdk-<hostApi>-<coreVersion>.tgz`. A module repository pins it **by URL**; nothing is
+published to npm. Its runtime half is a shim with **no imports at all**, which the module build
+inlines, and which reads the host's React, `ModuleHostError`, `stemOf` and the `shared/contacts` kit
+off `globalThis.__tetravoxModuleSdk`.
+
+**Why a global and not an import map or a served module URL.** A module's `Panel` renders inside the
+app's own React tree (`ModuleSlot.tsx` renders it; the sEEG module's `activate` is a
+`createElement`), so a second React copy is an "invalid hook call", not a size problem. There were
+three ways to hand a downloaded bundle the host's copy. An inline `<script type="importmap">` needs
+`script-src 'unsafe-inline'` or a nonce, and undoes the policy the module host exists to keep — the
+same door this repository already closed for `blob:` in `worker-src`. A rollup `output.paths`
+rewrite onto `tetravox://app/sdk/react.js` needs a second, non-hashed renderer entry and a new
+`entryFileNames` rule in `electron.vite.config.ts`. The global needs **no build configuration
+change** and leaves `script-src` as the single CSP diff, so it wins; the rollup rewrite is the
+recorded fallback if the global ever has to be scoped per module.
+
+**Why the whole SDK is generated, including the engine types.** A hand-written copy of `ModuleHost`
+would be a second declaration of a frozen interface, and the first additive change to `host.ts`
+would leave a module compiling against a surface the app no longer has. So the sources are staged
+with their imports rewritten and `tsc --emitDeclarationOnly` produces the declarations.
+`packages/engine/src/scene/types.ts` imports nothing and declares no values, so it is carried
+verbatim; the six names `ModuleHost` exposes from `api.ts` are extracted with their closure, which is
+those six plus `ProbeRow`. A name the closure reaches that neither file declares — or that `api.ts`
+imported from `./gl/caps` or `./engine` — fails the emission rather than shipping a `.d.ts` naming a
+type that is not in it.
+
+**Why `index.d.ts` re-exports types with `export type *` and declares every value by hand.** A plain
+`export *` over the manifest contract would promise `MODULE_KEY_POOL` and `ENGINE_RESERVED_KEYS` as
+values the shim does not export, and a `.d.ts` that lies about what exists at runtime is worse than
+one that omits it. The declared list is exactly `index.js`'s exports, a unit test compares the two,
+and the emitted package is compiled against a probe that imports it the way a module does.
+
+**Why the SDK is `required` in `verify`.** A release that ships a module host and no SDK is a release
+nobody can build a module against, and the whole point of `verify` is that a green matrix is not the
+same as a complete Release. Its name is taken from the job that emitted it rather than spelled a
+second time in the workflow, so the host API and the core version cannot drift out of the check.
+
+## 2026-08-30 — `modules.lock`: a bundled module is bytes a release proves, not a repository it trusts
+
+**Decision.** `modules.lock` at the repository root names every module a release bundles — id,
+version, `hostApi`, repo, tag, `bundled`, and a sha256 and a byte count per file.
+`scripts/fetch-locked-modules.mjs` downloads them from their own repositories' releases, verifies
+every byte, and places them under `packages/app/resources/modules/<id>/<version>/`, which
+`electron-builder.yml` already ships as `extraResources`. A hash that does not match fails the leg.
+
+**Why a lock file rather than "build the module in CI" or "fetch the latest release".** Building it
+here would put the module's source back in this repository's dependency graph, which is the thing the
+extraction exists to end. Fetching the latest would make a release's contents depend on when it was
+built — two runs of the same tag could ship different modules. A lock makes bumping a bundled module
+one pull request whose entire diff is a version, a tag and two hashes, which is a thing a reviewer
+can actually check.
+
+**The lock carries no URL.** It is derived — `<repo>/releases/download/<tag>/<sha256>` — so an entry
+cannot name one repository and download from another. The asset's name being its own hash is
+`scripts/sample-data/publish.sh`'s store layout verbatim, and it is what lets a download be verified
+against its own URL rather than against a promise beside it.
+
+**`hostApi` is checked against the tree, not merely for being an integer.** The host refuses to
+activate a module built against another host API, so a mismatched lock entry would ship a card that
+cannot be enabled. That is a CI failure, not a release note.
+
+**`bundled.json` ships beside the files, and `modules.lock` does not.** The lock is a build-time
+file; main needs the hashes at *enable*, where it re-verifies a bundled file the same way
+`sample-data.ts` re-hashes a cached sample rather than trusting it for existing. So the bundling step
+writes the lock's bundled entries beside the modules it placed — and deletes that index when the lock
+stops bundling anything, because an index for a module that is no longer there is worse than none.
+
+**Proved against a fixture, because no module has been released yet.** `--store <dir>` lets a
+directory of hash-named files stand in for a GitHub release, exactly as `TETRAVOX_SAMPLE_DIR` lets a
+fake cache stand in for the sample store. It changes where the bytes come from and never whether they
+are checked — the hash check is the same code on both paths — so the fixture tests, including the
+tampered file, the store serving the wrong bytes and the stale index, are proof about the real path.
+
+## 2026-08-30 — one receipt, two writers: a bundled module is verified like a downloaded one
+
+**Decision.** `scripts/fetch-locked-modules.mjs` writes `tetravox-module.json` — main's install
+receipt, field for field — into every `<id>/<version>/` directory it places, built from the
+`modules.lock` entry whose hashes it has just verified. `module-store.ts#verifyInstalled` therefore
+re-hashes a bundled module against a receipt on the normal path, exactly as it does a downloaded one,
+and the "bundled, no receipt" exemption shrinks to what it should always have been: a tree somebody
+assembled by hand in a checkout.
+
+**Why the two waves disagreed, and which half moved.** The main-process half made the receipt the
+verification record for everything installed; the release half made `bundled.json` "what lets main
+re-hash a bundled file at enable". Both are reasonable and only one can be the file main opens.
+The receipt won because it is **per module**, which is the unit that is enabled, and because it is
+already the file an install writes — a second format for the same claim would have been a second
+thing to keep in step and a second thing to get wrong. `bundled.json` stays, with the narrower job it
+is actually good at: what this *build* shipped, in one file, and the thing `--verify-only` compares
+with the lock so a drifted tree is a red CI leg rather than a card that will not turn on.
+
+**The gate this closes.** Before it, anything that reached `resources/modules/` in a packaged app ran
+— the exemption swallowed the whole bundled root. Now the release's own hashes sit beside the files
+and are what decides, so a bundled module tampered with after packaging is refused by the same
+message a tampered download gets. `tetravox-module.json` is reserved in `check-modules-lock.mjs` for
+that reason: a locked module that shipped a file of that name would have it overwritten by the build.
+
+**The two halves are compared by a source scan.** They are in different processes, different
+languages of test (`node --test` and vitest) and different waves, so `fetch-locked-modules.test.mjs`
+reads `main/module-store.ts`, pulls `RECEIPT_NAME` and the `InstallReceipt` / `ReceiptFile` field
+lists out of it, and asserts the receipt it writes matches. A contract nothing compares is a contract
+that has already drifted.
+
+## 2026-08-30 — an electrode's wire and its names are the electrode's colour
+
+A `PointsLayer` is **one** layer for a whole implant — §4.4's `points[].group` is the electrode — and
+that was the right call for the layer panel, the probe row and `[` / `]`. What it left behind is that
+`lineSegments` had one `lineColor` and the name labels had one `labelColor`, so on P077 fifteen shafts
+drew as one colour of line and eighty-two names as one colour of text, over discs that were already
+told apart by their palette entry. The picture said "these contacts belong to different electrodes"
+and, six pixels away, "these lines and these names do not."
+
+Two additive `PointsLayer` fields, both absent-is-today. **`lineColors`** is a `Float32Array` of four
+floats per segment, parallel to `lineSegments`'s six; per *segment* rather than per group because the
+engine has no concept of a group — `lineSegments` is a flat array of endpoints, and a parallel array
+is the only way to say "this segment is that colour" that introduces nothing new. An array shorter
+than `4 · segments` is **ignored** rather than half-applied: a shaft coloured for three segments and
+grey for the rest is a picture that lies about which electrode the rest of it belongs to, and it is
+also the out-of-range instanced read WebGL turns into a draw of nothing. Like `lineSegments` it is a
+`Float32Array`, so §4.6 does not serialise it and whoever rebuilds the segments rebuilds it beside
+them. **`labelColorSource: 'points'`** colours each name by its own point's `color`, which is the
+colour `packPoints` already gives that point's disc — so a marker and its name cannot end up
+different colours by construction. Only `labelSource: 'names'` can honour it: a `labels` entry is
+free-standing Gmsh `T3` text with no point behind it.
+
+In the shader this is `CONTOUR_COLORS`, one compile-time variant of the existing contour program
+rather than a second program: at 0 — every mesh contour, and every points layer that does not colour
+its shafts — the fragment is `uColor` verbatim, which is the shader that captured every existing
+golden. At 1 the uniform becomes a tint of `vec4(1, 1, 1, opacity)` so the layer's opacity still
+reaches a per-segment colour. The alternative, a uniform loop over a colour table, would have needed
+a per-group concept in the engine and a second upload path for something a vertex attribute already
+does.
+
+## 2026-08-30 — a contact's size is a layer field, and one number feeds the shader, the ring and the hit test
+
+`shape: 'dot'` drew at a hard-coded four CSS pixels. On a bone-window CT at a clinical zoom that is a
+speck, and the owner asked to be able to make it bigger; there was nowhere to put the answer.
+`PointsLayer.dotRadiusPx` is that field — CSS pixels, because that is the unit the constant it
+replaces is authored in, absent is `DOT_RADIUS_PX` (4), and it is clamped to 0.5…64 px on the way in
+because a scene file is editable text and `NaN` deletes the quad rather than resizing it.
+
+The rule that matters is that there is still **one** rule. `dotRadiusPxOf(layer)` is a single exported
+function: `derived.ts` sends `uDotPx = dotRadiusPxOf(layer) · uiScale`, `discRadiusPx` uses the same
+expression for the selection ring, and `pointAtPane` passes the layer's value into `discRadiusPx` so
+the grab radius is the disc the pane actually drew. A twelve-pixel marker with an eight-pixel grab
+would put the hit boundary a third of the way inside the thing the user is aiming at — the same class
+of defect as the `uiScale` bug this file recorded earlier today, which is why the fix is one function
+and not three call sites that agree today.
+
+`shape: 'sphere'` deliberately does not read it: a sphere's size is `radiusMm`, which is also its 2D
+cross-section, its 3D billboard, its label slab and its probe radius, and a second size for one of
+those five would be a knob that disagreed with the other four.
+
+## 2026-08-30 — `cleared` says why, and select mode is the sEEG module's resting state
+
+The owner clicked contacts on P077 and the electrode dropdown did not follow. The diagnosis is worth
+recording because the obvious answer was wrong: the point tool **is** armed in `select` after a table
+load and after a scene restore — measured, in both routes — and the click that misses is the one that
+lands on a **ghost**. §7.5's select rule is on-slice only (`|d| < r`, r = 1.5 mm here) while
+`offPlaneOpacity: 0.6` draws every contact of every shaft, so on a P077 slice eighty-two contacts are
+visible and one or two are hittable. That rule is not weakened here: a ghost is a projection of a
+contact on another slice, and grabbing one would drag it in a plane it is not in. It is written down
+as the open question it is.
+
+What *was* broken is that three ordinary things cleared the tool and nothing put it back — `Esc`,
+deleting the selected contact, and measure mode — and an unarmed left click is §7.5's R1 cursor-set,
+which never hit-tests: the dropdown, the ring and the crosshair all stop following the pointer, with
+nothing on screen to say why. The module could not tell those cases apart, because one `cleared`
+event served six different causes; it guessed from the layer list one event later, which can answer
+"did my layer survive" and can never answer "did the user pick measure mode instead".
+
+`PointToolEvent.reason` is that answer — `'esc' | 'measure' | 'load' | 'layer' | 'host' |
+'selection'`, `cleared` only, absent meaning `'host'`, which is what every clear meant before the
+field existed. The module's policy is then stated rather than inferred: `'selection'` leaves the tool
+alone (the tool never moved — this is every delete of the selected contact, and reading it as a
+disarm is what stopped later scene loads re-arming); `'measure'` stands down, because §7.5 arms one
+click-consuming mode at a time and re-arming would turn measure mode straight off again and make `m`
+do nothing while the panel is open; `'load'` and `'layer'` wait for the `layers` event and re-arm
+against whatever layer the module owns then; `'esc'` and `'host'` re-arm `select` at once, because
+the layer is untouched.
+
+So `Esc` keeps the step that matters — `place` → `select`, which is what a user who armed placing by
+mistake wants — and no longer leaves the module needing two presses of Add before a click means
+anything again. §13.3 says so in those words, and the module's layer-identity heuristic is deleted:
+the engine now states what the module used to deduce.
+
+## 2026-08-30 — the shaft line is a display switch, and it is in the block
+
+Fifteen shafts' worth of lines over a bone-window CT is a lot of ink for a slice figure about one of
+them, so the wire gets a toggle (`d`), a `wire { on }` operation and a place in the scene block.
+Module-side entirely: the segments are rebuilt from the contact set on every write anyway, so
+"hidden" is simply not building them — patched in as an **empty** `Float32Array` rather than removed,
+because a `Partial<Layer>` merge cannot unset a field and the engine's own rule is already that fewer
+than one segment draws nothing. No engine change, and no new mechanism.
+
+It is in the block for the same reason `ghost` is: §4.6 does not serialise `lineSegments` at all, so
+a scene reopened without the module's record puts every shaft back and a figure saved with the wire
+off would not reproduce. `wire` and `dotRadiusPx` are both additive there — absent reads as "on" and
+as 4 px, which is what a block written before them meant — so `sceneBlock.version` stays 1. Both are
+display switches and not edits: no history entry, no dirty mark, nothing to save to a table.
+
+The **size** control is deliberately panel-only. §13.6 exempts a command that needs a live pointer, a
+dialog, the undo stack or only the selection; a size stepper is none of those, so it is not a command
+at all — it is a panel entry point beside the snap-radius field, with no key, because `+` and `-`
+belong to the engine's zoom (§7.5) and §13.5's pool is for commands.
+
+## 2026-08-30 — a ghost click selects, and that is the only click that does not drag
+
+The open question the entry above wrote down is closed, in the direction the measurement pointed. On a
+P077 slice `offPlaneOpacity: 0.6` draws eighty-two contacts and §7.5's on-slice rule made one or two of
+them hittable; the other eighty presses were §7.5's R1 cursor-set, which never hit-tests, and the owner
+read the result as "the selection does not update". A user cannot be asked to tell a hittable disc from
+an unhittable one by its opacity.
+
+What the old rule was actually protecting was never "do not select": it was **"do not drag a contact in
+a plane it is not in"**, and only the second half needed the ban. So `pointAtPane` now asks
+`discRadiusPx` **twice** — with the ghost off, and, for the points that answers `null` for, with the
+layer's own `offPlaneOpacity` — and returns which branch answered as `PointPaneHit.ghost`.
+`Engine.pointToolDown` reads that flag and answers `'consumed'`: the point becomes the selection and
+**no `'point'` gesture starts**. The module's existing `selected` handler jumps the cursor onto the
+contact (§13.3), so the press the user aimed at a ghost leaves them looking at that contact on the
+slice, and the next press is an ordinary grab. Click, the view comes to you, drag.
+
+Three details are decisions rather than consequences. **A ghost is hit only when the layer draws one**
+(`offPlaneOpacity > 0`), so with ghosting off the function is bit-identical to what it was — the
+amendment cannot make anything invisible grabbable. **The ghost's clickable disc is its full drawn
+radius**, from the same `discRadiusPx` that sizes the shader's quad and the selection ring, under the
+same 8 px floor: one rule, one function, and a target that is exactly the thing on screen. And **an
+on-slice hit outranks every ghost at the same pixel**, before distance is compared and across layers as
+well as within one — at a 3.5 mm pitch a ghost of the next slice's contact is routinely nearer the
+pointer than the contact the pane actually cuts, and handing it the press would be the same defect from
+the other side.
+
+**No `dragEnd` for a ghost click, and the asymmetry is documented rather than smoothed over.** A
+`select`-mode click emits `selected` + a zero-length `dragEnd` when it grabbed, and `selected` alone
+when it hit a ghost. The alternative — emit the pair anyway, so hosts see one shape — was rejected
+because it changes what the event *means*: `dragEnd` is a drag's commit point, hosts compare positions
+against the `selected` snapshot to decide whether anything happened, and firing it for a gesture that
+never began would make the one event that says "a drag ended" also say "a press landed". A frozen
+contract may have surprises; it may not have silent ones, so it is in `api.ts`'s `PointToolEvent`, in
+§7.5 and in §13.3.
+
+The hover half follows for free and is left to: it is the same hit test, so a ghost is now hot and shows
+the `grab` cursor. The picture must not say "not clickable" about a press that selects.
+
+## 2026-08-30 — `size` is an operation because it is a property of the figure, not of the session
+
+`dotRadiusPx` shipped this morning as a panel-only control, on the argument that §13.6 exempts a command
+needing a live pointer, a dialog, the undo stack or only the selection — and a size stepper is none of
+those, so it is not a *command*. That argument was about §13.5's key pool and it is still right; it says
+nothing about the **operation** half, and the two are separable. The evidence is the P077 proof job in
+this wave, which had to reach for `{ "type": "set", "layer": "Contacts · …", "patch": { "dotRadiusPx": 7 } }`
+— naming a module-owned layer from outside the module, by its display name, to set a field the module
+believes it owns. Every screenshot after a module operation would have had to repeat it.
+
+So `size { px }` joins `ghost` and `wire` as the third display switch, with the same shape: same clamp as
+the stepper (2–12, `clampDotRadius`), same `doSize` the panel button calls, no history entry, no dirty
+mark, one line in the scene block. It is an operation with no command, which `modules.test.ts` already
+allows — its parity rule runs commands → operations, because the gap that rule exists to catch is a
+panel action a job cannot reach, and never the reverse.
+
+## 2026-08-30 — the extension loader is one hoisted variable import, guarded against the bundler
+
+**Decision.** `renderer/src/modules/installed.ts` loads a downloaded module with a URL hoisted into a
+local `const` and a dynamic import of that identifier, carrying `/* @vite-ignore */`; the loaded
+namespace is shape-checked before it is registered; and `scripts/check-module-loader.mjs` asserts the
+**built chunk** still contains `tetravox://module/`, contains a variable `import(x)`, and contains no
+`__variableDynamicImportRuntimeHelper`. `registry.ts` gains `setInstalledModules()`, appended after
+`MODULES` inside `enabledModules()` — the one place every route into a module already goes.
+
+**Why the exact form matters, measured rather than assumed.** Three shapes were built against this
+repository's own Vite (7.3.6). A literal specifier — what the compiled-in registrations use — becomes
+`__vitePreload(() => import("./index-<hash>.js"), …)`: fully owned by the bundler and unable to name a
+runtime URL. An **inline template**, `` import(`tetravox://module/${id}/…`) ``, is *partially
+analysable*, so Vite rewrites it into a glob helper and the URL stops being in the chunk at all — loud,
+at least. The identifier form **without** `@vite-ignore` is the dangerous one: it is silently rewritten
+into `__variableDynamicImportRuntimeHelper` over an **empty** glob, which rejects every URL at runtime
+with no build warning, no type error and no failing unit test. The identifier form *with* the comment
+ships verbatim, and `__vitePreload` is correctly not applied — the preload helper injects a
+`<link rel=modulepreload>`, which is meaningless for a URL that only exists after a consent.
+
+**So the guard reads the build output, not the source.** Everything above is a claim about software we
+do not control and cannot pin behaviour from. A lint rule or a vitest could only assert what the source
+says; the failure mode is the *bundler* disagreeing with it. `check-module-loader.mjs` therefore runs
+in the `test` job after `pnpm e2e` (which builds `out/`), and its own fixtures — the three ways it can
+break, driven red — run in `docs-guard` where they need no toolchain. An empty chunk list is a failure
+rather than a pass: "there was no build output to check" and "the build output is correct" must never
+be the same answer from a guard.
+
+**The namespace is shape-checked because a downloaded chunk is not typechecked by our build.** That is
+the whole difference between an installed module and a compiled-in one. `activate` missing is a
+sentence naming the module, raised where `ShellController.activateModule`'s existing catch already
+turns it into a toast, rather than a `TypeError` deep inside the host wiring. Extra exports are
+accepted: a module may ship whatever else it likes, and refusing them would be a rule with no reason.
+
+**A failed load must never leave a broken switcher.** The registration is a manifest, and the failure
+is inside `load()`, so the row survives, the slot stays empty, and the Extensions dialog's card is
+marked failed through `extensionProgress` — the same field a failed *download* writes. One "this
+extension is broken" surface rather than two.
+
+**Registrations are rebuilt from the same array that redrew the card.** Every action reply carries
+`ModuleActionResult.statuses`, and the controller feeds that exact array to both, so the switcher and
+the dialog cannot disagree about what is enabled. The manifests are re-fetched at the same moment:
+`main.tsx` registered them before the first paint, but that was a snapshot of the disk at launch, and
+installing a module changes the disk — without the re-fetch an extension installed in *this* session
+would be consented, served, and still absent from the switcher until the next relaunch.
+
+## 2026-08-30 — the app half of the SDK global, and where it is installed
+
+**Decision.** `renderer/src/modules/sdk-runtime.ts` sets
+`globalThis.__tetravoxModuleSdk = { hostVersion, react, ModuleHostError, stemOf, contacts }` from
+`main.tsx`, **synchronously at boot**, beside `loadInstalledManifests()` and before the first render.
+
+**Why boot and not `activateModule`.** A module's bundle executes its top level the moment `import()`
+resolves it, and the inlined shim reads the global *there* — not when `activate` is called. Installing
+it inside `activateModule`, next to the code that awaits `registration.load()`, would be one statement
+too late in every case that matters.
+
+**Why exactly five members, and why they are the host's own values.** The list is pinned from both
+sides: `scripts/emit-module-sdk.test.mjs` reads `TetravoxModuleSdk` out of the shim, and
+`installed.test.ts` asserts the object this file builds has exactly those keys. The two halves live in
+different processes' code and were written in different waves, so a sixth member added on one side only
+would be a module throwing "not running inside a Tetravox module host" at load with nothing else to go
+on. Each member is a value the host already owns because a *copy* would be wrong, specifically: a
+second React is an "invalid hook call" the first time a panel renders (§13.3 renders it inside the
+app's own tree); a second `ModuleHostError` class makes every `instanceof` across the boundary false,
+which is the one thing the class exists for; a second `stemOf` computes a different `{stem}`, and a
+module's editlog write is then refused by the very list that admitted its table.
+
+**The `contacts` namespace is assembled, not barrelled.** `scripts/emit-module-sdk.mjs` *generates* the
+SDK's `types/contacts/index.ts` as `export * from './<name>'` over the kit's modules, so adding a real
+`index.ts` to `shared/contacts/` would make the generated barrel re-export itself. The renderer imports
+the seven modules as namespaces and spreads them, which is what `export *` means at runtime, and the
+kit has no duplicate export — an ambiguity would be a build error there and a silent last-wins here.
+
+**The global is not a capability, and saying so is the point.** Everything on it is already reachable
+from any renderer script, because a renderer script is first-party code by construction. What admits a
+*downloaded* module is the `tetravox://module` map, which only main fills and only after consent. This
+object is merely what such a module finds when it looks for the host's React.
+
+## 2026-08-30 — File ▸ Extensions…: the Sample Data dialog, with a consent sheet in the middle
+
+**Decision.** `DialogKind` gains `'extensions'`; `dialogs/ExtensionsDialog.tsx` is
+`SampleDataDialog.tsx`'s frame, card grid, single-state button, progress bar and directory footer, with
+the consent sheet as a **state of the same dialog**. It is reached from `File ▸ Extensions…` (a native
+menu item, `tetravox:open-extensions`, mirroring `onOpenSampleData` exactly) and from one
+`Manage extensions…` row at the bottom of the module switcher.
+
+**Why the Sample Data dialog and not a new shape.** Both answer the same question — "get something from
+the network onto this machine, once" — and the existing dialog had already settled the parts that are
+easy to get wrong: one button that says the true state rather than a state plus a verb, a progress bar
+with Cancel in the card rather than a modal, a footer naming the directory with a Show button, and a
+`data-testid` per card that an e2e can drive. Nothing here is a new UI primitive.
+
+**The switcher stays load/unload (§13.3).** It gains exactly one row, below a rule, and that row opens
+a dialog; it does not grow install, enable or remove. §13.3's "no new toolbar button" holds for the
+same reason it did before: a second management surface in the toolbar would be a second place to look.
+
+**Installing is not enabling, and the sheet is what sits between them.** "Download & enable" is two
+calls with a sheet in the middle, never one — the files land inert in `~/.tetravox/modules/` and
+`moduleEnable` is the message that says the user agreed. The sheet's permission list is
+`derivePermissions(manifest)`, read out of the manifest the user is about to run, so the card, the
+sheet and what the module can actually do cannot disagree; a separately declared list would be a second
+source of truth and the one an author would write for the reader rather than for the runtime.
+
+**The sheet's state is local to the component, not a store field.** It is a step *inside* one gesture —
+install, then answer — and nothing outside the dialog can be mid-way through it. `UiState` gains only
+the four Sample Data fields' twins (`extensions`, `extensionStatuses`, `extensionProgress`,
+`extensionDir`), none persisted: the only persisted key is `AppSettings.extensions`, which main owns
+and the renderer never writes.
+
+**An empty catalogue says "nothing to show".** The dialog reads the index the build shipped and is
+correct with no network at all, so "the registry is unreachable" and "nothing is listed yet" have the
+same, honest rendering — never an error. An **incompatible** module is listed and greyed with the host
+API it needs, rather than hidden: "needs a newer Tetravox" is an answer and an absent card is not.
+
+**Disable and Remove deactivate first.** A module whose files are about to stop being reachable must
+not be left holding a host, so the controller empties the slot before it sends either message. Main
+then does the half the renderer is not asked about — the protocol map, the settings key and the write
+list — because withdrawing a capability cannot be a message main hopes to receive.
+
+## Extensions tier: closing seven consent/boundary findings (2026-08-31)
+
+Seven adversarially-verified findings against the downloadable-extensions tier, each a variant of one
+rule — *the consent sheet must equal what is granted, and a capability is withdrawn in main* — now have
+tests that were red on the code as filed.
+
+**The consent sheet may not deny what the manifest grants.** `derivePermissions` enumerated readers,
+writers, keys, operations and the scene block but had no branch for a manifest's top-level `siblings`
+block, which is a read/allow-list-widening capability in its own right (`host.files.siblings` admits and
+reads text files off disk). A siblings-only module therefore derived an empty list, which the dialog
+rendered as "nothing beyond drawing in its own panel" — an affirmative denial. The block gets its own
+line, and the empty-list sentence is reworded as what the manifest *declared* so it cannot outrun a
+capability the list forgot to enumerate.
+
+**A Save sheet's filters and sibling templates come from the manifest, never the renderer, for a module
+main carries.** `moduleSaveDialog` fell back to renderer-supplied `filters`/`siblings` whenever
+`writerId` resolved to no declared writer — a value a first-party module fully controls, letting it
+admit an undisclosed second write path (an executable `<stem>.command` beside the file the user named).
+For `manifestFor(id) !== null` only a resolved writer contributes filters and templates; an unresolved
+`writerId` admits the chosen path alone. The renderer fallback survives only for the harness case
+(`manifestFor === null`, a `--job` window told about a module this build's barrel does not carry).
+
+**A compiled-in id cannot be shadowed by an on-disk module.** `installedModules()` drops any on-disk
+module whose id is in `MANIFESTS`, exactly the skip the renderer's eligibility check makes, so a
+`~/.tetravox` shadow of `tetravox.seeg` is never served or consent-recorded at boot behind the
+`isModuleConsented` MANIFESTS short-circuit. (This is the refusal manifest-types/manifests.ts already
+described as "module-store.ts refuses an installed module whose id collides".)
+
+**An update leaves the superseded version inert.** `installModule` unserves, revokes writes and drops
+stale consent for a version it supersedes, so a declined update leaves the module in the same
+must-re-consent state the card advertises rather than keeping the old bytes served and writable.
+
+**`enabled` is the served map, not the consent record.** `moduleStatuses().enabled` is derived from
+`servedModuleVersion(id)`, so the card cannot show "Enabled ✓" for a consented-but-unserved module (an
+enable that failed at boot on a tampered file or an incompatible host API), nor hide Disable while an
+old version still runs after an in-session update.
+
+**The dev/E2E env seams close in a shipped build.** `TETRAVOX_MODULE_DIR` and `TETRAVOX_EXT_INDEX` are
+gated behind `!app.isPackaged || TETRAVOX_E2E === '1'`, mirroring the
+`shouldPromptOnClose`/`TETRAVOX_E2E_DISCARD` precedent, so an ambient env var cannot repoint the
+installed store or spoof the whole catalogue in a signed build. The packaged `csp.spec.ts` leg sets
+`TETRAVOX_E2E=1` to keep its fixture seam — this is a defense-in-depth/provenance-spoof hardening, not a
+consent bypass (a bundled id still wins a collision and the "Bundled" badge is not env-controlled).
+
+**The renderer cannot author `settings.extensions`.** `tetravox:set-settings` routes through
+`writeSettingsFromRenderer`, which strips the `extensions` key, so the consent map stays what
+`enableModule`/`disableModule` wrote through `grantConsent`/`dropConsent`. The invariant this section
+already stated — "the only persisted key is `AppSettings.extensions`, which main owns and the renderer
+never writes" — is now enforced at the channel rather than assumed.
+
+## 2026-08-31 — the SDK emits `contacts.mjs`, so a module repo tests against the kit without pinning a core sha
+
+A module running inside the app reads `contacts` off `globalThis.__tetravoxModuleSdk` — the host's
+single instance, which is what keeps one TSV reader and one editlog behind two contact modules. But a
+module's **own** vitest has no host global, so `tetravox-seeg` was pinning `shared/contacts` to a
+`feat/modules` commit and fetching it from `raw.githubusercontent` — a pin that 404s the moment a
+squash-merge garbage-collects that sha (W3 issue #1). `scripts/emit-module-sdk.mjs` now also emits
+`contacts.mjs`: the `shared/contacts` kit as runnable ESM, cut from the same JavaScript `tsc` produces
+for the types, with the one `.mjs` specifier rewrite `manifest-schema.mjs` already uses (the kit's
+engine imports are `import type`, erased; its only value imports are of each other). It is a fifth
+emission gate — imported and made to build a set — for the reason the schema is a fourth: a rewrite
+that does not resolve would be green here and red in the module repo's CI. It is named in `exports`
+and documented as a **tests-only** import: the production bundle keeps using the root `contacts`, so
+there is still exactly one instance and one copy at runtime. The follow-up — dropping
+`contacts.pin.json`/`fetch-contacts.mjs` from `tetravox-seeg` — is a commit to that repo, noted not
+blocked on here.
+
+## 2026-08-31 — the sEEG editor leaves the build: it is the first bundled extension, not compiled-in code
+
+`tetravox.seeg` is no longer in `MANIFESTS` or `MODULES`. Its source (`packages/app/src/modules/seeg/`
+and `renderer/src/modules/seeg/`) is deleted from core and lives in `idossha/tetravox-seeg`; the app
+ships it as a **bundled extension** — `modules.lock` pins the two release-asset hashes,
+`fetch-locked-modules.mjs` places them under `resources/modules/tetravox.seeg/0.1.0/` at package time,
+and main discovers the tree at boot, pre-consents it (it shipped inside the signed app) and enables it.
+So the switcher, the readers, the sibling patterns and every job operation reach it through the same
+installed-module path a downloaded extension takes (§13.8), and nothing in the shell knows it is special.
+
+What **stays** in core: `renderer/src/modules/shared/contacts/**` (the SDK exposes it as `sdk.contacts`,
+so two contact modules share one implementation — §13.3), and `python/tetravox/modules/seeg.py` (the
+data-only job-builder wrapper). What **moved** with the module: the depth-electrode kernels (`bids.ts`,
+`shaft.ts`, `block.ts`) and their kernel tests, which are the seeg repository's now.
+
+The app-harness tests **stayed and were retargeted**. `seeg.test.ts` drives the *bundled bytes* through
+the real controller: the fake bridge reports the module as main does, `refreshInstalledModules` registers
+it through the true eligibility gate, and only the loader's `import('tetravox://module/…')` — which no
+vitest can resolve — is mocked, to the compiled `index.js` in `resources/modules/`. `seeg-fixtures.test.ts`
+and `seeg-realdata.test.ts` keep the `shared/contacts` checks (core) and dropped the shaft/bids ones
+(moved). All of them, and `e2e/module-seeg.spec.ts`, **skip when the bundled tree is not on disk** — the
+cheap `test` CI leg runs `fetch-locked-modules --verify-only`, no download — exactly as a real-data test
+skips without its dataset. The definitive post-extraction proof is the P077 bundled-job regression gate.
+
+`AUTOMATION.md` §2.7 is now honest about tiers: it lists **compiled-in** modules only (just `hello`), and
+says a bundled or installed extension documents its operations in its own repository and the Extensions
+catalogue. Extending `sync-module-docs.mjs` to read bundled manifests was rejected: the tree is not
+committed and the `docs-guard` leg has no network, so a generated section that depended on it could not be
+deterministic. `USER_GUIDE.md`'s `## sEEG contacts` page is **kept** — users still need it — reframed to
+say it ships bundled and is managed in File ▸ Extensions…, and its `GUIDE_PAGES`/sidebar rows are unchanged.

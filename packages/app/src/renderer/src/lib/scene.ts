@@ -14,6 +14,9 @@
 
 import { SCENE_VERSION, migrateViewSpec } from '@tetravox/engine';
 import type { DatasetRef, Layer, ViewSpec } from '@tetravox/engine';
+// Modules (2026-08-30, §13.2). Types only: this file writes a module's *record* into the file and
+// reads it back; it never knows what is inside one.
+import type { ExtensionBlock } from '../modules/host';
 
 /** §4.6's extension. One regexp, shared by the drop route, the Open route and the Save default. */
 export const SCENE_SUFFIX = '.tetravox.json';
@@ -159,6 +162,20 @@ export function withRelativePaths(spec: ViewSpec, scenePath: string): ViewSpec {
 export interface SceneExtras {
   /** §8's theme choice, written into the file so a scene reopens looking as it was left. */
   theme?: 'system' | 'light' | 'dark';
+  /**
+   * §13.2's module blocks, keyed by `ModuleId` — `ViewSpec.extensions`.
+   *
+   * Written **by the app**, exactly like `theme` and for the same reason: `Engine.serialize()`
+   * enumerates engine fields, and a module's record is not one of them. The map handed here is the
+   * whole of `UiState.moduleBlocks`, which includes blocks belonging to modules this build has never
+   * heard of — carried through verbatim, so opening a colleague's scene and re-saving it does not
+   * quietly delete their work.
+   *
+   * `ViewSpec.extensions?` is a declared optional field on the frozen `scene/types.ts` (§4.6), typed
+   * there exactly like `theme?` and, like `theme`, never produced by `Engine.serialize()` — a
+   * roundtrip test pins that. The app writes it here and reads it back in `sceneExtensions`.
+   */
+  extensions?: Record<string, ExtensionBlock>;
   // **Measurements are NOT an extra any more** (directed task 11). Task 13 carried them through
   // this object because `Scene` had no measurement list and `Engine.serialize()` could not produce
   // them, so a save here would have deleted a colleague's work. It can produce them now — they are
@@ -173,9 +190,13 @@ export function serialiseScene(
   scenePath: string,
   extras: SceneExtras = {}
 ): string {
+  const blocks = extras.extensions ?? {};
   const out: ViewSpec = {
     ...withRelativePaths(spec, scenePath),
     ...(extras.theme !== undefined ? { theme: extras.theme } : {}),
+    // An empty map is not written, for the same reason an empty `measurements` array is not: a file
+    // that says `"extensions": {}` claims a thing it has nothing to say about.
+    ...(Object.keys(blocks).length > 0 ? { extensions: blocks } : {}),
   };
   // An empty list is not written: it is indistinguishable from having none, and a file that says
   // `"measurements": []` claims a thing it has nothing to say about.
@@ -214,6 +235,47 @@ export function parseScene(text: string): ParsedScene {
   // v1 → v2 (directed task 13). The engine owns the migration so that a host which reads a file
   // itself and one which hands the bytes to `Engine.load` agree on what version 1 means.
   return { ok: true, spec: migrateViewSpec(spec as ViewSpec) };
+}
+
+/**
+ * The module blocks a scene file carried (§13.2), shape-checked.
+ *
+ * Deliberately tolerant in one direction and strict in the other. **Strict:** a block whose
+ * `module` / `version` / `moduleVersion` are not what §13.2 says is dropped, because a malformed
+ * block handed to `restoreBlock` is a module crash on file open. **Tolerant:** `data` is not
+ * inspected at all — it belongs to a module this build may not have, and the whole point of the
+ * carry-forward is that an unknown block survives a round trip untouched.
+ *
+ * The key is checked against the block's own `module` field: a file whose key and field disagree is
+ * one where an editor renamed one of them, and guessing which is right would silently reattribute
+ * someone's work.
+ *
+ * **Verbatim means the whole envelope**, not the three fields this build happens to know about
+ * (2026-08-30). §12.3's additive rule lets a later host put a fourth field beside `data` and
+ * requires that its absence reproduce today's behaviour — which it cannot if today's build deletes
+ * it from every block it opens and re-saves, including the blocks of modules it has never heard of.
+ * So an accepted block is spread through and only the three validated fields are re-stated over it.
+ */
+export function sceneExtensions(spec: ViewSpec): Record<string, ExtensionBlock> {
+  const raw: unknown = spec.extensions;
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, ExtensionBlock> = {};
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const block = value as Partial<ExtensionBlock>;
+    const owner = block.module;
+    if (typeof owner !== 'string' || owner !== id) continue;
+    if (typeof block.version !== 'number' || !Number.isFinite(block.version)) continue;
+    if (typeof block.moduleVersion !== 'string') continue;
+    out[id] = {
+      ...(value as Record<string, unknown>),
+      module: owner,
+      version: block.version,
+      moduleVersion: block.moduleVersion,
+      data: block.data ?? null,
+    } as ExtensionBlock;
+  }
+  return out;
 }
 
 /**

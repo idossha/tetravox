@@ -29,6 +29,8 @@ golden PNG for regression. Never "verify" a rendering change by looking at a pic
 | `pnpm --filter @tetravox/engine run e2e` | the engine suite — **two projects**: `chromium-swiftshader` (everything, goldens included) and `chromium-angle` (`@angle` only, on the real GPU) |
 | `pnpm --filter @tetravox/app run e2e` | the Playwright-Electron suite — **two projects**: `dev` and `packaged` |
 | `scripts/e2e-quiet-check.sh` | runs `pnpm e2e` and proves it took neither the screen nor the focus (§2.2) |
+| `node --test scripts/sync-module-docs.test.mjs` · `node scripts/sync-module-docs.mjs --check` | the module-docs generator's own fixtures, then the check that `docs/AUTOMATION.md` §2.7 still matches the manifests (the `docs-guard` job) |
+| `python -m unittest discover -s python/tests` | the Python client's document tests — standard library only, no install (the `python` job) |
 
 Prettier does **not** format `docs/` — keep it that way; a reflowed contract makes every diff unreadable.
 
@@ -39,12 +41,21 @@ pnpm exec electron --version            # electron ≥ 42 downloads its ~100 MB 
 pnpm exec playwright install chromium   # the version-pinned Chromium
 ```
 
-Real-data tests are gated on `TETRAVOX_TESTDATA` and **skip, never fail, when it is unset**. CI leaves it
-unset on purpose and asserts so. Locally:
+Real-data tests are gated on an environment variable and **skip, never fail, when it is unset**. CI leaves
+both unset on purpose and asserts so. Locally:
 
 ```sh
 export TETRAVOX_TESTDATA=/path/to/derivatives/SimNIBS/sub-ernie
+export TETRAVOX_SEEG_TESTDATA=/path/to/derivatives/seegprep/sub-P076   # §13's contact editor
 ```
+
+`TETRAVOX_SEEG_TESTDATA` is a **subject directory inside a `seegprep` derivative tree** —
+`<dir>/ct/sub-<id>_acq-bone_space-T1w_ct.nii.gz` and `<dir>/ieeg/sub-<id>_space-T1w_electrodes.tsv`. There is
+no such subject on the development machine, so `modules/seeg-realdata.test.ts` asserts **properties, not
+numbers**: a real table's contact count, columns and coordinates belong to the site that produced it, and a
+test pinning those could only ever be run by whoever generated them. Its synthetic half —
+`modules/seeg-fixtures.test.ts` — is where the numbers live, and they come from numpy
+(`scripts/gen-fixtures.py`, the `seeg` block).
 
 ### Where each kind of test lives
 
@@ -77,6 +88,95 @@ const second = await launchApp(target, { userDataDir: profile });  // assert it 
 
 The two launches must not overlap: the second would find the lock held and quit. `e2e/theme.spec.ts` is the
 worked example.
+
+### Module tests (§13.4)
+
+The extension surface is tested at three levels, and the split is not a matter of taste:
+
+| Level | Where | What it can assert |
+|---|---|---|
+| Manifests and keys | `renderer/src/modules/modules.test.ts` | Every manifest in `MANIFESTS`, without naming one: ids, semver, `hostApi`, the `docs` heading, §13.5 pool membership, and every pool key probed through the **live `resolveKey`** so a module key that shadowed a §7.5 binding fails here. It also reads `src/modules/**` and `renderer/src/modules/<id>/**` off disk and fails an import the wall forbids — a lint rule can be disabled inline, a test cannot. |
+| The host | `renderer/src/modules/hostImpl.test.ts` | `NoGlEngine` + `createUiStore` + `ShellController.attach()` (the `panels.test.ts` idiom): activation, commands, the status cell, the dirty flag, the scene block's round trip through a saved file, the confirm dialog and the discard guard. **State and calls, never pixels.** |
+| The window | `packages/app/e2e/modules.spec.ts` | Everything §13.3 says about *layout*: the slot's height cap, the toolbar's height unchanged after an activation at 1440×900, the status cell left of the dataset cells, the aside in flow at 960 px, the rendered confirm dialog. vitest runs under `environment: 'node'`, so none of this can be asserted anywhere else. |
+| A module end to end | `renderer/src/modules/seeg.test.ts`, `seeg-fixtures.test.ts`, `packages/app/e2e/module-seeg.spec.ts` | The three levels again, for the first *product* module. The harness drives every command through the controller against `NoGlEngine`; the fixtures replay numpy's own answers for the line fit, the re-fit, the tip rule, the snap and the float formatting; the e2e opens a real `seegprep` tree in a temp directory and reads the table, its `.bak` and its `_editlog.json` back off disk. |
+| A **downloadable** extension | `main/module-store.test.ts`, `renderer/src/modules/installed.test.ts`, `packages/app/e2e/extensions.spec.ts`, `packages/app/e2e/csp.spec.ts`, `scripts/check-module-loader.mjs` | §13.8. Main's store (download, hash, consent, serve, revoke) and the renderer's loader are unit-tested; the e2e drives the whole round trip through a real Electron; the CSP spec proves the `script-src` grant from both sides; the loader guard reads the **built chunk**. See below. |
+
+### Downloadable extensions (§13.8)
+
+The seams, all of them environment variables, so nothing here touches a real `~/.tetravox` or the network:
+
+| Variable | What it redirects |
+|---|---|
+| `TETRAVOX_MODULE_DIR` | where extensions are installed (default `<TETRAVOX_HOME>/modules`) |
+| `TETRAVOX_EXT_INDEX` | the catalogue JSON, instead of the shipped `src/shared/extensions-index.json` |
+| `TETRAVOX_HOME` | `configHome()`, so `settings.json` — and with it the **consent record** — is a temp file |
+
+`e2e/fixtures/tetravox.fixture/` is a checked-in **emitted module bundle**: zero imports, the SDK shim
+inlined, reading the host's React and the contacts kit off `globalThis.__tetravoxModuleSdk`. It is what a
+module repository's `rollup -c` produces, checked in because no module repository exists yet, and
+`extensions.spec.ts` runs the same five-line "no imports at all" check on it that
+`scripts/module-sdk/README.md` tells a module repository to run in its own CI.
+`e2e/fixtures/tetravox.future/` is a manifest alone, at `hostApi: 2`, for the greyed-card case.
+
+`extensions.spec.ts` stages that bundle as a **release store** — each asset named by its own sha256, the
+`scripts/sample-data/publish.sh` layout — and installs it over a `file://` URL, so the download path runs for
+real with no server. Then: catalogue → install → consent sheet with the derived permissions → enable →
+the switcher row → the module's own panel → disable → remove, with a `fetch('tetravox://module/…')` before
+and after each consent change, because *consent gates execution* is the claim and a 404 is how it is visible.
+
+Two claims live in `csp.spec.ts` instead, because a policy can only be proved from inside the page it governs
+and **the dev server carries no CSP**:
+
+```sh
+pnpm --filter @tetravox/app run e2e                            # dev: everything above
+pnpm package && TETRAVOX_REQUIRE_PACKAGED=1 \
+  pnpm --filter @tetravox/app run e2e:packaged                 # the shipped bundle
+```
+
+The packaged leg is the gate for the `script-src 'self' 'wasm-unsafe-eval' tetravox://module` **host source**:
+it enables a pre-seeded fixture through the preload bridge and then `import()`s its URL, asserting **both**
+that no `securitypolicyviolation` fired *and* that `activate` came back a function. "It loaded" and "the policy
+let it" are different facts, and only the pair is the claim.
+
+`scripts/check-module-loader.mjs` is the third kind of test, and the only one that can catch its failure: the
+loader's variable dynamic import is rewritten by Vite into an **empty** glob helper if the `@vite-ignore`
+comment is ever lost, with no build warning and no failing unit test. It reads
+`packages/app/out/renderer/assets/*.js`:
+
+```sh
+pnpm --filter @tetravox/app run build && node scripts/check-module-loader.mjs
+node --test scripts/check-module-loader.test.mjs   # its own fixtures, driven red
+```
+
+The fixture module is the subject throughout, driven with `?modules=hello` — the same seam `?engine=mock`
+uses. It is compiled into every build and listed only behind that parameter, because `pnpm e2e` drives the
+production bundle: a fixture excluded from it would prove nothing about the bundle users get.
+
+The **docs guard** has its own fixtures and does not run under vitest:
+
+```sh
+node --test scripts/check-frozen-docs.test.mjs   # its own rules, driven red
+node scripts/check-frozen-docs.mjs --base origin/main
+node --test scripts/sync-module-docs.test.mjs    # the generator's own fixtures, same idiom
+node scripts/sync-module-docs.mjs --check        # §2.7 still says what the manifests say
+node --test scripts/check-module-loader.test.mjs # §13.8's loader guard, driven red
+```
+
+CI runs all of these in the `docs-guard` job — the *self-tests* of the loader guard included, because they
+need neither an install nor a toolchain; the loader guard's real run needs a build and is a step of `test`,
+right after `pnpm e2e`, which is what builds `out/`. `docs-guard` checks out with `fetch-depth: 0` because
+rule one is a merge-base diff. Locally, without `--base`, the script says it has nothing to diff and checks only the rule
+that needs no diff — a guard that failed when it could not do half its job would be switched off within a
+week. The middle two are §13.6's half of the same idea: §2.7 is *generated* from the manifests
+(`node scripts/sync-module-docs.mjs` rewrites it), so a table that drifted would promise a user a job the
+validator refuses.
+
+The Python client's tests are the `python` job and need nothing installed — the client is standard library
+only:
+
+```sh
+python -m unittest discover -s python/tests
+```
 
 ### The test page server
 
@@ -233,6 +333,33 @@ message; "the GM surface is now lit by a headlight rather than a fixed light, so
 
 `*-actual.png` and `*-diff.png` are git-ignored; on a failure the whole `playwright-report/` and
 `test-results/` tree is uploaded as a CI artefact.
+
+### Blessing a golden from ubuntu — the loop the command above does *not* complete
+
+The command above captures on **your** machine, and `ubuntu-24.04` is the authority (§11). Its SwiftShader is
+a different build on a different architecture, so a picture that is right locally can still be over
+`maxDiffPixelRatio` there. Both cases end at the same place — a PNG in the CI artefact — and neither is fixed
+by running Playwright with `-u` again:
+
+1. **Add the golden locally.** Write the spec, capture with `TETRAVOX_UPDATE_GOLDENS=1`, **look at the file**
+   (it is evidence, not proof — §11 rule 0 still wants the analytic assertion beside it), and commit it with a
+   body saying what it shows. Pushing without it is worse than pushing a wrong one: `updateSnapshots: 'none'`
+   makes a *missing* golden a failure, so CI reports `A snapshot doesn't exist at …` and captures nothing.
+2. **Let CI render it.** If ubuntu agrees within the ratio, that is the end of it. If it does not, the `engine`
+   job fails on that one test and uploads `playwright-report/` + `test-results/`.
+3. **Download the artefact and take ubuntu's picture.** Inside it,
+   `test-results/<spec>-<test>-chromium-swiftshader/<name>-actual.png` is what the authority rendered, beside
+   the `-diff.png` that says how it differs. Copy the **`-actual.png`** over
+   `packages/engine/test/golden/swiftshader/<name>.png` and commit it — replacing your local capture, in its
+   own commit, with a body stating what changed visually and that the picture came from ubuntu CI.
+4. **Never make it pass by re-running.** `playwright test -u` on the failing leg would overwrite the
+   authority's picture with the local one, which is the failure the two locks in the previous section exist to
+   prevent. If the diff is a real regression, fix the code; if it is a legitimate visual change, step 3 is how
+   it lands.
+
+The same three steps re-bless an **existing** golden that a deliberate rendering change moved — `186ff51`
+re-blessed five of them from ubuntu's renders on 2026-08-29 — and the only difference is that §11 then also
+requires the commit body to say what changed and why.
 
 ### Where a spec's screenshots go
 

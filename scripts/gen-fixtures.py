@@ -1100,6 +1100,93 @@ VOL_LUT_SIMNIBS = """#No.\tLabel Name:\t\t\t\tR\tG\tB\tA
 # --------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------
+# the sEEG CT phantom (§4.3 bounded local reads, 2026-08-30)
+# --------------------------------------------------------------------------------------
+
+# Anisotropic and NOT a multiple of each other, so the per-axis half-extent really differs: Slicer's
+# `max(trunc(r / s), 1)` is (3, 3, 1) at the module's default 1.5 mm radius and (5, 4, 2) at the
+# 2 mm one the `clipped-corner` case uses — three different half-extents in one box.  The origin
+# puts an INTEGER voxel index at world 0 on every
+# axis, and no query below lands on a half-index: rounding a voxel index is where a float32 inverse
+# affine and a float64 one can legitimately disagree, and a fixture whose expectations turn on a
+# tie-break would be testing the tie-break.
+CT_DIMS = (56, 48, 40)
+CT_SPACING = (0.4, 0.5, 0.8)
+CT_ORIGIN = (-11.2, -12.0, -16.0)
+
+# Three shafts, 3.5 mm contact pitch (the pitch of a real sEEG electrode), each oblique to all three
+# axes so nothing in the box arithmetic can be right by accident.  AUTHORED ground truth: the
+# manifest marks it as such, and every *computed* expectation beside it is read back with nibabel.
+CT_SHAFTS = [
+    {"group": "A", "entry": (-6.0, -7.0, -11.0), "dir": (0.25, 0.35, 0.90), "contacts": 6},
+    {"group": "B", "entry": (6.0, -6.0, -10.0), "dir": (-0.15, 0.25, 0.95), "contacts": 5},
+    {"group": "C", "entry": (-4.0, 6.5, -6.0), "dir": (0.55, -0.30, 0.78), "contacts": 4},
+]
+CT_PITCH_MM = 3.5
+# A contact is a Gaussian blob, not a hard sphere: at 0.4-0.8 mm voxels a 0.8 mm-diameter cylinder
+# is one or two samples, and a centroid over two samples has nothing sub-voxel to find.  The width
+# is the one the peak-centroid rule is meant to resolve.
+CT_CONTACT_HU = 3000.0
+CT_CONTACT_SIGMA_MM = 0.85
+# The shaft body between contacts: visible, and faint enough that it cannot pull a centroid off a
+# contact (it is symmetric along the axis through one anyway).
+CT_SHAFT_HU = 200.0
+CT_SHAFT_SIGMA_MM = 0.5
+
+
+def ct_shafts_affine() -> np.ndarray:
+    m = np.eye(4, dtype=np.float64)
+    m[0, 0], m[1, 1], m[2, 2] = CT_SPACING
+    m[:3, 3] = CT_ORIGIN
+    return m
+
+
+def ct_contact_centres():
+    """Every contact, as `(group, ordinal, world mm)` — ordinal 1 is the deepest (the entry end)."""
+    out = []
+    for shaft in CT_SHAFTS:
+        d = np.array(shaft["dir"], dtype=np.float64)
+        d /= np.linalg.norm(d)
+        p0 = np.array(shaft["entry"], dtype=np.float64)
+        for n in range(shaft["contacts"]):
+            out.append((shaft["group"], n + 1, p0 + d * (CT_PITCH_MM * n)))
+    return out
+
+
+def ct_shafts_volume() -> np.ndarray:
+    """`HU + 1024`, i fastest, as the int16 samples the fixture stores."""
+    nx, ny, nz = CT_DIMS
+    ii, jj, kk = np.meshgrid(np.arange(nx), np.arange(ny), np.arange(nz), indexing="ij")
+    x = CT_ORIGIN[0] + ii * CT_SPACING[0]
+    y = CT_ORIGIN[1] + jj * CT_SPACING[1]
+    z = CT_ORIGIN[2] + kk * CT_SPACING[2]
+
+    # Soft tissue with a gentle, entirely deterministic modulation.  NOT flat: a flat box has no
+    # peak at all (every weight is zero once the threshold is the value itself), and the point of a
+    # background case is to pin what the rule does away from a contact, not to pin `None`.
+    vol = 40.0 + 6.0 * np.sin(0.7 * x) + 5.0 * np.cos(0.5 * y) + 4.0 * np.sin(0.3 * z)
+
+    for shaft in CT_SHAFTS:
+        d = np.array(shaft["dir"], dtype=np.float64)
+        d /= np.linalg.norm(d)
+        p0 = np.array(shaft["entry"], dtype=np.float64)
+        p1 = p0 + d * (CT_PITCH_MM * (shaft["contacts"] - 1))
+        # Perpendicular distance to the segment, for the body.
+        rx, ry, rz = x - p0[0], y - p0[1], z - p0[2]
+        t = np.clip(rx * d[0] + ry * d[1] + rz * d[2], 0.0, float(np.linalg.norm(p1 - p0)))
+        perp = np.sqrt(
+            (rx - t * d[0]) ** 2 + (ry - t * d[1]) ** 2 + (rz - t * d[2]) ** 2
+        )
+        vol += CT_SHAFT_HU * np.exp(-((perp / CT_SHAFT_SIGMA_MM) ** 2))
+
+    for _group, _ordinal, c in ct_contact_centres():
+        dd = (x - c[0]) ** 2 + (y - c[1]) ** 2 + (z - c[2]) ** 2
+        vol += CT_CONTACT_HU * np.exp(-dd / (CT_CONTACT_SIGMA_MM**2))
+
+    return np.rint(vol + 1024.0)
+
+
 def generate(out: Path) -> dict:
     """Write every fixture. Returns a dict of *writer-side* notes (never ground truth)."""
     out.mkdir(parents=True, exist_ok=True)
@@ -1218,6 +1305,25 @@ def generate(out: Path) -> dict:
     aff_asym = np.eye(4)
     aff_asym[:3, 3] = (-3.5, -3.5, -3.5)
     write_nifti(out / "vol_asym.nii", asym, aff_asym)
+
+    # §4.3's bounded local reads (2026-08-30): a CT phantom with three depth-electrode shafts, for
+    # `derived/voxel-box.ts`'s `sampleVoxelBox` / `peakCentroid`.  Anisotropic spacing on purpose —
+    # the box's half-extent is `ceil(radiusMm / spacing)` PER AXIS, so an implementation that used
+    # one spacing for all three reads the right answer on an isotropic volume and the wrong one
+    # here.  Stored as `HU + 1024` with `scl = (1, -1024)`, so a reader that forgets §6.1's scaling
+    # is off by exactly 1024 in every value rather than subtly wrong.
+    write_nifti(
+        out / "ct_shafts.nii.gz",
+        ct_shafts_volume().astype(np.int16),
+        ct_shafts_affine(),
+        gzip_it=True,
+        scl=(1.0, -1024.0),
+    )
+
+    # §13's electrode tables (2026-08-30): the contacts of the CT phantom above, missed by a
+    # deterministic sub-millimetre offset so a snap has something to find, plus one deliberately
+    # awkward table for the reader's tolerance.  Both are text and together under 2 kB.
+    write_seeg_tables(out)
 
     # ---------------- MGH / NRRD / MetaImage (§6.1's other voxel formats) ----------------
     # Same ramps, same oblique affine, so a reader that gets an axis or a sign wrong is caught by
@@ -1492,6 +1598,404 @@ def inspect_nifti(path: Path) -> dict:
     if uniq.size <= 32:
         rec["uniqueValues"] = fl(uniq)
     return rec
+
+
+# --------------------------------------------------------------------------------------
+# verification — §4.3's bounded local reads, on ct_shafts.nii.gz
+# --------------------------------------------------------------------------------------
+
+# ARCHITECTURE.md §4.3 / `packages/engine/src/derived/voxel-box.ts`: at most this many voxels on an
+# axis, whatever the spacing.  Duplicated here on purpose — a reference implementation that imported
+# the constant from the thing it is checking would not be a reference implementation.
+VOXEL_BOX_MAX = 32
+
+
+def _box_indices(inv_affine, dims, spacing, world, radius_mm):
+    """`sampleVoxelBox`'s window: Slicer's `rad_vox` per axis, clipped, capped.
+
+    The half-extent is `np.maximum((radius_mm / spacing).astype(int), 1)` — `SEEGContactEditor`'s
+    `snapToMetal`, character for character (truncation, floor of one voxel), which is the whole
+    point of §4.3 being a parity rule rather than a numerical preference.
+    """
+    v = inv_affine @ np.array([world[0], world[1], world[2], 1.0], dtype=np.float64)
+    # HALF-UP, matching JavaScript's `Math.round` — `np.rint` is half-to-EVEN and would disagree
+    # with the implementation on every index that lands exactly between two voxels.  Slicer's
+    # `int(round(...))` is half-to-even; the deviation is deliberate and is in DECISIONS.md.
+    c = np.floor(v[:3] + 0.5).astype(np.int64)
+    dims = np.asarray(dims, dtype=np.int64)
+    if np.any(c < 0) or np.any(c >= dims):
+        return None
+    half = np.minimum(
+        (VOXEL_BOX_MAX - 1) // 2,
+        np.maximum(
+            (radius_mm / np.abs(np.asarray(spacing, dtype=np.float64))).astype(np.int64), 1
+        ),
+    )
+    lo = np.maximum(0, c - half)
+    hi = np.minimum(dims - 1, c + half)
+    return lo, hi
+
+
+def _peak_centroid(affine, lo, box):
+    """Slicer's rule: weights `clip(v - (max - 0.5*(max-min)), 0)`, centroid in VOXEL indices."""
+    mn = float(box.min())
+    mx = float(box.max())
+    w = np.clip(box - (mx - 0.5 * (mx - mn)), 0.0, None)
+    total = float(w.sum())
+    if not total > 0.0:
+        return None
+    idx = np.indices(box.shape).astype(np.float64)
+    for a in range(3):
+        idx[a] += float(lo[a])
+    c = np.array([float((idx[a] * w).sum() / total) for a in range(3)])
+    return affine @ np.array([c[0], c[1], c[2], 1.0])
+
+
+# The queries the TypeScript tests replay.  Offsets are deliberate: a snap that only worked when the
+# click was already on the contact would prove nothing.
+def _ct_cases(contacts):
+    by = {(g, n): c for g, n, c in contacts}
+    return [
+        # On a contact, but 0.9 mm off it — the ordinary snap.
+        ("snap-a3", by[("A", 3)] + np.array([0.6, -0.5, 0.4]), 1.5, ("A", 3)),
+        # The deepest contact of another shaft, offset along a different axis.
+        ("snap-b1", by[("B", 1)] + np.array([0.0, 0.7, -0.3]), 1.5, ("B", 1)),
+        # A shaft that runs the other way in x, to catch a sign error in the affine.
+        ("snap-c2", by[("C", 2)] + np.array([-0.5, 0.35, 0.5]), 1.5, ("C", 2)),
+        # Between two contacts of A: the rule must pick ONE of them, not the midpoint.
+        ("between-a1-a2", (by[("A", 1)] + by[("A", 2)]) / 2.0, 1.5, None),
+        # The PARITY case (2026-08-30).  A click 1.2 mm off contact A2, displaced along the shaft
+        # TOWARD A3 — the mislocalised contact a snap exists to fix, and the one place where the
+        # box rule is load-bearing.  At this spacing Slicer's `rad_vox` is (3, 3, 1) and `ceil`
+        # would be (4, 3, 2) — a 7x7x3 window against a 9x7x5 one — and the two answers are
+        # 0.86 mm apart: Slicer's lands 0.77 mm from A2, `ceil`'s 1.64 mm, dragged along the shaft
+        # by the extra shells toward A3.  Measured, not asserted here; the expectations below are
+        # Slicer's rule, so a regression to `ceil` fails this case loudly.
+        # Deliberately NOT tagged with an expected contact: 1.2 mm off is further than a 1.5 mm
+        # radius fully recovers, and the case exists to pin the WINDOW, not the snap quality.
+        (
+            "off-toward-neighbour",
+            by[("A", 2)] + (by[("A", 3)] - by[("A", 2)]) / CT_PITCH_MM * 1.2,
+            1.5,
+            None,
+        ),
+        # Quiet background: no contact within reach, so the answer follows the modulation alone.
+        ("background", np.array([-8.0, 8.0, 8.0]), 1.0, None),
+        # Near a face: the box is clipped by the volume, so `dims` is smaller than the radius asks.
+        ("clipped-corner", np.array([-10.7, -11.4, -15.1]), 2.0, None),
+        # A radius nothing could serve: the cap, then the volume, bound it.
+        ("capped-radius", np.array([0.0, 0.0, 0.0]), 40.0, None),
+        # Outside the volume entirely: `null`, never a clamp.
+        ("outside", np.array([40.0, 0.0, 0.0]), 1.5, None),
+    ]
+
+
+# Where inside a box a value is sampled, as a fraction of its size — corners and centre, so a
+# transposed or flipped window cannot agree with these five numbers.
+BOX_SPOT_FRACTIONS = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0), (0.5, 0.5, 0.5)]
+
+
+def inspect_voxel_box(out: Path) -> dict:
+    """§4.3's expectations, computed by nibabel + numpy reading the fixture BACK (AGENTS 'Test data')."""
+    path = out / "ct_shafts.nii.gz"
+    img = nib.load(str(path))
+    raw = np.asarray(img.dataobj.get_unscaled(), dtype=np.float64)
+    # §6.1's scaling, applied once, from the RAW header — `nib.load(p).header` hands scaling to the
+    # array proxy and reports NaN (AGENTS.md "Gotchas").
+    hdr = raw_nifti_header(path)
+    slope, inter = struct.unpack("<2f", hdr[OFF_SCL_SLOPE : OFF_SCL_SLOPE + 8])
+    slope = slope if np.isfinite(slope) and slope != 0 else 1.0
+    inter = inter if np.isfinite(inter) else 0.0
+    phys = raw * slope + inter
+
+    affine = np.vstack(
+        [np.array(img.header["srow_x"]), np.array(img.header["srow_y"]),
+         np.array(img.header["srow_z"]), [0, 0, 0, 1]]
+    ).astype(np.float64)
+    inv = np.linalg.inv(affine)
+    dims = list(phys.shape[:3])
+    spacing = [float(np.linalg.norm(affine[:3, a])) for a in range(3)]
+
+    contacts = ct_contact_centres()
+    cases = []
+    for name, world, radius, expect_contact in _ct_cases(contacts):
+        win = _box_indices(inv, dims, spacing, world, radius)
+        rec = {"name": name, "world": fl(world), "radiusMm": f(radius)}
+        if win is None:
+            rec["box"] = None
+            rec["peakCentroidWorld"] = None
+            cases.append(rec)
+            continue
+        lo, hi = win
+        box = phys[lo[0] : hi[0] + 1, lo[1] : hi[1] + 1, lo[2] : hi[2] + 1]
+        spots = []
+        for fx_, fy, fz in BOX_SPOT_FRACTIONS:
+            o = [int(round(fx_ * (box.shape[0] - 1))), int(round(fy * (box.shape[1] - 1))),
+                 int(round(fz * (box.shape[2] - 1)))]
+            spots.append({"offset": o, "value": f(box[o[0], o[1], o[2]])})
+        rec["box"] = {
+            "ijk0": [int(v) for v in lo],
+            "dims": [int(v) for v in box.shape],
+            "voxelCount": int(box.size),
+            "valueMin": f(box.min()),
+            "valueMax": f(box.max()),
+            "valueSum": f(box.sum(), 6),
+            "spotValues": spots,
+        }
+        centroid = _peak_centroid(affine, lo, box)
+        rec["peakCentroidWorld"] = None if centroid is None else fl(centroid[:3])
+        if expect_contact is not None and centroid is not None:
+            truth = {(g, n): c for g, n, c in contacts}[expect_contact]
+            rec["expectedContact"] = {
+                "group": expect_contact[0],
+                "ordinal": expect_contact[1],
+                "world": fl(truth),
+                "centroidErrorMm": f(float(np.linalg.norm(centroid[:3] - truth))),
+                "queryErrorMm": f(float(np.linalg.norm(np.asarray(world) - truth))),
+            }
+        cases.append(rec)
+
+    return {
+        "file": "ct_shafts.nii.gz",
+        "groundTruth": "nibabel + numpy, reading ct_shafts.nii.gz back (the shaft geometry is authored)",
+        "conventions": {
+            "box": "half-extent max(trunc(radiusMm / spacing), 1) voxels PER AXIS — Slicer's "
+                   "rad_vox — clipped to the volume, capped at %d voxels on an axis "
+                   "(ARCHITECTURE.md §4.3)" % VOXEL_BOX_MAX,
+            "values": "physical = raw * sclSlope + sclInter, applied once",
+            "spotValues": "offset is [i, j, k] within the box; i fastest, like VolumeDataset.data",
+            "peakCentroid": "weights clip(v - (max - 0.5*(max - min)), 0); centroid in voxel "
+                            "indices, then through the affine",
+        },
+        "spacing": fl(spacing),
+        "pitchMm": f(CT_PITCH_MM),
+        "contactSigmaMm": f(CT_CONTACT_SIGMA_MM),
+        "contacts": [
+            {"group": g, "ordinal": n, "world": fl(c), "groundTruth": "authored"}
+            for g, n, c in contacts
+        ],
+        "cases": cases,
+    }
+
+
+# --------------------------------------------------------------------------------------
+# the sEEG contact tables (§13, 2026-08-30)
+# --------------------------------------------------------------------------------------
+
+# The clean table: the phantom's own contacts, each nudged off the metal by a deterministic
+# sub-millimetre offset, so a snap has something to find and the answer is not the input.
+# Columns are the seegprep set a real site exports (`name electrode contact csc x y z status`).
+SEEG_TABLE = "seeg_contacts.tsv"
+SEEG_MESSY = "seeg_messy.csv"
+
+
+def seeg_offset(i: int) -> np.ndarray:
+    """A deterministic per-contact miss, in millimetres. Not random: a fixture is reproducible.
+
+    The constants are 0.47 / 0.29 / 0.19 rather than round tenths for the reason `CT_ORIGIN` is what
+    it is: **no query may land on a half-voxel index.**  With 0.5 / 0.25 / 0.2, contact A01 sat at
+    world z = -11.6, which is voxel index 5.5 exactly, and "which voxel is the box centred on" then
+    turns on the last bits of an inverse affine — float64 here and a float32-valued matrix inverted
+    in the engine.  It went unnoticed while the box was `ceil`-sized and two voxels deeper than it
+    needed to be; Slicer's `rad_vox` is tighter, and a one-voxel shift of a 3-deep window moved the
+    centroid 0.08 mm.  A fixture whose expectations turn on a tie-break is testing the tie-break.
+    These offsets keep every index at least 0.03 of a voxel away from a half on every axis.
+    """
+    return np.array([((i % 3) - 1) * 0.47, ((i % 5) - 2) * 0.29, ((i % 7) - 3) * 0.19])
+
+
+def seeg_rows():
+    """`(name, electrode, contact, csc, xyz)` for the clean table, in file order."""
+    rows = []
+    for i, (group, ordinal, centre) in enumerate(ct_contact_centres()):
+        rows.append(
+            (
+                f"{group}{ordinal:02d}",
+                group,
+                ordinal,
+                i + 1,
+                np.asarray(centre, dtype=np.float64) + seeg_offset(i),
+            )
+        )
+    return rows
+
+
+def write_seeg_tables(out: Path) -> None:
+    """The two electrode tables: one canonical, one deliberately awkward."""
+    lines = ["name\telectrode\tcontact\tcsc\tx\ty\tz\tstatus"]
+    for name, group, ordinal, csc, xyz in seeg_rows():
+        lines.append(
+            "\t".join(
+                # `repr(float(...))`, not `repr(np.float64(...))`: numpy 2 prints the latter as
+                # `np.float64(-6.5)`, and this file is a BIDS table, not a numpy session.
+                [
+                    name,
+                    group,
+                    str(ordinal),
+                    str(csc),
+                    repr(float(xyz[0])),
+                    repr(float(xyz[1])),
+                    repr(float(xyz[2])),
+                    "located",
+                ]
+            )
+        )
+    (out / SEEG_TABLE).write_text("\n".join(lines) + "\n", newline="")
+
+    # Every tolerance the reader claims, in one file: a UTF-8 BOM, comma separators, CRLF, R/A/S
+    # instead of x/y/z, no electrode column at all (the group is stripped off the name), a blank
+    # line in the middle, and a ragged final row that is one cell short of the header.
+    messy = (
+        "﻿Name,R,A,S,csc\r\n"
+        "LHIP8,-6.0,-7.0,-11.0,1\r\n"
+        "\r\n"
+        "LHIP9,-5.125,-5.775,-7.85,2\r\n"
+        "LHIP10,-4.25,-4.55,-4.7\r\n"
+    )
+    (out / SEEG_MESSY).write_text(messy, newline="")
+
+
+# --------------------------------------------------------------------------------------
+# verification — the sEEG kernels, in numpy
+# --------------------------------------------------------------------------------------
+
+
+def _canonical_axis(axis: np.ndarray) -> np.ndarray:
+    """The sign convention `shared/contacts/geometry.ts#canonicaliseAxis` pins, restated here.
+
+    An eigenvector is defined up to sign and numpy hands back whichever LAPACK returned, so without
+    a rule the two implementations would be compared on a tie-break rather than on the fit."""
+    best = int(np.argmax(np.abs(axis)))
+    return -axis if axis[best] < 0 else axis
+
+
+def _fit_line(pts: np.ndarray):
+    """Slicer's `_fitLine`, with the axis sign canonicalised. Returns (centroid, axis, t, rms)."""
+    c = pts.mean(axis=0)
+    _u, _s, vt = np.linalg.svd(pts - c)
+    axis = _canonical_axis(np.asarray(vt[0], dtype=np.float64))
+    t = (pts - c) @ axis
+    resid = (pts - c) - np.outer(t, axis)
+    rms = float(np.sqrt((resid**2).sum(axis=1).mean()))
+    return c, axis, t, rms
+
+
+def _line_metrics(pts: np.ndarray) -> dict:
+    _c, _axis, t, rms = _fit_line(pts)
+    gaps = np.diff(np.sort(t))
+    # Population std (numpy's default ddof=0) and a MEDIAN pitch, robust to one missing contact.
+    cv = float(gaps.std() / gaps.mean()) if len(gaps) >= 2 and gaps.mean() else None
+    pitch = float(np.median(gaps)) if len(gaps) else None
+    return {"rmsMm": f(rms), "spacingCv": None if cv is None else f(cv), "pitchMm": None if pitch is None else f(pitch)}
+
+
+def _respace(pts: np.ndarray) -> np.ndarray:
+    """`respaceEven`: n points on the fitted line at the median gap, ascending along it."""
+    c, axis, t, _rms = _fit_line(pts)
+    t_sorted = np.sort(t)
+    step = float(np.median(np.diff(t_sorted))) if len(t_sorted) > 1 else 0.0
+    new_t = t_sorted[0] + step * np.arange(len(pts))
+    return c + np.outer(new_t, axis)
+
+
+# Doubles whose `repr` JavaScript's own `String()` does NOT reproduce, plus a handful that it does.
+# The module's writer formats floats like Python so a table round-trips between the two languages.
+SEEG_FLOAT_CASES = [
+    0.0, -0.0, 1.0, 3.0, 100.0, -22.62, 49.38, 0.1, 1 / 3, 1e-5, 1e-4, 1e15, 1e16,
+    1e21, 1e100, 1e-300, -1.5e-9, 3.14159265358979, 0.30000000000000004,
+    2.5e-323, 5e-324, 1.7976931348623157e308, -0.000123456,
+]
+
+
+def inspect_seeg(out: Path) -> dict:
+    """§13's sEEG expectations, in numpy, reading the fixtures BACK (AGENTS.md 'Test data')."""
+    path = out / "ct_shafts.nii.gz"
+    img = nib.load(str(path))
+    raw = np.asarray(img.dataobj.get_unscaled(), dtype=np.float64)
+    hdr = raw_nifti_header(path)
+    slope, inter = struct.unpack("<2f", hdr[OFF_SCL_SLOPE : OFF_SCL_SLOPE + 8])
+    slope = slope if np.isfinite(slope) and slope != 0 else 1.0
+    inter = inter if np.isfinite(inter) else 0.0
+    phys = raw * slope + inter
+    affine = np.vstack(
+        [np.array(img.header["srow_x"]), np.array(img.header["srow_y"]),
+         np.array(img.header["srow_z"]), [0, 0, 0, 1]]
+    ).astype(np.float64)
+    inv = np.linalg.inv(affine)
+    dims = list(phys.shape[:3])
+    spacing = [float(np.linalg.norm(affine[:3, a])) for a in range(3)]
+
+    # The tip rule's reference: the centre of the volume's bounding box, which is what
+    # `seeg/shaft.ts#tipReference` uses when a volume is bound.
+    origin = affine[:3, 3]
+    far = affine[:3, :3] @ (np.asarray(dims, dtype=np.float64) - 1.0) + origin
+    centre = (origin + far) / 2.0
+
+    truth = {(g, n): np.asarray(c, dtype=np.float64) for g, n, c in ct_contact_centres()}
+    rows = seeg_rows()
+
+    snapped = []
+    for name, group, ordinal, _csc, xyz in rows:
+        win = _box_indices(inv, dims, spacing, xyz, 1.5)
+        rec = {"name": name, "electrode": group, "contact": ordinal, "world": fl(xyz)}
+        if win is None:
+            rec["snappedWorld"] = None
+            snapped.append(rec)
+            continue
+        lo, hi = win
+        box = phys[lo[0] : hi[0] + 1, lo[1] : hi[1] + 1, lo[2] : hi[2] + 1]
+        peak = _peak_centroid(affine, lo, box)
+        rec["snappedWorld"] = None if peak is None else fl(peak[:3])
+        if peak is not None:
+            rec["errorToContactMm"] = f(float(np.linalg.norm(peak[:3] - truth[(group, ordinal)])))
+            rec["shiftMm"] = f(float(np.linalg.norm(peak[:3] - xyz)))
+        snapped.append(rec)
+
+    electrodes = []
+    for group in ["A", "B", "C"]:
+        pts = np.array([xyz for _n, g, _o, _c, xyz in rows if g == group])
+        _c, axis, t, _rms = _fit_line(pts)
+        order = np.argsort(t)
+        low = pts[order[0]]
+        high = pts[order[-1]]
+        # `tipEnd`: contact 1 is the END NEARER the reference centre; a tie keeps the low end.
+        tip = "high" if np.linalg.norm(high - centre) < np.linalg.norm(low - centre) - 1e-6 else "low"
+        spaced = _respace(pts)
+        slots = spaced if tip == "low" else spaced[::-1]
+        electrodes.append(
+            {
+                "electrode": group,
+                "n": int(len(pts)),
+                "axis": fl(axis),
+                "metrics": _line_metrics(pts),
+                "tip": tip,
+                # Tip-first: slot k is contact k+1, and the names are zero-padded to width 2.
+                "refitWorld": [fl(p) for p in slots],
+                "refitMetrics": _line_metrics(slots),
+                "namesTipFirst": [f"{group}{k + 1:02d}" for k in range(len(pts))],
+            }
+        )
+
+    return {
+        "table": SEEG_TABLE,
+        "messyTable": SEEG_MESSY,
+        "groundTruth": "numpy over the tables and ct_shafts.nii.gz, read back with nibabel",
+        "conventions": {
+            "axis": "PCA first component, sign-canonicalised so the largest-|component| is positive",
+            "rmsMm": "sqrt(mean(|p - (c + t*axis)|^2))",
+            "spacingCv": "std(gaps)/mean(gaps), population std (ddof=0); null for fewer than 3 contacts",
+            "pitchMm": "median gap along the fitted line",
+            "refitWorld": "respace at the median gap, ascending along the line, then ordered tip-first",
+            "tip": "'low'/'high' end of the fitted line; contact 1 is the end NEARER tipReference",
+            "snappedWorld": "peakCentroid at radius 1.5 mm (see voxelBox for the box rule)",
+            "floats": "value, and the string Python's repr() writes for it",
+        },
+        "tipReference": fl(centre),
+        "snapRadiusMm": f(1.5),
+        "contacts": snapped,
+        "electrodes": electrodes,
+        "floats": [{"value": v, "repr": repr(v)} for v in SEEG_FLOAT_CASES],
+    }
 
 
 # --------------------------------------------------------------------------------------
@@ -2168,6 +2672,8 @@ def main() -> int:
         p.name: inspect_mgh(p) for p in sorted(out.glob("*.mgh")) + sorted(out.glob("*.mgz"))
     }
     manifest["gifti"] = {p.name: inspect_gifti(p) for p in sorted(out.glob("*.gii"))}
+    manifest["voxelBox"] = inspect_voxel_box(out)
+    manifest["seeg"] = inspect_seeg(out)
     manifest["freesurfer"] = inspect_fs(out)
 
     tmp = out / ".mesh-inspect.json"

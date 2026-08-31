@@ -249,6 +249,13 @@ carries per-point values (a parsed Gmsh view with data attached), the layer can 
 solid colour, with the same colormap choices as mesh field colouring, and a label-size control appears for
 sources that actually have labels to size.
 
+**A points layer a [module]({{ site.baseurl }}/guide/modules.html) owns is different**, and the layer panel says so: it shows a read-only
+summary where that editor would be, and the module's own panel is the only way to change it. Contacts read
+from an electrodes table belong to the [sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module — its editor is where they are
+placed, snapped, re-fitted, renumbered and saved, because the core editor here would rewrite the electrode
+colours and the radius it is not allowed to touch, and its edits would go around the module's own undo. What
+stays on the row is what belongs to the panel: visibility, opacity and the stacking order.
+
 <div class="shot-pair">
   <figure>
     <img src="screenshots/2026-08-29/features/feat-points-eeg-3d.png" alt="An EEG net as labelled points in 3D" loading="lazy">
@@ -276,6 +283,266 @@ measurement is drawn in every pane that actually contains its points, listed in 
 a jump-to and a delete, and saved with the scene.
 
 ![Distance and angle measurements across the panes](screenshots/2026-08-29/features/feat-measure.png)
+
+## Modules
+
+A **module** is a first-party tool that Tetravox ships with, bigger than a toolbar toggle and smaller
+than a second application — an editor for one kind of data, with its own panel, its own keys and its
+own file formats. One module is active at a time.
+
+**The switcher** is the `▾` button in the toolbar's right cluster, beside `?` and `⚙`. It lists every
+module this build carries; picking one opens its panel, picking it again closes it. The panel itself is
+the **module slot**: a section in the right column, above the Info panel, so the crosshair read-out
+stays visible while you work — that is the feedback most module actions are judged by. The slot never
+takes more than a bit over half the column and scrolls inside itself; with no module active it is not
+there at all.
+
+Below about 1000 px the sidebars normally collapse into overlays that close on the next click in a
+pane. While a module is active the right sidebar stays **in flow** instead, because a module asks you
+to click in the panes and an editor that closed itself on the first click would be unusable.
+
+**Keys.** A module may bind `a s d f g n p t z Delete Backspace`, on their own or with Shift, and only
+while it is active. They resolve **after** the ordinary key map, so no module can shadow `r`, `x`, `c`,
+`v`, `m`, the camera presets or anything else in this guide, and `Esc` is never a module key. The
+toolbar's `?` sheet grows a **Modules** tab listing the active module's chords.
+
+**A module's status** — how many things it holds, what mode it is in — is one cell at the left of the
+status bar, before the dataset cells.
+
+**Unsaved edits.** A module's own edits are separate from the scene's. While one has unsaved work the
+window title carries the same `•` a dirty scene does, and **New**, opening a scene, dropping a scene on
+the window and closing a dataset all ask first, offering *Save…*, *Discard* and *Cancel*. `⌘S` saves the
+**scene**; when a module still has unsaved work it says so rather than letting you believe otherwise —
+a module saves its own files from its own panel.
+
+**Scenes carry modules.** What a module needs to reopen — never a copy of the data, just its own small
+record — is written into the `*.tetravox.json` under the module's id, and read back when the scene is
+opened. A scene written by a build that has a module you do not is not damaged by opening and re-saving
+it here: the block is carried through untouched.
+
+**Layers a module owns** are marked in the layer panel and show a read-only summary instead of the usual
+editor, so the module's own controls stay the only way to change them; closing such a layer's dataset
+closes the module's layers with it.
+
+Some modules ship inside Tetravox and some are downloaded — see **Extensions** for the second kind.
+
+
+## Extensions
+
+An **extension** is a module that was not compiled into Tetravox: it is downloaded, checked, and turned
+on by hand. Everything the **Modules** section describes then applies to it unchanged — it appears in
+the same switcher, opens in the same slot, binds keys from the same pool and writes into the same
+scenes. The difference is where it came from and what you had to agree to.
+
+**File ▸ Extensions…** opens the list, and so does *Manage extensions…* at the bottom of the toolbar's
+module switcher. Each card is one extension and one button that says its true state:
+
+| The card says | What it means |
+|---|---|
+| **Download & enable** | It is in the catalogue and not on this machine. |
+| **Enable** | Its files are here and it is not allowed to run. |
+| **Enabled ✓**, with **Disable** | It is running. |
+| **Update to 1.1.0** | A newer version this build can run is available. |
+| **Bundled** | It shipped with Tetravox. You can turn it off; you cannot remove it. |
+| Greyed, *needs Tetravox host API 2* | It was written for a newer Tetravox. Update the app. |
+
+**Downloading is not turning on.** The files land in `~/.tetravox/modules/` and can do nothing at all
+until you say so. When you enable one for the first time, Tetravox shows a sheet naming the extension,
+its version, the repository it came from, and — read out of the extension's own manifest, not out of a
+description it wrote about itself — everything it will be able to do:
+
+- read the file types it declares, in files *you* choose from a dialog;
+- write the file types it declares, to files *you* name in a Save sheet, plus the sidecars it declares
+  beside them (a timestamped `.bak`, an edit log);
+- bind its keys while it is active;
+- run the operations it declares from a job file;
+- keep its own record inside a saved scene.
+
+**Enable it only if you trust where it came from.** An enabled extension runs as part of Tetravox, with
+the same access to your files as the app itself. Tetravox verifies that the bytes it downloaded are
+exactly the bytes the catalogue promised — every file is checked by its SHA-256 at download **and again
+every time it is enabled** — so nobody can substitute different code for the version you agreed to. That
+is a guarantee about *tampering*, not about intent: it cannot tell you whether the author is
+trustworthy. Extensions in the Tetravox catalogue are reviewed before they are listed.
+
+**Disable** withdraws consent immediately: the extension leaves the switcher, its code stops being
+reachable, and any permission a Save sheet had granted it is taken back. Its files stay on disk, so
+turning it on again is one click and one sheet. **Remove** disables it and deletes the files. **Show
+folder** opens `~/.tetravox/modules/` if you want to look.
+
+**Updates** ask again. A new version is new code with a possibly different list of things it can do, so
+consent is recorded per version rather than once per extension.
+
+**Offline is normal.** The catalogue Tetravox ships with is used when the registry cannot be reached, so
+the dialog always opens and always lists what is already installed. An empty catalogue says so rather
+than looking like a failure.
+
+**Automation.** A job file may name an extension's operations exactly as it names a built-in module's,
+but only one you have enabled. A job naming an installed-but-not-enabled extension stops before it does
+anything and tells you which one to turn on.
+
+
+## sEEG contacts
+
+The **sEEG contacts** module is a contact editor for stereo-EEG depth electrodes: open a registered CT
+and the BIDS `electrodes.tsv` that was localised on it, fix what the localiser got wrong, and write the
+table back — reversibly, with a backup and a provenance sidecar. It reproduces the 3D Slicer *SEEG
+Contact Editor* workflow (`seegprep`'s `slicer/SEEGContactEditor`) in Tetravox's own panes, and reads
+and writes the same files, so the two can be used on the same subject interchangeably.
+
+It **ships as a bundled extension** (`tetravox.seeg`): it is part of the signed application —
+pre-consented and enabled the moment you install Tetravox, with nothing to download — and you can see
+it, and turn it off, in **File ▸ Extensions…** alongside anything you have installed yourself. Its own
+source, and the deeper reference for what it does, live at
+[github.com/idossha/tetravox-seeg](https://github.com/idossha/tetravox-seeg).
+
+Open it from the toolbar's module switcher (`▾`, right of the panes), or just open one of the files.
+
+### Opening a subject
+
+Drop, or **Open…**, either of these and the module finds the other beside it:
+
+| File | Where |
+|---|---|
+| the registered CT | `derivatives/seegprep/sub-<id>/ct/sub-<id>_acq-bone_space-T1w_ct.nii.gz` |
+| the electrodes table | `derivatives/seegprep/sub-<id>/ieeg/sub-<id>_space-T1w_electrodes.tsv` |
+
+From the CT it also looks for the `_coordsystem.json`, an existing `_editlog.json`, and the subject's
+T1 at `derivatives/SimNIBS/sub-<id>/m2m_<id>/T1.nii.gz`. Nothing is searched for: the module knows those
+four names and asks whether each one exists.
+
+Opening the **table first** is fine — it is read and held until a volume arrives, and the panel says so.
+The CT has to be open for anything that needs image intensities (that is Snap), because a module reads
+the volume through the app rather than opening files itself.
+
+The reader is deliberately forgiving. It detects tab, comma, semicolon or whitespace; strips a UTF-8
+BOM; matches column names case-insensitively (`name`/`label`, `x`/`pos_x`/`x_mm`, or `R`/`A`/`S`);
+takes the electrode from `electrode`, `group`, `shaft` or `lead`, or infers it by stripping the trailing
+digits off the contact name (`LHIP8` → `LHIP`); and truncates a ragged row rather than refusing the file.
+A 3D Slicer `.fcsv` markups file works too, LPS coordinates and all. A missing required column is the one
+thing it refuses, and the message names the delimiter it detected and the columns it found.
+
+On load the CT is set the way the Slicer editor sets it — grey, fully opaque, and everything below
+**150 HU hidden**, so soft tissue drops away and bone and metal are what is left. Colormap, opacity and
+the intensity floor stay in the ordinary volume-layer editor on the left; the module sets them once and
+then leaves them to you. If a T1 is loaded above the CT in the layer list, raise the CT above it — the
+floor only reveals what is underneath.
+
+If an `_editlog.json` already sits beside the table, the panel shows a banner saying when it was
+hand-edited: somebody has been here before you.
+
+### Editing
+
+The contacts are one points layer named `Contacts · <table stem>`, one dot per contact, with the shaft
+drawn as a line between consecutive contacts and each contact's name beside it. **The dot, its shaft
+line and its name are all the electrode's own colour**, so on a fifteen-shaft implant you can tell at a
+glance which line belongs to which contact. Contacts that are not on the current slice are drawn as
+**ghosts** at 0.6 opacity so a shaft reads as a shaft while you scroll; `g` turns that off and on.
+
+Three switches decide how much of that is drawn, and none of them touches the table:
+
+| Switch | Does |
+|---|---|
+| **Ghost** (`g`) | draw the contacts that are not on this slice, faintly |
+| **Wire** (`d`) | draw the shaft lines. Off is for a figure about one slice's contacts |
+| **size − / +** | how big a contact is drawn, 2–12 px. The bigger dot is also a bigger click target |
+
+All three are saved with the scene, so a figure reopens looking the way you left it, and all three are job-file
+operations (`ghost`, `wire`, `size`) — which of them are on is part of what a figure *is*.
+
+| Do this | With |
+|---|---|
+| select a contact | click it in a pane — ghosts included — or click its row in the list |
+| move one | drag it in a 2D pane, once the slice is on it |
+| add contacts | **Add** (`a`) — then every click in a pane drops a new contact on the chosen electrode |
+| walk the electrode | `n` / `p`, or the list — the crosshair follows, so every pane slices through the contact |
+| snap to the metal | `s` for the selected contact, `⇧S` for the whole electrode, **Snap all…** for every one |
+| re-fit the shaft | `f` |
+| renumber from the tip | **Renumber tip-first** |
+| flip which end is the tip | `t` |
+| delete | `Delete` or `⌫` |
+| undo / redo | `z` / `⇧Z` |
+
+**Clicking a contact selects it**, and everything follows: the electrode dropdown switches to that
+contact's shaft, the crosshair moves onto it so every pane slices through it, and a ring is drawn round
+the one you have. You do not arm anything first — while the panel is open, clicking contacts is what a
+click does, and `Esc` puts you back into selecting rather than turning the tool off. A click that is not
+on a contact still moves the crosshair, exactly as it does with no module open.
+
+**Clicking a ghosted contact jumps the slice to it.** A ghost is a contact that lives on another slice, so
+there is no sensible way to *drag* one — it would move in a plane it is not in. Clicking one therefore does
+the useful half instead: it selects that contact and takes the crosshair there, so every pane re-cuts through
+it. The contact you clicked is now on the slice, and a second click grabs it in the ordinary way. In practice
+you click the marker you can see, the view comes to it, and you drag from there — you never have to scroll
+onto a contact first to be able to pick it.
+
+**Snap** moves a contact to the intensity-weighted peak of a small box around it — the metal it is
+inside — at the radius the panel's field sets (0.5–5 mm, 1.5 mm by default). A contact with nothing
+bright near it does not move and is not counted. *Snap all* asks first, because it touches every
+electrode at once; one snap of any scope is a single undo step.
+
+**Re-fit shaft** fits a line through the electrode's contacts, projects them onto it, re-spaces them
+evenly at the *median* observed gap — median, so one missing contact does not stretch the rest — and
+relabels them from the tip. It reports the line RMS and the spacing CV, which are the two numbers that
+say whether the shaft is straight and evenly spaced.
+
+**Numbering only ever changes when you ask.** Loading, placing, dragging, snapping and deleting all leave
+every contact's number and name exactly as they were — a clinical table's numbering is wired to the
+recording system through its `csc` column, and nothing should renumber it behind your back. Only
+*Re-fit* and *Renumber tip-first* relabel, and both say so on the button. New names keep the zero-padding
+the file used (`LINS01`, not `LINS1`).
+
+**Which end is the tip** is a heuristic, and the panel shows the answer: *contact 1 is the end of the
+shaft nearer the centre of the volume*, and the other end is the entry. That is right for nearly every
+depth electrode and wrong for some — a shaft entering near the midline can defeat it — so the tip
+contact is marked in the list and `t` flips it. A flip is remembered per electrode and saved with the
+scene.
+
+### Saving
+
+**Save** writes the table back over the file it came from; **Save as…** picks a new one. Either way three
+things happen, in this order:
+
+1. the previous table is copied to `<name>.<YYYYMMDD-HHMMSS>.bak`;
+2. the table is written — tab-separated, LF, **your original columns in their original order**, with
+   `electrode`, `contact` and `status` appended if they were not already there. `status` is `kept`,
+   `edited` (moved by more than 0.001 mm) or `added`; a row that has not moved keeps whatever status the
+   localiser gave it, so `located` and `gapfilled` survive;
+3. `<stem>_editlog.json` is written beside it, recording what changed — counts, and one entry per
+   contact added, moved, **renamed** or deleted, with where it was and where it is now. Renumber and
+   Re-fit relabel contacts that may not have moved at all, and those entries carry the name the table
+   had (`renamed_from`) beside the name it has now: relabelling is the one edit that changes how the
+   `csc` column maps onto your recording system, so an editlog silent about it would be lying.
+
+That editlog name matters: `seegprep` looks for `*_electrodes_editlog.json` in the subject's `ieeg/`
+directory and **refuses to re-run over a hand-edited subject unless you pass `--force`**. If you save
+under a name whose stem does not end in `_electrodes`, or outside an `ieeg/` directory, the module warns
+you that the guard will not see it.
+
+**Revert to loaded positions** puts every contact back where the file had it and forgets the additions,
+which is the in-session undo of everything; the `.bak` is the on-disk one.
+
+⌘S saves the **scene**, not the table. When contacts are unsaved the module says so, the window title
+carries a `•`, and closing the window, starting a new scene, opening another one or closing the CT all
+ask first.
+
+### Scenes, and a build without the module
+
+The contacts are ordinary scene layers, so a `*.tetravox.json` written here opens anywhere — including
+in a build that has no sEEG module, which still draws every contact with its name, its electrode and its
+number. What that build cannot carry is the module's own record: which table the contacts came from,
+where that table put each one, and its other columns. Re-open such a scene here and the module rebuilds
+the electrodes from the layer, tells you the provenance is gone, and turns Save into Save as… rather than
+writing a table in which everything looks new.
+
+### From a job file
+
+Every button is also a job-file operation, so a batch can do what the panel does — `load`, `snap`,
+`refit`, `renumber`, `flip-tip`, `revert`, `delete`, `ghost`, `wire`, `size`, `stats` and `save`. `flip-tip` matters more
+than it looks: which end of a shaft is contact 1 comes from a heuristic, `renumber` applies whatever the
+tip currently is, and this is how a batch corrects the shaft the heuristic read backwards — the same thing
+`t` does in the panel. See [Automation]({{ site.baseurl }}/AUTOMATION.html).
+
 
 ## Coordinates
 
@@ -418,6 +685,24 @@ the app, grouped in tabs by what each binding acts on.
 
 Drag the gizmo ring handles to rotate the plane; drag its stem to slide it along the normal. Plane-from-3-points
 takes the next three clicks in any 2D pane. A camera preset puts the pane back on axial / coronal / sagittal.
+
+**Module keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
+lent to whichever [module](#modules) is open and mean nothing when none is. They are resolved **after**
+everything above, so no module can change what any key on this page does, and `Esc` is never one of them.
+The `?` sheet grows a **Modules** tab listing the active module's own chords. The
+[sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module binds these:
+
+| Key | Action |
+|---|---|
+| `a` | Add contacts (place mode) |
+| `s` | Snap the selected contact to the metal |
+| `⇧S` | Snap the whole electrode |
+| `n` / `p` | Next / previous contact |
+| `f` | Re-fit the shaft |
+| `t` | Flip which end is the tip |
+| `g` | Contacts visible through slices |
+| `Delete` / `⌫` | Delete the selected contact |
+| `z` / `⇧Z` | Undo / redo |
 
 `⌘O` / `Ctrl+O` (Open…) is bound in the Electron application menu, not in this map, so it is never double-bound.
 

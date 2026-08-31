@@ -49,6 +49,11 @@ import type {
   NewLayer,
   NewMeasurement,
   PickResult,
+  PanePlacement,
+  PointPaneHit,
+  PointSelection,
+  PointsLayer,
+  PointToolSpec,
   ProbeResult,
   ProbeRow,
   QualityLevel,
@@ -68,6 +73,10 @@ import {
   fromSpace as fromCoordSpace,
   iso3dLabels,
   nextMeasurementName,
+  // §13's point tool (2026-08-30): the engine's own hit test and id fallback, so the stand-in and
+  // the real engine cannot disagree about which contact a click grabbed.
+  pointAtPane,
+  pointIdAt,
   probeSpaces,
   toSpace as toCoordSpace,
 } from '@tetravox/engine';
@@ -396,7 +405,9 @@ export class NoGlEngine implements Engine {
       const last = this.state.layers[this.state.layers.length - 1];
       this.state.activeLayerId = last === undefined ? null : last.id;
     }
+    if (this.pointToolSpec?.layerId === id) this.disarmPointTool('layer');
     this.emit('layers', [...this.state.layers]);
+    this.reconcilePointSelection();
   }
 
   updateLayer<T extends Layer>(id: LayerId, patch: Partial<T>): void {
@@ -404,6 +415,9 @@ export class NoGlEngine implements Engine {
       l.id === id ? ({ ...l, ...patch } as Layer) : l
     );
     this.emit('layers', [...this.state.layers]);
+    // §13: a replaced `points` array is every drag move and every module edit; the selection is by
+    // id and is re-found here, or cleared.
+    this.reconcilePointSelection();
   }
 
   reorderLayers(order: LayerId[]): void {
@@ -580,6 +594,9 @@ export class NoGlEngine implements Engine {
   private measureSeq = 0;
 
   setMeasureMode(on: boolean): void {
+    // §7.5's one-armed-mode invariant (2026-08-30): arming one click-consuming mode disarms the
+    // other, here as in the real engine.
+    if (on && this.pointToolSpec !== null) this.disarmPointTool('measure');
     this.measureModeOn = on;
     this.requestRender();
   }
@@ -615,6 +632,354 @@ export class NoGlEngine implements Engine {
   /** Nothing is ever half-placed here — the stand-in has no pointer — so this is a no-op by design. */
   cancelMeasurement(): void {
     this.requestRender();
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // §13's point tool (2026-08-30) — **behavioural**, not a throw.
+  //
+  // `MockEngine` inside the frozen `api.ts` is the compile-time proof that the facade needs no GL;
+  // this is the engine the app is developed and E2E-tested against (`?engine=mock`), so a tool the
+  // app can arm, select with and drag has to work here for real. What it models is the *state
+  // machine* — arm/disarm exclusivity with measure mode, ids minted on arming, selection by id
+  // surviving a `points` replacement, one `dragEnd` per drag — and the hit test is the engine's own
+  // exported `pointAtPane`, so "which contact did that click grab" has one answer in both engines.
+  //
+  // What it cannot model is the *pane*: there is no canvas here and no camera matrix. So the 2D
+  // pane is `pointPane` (below) with its in-plane origin at the cursor — the case the real engine
+  // reduces to when the scene's anchor and the cursor coincide — and a 3D hit test answers `null`
+  // rather than inventing a projection.
+  // ------------------------------------------------------------------------------------------
+
+  private pointToolSpec: PointToolSpec | null = null;
+  private pointSelectionId: { layerId: LayerId; pointId: string } | null = null;
+  private pointDragState: { layerId: LayerId; pointId: string; viewId: ViewId } | null = null;
+  private pointSeq = 0;
+
+  /**
+   * The pane the simulation seam below measures pixels in, in CSS pixels.
+   *
+   * Public so a spec can match it to the pane the shell actually laid out; 512² is a plausible
+   * quarter of a 2×2 grid and nothing depends on the number itself.
+   */
+  pointPane: { width: number; height: number } = { width: 512, height: 512 };
+
+  setPointTool(spec: PointToolSpec | null): void {
+    if (spec === null) {
+      this.disarmPointTool('host');
+      return;
+    }
+    // §7.5's one-armed-mode invariant, the same way round as in the real engine.
+    if (this.measureModeOn) this.setMeasureMode(false);
+    this.pointToolSpec = {
+      layerId: spec.layerId,
+      mode: spec.mode,
+      ...(spec.template !== undefined ? { template: { ...spec.template } } : {}),
+    };
+    this.ensurePointIds(spec.layerId);
+    if (this.pointSelectionId !== null && this.pointSelectionId.layerId !== spec.layerId) {
+      this.setPointSelection(null);
+    }
+    this.requestRender();
+  }
+
+  /**
+   * The disarm half, told why — `PointToolEvent.reason` (§4.7, 2026-08-30), mirrored because
+   * `?engine=mock` is what the app's E2E drives and a module reads the reason to decide whether to
+   * arm again.
+   */
+  private disarmPointTool(reason: 'esc' | 'measure' | 'load' | 'layer' | 'host'): void {
+    const tool = this.pointToolSpec;
+    if (tool === null) return;
+    // §13 (2026-08-30): a drag in flight is committed on the way out, never dropped — the real
+    // engine's rule, mirrored here because `?engine=mock` is what the app's E2E drives and
+    // "Esc mid-drag lost the undo entry" has to be false in both engines.
+    if (
+      this.pointDragState !== null &&
+      this.indexOfPointId(this.pointDragState.layerId, this.pointDragState.pointId) !== null
+    ) {
+      this.pointToolDragEnd();
+    }
+    this.pointToolSpec = null;
+    this.pointDragState = null;
+    const layerId = this.pointSelectionId?.layerId ?? tool.layerId;
+    this.pointSelectionId = null;
+    this.emit('pointTool', { layerId, kind: 'cleared', pointId: null, index: -1, reason });
+    this.requestRender();
+  }
+
+  pointTool(): PointToolSpec | null {
+    const tool = this.pointToolSpec;
+    if (tool === null) return null;
+    return {
+      layerId: tool.layerId,
+      mode: tool.mode,
+      ...(tool.template !== undefined ? { template: { ...tool.template } } : {}),
+    };
+  }
+
+  /**
+   * The engine's own `pointAtPane` over this stand-in's pane model — 2D panes only.
+   *
+   * `null` for the 3D view on purpose: nothing is drawn here and there is no view-projection to
+   * project a centre with, and a hit test that guessed would make the app's E2E pass against a
+   * geometry the real engine does not have.
+   */
+  pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null {
+    const hit = this.pointHitAt(viewId, px, py);
+    if (hit === null) return null;
+    return { layerId: hit.layerId, pointId: hit.pointId, index: hit.index };
+  }
+
+  /**
+   * The same hit, plus whether it was a **ghost** — the real engine's private `#pointAt` (§7.5,
+   * 2026-08-30).
+   *
+   * Mirrored because the ghost flag is what decides the *grammar* of a press: a ghost is selected
+   * and never grabbed, and `?engine=mock` is what the app's E2E clicks with. `pointAtScreen` drops
+   * it for the same reason the real engine does — §4.7's answer is which point, not which gesture.
+   */
+  private pointHitAt(
+    viewId: ViewId,
+    px: number,
+    py: number
+  ): (PointSelection & { ghost: boolean }) | null {
+    const view = this.state.slices.find((s) => s.id === viewId);
+    if (view === undefined) return null;
+    const place: PanePlacement = {
+      view,
+      cursor: this.state.cursor,
+      // No scene bounds here, so the pane's in-plane origin is the cursor.
+      anchor: this.state.cursor,
+      radiological: this.state.radiological,
+      rect: this.pointPane,
+      uiScale: 1,
+    };
+    let best: { layer: PointsLayer; hit: PointPaneHit } | null = null;
+    for (const layer of this.pointLayers()) {
+      const hit = pointAtPane(layer, place, px, py);
+      if (hit === null) continue;
+      // An on-slice hit outranks a ghost between layers too, exactly as it does within one.
+      if (
+        best === null ||
+        (hit.ghost !== best.hit.ghost ? !hit.ghost : hit.distancePx < best.hit.distancePx)
+      ) {
+        best = { layer, hit };
+      }
+    }
+    if (best === null) return null;
+    return {
+      layerId: best.layer.id,
+      pointId: pointIdAt(best.layer, best.hit.index),
+      index: best.hit.index,
+      ghost: best.hit.ghost,
+    };
+  }
+
+  setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void {
+    if (sel === null) {
+      const prev = this.pointSelectionId;
+      this.pointSelectionId = null;
+      if (prev === null) return;
+      this.emit('pointTool', {
+        layerId: prev.layerId,
+        kind: 'cleared',
+        pointId: null,
+        index: -1,
+        reason: 'selection',
+      });
+      this.requestRender();
+      return;
+    }
+    const index = this.indexOfPointId(sel.layerId, sel.pointId);
+    if (index === null) {
+      this.setPointSelection(null);
+      return;
+    }
+    this.pointSelectionId = { layerId: sel.layerId, pointId: sel.pointId };
+    this.emit('pointTool', { layerId: sel.layerId, kind: 'selected', pointId: sel.pointId, index });
+    this.requestRender();
+  }
+
+  pointSelection(): PointSelection | null {
+    const sel = this.pointSelectionId;
+    if (sel === null) return null;
+    const index = this.indexOfPointId(sel.layerId, sel.pointId);
+    if (index === null) return null;
+    return { layerId: sel.layerId, pointId: sel.pointId, index };
+  }
+
+  // -- the simulation seam: what the real engine's pointer layer does, minus the DOM -----------
+  //
+  // Not on `Engine`, like `terminations` and `theme`: the facade has no "click here" member because
+  // in the real engine a click is a `pointerdown` on a canvas. The app's E2E launches with
+  // `?engine=mock` and has no canvas the engine listens to, so the three calls the pointer layer
+  // would have made are exposed instead — `pointer.ts`'s `#onDown`, its `'point'` dispatch, and the
+  // `end` it forwards from all three exits.
+
+  /**
+   * A left click at a pane pixel while the tool is armed — `pointer.ts`'s `#onDown` slot.
+   *
+   * A hit on a **ghost** selects and grabs nothing (§7.5, 2026-08-30): no drag state, so a
+   * `pointToolDrag` after one moves nothing and there is no `dragEnd` to emit — the real engine's
+   * `'consumed'` branch, in the shape this seam has.
+   */
+  pointToolClick(viewId: ViewId, px: number, py: number): void {
+    const tool = this.pointToolSpec;
+    if (tool === null) return;
+    if (tool.mode === 'place') {
+      this.placePoint(tool, viewId, px, py);
+      return;
+    }
+    const hit = this.pointHitAt(viewId, px, py);
+    if (hit === null) return;
+    this.setPointSelection({ layerId: hit.layerId, pointId: hit.pointId });
+    if (hit.ghost) return;
+    this.pointDragState = { layerId: hit.layerId, pointId: hit.pointId, viewId };
+  }
+
+  /** One move of the drag the last {@link pointToolClick} grabbed. */
+  pointToolDrag(viewId: ViewId, px: number, py: number): void {
+    const drag = this.pointDragState;
+    if (drag === null || drag.viewId !== viewId) return;
+    const layer = this.pointsLayer(drag.layerId);
+    const index = this.indexOfPointId(drag.layerId, drag.pointId);
+    const world = this.paneWorld(viewId, px, py);
+    if (layer === null || index === null || world === null) return;
+    this.updateLayer<PointsLayer>(drag.layerId, {
+      points: (layer.points ?? []).map((p, i) => (i === index ? { ...p, position: world } : p)),
+    });
+  }
+
+  /** The drag's one `dragEnd`, however it ended. */
+  pointToolDragEnd(): void {
+    const drag = this.pointDragState;
+    if (drag === null) return;
+    this.pointDragState = null;
+    const index = this.indexOfPointId(drag.layerId, drag.pointId);
+    const world =
+      index === null ? undefined : this.pointsLayer(drag.layerId)?.points?.[index]?.position;
+    this.emit('pointTool', {
+      layerId: drag.layerId,
+      kind: 'dragEnd',
+      pointId: drag.pointId,
+      index: index ?? -1,
+      ...(world !== undefined ? { world } : {}),
+      viewId: drag.viewId,
+    });
+  }
+
+  /** `Esc`: `place` → `select` → off, the engine's grammar. */
+  cancelPointTool(): boolean {
+    const tool = this.pointToolSpec;
+    if (tool === null) return false;
+    if (tool.mode === 'place') {
+      this.setPointTool({ ...tool, mode: 'select' });
+      return true;
+    }
+    this.disarmPointTool('esc');
+    return true;
+  }
+
+  // -- the private half, mirroring `engine.ts` --------------------------------------------------
+
+  private pointsLayer(id: LayerId): PointsLayer | null {
+    const layer = this.state.layers.find((l) => l.id === id);
+    return layer !== undefined && layer.kind === 'points' ? layer : null;
+  }
+
+  private pointLayers(): PointsLayer[] {
+    const tool = this.pointToolSpec;
+    const layers = this.state.layers.filter(
+      (l): l is PointsLayer => l.kind === 'points' && l.visible
+    );
+    return tool === null ? layers : layers.filter((l) => l.id === tool.layerId);
+  }
+
+  private indexOfPointId(layerId: LayerId, pointId: string): number | null {
+    const layer = this.pointsLayer(layerId);
+    if (layer === null) return null;
+    const points = layer.points ?? [];
+    for (let i = 0; i < points.length; i += 1) if (pointIdAt(layer, i) === pointId) return i;
+    return null;
+  }
+
+  private ensurePointIds(layerId: LayerId): void {
+    const layer = this.pointsLayer(layerId);
+    if (layer === null) return;
+    const points = layer.points ?? [];
+    if (points.every((p) => typeof p.id === 'string' && p.id.length > 0)) return;
+    const taken = new Set(points.map((p) => p.id).filter((id): id is string => id !== undefined));
+    let n = 0;
+    const next = points.map((p) => {
+      if (typeof p.id === 'string' && p.id.length > 0) return p;
+      while (taken.has(`p${n}`)) n += 1;
+      const id = `p${n}`;
+      taken.add(id);
+      return { ...p, id };
+    });
+    this.pointSeq = Math.max(this.pointSeq, n + 1);
+    this.updateLayer<PointsLayer>(layerId, { points: next });
+  }
+
+  private placePoint(tool: PointToolSpec, viewId: ViewId, px: number, py: number): void {
+    const world = this.paneWorld(viewId, px, py);
+    if (world === null) return;
+    this.ensurePointIds(tool.layerId);
+    const layer = this.pointsLayer(tool.layerId);
+    if (layer === null) return;
+    const points = layer.points ?? [];
+    const taken = new Set(points.map((_p, i) => pointIdAt(layer, i)));
+    while (taken.has(`p${this.pointSeq}`)) this.pointSeq += 1;
+    const id = `p${this.pointSeq}`;
+    this.pointSeq += 1;
+    const index = points.length;
+    this.updateLayer<PointsLayer>(tool.layerId, {
+      points: [...points, { ...(tool.template ?? {}), id, position: world }],
+    });
+    this.emit('pointTool', {
+      layerId: tool.layerId,
+      kind: 'placed',
+      pointId: id,
+      index,
+      world,
+      viewId,
+    });
+    this.pointSelectionId = { layerId: tool.layerId, pointId: id };
+    this.requestRender();
+  }
+
+  /** The stand-in's `paneToWorld`: in-plane origin at the cursor, `mmPerPx` from the pane camera. */
+  private paneWorld(viewId: ViewId, px: number, py: number): vec3 | null {
+    const view = this.state.slices.find((s) => s.id === viewId);
+    if (view === undefined) return null;
+    const n = normalize(view.normal);
+    const up = normalize(reject(view.up, n));
+    let right = cross(up, n);
+    if (this.state.radiological) right = [-right[0], -right[1], -right[2]];
+    const mm = view.camera.mmPerPx;
+    const u = view.camera.center[0] + (px + 0.5 - this.pointPane.width / 2) * mm;
+    const v = view.camera.center[1] + (this.pointPane.height / 2 - py - 0.5) * mm;
+    return [
+      this.state.cursor[0] + right[0] * u + up[0] * v,
+      this.state.cursor[1] + right[1] * u + up[1] * v,
+      this.state.cursor[2] + right[2] * u + up[2] * v,
+    ];
+  }
+
+  /** Re-find the selection after a `points` array was replaced, or clear it (§4.4). */
+  private reconcilePointSelection(): void {
+    const sel = this.pointSelectionId;
+    if (sel === null) return;
+    if (this.indexOfPointId(sel.layerId, sel.pointId) !== null) return;
+    this.pointSelectionId = null;
+    this.pointDragState = null;
+    this.emit('pointTool', {
+      layerId: sel.layerId,
+      kind: 'cleared',
+      pointId: null,
+      index: -1,
+      reason: 'selection',
+    });
   }
 
   /**
@@ -874,6 +1239,9 @@ export class NoGlEngine implements Engine {
    * reconcile exists for.
    */
   async load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
+    // §13: every layer is about to be replaced, so a tool armed on one of them is pointed at
+    // nothing — disarmed here, with the `cleared` a module re-arms on.
+    this.disarmPointTool('load');
     for (const ref of spec.datasets) {
       const path = resolve(ref);
       if (path === null) continue;

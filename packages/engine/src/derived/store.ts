@@ -132,6 +132,17 @@ interface PointEntry {
   colorKey: string;
 }
 
+/**
+ * One points layer's `SL` segments, as {@link DerivedStore.lineSegments} hands them back.
+ *
+ * `colors` is §4.4's `lineColors` (2026-08-30): true when attribute 3 carries a per-segment RGBA
+ * and the caller must draw through the `CONTOUR_COLORS` variant, false when the layer's single
+ * `lineColor` is the whole answer.
+ */
+export interface LineInstances extends PointInstances {
+  colors: boolean;
+}
+
 /** One points layer's `SL` segments: the shared strip plus the segment buffer (§7.0.6). */
 interface LineEntry {
   vao: VertexArray;
@@ -139,6 +150,14 @@ interface LineEntry {
   segments: Buffer;
   count: number;
   source: Float32Array | null;
+  /**
+   * §4.4's `lineColors`, uploaded beside the segments — created on first use, so a layer that never
+   * colours its lines never allocates one.
+   */
+  colors: Buffer | null;
+  colorSource: Float32Array | null;
+  /** Whether attribute 3 is currently enabled on {@link LineEntry.vao}. */
+  colored: boolean;
 }
 
 interface SurfaceTables {
@@ -509,7 +528,7 @@ export class DerivedStore {
    * draw through the §7.0.6 screen-space quad expansion and get a **constant screen width** at
    * every zoom, exactly like a 2D contour. `gl.lineWidth()` is a no-op (`[1,1]` `[M2Max]`).
    */
-  lineSegments(layer: PointsLayer): PointInstances | null {
+  lineSegments(layer: PointsLayer): LineInstances | null {
     const gl = this.#gl;
     const source = layer.lineSegments;
     if (source === undefined || source.length < 6) return null;
@@ -526,7 +545,16 @@ export class DerivedStore {
       gl.vertexAttribDivisor(1, 1);
       gl.vertexAttribDivisor(2, 1);
       VertexArray.unbind(gl);
-      e = { vao, strip, segments, count: 0, source: null };
+      e = {
+        vao,
+        strip,
+        segments,
+        count: 0,
+        source: null,
+        colors: null,
+        colorSource: null,
+        colored: false,
+      };
       this.#lines.set(layer.id, e);
     }
     if (e.source !== source) {
@@ -534,7 +562,31 @@ export class DerivedStore {
       e.count = Math.floor(source.length / 6);
       e.source = source;
     }
-    return e.count > 0 ? { vao: e.vao, count: e.count } : null;
+    // §4.4's `lineColors` (2026-08-30): four floats per segment, on attribute 3 with the same
+    // divisor the endpoints use. A short array is treated as absent — §4.4 says a partly-coloured
+    // shaft is a lie, and an array shorter than the instance count is also the out-of-range read
+    // that makes a draw silently disappear.
+    const colorSource = layer.lineColors;
+    const wanted =
+      colorSource !== undefined && colorSource.length >= e.count * 4 ? colorSource : null;
+    if (wanted !== e.colorSource) {
+      if (wanted === null) {
+        if (e.colored) {
+          e.vao.disable(3);
+          e.colored = false;
+        }
+      } else {
+        if (e.colors === null) e.colors = new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+        e.colors.update(wanted);
+        e.vao.attrib(3, e.colors, 4, gl.FLOAT, false, 16, 0);
+        gl.bindVertexArray(e.vao.vao);
+        gl.vertexAttribDivisor(3, 1);
+        VertexArray.unbind(gl);
+        e.colored = true;
+      }
+      e.colorSource = wanted;
+    }
+    return e.count > 0 ? { vao: e.vao, count: e.count, colors: e.colored } : null;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -767,6 +819,7 @@ export class DerivedStore {
       lines.vao.dispose();
       lines.strip.dispose();
       lines.segments.dispose();
+      lines.colors?.dispose();
       this.#lines.delete(id);
     }
   }
@@ -818,6 +871,7 @@ export class DerivedStore {
       e.vao.dispose();
       e.strip.dispose();
       e.segments.dispose();
+      e.colors?.dispose();
     }
     this.#lines.clear();
     for (const f of this.#fields.values())

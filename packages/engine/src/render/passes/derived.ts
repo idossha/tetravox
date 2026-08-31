@@ -48,6 +48,7 @@ import type { DerivedStore } from '../../derived/store';
 import type { Table } from '../../derived/tables';
 import type { IsoDrawItem, PointsDrawItem } from '../../layers/runtime';
 import { visibleIn } from '../../layers/runtime';
+import { dotRadiusPxOf } from '../../overlay/point-ring';
 import { isSliceView } from '../../scene/store';
 import { sliceBasis, slicePlane } from '../../view/geometry';
 import type { ComponentSel } from '@tetravox/protocol';
@@ -65,7 +66,7 @@ export class DerivedPass implements FramePass {
   readonly #gl: WebGL2RenderingContext;
   readonly #state: GlState;
   readonly #fill: ProgramVariants;
-  readonly #contour: Program;
+  readonly #contour: ProgramVariants;
   readonly #points: ProgramVariants;
   /** `TVX_GLYPH_VOLUME` ∈ {0,1} — `GlyphSpec.origins`, a compile-time branch like every other. */
   readonly #glyph: ProgramVariants;
@@ -86,7 +87,7 @@ export class DerivedPass implements FramePass {
     this.#gl = gl;
     this.#state = state;
     this.#fill = new ProgramVariants(gl, FILL2D_VS, FILL2D_FS);
-    this.#contour = new Program(gl, CONTOUR_VS, CONTOUR_FS);
+    this.#contour = new ProgramVariants(gl, CONTOUR_VS, CONTOUR_FS);
     this.#points = new ProgramVariants(gl, POINTS_VS, POINTS_FS);
     this.#glyph = new ProgramVariants(gl, GLYPH_VS, GLYPH_FS);
     // An isosurface is a `SurfacePayload`, so it draws through the §7.4 mesh program unchanged —
@@ -339,10 +340,14 @@ export class DerivedPass implements FramePass {
     vao: VertexArray,
     instances: number,
     widthPx: number,
-    color: vec4
+    color: vec4,
+    perSegmentColors = false
   ): void {
     const gl = this.#gl;
-    const prog = this.#contour;
+    // §4.4's `lineColors` (2026-08-30). `false` — every mesh contour, and every points layer that
+    // does not colour its shafts — compiles `#define CONTOUR_COLORS 0`, whose output is the shader
+    // that captured every existing golden.
+    const prog = this.#contour.get({ CONTOUR_COLORS: perSegmentColors ? 1 : 0 });
     prog.use();
     prog.mat4('uViewProj', viewProj);
     prog.mat4('uModel', model);
@@ -367,6 +372,11 @@ export class DerivedPass implements FramePass {
     const seg = store.lineSegments(layer);
     if (seg === null) return;
     const color = layer.lineColor ?? layer.color;
+    // With per-segment colours the uniform becomes a tint that carries the layer's opacity and
+    // nothing else, so `vColor * uColor` fades exactly as the single-colour branch does (§4.4).
+    const uColor: vec4 = seg.colors
+      ? [1, 1, 1, layer.opacity]
+      : [color[0], color[1], color[2], color[3] * layer.opacity];
     this.#drawContours(
       ctx.viewProj,
       IDENTITY,
@@ -375,7 +385,8 @@ export class DerivedPass implements FramePass {
       seg.vao,
       seg.count,
       (layer.lineWidthPx ?? 2) * ctx.input.uiScale,
-      [color[0], color[1], color[2], color[3] * layer.opacity]
+      uColor,
+      seg.colors
     );
   }
 
@@ -397,9 +408,19 @@ export class DerivedPass implements FramePass {
     prog.vec3('uNormal', plane.normal);
     prog.float('uPlaneOffset', plane.offset);
     prog.float('uMmPerPx', view.camera.mmPerPx);
-    prog.float('uDotPx', item.layer.shape === 'dot' ? 4 * input.uiScale : 0);
+    // §4.4's `dotRadiusPx` (2026-08-30): absent is the constant 4 CSS px this branch has always
+    // drawn at. `dotRadiusPxOf` is the same function `discRadiusPx` asks, so the shader, the
+    // selection ring and the CPU hit test cannot answer three different sizes.
+    prog.float(
+      'uDotPx',
+      item.layer.shape === 'dot' ? dotRadiusPxOf(item.layer) * input.uiScale : 0
+    );
     prog.float('uAmbient', input.scene.lighting.ambient);
     prog.float('uOpacity', item.layer.opacity);
+    // §4.4's `offPlaneOpacity` (2026-08-30): 0 or absent is the cull this pane has always done, so
+    // an unchanged layer draws unchanged pixels. Clamped because it is an alpha and a scene file is
+    // user-editable text — a 3.0 here would brighten the ghosts past the on-slice discs.
+    prog.float('uGhostAlpha', Math.min(1, Math.max(0, item.layer.offPlaneOpacity ?? 0)));
     inst.vao.bind();
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, POINT_QUAD_VERTICES, inst.count);
     VertexArray.unbind(gl);

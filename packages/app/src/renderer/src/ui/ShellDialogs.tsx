@@ -13,17 +13,21 @@
 
 import { useCallback } from 'react';
 import type { DatasetRef, ScreenshotOptions } from '@tetravox/engine';
+import { ConfirmDialog } from '../dialogs/ConfirmDialog';
 import { KeyboardHelp } from '../keyboard/KeyboardHelp';
 import { RelocateDialog } from '../dialogs/RelocateDialog';
 import { ScreenshotDialog } from '../dialogs/ScreenshotDialog';
 import type { FigureOptions } from '../lib/figure';
 import { SettingsDialog } from '../dialogs/SettingsDialog';
 import { SampleDataDialog } from '../dialogs/SampleDataDialog';
+// Appended 2026-08-30 (§13.8): File ▸ Extensions…, the Sample Data dialog's shape for code.
+import { ExtensionsDialog } from '../dialogs/ExtensionsDialog';
 import { useController, useUi } from './context';
 
 export function ShellDialogs(): React.JSX.Element | null {
   const controller = useController();
   const dialog = useUi((s) => s.dialog);
+  const confirm = useUi((s) => s.confirm);
   const relocate = useUi((s) => s.relocate);
   const screenshotOptions = useUi((s) => s.screenshotOptions);
   const subjectsDir = useUi((s) => s.freesurferSubjectsDir);
@@ -37,6 +41,10 @@ export function ShellDialogs(): React.JSX.Element | null {
   const sampleStatuses = useUi((s) => s.sampleStatuses);
   const sampleProgress = useUi((s) => s.sampleProgress);
   const sampleCacheDir = useUi((s) => s.sampleCacheDir);
+  const extensions = useUi((s) => s.extensions);
+  const extensionStatuses = useUi((s) => s.extensionStatuses);
+  const extensionProgress = useUi((s) => s.extensionProgress);
+  const extensionDir = useUi((s) => s.extensionDir);
 
   const capture = useCallback(
     (opts: ScreenshotOptions, figure: FigureOptions | null) =>
@@ -47,6 +55,15 @@ export function ShellDialogs(): React.JSX.Element | null {
   const close = useCallback(() => controller.closeDialog(), [controller]);
 
   if (dialog === 'keyboard') return <KeyboardHelp open onClose={close} />;
+
+  // §13.3's question. Appended per the shared-file rule, and first among the `if`s that follow
+  // because it is the one dialog another gesture is *waiting* on: it is raised over whatever the
+  // user was doing, and the answer has to reach `resolveConfirm` before anything else can proceed.
+  if (dialog === 'confirm' && confirm !== null) {
+    return (
+      <ConfirmDialog request={confirm} onChoose={(choice) => controller.resolveConfirm(choice)} />
+    );
+  }
 
   if (dialog === 'sampleData') {
     return (
@@ -59,6 +76,24 @@ export function ShellDialogs(): React.JSX.Element | null {
         onCancel={(id) => controller.cancelSample(id)}
         onRemove={(id) => void controller.removeSample(id)}
         onRevealCache={() => controller.revealSampleCache()}
+        onClose={close}
+      />
+    );
+  }
+
+  if (dialog === 'extensions') {
+    return (
+      <ExtensionsDialog
+        catalogue={extensions}
+        statuses={extensionStatuses}
+        progress={extensionProgress}
+        dir={extensionDir}
+        onInstall={(id, version) => controller.installExtension(id, version)}
+        onCancel={(id) => controller.cancelExtension(id)}
+        onEnable={(id) => controller.enableExtension(id)}
+        onDisable={(id) => void controller.disableExtension(id)}
+        onRemove={(id) => void controller.removeExtension(id)}
+        onRevealDir={() => controller.revealExtensionDir()}
         onClose={close}
       />
     );

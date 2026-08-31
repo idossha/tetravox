@@ -35,7 +35,21 @@ import { encodeGif } from './gif';
 import type { GifFrame } from './gif';
 import { decodePng } from './png';
 import { allowPath } from './paths';
-import { expandEnv, parseJobArgs, validateJob, JOB_SCHEMA_VERSION, jobInputPaths } from './job';
+// §13.6: a module operation's `out` argument is admitted for writing here, through the same
+// module-scoped write list a Save sheet fills (§5 rule 11) — a batch run has no sheet to open.
+import { admitModuleWrite } from './module-io';
+import { isModuleConsented } from './module-store';
+import { allManifests } from '../modules/manifests';
+import {
+  expandEnv,
+  parseJobArgs,
+  validateJob,
+  JOB_SCHEMA_VERSION,
+  jobInputPaths,
+  jobModules,
+  moduleOutTargets,
+  withInputPaths,
+} from './job';
 import type { Job, JobInvocation, JobOutput, JobResult } from './job';
 
 /** What the renderer pulls at startup. */
@@ -338,7 +352,11 @@ export function prepareJob(argv: readonly string[], cwd: string): JobInvocation 
     fail(invocation, [`job file is not JSON: ${error instanceof Error ? error.message : error}`]);
     return null;
   }
-  const validated = validateJob(parsedJob);
+  // The manifests this launch actually carries — compiled-in **and** installed (2026-08-30) — plus
+  // the consent gate. `bootstrapInstalledModules()` has already read the installed set off disk in
+  // `main/index.ts`, before this line, so §13.6's promise that a job is validated before a window
+  // exists survives: this is a lookup in an array, not a filesystem walk.
+  const validated = validateJob(parsedJob, allManifests(), isModuleConsented);
   if (!validated.ok || validated.job === undefined) {
     fail(invocation, validated.errors);
     return null;
@@ -350,7 +368,7 @@ export function prepareJob(argv: readonly string[], cwd: string): JobInvocation 
   // §5 directive A2: the job file naming a path *is* the user naming it. Sidecars are admitted by
   // the renderer's own `requestFromPath`, which asks main for each candidate.
   const expansionErrors: string[] = [];
-  const wanted = jobInputPaths(job).map((raw) => {
+  const wanted = jobInputPaths(job, allManifests()).map((raw) => {
     const expanded = expandEnv(raw, process.env);
     if (!expanded.ok) {
       expansionErrors.push(
@@ -383,13 +401,29 @@ export function prepareJob(argv: readonly string[], cwd: string): JobInvocation 
   }
 
   // The renderer is handed the resolved paths, so a job with relative paths behaves the same whether
-  // it is run from its own directory or from anywhere else.
-  const scene: Job['scene'] =
-    'path' in job.scene
-      ? { path: admitted[0] as string }
-      : { files: admitted, preset: job.scene.preset };
+  // it is run from its own directory or from anywhere else. `withInputPaths` puts them back in the
+  // order `jobInputPaths` took them, which is the scene's files and then every module action's
+  // `path` arguments (§13.6) — one pass, so a module's input is admitted and resolved by exactly
+  // the code that admits and resolves a scene's.
+  const resolved = withInputPaths(job, admitted, allManifests());
 
-  request = { job: { ...job, scene }, outDir: invocation.outDir, quiet: invocation.quiet };
+  // An `out` argument names a file under `--out` that the module itself writes. Admitting it here —
+  // with the sibling templates its writers declare — is what lets a module save in a batch run
+  // without a Save sheet, and without main growing a second write path (§5 rule 11).
+  try {
+    for (const target of moduleOutTargets(resolved, allManifests())) {
+      admitModuleWrite(
+        target.module,
+        resolveOutput(invocation.outDir, target.name),
+        target.siblings
+      );
+    }
+  } catch (error: unknown) {
+    fail(invocation, [error instanceof Error ? error.message : String(error)]);
+    return null;
+  }
+
+  request = { job: resolved, outDir: invocation.outDir, quiet: invocation.quiet };
   log(`job ${invocation.jobPath} → ${invocation.outDir}`);
   return invocation;
 }
@@ -436,12 +470,17 @@ function finish(report: JobFinish): void {
   collected.errors = report.errors;
   const totalMs = Date.now() - startedAt;
   const actionsMs = report.outputs.reduce((sum, o) => sum + o.ms, 0);
+  // §13.6: which modules the run depended on, and the version that ran them — main's answer, since
+  // main validated the actions against `MANIFESTS` before the window existed. Present only when the
+  // job used one, so a job that uses no module writes the result file it always wrote.
+  const modules = request === null ? [] : jobModules(request.job, allManifests());
   const result: JobResult = {
     ok: report.ok,
     schemaVersion: JOB_SCHEMA_VERSION,
     job: invocation.jobPath,
     outDir: invocation.outDir,
     outputs: report.outputs,
+    ...(modules.length > 0 ? { modules } : {}),
     timings: { totalMs, loadMs: report.loadMs, actionsMs },
     warnings: report.warnings,
     errors: report.errors,

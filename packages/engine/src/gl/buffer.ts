@@ -100,6 +100,20 @@ export class VertexArray {
     gl.vertexAttribIPointer(index, size, type, stride, offset);
   }
 
+  /**
+   * Turn one attribute array off, so the shader reads its constant generic value instead.
+   *
+   * The other half of {@link VertexArray.attrib}, and it exists for an attribute that comes and
+   * goes: §4.4's `lineColors` is optional and a layer may lose it between frames, and leaving a
+   * divisor-1 array enabled over a buffer that no longer matches the instance count is exactly the
+   * out-of-range read WebGL turns into a silent draw of nothing.
+   */
+  disable(index: number): void {
+    const gl = this.#gl;
+    gl.bindVertexArray(this.vao);
+    gl.disableVertexAttribArray(index);
+  }
+
   elements(buffer: Buffer): void {
     const gl = this.#gl;
     gl.bindVertexArray(this.vao);

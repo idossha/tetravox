@@ -1,0 +1,692 @@
+/**
+ * The sEEG contact editor in the running app (ARCHITECTURE.md §13.3, §13.4).
+ *
+ * `seeg.test.ts` covers the state and the calls; this covers what only a window can answer — that
+ * the panel renders, that its buttons reach the module, that a **save really writes three files to a
+ * real disk** through main's write list, that the discard guard asks, and that a module-owned layer
+ * gets a summary instead of the core points editor.
+ *
+ * The subject is a real `seegprep` derivative tree in a temp directory, built from the committed
+ * fixtures: `ct_shafts.nii.gz` copied to the BIDS CT name, and `seeg_contacts.tsv` beside it in
+ * `ieeg/`. Only the *paths* have to be real — the launch is `?engine=mock`, so `NoGlEngine` makes
+ * the volume from its name (`engine/mockData.ts` answers a bone-window CT with the same phantom the
+ * fixture holds), and main's IO, its allow-list and its Save sheet are all the product's own.
+ *
+ * `dialog.showSaveDialog` is **stubbed in main** (`module-guard.spec.ts`'s idiom): it is OS-modal,
+ * no Playwright click can reach it, and an unstubbed one hangs the run to the CI cap. Everything
+ * under it stays real — the template validation, the write list, the `.bak`, the `.part`+rename.
+ */
+
+/* eslint-disable no-empty-pattern */
+
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import {
+  APP_ROOT,
+  bundledSeegVersion,
+  clickAppMenu,
+  launchApp,
+  packagedUnavailable,
+} from './fixtures';
+import type { LaunchTarget } from './fixtures';
+
+const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
+const SEARCH = 'engine=mock&mockStepMs=0';
+const SEEG = 'tetravox.seeg';
+
+/**
+ * sEEG is the **bundled** `tetravox.seeg` extension now (§13.8, 2026-08-31), not compiled in: the app
+ * discovers it in `resources/modules/`, pre-consents it and auto-enables it at boot, and `onSibling`
+ * activates it exactly as before. `app.getAppPath()` in the dev target is `packages/app`, so the dev
+ * bundled root is this path; `scripts/fetch-locked-modules.mjs` populates it from `modules.lock`.
+ * When it is absent — the cheap `test` CI leg runs `fetch-locked-modules --verify-only`, no download —
+ * this suite **skips**, because there is nothing for the app to discover. A packaged build always
+ * carries it (the `package`/`build` legs fetch), so the packaged target is gated by the build, not here.
+ */
+const DEV_BUNDLE = resolve(
+  APP_ROOT,
+  'resources',
+  'modules',
+  SEEG,
+  bundledSeegVersion(),
+  'index.js'
+);
+
+/** A `seegprep` derivative tree with the committed fixtures in it, in a fresh temp directory. */
+function subjectTree(): { ct: string; tsv: string; ieeg: string } {
+  const root = mkdtempSync(join(tmpdir(), 'tetravox-seeg-'));
+  const subject = join(root, 'derivatives', 'seegprep', 'sub-P076');
+  const ctDir = join(subject, 'ct');
+  const ieeg = join(subject, 'ieeg');
+  mkdirSync(ctDir, { recursive: true });
+  mkdirSync(ieeg, { recursive: true });
+  const ct = join(ctDir, 'sub-P076_acq-bone_space-T1w_ct.nii.gz');
+  const tsv = join(ieeg, 'sub-P076_space-T1w_electrodes.tsv');
+  copyFileSync(join(TESTDATA, 'ct_shafts.nii.gz'), ct);
+  copyFileSync(join(TESTDATA, 'seeg_contacts.tsv'), tsv);
+  // A subject somebody has already hand-corrected: the editlog is what `seegprep`'s --force guard
+  // looks for, and what the panel's banner is about.
+  writeFileSync(
+    join(ieeg, 'sub-P076_space-T1w_electrodes_editlog.json'),
+    JSON.stringify({ edited_utc: '2026-08-14T09:30:00Z', n_contacts: 15, added: 0, edited: 2 })
+  );
+  return { ct, tsv, ieeg };
+}
+
+async function setSize(app: ElectronApplication, width: number, height: number): Promise<void> {
+  await app.evaluate(
+    ({ BrowserWindow }, size) => {
+      BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height);
+    },
+    { width, height }
+  );
+}
+
+/** Click outside every control, so a key press is not swallowed by a focused button or field. */
+async function focusShell(page: Page): Promise<void> {
+  await page.locator('[data-testid="shell"]').click({ position: { x: 5, y: 400 } });
+}
+
+/** The contacts layer's id, read out of the store. */
+async function layerId(page: Page): Promise<string> {
+  return page.evaluate((id) => {
+    const layers = window.__tetravox?.store.getState().layers ?? [];
+    return layers.find((l) => l.module === id)?.id ?? '';
+  }, SEEG);
+}
+
+test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
+  let app: ElectronApplication;
+  let page: Page;
+  let tree: ReturnType<typeof subjectTree>;
+
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeAll(async ({}, workerInfo) => {
+    const target = workerInfo.project.name as LaunchTarget;
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
+    // The bundled module is discovered from `packages/app/resources/modules/`: the dev target reads it
+    // there directly, and the packaged `.dmg` ships a copy `electron-builder` took from that same tree
+    // at package time. Either way an unfetched tree means nothing to discover, so skip rather than fail
+    // (AGENTS.md rule 2's shape) — the cheap CI leg packages after `--verify-only`, so its `.dmg` has no
+    // sEEG just as its dev tree does; a release (or the on-demand `package` job) fetches, and then it runs.
+    test.skip(
+      !existsSync(DEV_BUNDLE),
+      'the bundled tetravox.seeg is not in resources/modules — run `node scripts/fetch-locked-modules.mjs`'
+    );
+    tree = subjectTree();
+    app = await launchApp(target, {
+      search: SEARCH,
+      args: [tree.ct],
+      // The window is deliberately made dirty below; without this its close would ask (§5 rule 12).
+      env: { TETRAVOX_E2E_DISCARD: '1' },
+    });
+    page = await app.firstWindow();
+    await setSize(app, 1440, 900);
+    await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });
+  });
+
+  test.afterAll(async () => {
+    // Clear the module-edited flag before closing rather than leaning on `TETRAVOX_E2E_DISCARD`:
+    // since 2026-08-30 a **packaged** build ignores that seam on purpose (§5 rule 12), and a
+    // teardown that depended on it would hang this leg on an OS-modal box nobody can answer.
+    await page?.evaluate(() => window.tetravox.setDocumentEdited(false)).catch(() => {});
+    await app?.close();
+  });
+
+  test('opening the CT finds its table and puts the editor in the slot', async () => {
+    // §13.1's `onSibling`: nothing was clicked, and nothing named the table — the manifest's
+    // patterns found `../ieeg/sub-P076_space-T1w_electrodes.tsv` beside the CT that argv opened.
+    await expect(page.locator('[data-testid="seeg-panel"]')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid="module-slot"]')).toHaveAttribute('data-module', SEEG);
+    await expect(page.locator('[data-testid="seeg-source"]')).toContainText('sub-P076');
+    await expect(page.locator('[data-testid="seeg-source"]')).toContainText('_electrodes.tsv');
+
+    // 15 contacts on three electrodes, as one points layer with §4.4's module fields.
+    const layer = await page.evaluate((id) => {
+      const found = (window.__tetravox?.store.getState().layers ?? []).find((l) => l.module === id);
+      return found === undefined
+        ? null
+        : (found as unknown as {
+            kind: string;
+            shape: string;
+            radiusMm: number;
+            labelSource?: string;
+            offPlaneOpacity?: number;
+            points?: unknown[];
+          });
+    }, SEEG);
+    expect(layer).not.toBeNull();
+    expect(layer).toMatchObject({
+      kind: 'points',
+      shape: 'dot',
+      radiusMm: 1.5,
+      labelSource: 'names',
+      offPlaneOpacity: 0.6,
+    });
+    expect(layer?.points).toHaveLength(15);
+
+    // Slicer's display preset really reached the CT layer.
+    const ct = await page.evaluate(() => {
+      const found = (window.__tetravox?.store.getState().layers ?? []).find(
+        (l) => l.kind === 'volume'
+      );
+      return found as unknown as { colormap: string; threshold: { lo: number; mode: string } };
+    });
+    expect(ct.colormap).toBe('gray');
+    expect(ct.threshold).toMatchObject({ lo: 150, mode: 'hide' });
+  });
+
+  test('an existing editlog is a banner: somebody has been here before you', async () => {
+    await expect(page.locator('[data-testid="seeg-banner"]')).toContainText('2026-08-14');
+  });
+
+  test('the contact list shows a status, an off-plane distance and a tip marker', async () => {
+    await expect(page.locator('[data-testid="seeg-list"] > li')).toHaveCount(6);
+    const row = page.locator('[data-testid="seeg-row-A01"]');
+    await expect(row).toHaveAttribute('data-status', 'located');
+    await expect(row).toContainText('mm');
+    // The tip marker names one contact of the electrode, and only one.
+    await expect(page.locator('[data-testid="seeg-tip"]')).toHaveText(/^A0\d$/);
+    await expect(page.locator('[data-testid="seeg-stats"]')).toContainText('rms');
+  });
+
+  test('a jump puts the crosshair on the contact, and its own off-plane distance is zero', async () => {
+    await page.click('[data-testid="seeg-jump-A04"]');
+    const cursor = await page.evaluate(() => window.__tetravox?.store.getState().cursor);
+    const contact = await page.evaluate((id) => {
+      const layer = (window.__tetravox?.store.getState().layers ?? []).find((l) => l.module === id);
+      const points = (layer as unknown as { points: { name?: string; position: number[] }[] })
+        .points;
+      return points.find((p) => p.name === 'A04')?.position ?? null;
+    }, SEEG);
+    expect(cursor).toEqual(contact);
+
+    // §13.1's `activePlane`: the column is the distance from the plane the active pane is showing,
+    // which passes through the crosshair — so the contact the crosshair is now on reads 0.0 mm, and
+    // the ones further along an oblique shaft do not.
+    await expect(page.locator('[data-testid="seeg-row-A04"]')).toContainText('0.0 mm');
+    await expect(page.locator('[data-testid="seeg-row-A01"]')).not.toContainText('0.0 mm');
+  });
+
+  test('a snap moves the selected contact toward the metal, and Undo puts it back', async () => {
+    const id = await layerId(page);
+    const before = await page.evaluate(
+      ([layer, name]: [string, string]) => {
+        const found = (window.__tetravox?.store.getState().layers ?? []).find(
+          (l) => l.id === layer
+        );
+        const points = (
+          found as unknown as { points: { name?: string; id?: string; position: number[] }[] }
+        ).points;
+        const point = points.find((p) => p.name === name);
+        return { id: point?.id ?? '', position: point?.position ?? [] };
+      },
+      [id, 'A03'] as [string, string]
+    );
+
+    // Select through the engine, the way a click in a pane does: `?engine=mock` has no canvas for a
+    // pointer layer to listen to, so this is the call `input/pointer.ts` would have made.
+    await page.evaluate(
+      ([layer, point]: [string, string]) => {
+        (
+          window.__tetravox?.engine as unknown as {
+            setPointSelection(sel: { layerId: string; pointId: string }): void;
+          }
+        ).setPointSelection({ layerId: layer, pointId: point });
+      },
+      [id, before.id] as [string, string]
+    );
+    await expect(page.locator('[data-testid="seeg-snap"]')).toBeEnabled();
+    await page.click('[data-testid="seeg-snap"]');
+
+    const after = await page.evaluate(
+      ([layer, name]: [string, string]) => {
+        const found = (window.__tetravox?.store.getState().layers ?? []).find(
+          (l) => l.id === layer
+        );
+        const points = (found as unknown as { points: { name?: string; position: number[] }[] })
+          .points;
+        return points.find((p) => p.name === name)?.position ?? [];
+      },
+      [id, 'A03'] as [string, string]
+    );
+    expect(after).not.toEqual(before.position);
+    // It moved toward the blob rather than anywhere: less than a millimetre, more than a tenth.
+    const moved = Math.hypot(
+      (after[0] as number) - (before.position[0] as number),
+      (after[1] as number) - (before.position[1] as number),
+      (after[2] as number) - (before.position[2] as number)
+    );
+    expect(moved).toBeGreaterThan(0.1);
+    expect(moved).toBeLessThan(1.5);
+
+    await expect(page.locator('[data-testid="module-dirty"]')).toBeVisible();
+    await page.click('[data-testid="seeg-undo"]');
+    const back = await page.evaluate(
+      ([layer, name]: [string, string]) => {
+        const found = (window.__tetravox?.store.getState().layers ?? []).find(
+          (l) => l.id === layer
+        );
+        const points = (found as unknown as { points: { name?: string; position: number[] }[] })
+          .points;
+        return points.find((p) => p.name === name)?.position ?? [];
+      },
+      [id, 'A03'] as [string, string]
+    );
+    expect(back).toEqual(before.position);
+  });
+
+  test('place mode adds a contact to the current electrode', async () => {
+    await page.click('[data-testid="seeg-add"]');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
+
+    // The click `input/pointer.ts` would have dispatched, on the stand-in's own pane model.
+    await page.evaluate(() => {
+      (
+        window.__tetravox?.engine as unknown as {
+          pointToolClick(viewId: string, px: number, py: number): void;
+        }
+      ).pointToolClick('axial', 250, 250);
+    });
+    await expect(page.locator('[data-testid="seeg-list"] > li')).toHaveCount(7);
+    await expect(page.locator('[data-testid="seeg-row-A07"]')).toHaveAttribute(
+      'data-status',
+      'added'
+    );
+    await page.click('[data-testid="seeg-add"]');
+  });
+
+  test('Escape takes the Add button with it, one step at a time', async () => {
+    // The engine's Esc grammar is place → select → off, and the first step emits **no event** — so
+    // a panel mirroring the mode in the module's own state shows Add held down while every click
+    // selects. `cancelPointTool` is the call the engine's own keydown makes; `?engine=mock` has no
+    // canvas for it to listen on, exactly as `pointToolClick` above is the call `#onDown` makes.
+    const escape = (): Promise<boolean> =>
+      page.evaluate(() =>
+        (window.__tetravox?.engine as unknown as { cancelPointTool(): boolean }).cancelPointTool()
+      );
+    const mode = (): Promise<string | null> =>
+      page.evaluate(
+        () =>
+          (
+            window.__tetravox?.engine as unknown as { pointTool(): { mode: string } | null }
+          ).pointTool()?.mode ?? null
+      );
+
+    await page.click('[data-testid="seeg-add"]');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
+
+    // Esc #1: place → select, silently. The button's state is read off the engine now, so the next
+    // render is right; there is no event to render *on*, which is why the assertion below is about
+    // the press after it rather than about the pixel in between.
+    expect(await escape()).toBe(true);
+    expect(await mode()).toBe('select');
+
+    // Esc #2 emits `cleared`, the panel renders, and the button is not pressed — where the old
+    // handler re-armed place mode inside this very keydown and left it held down. Since 2026-08-30
+    // the module puts `select` straight back (§13.3: select is its resting state), so what Escape
+    // must never do is come back in `place`.
+    expect(await escape()).toBe(true);
+    expect(await mode()).toBe('select');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'false');
+
+    // One press arms place mode again, and a second leaves the tool where the specs after this one
+    // expect it: armed, selecting.
+    await page.click('[data-testid="seeg-add"]');
+    await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
+    expect(await mode()).toBe('place');
+    await page.click('[data-testid="seeg-add"]');
+    expect(await mode()).toBe('select');
+  });
+
+  test('a drag is one undo step, and a re-fit straightens the shaft', async () => {
+    const id = await layerId(page);
+    await page.evaluate((layer) => {
+      const engine = window.__tetravox?.engine as unknown as {
+        pointAtScreen(viewId: string, px: number, py: number): { pointId: string } | null;
+        setPointSelection(sel: { layerId: string; pointId: string }): void;
+        pointToolClick(viewId: string, px: number, py: number): void;
+        pointToolDrag(viewId: string, px: number, py: number): void;
+        pointToolDragEnd(): void;
+      };
+      void layer;
+      // Grab whatever is under the pane centre, drag it, and end the gesture from `#onUp`.
+      engine.pointToolClick('axial', 250, 250);
+      engine.pointToolDrag('axial', 262, 250);
+      engine.pointToolDragEnd();
+    }, id);
+    await expect(page.locator('[data-testid="module-dirty"]')).toBeVisible();
+
+    await page.click('[data-testid="seeg-refit"]');
+    await expect(page.locator('[data-testid="seeg-stats"]')).toContainText('rms 0.0 mm');
+  });
+
+  test('clicking a contact moves the electrode dropdown, with nothing armed by hand', async () => {
+    // The owner's report, as a window assertion: a plain click on a contact has to move the
+    // dropdown. Nothing here arms anything — the module keeps `select` armed while it is active
+    // (§13.3), which is the whole fix.
+    const dropdown = page.locator('[data-testid="seeg-electrode"]');
+
+    // Put the crosshair on B01 so its disc is on the slice under the pane centre, then send the
+    // dropdown back to A — the click is what has to bring it to B.
+    await dropdown.selectOption('B');
+    await page.click('[data-testid="seeg-jump-B01"]');
+    await dropdown.selectOption('A');
+    await expect(dropdown).toHaveValue('A');
+
+    await page.evaluate(() => {
+      (
+        window.__tetravox?.engine as unknown as {
+          pointToolClick(viewId: string, px: number, py: number): void;
+        }
+      ).pointToolClick('axial', 256, 256);
+    });
+
+    await expect(dropdown).toHaveValue('B');
+    await expect(page.locator('[data-testid="seeg-row-B01"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    // Put the panel back where the specs after this one expect it.
+    await dropdown.selectOption('A');
+  });
+
+  test('a ghosted contact is clickable: the click brings the slice to it, and then it drags', async () => {
+    // §7.5's amendment (2026-08-30), end to end. With `offPlaneOpacity: 0.6` a P077 slice draws
+    // eighty-two contacts and — under the old on-slice-only rule — two of them were clickable; every
+    // other press fell through to R1's cursor-set and the owner read it as "the selection does not
+    // update". This spec puts the crosshair where **no** contact is on the slice, so every marker in
+    // the pane is a ghost, and asserts the three things the amendment promises: the press selects,
+    // the module's jump brings the slice onto the contact, and the contact is then an ordinary
+    // draggable one.
+    const dropdown = page.locator('[data-testid="seeg-electrode"]');
+
+    // Put the pane centre over B03's shaft, then take the cursor above the whole implant along the
+    // axial normal. The normal is perpendicular to the pane's basis, so the in-plane projection is
+    // unchanged — every contact is still drawn where it was — and not one of them is on this slice.
+    // The list shows the chosen electrode's contacts, so pick B before asking for B03's row.
+    await dropdown.selectOption('B');
+    await page.click('[data-testid="seeg-jump-B03"]');
+    const scene = await page.evaluate((id) => {
+      const engine = window.__tetravox!.engine as unknown as {
+        scene: { cursor: number[] };
+        setCursor(world: number[]): void;
+        pointAtScreen(
+          viewId: string,
+          px: number,
+          py: number
+        ): { pointId: string; index: number } | null;
+      };
+      const c = engine.scene.cursor;
+      const layer = (window.__tetravox!.store.getState().layers ?? []).find((l) => l.module === id);
+      const points = (
+        layer as unknown as {
+          points?: { id: string; name: string; group: string; position: number[] }[];
+          radiusMm: number;
+        }
+      ).points!;
+      // 4 mm above the highest contact: more than any contact's radius, so the slice cuts none.
+      engine.setCursor([c[0]!, c[1]!, Math.max(...points.map((p) => p.position[2]!)) + 4]);
+      const cursor = engine.scene.cursor;
+      return {
+        // How near the slice the nearest contact is: the whole set has to be off it for this to be
+        // the dead click the owner reported.
+        nearestMm: Math.min(...points.map((p) => Math.abs(p.position[2]! - cursor[2]!))),
+        radiusMm: (layer as unknown as { radiusMm: number }).radiusMm,
+        hit: engine.pointAtScreen('axial', 256, 256),
+        points,
+      };
+    }, SEEG);
+
+    // The press is over a ghost and nothing else: no contact's sphere reaches this slice.
+    expect(scene.nearestMm).toBeGreaterThan(scene.radiusMm);
+    expect(scene.hit, 'the pane centre is over a drawn ghost').not.toBeNull();
+    const target = scene.points.find((p) => p.id === scene.hit!.pointId)!;
+    expect(target).toBeDefined();
+
+    // Send the dropdown to the *other* electrode, so following it is a visible change.
+    await dropdown.selectOption(target.group === 'A' ? 'C' : 'A');
+
+    await page.evaluate(() => {
+      (
+        window.__tetravox?.engine as unknown as {
+          pointToolClick(viewId: string, px: number, py: number): void;
+        }
+      ).pointToolClick('axial', 256, 256);
+    });
+
+    // 1. the dropdown and the list follow the ghost that was clicked …
+    await expect(dropdown).toHaveValue(target.group);
+    await expect(page.locator(`[data-testid="seeg-row-${target.name}"]`)).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    // 2. … and the pane slice arrives at it: the module answers `selected` with a cursor jump
+    //    (§13.3), which is what turns a ghost into the contact the slice cuts.
+    const cursor = await page.evaluate(
+      () => (window.__tetravox!.engine as unknown as { scene: { cursor: number[] } }).scene.cursor
+    );
+    for (const k of [0, 1, 2] as const) expect(cursor[k]).toBeCloseTo(target.position[k]!, 6);
+
+    // 3. and now it is an ordinary on-slice contact: the same pixel grabs it and a drag moves it.
+    const moved = await page.evaluate(
+      ([id, pointId]) => {
+        const engine = window.__tetravox!.engine as unknown as {
+          pointToolClick(viewId: string, px: number, py: number): void;
+          pointToolDrag(viewId: string, px: number, py: number): void;
+          pointToolDragEnd(): void;
+        };
+        engine.pointToolClick('axial', 256, 256);
+        engine.pointToolDrag('axial', 268, 256);
+        engine.pointToolDragEnd();
+        const layer = (window.__tetravox!.store.getState().layers ?? []).find(
+          (l) => l.module === id
+        );
+        const points = (layer as unknown as { points: { id: string; position: number[] }[] })
+          .points;
+        return points.find((p) => p.id === pointId)!.position;
+      },
+      [SEEG, target.id] as const
+    );
+    expect(Math.hypot(...moved.map((v, i) => v - target.position[i]!))).toBeGreaterThan(0.5);
+
+    // Put the panel back where the specs after this one expect it.
+    await dropdown.selectOption('A');
+  });
+
+  test('Wire hides and restores the shaft lines, from the button and from its key', async () => {
+    const wire = page.locator('[data-testid="seeg-wire"]');
+    const segments = (): Promise<number> =>
+      page.evaluate((id) => {
+        const layer = (window.__tetravox?.store.getState().layers ?? []).find(
+          (l) => l.module === id
+        );
+        return (
+          (layer as unknown as { lineSegments?: { length: number } }).lineSegments?.length ?? 0
+        );
+      }, SEEG);
+
+    await expect(wire).toHaveAttribute('aria-pressed', 'true');
+    expect(await segments()).toBeGreaterThan(0);
+    await page.click('[data-testid="seeg-wire"]');
+    await expect(wire).toHaveAttribute('aria-pressed', 'false');
+    // Empty, not absent: a `Partial<Layer>` merge cannot unset a field (§4.4).
+    expect(await segments()).toBe(0);
+
+    // …and the manifest's `d` reaches the same command, which is §13.5's half of this.
+    await focusShell(page);
+    await page.keyboard.press('d');
+    await expect(wire).toHaveAttribute('aria-pressed', 'true');
+    expect(await segments()).toBeGreaterThan(0);
+  });
+
+  test('the Size stepper writes §4.4’s dotRadiusPx and stops at its bounds', async () => {
+    const size = page.locator('[data-testid="seeg-size"]');
+    const drawn = (): Promise<number | undefined> =>
+      page.evaluate((id) => {
+        const layer = (window.__tetravox?.store.getState().layers ?? []).find(
+          (l) => l.module === id
+        );
+        return (layer as unknown as { dotRadiusPx?: number }).dotRadiusPx;
+      }, SEEG);
+
+    await expect(size).toHaveText('4');
+    expect(await drawn()).toBe(4);
+    await page.click('[data-testid="seeg-size-up"]');
+    await page.click('[data-testid="seeg-size-up"]');
+    await expect(size).toHaveText('6');
+    expect(await drawn()).toBe(6);
+
+    // The bound is real, and the panel states it by disabling the button rather than by letting a
+    // press do nothing: step up until it stops, and it stops at 12.
+    const up = page.locator('[data-testid="seeg-size-up"]');
+    for (let i = 0; i < 20 && !(await up.isDisabled()); i += 1) await up.click();
+    await expect(size).toHaveText('12');
+    await expect(up).toBeDisabled();
+    expect(await drawn()).toBe(12);
+
+    // …and the same at the other end.
+    const down = page.locator('[data-testid="seeg-size-down"]');
+    for (let i = 0; i < 20 && !(await down.isDisabled()); i += 1) await down.click();
+    await expect(size).toHaveText('2');
+    await expect(down).toBeDisabled();
+
+    // Back to the default, so the specs after this one see the layer they expect.
+    for (let i = 0; i < 2; i += 1) await up.click();
+    await expect(size).toHaveText('4');
+    expect(await drawn()).toBe(4);
+  });
+
+  test('a module-owned layer gets a summary, not the core points editor', async () => {
+    const id = await layerId(page);
+    const disclosure = page.locator(`[data-testid="layer-disclosure-${id}"]`);
+    // Expanded is the default; click only if this row happens to be collapsed.
+    if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click();
+    await expect(page.locator(`[data-testid="module-layer-summary-${id}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="points-properties-${id}"]`)).toHaveCount(0);
+    await expect(page.locator(`[data-testid="module-layer-summary-${id}"]`)).toContainText(
+      'sEEG contacts'
+    );
+  });
+
+  test('Save writes the table, a timestamped backup and the editlog', async () => {
+    // The Save sheet is OS-modal; main answers with the path the module was opened from.
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showSaveDialog = (async () => ({
+        canceled: false,
+        filePath: path,
+      })) as unknown as typeof dialog.showSaveDialog;
+    }, tree.tsv);
+
+    const before = readFileSync(tree.tsv, 'utf8');
+    await page.click('[data-testid="seeg-save-as"]');
+    await expect(page.locator('[data-testid="module-dirty"]')).toHaveCount(0, { timeout: 15_000 });
+
+    const after = readFileSync(tree.tsv, 'utf8');
+    expect(after).not.toBe(before);
+    // The original columns, in the file's own order, and LF endings.
+    expect(after.split('\n')[0]).toBe('name\telectrode\tcontact\tcsc\tx\ty\tz\tstatus');
+    expect(after.includes('\r')).toBe(false);
+    expect(after).toContain('\tedited\n');
+    expect(after).toContain('\tadded\n');
+
+    // The backup main made, from the bytes that were there — its name is the writer's template.
+    const backups = readdirSync(tree.ieeg).filter((name) => name.endsWith('.bak'));
+    // Exactly one: the table's. The editlog is written with `backup: false` — it is a record of
+    // this save, not a file whose previous contents are worth keeping.
+    expect(backups).toHaveLength(1);
+    expect(backups[0]).toMatch(/^sub-P076_space-T1w_electrodes\.tsv\.\d{8}-\d{6}\.bak$/);
+    expect(readFileSync(join(tree.ieeg, backups[0] as string), 'utf8')).toBe(before);
+
+    // The editlog, under the name seegprep's `--force` guard globs for.
+    const editlog = join(tree.ieeg, 'sub-P076_space-T1w_electrodes_editlog.json');
+    expect(existsSync(editlog)).toBe(true);
+    const log = JSON.parse(readFileSync(editlog, 'utf8')) as {
+      n_contacts: number;
+      added: number;
+      edited: number;
+      contacts: { name: string; change: string }[];
+      tool: string;
+    };
+    expect(log.n_contacts).toBe(16);
+    expect(log.added).toBe(1);
+    expect(log.edited).toBeGreaterThan(0);
+    expect(log.tool).toContain('Tetravox');
+    expect(log.contacts.some((c) => c.change === 'added')).toBe(true);
+  });
+
+  test('a key runs a command, and only while the module is active', async () => {
+    await focusShell(page);
+    const ghost = page.locator('[data-testid="seeg-ghost"]');
+    await expect(ghost).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('g');
+    await expect(ghost).toHaveAttribute('aria-pressed', 'false');
+    await page.keyboard.press('g');
+    await expect(ghost).toHaveAttribute('aria-pressed', 'true');
+
+    // §13.5: a module key resolves only after the core map declined, so `c` is still the crosshair.
+    const crosshair = page.locator('[data-testid="crosshair-toggle"]');
+    const before = await crosshair.getAttribute('aria-pressed');
+    await page.keyboard.press('c');
+    await expect(crosshair).not.toHaveAttribute('aria-pressed', before ?? '');
+    await page.keyboard.press('c');
+  });
+
+  test('New asks before discarding unsaved contacts, and offers to save them', async () => {
+    // Make it dirty again — the previous save cleared the flag.
+    await page.click('[data-testid="seeg-snap-electrode"]');
+    await expect(page.locator('[data-testid="module-dirty"]')).toBeVisible();
+
+    await clickAppMenu(page, 'new');
+    await expect(page.locator('[data-testid="confirm-dialog"]')).toBeVisible();
+    // Three buttons, because the sEEG manifest declares a `save` command — the fixture module's
+    // guard offers two.
+    await expect(page.locator('[data-testid^="confirm-button-"]')).toHaveCount(3);
+    await expect(page.locator('[data-testid="confirm-body"]')).toContainText('without saving');
+    // Cancel is last, and it really cancels.
+    await page.click('[data-testid="confirm-button-2"]');
+    await expect(page.locator('[data-testid="confirm-dialog"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="seeg-panel"]')).toBeVisible();
+  });
+
+  test('Open… reaches a table the reader would never claim, and asks first', async () => {
+    // The Inputs escape hatch. The manifest's reader claims a basename saying `electrodes` /
+    // `contacts` / `markups`, so a site exporting `DIXI_locs.tsv` has no route in at all — and the
+    // `load` command that opens the module's own All-files sheet has no key and no menu entry, so
+    // without this button nothing could reach it. `showOpenDialog` is OS-modal, stubbed in main
+    // exactly as `showSaveDialog` is above; everything under it stays real.
+    // The committed fixture rather than `tree.tsv`, which the save above rewrote: this asserts a
+    // count, and it should be the count of the file it opened.
+    const named = join(tree.ieeg, 'DIXI_locs.tsv');
+    copyFileSync(join(TESTDATA, 'seeg_contacts.tsv'), named);
+    await app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: [path],
+      })) as unknown as typeof dialog.showOpenDialog;
+    }, named);
+
+    // The previous test left the module dirty and cancelled, so the module's own discard guard —
+    // the one the shell cannot raise, because this gesture never leaves the panel — asks here.
+    await page.click('[data-testid="seeg-open"]');
+    await expect(page.locator('[data-testid="confirm-dialog"]')).toBeVisible();
+    await expect(page.locator('[data-testid^="confirm-button-"]')).toHaveCount(3);
+    await page.click('[data-testid="confirm-button-1"]'); // Discard
+
+    await expect(page.locator('[data-testid="seeg-source"]')).toContainText('DIXI_locs.tsv');
+    await expect(page.locator('[data-testid="seeg-list"] > li')).toHaveCount(6);
+  });
+});

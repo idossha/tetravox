@@ -37,6 +37,7 @@ website/public/media/
 website/public/gallery/
 website/public/samples/
 website/sample-data.md
+website/extensions.md
 website/.vitepress/cache/
 website/.vitepress/dist/
 
@@ -66,3 +67,8 @@ docs/benchmarks/
 
 # Per-run job artefact, rewritten by every builder
 docs/screenshots/*/job-result.json
+
+# The modules `modules.lock` bundles, fetched and hash-verified into the packaged app's resources by
+# scripts/fetch-locked-modules.mjs. Never committed: the release ships bytes the lock's hashes prove,
+# not bytes the history has to be trusted for. (The layout is defined in that script's header.)
+packages/app/resources/modules/

@@ -26,6 +26,8 @@ import type {
   LayoutKind,
   LoadProgress,
   MeshLayer,
+  NewLayer,
+  PointToolEvent,
   ProbeResult,
   ScreenshotOptions,
   ViewId,
@@ -37,6 +39,8 @@ import type {
 import {
   measurementFocus,
   parseTextAffine,
+  // Modules (2026-08-30, §13.1): the §4.3 bounded local read `host.scene.peakCentroid` is.
+  peakCentroid,
   sidecarPathsFor,
   subjectToMniAffine,
 } from '@tetravox/engine';
@@ -69,6 +73,8 @@ import {
   layersToRestore,
   parseScene,
   relocationCandidates,
+  // Modules (2026-08-30, §13.2), appended: the blocks a scene file carried.
+  sceneExtensions,
   serialiseScene,
 } from '../lib/scene';
 import { formatLut, fromLabelEntries, lutFileName } from '../lib/lut';
@@ -82,10 +88,37 @@ import {
   setClipFollowsCursor,
 } from '../panels/layers/mesh/state';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
-import type { SampleProgress, SceneCommand } from '../bridge';
+import type {
+  ModuleActionResult,
+  ModuleProgress,
+  ModuleStatus,
+  SampleProgress,
+  SceneCommand,
+} from '../bridge';
 import type { SubjectSpacesReply, SurfaceSpacesReply } from '../../../preload/index';
 import { applyTheme, enginePatch, isThemeChoice, resolveTheme } from '../theme/theme';
 import type { ThemeChoice } from '../theme/theme';
+// Modules (2026-08-30, §13). Appended per the shared-file rule. Nothing here names a module: the
+// shell reads every module-specific fact out of a manifest.
+import type { ComponentType } from 'react';
+import type { ModuleManifest } from '../../../modules/manifest-types';
+import { manifestFor } from '../../../modules/manifests';
+import { MODULES, enabledModules, registrationFor, setInstalledModules } from '../modules/registry';
+// Extensions (§13.8, 2026-08-30): the loader for modules that arrived from outside the build, and
+// the manifest fetch `main.tsx` runs at boot — an install changes the disk, so it runs again here.
+import { registrationsFor } from '../modules/installed';
+import { loadInstalledManifests } from '../modules/installedBoot';
+import type { ModuleRegistration } from '../modules/registry';
+import { createModuleHost, disposeModuleHost } from '../modules/hostImpl';
+import type { ExtensionBlock, ModuleHost, ModuleInstance, ModuleSceneEvent } from '../modules/host';
+import { resolveModuleKey } from '../modules/keys';
+import type { ModuleKeyEvent } from '../modules/keys';
+import { readerClaim } from '../modules/readers';
+import type { ReaderClaim } from '../modules/readers';
+import { instantiateSiblings } from '../modules/siblings';
+import { createHostFiles } from '../modules/hostFiles';
+import { moduleOfLayer } from '../modules/ownership';
+import { anyModuleDirty, dirtyModuleIds } from './store';
 
 /** A fresh identity `mat4`, for a `TemplateSpace` that carries only a warp (directed task 8). */
 function identityMat4(): Float32Array {
@@ -236,7 +269,12 @@ export class ShellController {
       // Directed task 11: the measurement list. Its own event, so a click in measure mode does not
       // rebuild the layer panel (see `EngineEvents.measurements`).
       engine.on('measurements', (measurements) => store.setState({ measurements })),
-      engine.on('error', (error) => this.onEngineError(error))
+      engine.on('error', (error) => this.onEngineError(error)),
+      // Modules (2026-08-30, §13.1), appended: §7.5's point tool, forwarded to the module in the
+      // slot. Not a store projection — a `dragEnd` is an edge, and the store holds no point-tool
+      // state to diff — so it travels like `measurements`: one engine subscription, fanned out to
+      // whoever asked for it.
+      engine.on('pointTool', (event: PointToolEvent) => this.emitPointTool(event))
     );
 
     // §8: "fps = frames drawn in the last second (0 when idle is correct under render-on-demand)".
@@ -248,9 +286,18 @@ export class ShellController {
         toasts: toasts.pruneToasts(s.toasts, this.now()),
       }));
     }, 500);
+
+    // Extensions (§13.8, 2026-08-30), appended: the manifests were registered before the first paint
+    // (`installedBoot.ts`); this is the half that needs a controller, because a module whose file
+    // will not load has to reach a toast and a card. A launch with none is one `moduleStatuses()`
+    // round trip that answers `[]`.
+    void this.refreshInstalledModules();
   }
 
   detach(): void {
+    // §13.1: a module's lifetime is the controller's. `Shell.tsx` detaches on unmount and on an
+    // engine swap, and a module left holding a disposed engine would be a module drawing into it.
+    this.deactivateModule();
     for (const off of this.unsubscribers.splice(0)) off();
     if (this.tickTimer !== null) clearInterval(this.tickTimer);
     this.tickTimer = null;
@@ -356,6 +403,14 @@ export class ShellController {
     store.setState((s) => ({ loads: loads.startCard(s.loads, ticket, this.now()) }));
     const startedAt = this.now();
     try {
+      // §13.1's `onReader`, before the path is treated as a dataset at all: `open/sources.ts` routes
+      // nothing by extension, so a `.tsv` reaches `loadMesh 'auto'` and fails "unsupported". A module
+      // that claims the path opens it instead. A claim that comes back **false** falls through to
+      // the ordinary load, so a mistaken reader can never make a file unopenable.
+      if (request.path !== null && (await this.openThroughModule(request.path))) {
+        store.setState((s) => ({ loads: loads.dismissCard(s.loads, ticket) }));
+        return;
+      }
       const dataset = await engine.addDataset(request.source);
       const elapsed = this.now() - startedAt;
       store.setState((s) => ({
@@ -372,6 +427,9 @@ export class ShellController {
       // Directed task 8: ask main whether a SimNIBS `toMNI/` governs this volume. Fire-and-forget —
       // a registration that is not there, or a bridge that is not there, must not fail the load.
       if (dataset.kind === 'volume') void this.attachSubjectSpaces(dataset.id, dataset.path);
+      // §13.1's `onSibling`, beside the sidecar discovery whose mechanism it borrows: a module whose
+      // patterns match this file's name is offered whatever `allowPath` finds beside it.
+      if (dataset.path !== undefined) void this.dispatchSiblings(dataset.path);
       // …and the fsaverage correspondence for a surface, when the subjects directory is set and the
       // spheres are where they should be. Silent on every miss (`attachFsaverage`).
       if (dataset.kind === 'mesh') void this.attachFsaverage(dataset.id, dataset.path);
@@ -1612,8 +1670,11 @@ export class ShellController {
    */
   private syncTitle(): void {
     if (typeof document === 'undefined') return;
-    const { sceneFile, sceneDirty } = this.store.getState();
-    const mark = sceneDirty ? ' •' : '';
+    const state = this.store.getState();
+    const { sceneFile, sceneDirty } = state;
+    // §13.3: a module's unsaved edits mark the title too. They have to be their own flag —
+    // `sceneDirty` is set by any cursor click, so it could never mean "the contacts were edited".
+    const mark = sceneDirty || anyModuleDirty(state) ? ' •' : '';
     document.title = sceneFile === null ? `Tetravox${mark}` : `${sceneFile.name}${mark} — Tetravox`;
   }
 
@@ -1635,6 +1696,9 @@ export class ShellController {
     // dataset to be dropped with (directed task 11).
     this.clearMeasurements();
     this.setMeasureMode(false);
+    // §13.2: an empty scene carries no module blocks, and the slot empties with it. This is also
+    // what `applyScene` relies on to start from nothing before it adopts the file's own blocks.
+    this.clearModules();
     this.syncTitle();
     this.engine.requestRender();
     this.syncLayers();
@@ -1664,7 +1728,12 @@ export class ShellController {
     const spec = this.engine.serialize();
     // No `measurements` extra: `Engine.serialize()` writes `Scene.measurements` itself now
     // (directed task 11), so `spec` already carries the live list — see `SceneExtras`.
-    const text = serialiseScene(spec, path, { theme: this.store.getState().themeChoice });
+    const text = serialiseScene(spec, path, {
+      theme: this.store.getState().themeChoice,
+      // §13.2, and the whole map: blocks belonging to modules this build does not have are written
+      // back verbatim rather than dropped.
+      extensions: this.store.getState().moduleBlocks,
+    });
     const result = await bridge().writeSceneFile(path, text);
     if (!result.ok) {
       const message = result.error ?? 'could not write the scene file';
@@ -1680,6 +1749,9 @@ export class ShellController {
     });
     this.syncTitle();
     void this.rememberRecent(saved);
+    // ⌘S is the *scene's* (`main/menu.ts`). A module writes its own files from its own panel, so say
+    // so plainly rather than letting a user believe the tsv was saved too.
+    this.warnModuleUnsaved();
     return true;
   }
 
@@ -1712,6 +1784,10 @@ export class ShellController {
    * not resolve — which is what keeps the renderer from stat-ing the filesystem itself (§5 rule 9).
    */
   async openScenePath(scenePath: string): Promise<boolean> {
+    // §13.3: opening a scene replaces this one, so a module holding unsaved edits is asked first.
+    // This single guard covers three of the five sites — Open Scene…, File ▸ Open Recent and the
+    // drop route all arrive here.
+    if (!(await this.confirmDiscardModuleEdits('Opening a scene'))) return false;
     // A scene that arrives by **drop** has never been through a dialog, so main has not admitted it
     // to the `tetravox://file/…` allow-list and `readSceneFile` would refuse it (directed task 13).
     // The call is idempotent, so the dialog and Open Recent routes — which are already admitted —
@@ -1870,6 +1946,10 @@ export class ShellController {
       this.engine.setActiveLayer((live[specIndex] as Layer).id);
     }
 
+    // §13.2's blocks, **after** `layersToRestore`: a module finds its own layer by `LayerBase.module`
+    // and there would be no layer to find before this point.
+    await this.restoreModuleBlocks(spec);
+
     // §4.6 v2's optional theme: applied when the scene names one, ignored when it does not, so a
     // scene never silently overrides a preference it said nothing about (directed task 13).
     if (spec.theme !== undefined) this.setThemeChoice(spec.theme);
@@ -1922,7 +2002,9 @@ export class ShellController {
   async runSceneCommand(command: SceneCommand): Promise<void> {
     switch (command) {
       case 'new':
-        return this.newScene();
+        // §13.3: the menu's New is one of the five guarded sites. `newScene()` itself stays
+        // synchronous, so every other caller of it is unchanged.
+        return this.requestNewScene();
       case 'open':
         await this.openSceneDialog();
         return;
@@ -2084,6 +2166,752 @@ export class ShellController {
 
   toggleAllLayersCollapsed(): void {
     this.setAllLayersCollapsed(collapseAllAction(this.store.getState()) === 'collapse');
+  }
+
+  // ============================================================================================
+  // Modules (2026-08-30; ARCHITECTURE.md §13). Appended per the shared-file rule: new members at
+  // the end of the class, nothing above this line reordered or repurposed.
+  //
+  // Everything here is **generic**. There is no module name in this file, and there must never be
+  // one: a module contributes a directory and a line in `modules/registry.ts`, and the shell reads
+  // it out of the manifest. `modules.test.ts` is what keeps that honest.
+  // ============================================================================================
+
+  /** The live module: its host, its instance, and the manifest they were built from. */
+  private moduleSession: {
+    manifest: ModuleManifest;
+    host: ModuleHost;
+    instance: ModuleInstance;
+  } | null = null;
+
+  /**
+   * The launch query the registry filters fixtures with — the `?engine=mock` seam
+   * (`engine/factory.ts`), read once so a unit test (no `location`) and a `--job` window can both
+   * set it.
+   */
+  private moduleSearch: string = globalThis.location?.search ?? '';
+
+  /** Listeners on the app-level scene edges a module can subscribe to (`ModuleEvents`). */
+  private readonly sceneListeners = new Set<(event: ModuleSceneEvent) => void>();
+
+  /** Listeners on the engine's `pointTool` event (`ModuleEvents.pointTool`). */
+  private readonly pointToolListeners = new Set<(event: PointToolEvent) => void>();
+
+  /** The confirm question in flight, paired with its `ConfirmRequest.id`. */
+  private pendingConfirm: { id: number; resolve: (choice: 0 | 1 | 2) => void } | null = null;
+  private confirmSeq = 0;
+
+  /** Test and `--job` seam: which fixtures the registry offers. See {@link moduleSearch}. */
+  setModuleSearch(search: string): void {
+    this.moduleSearch = search;
+  }
+
+  /** The modules this window offers, in switcher order. */
+  modules(): readonly ModuleRegistration[] {
+    return enabledModules(this.moduleSearch);
+  }
+
+  /** The active module's manifest, or null — what the slot's header and the key rows read. */
+  activeModuleManifest(): ModuleManifest | null {
+    return this.moduleSession?.manifest ?? null;
+  }
+
+  /**
+   * The active module's panel component, or null.
+   *
+   * `UiState.activeModule` is set only after `activate` resolves, so a component that saw a non-null
+   * id can rely on this being non-null in the same render.
+   */
+  modulePanel(): ComponentType | null {
+    return this.moduleSession?.instance.Panel ?? null;
+  }
+
+  /**
+   * The active module's host, or null.
+   *
+   * The wiring's own seam: it is the object `activateModule` built out of the engine, the bridge and
+   * this controller, and a test that arms the point tool or asks for a peak centroid through it is
+   * testing the wiring rather than a re-creation of it. Read-only in practice — the module holds the
+   * same object — and never a way for the shell to act *as* a module: everything here is generic.
+   */
+  moduleHost(): ModuleHost | null {
+    return this.moduleSession?.host ?? null;
+  }
+
+  /**
+   * Put a module in the slot, loading it the first time (§13.1).
+   *
+   * Idempotent for the module that is already there. Another module in the slot is disposed first —
+   * which is **not** destructive: a module's edits live in the scene's layers and its own state
+   * lives in `moduleBlocks`, so re-activating it restores through `restoreBlock`, exactly as opening
+   * a scene does. One code path for "come back to where I was".
+   *
+   * An `activate` that throws becomes a toast and leaves the slot empty. It must never leave a
+   * half-built view grid behind, which is why the store is written only on success.
+   */
+  async activateModule(id: string): Promise<boolean> {
+    if (this.moduleSession?.manifest.id === id) return true;
+    const registration = registrationFor(id, this.moduleSearch);
+    if (registration === null) return false;
+    this.deactivateModule();
+    let instance: ModuleInstance;
+    // Declared outside the `try` so the catch can tear it down (2026-08-30): `activate` may register
+    // store projections and a `pointTool` listener and *then* throw — seeg's `createModel`
+    // subscribes five before `adoptOrphanLayer`, which a hand-edited scene can make throw — and
+    // without this those listeners stayed attached for the life of the window, with no
+    // `moduleSession` for `deactivateModule` to reach them through. Every retry leaked another set.
+    let host: ModuleHost | null = null;
+    try {
+      const loaded = await registration.load();
+      host = createModuleHost(
+        {
+          controller: this,
+          store: this.store,
+          tool: this.moduleTool(),
+          // §5 rule 11's channels, with the manifest that names the reader, the writer and the
+          // sibling patterns; `allowPath` is the renderer's existing sidecar probe (§13.1).
+          files: createHostFiles(registration.manifest, (path) => bridge().allowPath(path)),
+          peakCentroid: (datasetId, world, radiusMm) =>
+            this.modulePeakCentroid(datasetId, world, radiusMm),
+        },
+        registration.manifest
+      );
+      instance = await loaded.activate(host);
+    } catch (error: unknown) {
+      // Same teardown order as `deactivateModule`, minus the instance there never was one of.
+      if (host !== null) disposeModuleHost(host);
+      this.toast('io', registration.manifest.title, errorMessage(error));
+      return false;
+    }
+    this.moduleSession = { manifest: registration.manifest, host, instance };
+    this.store.setState({ activeModule: registration.manifest.id });
+    // A block this scene already carries is the module's own previous state — from the file it was
+    // opened from, or from the last time it was in the slot.
+    const block = this.store.getState().moduleBlocks[id];
+    if (block !== undefined && instance.restoreBlock !== undefined) {
+      try {
+        await instance.restoreBlock(block);
+      } catch (error: unknown) {
+        this.toast('parse', registration.manifest.title, errorMessage(error));
+      }
+    }
+    return true;
+  }
+
+  /** Empty the slot. The module's block and its dirty flag survive — see {@link activateModule}. */
+  deactivateModule(): void {
+    const session = this.moduleSession;
+    this.moduleSession = null;
+    if (session === null) return;
+    try {
+      session.instance.dispose();
+    } finally {
+      disposeModuleHost(session.host);
+      // §5 rule 11 (2026-08-30): the Save sheet's admissions belong to the editing session, not to
+      // the process. The instance's own `savePath` has just died with it, so the next save shows a
+      // sheet anyway — main should not still be holding the last subject's paths open in the
+      // meantime. `?.` because a stand-in bridge need not carry the member.
+      bridge().moduleClearWrites?.(session.manifest.id);
+      this.store.setState({ activeModule: null });
+    }
+  }
+
+  /** The switcher's toggle: the same module twice is "close it". */
+  async toggleModule(id: string): Promise<void> {
+    if (this.store.getState().activeModule === id) {
+      this.deactivateModule();
+      return;
+    }
+    await this.activateModule(id);
+  }
+
+  /**
+   * Run one of a module's commands — the key map's exit, the panel's exit and the switcher's exit
+   * all end here, so a command has exactly one code path however it was asked for.
+   */
+  async moduleCommand(id: string, command: string, args?: Record<string, unknown>): Promise<void> {
+    const session = this.moduleSession;
+    if (session === null || session.manifest.id !== id) return;
+    try {
+      await session.instance.runCommand(command, args);
+    } catch (error: unknown) {
+      this.toast('io', `${session.manifest.title}/${command}`, errorMessage(error));
+    }
+  }
+
+  /**
+   * A key the core §7.5 map did not claim, offered to the active module (§13.5).
+   *
+   * Returns whether it was consumed, so `Shell.tsx` knows whether to `preventDefault`. The gating
+   * lives in `modules/keys.ts`, which is pure and unit-tested; this is only the dispatch.
+   */
+  handleModuleKey(event: ModuleKeyEvent): boolean {
+    const session = this.moduleSession;
+    if (session === null) return false;
+    // §13.5's two gates, read off the engine: a `when: 'selection'` key is live only with a point
+    // actually selected, and a `when: 'toolArmed'` one only while the tool is armed. Both are the
+    // engine's state rather than the module's belief about it, which is what makes the exception to
+    // "a plain key stays harmless" a narrow one.
+    const command = resolveModuleKey(session.manifest, event, {
+      hasSelection: this.engine.pointSelection() !== null,
+      toolArmed: this.engine.pointTool() !== null,
+    });
+    if (command === null) return false;
+    void this.moduleCommand(session.manifest.id, command.id);
+    return true;
+  }
+
+  // ---- the host's own calls --------------------------------------------------------------------
+
+  /** `host.scene.probe`. */
+  probeWorld(world: vec3): ProbeResult {
+    return this.engine.probe(world);
+  }
+
+  /** `host.scene.toSpace` — §4.7's, unchanged, so a module and the coordinate bar agree. */
+  toSpace(ref: CoordSpaceRef, world: vec3): vec3 | null {
+    return this.engine.toSpace(ref, world);
+  }
+
+  /** `host.scene.fromSpace`. */
+  fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null {
+    return this.engine.fromSpace(ref, value);
+  }
+
+  /**
+   * `host.scene.addLayer`, stamped with the module that owns it.
+   *
+   * `LayerBase.module` is a declared optional field on the frozen `scene/types.ts` (§4.4), so the
+   * stamp is typed rather than smuggled through a spread — and it rides `serialize` → `load` →
+   * `addLayer` like every other layer field, which is how a module finds its own layer again after
+   * a scene reassigns every id. The engine never interprets it.
+   */
+  addModuleLayer(moduleId: string, spec: NewLayer): Layer {
+    const layer = this.engine.addLayer({ ...spec, module: moduleId });
+    this.engine.requestRender();
+    return layer;
+  }
+
+  /** `host.ui.toast`. Its own entry point because a module's note is not a load failure. */
+  moduleToast(kind: 'info' | 'warn' | 'error', title: string, text: string): void {
+    this.store.setState((s) => ({
+      toasts: toasts.pushToast(s.toasts, {
+        id: ++this.toastSeq,
+        tone: kind === 'error' ? 'error' : kind === 'warn' ? 'warn' : 'info',
+        title,
+        detail: text,
+        at: this.now(),
+      }),
+    }));
+  }
+
+  /** `host.ui.status` — the module's status-bar cell. `null` removes it. */
+  setModuleStatus(id: string, text: string | null): void {
+    this.store.setState((s) => {
+      if ((s.moduleStatus[id] ?? null) === text) return {};
+      const next = { ...s.moduleStatus };
+      if (text === null) delete next[id];
+      else next[id] = text;
+      return { moduleStatus: next };
+    });
+  }
+
+  /**
+   * `host.ui.setDirty` — "this module has unsaved work".
+   *
+   * Three things follow from it and all three are here rather than in the module: the title's `•`,
+   * the OS document-edited flag, and what the discard guard asks about.
+   */
+  setModuleDirty(id: string, dirty: boolean): void {
+    this.store.setState((s) => {
+      if ((s.moduleDirty[id] === true) === dirty) return {};
+      const next = { ...s.moduleDirty };
+      if (dirty) next[id] = true;
+      else delete next[id];
+      return { moduleDirty: next };
+    });
+    this.syncTitle();
+    this.syncDocumentEdited();
+  }
+
+  /**
+   * Tell main the window has unsaved work, so the OS close button can ask before it discards it.
+   *
+   * `setDocumentEdited` is a real preload member with a real main-side handler (§5 rule 12), and the
+   * `ABSENT` bridge answers it as a no-op — so this is one call with no cast and no optional chain.
+   */
+  syncDocumentEdited(): void {
+    bridge().setDocumentEdited(anyModuleDirty(this.store.getState()));
+  }
+
+  /** `host.scene.block`. */
+  moduleBlock(id: string): ExtensionBlock | null {
+    return this.store.getState().moduleBlocks[id] ?? null;
+  }
+
+  /** `host.scene.setBlock`. `null` drops the block from the scene entirely. */
+  setModuleBlock(id: string, block: ExtensionBlock | null): void {
+    this.store.setState((s) => {
+      const next = { ...s.moduleBlocks };
+      if (block === null) delete next[id];
+      else next[id] = block;
+      return { moduleBlocks: next };
+    });
+    this.markDirty();
+  }
+
+  /**
+   * `host.ui.confirm`, and the discard guard's own question (§13.3).
+   *
+   * Two or three buttons, resolving to the index of the one chosen; the **last** is the cancelling
+   * one, which is what `Esc` and a backdrop click pick. A second question replaces the first and
+   * resolves it as cancelled: two modal questions at once would be two full-window dialogs, and §8
+   * allows one.
+   */
+  confirmDialog(
+    title: string,
+    body: string,
+    buttons: [string, string] | [string, string, string]
+  ): Promise<0 | 1 | 2> {
+    const previous = this.pendingConfirm;
+    if (previous !== null) {
+      this.pendingConfirm = null;
+      previous.resolve((buttons.length - 1) as 0 | 1 | 2);
+    }
+    const id = ++this.confirmSeq;
+    return new Promise<0 | 1 | 2>((resolve) => {
+      this.pendingConfirm = { id, resolve };
+      this.store.setState({ confirm: { id, title, body, buttons }, dialog: 'confirm' });
+    });
+  }
+
+  /** The dialog's answer. A click on a question that has already been replaced is ignored. */
+  resolveConfirm(choice: 0 | 1 | 2): void {
+    const request = this.store.getState().confirm;
+    const pending = this.pendingConfirm;
+    // An answer that does not belong to the question the controller is waiting on is **ignored
+    // entirely** — the question is left standing rather than dismissed. Clearing it here would be
+    // worse than doing nothing: the awaiting guard would never be answered and the gesture that
+    // raised it would hang.
+    if (pending === null || request === null || pending.id !== request.id) return;
+    this.pendingConfirm = null;
+    this.store.setState((s) =>
+      s.dialog === 'confirm' ? { dialog: 'none', confirm: null } : { confirm: null }
+    );
+    pending.resolve(choice);
+  }
+
+  /**
+   * The app-level scene edges (`ModuleEvents.sceneLoaded` / `sceneCleared`).
+   *
+   * They are the app's rather than the engine's because opening a scene is one gesture spanning many
+   * engine calls, and a module needs the edge, not the six `layers` events the calls emit.
+   */
+  onSceneEvent(listener: (event: ModuleSceneEvent) => void): () => void {
+    this.sceneListeners.add(listener);
+    return () => this.sceneListeners.delete(listener);
+  }
+
+  private emitSceneEvent(event: ModuleSceneEvent): void {
+    for (const listener of [...this.sceneListeners]) listener(event);
+  }
+
+  /** `ModuleEvents.pointTool` — the engine's event, subscribed to once in {@link attach}. */
+  onPointTool(listener: (event: PointToolEvent) => void): () => void {
+    this.pointToolListeners.add(listener);
+    return () => this.pointToolListeners.delete(listener);
+  }
+
+  private emitPointTool(event: PointToolEvent): void {
+    for (const listener of [...this.pointToolListeners]) listener(event);
+  }
+
+  /**
+   * `host.tool` — §4.7's five members as the four calls §13.1 publishes.
+   *
+   * Every one is on the frozen facade, so this is a rename and not a translation; `select` is the
+   * one that changes shape, because a module says "this point of this layer" and the engine takes a
+   * pair or a null.
+   */
+  private moduleTool(): ModuleHost['tool'] {
+    const { engine } = this;
+    return {
+      setPointTool: (spec) => engine.setPointTool(spec),
+      pointTool: () => engine.pointTool(),
+      select: (layerId, pointId) =>
+        engine.setPointSelection(pointId === null ? null : { layerId, pointId }),
+      selection: () => engine.pointSelection(),
+    };
+  }
+
+  /**
+   * `host.scene.peakCentroid` — the engine's §4.3 helper over the dataset the module names.
+   *
+   * The dataset lookup is here rather than in the module because `Scene.datasets` is the engine's
+   * map and `host.scene` publishes ids; a mesh id and an unknown id are both `null`, which is the
+   * same answer `peakCentroid` gives for a query outside the volume.
+   */
+  private modulePeakCentroid(datasetId: DatasetId, world: vec3, radiusMm: number): vec3 | null {
+    const dataset = this.engine.scene.datasets.get(datasetId);
+    if (dataset === undefined || dataset.kind !== 'volume') return null;
+    return peakCentroid(dataset, world, radiusMm);
+  }
+
+  // ---- activation routes other than the switcher ------------------------------------------------
+
+  /**
+   * The module that claims this path, if any (§13.1's `onReader`).
+   *
+   * Extension first, then the manifest's optional `match` over the **basename** — never over the
+   * whole path, or a reader for `*_electrodes.tsv` would claim every file under a directory of that
+   * name.
+   */
+  readerFor(path: string): ReaderClaim | null {
+    return readerClaim(
+      this.modules().map((registration) => registration.manifest),
+      path
+    );
+  }
+
+  /**
+   * Give a claimed path to its module. `false` means "not mine after all", and the ordinary dataset
+   * load carries on — which is what keeps a reader from turning a mistake into an unopenable file.
+   */
+  private async openThroughModule(path: string): Promise<boolean> {
+    const claim = this.readerFor(path);
+    if (claim === null) return false;
+    // §13.3's discard guard, on the route that was missing one (2026-08-30). A module's `openPath`
+    // replaces what it is editing and clears its own undo history, so File ▸ Open — or a drop — of
+    // the next subject's table threw an hour of snapping away with no prompt, while ⌘N on the same
+    // state offered Save…/Discard/Cancel. Cancelling answers **true**: the path was claimed, and
+    // falling through to `engine.addDataset` would try the table as a mesh and toast "unsupported".
+    if (!(await this.confirmDiscardModuleEdits('Opening another file this module edits'))) {
+      return true;
+    }
+    if (!(await this.activateModule(claim.manifest.id))) return false;
+    const instance = this.moduleSession?.instance;
+    if (instance?.openPath === undefined) return false;
+    try {
+      return await instance.openPath(claim.readerId, path);
+    } catch (error: unknown) {
+      this.toast('parse', baseName(path), errorMessage(error));
+      return false;
+    }
+  }
+
+  /**
+   * A dataset landed; tell any module whose sibling patterns match its name (§13.1's `onSibling`).
+   *
+   * The candidates are probed with `bridge().allowPath`, which is the renderer's existing sibling
+   * discovery (`open/sources.ts`'s `firstAllowed`) and doubles as the existence check — no new IPC,
+   * and no capability a dataset load did not already have.
+   */
+  private async dispatchSiblings(anchor: string): Promise<void> {
+    for (const registration of this.modules()) {
+      const found: Record<string, string | null> = {};
+      let any = false;
+      for (const spec of registration.manifest.siblings ?? []) {
+        for (const candidate of instantiateSiblings(spec, anchor)) {
+          const allowed = await bridge().allowPath(candidate.path);
+          found[candidate.template] = allowed?.path ?? null;
+          if (allowed !== null) any = true;
+        }
+      }
+      if (!any) continue;
+      if (!(await this.activateModule(registration.manifest.id))) continue;
+      const instance = this.moduleSession?.instance;
+      if (instance?.onSibling === undefined) continue;
+      try {
+        await instance.onSibling(anchor, found);
+      } catch (error: unknown) {
+        this.toast('io', registration.manifest.title, errorMessage(error));
+      }
+    }
+  }
+
+  // ---- the discard guard (§13.3) ----------------------------------------------------------------
+
+  /**
+   * Ask before throwing a module's unsaved work away, and answer whether to proceed.
+   *
+   * Call sites: `requestNewScene`, `openScenePath` (which is also Open Recent and the drop route),
+   * `requestCloseDataset` — because a layer row's ✕ closes the dataset a module's layers hang off,
+   * and would take the edits with it — and `openThroughModule`, since handing a module a second
+   * file to edit replaces what it is editing (2026-08-30).
+   *
+   * `Save…` is offered only when the dirty module declares a `save` command; a three-button question
+   * whose first button did nothing would be worse than a two-button one.
+   */
+  async confirmDiscardModuleEdits(what: string): Promise<boolean> {
+    const state = this.store.getState();
+    const ids = dirtyModuleIds(state);
+    if (ids.length === 0) return true;
+    const names = ids.map((id) => manifestFor(id)?.title ?? id).join(', ');
+    const session = this.moduleSession;
+    const canSave =
+      session !== null &&
+      ids.includes(session.manifest.id) &&
+      session.manifest.commands.some((c) => c.id === 'save');
+    const buttons: [string, string] | [string, string, string] = canSave
+      ? ['Save…', 'Discard', 'Cancel']
+      : ['Discard', 'Cancel'];
+    const choice = await this.confirmDialog(
+      `Discard unsaved ${names} edits?`,
+      `${what} will close them without saving.`,
+      buttons
+    );
+    if (!canSave) return choice === 0;
+    if (choice === 0) {
+      await this.moduleCommand(session.manifest.id, 'save');
+      // A save that did not clear the flag has not saved; do not proceed on its behalf.
+      return !anyModuleDirty(this.store.getState());
+    }
+    return choice === 1;
+  }
+
+  /** `New`, guarded. `newScene()` itself stays synchronous — every existing caller is unchanged. */
+  async requestNewScene(): Promise<void> {
+    if (!(await this.confirmDiscardModuleEdits('Starting a new scene'))) return;
+    this.newScene();
+  }
+
+  /** A layer row's ✕, guarded: closing the carrier closes the module's layers with it. */
+  async requestCloseDataset(id: DatasetId): Promise<void> {
+    const owned = this.store
+      .getState()
+      .layers.some((l) => l.datasetId === id && moduleOfLayer(l) !== null);
+    if (owned && !(await this.confirmDiscardModuleEdits('Closing this dataset'))) return;
+    this.closeDataset(id);
+  }
+
+  /** ⌘S saved the scene; say plainly that a module's own files are not part of that. */
+  private warnModuleUnsaved(): void {
+    const ids = dirtyModuleIds(this.store.getState());
+    if (ids.length === 0) return;
+    const names = ids.map((id) => manifestFor(id)?.title ?? id).join(', ');
+    this.moduleToast(
+      'warn',
+      'Scene saved',
+      `${names} still has unsaved edits — save them from its own panel.`
+    );
+  }
+
+  /** Tear the slot down and forget every block: what `newScene` and `detach` both need. */
+  private clearModules(): void {
+    this.deactivateModule();
+    this.store.setState({ moduleBlocks: {}, moduleDirty: {}, moduleStatus: {} });
+    this.syncDocumentEdited();
+    this.emitSceneEvent({ kind: 'cleared' });
+  }
+
+  /**
+   * `host.scene.activePlane` — the plane the active 2-D pane is showing (§13.1, 2026-08-30).
+   *
+   * `null` for the 3-D pane and for no active pane at all. The point is the cursor, because §7.5's
+   * rule is that a slice pane shows the plane with the view's normal **through the crosshair**; the
+   * normal is re-normalised on the way out rather than trusted, since a hand-edited `*.tetravox.json`
+   * is where a non-unit one would come from.
+   */
+  activePlane(): { normal: vec3; point: vec3 } | null {
+    const id = this.store.getState().activeViewId;
+    if (id === null) return null;
+    const slice = this.engine.scene.slices.find((s) => s.id === id);
+    if (slice === undefined) return null;
+    const n = slice.normal;
+    const length = Math.hypot(n[0], n[1], n[2]);
+    if (!(length > 0)) return null;
+    return {
+      normal: [n[0] / length, n[1] / length, n[2] / length],
+      point: [...this.engine.scene.cursor] as vec3,
+    };
+  }
+
+  /**
+   * Adopt the blocks a scene file carried, and hand each one to its module (§13.2).
+   *
+   * Blocks for modules this build does not have are kept **verbatim** so `serialiseScene` writes
+   * them back out — opening and re-saving a colleague's scene must not delete their work.
+   */
+  private async restoreModuleBlocks(spec: ViewSpec): Promise<void> {
+    const blocks = sceneExtensions(spec);
+    if (Object.keys(blocks).length === 0) return;
+    this.store.setState({ moduleBlocks: blocks });
+    this.emitSceneEvent({ kind: 'loaded', blocks });
+    for (const registration of this.modules()) {
+      const block = blocks[registration.manifest.id];
+      if (block === undefined) continue;
+      if (!registration.manifest.activation.includes('onSceneBlock')) continue;
+      await this.activateModule(registration.manifest.id);
+    }
+  }
+
+  // Automation (2026-08-30; ARCHITECTURE.md §13.6). Appended per the shared-file rule.
+
+  /**
+   * The active module's instance, or null — what a job's `{ type: 'module' }` action calls
+   * `runOperation` on (§13.6).
+   *
+   * The twin of {@link moduleHost}, and it is here for the same reason: `automation/run.ts` drives
+   * the module through the object this controller built, so a job runs the module the window
+   * actually has in its slot rather than a second copy it activated for itself. It is not a way for
+   * the shell to act *as* a module — what a job reaches through it is what a panel button already
+   * calls, `runCommand`'s twin, which is what keeps §8's "there is no automation-only code path"
+   * true for modules too.
+   */
+  moduleInstance(): ModuleInstance | null {
+    return this.moduleSession?.instance ?? null;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // File ▸ Extensions… (`main/module-store.ts`, §13.8, 2026-08-30). Appended per the shared-file
+  // rule, and deliberately the Sample Data block's shape: main downloads, hashes, consents and
+  // serves; this only asks, mirrors the reply and says what went wrong.
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * Re-read the installed set: the manifests, then the registrations they imply.
+   *
+   * Called at {@link attach} and after every action reply. It is the controller's rather than
+   * `main.tsx`'s because a module whose file will not load has to reach a toast and a card, and
+   * neither exists before the shell does.
+   *
+   * **The manifests are re-fetched, not reused.** `main.tsx` registered them before the first paint
+   * — the half that has to be synchronous, because `manifestFor` is called while rendering — but
+   * that was a snapshot of the disk at launch, and installing a module changes the disk. Without
+   * this line an extension installed in *this* session would be consented, served and still absent
+   * from the switcher until the next relaunch, because the renderer would never have heard its name.
+   */
+  async refreshInstalledModules(statuses?: readonly ModuleStatus[]): Promise<void> {
+    await loadInstalledManifests();
+    const list = statuses ?? (await (bridge().moduleStatuses?.() ?? Promise.resolve([])));
+    setInstalledModules(
+      registrationsFor(
+        list,
+        MODULES.map((m) => m.manifest.id),
+        (id, reason) => this.markExtensionFailed(id, reason)
+      )
+    );
+    this.store.setState({ extensionStatuses: list });
+  }
+
+  /**
+   * A module's own file did not load, or did not export `activate`.
+   *
+   * The card is marked through `extensionProgress` — the same field a failed download writes — so
+   * there is one "this extension is broken" surface rather than two. `activateModule`'s existing
+   * catch raises the toast; the slot stays empty and the switcher row stays where it was, because a
+   * registration is a manifest and the failure is inside `load()`.
+   */
+  private markExtensionFailed(id: string, reason: string): void {
+    this.store.setState((s) => ({
+      extensionProgress: {
+        ...s.extensionProgress,
+        [id]: { id, file: 'index.js', received: 0, total: 0, state: 'error', error: reason },
+      },
+    }));
+  }
+
+  /** Open the dialog, refreshing the catalogue and the card states from main first. */
+  async openExtensions(): Promise<void> {
+    this.store.setState({ dialog: 'extensions' });
+    const [catalogue, statuses] = await Promise.all([
+      bridge().moduleCatalog?.() ?? Promise.resolve({ modules: [], dir: '' }),
+      bridge().moduleStatuses?.() ?? Promise.resolve([]),
+    ]);
+    this.store.setState({
+      extensions: catalogue.modules,
+      extensionDir: catalogue.dir,
+      extensionStatuses: statuses,
+    });
+  }
+
+  /** Install progress pushed from main. A finished install clears its entry, like a sample's. */
+  onModuleProgress(p: ModuleProgress): void {
+    if (p.state === 'done' || p.state === 'cancelled') {
+      this.store.setState((s) => {
+        const next = { ...s.extensionProgress };
+        delete next[p.id];
+        return { extensionProgress: next };
+      });
+      return;
+    }
+    this.store.setState((s) => ({ extensionProgress: { ...s.extensionProgress, [p.id]: p } }));
+  }
+
+  /**
+   * Download and verify one version. **Installing is not enabling** — the files land inert, and the
+   * dialog's next step is the consent sheet.
+   */
+  async installExtension(id: string, version?: string): Promise<boolean> {
+    const result = await (bridge().moduleInstall?.(id, version) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Install');
+    return result.ok;
+  }
+
+  cancelExtension(id: string): void {
+    void bridge().moduleCancel?.(id);
+  }
+
+  /**
+   * Record the consent and make the module reachable. **This call is the consent** — main re-hashes
+   * every file against the install receipt and only then puts it on the `tetravox://module` map.
+   */
+  async enableExtension(id: string): Promise<boolean> {
+    const result = await (bridge().moduleEnable?.(id) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Enable');
+    return result.ok;
+  }
+
+  /** Withdraw consent. Main empties the protocol map and revokes the write list; this unloads. */
+  async disableExtension(id: string): Promise<boolean> {
+    // Out of the slot first: a module whose files are about to stop being reachable must not be
+    // left holding a host. `deactivateModule` is a no-op for anything else.
+    if (this.store.getState().activeModule === id) this.deactivateModule();
+    const result = await (bridge().moduleDisable?.(id) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Disable');
+    return result.ok;
+  }
+
+  async removeExtension(id: string): Promise<boolean> {
+    if (this.store.getState().activeModule === id) this.deactivateModule();
+    const result = await (bridge().moduleRemove?.(id) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Remove');
+    return result.ok;
+  }
+
+  revealExtensionDir(): void {
+    void bridge().moduleRevealDir?.();
+  }
+
+  /**
+   * Mirror one `ModuleActionResult`: the refreshed statuses, the registrations they imply, and the
+   * failure if there was one.
+   *
+   * Every reply carries the statuses, which is why nothing here asks for them again — and why the
+   * registration set is rebuilt from the same array that redrew the card, so the switcher and the
+   * dialog can never disagree about what is enabled.
+   */
+  private async applyExtensionResult(
+    result: ModuleActionResult,
+    id: string,
+    what: string
+  ): Promise<void> {
+    await this.refreshInstalledModules(result.statuses);
+    if (result.ok) {
+      this.store.setState((s) => {
+        const next = { ...s.extensionProgress };
+        delete next[id];
+        return { extensionProgress: next };
+      });
+      return;
+    }
+    const message = result.error ?? `${what.toLowerCase()} failed`;
+    this.markExtensionFailed(id, message);
+    if (!/cancel|abort/i.test(message)) this.toast('io', `${what} ${id}`, message);
   }
 }
 
