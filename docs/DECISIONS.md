@@ -4760,3 +4760,20 @@ API it needs, rather than hidden: "needs a newer Tetravox" is an answer and an a
 not be left holding a host, so the controller empties the slot before it sends either message. Main
 then does the half the renderer is not asked about — the protocol map, the settings key and the write
 list — because withdrawing a capability cannot be a message main hopes to receive.
+
+## 2026-08-31 — the SDK emits `contacts.mjs`, so a module repo tests against the kit without pinning a core sha
+
+A module running inside the app reads `contacts` off `globalThis.__tetravoxModuleSdk` — the host's
+single instance, which is what keeps one TSV reader and one editlog behind two contact modules. But a
+module's **own** vitest has no host global, so `tetravox-seeg` was pinning `shared/contacts` to a
+`feat/modules` commit and fetching it from `raw.githubusercontent` — a pin that 404s the moment a
+squash-merge garbage-collects that sha (W3 issue #1). `scripts/emit-module-sdk.mjs` now also emits
+`contacts.mjs`: the `shared/contacts` kit as runnable ESM, cut from the same JavaScript `tsc` produces
+for the types, with the one `.mjs` specifier rewrite `manifest-schema.mjs` already uses (the kit's
+engine imports are `import type`, erased; its only value imports are of each other). It is a fifth
+emission gate — imported and made to build a set — for the reason the schema is a fourth: a rewrite
+that does not resolve would be green here and red in the module repo's CI. It is named in `exports`
+and documented as a **tests-only** import: the production bundle keeps using the root `contacts`, so
+there is still exactly one instance and one copy at runtime. The follow-up — dropping
+`contacts.pin.json`/`fetch-contacts.mjs` from `tetravox-seeg` — is a commit to that repo, noted not
+blocked on here.

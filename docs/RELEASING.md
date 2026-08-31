@@ -560,10 +560,15 @@ what lets a module build inline it and produce the single-file, zero-import bund
 When the core tree carries `src/modules/manifest-schema.ts` — it does since the extension host
 landed — the emission also ships the validator as plain ESM, `manifest-schema.mjs` and the
 `manifest-types.mjs` it imports, so a module repository can check its own `manifest.json` with node
-and no install. Both are named in the package's `exports`: a package with an `exports` map serves
-nothing that is not listed there, so an entry point that is merely in the tarball is not importable.
+and no install. It also ships `contacts.mjs` — the `shared/contacts` kit as runnable ESM — so a
+module repository's own vitest imports the kit's runtime from the SDK rather than pinning
+`shared/contacts` to a core commit sha (a pin `raw.githubusercontent` stops serving once a
+squash-merge garbage-collects that sha). Inside the app a module reads `contacts` off the host global
+— one instance — so `contacts.mjs` is for tests, not the production bundle. All of these are named in
+the package's `exports`: a package with an `exports` map serves nothing that is not listed there, so
+an entry point that is merely in the tarball is not importable.
 
-The script is four gates, and a failure in any of them is a failure to produce a *usable* SDK
+The script is five gates, and a failure in any of them is a failure to produce a *usable* SDK
 rather than a missing file:
 
 1. every import in every staged source resolves inside the SDK;
@@ -571,7 +576,9 @@ rather than a missing file:
 3. the emitted package typechecks against a probe that imports it the way a module does;
 4. `manifest-schema.mjs`, when it ships, is imported and made to validate a manifest — the `.mjs`
    files are `tsc` output with their specifiers rewritten, and a rewrite that does not resolve would
-   otherwise be green here and red in somebody else's CI.
+   otherwise be green here and red in somebody else's CI;
+5. `contacts.mjs` is imported and made to build a set, proving the same specifier rewrite resolves
+   for the kit as well as for the validator.
 
 `release.yml`'s `sdk` job emits it and attaches it to the same draft Release, and `verify` requires
 it by the name that job reported. **A release cannot be published with a module host and no SDK to
@@ -582,7 +589,7 @@ build a module against.**
 | Check | Job | Cost |
 |---|---|---|
 | `modules.lock` is valid; the SDK emitter's rules | `docs-guard` | node only, no install |
-| The SDK emits, all three gates | `test` | one `tsc` over a small staging tree |
+| The SDK emits, all five gates | `test` | one `tsc` over a small staging tree |
 | The tree agrees with the lock (`--verify-only`) | `test` | no network |
 | The locked modules are downloaded and verified | `package` (ci.yml), `build` (release.yml) | one download per file |
 | The SDK tarball is attached | `sdk` → `verify` (release.yml) | — |
