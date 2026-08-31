@@ -340,6 +340,19 @@ jobs:
       - name: AUTOMATION.md §2.7 matches the manifests
         run: node scripts/sync-module-docs.mjs --check
 
+      # §13.8's node-only guards, here rather than in `test` for this job's own reason: neither needs
+      # an install or a toolchain, and "your lock entry is malformed" / "the SDK's engine subset no
+      # longer closes" are things a reviewer should read before the tests finish. The *full* SDK
+      # emission needs `tsc` and runs in `test`; what runs here are its rules.
+      - name: Self-test the modules.lock validator
+        run: node --test scripts/check-modules-lock.test.mjs
+
+      - name: modules.lock is valid
+        run: node scripts/check-modules-lock.mjs
+
+      - name: Self-test the module SDK emitter
+        run: node --test scripts/emit-module-sdk.test.mjs
+
   # The Python client's document tests (`docs/AUTOMATION.md` §3) — **the first Python step in this
   # workflow**, and its own job for the docs guard's reasons rather than a step of `test`: it needs
   # no pnpm install, no toolchain and no build, it is ~20 seconds, and putting it in `test` would run
