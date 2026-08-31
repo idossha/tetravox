@@ -1,7 +1,7 @@
 {
   "$comment": "The extensions catalogue: what File ▸ Extensions… offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed — `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses — and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
   "schema": 1,
-  "generated": "2026-08-31T00:00:00Z",
+  "generated": "2026-08-31T23:00:00Z",
   "modules": [
     {
       "id": "tetravox.seeg",
@@ -92,6 +92,36 @@
           ],
           "permissions": [
             "Read .csv, .fcsv, .tsv files you choose",
+            "Write .tsv files you name in a Save sheet",
+            "Write {name}.{stamp}.bak beside the file you save",
+            "Write {stem}_editlog.json beside the file you save",
+            "Bind the keys Delete, Shift+s, Shift+z, a, d, f, g, n, p, s, t, z while it is active",
+            "Run from a job file: delete, flip-tip, ghost, load, refit, renumber, revert, save, size, snap, stats, wire",
+            "Store its own data inside a saved scene"
+          ]
+        },
+        {
+          "version": "0.1.3",
+          "tag": "v0.1.3",
+          "hostApi": 1,
+          "published": "2026-08-31",
+          "files": [
+            {
+              "name": "index.js",
+              "bytes": 113735,
+              "sha256": "aec3aa3d3559abd5fe0d9d7a1b30e671b01477fdc77b052440fb5acd16cba0db",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.3/aec3aa3d3559abd5fe0d9d7a1b30e671b01477fdc77b052440fb5acd16cba0db"
+            },
+            {
+              "name": "manifest.json",
+              "bytes": 4388,
+              "sha256": "f9c23c98116bb988a2965e33f89a41250e2917050865cd55f6fcf9e00ebeb282",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.3/f9c23c98116bb988a2965e33f89a41250e2917050865cd55f6fcf9e00ebeb282"
+            }
+          ],
+          "permissions": [
+            "Read .csv, .fcsv, .tsv files you choose",
+            "Discover and read files named near a file you open",
             "Write .tsv files you name in a Save sheet",
             "Write {name}.{stamp}.bak beside the file you save",
             "Write {stem}_editlog.json beside the file you save",
