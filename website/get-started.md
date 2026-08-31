@@ -32,10 +32,10 @@ file: a detached `.nhdr` / `.mhd` header is reported, not read. DICOM is out of 
 
 ## Where to go next
 
-- **[The wiki](/guide/opening-data)** — opening data, the panes, layers, regions, meshes, measuring,
+- **[Wiki](/guide/opening-data)** — opening data, the panes, layers, regions, meshes, measuring,
   coordinates, scenes, themes, keyboard shortcuts and troubleshooting, one topic per page.
-- **[Showcase](/showcase)** — the film, and the same viewer across CT and MRI of the head, chest, abdomen
-  and spine.
+- **[Gallery](/gallery)** — the film, the same viewer across CT and MRI of the head, chest, abdomen and
+  spine, and every captured plate.
 - **[Automation & Python](/automation)** — driving the same engine headlessly from a script.
 - **[Developers](/developers/building)** — building from source, the architecture and how releases are
   cut, if you're contributing.

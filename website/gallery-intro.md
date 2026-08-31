@@ -1,8 +1,4 @@
----
-title: Showcase
----
-
-# Showcase
+## The film
 
 A 108.7-second tour of the interface and the rendering engine, over the real `sub-ernie` SimNIBS
 dataset. Neither the video nor the GIF is hand-edited: [`examples/capture/showcase.py`](https://github.com/idossha/tetravox/blob/main/examples/capture/showcase.py)
@@ -101,7 +97,7 @@ with it. The datasets and their licences are listed in
 
 ![A whole-body GRE MRI in a coronal pane with labels](/shots/modalities/mod-wholebody-mri-coronal.png)
 
-## In motion
+## The film, in motion
 
 <div class="motion-row">
   <figure>
@@ -121,5 +117,3 @@ with it. The datasets and their licences are listed in
     <figcaption>A simulated field's threshold rising from p50 to p97 over the anatomy.</figcaption>
   </figure>
 </div>
-
-Every plate, with what it shows and which dataset it came from, is in the [Gallery](/gallery).

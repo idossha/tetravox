@@ -22,6 +22,7 @@ const WEBSITE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = resolve(WEBSITE, '..');
 const SHOTS_DIR = join(REPO, 'docs', 'screenshots', '2026-08-29');
 const MANIFEST = join(SHOTS_DIR, 'manifest.json');
+const INTRO = join(WEBSITE, 'gallery-intro.md');
 const SRC_OUT = join(WEBSITE, 'src');
 
 // Order is the reading order of the page: what it looks like, what it opens,
@@ -124,6 +125,11 @@ ${items.map(card).join('\n')}
   .filter(Boolean)
   .join('\n');
 
+// The Showcase page used to live on its own route; it is now the lead of the
+// Gallery — the film first, then every plate. Its prose stays hand-written in
+// website/gallery-intro.md and is injected here verbatim.
+const intro = existsSync(INTRO) ? readFileSync(INTRO, 'utf8').trim() : '';
+
 const page = `---
 title: Gallery
 ---
@@ -135,6 +141,10 @@ ${entries.length} plates captured from the datasets listed in
 — brain MRI and head models, head/chest/abdomen CT, abdominal and spinal MRI, and the segmentations that
 go with them. Every plate is rendered offscreen by the same engine the window uses, from a job document in
 [\`docs/screenshots/2026-08-29/jobs/\`](https://github.com/idossha/tetravox/tree/main/docs/screenshots/2026-08-29/jobs).
+
+${intro}
+
+## The plates
 
 ${sections}`;
 
