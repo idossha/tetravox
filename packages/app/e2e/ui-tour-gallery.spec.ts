@@ -14,6 +14,10 @@
  *
  * `ui-*` land in `docs/screenshots/2026-08-29/ui/`; `feat-measure` and `feat-coordinates` are guide
  * figures and land in `features/` beside the engine captures.
+ *
+ * Set `TETRAVOX_SHOT_SCALE=2` to capture at 2x — what the published set wants, since the website
+ * shows these on Retina displays and the small panel crops are otherwise soft. The layout is
+ * identical; only the raster doubles.
  */
 
 /* eslint-disable no-empty-pattern */
@@ -22,7 +26,7 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, launchApp, packagedUnavailable, shotScale } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const ROOT = process.env['TETRAVOX_TESTDATA'] ?? '';
@@ -32,7 +36,10 @@ const MESH = join(ROOT, 'm2m_ernie', 'ernie.msh');
 const SET_DIR = resolve(APP_ROOT, '..', '..', 'docs', 'screenshots', '2026-08-29');
 const UI_DIR = join(SET_DIR, 'ui');
 const FEATURES_DIR = join(SET_DIR, 'features');
-const MAX_BYTES = 1.5 * 1024 * 1024;
+// The cap is per pixel, not per file: at `TETRAVOX_SHOT_SCALE=2` a window shot legitimately carries
+// four times the pixels, and a fixed 1.5 MB would fail on the sharper picture the flag exists to take.
+const SCALE = shotScale();
+const MAX_BYTES = 1.5 * 1024 * 1024 * SCALE * SCALE;
 
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(600_000);

@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { encode, mirror, rewriteRasterRefs } from './images.mjs';
 
 const WEBSITE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = resolve(WEBSITE, '..');
@@ -99,7 +100,10 @@ function stripFrontmatter(source) {
 function rewriteLinks(body) {
   let out = body;
   // Screenshots referenced relative to docs/ -> the copies this script makes.
+  // The docs keep pointing at the committed PNGs (that is what GitHub renders);
+  // the site serves the WebP re-encode of the same picture (images.mjs).
   out = out.replaceAll('screenshots/2026-08-29/', '/shots/');
+  out = rewriteRasterRefs(out, '/shots/');
   // Jekyll cross-doc links. Must run before the generic `{{ }}` escape below,
   // since it matches these exact `{{ site.baseurl }}` strings.
   out = out.replaceAll('{{ site.baseurl }}/AUTOMATION.html', '/automation');
@@ -152,10 +156,12 @@ if (existsSync(SHOTS_SRC)) {
   // Markdown is filtered out: VitePress' srcDir is the website root, so a
   // .md file landing under public/ is picked up as a page and its
   // repo-relative links fail the dead-link check.
-  cpSync(SHOTS_SRC, join(PUBLIC, 'shots'), {
-    recursive: true,
+  const { encoded, bytes } = await mirror(SHOTS_SRC, join(PUBLIC, 'shots'), {
     filter: (src) => !src.endsWith('.md'),
   });
+  console.log(
+    `sync.mjs: ${encoded} screenshots re-encoded to WebP (${Math.round(bytes / 1024 / 1024)} MB served)`
+  );
 } else {
   console.warn('sync.mjs: ' + SHOTS_SRC + ' does not exist yet - no screenshots copied');
 }
@@ -171,6 +177,13 @@ for (const asset of [
 ]) {
   const from = join(DOCS, 'media', asset);
   if (existsSync(from)) cpSync(from, join(PUBLIC, 'media', asset));
+}
+
+// The two stills that belong to no capture set — the Sample Data dialog and the sEEG extension —
+// live beside the film in docs/media/ and are served from the site root as WebP (images.mjs).
+for (const asset of ['sample-data-dialog.png', 'seeg-extension-p077.png']) {
+  const from = join(DOCS, 'media', asset);
+  if (existsSync(from)) await encode(from, join(PUBLIC, asset.replace(/\.png$/, '.webp')));
 }
 
 // ---------------------------------------------------------------------- docs
