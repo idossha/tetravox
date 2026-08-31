@@ -11,9 +11,11 @@
 # exists before it is complete, which is exactly why it is created as a **draft** and why `verify`
 # exists.
 #
-# ONE DELIBERATE DEVIATION from the reference workflow: `draft: true`. The reference publishes
-# immediately; here nothing is public until a human has looked at the assets and pressed Publish
-# (docs/RELEASING.md §3). A draft missing a `.dmg` is a fixable morning; a published one is not.
+# The Release is a draft for the length of the build only, and `verify` publishes it: the draft window
+# is what keeps a half-built Release out of sight, and the asset check is what ends it (docs/RELEASING
+# §3). No human step — a green `verify` means every required asset is attached, which is the same
+# thing a maintainer used to confirm by eye before pressing Publish. A leg that fails leaves `verify`
+# red and the Release a draft, so an incomplete release is still never public.
 #
 # `workflow_dispatch` builds the same matrix without touching any Release: `create-release` and every
 # upload step are `if:`-gated on `refs/tags/`, so a dispatch still produces downloadable workflow
@@ -46,7 +48,7 @@ jobs:
   # 1. The Release object, before anything is built
   # ------------------------------------------------------------------------------------------------
   create-release:
-    name: Create the draft Release
+    name: Create the Release (draft until verified)
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     outputs:
@@ -536,9 +538,23 @@ jobs:
 
           if [ "$missing" != "0" ]; then
             echo >&2
-            echo "The draft Release is incomplete. Do not publish it: re-run the failed build leg," >&2
-            echo "or delete the draft and the tag and cut the release again." >&2
+            echo "The Release is incomplete, so it stays a draft. Re-run the failed build leg (this" >&2
+            echo "job then publishes it), or delete the draft and the tag and cut the release again." >&2
             exit 1
           fi
           echo
-          echo "All required assets are attached. Review the draft and press Publish."
+          echo "All required assets are attached."
+
+      # The end of the draft window. Only reached when every required asset above is present, which
+      # is exactly the check a maintainer used to perform by eye. `--latest` is explicit rather than
+      # inherited: GitHub picks "Latest" by semver among *published* releases, and saying so here
+      # means the tag just built is the one the repo page and the update feeds point at.
+      - name: Publish the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --draft=false --latest
+          echo "Published $TAG."

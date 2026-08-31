@@ -13,7 +13,7 @@ operator's manual for it, the way `docs/TESTING.md` is the operator's manual for
 | | |
 |---|---|
 | Bump versions, changelog, commit, tag | `scripts/release.sh <version>` — **never pushes** |
-| Build every artefact, draft the Release | `.github/workflows/release.yml`, on a `v*` tag |
+| Build every artefact, publish the Release | `.github/workflows/release.yml`, on a `v*` tag |
 | Downloadable builds of `main` | `ci.yml`'s `package` job, every push to `main` |
 | macOS artefacts locally | `pnpm package` |
 | Linux artefacts locally | `scripts/package-linux.sh` (Docker) |
@@ -57,8 +57,8 @@ The three `latest*.yml` are the **in-app update feeds** (ARCHITECTURE §12.4): a
 one no installed copy ever notices. electron-builder writes them into `release/` beside the
 installers (the `publish:` block in `electron-builder.yml` configures the feed without publishing —
 `--publish never` still holds); the workflow's per-leg globs attach them, and `verify` requires the
-mac and linux ones. Publishing the draft is what makes the release visible to running apps — the
-feed cannot see a draft, so nothing updates until a human presses Publish.
+mac and linux ones. Publishing is what makes the release visible to running apps — the feed cannot
+see a draft, so nothing updates until `verify` flips it to published.
 
 **`${arch}` resolves per target to that ecosystem's spelling**, which matters if you are writing a
 download link by hand: macOS and `.tar.gz` get `arm64` / `x64`, the `.AppImage` gets `x86_64`, and the
@@ -163,7 +163,7 @@ release workflow and therefore what creates a Release, so it is a deliberate act
 
 ```sh
 git push origin main
-git push origin v0.2.0        # <- this builds the matrix and drafts the Release
+git push origin v0.2.0        # <- this builds the matrix and publishes the Release
 ```
 
 ### What the tag push does
@@ -179,21 +179,22 @@ git push origin v0.2.0        # <- this builds the matrix and drafts the Release
    publish as soon as it is ready instead of waiting for the slowest.
 3. **`verify`** — reads the assets actually attached and fails if any *required* one is missing. This
    is the check that a green matrix does not give you: a leg can succeed and still upload nothing.
+   When it passes, its last step **publishes the Release and marks it Latest**. There is no manual
+   step: a green `verify` is the same statement a maintainer used to make by pressing Publish.
 
-Then, on the draft:
+The draft therefore lasts only as long as the build. A missing required asset leaves `verify` red and
+the Release a draft, so an incomplete release is never public — and a release nobody remembers to
+publish, which is its own failure (the repo page and the update feeds both read the *published*
+latest, so a forgotten draft silently strands every installed copy on the previous version).
 
-1. `verify` must be green. It names every required asset it found.
-2. Download at least the `.dmg` for your own machine and open it. The smoke test proves the renderer
-   starts; it does not prove the installer produced something a human can double-click.
-3. Read the notes.
-4. Press Publish.
+After it lands, the checks worth doing are the ones a machine cannot do:
 
-Nothing is public until step 4. `release.yml` creates the Release with `draft: true` and no path in it
-publishes. **This is the one deliberate difference from the reference workflow**, which publishes
-straight away: a draft missing a `.dmg` is a fixable morning, a published one is not.
+1. Download the `.dmg` for your own machine and open it. The smoke test proves the renderer starts;
+   it does not prove the installer produced something a human can double-click.
+2. Read the notes on the published release.
 
-If `verify` fails, do not publish. Re-run the failed `build` leg, or delete the draft and the tag
-(`git push origin :refs/tags/v0.2.0`) and cut it again.
+If `verify` fails, the Release stays a draft. Re-run the failed `build` leg — `verify` then publishes
+it — or delete the draft and the tag (`git push origin :refs/tags/v0.2.0`) and cut it again.
 
 To rehearse without a tag: run `release.yml` from the Actions tab. `workflow_dispatch` builds the same
 matrix and uploads workflow artefacts, while `create-release`, the attach step and `verify` are all
