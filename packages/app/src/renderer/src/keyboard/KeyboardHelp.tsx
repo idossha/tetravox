@@ -43,7 +43,7 @@ const TABS: readonly TabItem<KeymapTab>[] = [
  * §13.5's tab, added only while a module is active — its keys are live only then, and a permanent
  * tab that was empty most of the time would be worse than no tab at all.
  */
-const MODULES_TAB: TabItem<KeymapTab> = { id: 'modules', label: 'Modules' };
+const MODULES_TAB: TabItem<KeymapTab> = { id: 'modules', label: 'Extensions' };
 
 /** Which generated `KeySection` titles (from `bindings.ts`) belong to which tab. */
 const SECTION_GROUPS: Record<KeymapTab, readonly string[]> = {
@@ -217,8 +217,8 @@ export function KeyboardHelp({ open, onClose }: KeyboardHelpProps): React.JSX.El
 
         {activeTab === 'modules' && (
           <footer className="border-t border-tvx-line px-4 py-1.5 text-[10px] text-tvx-dim">
-            Module keys are live only while that module is active, and resolve after the map above —
-            so a module can never shadow a binding on the other tabs (§13.5).
+            Extension keys are live only while that extension is active, and resolve after the map
+            above — so an extension can never shadow a binding on the other tabs (§13.5).
           </footer>
         )}
 

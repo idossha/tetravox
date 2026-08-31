@@ -651,10 +651,10 @@ describe('the module envelope', () => {
 
   it('names the modules this build carries when the id is unknown', () => {
     expect(moduleErrors({ module: 'tetravox.nope', op: 'echo' })).toEqual([
-      'actions[0].module: must be a module this build carries: test.every, test.quiet',
+      'actions[0].module: must be an extension this build carries: test.every, test.quiet',
     ]);
     // A missing or non-string `module` is the same failure, and gets the same list.
-    expect(moduleErrors({ op: 'echo' })[0]).toContain('actions[0].module: must be a module');
+    expect(moduleErrors({ op: 'echo' })[0]).toContain('actions[0].module: must be an extension');
     expect(moduleErrors({ module: 7, op: 'echo' })[0]).toContain('actions[0].module');
   });
 

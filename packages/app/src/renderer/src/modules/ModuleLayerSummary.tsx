@@ -37,14 +37,14 @@ export function ModuleLayerSummary({ layer }: { layer: Layer }): React.JSX.Eleme
     >
       <p>
         Owned by <span className="text-tvx-text">{title}</span>. Its contents are edited from that
-        module&rsquo;s panel, so the per-point controls are not offered here.
+        extension&rsquo;s panel, so the per-point controls are not offered here.
       </p>
       {!known ? (
-        // A scene made with a module this build does not have. The layer still draws — it is a
+        // A scene made with an extension this build does not have. The layer still draws — it is a
         // core-typed layer (§13.2) — and saying so is better than an editor that would silently
-        // orphan it from the module that will read it back.
+        // orphan it from the extension that will read it back.
         <p className="mt-1">
-          This build does not carry that module. The layer still draws, and its record is carried
+          This build does not carry that extension. The layer still draws, and its record is carried
           through when the scene is saved.
         </p>
       ) : (

@@ -38,28 +38,15 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  APP_ROOT,
-  bundledSeegVersion,
-  launchApp,
-  packagedUnavailable,
-  SHOTS_DIR,
-} from './fixtures';
+import { launchApp, packagedUnavailable, SHOTS_DIR, stageSeeg } from './fixtures';
+import type { SeegStage } from './fixtures';
 
 const EXAMPLE = '/Users/idohaber/Desktop/example';
 const SCENE_NAME = 'seeg-P077.tetravox.json';
 const SEEG = 'tetravox.seeg';
-const SEEG_BUNDLE = resolve(
-  APP_ROOT,
-  'resources',
-  'modules',
-  SEEG,
-  bundledSeegVersion(),
-  'index.js'
-);
 
 /** The twelve-colour contact palette (`shared/contacts/palette.ts`), rounded like the readback. */
 const PALETTE: readonly [number, number, number, number][] = [
@@ -113,6 +100,7 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
   let page: Page;
   let root: string;
   let home: string;
+  let stage: SeegStage;
   let sceneTsv: string;
   let sceneIeeg: string;
 
@@ -123,7 +111,6 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
     test.skip(wi.project.name !== 'packaged', 'the packaged target only');
     const blocked = packagedUnavailable();
     test.skip(blocked !== null, blocked ?? '');
-    test.skip(!existsSync(SEEG_BUNDLE), 'the bundled tetravox.seeg is not in resources/modules');
     test.skip(!existsSync(join(EXAMPLE, SCENE_NAME)), `the P077 subject is not at ${EXAMPLE}`);
 
     // Copy ONLY the three files the scene names — the T1, the bone CT and the electrodes.tsv — into a
@@ -149,12 +136,20 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
     sceneTsv = join(sceneIeeg, 'sub-P077_space-T1w_electrodes.tsv');
 
     home = mkdtempSync(join(tmpdir(), 'tetravox-p077-home-'));
+    // sEEG no longer ships bundled (2026-08-31): stage the downloaded-and-consented state into this
+    // run's own home from the bytes TETRAVOX_SEEG_FIXTURE names, or skip.
+    const staged = stageSeeg({ home });
+    test.skip(
+      staged === null,
+      'set TETRAVOX_SEEG_FIXTURE to a built tetravox.seeg to run this suite'
+    );
+    stage = staged!;
     app = await launchApp('packaged', {
       args: [scenePath],
       // The scene restore leaves the module clean, but a later snap/save makes it dirty; the packaged
       // build ignores `TETRAVOX_E2E_DISCARD` on purpose (§5 rule 12), so `afterAll` clears the flag
       // rather than leaning on it — the seam is set only so an interrupted run does not hang.
-      env: { TETRAVOX_E2E_DISCARD: '1', TETRAVOX_HOME: home },
+      env: { TETRAVOX_E2E_DISCARD: '1', TETRAVOX_HOME: home, ...stage.env },
     });
     page = await app.firstWindow();
     await app.evaluate(({ BrowserWindow }) =>

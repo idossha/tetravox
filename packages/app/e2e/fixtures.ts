@@ -6,7 +6,16 @@
  * bare `pnpm e2e` is green without a 2-minute package step.
  */
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,19 +26,86 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const APP_ROOT = resolve(here, '..');
 
 /**
- * The version of the bundled `tetravox.seeg` this checkout carries, read from `modules.lock` (§13.8)
- * — the one source of truth for what a build bundles — rather than pinned in each spec, so re-pinning
- * the module to a new patch is one edit to the lock, not a sweep across the e2e suite.
- * `fetch-locked-modules.mjs` places the bundle at `resources/modules/<id>/<version>/`, so this is
- * also the version segment of that path.
+ * Stage the sEEG extension for a spec — nothing ships bundled any more (2026-08-31), so a test that
+ * needs an *enabled* `tetravox.seeg` builds the same state a user's download-and-consent leaves:
+ *
+ *  * a store the `TETRAVOX_MODULE_DIR` seam points at, holding `index.js` + `manifest.json` and the
+ *    receipt an install writes (hashes of exactly those bytes), and
+ *  * a `TETRAVOX_HOME` whose `tetravoxrc` carries the consent record, which is the documented
+ *    machine-wide-defaults layer of `settings.json` (`main/settings.ts#readRc`).
+ *
+ * The bytes come from `TETRAVOX_SEEG_FIXTURE` — a directory with a built extension's `index.js` and
+ * `manifest.json`, e.g. `gh release download v0.1.1 -R idossha/tetravox-seeg` unpacked (the release
+ * assets are named by their own sha256; rename them back to `index.js`/`manifest.json`). Unset, this
+ * returns null and the spec skips — the same shape as when the bundled tree was unfetched, and the
+ * state every CI leg is in.
  */
-export function bundledSeegVersion(): string {
-  const lock = JSON.parse(readFileSync(resolve(APP_ROOT, '..', '..', 'modules.lock'), 'utf8')) as {
-    modules?: Array<{ id: string; version: string }>;
+export interface SeegStage {
+  version: string;
+  /** Merge into the launch env: the store seam, the packaged-seam key, and the consenting home. */
+  env: Record<string, string>;
+}
+
+export function stageSeeg(opts: { home?: string } = {}): SeegStage | null {
+  const src = process.env['TETRAVOX_SEEG_FIXTURE'];
+  if (src === undefined || src === '') return null;
+  let manifest: { id?: string; version?: string; hostApi?: number };
+  try {
+    manifest = JSON.parse(readFileSync(join(src, 'manifest.json'), 'utf8')) as typeof manifest;
+  } catch {
+    return null;
+  }
+  if (manifest.id !== 'tetravox.seeg' || typeof manifest.version !== 'string') return null;
+  const root = mkdtempSync(join(tmpdir(), 'tvx-seeg-stage-'));
+  const store = join(root, 'modules');
+  const dir = join(store, manifest.id, manifest.version);
+  mkdirSync(dir, { recursive: true });
+  const files = ['index.js', 'manifest.json'].map((name) => {
+    const bytes = readFileSync(join(src, name));
+    writeFileSync(join(dir, name), bytes);
+    return {
+      name,
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    };
+  });
+  writeFileSync(
+    join(dir, 'tetravox-module.json'),
+    `${JSON.stringify(
+      {
+        schema: 1,
+        id: manifest.id,
+        version: manifest.version,
+        installedAt: new Date().toISOString(),
+        files,
+      },
+      null,
+      2
+    )}\n`
+  );
+  const home = opts.home ?? join(root, 'home');
+  mkdirSync(home, { recursive: true });
+  writeFileSync(
+    join(home, 'tetravoxrc'),
+    `${JSON.stringify(
+      {
+        extensions: {
+          [manifest.id]: {
+            version: manifest.version,
+            hostApi: manifest.hostApi ?? 1,
+            grantedAt: new Date().toISOString(),
+            permissions: [],
+          },
+        },
+      },
+      null,
+      2
+    )}\n`
+  );
+  return {
+    version: manifest.version,
+    env: { TETRAVOX_MODULE_DIR: store, TETRAVOX_HOME: home, TETRAVOX_E2E: '1' },
   };
-  const entry = lock.modules?.find((m) => m.id === 'tetravox.seeg');
-  if (!entry) throw new Error('modules.lock carries no tetravox.seeg entry');
-  return entry.version;
 }
 
 /**

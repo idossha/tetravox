@@ -209,7 +209,6 @@ const GUIDE_PAGES = [
   { heading: 'Vector fields', slug: 'vector-fields' },
   { heading: 'Points & electrodes', slug: 'points-electrodes' },
   { heading: 'Measurements', slug: 'measurements' },
-  { heading: 'Modules', slug: 'modules' },
   { heading: 'Extensions', slug: 'extensions' },
   { heading: 'sEEG contacts', slug: 'seeg-contacts' },
   { heading: 'Coordinates', slug: 'coordinates' },

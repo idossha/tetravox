@@ -24,34 +24,14 @@
 
 /* eslint-disable no-empty-pattern */
 
-import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  APP_ROOT,
-  bundledSeegVersion,
-  clickAppMenu,
-  launchApp,
-  packagedUnavailable,
-} from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
 const VOLUME = join(TESTDATA, 'vol_u8.nii.gz');
-// sEEG ships as the bundled `tetravox.seeg` extension (§13.8), placed under `resources/modules/`
-// by `scripts/fetch-locked-modules.mjs`. Whether it is on disk is whether this build offers a
-// product module at all — the cheap `test` CI leg runs `fetch-locked-modules --verify-only` (no
-// download), so it is absent there, exactly as `module-seeg.spec.ts` reads it.
-const SEEG_BUNDLE = resolve(
-  APP_ROOT,
-  'resources',
-  'modules',
-  'tetravox.seeg',
-  bundledSeegVersion(),
-  'index.js'
-);
-
 const HELLO = 'tetravox.hello';
 const SEARCH = 'engine=mock&mockStepMs=0&modules=hello';
 
@@ -365,23 +345,11 @@ test.describe('a build that offers no module', () => {
   });
 
   test('does not list the fixture, and puts nothing in the slot', async () => {
-    // "Offers no module" means the FIXTURE (hello): compiled into every build and listed only behind
-    // `?modules=`, so a launch that did not name it is in the state a build that never had it is in.
-    // The switcher is a control the toolbar grows only when a module IS carried — the bundled
-    // `tetravox.seeg` (§13.8). Its presence is read off `resources/modules/`: the dev target reads that
-    // tree, and the packaged `.dmg` ships a copy taken from it at package time, so the same check speaks
-    // for both. Fetched, the switcher is there and lists sEEG, never the hidden fixture; unfetched (the
-    // cheap CI leg runs `fetch-locked-modules --verify-only`, no download) the build truly offers no
-    // module and the control is not rendered at all. Either way the fixture is not in the slot.
-    const seegBundled = existsSync(SEEG_BUNDLE);
-    if (seegBundled) {
-      await page.click('[data-testid="module-switcher"]');
-      await expect(page.locator('[data-testid="module-switcher-list"]')).toBeVisible();
-      await expect(page.locator(`[data-testid="module-switcher-${HELLO}"]`)).toHaveCount(0);
-      await page.keyboard.press('Escape');
-    } else {
-      await expect(page.locator('[data-testid="module-switcher"]')).toHaveCount(0);
-    }
+    // "Offers no extension" means the FIXTURE (hello): compiled into every build and listed only
+    // behind `?modules=`, so a launch that did not name it is in the state a build that never had
+    // it is in. Nothing ships bundled (2026-08-31) and this launch stages no install, so the
+    // switcher — a control the toolbar grows only when an extension IS carried — is not rendered.
+    await expect(page.locator('[data-testid="module-switcher"]')).toHaveCount(0);
 
     await expect(page.locator('[data-testid="module-slot"]')).toHaveCount(0);
     await expect(page.locator('[data-testid^="status-module-"]')).toHaveCount(0);

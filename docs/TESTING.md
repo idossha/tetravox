@@ -89,16 +89,16 @@ const second = await launchApp(target, { userDataDir: profile });  // assert it 
 The two launches must not overlap: the second would find the lock held and quit. `e2e/theme.spec.ts` is the
 worked example.
 
-### Module tests (§13.4)
+### Extension tests (§13.4)
 
 The extension surface is tested at three levels, and the split is not a matter of taste:
 
 | Level | Where | What it can assert |
 |---|---|---|
-| Manifests and keys | `renderer/src/modules/modules.test.ts` | Every manifest in `MANIFESTS`, without naming one: ids, semver, `hostApi`, the `docs` heading, §13.5 pool membership, and every pool key probed through the **live `resolveKey`** so a module key that shadowed a §7.5 binding fails here. It also reads `src/modules/**` and `renderer/src/modules/<id>/**` off disk and fails an import the wall forbids — a lint rule can be disabled inline, a test cannot. |
+| Manifests and keys | `renderer/src/modules/modules.test.ts` | Every manifest in `MANIFESTS`, without naming one: ids, semver, `hostApi`, the `docs` heading, §13.5 pool membership, and every pool key probed through the **live `resolveKey`** so an extension key that shadowed a §7.5 binding fails here. It also reads `src/modules/**` and `renderer/src/modules/<id>/**` off disk and fails an import the wall forbids — a lint rule can be disabled inline, a test cannot. |
 | The host | `renderer/src/modules/hostImpl.test.ts` | `NoGlEngine` + `createUiStore` + `ShellController.attach()` (the `panels.test.ts` idiom): activation, commands, the status cell, the dirty flag, the scene block's round trip through a saved file, the confirm dialog and the discard guard. **State and calls, never pixels.** |
 | The window | `packages/app/e2e/modules.spec.ts` | Everything §13.3 says about *layout*: the slot's height cap, the toolbar's height unchanged after an activation at 1440×900, the status cell left of the dataset cells, the aside in flow at 960 px, the rendered confirm dialog. vitest runs under `environment: 'node'`, so none of this can be asserted anywhere else. |
-| A module end to end | `renderer/src/modules/seeg.test.ts`, `seeg-fixtures.test.ts`, `packages/app/e2e/module-seeg.spec.ts` | The three levels again, for the first *product* module. The harness drives every command through the controller against `NoGlEngine`; the fixtures replay numpy's own answers for the line fit, the re-fit, the tip rule, the snap and the float formatting; the e2e opens a real `seegprep` tree in a temp directory and reads the table, its `.bak` and its `_editlog.json` back off disk. |
+| An extension end to end | `renderer/src/modules/seeg.test.ts`, `seeg-fixtures.test.ts`, `packages/app/e2e/module-seeg.spec.ts` | The three levels again, for the first *product* extension. The harness drives every command through the controller against `NoGlEngine`; the fixtures replay numpy's own answers for the line fit, the re-fit, the tip rule, the snap and the float formatting; the e2e opens a real `seegprep` tree in a temp directory and reads the table, its `.bak` and its `_editlog.json` back off disk. |
 | A **downloadable** extension | `main/module-store.test.ts`, `renderer/src/modules/installed.test.ts`, `packages/app/e2e/extensions.spec.ts`, `packages/app/e2e/csp.spec.ts`, `scripts/check-module-loader.mjs` | §13.8. Main's store (download, hash, consent, serve, revoke) and the renderer's loader are unit-tested; the e2e drives the whole round trip through a real Electron; the CSP spec proves the `script-src` grant from both sides; the loader guard reads the **built chunk**. See below. |
 
 ### Downloadable extensions (§13.8)
@@ -111,17 +111,17 @@ The seams, all of them environment variables, so nothing here touches a real `~/
 | `TETRAVOX_EXT_INDEX` | the catalogue JSON, instead of the shipped `src/shared/extensions-index.json` |
 | `TETRAVOX_HOME` | `configHome()`, so `settings.json` — and with it the **consent record** — is a temp file |
 
-`e2e/fixtures/tetravox.fixture/` is a checked-in **emitted module bundle**: zero imports, the SDK shim
+`e2e/fixtures/tetravox.fixture/` is a checked-in **emitted extension bundle**: zero imports, the SDK shim
 inlined, reading the host's React and the contacts kit off `globalThis.__tetravoxModuleSdk`. It is what a
-module repository's `rollup -c` produces, checked in because no module repository exists yet, and
+extension repository's `rollup -c` produces, checked in because no extension repository exists yet, and
 `extensions.spec.ts` runs the same five-line "no imports at all" check on it that
-`scripts/module-sdk/README.md` tells a module repository to run in its own CI.
+`scripts/module-sdk/README.md` tells an extension repository to run in its own CI.
 `e2e/fixtures/tetravox.future/` is a manifest alone, at `hostApi: 2`, for the greyed-card case.
 
 `extensions.spec.ts` stages that bundle as a **release store** — each asset named by its own sha256, the
 `scripts/sample-data/publish.sh` layout — and installs it over a `file://` URL, so the download path runs for
 real with no server. Then: catalogue → install → consent sheet with the derived permissions → enable →
-the switcher row → the module's own panel → disable → remove, with a `fetch('tetravox://module/…')` before
+the switcher row → the extension's own panel → disable → remove, with a `fetch('tetravox://module/…')` before
 and after each consent change, because *consent gates execution* is the claim and a 404 is how it is visible.
 
 Two claims live in `csp.spec.ts` instead, because a policy can only be proved from inside the page it governs
@@ -148,7 +148,7 @@ pnpm --filter @tetravox/app run build && node scripts/check-module-loader.mjs
 node --test scripts/check-module-loader.test.mjs   # its own fixtures, driven red
 ```
 
-The fixture module is the subject throughout, driven with `?modules=hello` — the same seam `?engine=mock`
+The fixture extension is the subject throughout, driven with `?modules=hello` — the same seam `?engine=mock`
 uses. It is compiled into every build and listed only behind that parameter, because `pnpm e2e` drives the
 production bundle: a fixture excluded from it would prove nothing about the bundle users get.
 
@@ -402,7 +402,7 @@ The recipe:
 
 1. **Add a page.** `test/pages/<name>.html` with a single `<canvas id="gl">` sized to its backing store and
    no CSS scaling, plus `test/pages/<name>.ts` that draws and assigns `window.__tvxRender`.
-2. **Put the scene's numbers in a side-effect-free module** — `test/pages/<name>-scene.ts` — imported by
+2. **Put the scene's numbers in a side-effect-free extension** — `test/pages/<name>-scene.ts` — imported by
    *both* the page and the spec. A test that re-types its fixture's constants asserts a transcription.
 3. **Derive the expectation, don't remember it.** `triangle-scene.ts` exports `insideTriangle(x, y)`, a
    half-plane test over the same clip-space vertices the page draws. For a volume, compute the expected RGBA

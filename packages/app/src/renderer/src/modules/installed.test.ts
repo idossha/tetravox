@@ -69,7 +69,6 @@ function status(over: Partial<ModuleStatus> = {}): ModuleStatus {
     id: 'vendor.thing',
     title: 'Thing',
     installed: '1.0.0',
-    bundled: false,
     enabled: true,
     available: null,
     updatable: false,

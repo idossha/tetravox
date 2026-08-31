@@ -247,7 +247,7 @@ async function handleModule(pathname: string): Promise<Response> {
     return plain(400, 'malformed percent-encoding');
   }
   const file = served.get(key);
-  if (file === undefined) return plain(404, `no enabled module resource: ${key}`);
+  if (file === undefined) return plain(404, `no enabled extension resource: ${key}`);
   // `no-store`: the file is replaced in place by an update, and a cached copy of a module the user
   // has since disabled would outlive the consent that admitted it.
   return streamFile(file, contentTypeFor(file), { 'cache-control': 'no-store' });

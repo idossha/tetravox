@@ -21,7 +21,7 @@ export const helloManifest: ModuleManifest = {
   hostApi: 1,
   // The `## Modules` section of docs/USER_GUIDE.md — the fixture documents the *surface*, since it
   // has no domain of its own. The docs-guard job checks the heading exists and is in GUIDE_PAGES.
-  docs: 'Modules',
+  docs: 'Extensions',
   activation: ['onToggle'],
   commands: [
     { id: 'ping', title: 'Ping', key: 'g' },

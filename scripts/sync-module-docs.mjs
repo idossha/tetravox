@@ -42,7 +42,7 @@ export const MODULES_DIR = 'packages/app/src/modules';
  * rule, and refuses to invent the section: where §2.7 sits in the document is the document's
  * decision, not this script's.
  */
-export const HEADING = '### 2.7 Module operations';
+export const HEADING = '### 2.7 Extension operations';
 
 /** How each `ArgType` is spelled in the table. The `?` forms are the same words plus "optional". */
 const ARG_WORDS = {
@@ -89,10 +89,10 @@ export function renderSection(manifests) {
   const lines = [
     HEADING,
     '',
-    'Every operation every **compiled-in** module declares, with the arguments each one takes. A',
-    '*bundled* or *installed* extension declares its operations in its own manifest and documents them',
-    'in its own repository and the Extensions catalogue, so it is not listed here — the sEEG editor is',
-    'one such extension now (§13.8). **This section is generated** from the manifests by',
+    'Every operation the **compiled-in fixture** declares, with the arguments each one takes. A',
+    'real (installed) extension declares its operations in its own manifest and documents them in',
+    'its own repository and the Extensions catalogue, so it is not listed here — the sEEG editor is',
+    'one such extension (§13.8). **This section is generated** from the manifests by',
     '`scripts/sync-module-docs.mjs` — the same declarations the job validator checks an action against',
     '— so edit a manifest and re-run the script rather than editing the table. CI checks it with',
     '`--check`.',

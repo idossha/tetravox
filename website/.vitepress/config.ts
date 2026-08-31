@@ -108,7 +108,6 @@ export default defineConfig({
               { text: 'Vector fields', link: '/guide/vector-fields' },
               { text: 'Points & electrodes', link: '/guide/points-electrodes' },
               { text: 'Measurements', link: '/guide/measurements' },
-              { text: 'Modules', link: '/guide/modules' },
               { text: 'Coordinates', link: '/guide/coordinates' },
               { text: 'Themes & settings', link: '/guide/themes-settings' },
               { text: 'Scenes', link: '/guide/scenes' },

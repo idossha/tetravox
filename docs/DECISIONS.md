@@ -4874,3 +4874,25 @@ files CI already builds); `--publish always` (would hand release uploads to elec
 the twice-documented softprops design — the `publish:` block configures the feed, `--publish never`
 still holds). electron-updater is excluded from electron-vite's dependency externalization because
 the packaged app ships no `node_modules` — externalized, the first check is a MODULE_NOT_FOUND.
+
+## 2026-08-31 — extensions only: the bundled tier is removed, and the product word is "extension"
+
+Two asks from the maintainer, taken whole. **(1) Nothing ships inside the application.** The bundled
+tier — `modules.lock`, `scripts/fetch-locked-modules.mjs`, `resources/modules/`, the pre-consent
+seeding ("installing the app was the consent"), the bundled-beats-installed collision rule, the
+no-receipt exemption, the un-removable card — is deleted, not disabled. Every extension, sEEG
+included, is downloaded through File ▸ Extensions… and consented to explicitly, per version; boot
+re-serves what was consented and never widens the record. The e2e suites that drove the bundled seeg
+now stage the downloaded-and-consented state from `TETRAVOX_SEEG_FIXTURE` (a directory holding a
+built extension), and skip when it is unset — the same skip shape they had when the tree was
+unfetched. Alternative rejected: keeping the mechanism "just unused" — dead trust paths in the
+consent code are exactly where a regression would hide. **(2) The product word is "extension",
+everywhere a user or a document reads** — UI copy, error messages, USER_GUIDE (the Modules and
+Extensions sections merged into one), ARCHITECTURE §13, the website. The machine surfaces keep the
+historical `module` name and are listed as such in §13's naming note: manifest keys, `ModuleHost`,
+`tetravox://module`, `~/.tetravox/modules/`, `@tetravox/module-sdk`, the job action
+`"type": "module"`, `Job.module()` — renaming any of those breaks published extensions, saved
+scenes, users' job files or the SDK pin, for zero user-visible gain. Internal identifiers and file
+names that mirror those surfaces also keep the word; renaming ~155 identifiers across 113 files was
+rejected as pure churn against in-flight branches. `tetravox.hello` stays compiled in as the test
+fixture behind `?modules=` — it is scaffolding for this whole surface, not a shipped extension.

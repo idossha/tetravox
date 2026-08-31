@@ -545,8 +545,8 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
         title: 'Unsaved changes',
         message: 'Discard unsaved edits and restart?',
         detail:
-          'A module in this window has edits that have not been written to disk. Restarting into ' +
-          'the update discards them.',
+          'An extension in this window has edits that have not been written to disk. Restarting ' +
+          'into the update discards them.',
         buttons: ['Discard and Restart', 'Cancel'],
         defaultId: 1,
         cancelId: 1,

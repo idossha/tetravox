@@ -42,24 +42,11 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import {
-  APP_ROOT,
-  bundledSeegVersion,
-  launchApp,
-  packagedUnavailable,
-  SHOTS_DIR,
-} from './fixtures';
+import { APP_ROOT, launchApp, packagedUnavailable, SHOTS_DIR } from './fixtures';
 
 const FIXTURES = resolve(APP_ROOT, 'e2e', 'fixtures');
 const FIXTURE_ID = 'tetravox.fixture';
 const FIXTURE_VERSION = '1.0.0';
-const SEEG_ID = 'tetravox.seeg';
-const SEEG_VERSION = bundledSeegVersion();
-
-/** The bundled sEEG tree the packaging step copies into the `.app` — its presence in the dev tree is
- *  the same proxy `module-seeg.spec.ts` uses for "the packaged build shipped it". */
-const SEEG_BUNDLE = resolve(APP_ROOT, 'resources', 'modules', SEEG_ID, SEEG_VERSION, 'index.js');
-
 /** `paletteColor(0)` is `[0.9, 0.1, 0.1, 1]`, so `cssColor` is `#e61a1a` — computed, not copied. */
 const SWATCH_0 = '#e61a1a';
 
@@ -132,18 +119,12 @@ async function openExtensionsDialog(page: Page): Promise<void> {
 }
 
 test.describe('the Extensions dialog, packaged', () => {
-  // Packaged only: the bundled card and the CSP-governed download are both the shipped build's
-  // claims. On the dev target this whole file is `extensions.spec.ts` seen from a dev server.
+  // Packaged only: the CSP-governed download path is the shipped build's claim. On the dev target
+  // this whole file is `extensions.spec.ts` seen from a dev server.
   test.beforeAll(({}, testInfo) => {
     test.skip(testInfo.project.name !== 'packaged', 'the packaged target only');
     const blocked = packagedUnavailable();
     test.skip(blocked !== null, blocked ?? '');
-    // The cheap CI leg packages after `fetch-locked-modules --verify-only`, so its `.app` has no
-    // sEEG; skip rather than fail there, exactly as `module-seeg.spec.ts` does.
-    test.skip(
-      !existsSync(SEEG_BUNDLE),
-      'the bundled tetravox.seeg is not in resources/modules — run `node scripts/fetch-locked-modules.mjs`'
-    );
   });
 
   test.afterAll(() => {
@@ -152,43 +133,7 @@ test.describe('the Extensions dialog, packaged', () => {
 
   test.setTimeout(180_000);
 
-  test('the SHIPPED catalogue draws the bundled sEEG card: Bundled, pre-consented, Enabled', async () => {
-    const home = temp('home-seeg');
-    const app = await launchApp('packaged', {
-      // No `TETRAVOX_EXT_INDEX`: the shipped `extensions-index.json` is the catalogue, and no
-      // network is touched. A clean `TETRAVOX_HOME` means the bundle is freshly discovered and
-      // pre-consented at this boot rather than by a previous session.
-      search: 'engine=mock&mockStepMs=0',
-      env: { TETRAVOX_HOME: home },
-    });
-    const page = await app.firstWindow();
-    await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });
-
-    await openExtensionsDialog(page);
-    const card = page.locator(`[data-testid="extension-card-${SEEG_ID}"]`);
-    await expect(card).toBeVisible();
-    // Bundled ⇒ discovered on disk, pre-consented, its files on the protocol map: the card is enabled.
-    await expect(card).toHaveAttribute('data-state', 'enabled');
-    await expect(page.locator(`[data-testid="extension-bundled-${SEEG_ID}"]`)).toBeVisible();
-    await expect(page.locator(`[data-testid="extension-enabled-${SEEG_ID}"]`)).toBeVisible();
-    await expect(card).toContainText('sEEG contacts');
-    // No install/enable button (already enabled) and no Remove button (a bundled module is not the
-    // user's to delete — `module-store.ts#removeModule` refuses it, so the dialog offers no door).
-    await expect(page.locator(`[data-testid="extension-install-${SEEG_ID}"]`)).toHaveCount(0);
-    await expect(page.locator(`[data-testid="extension-enable-${SEEG_ID}"]`)).toHaveCount(0);
-    await expect(page.locator(`[data-testid="extension-remove-${SEEG_ID}"]`)).toHaveCount(0);
-    // Its files really are served: the shipped build put the bundle on the map.
-    const status = await page.evaluate(
-      async (url) => (await fetch(url)).status,
-      `tetravox://module/${SEEG_ID}/${SEEG_VERSION}/index.js`
-    );
-    expect(status).toBe(200);
-
-    await page.screenshot({ path: join(SHOTS_DIR, 'c4-seeg-card.png') });
-    await app.close();
-  });
-
-  test('a non-bundled module downloads, consents and enables through the dialog', async () => {
+  test('an extension downloads, consents and enables through the dialog', async () => {
     const files = stageStore(join(FIXTURES, FIXTURE_ID), ['index.js', 'manifest.json']);
     const indexPath = writeIndex(files);
     const modules = temp('modules');

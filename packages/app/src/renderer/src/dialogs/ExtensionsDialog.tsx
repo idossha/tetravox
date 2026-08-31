@@ -177,7 +177,7 @@ export function ExtensionsDialog({
     <DialogFrame
       testId="extensions-dialog"
       title="Extensions"
-      subtitle="Modules that are downloaded rather than built in. An enabled extension runs inside Tetravox with the app's own access to your files, so each one is enabled by hand, once, after you have read what it asks for."
+      subtitle="Tools that are downloaded, never built in. An enabled extension runs inside Tetravox with the app's own access to your files, so each one is enabled by hand, once, after you have read what it asks for."
       width="56rem"
       onCancel={onClose}
       footer={
@@ -253,15 +253,6 @@ export function ExtensionsDialog({
                   <span className="font-mono text-[10px] text-tvx-dim">
                     {status.installed ?? status.available ?? ''}
                   </span>
-                  {status.bundled && (
-                    <span
-                      data-testid={`extension-bundled-${status.id}`}
-                      title="Ships with Tetravox. It can be turned off, but not removed."
-                      className="rounded border border-tvx-line px-1 text-[9px] uppercase tracking-wide text-tvx-dim"
-                    >
-                      Bundled
-                    </span>
-                  )}
                 </div>
                 <p className="text-[11px] leading-snug text-tvx-dim">
                   {entry?.summary ??
@@ -374,7 +365,7 @@ export function ExtensionsDialog({
                         Disable
                       </button>
                     )}
-                    {status.installed !== null && !status.bundled && (
+                    {status.installed !== null && (
                       <button
                         type="button"
                         className="tvx-btn tvx-btn-sm"

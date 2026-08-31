@@ -148,9 +148,9 @@ for f in dist/index.js dist/manifest.json; do
 done
 ```
 
-Then print the `modules.lock` fragment for the Tetravox repository (bundled modules only) and the
-registry `versions[]` entry for `idossha/tetravox-extensions`. Both carry the same hashes, and the
-app refuses any file whose bytes do not match.
+Then print the registry `versions[]` entry for `idossha/tetravox-extensions` — the catalogue is
+the one route into the app (nothing is bundled inside Tetravox), and the app refuses any file whose
+bytes do not match the entry's hashes.
 
 ## Version compatibility
 

@@ -62,7 +62,7 @@ export function HelloPanel({ model }: { model: HelloModel }): React.JSX.Element 
           type="button"
           data-testid="hello-save"
           className="tvx-btn"
-          title="Mark the module's work saved — what the discard guard reads"
+          title="Mark the extension's work saved — what the discard guard reads"
           onClick={(event) => {
             blur(event);
             model.save();

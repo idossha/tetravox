@@ -251,7 +251,7 @@ export interface TetravoxBridge {
   moduleEnable?(id: string): Promise<ModuleActionResult>;
   /** Withdraw consent: off the map, out of settings, and its write admissions revoked in main. */
   moduleDisable?(id: string): Promise<ModuleActionResult>;
-  /** Disable, then delete the directory. A bundled module is refused. */
+  /** Disable, then delete the directory. */
   moduleRemove?(id: string): Promise<ModuleActionResult>;
   /** Open `~/.tetravox/modules/` in the OS file manager. */
   moduleRevealDir?(): Promise<void>;
@@ -491,7 +491,6 @@ export interface ModuleStatus {
   id: string;
   title: string;
   installed: string | null;
-  bundled: boolean;
   enabled: boolean;
   available: string | null;
   updatable: boolean;
