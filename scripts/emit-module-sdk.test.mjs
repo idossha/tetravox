@@ -249,6 +249,24 @@ test('a foreign name mentioned only in prose is not a reference', () => {
   deepStrictEqual(reached, ['A']);
 });
 
+test('a carried name mentioned only in a member’s prose is not a reference either', () => {
+  // The regression: `PointToolEvent.reason` documents itself with `{@link Engine.load}` and friends,
+  // and the walk read those as references — dragging `Engine`, and through it `Capabilities` and
+  // `OverlayTheme`, into a subset that cannot carry them. Prose inside a declaration is prose.
+  const api = [
+    "import type { Capabilities } from './gl/caps';",
+    'export interface A {',
+    '  /** Cleared by {@link B.go}. */',
+    '  n: number;',
+    '}',
+    'export interface B {',
+    '  c: Capabilities;',
+    '}',
+  ].join('\n');
+  const { reached } = engineSubset('', api, ['A']);
+  deepStrictEqual(reached, ['A']);
+});
+
 test('the engine files this subset is cut from are the ones §12.3 freezes', () => {
   const api = readFileSync(join(REPO_ROOT, 'packages/engine/src/api.ts'), 'utf8');
   const scene = readFileSync(join(REPO_ROOT, 'packages/engine/src/scene/types.ts'), 'utf8');

@@ -369,7 +369,10 @@ export function engineSubset(sceneTypes, apiSource, roots = ENGINE_API_ROOTS) {
       continue;
     }
     reached.add(name);
-    const body = apiLines.slice(decl.head, decl.end + 1).join('\n');
+    // Comments are stripped here for the same reason they are below: a `{@link Engine.load}` in a
+    // member's prose is a cross-reference for a reader, not a type the subset has to carry, and
+    // walking into it would drag `Engine` in — and `Capabilities` and `OverlayTheme` with it.
+    const body = stripComments(apiLines.slice(decl.head, decl.end + 1).join('\n'));
     for (const id of referencedNames(body)) {
       if (id !== name && (apiDecls.has(id) || sceneNames.has(id))) queue.push(id);
     }
