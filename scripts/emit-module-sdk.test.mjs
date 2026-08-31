@@ -35,6 +35,7 @@ import {
 
 const HOST = 'packages/app/src/renderer/src/modules/host.ts';
 const TYPES = 'packages/app/src/modules/manifest-types.ts';
+const SCHEMA = 'packages/app/src/modules/manifest-schema.ts';
 const MODEL = 'packages/app/src/renderer/src/modules/shared/contacts/model.ts';
 const TSV = 'packages/app/src/renderer/src/modules/shared/contacts/tsv.ts';
 
@@ -59,6 +60,36 @@ test('the asset name carries both numbers a module author has to pin', () => {
 
 test('the SDK version is semver a resolver accepts, with the prerelease sorting under the major', () => {
   match(packageJsonFor(1, '0.2.0').version, /^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/);
+});
+
+test('an extra entry point is named in `exports`, or it is not reachable at all', () => {
+  // A package with an `exports` map serves nothing that is not listed there: without this,
+  // `import('@tetravox/module-sdk/manifest-schema.mjs')` — which the README tells a module repo to
+  // run — is ERR_PACKAGE_PATH_NOT_EXPORTED however faithfully the file was written into the tarball.
+  const bare = packageJsonFor(1, '0.2.0');
+  deepStrictEqual(Object.keys(bare.exports), ['.']);
+  const full = packageJsonFor(1, '0.2.0', ['manifest-types.mjs', 'manifest-schema.mjs']);
+  deepStrictEqual(Object.keys(full.exports), [
+    '.',
+    './manifest-schema.mjs',
+    './manifest-types.mjs',
+  ]);
+  strictEqual(full.exports['./manifest-schema.mjs'], './manifest-schema.mjs');
+});
+
+test('every subpath the README tells a module repo to import is one the package exports', () => {
+  const readme = readFileSync(join(REPO_ROOT, 'scripts/module-sdk/README.md'), 'utf8');
+  const wanted = [
+    ...new Set([...readme.matchAll(/@tetravox\/module-sdk\/([\w.-]+)/g)].map((m) => m[1])),
+  ];
+  ok(wanted.length > 0, 'the README does document a subpath');
+  const exported = packageJsonFor(1, '0.2.0', [
+    'manifest-schema.mjs',
+    'manifest-types.mjs',
+  ]).exports;
+  for (const name of wanted) {
+    ok(`./${name}` in exported, `the README imports ${name}, which the package does not export`);
+  }
 });
 
 // -- the import wall (gate 1) --------------------------------------------------------------------
@@ -134,6 +165,12 @@ test('the real sources stage without reaching anything the SDK does not carry', 
   }
   ok(table.has(HOST));
   ok(table.has(TYPES));
+  // The conditional one. It was absent while the SDK wave ran ahead of the main-process wave, and
+  // the emission skipped it rather than failing; now that the tree carries it, the import wall above
+  // is what says it may be shipped — `manifest-schema.ts` imports `./manifest-types` and nothing
+  // else, which is the same rule `modules.test.ts` puts on that directory.
+  ok(table.has(SCHEMA), 'the manifest validator is staged now that the core tree carries one');
+  strictEqual(table.get(SCHEMA), 'manifest-schema.ts');
 });
 
 // -- the engine subset ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@
  *   index.d.ts              the whole type surface, as one entry
  *   README.md               how a module repo consumes it
  *   manifest-schema.mjs     the manifest validator as plain ESM (when the core tree carries one)
+ *   manifest-types.mjs      what it imports, beside it, because a .mjs may not reach into src
  *   types/host.d.ts             from renderer/src/modules/host.ts        (FROZEN §12.3 item 6)
  *   types/manifest-types.d.ts   from src/modules/manifest-types.ts
  *   types/manifest-schema.d.ts  from src/modules/manifest-schema.ts      (when present)
@@ -54,12 +55,15 @@
  * package is then compiled once more against a probe file, so a subset that does not typecheck never
  * ships.
  *
- * ## The three gates this script is
+ * ## The four gates this script is
  *
  * 1. every import in every staged source resolves inside the SDK;
  * 2. `index.js` contains no `import` and no `export … from` — the property the module repo's
  *    zero-imports bundle check depends on;
- * 3. the emitted package typechecks against a probe that imports it the way a module does.
+ * 3. the emitted package typechecks against a probe that imports it the way a module does;
+ * 4. `manifest-schema.mjs`, when it ships, is *imported* and made to validate a manifest — the
+ *    README tells a module repo to run exactly that, and a specifier rewrite that did not resolve
+ *    would otherwise ship as a green build and fail in somebody else's CI.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -489,8 +493,17 @@ export declare const MODULE_HOST_VERSION: number;
 `;
 }
 
-/** The package manifest. No dependencies: React and the engine types both come from the host. */
-export function packageJsonFor(hostApi, coreVersion) {
+/**
+ * The package manifest. No dependencies: React and the engine types both come from the host.
+ *
+ * `subpaths` are the extra entry points this emission produced — `manifest-schema.mjs` and what it
+ * imports. They have to be **named in `exports`** or they are not reachable at all: a package with
+ * an `exports` map does not serve a file merely for being in the tarball, and
+ * `import('@tetravox/module-sdk/manifest-schema.mjs')` — which the README tells a module repo to run
+ * — fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`. Listed rather than a wildcard, because the SDK's
+ * public surface should be a list of what it offers.
+ */
+export function packageJsonFor(hostApi, coreVersion, subpaths = []) {
   return {
     name: PACKAGE_NAME,
     version: sdkVersion(hostApi, coreVersion),
@@ -499,13 +512,48 @@ export function packageJsonFor(hostApi, coreVersion) {
     type: 'module',
     main: './index.js',
     types: './index.d.ts',
-    exports: { '.': { types: './index.d.ts', default: './index.js' } },
+    exports: {
+      '.': { types: './index.d.ts', default: './index.js' },
+      ...Object.fromEntries([...subpaths].sort().map((name) => [`./${name}`, `./${name}`])),
+    },
     sideEffects: false,
     tetravox: { hostApi, coreVersion },
     repository: { type: 'git', url: 'git+https://github.com/idossha/tetravox.git' },
     peerDependencies: { react: '>=19' },
     peerDependenciesMeta: { react: { optional: true } },
   };
+}
+
+/**
+ * Gate 4: import the emitted validator and make it decide a manifest.
+ *
+ * `manifest-schema.mjs` is `tsc`'s JavaScript with `./manifest-types` rewritten to
+ * `./manifest-types.mjs`, which is a rewrite nothing else checks — and a module repository's CI runs
+ * this exact import (`docs/RELEASING.md` §9.3, the SDK README). An emission whose validator cannot
+ * be loaded, or that accepts an empty object, is not a usable SDK.
+ */
+export async function assertSchemaRuns(schemaPath, hostApi) {
+  const mod = await import(pathToFileURL(schemaPath).href);
+  if (typeof mod.validateManifest !== 'function') {
+    throw new Error(`${schemaPath} exports no validateManifest`);
+  }
+  const good = mod.validateManifest({
+    id: 'vendor.name',
+    title: 'Probe',
+    version: '1.0.0',
+    hostApi,
+    docs: 'https://example.invalid/probe',
+    activation: ['onToggle'],
+    commands: [],
+  });
+  if (!good.ok) {
+    throw new Error(
+      `the emitted manifest schema refuses a valid manifest:\n${good.errors.join('\n')}`
+    );
+  }
+  if (mod.validateManifest({}).ok) {
+    throw new Error(`the emitted manifest schema accepts {} — it is not validating anything`);
+  }
 }
 
 /** The probe a module repo's `tsc --noEmit` is a bigger version of. Gate 3. */
@@ -686,10 +734,6 @@ export async function emit({ root = REPO_ROOT, out, tarball = true, log = consol
   assertNoImports(shim); // gate 2
   writeFileSync(join(pkg, 'index.js'), shim);
   writeFileSync(join(pkg, 'index.d.ts'), indexDts());
-  writeFileSync(
-    join(pkg, 'package.json'),
-    `${JSON.stringify(packageJsonFor(hostApi, coreVersion), null, 2)}\n`
-  );
   cpSync(join(staging, 'sdk-runtime.ts'), join(pkg, 'types/sdk-runtime.ts'));
   writeFileSync(
     join(pkg, 'README.md'),
@@ -699,6 +743,8 @@ export async function emit({ root = REPO_ROOT, out, tarball = true, log = consol
       .replaceAll('{{ASSET}}', assetName(hostApi, coreVersion))
       .replaceAll('{{SDK_VERSION}}', sdkVersion(hostApi, coreVersion))
   );
+  // The extra entry points, before `package.json`, because `exports` has to name every one of them.
+  const subpaths = [];
   const schemaJs = join(jsDir, 'manifest-schema.js');
   if (existsSync(schemaJs)) {
     // Plain ESM so a module repo's CI can validate its own manifest.json with node and no install.
@@ -709,7 +755,18 @@ export async function emit({ root = REPO_ROOT, out, tarball = true, log = consol
         join(pkg, `${name}.mjs`),
         readFileSync(src, 'utf8').replace(/(from\s*['"])(\.\/[\w.-]+?)(['"])/g, '$1$2.mjs$3')
       );
+      subpaths.push(`${name}.mjs`);
     }
+  }
+  writeFileSync(
+    join(pkg, 'package.json'),
+    `${JSON.stringify(packageJsonFor(hostApi, coreVersion, subpaths), null, 2)}\n`
+  );
+  // Gate 4: the validator this SDK ships is *run*. The `.mjs` files are rewritten copies of tsc's
+  // output, so their specifiers are only proved by resolving them, and the README's `node -e` is
+  // exactly this import.
+  if (subpaths.includes('manifest-schema.mjs')) {
+    await assertSchemaRuns(join(pkg, 'manifest-schema.mjs'), hostApi);
   }
 
   // 6. Gate 3: the emitted package typechecks against a probe that imports it the way a module does.

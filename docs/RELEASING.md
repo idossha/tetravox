@@ -557,12 +557,21 @@ Every import in it is `import type`, so the emitted `index.js` has **no imports 
 what lets a module build inline it and produce the single-file, zero-import bundle a
 `tetravox://module/` load requires.
 
-The script is three gates, and a failure in any of them is a failure to produce a *usable* SDK
+When the core tree carries `src/modules/manifest-schema.ts` — it does since the extension host
+landed — the emission also ships the validator as plain ESM, `manifest-schema.mjs` and the
+`manifest-types.mjs` it imports, so a module repository can check its own `manifest.json` with node
+and no install. Both are named in the package's `exports`: a package with an `exports` map serves
+nothing that is not listed there, so an entry point that is merely in the tarball is not importable.
+
+The script is four gates, and a failure in any of them is a failure to produce a *usable* SDK
 rather than a missing file:
 
 1. every import in every staged source resolves inside the SDK;
 2. `index.js` contains no `import` and no `export … from`;
-3. the emitted package typechecks against a probe that imports it the way a module does.
+3. the emitted package typechecks against a probe that imports it the way a module does;
+4. `manifest-schema.mjs`, when it ships, is imported and made to validate a manifest — the `.mjs`
+   files are `tsc` output with their specifiers rewritten, and a rewrite that does not resolve would
+   otherwise be green here and red in somebody else's CI.
 
 `release.yml`'s `sdk` job emits it and attaches it to the same draft Release, and `verify` requires
 it by the name that job reported. **A release cannot be published with a module host and no SDK to
