@@ -138,6 +138,18 @@ test.describe('the module surface (stand-in engine)', () => {
     expect((slot as { y: number }).y).toBeGreaterThan((infoBox as { y: number }).y);
   });
 
+  test('the fold arrow hides the body and keeps the module active', async () => {
+    await expect(page.locator('[data-testid="module-slot-body"]')).toBeVisible();
+    await page.click('[data-testid="module-slot-fold"]');
+    // Folded: no body, but the module is still the active one — nothing was unloaded.
+    await expect(page.locator('[data-testid="module-slot-body"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="module-slot"]')).toBeVisible();
+    expect(await page.evaluate(() => window.__tetravox?.store.getState().activeModule)).toBe(HELLO);
+
+    await page.click('[data-testid="module-slot-fold"]');
+    await expect(page.locator('[data-testid="module-slot-body"]')).toBeVisible();
+  });
+
   test('the toolbar is exactly as tall as it was, at 1440×900', async () => {
     await setSize(app, 1440, 900);
     // Deactivate, measure, activate, measure. A second toolbar row is 20-odd pixels and would show

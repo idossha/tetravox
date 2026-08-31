@@ -20,6 +20,8 @@
  * component `activate` returned.
  */
 
+import { useState } from 'react';
+
 import { useController, useUi } from '../ui/context';
 
 export function ModuleSlot(): React.JSX.Element | null {
@@ -30,15 +32,21 @@ export function ModuleSlot(): React.JSX.Element | null {
   // resolved, so this is non-null exactly when the id is.
   const manifest = controller.activeModuleManifest();
   const Panel = controller.modulePanel();
+  // Folded is view state and nothing else: the module stays activated, its layers stay in the scene
+  // and its edits stay in its history — only the body is hidden, so the panes get the column back
+  // without the user having to close (and re-open, and re-load) the editor.
+  const [folded, setFolded] = useState(false);
   if (activeModule === null || manifest === null || Panel === null) return null;
 
   return (
     <section
       data-testid="module-slot"
       data-module={manifest.id}
+      data-folded={folded}
       // `max-h-[55%]` of the aside, with the scroller inside: the module never pushes the Info panel
-      // out of the column, however many rows it has.
-      className="flex max-h-[55%] min-h-0 flex-col border-t border-tvx-line"
+      // out of the column, however many rows it has. Folded there is no body to cap, so the section
+      // is just its header — one line the user can click to get the editor back.
+      className={`flex min-h-0 flex-col border-t border-tvx-line ${folded ? '' : 'max-h-[55%]'}`}
     >
       <header className="flex items-center justify-between px-2 pb-1 pt-1.5">
         <h2 className="truncate text-[11px] font-semibold uppercase tracking-wide text-tvx-dim">
@@ -49,20 +57,42 @@ export function ModuleSlot(): React.JSX.Element | null {
             </span>
           )}
         </h2>
-        <button
-          type="button"
-          data-testid="module-slot-close"
-          aria-label={`Close ${manifest.title}`}
-          title={`Close ${manifest.title}. Its layers stay in the scene; closing their dataset closes them.`}
-          className="tvx-btn tvx-btn-sm"
-          onClick={() => controller.deactivateModule()}
-        >
-          ✕
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            data-testid="module-slot-fold"
+            aria-expanded={!folded}
+            aria-label={folded ? `Expand ${manifest.title}` : `Collapse ${manifest.title}`}
+            title={
+              folded
+                ? `Expand ${manifest.title}`
+                : `Collapse ${manifest.title}. It stays active — nothing is unloaded.`
+            }
+            className="tvx-btn tvx-btn-sm"
+            onClick={(event) => {
+              event.currentTarget.blur();
+              setFolded((value) => !value);
+            }}
+          >
+            {folded ? '▸' : '▾'}
+          </button>
+          <button
+            type="button"
+            data-testid="module-slot-close"
+            aria-label={`Close ${manifest.title}`}
+            title={`Close ${manifest.title}. Its layers stay in the scene; closing their dataset closes them.`}
+            className="tvx-btn tvx-btn-sm"
+            onClick={() => controller.deactivateModule()}
+          >
+            ✕
+          </button>
+        </div>
       </header>
-      <div data-testid="module-slot-body" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <Panel />
-      </div>
+      {!folded && (
+        <div data-testid="module-slot-body" className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+          <Panel />
+        </div>
+      )}
     </section>
   );
 }

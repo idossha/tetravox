@@ -8,7 +8,16 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **The module slot folds.** A ▾ arrow beside the slot's ✕ hides the panel body and gives the column
+  back to the Info panel, while the module stays active — its layers, its table and its history are
+  all still there, and the arrow puts the panel back.
+
+### Changed
+
+- The bundled `tetravox.seeg` extension is pinned at **0.1.2**, which marks the selected contact in
+  its list and in its shaft sketch.
 
 ## [0.3.1] - 2026-08-31
 

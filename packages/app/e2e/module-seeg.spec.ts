@@ -221,6 +221,33 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await expect(page.locator('[data-testid="seeg-row-A01"]')).not.toContainText('0.0 mm');
   });
 
+  test('the selected contact is marked in the list and in the shaft sketch', async () => {
+    // Nothing is selected until something selects: no row is marked, and the sketch has no halo.
+    await expect(page.locator('[data-testid="seeg-list"] [data-selected="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(0);
+
+    await page.click('[data-testid="seeg-select-A03"]');
+    // Exactly one row is the selected one, and it is that one…
+    await expect(page.locator('[data-testid="seeg-list"] [data-selected="true"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="seeg-row-A03"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    // …and the sketch marks exactly one dot, so the list and the diagram agree.
+    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(1);
+
+    await page.click('[data-testid="seeg-select-A05"]');
+    await expect(page.locator('[data-testid="seeg-row-A05"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    await expect(page.locator('[data-testid="seeg-row-A03"]')).toHaveAttribute(
+      'data-selected',
+      'false'
+    );
+    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(1);
+  });
+
   test('a snap moves the selected contact toward the metal, and Undo puts it back', async () => {
     const id = await layerId(page);
     const before = await page.evaluate(
