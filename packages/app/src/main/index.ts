@@ -33,6 +33,7 @@ import { installCloseGuard, registerModuleIpc } from './module-io';
 import { discoverSubjectSpaces } from './subject-spaces';
 import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
+import { installedManifests } from '../modules/manifests';
 import {
   cancelSample,
   catalogue,
@@ -44,6 +45,20 @@ import {
   sampleStatuses,
   startSample,
 } from './sample-data';
+// §13's downloadable extensions (`module-store.ts`, 2026-08-30). Imported before `job-runner` is
+// used below, because `bootstrapInstalledModules()` has to have run before a job file is validated.
+import {
+  bootstrapInstalledModules,
+  cancelInstall,
+  catalogue as moduleCatalogue,
+  disableModuleAction,
+  enableModuleAction,
+  installModuleAction,
+  moduleDir,
+  moduleStatuses,
+  removeModuleAction,
+  revealModuleDir,
+} from './module-store';
 import {
   armWatchdog,
   jobRequest,
@@ -159,6 +174,17 @@ const MODE = windowMode();
  * `createWindow` can size the window from the job rather than from the interactive default. A launch
  * with no `--job` gets `null` here and every line below behaves exactly as it did.
  */
+/**
+ * The installed extensions, read **before** `prepareJob` (§13.6, 2026-08-30).
+ *
+ * A `--job` run validates its actions against the modules this launch carries, and an installed
+ * module is one of them — so the set has to be known before the job file is parsed, not after
+ * `whenReady`. It is a handful of small JSON files off disk, which is the same order of work as
+ * reading `settings.json`, and it is what makes "every problem in a job file is reported at once,
+ * before anything is loaded" still true once a module can arrive from outside the build.
+ */
+bootstrapInstalledModules();
+
 const JOB = prepareJob(process.argv, process.cwd());
 if (JOB !== null) rememberInvocation(JOB);
 
@@ -516,6 +542,44 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     return sampleStatuses();
   });
   ipcMain.handle('tetravox:sample-reveal-cache', () => revealSampleCache());
+  // -- Extensions (§13, `module-store.ts`, 2026-08-30) ---------------------------------------------
+  // The Sample Data shape, one door further in: main downloads, hashes, consents and serves, and the
+  // renderer sees ids, progress numbers and card states. The one difference from the block above is
+  // that the payload is **script**, so nothing here hands the renderer a path — an enabled module is
+  // reachable only as `tetravox://module/<id>/<version>/<file>`, off a map only `enableModule` fills.
+  ipcMain.handle('tetravox:module-catalog', () => ({
+    modules: moduleCatalogue(),
+    dir: moduleDir(),
+  }));
+  ipcMain.handle('tetravox:module-statuses', () => moduleStatuses());
+  ipcMain.handle('tetravox:module-install', async (_event, id: unknown, version: unknown) =>
+    installModuleAction(id, version, (p) =>
+      getWindow()?.webContents.send('tetravox:module-progress', p)
+    )
+  );
+  ipcMain.handle('tetravox:module-cancel', (_event, id: unknown) =>
+    typeof id === 'string' ? cancelInstall(id) : false
+  );
+  // Enable **is** consent: the renderer shows the sheet, the user says yes, and this is the message
+  // that says so. Everything the consent buys — the protocol map entry, a place in `validateJob`'s
+  // manifest list — is granted here and nowhere else.
+  ipcMain.handle('tetravox:module-enable', (_event, id: unknown) => enableModuleAction(id));
+  // …and withdrawing it is main's own act: the map entries go, the settings key goes, and the
+  // module's write admissions are revoked here rather than being asked for back over
+  // `tetravox:module-clear-writes`, which a renderer that has been taken over simply never sends.
+  ipcMain.handle('tetravox:module-disable', (_event, id: unknown) => disableModuleAction(id));
+  ipcMain.handle('tetravox:module-remove', (_event, id: unknown) => removeModuleAction(id));
+  ipcMain.handle('tetravox:module-reveal-dir', () => revealModuleDir());
+  /**
+   * The installed manifests, for the renderer's own `registerInstalledManifests()`.
+   *
+   * The same array registered in **both** processes (§13.1): main needs it to validate a job action
+   * before a window exists, and the renderer needs it because `manifestFor` is called synchronously
+   * while rendering — a layer's owner badge, the status cells, a toast naming a module. Manifests
+   * are data (no DOM type, no `node:` import), so this is one small JSON round trip and not a
+   * capability: knowing a module's title admits nothing.
+   */
+  ipcMain.handle('tetravox:module-manifests', () => installedManifests());
 
   void app.whenReady().then(() => {
     // No dock icon for a run that has no window: the bounce and the icon are themselves a visible
