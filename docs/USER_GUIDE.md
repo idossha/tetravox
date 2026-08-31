@@ -384,7 +384,8 @@ Three switches decide how much of that is drawn, and none of them touches the ta
 | **Wire** (`d`) | draw the shaft lines. Off is for a figure about one slice's contacts |
 | **size − / +** | how big a contact is drawn, 2–12 px. The bigger dot is also a bigger click target |
 
-All three are saved with the scene, so a figure reopens looking the way you left it.
+All three are saved with the scene, so a figure reopens looking the way you left it, and all three are job-file
+operations (`ghost`, `wire`, `size`) — which of them are on is part of what a figure *is*.
 
 | Do this | With |
 |---|---|
@@ -474,7 +475,7 @@ writing a table in which everything looks new.
 ### From a job file
 
 Every button is also a job-file operation, so a batch can do what the panel does — `load`, `snap`,
-`refit`, `renumber`, `flip-tip`, `revert`, `delete`, `ghost`, `wire`, `stats` and `save`. `flip-tip` matters more
+`refit`, `renumber`, `flip-tip`, `revert`, `delete`, `ghost`, `wire`, `size`, `stats` and `save`. `flip-tip` matters more
 than it looks: which end of a shaft is contact 1 comes from a heuristic, `renumber` applies whatever the
 tip currently is, and this is how a batch corrects the shaft the heuristic read backwards — the same thing
 `t` does in the panel. See [Automation]({{ site.baseurl }}/AUTOMATION.html).

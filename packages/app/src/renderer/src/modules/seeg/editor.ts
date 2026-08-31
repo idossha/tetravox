@@ -1421,6 +1421,14 @@ export function createModel(host: ModuleHost): SeegModel {
         doWire(args['on'] === true);
         return { wire };
       }
+      // The third display switch (2026-08-30). `doSize` is the panel stepper's own function, so the
+      // 2–12 clamp, the layer write and the scene block are one code path — a job that asks for 40
+      // gets 12 and is told so by the `dotRadiusPx` this answers with, rather than getting a
+      // marker the panel could never have made.
+      case 'size': {
+        doSize(Number(args['px']));
+        return { dotRadiusPx };
+      }
       case 'stats':
         return { electrodes: allShaftStats(set) };
       // The three appended 2026-08-30. Each is a deterministic edit to a **named** electrode or

@@ -7,6 +7,7 @@
     seeg.load(job, ct=ct, tsv=tsv)
     seeg.snap(job, scope="all", radius_mm=1.5)
     seeg.wire(job, on=False)
+    seeg.size(job, px=7)
     seeg.flip_tip(job, electrode="LOCC")
     seeg.refit(job)
     seeg.save(job, out="sub-01_space-T1w_electrodes.tsv")
@@ -145,6 +146,21 @@ def wire(job: Job, on: bool) -> Job:
     them. Hiding it changes nothing on disk — the line is drawn from the contact positions.
     """
     return job.module(MODULE_ID, "wire", on=bool(on))
+
+
+def size(job: Job, px: float) -> Job:
+    """How big a contact marker is drawn, in CSS pixels — the panel's Size stepper.
+
+    `px` is **held to 2–12** by the app, the stepper's own bounds: below 2 a marker is a pixel of
+    noise over a bone-window CT, above 12 one contact covers the neighbour you are comparing it
+    with. It is not clamped here — the app is what clamps, and the operation reports the size it
+    settled on, so read `{"dotRadiusPx": px}` back if the number matters to you.
+
+    A display switch like `ghost` and `wire`: nothing changes on disk, and the size is saved with
+    the scene. The bigger marker is also a bigger click target, which is why a figure at a clinical
+    zoom usually wants one.
+    """
+    return job.module(MODULE_ID, "size", px=float(px))
 
 
 def stats(job: Job) -> Job:

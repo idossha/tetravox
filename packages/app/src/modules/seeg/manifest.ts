@@ -129,6 +129,15 @@ export const seegManifest: ModuleManifest = {
     // has to be able to say. Fifteen shafts' worth of lines over a bone-window CT is exactly the
     // clutter a slice figure does not want, and there was no way to turn it off headlessly.
     { id: 'wire', args: { on: 'boolean' } },
+    // The third display switch, appended 2026-08-30. It is an **operation with no command**, which
+    // is the one direction §13.6's parity rule allows: the rule is "every panel action is also an
+    // operation", and it is silent about an operation the panel reaches through a stepper rather
+    // than a bindable command (§13.5 keeps `+`/`-` for the engine's zoom). The job that produced
+    // this wave's figures had to reach around the module — `{"type": "set", "layer": "Contacts · …",
+    // "patch": {"dotRadiusPx": 7}}`, naming a module-owned layer from outside by its display name —
+    // once per screenshot. `px` is held to the stepper's own 2–12 by `clampDotRadius`, so a job
+    // cannot ask for a size the panel refuses.
+    { id: 'size', args: { px: 'number' } },
     { id: 'stats', args: {} },
     { id: 'save', args: { out: 'out' } },
     // Appended 2026-08-30. `tip: 'auto'` is a heuristic — DECISIONS says an occipital shaft entering

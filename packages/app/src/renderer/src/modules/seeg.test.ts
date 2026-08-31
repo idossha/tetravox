@@ -965,6 +965,15 @@ describe('operations (§13.6)', () => {
     expect(await instance?.runOperation?.('wire', { on: true })).toEqual({ wire: true });
     expect(contactsLayer(h).lineSegments).toHaveLength(12 * 6);
 
+    // The third display switch (2026-08-30), through the stepper's own function: it writes §4.4's
+    // `dotRadiusPx` and it is held to the panel's 2–12, so a job cannot ask for a marker the panel
+    // could not make — and it answers with the size it settled on rather than the one it was given.
+    expect(await instance?.runOperation?.('size', { px: 7 })).toEqual({ dotRadiusPx: 7 });
+    expect(contactsLayer(h).dotRadiusPx).toBe(7);
+    expect(await instance?.runOperation?.('size', { px: 40 })).toEqual({ dotRadiusPx: 12 });
+    expect(contactsLayer(h).dotRadiusPx).toBe(12);
+    expect(await instance?.runOperation?.('size', { px: 4 })).toEqual({ dotRadiusPx: 4 });
+
     const stats = (await instance?.runOperation?.('stats', {})) as {
       electrodes: { electrode: string; n: number }[];
     };

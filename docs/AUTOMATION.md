@@ -445,6 +445,7 @@ script rather than editing the table. CI checks it with `--check`.
 | `renumber` | `electrode` a string *(optional)* |
 | `ghost` | `on` true or false |
 | `wire` | `on` true or false |
+| `size` | `px` a number |
 | `stats` | — |
 | `save` | `out` a file name under `--out` |
 | `flip-tip` | `electrode` a string *(optional)* |

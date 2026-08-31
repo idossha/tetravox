@@ -4454,3 +4454,19 @@ contract may have surprises; it may not have silent ones, so it is in `api.ts`'s
 
 The hover half follows for free and is left to: it is the same hit test, so a ghost is now hot and shows
 the `grab` cursor. The picture must not say "not clickable" about a press that selects.
+
+## 2026-08-30 — `size` is an operation because it is a property of the figure, not of the session
+
+`dotRadiusPx` shipped this morning as a panel-only control, on the argument that §13.6 exempts a command
+needing a live pointer, a dialog, the undo stack or only the selection — and a size stepper is none of
+those, so it is not a *command*. That argument was about §13.5's key pool and it is still right; it says
+nothing about the **operation** half, and the two are separable. The evidence is the P077 proof job in
+this wave, which had to reach for `{ "type": "set", "layer": "Contacts · …", "patch": { "dotRadiusPx": 7 } }`
+— naming a module-owned layer from outside the module, by its display name, to set a field the module
+believes it owns. Every screenshot after a module operation would have had to repeat it.
+
+So `size { px }` joins `ghost` and `wire` as the third display switch, with the same shape: same clamp as
+the stepper (2–12, `clampDotRadius`), same `doSize` the panel button calls, no history entry, no dirty
+mark, one line in the scene block. It is an operation with no command, which `modules.test.ts` already
+allows — its parity rule runs commands → operations, because the gap that rule exists to catch is a
+panel action a job cannot reach, and never the reverse.
