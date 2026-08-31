@@ -8,10 +8,6 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
-
-## [0.3.2] - 2026-08-31
-
 ### Added
 
 - **Extension updates no longer wait for a Tetravox release.** The catalogue is refreshed from the
@@ -19,6 +15,20 @@ Nothing yet.
   appears as **Update to X** on its own. Offline is unchanged: a failed refresh leaves the previous
   catalogue standing, and the copy the app ships is still the floor. A fetched index is validated
   strictly — every hash checked, and every download URL required to be HTTPS on a GitHub host.
+- **Extensions pop out into their own windows, and several can be live at once.** The docked slot
+  still holds one extension — it is one section of a 320 px column — but an extension whose manifest
+  allows it can be moved into a window of its own, and the ones that are out stay live alongside it.
+  Moving is never destructive: popping out, re-docking and closing the window all keep the instance,
+  its history, its layers and its block, and docking a second extension pops the first out rather
+  than closing it. Main's window-open handler is now a whitelist, and every popup is denied outright
+  outside `'normal'` window mode, so a `--job` run can never raise a window on an unattended machine.
+- **The sEEG extension offers 0.1.3**, whose panel pops out into its own window and reflows to two
+  columns when it has the room.
+
+## [0.3.2] - 2026-08-31
+
+### Added
+
 - **The extension slot folds.** A ▾ arrow beside the slot's ✕ hides the panel body and gives the
   column back to the Info panel, while the extension stays active — its layers, its table and its
   history are all still there, and the arrow puts the panel back.
