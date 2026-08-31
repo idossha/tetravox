@@ -151,10 +151,16 @@ export function ExtensionsDialog({
           It will be able to
         </h3>
         {/* Derived from the manifest by main, never declared separately — the card and the sheet
-            cannot disagree with what the module actually asked for, because there is one list. */}
+            cannot disagree with what the module actually asked for, because there is one list. The
+            empty-list line is phrased as what the manifest *declared* rather than as an absolute
+            "it can do nothing", so it stays truthful for every manifest `derivePermissions` covers
+            (readers, siblings, writers, keys, operations, sceneBlock) and cannot outrun a capability
+            the list forgot to enumerate. */}
         <ul data-testid="extension-consent-permissions" className="ml-4 list-disc text-[11px]">
           {consentStatus.permissions.length === 0 ? (
-            <li className="text-tvx-dim">nothing beyond drawing in its own panel</li>
+            <li className="text-tvx-dim">
+              nothing beyond drawing in its own panel — it declares no file, key, or job access
+            </li>
           ) : (
             consentStatus.permissions.map((line) => (
               <li key={line} className="leading-snug">

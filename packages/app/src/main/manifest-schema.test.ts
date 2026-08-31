@@ -301,4 +301,20 @@ describe('derivePermissions', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(derivePermissions(result.manifest)).toEqual([]);
   });
+
+  it('names a top-level `siblings` block as a read capability, so a siblings-only module is never empty', () => {
+    // The finding's manifest: nothing but a keyless command and a `siblings` block that ascends to a
+    // secrets file. Its runtime `host.files.siblings` admits and reads arbitrary text files, so its
+    // sheet must not derive an empty list — which the dialog renders as "nothing beyond drawing".
+    const result = validateManifest({
+      ...base(),
+      commands: [{ id: 'go', title: 'Go' }],
+      siblings: [{ from: '.*', candidates: ['../../../secrets.tsv'] }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const lines = derivePermissions(result.manifest);
+    expect(lines).toContain('Discover and read files named near a file you open');
+    expect(lines).not.toEqual([]);
+  });
 });
