@@ -215,3 +215,20 @@ export interface ModuleManifest {
  * a surface that no longer means what it said.
  */
 export const MODULE_HOST_VERSION = 1 as const;
+
+/**
+ * A manifest that arrived as **JSON from disk** rather than as a compiled-in TS literal (§13.1,
+ * downloadable extensions, 2026-08-30).
+ *
+ * Structurally identical to {@link ModuleManifest} except for `hostApi`, which is a plain `number`
+ * here. That single difference is the whole point: a compiled-in manifest cannot carry a stale
+ * `hostApi`, because the literal type `1` makes a wrong one a compile error — while an *installed*
+ * manifest is a file some other repository wrote, whose `hostApi` may legitimately be 2 (too new) or
+ * 0 (garbage), and the host has to be able to *hold* that value in order to refuse it. Typing it as
+ * `1` would make the version gate a tautology: every value that reached the check would already be
+ * the right one.
+ *
+ * `ModuleManifest` is assignable to this type (`1 extends number`), so one list can hold both kinds,
+ * which is what `manifests.ts#allManifests()` returns and what `validateJob` validates against.
+ */
+export type InstalledManifest = Omit<ModuleManifest, 'hostApi'> & { hostApi: number };
