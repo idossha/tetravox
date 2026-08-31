@@ -104,10 +104,13 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     const target = workerInfo.project.name as LaunchTarget;
     const blocked = target === 'packaged' ? packagedUnavailable() : null;
     test.skip(blocked !== null, blocked ?? '');
-    // The dev target activates the bundled module out of `packages/app/resources/modules/`; with the
-    // tree unfetched there is nothing to discover, so skip rather than fail (AGENTS.md rule 2's shape).
+    // The bundled module is discovered from `packages/app/resources/modules/`: the dev target reads it
+    // there directly, and the packaged `.dmg` ships a copy `electron-builder` took from that same tree
+    // at package time. Either way an unfetched tree means nothing to discover, so skip rather than fail
+    // (AGENTS.md rule 2's shape) — the cheap CI leg packages after `--verify-only`, so its `.dmg` has no
+    // sEEG just as its dev tree does; a release (or the on-demand `package` job) fetches, and then it runs.
     test.skip(
-      target !== 'packaged' && !existsSync(DEV_BUNDLE),
+      !existsSync(DEV_BUNDLE),
       'the bundled tetravox.seeg is not in resources/modules — run `node scripts/fetch-locked-modules.mjs`'
     );
     tree = subjectTree();

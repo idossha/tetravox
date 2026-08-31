@@ -355,11 +355,12 @@ test.describe('a build that offers no module', () => {
     // "Offers no module" means the FIXTURE (hello): compiled into every build and listed only behind
     // `?modules=`, so a launch that did not name it is in the state a build that never had it is in.
     // The switcher is a control the toolbar grows only when a module IS carried — the bundled
-    // `tetravox.seeg` (§13.8). Fetched (the packaged leg, the local gate), the switcher is there and
-    // lists sEEG, never the hidden fixture; unfetched (the cheap CI leg runs
-    // `fetch-locked-modules --verify-only`, no download) the build truly offers no module and the
-    // control is not rendered at all. Either way the fixture is not in the slot.
-    const seegBundled = test.info().project.name === 'packaged' || existsSync(SEEG_BUNDLE);
+    // `tetravox.seeg` (§13.8). Its presence is read off `resources/modules/`: the dev target reads that
+    // tree, and the packaged `.dmg` ships a copy taken from it at package time, so the same check speaks
+    // for both. Fetched, the switcher is there and lists sEEG, never the hidden fixture; unfetched (the
+    // cheap CI leg runs `fetch-locked-modules --verify-only`, no download) the build truly offers no
+    // module and the control is not rendered at all. Either way the fixture is not in the slot.
+    const seegBundled = existsSync(SEEG_BUNDLE);
     if (seegBundled) {
       await page.click('[data-testid="module-switcher"]');
       await expect(page.locator('[data-testid="module-switcher-list"]')).toBeVisible();
