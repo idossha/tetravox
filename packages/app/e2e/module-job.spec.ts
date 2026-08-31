@@ -45,6 +45,12 @@ import { APP_ROOT } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
 const VOLUME = join(TESTDATA, 'vol_u8.nii.gz');
+// The second describe drives a real `tetravox.seeg` job. sEEG ships as the bundled extension
+// (§13.8), placed under `resources/modules/` by `scripts/fetch-locked-modules.mjs`; when it is
+// not on disk the build carries no such module and every action is refused. Skip there, exactly
+// as `module-seeg.spec.ts` does — the cheap `test` CI leg runs `fetch-locked-modules
+// --verify-only` (no download); the packaged leg and the local P077 gate cover the fetched case.
+const SEEG_BUNDLE = resolve(APP_ROOT, 'resources', 'modules', 'tetravox.seeg', '0.1.0', 'index.js');
 
 const temporaryDirectories: string[] = [];
 
@@ -253,6 +259,10 @@ test.describe('a module operation from a job', () => {
 test.describe('a module that writes, from a job', () => {
   test.beforeAll(({}, testInfo) => {
     test.skip(testInfo.project.name !== 'dev', 'the dev target only');
+    test.skip(
+      !existsSync(SEEG_BUNDLE),
+      'the bundled tetravox.seeg is not in resources/modules — run `node scripts/fetch-locked-modules.mjs`'
+    );
   });
 
   test.afterAll(() => {
