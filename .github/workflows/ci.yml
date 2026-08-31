@@ -252,6 +252,14 @@ jobs:
           TETRAVOX_ALLOW_SOFTWARE_ANGLE: ${{ runner.os == 'Linux' && '1' || '' }}
         run: pnpm e2e
 
+      # §13.8's loader guard, and the only place it can run: the extension loader's *variable* dynamic
+      # import is rewritten by Vite into an EMPTY glob helper if the `@vite-ignore` comment is ever lost
+      # — silently, with no build warning and no failing unit test — so the claim is checked against the
+      # emitted chunk. It sits after `pnpm e2e` because the app's `e2e` script is `electron-vite build &&
+      # playwright test`, so `out/renderer/assets/` is fresh here and no second build is needed.
+      - name: The extension loader survived the build
+        run: node scripts/check-module-loader.mjs
+
       # Both suites `pnpm e2e` runs, not just the engine's: the app's dev-leg report was uploaded on
       # no runner at all (the `packaged` step below collects packages/app, but only on macOS), so an
       # app E2E failure on Linux left its screenshots and traces on the runner and nothing to look at
@@ -365,6 +373,12 @@ jobs:
 
       - name: Self-test the module SDK emitter
         run: node --test scripts/emit-module-sdk.test.mjs
+
+      # §13.8's loader guard, self-tested here and *run* in `test` (it needs a build). Its fixtures are
+      # the three ways the loader can stop working, driven red — one of which is silent in every other
+      # test the repository has.
+      - name: Self-test the extension loader guard
+        run: node --test scripts/check-module-loader.test.mjs
 
   # The Python client's document tests (`docs/AUTOMATION.md` §3) — **the first Python step in this
   # workflow**, and its own job for the docs guard's reasons rather than a step of `test`: it needs
