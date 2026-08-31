@@ -160,7 +160,7 @@ for f in "${PACKAGE_JSONS[@]}"; do
 done
 grep -q "^version = \"$VERSION\"" Cargo.toml || { echo "Cargo.toml did not take" >&2; exit 1; }
 
-git add "${PACKAGE_JSONS[@]}" Cargo.toml Cargo.lock CHANGELOG.md
+git add "${PACKAGE_JSONS[@]}" Cargo.toml Cargo.lock CHANGELOG.md CITATION.cff
 git commit -m "chore(release): $VERSION"
 
 if [ "$TAG" = "1" ]; then
