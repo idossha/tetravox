@@ -93,6 +93,7 @@ import {
 // §12.4's in-app updates (`updater.ts`, 2026-08-31). Constructed after the IPC handlers below are
 // registered and started from `whenReady`, so no channel can be invoked before it exists.
 import { UpdaterService } from './updater';
+import { refreshCatalogueOnce } from './registry';
 
 /**
  * `BrowserWindow.backgroundColor` for this launch: the `bg` token of the theme the renderer will
@@ -654,10 +655,14 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // renderer sees ids, progress numbers and card states. The one difference from the block above is
   // that the payload is **script**, so nothing here hands the renderer a path — an enabled module is
   // reachable only as `tetravox://module/<id>/<version>/<file>`, off a map only `enableModule` fills.
-  ipcMain.handle('tetravox:module-catalog', () => ({
-    modules: moduleCatalogue(),
-    dir: moduleDir(),
-  }));
+  ipcMain.handle('tetravox:module-catalog', async () => {
+    // Opening the dialog is an explicit ask, so it refreshes whatever the launch check did — and
+    // awaits it, because a catalogue drawn from a copy that is about to change is the one thing
+    // worse than a catalogue drawn a second late. `refreshCatalogueOnce` answers false and changes
+    // nothing when there is no network (§13.8).
+    if (!isJobRun()) await refreshCatalogueOnce();
+    return { modules: moduleCatalogue(), dir: moduleDir() };
+  });
   ipcMain.handle('tetravox:module-statuses', () => moduleStatuses());
   ipcMain.handle('tetravox:module-install', async (_event, id: unknown, version: unknown) =>
     installModuleAction(id, version, (p) =>
@@ -740,6 +745,12 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     // §12.4's launch check — scheduled with a grace delay, never awaited: first paint owes nothing
     // to a network round trip, and `updater.ts` refuses on its own in a dev build or a `--job` run.
     updater.startLaunchCheck();
+    // §13.8's catalogue refresh rides the same preference and the same reasoning: one small request
+    // that makes an extension release visible without a Tetravox release, never awaited, and
+    // silently a no-op offline. A `--job` run asks nothing of the network.
+    if (!isJobRun() && readSettings().checkForUpdates) {
+      setTimeout(() => void refreshCatalogueOnce(), 6000);
+    }
 
     if (isJobRun() && mainWindow !== null) {
       // A job that never reports is a job that hung: without these two the process would sit alive

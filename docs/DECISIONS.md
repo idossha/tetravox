@@ -4897,6 +4897,35 @@ names that mirror those surfaces also keep the word; renaming ~155 identifiers a
 rejected as pure churn against in-flight branches. `tetravox.hello` stays compiled in as the test
 fixture behind `?modules=` — it is scaffolding for this whole surface, not a shipped extension.
 
+## 2026-08-31 — the extensions catalogue is refreshed from its registry, not frozen in the build
+
+The catalogue File ▸ Extensions… shows was only ever the copy the build ships, so an extension
+release was invisible until a *core* release carried a refreshed copy: publishing a one-line fix to
+an extension meant cutting a Tetravox, and the sEEG 0.1.2 entry had to be committed to this
+repository to reach anybody. §12.4's updater covers the app and says nothing about extensions, so
+nothing else closed the gap. `main/registry.ts` fetches the curated index
+(`idossha/tetravox-extensions`), validates it, and caches it under `userData`; `catalogue()` prefers
+the dev seam, then that cache, then the shipped copy. The refresh runs at launch behind the same
+`checkForUpdates` preference the app check uses, and again when the dialog opens (an explicit ask,
+so it is not gated). Every failure — offline, non-200, oversized, unparseable, invalid — leaves the
+previous answer standing, which is what keeps "the dialog is correct with no network" true.
+
+The trust change is real and is bounded rather than waved at: the shipped copy is reviewed in a pull
+request and rides inside the signed application, while a fetched one is whatever the registry serves.
+So the fetched path is validated far more strictly than the shipped reader — every id, version, byte
+count and hash shape-checked, and **every download URL required to be https on a GitHub host**, so an
+index that arrived over the wire cannot aim the downloader at another server. The body is capped and
+timed out, and the cache is re-validated on every read, so a hand-edited cache is refused exactly as a
+bad response is. Nothing downstream relaxes: `hostApi` still gates, consent is still per version behind
+the sheet, and every file is still re-hashed before it is served.
+
+Alternatives rejected: signing the index (real, and the right answer if the registry ever becomes a
+target — but it needs a key, a rotation story and a verification path, and the entry it protects
+already points at release assets whose repository is trusted the same way); fetching per dialog-open
+only (a launch refresh costs one small request and means the dialog is right the first time it is
+opened); replacing the shipped copy entirely (a build with no catalogue is a dialog that is empty
+offline, which is worse than one that is merely behind).
+
 ## 2026-08-31 — extensions pop out into their own windows, and several may be live at once (§13.10)
 
 §13.3's "one docked slot, one extension at a time" is narrowed to what it always actually justified: the

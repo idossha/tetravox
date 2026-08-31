@@ -1,10 +1,20 @@
 # Tetravox CI — docs/ARCHITECTURE.md §12.
 #
-# `test` runs on ubuntu-24.04 (the §11/§12.1 **golden authority**) on every event, and on macos-latest
-# for push-to-main and workflow_dispatch only — macOS minutes bill 10x on a private repo (§12.1).
+# The jobs, and why they are separate: `test` is the static and unit half (rust, typecheck, lint,
+# vitest), `e2e` is the Playwright half fanned out over shards, `docs-guard` and `python` are
+# seconds-long guards that must report before either finishes, and `package` builds the §12.1
+# matrix. `test` and `e2e` run CONCURRENTLY and neither waits on the other — e2e was 67% of the
+# old single job, so splitting it out and sharding the engine is what takes a pull request from
+# ~11 min to ~4 (measured, run 33441930192).
+#
+# Everything heavy runs on ubuntu-24.04 (the §11/§12.1 **golden authority**) on every event, and on
+# macos-latest for workflow_dispatch only — macOS minutes bill 10x on a private repo (§12.1).
 # The `package` legs of the §12.1 matrix are carried here from day one, as docs/ROADMAP.md Phase 0
-# requires, but they are Phase 3's to make green and only run on demand — Phase 0 proves
-# `pnpm package` on the host platform only, via the macOS `.dmg` step inside `test`.
+# requires — Phase 0 proves `pnpm package` on the host platform only, via the macOS `.dmg` step
+# inside `test`.
+#
+# Toolchains, caches and the install are one composite action, `.github/actions/setup`, shared by
+# all three heavy jobs: three copies of a cache key is how a cache quietly stops being hit.
 name: CI
 
 on:
@@ -29,14 +39,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-    # A green `test` leg is ~8 min on ubuntu and ~5 min on macOS (measured, run 33125834965). The cap
-    # is not for the happy path; it is for the one where the engine cannot start. Playwright's
-    # per-test timeout is 30 s and the engine suite is ~120 tests over two projects, so a page that
-    # never publishes `window.__tvxEngine` does not hang — it fails once per test, one timeout at a
-    # time, and bills every second of it. That is what run 33116778462 did on `main`: **3 h 14 m on a
-    # macOS runner, at the 10x rate**, for a failure that was fully diagnosable from its first
-    # minute. 45 min is five times a green run and still cuts that worst case by 4x.
-    timeout-minutes: 45
+    # ~3 min green now that the Playwright suites are their own job (they were 442 s of an 11 min
+    # leg). The runaway this cap exists for moved with them — see `e2e`'s own timeout — but the
+    # macOS leg still packages and launches an artefact, so keep real headroom.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -56,134 +62,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # §12.2 names `~/.cache/electron` and `~/.cache/ms-playwright` as the caches to keep. macOS would
-      # otherwise put both under `~/Library/Caches`, so pin the locations and cache one set of paths on
-      # both runners. Set here rather than in `env:` because workflow `env:` is not shell-expanded.
-      - name: Pin the download caches to the §12.2 paths
-        shell: bash
-        run: |
-          echo "ELECTRON_CACHE=$HOME/.cache/electron" >> "$GITHUB_ENV"
-          echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" >> "$GITHUB_ENV"
-
-      # ------------------------------------------------------------------ toolchains
-      # rust-toolchain.toml pins stable 1.93.0 with rustfmt, clippy and wasm32-unknown-unknown, and
-      # rustup honours it. `rustup show` is what makes it install, before anything needs it.
-      - name: Install the pinned Rust toolchain
-        run: |
-          rustup show
-          rustc --version
-          cargo --version
-          rustup target list --installed
-
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      # Toolchains, the §12.2 caches and the install — shared with `e2e` and `package`, see
+      # `.github/actions/setup`. No Playwright browser and no Xvfb: since the e2e suites moved to
+      # their own job this leg launches a browser on no runner, and on macOS the packaged E2E below
+      # drives the Electron binary, which needs neither.
+      - uses: ./.github/actions/setup
         with:
-          node-version: 24
-
-      # ------------------------------------------------------------------ caches (§12.2)
-      - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            ~/.cargo/bin
-            target
-          key: cargo-${{ matrix.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: cargo-${{ matrix.os }}-
-
-      - name: Resolve the pnpm store path
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: pnpm store cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ matrix.os }}-
-
-      # §12.2: from electron 42 the ~100 MB binary is downloaded on FIRST LAUNCH, not on install, so
-      # this cache is what keeps the warm-up step below from re-downloading it every run.
-      - name: Electron binary cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: electron-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: electron-${{ matrix.os }}-
-
-      # @playwright/test is pinned to an exact version because it pins the Chromium build, and therefore
-      # the SwiftShader that produces every golden (§11). Key the cache on that exact version.
-      - name: Playwright browser cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ matrix.os }}-
-
-      # ------------------------------------------------------------------ install
-      - name: Install wasm-pack ${{ env.WASM_PACK_VERSION }} (pinned by scripts/build-wasm.sh)
-        shell: bash
-        run: |
-          if [ "$(wasm-pack --version 2>/dev/null | awk '{print $2}')" != "$WASM_PACK_VERSION" ]; then
-            cargo install wasm-pack --version "$WASM_PACK_VERSION" --locked --force
-          fi
-          wasm-pack --version
-
-      - name: pnpm install
-        run: pnpm install --frozen-lockfile
-
-      # Electron needs an X server on Linux, and so will the Phase-1 app E2E. One Xvfb for every step
-      # after this one; on macOS nothing is needed.
-      - name: Start Xvfb (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y xvfb x11-utils
-          Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
-          # Xvfb backgrounds immediately and is not listening yet; a step that exports DISPLAY and
-          # walks away hands the next step a display that may not answer. Wait for it, and fail here
-          # rather than as an unexplained Electron crash later.
-          for _ in $(seq 1 30); do
-            if xdpyinfo -display :99 >/dev/null 2>&1; then
-              echo "Xvfb is answering on :99"
-              echo "DISPLAY=:99" >> "$GITHUB_ENV"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Xvfb never came up on :99" >&2
-          exit 1
-
-      # §12.2, explicitly: a failed electron download must be its own red step, not a mysterious e2e
-      # failure. On a cold cache this is where the ~100 MB binary is fetched.
-      #
-      # `--no-sandbox` on Linux, and it is not optional. Chromium's SUID sandbox helper ships inside
-      # the npm tarball as a plain user-owned file, and Chromium refuses to run rather than drop the
-      # sandbox silently:
-      #   FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary
-      #   was found, but is not configured correctly. ... chrome-sandbox is owned by root and has
-      #   mode 4755.
-      # It aborts with SIGTRAP before printing the version, so even `--version` fails. The packaged
-      # AppImage has the same problem, which is why §12.2 already says Linux needs `--no-sandbox` and
-      # why `packages/app/e2e/fixtures.ts` passes it on every Linux launch. `chown root` + `chmod
-      # 4755` on the binary would be the other fix; it is rejected here because it would make this
-      # step the only place in the project that runs Electron sandboxed, so a sandbox regression
-      # would still not be caught, at the cost of a sudo write into node_modules.
-      - name: Warm up the electron binary
-        shell: bash
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            pnpm exec electron --no-sandbox --version
-          else
-            pnpm exec electron --version
-          fi
-
-      - name: Install the pinned Chromium
-        run: pnpm exec playwright install --with-deps chromium
+          os: ${{ matrix.os }}
+          wasm-pack-version: ${{ env.WASM_PACK_VERSION }}
+          electron: 'true'
 
       # §11 / AGENTS: real-data tests are gated on TETRAVOX_TESTDATA and must SKIP, never fail, in CI.
       # Assert it is unset so a future `env:` entry is a loud failure rather than a silent slowdown.
@@ -225,57 +112,29 @@ jobs:
       - name: Emit the module SDK
         run: node scripts/emit-module-sdk.mjs --no-tarball
 
-      - name: pnpm test
-        run: pnpm test
-
-      # Engine Playwright (§11 goldens + analytic pixels) and, once packages/app has an `e2e` script,
-      # the Playwright-Electron app E2E — `pnpm e2e` is `pnpm -r --if-present run e2e`, so the app leg
-      # joins this step by existing. Dev build only; packaging is separate.
-      # Two engine Playwright projects (§11): `chromium-swiftshader` captures the goldens, and
-      # `chromium-angle` runs the `@angle`-tagged analytic tests on the full Chromium so they reach
-      # the platform GPU — the only place the R16 branch of the §6.1 ladder can execute, since
-      # SwiftShader has no EXT_texture_norm16. Both legs are HEADLESS (docs/TESTING.md §2.1 measures
-      # that headless costs the ANGLE leg no capability); the Xvfb above still serves Electron.
-      #
-      # `chromium-angle` now FAILS if it lands on a software renderer, because such a leg is empty —
-      # every @angle test then self-skips or passes vacuously — and an empty leg must not be green.
-      # The Linux runner has no GPU, so it opts out by name; macOS stays strict, and a hosted macOS
-      # runner that cannot reach Metal is a red leg naming this variable rather than a silent hole.
-      - name: pnpm e2e
-        env:
-          TETRAVOX_ALLOW_SOFTWARE_ANGLE: ${{ runner.os == 'Linux' && '1' || '' }}
-        run: pnpm e2e
-
-      # §13.8's loader guard, and the only place it can run: the extension loader's *variable* dynamic
-      # import is rewritten by Vite into an EMPTY glob helper if the `@vite-ignore` comment is ever lost
-      # — silently, with no build warning and no failing unit test — so the claim is checked against the
-      # emitted chunk. It sits after `pnpm e2e` because the app's `e2e` script is `electron-vite build &&
-      # playwright test`, so `out/renderer/assets/` is fresh here and no second build is needed.
-      - name: The extension loader survived the build
-        run: node scripts/check-module-loader.mjs
-
-      # Both suites `pnpm e2e` runs, not just the engine's: the app's dev-leg report was uploaded on
-      # no runner at all (the `packaged` step below collects packages/app, but only on macOS), so an
-      # app E2E failure on Linux left its screenshots and traces on the runner and nothing to look at
-      # here. That is the leg that is hardest to reproduce locally, so it is the one that most needs
-      # its artefacts.
-      - name: Upload the Playwright report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-${{ matrix.os }}
-          path: |
-            packages/engine/playwright-report
-            packages/engine/test-results
-            packages/app/playwright-report
-            packages/app/test-results
-          retention-days: 7
-          if-no-files-found: ignore
+      # `pnpm exec vitest run`, NOT `pnpm test`. The root `test` script is
+      # `cargo test --workspace && pnpm run wasm && vitest run` — the right one-liner locally, and a
+      # ~50 s duplicate here, because the two steps above have just run both prerequisites (measured,
+      # run 33441930192: this step billed 49 s and re-ran the identical 20-test cargo suite, 21.74 s
+      # against 21.78 s). Naming vitest directly also keeps a wasm failure and a unit-test failure as
+      # two different red steps instead of one.
+      - name: vitest
+        run: pnpm exec vitest run
 
       # ------------------------------------------------------------------ packaging (Phase 0: macOS only)
       # ROADMAP Phase-0 gate 2 is "the HOST platform's packaged artefact", and `pnpm package` builds this
       # platform's artefacts only (§12.1) — so a .dmg here and nothing on Linux. No continue-on-error:
       # once packages/app has a `package` script, a broken .dmg is a red build.
+      #
+      # `pnpm build` explicitly, because `packages/app`'s `package` script is electron-builder
+      # ALONE — it builds nothing. Until the e2e suites moved to their own job this
+      # leg got `out/` for free from `pnpm e2e` (the app's `e2e` script is `electron-vite build &&
+      # playwright test`), which was a real dependency on an unrelated step and is now an explicit
+      # one. The `package` job below already has this step, for the same reason.
+      - name: pnpm build (macOS only — electron-builder packages `out/`, it does not create it)
+        if: runner.os == 'macOS'
+        run: pnpm -r --if-present run build
+
       - name: Package .dmg (macOS only)
         if: runner.os == 'macOS'
         continue-on-error: false
@@ -289,9 +148,9 @@ jobs:
 
       # ROADMAP Phase-0 gate 2 — "the packaged artefact, not the dev server, draws a WASM-coloured
       # triangle from tetravox://app/index.html" — is proved ONLY by the `packaged` Playwright project,
-      # and `pnpm e2e` above deliberately self-skips it (nothing has been packaged at that point). So the
-      # gate needs its own step here, after the .dmg exists. `TETRAVOX_REQUIRE_PACKAGED=1` makes a skip a
-      # failure, so this leg cannot go green without actually launching the artefact.
+      # which the `e2e` job deliberately never reaches (nothing is packaged on that runner, so the
+      # project self-skips there). So the gate needs its own step here, after the .dmg exists.
+      # `TETRAVOX_REQUIRE_PACKAGED=1` makes a skip a failure, so this leg cannot go green without actually launching the artefact.
       - name: Packaged E2E — ROADMAP Phase-0 gate 2 (macOS only)
         if: runner.os == 'macOS'
         env:
@@ -306,6 +165,225 @@ jobs:
           path: |
             packages/app/playwright-report
             packages/app/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # The Playwright suites, lifted out of `test` and fanned out. Its own job because e2e was 67% of
+  # `test` and nothing else in that job waits on it: measured on run 33441930192, `pnpm e2e` billed
+  # 442 s of an 11 min leg, against 49 s for vitest and 34 s for typecheck. Running the two
+  # concurrently is most of the saving; sharding the engine is the rest.
+  #
+  # `pnpm -r` ran the three suites back to back, and they are wildly uneven — engine 348 s (235
+  # tests), app 66 s (574 declared, 399 of them real-data skips), wasm 24 s. So the engine is split
+  # three ways with `--shard` and the two small suites share one leg.
+  #
+  # **Sharding is safe here, and widening `workers` would not be.** Every config is
+  # `fullyParallel: false, workers: 1` because a golden is a function of one renderer drawing one
+  # scene at a time (§11). A shard is a SEPARATE PROCESS with its own browser, still at one worker,
+  # so the invariant holds exactly as before; raising `workers` inside a process is the thing that
+  # would make goldens flaky, and this does not do it.
+  #
+  # macOS keeps ONE unsharded engine leg (workflow_dispatch only, per the §12.1 cost policy on the
+  # `test` matrix above): it is the only runner that reaches Metal, so it is where the
+  # `chromium-angle` project is a real leg rather than a self-skip, and splitting it three ways
+  # would triple a 10x-billed runner to save a few minutes on a run nobody is waiting for.
+  e2e:
+    name: e2e (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    # A shard is ~2 min. The cap is for the run where the engine cannot start: Playwright's per-test
+    # timeout is 30 s and a page that never publishes `window.__tvxEngine` fails once per test, one
+    # timeout at a time, billing every second — run 33116778462 did exactly that for **3 h 14 m on a
+    # macOS runner at the 10x rate**, for a failure diagnosable from its first minute. 20 min is many
+    # times a green shard and cuts that worst case by an order of magnitude.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Enumerated rather than a cross product, because the macOS legs are not the Linux legs: see
+        # the note above on why macOS does not shard. The `test` job's comment on why this is a
+        # matrix expression and never a job-level `if:` applies here verbatim — `matrix` does not
+        # exist in `jobs.<id>.if`, and reading it there is an invalid workflow, not a false one.
+        include: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[{"os":"ubuntu-24.04","name":"engine 1/3","leg":"engine","shard":"1/3"},{"os":"ubuntu-24.04","name":"engine 2/3","leg":"engine","shard":"2/3"},{"os":"ubuntu-24.04","name":"engine 3/3","leg":"engine","shard":"3/3"},{"os":"ubuntu-24.04","name":"app + wasm","leg":"app+wasm","shard":""},{"os":"macos-latest","name":"engine (macOS, ANGLE/Metal)","leg":"engine","shard":""},{"os":"macos-latest","name":"app + wasm (macOS)","leg":"app+wasm","shard":""}]') || fromJSON('[{"os":"ubuntu-24.04","name":"engine 1/3","leg":"engine","shard":"1/3"},{"os":"ubuntu-24.04","name":"engine 2/3","leg":"engine","shard":"2/3"},{"os":"ubuntu-24.04","name":"engine 3/3","leg":"engine","shard":"3/3"},{"os":"ubuntu-24.04","name":"app + wasm","leg":"app+wasm","shard":""}]') }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/setup
+        with:
+          os: ${{ matrix.os }}
+          wasm-pack-version: ${{ env.WASM_PACK_VERSION }}
+          playwright: 'true'
+          electron: 'true'
+          xvfb: 'true'
+
+      # §11 / AGENTS: real-data tests are gated on TETRAVOX_TESTDATA and must SKIP, never fail, in CI.
+      # Asserted in this job as well as in `test` because this is where those tests actually live —
+      # the 399 skips in the app suite are them.
+      - name: TETRAVOX_TESTDATA must be unset in CI
+        shell: bash
+        run: |
+          if [ -n "${TETRAVOX_TESTDATA:-}" ]; then
+            echo "TETRAVOX_TESTDATA is set ('$TETRAVOX_TESTDATA'); CI runs synthetic fixtures only." >&2
+            exit 1
+          fi
+          echo "TETRAVOX_TESTDATA is unset — real-data tests will skip, as intended."
+
+      # §2: `pnpm wasm` is a prerequisite of build / test / typecheck. The engine's pages and the
+      # app's build both load `pkg/`, so it is a prerequisite of every leg here too.
+      - name: pnpm wasm
+        run: pnpm wasm
+
+      # Two engine Playwright projects (§11): `chromium-swiftshader` captures the goldens, and
+      # `chromium-angle` runs the `@angle`-tagged analytic tests on the full Chromium so they reach
+      # the platform GPU — the only place the R16 branch of the §6.1 ladder can execute, since
+      # SwiftShader has no EXT_texture_norm16. Both legs are HEADLESS (docs/TESTING.md §2.1 measures
+      # that headless costs the ANGLE leg no capability); the Xvfb from the setup action still serves
+      # Electron in the app leg.
+      #
+      # `chromium-angle` FAILS if it lands on a software renderer, because such a leg is empty —
+      # every @angle test then self-skips or passes vacuously — and an empty leg must not be green.
+      # The Linux runner has no GPU, so it opts out by name; macOS stays strict, and a hosted macOS
+      # runner that cannot reach Metal is a red leg naming this variable rather than a silent hole.
+      #
+      # A sharded leg reports `blob`, which `e2e-report` merges back into the ONE html report a
+      # reviewer opens. An unsharded leg keeps the config's own reporters and uploads its report
+      # directly — there is nothing to merge it with.
+      # `exec playwright test`, NOT `run e2e -- --shard=…`. **pnpm silently swallows the arguments
+      # after `--`** on a filtered `run` — verified locally: `pnpm --filter @tetravox/engine run e2e
+      # -- --shard=1/3 --list` ran the whole suite for real instead of listing a third of it, with no
+      # warning. A shard flag that vanishes would not fail the leg; it would run every shard over the
+      # full suite and go green, which is the worst possible failure mode for this change. The
+      # engine's `e2e` script is exactly `playwright test`, so calling it directly loses nothing.
+      - name: Engine Playwright ${{ matrix.shard && format('(shard {0})', matrix.shard) || '' }}
+        id: engine
+        if: matrix.leg == 'engine'
+        env:
+          TETRAVOX_ALLOW_SOFTWARE_ANGLE: ${{ runner.os == 'Linux' && '1' || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ matrix.shard }}" ]; then
+            pnpm --filter @tetravox/engine exec playwright test --shard="${{ matrix.shard }}" --reporter=blob
+          else
+            pnpm --filter @tetravox/engine exec playwright test
+          fi
+
+      - name: wasm Playwright
+        if: matrix.leg == 'app+wasm'
+        run: pnpm --filter @tetravox/wasm run e2e
+
+      # `electron-vite build && playwright test`, so this is also what makes `out/renderer/assets/`
+      # fresh for the loader guard below.
+      - name: App Playwright (Electron)
+        if: matrix.leg == 'app+wasm'
+        run: pnpm --filter @tetravox/app run e2e
+
+      # §13.8's loader guard, and the only place it can run: the extension loader's *variable* dynamic
+      # import is rewritten by Vite into an EMPTY glob helper if the `@vite-ignore` comment is ever lost
+      # — silently, with no build warning and no failing unit test — so the claim is checked against the
+      # emitted chunk. It rides the app leg because that leg's `e2e` script has just built the renderer;
+      # anywhere else it would need a second build of its own.
+      - name: The extension loader survived the build
+        if: matrix.leg == 'app+wasm'
+        run: node scripts/check-module-loader.mjs
+
+      # The blob from a sharded leg: not a report anyone opens, an input to `e2e-report`.
+      #
+      # `if-no-files-found: error` is kept — a shard that RAN and wrote no blob is a real problem —
+      # but the step is skipped when the Playwright step never ran, because a leg that died in setup
+      # would otherwise report a second, misleading failure on top of the real one. That is exactly
+      # what run 33444860430 did: `pnpm wasm` failed, and the missing blob was the louder red.
+      - name: Upload the blob report (sharded legs)
+        if: ${{ matrix.shard != '' && !cancelled() && steps.engine.conclusion != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-engine-${{ matrix.os }}-${{ strategy.job-index }}
+          path: packages/engine/blob-report
+          retention-days: 7
+          if-no-files-found: error
+
+      # Unsharded legs upload the real thing. Both suites the app leg runs, not just one: the app's
+      # dev-leg report was uploaded on no runner at all before, so an app E2E failure on Linux left
+      # its screenshots and traces on the runner and nothing to look at here. That is the leg hardest
+      # to reproduce locally, so it is the one that most needs its artefacts.
+      - name: Upload the Playwright report (unsharded legs)
+        if: ${{ matrix.shard == '' && !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.leg == 'engine' && 'engine' || 'app-wasm' }}-${{ matrix.os }}
+          path: |
+            packages/engine/playwright-report
+            packages/engine/test-results
+            packages/app/playwright-report
+            packages/app/test-results
+            packages/wasm/playwright-report
+            packages/wasm/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Sharding costs one thing worth paying for and one worth fixing: three partial reports instead of
+  # the single link a reviewer follows to a failing golden. This job is the fix — `merge-reports`
+  # stitches the shards' blobs back into one html report, so what you open after a red run is exactly
+  # what you opened before this change.
+  #
+  # `!cancelled()` and not `success()`: the merged report matters MOST when a shard failed.
+  e2e-report:
+    name: e2e report
+    needs: e2e
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # No toolchains and no browser: `merge-reports` reads zips and writes html. `--ignore-scripts`
+      # keeps it to the dependency graph, since nothing here builds.
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # `continue-on-error`, because `download-artifact` treats "the pattern matched nothing" as a
+      # hard failure — and nothing is exactly what it finds when every shard died before writing a
+      # blob. That case is already a red `e2e`; it must not also produce a confusing red report job.
+      - name: Download the shard blobs
+        id: blobs
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: blob-engine-*
+          path: blob-report
+          merge-multiple: true
+
+      - name: Merge the shard reports
+        shell: bash
+        env:
+          # Both spellings: the variable was renamed across Playwright versions and neither is
+          # harmful. Without it `merge-reports --reporter=html` tries to open a browser.
+          PLAYWRIGHT_HTML_OPEN: never
+          PW_TEST_HTML_REPORT_OPEN: never
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          blobs=(blob-report/*.zip)
+          if [ ${#blobs[@]} -eq 0 ]; then
+            echo "No shard blobs to merge — see the red \`e2e\` legs, which failed before reporting."
+            exit 0
+          fi
+          echo "Merging ${#blobs[@]} shard blob(s)."
+          pnpm --filter @tetravox/engine exec playwright merge-reports --reporter=html ../../blob-report
+
+      - name: Upload the merged Playwright report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-engine-merged
+          path: packages/engine/playwright-report
           retention-days: 7
           if-no-files-found: ignore
 
@@ -408,7 +486,13 @@ jobs:
   package:
     name: package (${{ matrix.name }})
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
-    needs: test
+    # `docs-guard`, NOT `test`. Packaging consumes nothing the test job produces — it checks out the
+    # same commit and builds it from source — so `needs: test` bought nothing but a serial wait, and
+    # it was the dominant cost on `main`: 9 min of `test` before a 4-6 min package leg could start
+    # (measured, run 33432806778 — 32 min elapsed for ~15 min of work). A red `test` is still a red
+    # run; it simply no longer gates the artefacts. `docs-guard` is kept as the gate because it is
+    # 20 s and catches the class of mistake that should never reach a downloadable build.
+    needs: docs-guard
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     # Windows is the optional platform (see release.yml): it is built and launch-verified, and a
@@ -456,62 +540,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Pin the download caches to the §12.2 paths
-        shell: bash
-        run: echo "ELECTRON_CACHE=$HOME/.cache/electron" >> "$GITHUB_ENV"
-
-      - name: Install the pinned Rust toolchain
-        shell: bash
-        run: |
-          rustup show
-          rustc --version
-
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      # The same setup `test` and `e2e` use. No Playwright browser (the smoke test drives the
+      # packaged binary, not Chromium) and no Xvfb here — the Linux leg needs a display AND the
+      # runtime libraries the packaged app links against, which is its own step below.
+      - uses: ./.github/actions/setup
         with:
-          node-version: 24
-
-      - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            ~/.cargo/bin
-            target
-          key: cargo-${{ matrix.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: cargo-${{ matrix.os }}-
-
-      - name: Resolve the pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: pnpm store cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ matrix.os }}-
-
-      - name: Electron binary cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: electron-${{ matrix.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: electron-${{ matrix.os }}-
-
-      - name: Install wasm-pack ${{ env.WASM_PACK_VERSION }} (pinned by scripts/build-wasm.sh)
-        shell: bash
-        run: |
-          if [ "$(wasm-pack --version 2>/dev/null | awk '{print $2}')" != "$WASM_PACK_VERSION" ]; then
-            cargo install wasm-pack --version "$WASM_PACK_VERSION" --locked --force
-          fi
-          wasm-pack --version
-
-      - name: pnpm install
-        run: pnpm install --frozen-lockfile
+          os: ${{ matrix.os }}
+          wasm-pack-version: ${{ env.WASM_PACK_VERSION }}
 
       # The smoke test launches the packaged binary, so this leg needs the same runtime libraries and
       # display the `test` leg does. `libasound2t64` is the 24.04 name (§12.2 / the t64 rename).

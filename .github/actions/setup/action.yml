@@ -1,0 +1,193 @@
+# The setup every heavy CI job shares — toolchains, the §12.2 caches, and the install.
+#
+# It exists because `test`, `e2e` and `package` need the SAME eight steps and drifted copies of a
+# cache key are the classic way a cache silently stops being hit. One definition, three callers.
+#
+# What it deliberately does NOT do: build anything. `pnpm wasm`, `pnpm build` and the electron-vite
+# build stay in the jobs, where a failure is a named red step rather than "the setup action failed".
+name: Set up the Tetravox toolchains and caches
+description: Rust, pnpm/node, the §12.2 download caches, wasm-pack and a frozen-lockfile install.
+
+inputs:
+  os:
+    description: >-
+      The runner label, used verbatim in the cache keys. Passed in rather than derived from
+      `runner.os` so the keys stay byte-identical to the ones already in the cache
+      (`cargo-ubuntu-24.04-…`, not `cargo-Linux-…`) and this refactor costs no cache misses.
+    required: true
+  wasm-pack-version:
+    description: The wasm-pack version pinned by scripts/build-wasm.sh (§12.3).
+    required: true
+  playwright:
+    description: Cache and install the pinned Chromium. Only the e2e legs need it.
+    required: false
+    default: 'false'
+  electron:
+    description: Warm up the electron binary, so a failed download is its own red step (§12.2).
+    required: false
+    default: 'false'
+  xvfb:
+    description: Start Xvfb on Linux and export DISPLAY. Needed by anything that launches Electron.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    # §12.2 names `~/.cache/electron` and `~/.cache/ms-playwright` as the caches to keep. macOS would
+    # otherwise put both under `~/Library/Caches`, so pin the locations and cache one set of paths on
+    # both runners. Set here rather than in `env:` because workflow `env:` is not shell-expanded.
+    - name: Pin the download caches to the §12.2 paths
+      shell: bash
+      run: |
+        echo "ELECTRON_CACHE=$HOME/.cache/electron" >> "$GITHUB_ENV"
+        echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" >> "$GITHUB_ENV"
+        # wasm-pack's OWN download cache — where it keeps the binaryen tarball it fetches from a
+        # GitHub release to get `wasm-opt`. Not a §12.2 cache, because until CI fanned out nothing
+        # noticed it: one leg downloaded it once. Now several legs build the crate concurrently, and
+        # one of them losing that download is a red build — run 33444860430 `e2e (engine 1/3)`,
+        # which died on it while three sibling legs building the same crate succeeded. Caching it
+        # means the fetch happens on a cold lockfile and never again. The location is wasm-pack's,
+        # not ours, so it is read per platform rather than pinned.
+        case "$RUNNER_OS" in
+          macOS)   echo "WASM_PACK_CACHE=$HOME/Library/Caches/.wasm-pack" >> "$GITHUB_ENV" ;;
+          Windows) echo "WASM_PACK_CACHE=$LOCALAPPDATA\\.wasm-pack" >> "$GITHUB_ENV" ;;
+          *)       echo "WASM_PACK_CACHE=$HOME/.cache/.wasm-pack" >> "$GITHUB_ENV" ;;
+        esac
+
+    # rust-toolchain.toml pins stable 1.93.0 with rustfmt, clippy and wasm32-unknown-unknown, and
+    # rustup honours it. `rustup show` is what makes it install, before anything needs it.
+    - name: Install the pinned Rust toolchain
+      shell: bash
+      run: |
+        rustup show
+        rustc --version
+        cargo --version
+        rustup target list --installed
+
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 24
+
+    # ---------------------------------------------------------------------- caches (§12.2)
+    - name: Cargo cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          ~/.cargo/bin
+          target
+        key: cargo-${{ inputs.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+        restore-keys: cargo-${{ inputs.os }}-
+
+    # Keyed on the wasm-pack version alone: the tarball it holds is a function of that and the
+    # platform, and of nothing in this repository. `scripts/build-wasm.sh` retries the download as
+    # well — the cache removes the fetch, the retry survives the run that still has to make it.
+    - name: wasm-pack download cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.WASM_PACK_CACHE }}
+        key: wasm-pack-dl-${{ inputs.os }}-${{ inputs.wasm-pack-version }}
+
+    - name: Resolve the pnpm store path
+      id: pnpm-store
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    - name: pnpm store cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-${{ inputs.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: pnpm-${{ inputs.os }}-
+
+    # §12.2: from electron 42 the ~100 MB binary is downloaded on FIRST LAUNCH, not on install, so
+    # this cache is what keeps the warm-up step below from re-downloading it every run.
+    - name: Electron binary cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/electron
+        key: electron-${{ inputs.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: electron-${{ inputs.os }}-
+
+    # @playwright/test is pinned to an exact version because it pins the Chromium build, and therefore
+    # the SwiftShader that produces every golden (§11). Key the cache on that exact version.
+    - name: Playwright browser cache
+      if: inputs.playwright == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ inputs.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: playwright-${{ inputs.os }}-
+
+    # ---------------------------------------------------------------------- install
+    - name: Install wasm-pack ${{ inputs.wasm-pack-version }} (pinned by scripts/build-wasm.sh)
+      shell: bash
+      env:
+        WASM_PACK_VERSION: ${{ inputs.wasm-pack-version }}
+      run: |
+        if [ "$(wasm-pack --version 2>/dev/null | awk '{print $2}')" != "$WASM_PACK_VERSION" ]; then
+          cargo install wasm-pack --version "$WASM_PACK_VERSION" --locked --force
+        fi
+        wasm-pack --version
+
+    - name: pnpm install
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    # Electron needs an X server on Linux. One Xvfb for every step after this one; on macOS and
+    # Windows nothing is needed.
+    - name: Start Xvfb (Linux)
+      if: inputs.xvfb == 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y xvfb x11-utils
+        Xvfb :99 -screen 0 1280x1024x24 > /dev/null 2>&1 &
+        # Xvfb backgrounds immediately and is not listening yet; a step that exports DISPLAY and
+        # walks away hands the next step a display that may not answer. Wait for it, and fail here
+        # rather than as an unexplained Electron crash later.
+        for _ in $(seq 1 30); do
+          if xdpyinfo -display :99 >/dev/null 2>&1; then
+            echo "Xvfb is answering on :99"
+            echo "DISPLAY=:99" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "Xvfb never came up on :99" >&2
+        exit 1
+
+    # §12.2, explicitly: a failed electron download must be its own red step, not a mysterious e2e
+    # failure. On a cold cache this is where the ~100 MB binary is fetched.
+    #
+    # `--no-sandbox` on Linux, and it is not optional. Chromium's SUID sandbox helper ships inside
+    # the npm tarball as a plain user-owned file, and Chromium refuses to run rather than drop the
+    # sandbox silently:
+    #   FATAL:sandbox/linux/suid/client/setuid_sandbox_host.cc:166] The SUID sandbox helper binary
+    #   was found, but is not configured correctly. ... chrome-sandbox is owned by root and has
+    #   mode 4755.
+    # It aborts with SIGTRAP before printing the version, so even `--version` fails. The packaged
+    # AppImage has the same problem, which is why §12.2 already says Linux needs `--no-sandbox` and
+    # why `packages/app/e2e/fixtures.ts` passes it on every Linux launch. `chown root` + `chmod
+    # 4755` on the binary would be the other fix; it is rejected here because it would make this
+    # step the only place in the project that runs Electron sandboxed, so a sandbox regression
+    # would still not be caught, at the cost of a sudo write into node_modules.
+    - name: Warm up the electron binary
+      if: inputs.electron == 'true'
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = "Linux" ]; then
+          pnpm exec electron --no-sandbox --version
+        else
+          pnpm exec electron --version
+        fi
+
+    - name: Install the pinned Chromium
+      if: inputs.playwright == 'true'
+      shell: bash
+      run: pnpm exec playwright install --with-deps chromium

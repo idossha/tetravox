@@ -3540,6 +3540,19 @@ bridge, and a narrower `allowPath` would not contain a malicious one. The trust 
 and the registry's pull-request review — the CSP only stops *unconsented* script. §13.9 is what would move
 that boundary.
 
+**The catalogue is refreshed, not frozen** (`main/registry.ts`, 2026-08-31). Until then the only
+catalogue was the copy the build shipped, so an extension release was invisible until a *core* release
+carried a refreshed copy — publishing a one-line extension fix meant cutting a Tetravox. A launch
+refresh (gated by the same `checkForUpdates` preference §12.4 uses) and an Extensions…-open refresh
+fetch the curated index and cache it under `userData`; `catalogue()` then prefers dev seam → cache →
+shipped copy, and any failure leaves the previous answer standing, so the dialog is still correct with
+no network. The fetched copy is trusted less than the shipped one and bounded accordingly:
+`registry.ts#validateIndex` shape-checks every id, version, byte count and hash and requires each
+`url` to be **https on a GitHub host**, so an index that arrived over the wire cannot point the
+downloader at another server; the body is capped and timed out; the cache is re-validated on every
+read. Nothing downstream relaxes — `hostApi` still gates, the sheet still shows the *installed*
+manifest's derived permissions, and every file is still re-hashed before it is served.
+
 Distribution: the catalogue — `src/shared/extensions-index.json` shipped, the
 `idossha/tetravox-extensions` registry live, `TETRAVOX_EXT_INDEX` as the test seam — is the one route
 into the app; `scripts/emit-module-sdk.mjs` emits the SDK an extension repository compiles against.

@@ -35,7 +35,34 @@ fi
 
 echo "wasm-pack ${have} -> packages/wasm/pkg (${PROFILE})"
 cd "$CRATE"
-wasm-pack build "$PROFILE" --target web --out-dir "$OUT_REL" --out-name tvx_wasm
+
+# wasm-pack downloads binaryen (for wasm-opt) from a GitHub release on a cold cache, and that
+# download is the one part of this build that depends on the network being kind:
+#
+#   Error: failed to download from https://github.com/WebAssembly/binaryen/releases/download/\
+#   version_117/binaryen-version_117-x86_64-linux.tar.gz
+#
+# which is exactly what killed one CI leg (run 33444860430, `e2e (engine 1/3)`) while three other
+# legs building the same crate at the same moment succeeded. CI fans out now, so several runners
+# reach for that tarball at once and one losing the race must not be a red build.
+#
+# Retried ONLY on that message. A compile error is a compile error and fails on the first attempt —
+# retrying it would just bill three builds to reach the same red.
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+attempt=1
+until wasm-pack build "$PROFILE" --target web --out-dir "$OUT_REL" --out-name tvx_wasm 2>&1 | tee "$log"; do
+  if ! grep -q 'failed to download' "$log"; then
+    exit 1
+  fi
+  if [ "$attempt" -ge 3 ]; then
+    echo "error: wasm-pack could not download its binaryen tarball in ${attempt} attempts." >&2
+    exit 1
+  fi
+  sleep "$((attempt * 5))"
+  attempt=$((attempt + 1))
+  echo "wasm-pack's binaryen download failed; retrying (attempt ${attempt}/3)." >&2
+done
 
 # wasm-pack writes pkg/package.json named after the crate and pkg/.gitignore containing '*'.
 # pkg/ is NEVER a pnpm workspace member (§2) — the hand-written @tetravox/wasm wraps it.
