@@ -10,7 +10,13 @@
  * so the gear stays the right-most control on the rail whatever is added to its left.
  *
  * Nothing here names a module: the list is `controller.modules()`, which is the registry filtered by
- * the launch query, and each row's label is its manifest's `title`.
+ * the launch query and — since 2026-08-30 — extended with the installed extensions main says are
+ * enabled. A disabled or uninstalled extension is not in that list at all, so it behaves exactly
+ * like a module this build does not carry.
+ *
+ * **The switcher stays load/unload** (§13.3). The one row that is not a module is `Manage
+ * extensions…`, which opens the dialog that *is* the place to install, consent to and remove one —
+ * it is a door, not a second management surface, and it is the reason no toolbar button was added.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -89,6 +95,21 @@ export function ModuleSwitcher(): React.JSX.Element | null {
               </button>
             );
           })}
+          {/* The one non-module row, below a rule so it reads as a different kind of thing. */}
+          <div className="my-0.5 border-t border-tvx-line" />
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="module-switcher-manage"
+            className="tvx-btn justify-start text-tvx-dim"
+            title="Install, enable and remove downloadable extensions (File ▸ Extensions…)"
+            onClick={() => {
+              close();
+              void controller.openExtensions();
+            }}
+          >
+            Manage extensions…
+          </button>
         </div>
       )}
     </div>

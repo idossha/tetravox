@@ -59,6 +59,14 @@ every later point-set tool inherits.
 the manifest's same-directory siblings into a per-module write list, a main-side timestamped `.bak` and a
 temp+rename write, and the codebase's first `BrowserWindow 'close'` guard on unsaved module edits.
 
+**Downloadable extensions** (§13.8). A module can now arrive from outside the build: a third `tetravox://`
+host serving a verified-file *map* rather than a directory, a content-addressed install store with the sample
+data's own hashing discipline, a per-version consent record whose permission list is **derived from the
+manifest**, File ▸ Extensions… on the Sample Data dialog's shape, a one-variable dynamic import with a
+build-output guard, `@tetravox/module-sdk` reaching the host's React through one global, and `modules.lock`
+for what a release bundles. An enabled extension is trusted renderer code; the trust boundary is the consent
+sheet and the registry's review, and the CSP only stops *unconsented* script.
+
 **Scenes.** `*.tetravox.json` — every layer setting, region edit, measurement, camera, layout and the theme.
 ⌘S / Save As / Open Recent, drop-to-open, file association, relative paths with a fingerprint-keyed relocate
 dialog, and an optional reopen-on-launch.
@@ -110,16 +118,24 @@ macOS, with the packaging matrix carried in the workflow.
 - A **resizable right aside**. The column is 320 px and the slot lives in it; there is no splitter primitive
   in the shell, and a module with a long list wants one. A `wide` manifest hint was considered and dropped —
   widening the aside shrinks the toolbar's centre column below what its controls need, which wraps the row.
-- **Stage 2, the runtime-loaded tier** (§13.8): a module Worker, a JSON-only host bridge, permissions with
-  reasons, a Restricted Mode, a single-file library build and a security review. 8–9 days and a different
-  threat model; the import wall exists so that day is a port, not a rewrite.
+- **Stage 3, the sandboxed tier** (§13.9): an extension in a Worker with no DOM, a JSON-only host bridge,
+  permissions with *enforcement* rather than only disclosure, a Restricted Mode for a scene naming an unknown
+  module, and a security review. 8–9 days and a different threat model; the import wall exists so that day is
+  a port, not a rewrite. It is the tier that would let an extension be *untrusted* — §13.8's are not.
+- **The extension registry and its website page**: `idossha/tetravox-extensions`' `index.json`, the review
+  policy that is the trust gate, and a `/extensions` page built from the same index the app ships.
+- **A live catalogue fetch.** The dialog reads the index the build shipped, which is why it is correct
+  offline; fetching the live one with a timeout and a silent fallback is wanted, and is the app's first
+  outbound request that is not a user-initiated download.
 - **Tighten `allowPath` itself** (§5 rules 9–11). `tetravox:allow-path` admits *any* existing absolute path
   the renderer names, with no gesture, and every other admission in the app sits on top of it. Both write
   lists are therefore only as strong as the renderer: the scene carve-out is now minted where main hands the
   path over, and a module's admissions are revoked when its editing session ends (2026-08-30), but each of
   those scopes an *accident* — a compromised renderer simply never sends the revocation. The real fix is an
   `allowPath` that admits only what a gesture, a sidecar rule or an opened dataset's own directory justifies.
-  It is a change to the oldest security surface in the app, and it is wanted before §13.8's stage 2.
+  It is a change to the oldest security surface in the app, and it is wanted before §13.9's sandboxed tier.
+  It would not contain a *malicious* extension — one runs in the renderer with the whole bridge — but it is
+  what would make `allowPath` the last line rather than the first.
 - An **engine command stack**, so undo is the engine's rather than each module keeping snapshots.
 - A **Compute panel**: a module that shells out to an external tool with a streamed log. It needs the first
   async subprocess in main, argv validated token by token, a scrubbed environment and a notarisation check.

@@ -42,6 +42,35 @@ export const MODULES: readonly ModuleRegistration[] = [
 ];
 
 /**
+ * The registrations for modules **installed under `~/.tetravox/modules/`** — empty until the
+ * controller sets them (downloadable extensions, 2026-08-30).
+ *
+ * A module-level array, listed *after* {@link MODULES} rather than merged into it, so a compiled-in
+ * module wins a duplicate id exactly as it does in `manifests.ts#allManifests()`: an installed module
+ * can never shadow one the build ships. It is deliberately mutable state and not a parameter, because
+ * every route into a module already goes through {@link enabledModules} — the switcher, the reader
+ * hook, the sibling dispatch, the scene-block restore — and none of those callers is in a position to
+ * be handed a list.
+ */
+let installed: readonly ModuleRegistration[] = [];
+
+/**
+ * Replace the installed set. The controller's call, after main answered `moduleStatuses()`.
+ *
+ * Replace rather than append, for `registerInstalledManifests`'s reason: an install, a remove or a
+ * disable changes the whole set, and a function that could only add would leave a module the user has
+ * just withdrawn consent from sitting in the switcher.
+ */
+export function setInstalledModules(list: readonly ModuleRegistration[]): void {
+  installed = [...list];
+}
+
+/** What was last set — what this window is currently offering from outside the build. */
+export function installedModuleRegistrations(): readonly ModuleRegistration[] {
+  return installed;
+}
+
+/**
  * The modules named by `?modules=` — full ids, or the part after the dot. `?modules=all` enables
  * every fixture, which is what a developer poking at the surface wants.
  */
@@ -70,12 +99,20 @@ function named(requested: ReadonlySet<string>, id: ModuleId): boolean {
  * the sibling dispatch and the scene-block restore. So a disabled fixture behaves **exactly** like a
  * module this build does not carry, right down to its scene block being carried forward untouched
  * (§13.2) — one behaviour to reason about rather than two.
+ *
+ * Appended 2026-08-30: the installed set joins it here and nowhere else, which is why downloadable
+ * extensions needed no edit to the switcher, the reader hook, the sibling dispatch or the scene-block
+ * restore. An installed module that is not enabled is never in {@link installed} at all, so it
+ * behaves exactly like a fixture the launch query did not name.
  */
 export function enabledModules(
   search: string = globalThis.location?.search ?? ''
 ): readonly ModuleRegistration[] {
   const requested = requestedFixtures(search);
-  return MODULES.filter((m) => m.fixture !== true || named(requested, m.manifest.id));
+  const compiled = MODULES.filter((m) => m.fixture !== true || named(requested, m.manifest.id));
+  if (installed.length === 0) return compiled;
+  const ids = new Set(MODULES.map((m) => m.manifest.id));
+  return [...compiled, ...installed.filter((m) => !ids.has(m.manifest.id))];
 }
 
 /** The registration for an id, or null when this build does not offer it. */

@@ -67,6 +67,22 @@ your module work, the _host_ is missing a member — add it to
 
 `tetravox.hello` (`?modules=hello`) is the worked example. Read it before writing a manifest.
 
+### …and a module that ships separately
+
+The steps above are for a module **in this repository**, reviewed as a pull request here. A module can also
+be its own repository and be downloaded at runtime — see `docs/ARCHITECTURE.md` §13.8 and the user-facing
+**Extensions** section of `docs/USER_GUIDE.md`. Two things change and nothing else does:
+
+- you build against **`@tetravox/module-sdk`**, a tarball attached to each Tetravox release and pinned by
+  URL. `scripts/module-sdk/README.md` is that package's README — it carries the rollup config, the "your
+  bundle must have no imports" CI check, and the release loop that names each asset by its own sha256. Read
+  it before writing a line;
+- your `docs` field is a **URL** rather than a `## ` heading in `docs/USER_GUIDE.md`. The docs guard ties a
+  heading to the guide for modules in this tree; it has no reach into another repository's README.
+
+Everything else is identical, deliberately: the same `ModuleManifest`, the same `ModuleHost`, the same key
+pool, the same scene block. A module written in-tree becomes an external one by changing its imports.
+
 ## Reporting bugs
 
 Open a GitHub issue with the file format, platform, and the app version (Help ▸ About), and attach
