@@ -70,6 +70,35 @@
             "Run from a job file: delete, flip-tip, ghost, load, refit, renumber, revert, save, size, snap, stats, wire",
             "Store its own data inside a saved scene"
           ]
+        },
+        {
+          "version": "0.1.2",
+          "tag": "v0.1.2",
+          "hostApi": 1,
+          "published": "2026-08-31",
+          "files": [
+            {
+              "name": "index.js",
+              "bytes": 110679,
+              "sha256": "53f884b2eb40078a5596e171e89321344fdb46c76b6ae26c5454da55ab89901f",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.2/53f884b2eb40078a5596e171e89321344fdb46c76b6ae26c5454da55ab89901f"
+            },
+            {
+              "name": "manifest.json",
+              "bytes": 4300,
+              "sha256": "cbdf130b68d9c11967dad2c2191868cc648a82940b43614fee4b142fb53082f4",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.2/cbdf130b68d9c11967dad2c2191868cc648a82940b43614fee4b142fb53082f4"
+            }
+          ],
+          "permissions": [
+            "Read .csv, .fcsv, .tsv files you choose",
+            "Write .tsv files you name in a Save sheet",
+            "Write {name}.{stamp}.bak beside the file you save",
+            "Write {stem}_editlog.json beside the file you save",
+            "Bind the keys Delete, Shift+s, Shift+z, a, d, f, g, n, p, s, t, z while it is active",
+            "Run from a job file: delete, flip-tip, ghost, load, refit, renumber, revert, save, size, snap, stats, wire",
+            "Store its own data inside a saved scene"
+          ]
         }
       ]
     }

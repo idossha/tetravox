@@ -207,6 +207,40 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await expect(page.locator('[data-testid="seeg-row-A01"]')).not.toContainText('0.0 mm');
   });
 
+  test('the selected contact is marked in the list and in the shaft sketch', async () => {
+    // The jump above selected A04 — one contact is marked, in the list and in the sketch, and the
+    // two agree. (The suite is serial and shares one window, so "nothing is selected yet" is a claim
+    // about the previous test rather than about this feature; what the feature promises is that
+    // exactly one contact is marked and both views name the same one.)
+    await expect(page.locator('[data-testid="seeg-list"] [data-selected="true"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="seeg-row-A04"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(1);
+
+    await page.click('[data-testid="seeg-select-A03"]');
+    // Exactly one row is the selected one, and it is that one…
+    await expect(page.locator('[data-testid="seeg-list"] [data-selected="true"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="seeg-row-A03"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    // …and the sketch marks exactly one dot, so the list and the diagram agree.
+    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(1);
+
+    await page.click('[data-testid="seeg-select-A05"]');
+    await expect(page.locator('[data-testid="seeg-row-A05"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    await expect(page.locator('[data-testid="seeg-row-A03"]')).toHaveAttribute(
+      'data-selected',
+      'false'
+    );
+    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(1);
+  });
+
   test('a snap moves the selected contact toward the metal, and Undo puts it back', async () => {
     const id = await layerId(page);
     const before = await page.evaluate(

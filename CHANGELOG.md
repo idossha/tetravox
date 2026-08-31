@@ -8,6 +8,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The extension slot folds.** A ▾ arrow beside the slot's ✕ hides the panel body and gives the
+  column back to the Info panel, while the extension stays active — its layers, its table and its
+  history are all still there, and the arrow puts the panel back.
+
 ### Changed
 
 - **Nothing ships bundled any more — every extension is a download.** The sEEG contact editor is no
@@ -22,6 +28,9 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   `"type": "module"`, the manifest keys, `tetravox://module`, `~/.tetravox/modules/`,
   `@tetravox/module-sdk`, Python's `Job.module()`): they are wire and disk formats frozen against
   published extensions, saved scenes and existing job scripts.
+- The catalogue offers **`tetravox.seeg` 0.1.2**, which marks the selected contact in its list and in
+  its shaft sketch. It is a download like every other extension — the pin that used to bundle it went
+  with the tier.
 
 ### Fixed
 
