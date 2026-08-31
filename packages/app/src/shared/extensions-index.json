@@ -1,6 +1,48 @@
 {
   "$comment": "The extensions catalogue: what File ▸ Extensions… offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed — `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses — and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
   "schema": 1,
-  "generated": "2026-08-30T00:00:00Z",
-  "modules": []
+  "generated": "2026-08-31T00:00:00Z",
+  "modules": [
+    {
+      "id": "tetravox.seeg",
+      "title": "sEEG contacts",
+      "summary": "Localise and edit stereo-EEG contacts on a registered CT, and write the BIDS electrodes table back.",
+      "description": "A contact editor for stereo-EEG depth electrodes. Open a registered CT and the BIDS electrodes.tsv localised on it, snap contacts onto the metal, re-fit and renumber shafts, and save the table back with a timestamped backup and a seegprep-compatible editlog. Reproduces the 3D Slicer SEEG Contact Editor workflow in Tetravox's own panes, and every panel action is also a job-file operation.",
+      "repo": "https://github.com/idossha/tetravox-seeg",
+      "author": "idossha",
+      "licence": "MIT",
+      "docs": "https://github.com/idossha/tetravox-seeg#readme",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "tag": "v0.1.0",
+          "hostApi": 1,
+          "published": "2026-08-31",
+          "files": [
+            {
+              "name": "index.js",
+              "bytes": 105532,
+              "sha256": "e2d99582b68db6dd9d75ef47d2f348ee92611a8e7aaa404a220edcaab4501984",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.0/e2d99582b68db6dd9d75ef47d2f348ee92611a8e7aaa404a220edcaab4501984"
+            },
+            {
+              "name": "manifest.json",
+              "bytes": 4300,
+              "sha256": "90602a6dbdccd6145d1fad3c9cde70db8fa92b5ab7de25cce0bb4c4dedc79c52",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.0/90602a6dbdccd6145d1fad3c9cde70db8fa92b5ab7de25cce0bb4c4dedc79c52"
+            }
+          ],
+          "permissions": [
+            "Read .csv, .fcsv, .tsv files you choose",
+            "Write .tsv files you name in a Save sheet",
+            "Write {name}.{stamp}.bak beside the file you save",
+            "Write {stem}_editlog.json beside the file you save",
+            "Bind the keys Delete, Shift+s, Shift+z, a, d, f, g, n, p, s, t, z while it is active",
+            "Run from a job file: delete, flip-tip, ghost, load, refit, renumber, revert, save, size, snap, stats, wire",
+            "Store its own data inside a saved scene"
+          ]
+        }
+      ]
+    }
+  ]
 }

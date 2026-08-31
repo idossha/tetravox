@@ -274,10 +274,14 @@ describe('the catalogue', () => {
   });
 
   it('falls back to the shipped copy when the override does not parse', () => {
+    // No override yet (beforeEach cleared it): this is the copy the build ships, which carries the
+    // bundled sEEG extension since the extraction (§13.8) rather than being empty.
+    const shipped = catalogue().map((m) => m.id);
+    expect(shipped).toContain('tetravox.seeg');
     const path = join(dirs.home, 'bad.json');
     writeFileSync(path, '{ not json');
     process.env['TETRAVOX_EXT_INDEX'] = path;
-    expect(catalogue()).toEqual([]);
+    expect(catalogue().map((m) => m.id)).toEqual(shipped);
   });
 });
 
