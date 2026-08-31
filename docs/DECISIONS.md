@@ -4312,3 +4312,80 @@ extension check lower-cased, so `Electrodes.tsv` reached the mesh loader and cam
 a manifest cannot opt back into case sensitivity, deliberately — a reader that claimed one spelling
 and refused another would be a bug report, not a feature — and the panel now has the Open… button
 that makes the module's own All-files sheet reachable for a name no pattern will ever claim.
+
+## 2026-08-30 — the module SDK is a release asset, and it reaches the host through one global
+
+**Decision.** `scripts/emit-module-sdk.mjs` builds `@tetravox/module-sdk` from the core tree on
+every release and `release.yml` attaches it to the draft, named
+`tetravox-module-sdk-<hostApi>-<coreVersion>.tgz`. A module repository pins it **by URL**; nothing is
+published to npm. Its runtime half is a shim with **no imports at all**, which the module build
+inlines, and which reads the host's React, `ModuleHostError`, `stemOf` and the `shared/contacts` kit
+off `globalThis.__tetravoxModuleSdk`.
+
+**Why a global and not an import map or a served module URL.** A module's `Panel` renders inside the
+app's own React tree (`ModuleSlot.tsx` renders it; the sEEG module's `activate` is a
+`createElement`), so a second React copy is an "invalid hook call", not a size problem. There were
+three ways to hand a downloaded bundle the host's copy. An inline `<script type="importmap">` needs
+`script-src 'unsafe-inline'` or a nonce, and undoes the policy the module host exists to keep — the
+same door this repository already closed for `blob:` in `worker-src`. A rollup `output.paths`
+rewrite onto `tetravox://app/sdk/react.js` needs a second, non-hashed renderer entry and a new
+`entryFileNames` rule in `electron.vite.config.ts`. The global needs **no build configuration
+change** and leaves `script-src` as the single CSP diff, so it wins; the rollup rewrite is the
+recorded fallback if the global ever has to be scoped per module.
+
+**Why the whole SDK is generated, including the engine types.** A hand-written copy of `ModuleHost`
+would be a second declaration of a frozen interface, and the first additive change to `host.ts`
+would leave a module compiling against a surface the app no longer has. So the sources are staged
+with their imports rewritten and `tsc --emitDeclarationOnly` produces the declarations.
+`packages/engine/src/scene/types.ts` imports nothing and declares no values, so it is carried
+verbatim; the six names `ModuleHost` exposes from `api.ts` are extracted with their closure, which is
+those six plus `ProbeRow`. A name the closure reaches that neither file declares — or that `api.ts`
+imported from `./gl/caps` or `./engine` — fails the emission rather than shipping a `.d.ts` naming a
+type that is not in it.
+
+**Why `index.d.ts` re-exports types with `export type *` and declares every value by hand.** A plain
+`export *` over the manifest contract would promise `MODULE_KEY_POOL` and `ENGINE_RESERVED_KEYS` as
+values the shim does not export, and a `.d.ts` that lies about what exists at runtime is worse than
+one that omits it. The declared list is exactly `index.js`'s exports, a unit test compares the two,
+and the emitted package is compiled against a probe that imports it the way a module does.
+
+**Why the SDK is `required` in `verify`.** A release that ships a module host and no SDK is a release
+nobody can build a module against, and the whole point of `verify` is that a green matrix is not the
+same as a complete Release. Its name is taken from the job that emitted it rather than spelled a
+second time in the workflow, so the host API and the core version cannot drift out of the check.
+
+## 2026-08-30 — `modules.lock`: a bundled module is bytes a release proves, not a repository it trusts
+
+**Decision.** `modules.lock` at the repository root names every module a release bundles — id,
+version, `hostApi`, repo, tag, `bundled`, and a sha256 and a byte count per file.
+`scripts/fetch-locked-modules.mjs` downloads them from their own repositories' releases, verifies
+every byte, and places them under `packages/app/resources/modules/<id>/<version>/`, which
+`electron-builder.yml` already ships as `extraResources`. A hash that does not match fails the leg.
+
+**Why a lock file rather than "build the module in CI" or "fetch the latest release".** Building it
+here would put the module's source back in this repository's dependency graph, which is the thing the
+extraction exists to end. Fetching the latest would make a release's contents depend on when it was
+built — two runs of the same tag could ship different modules. A lock makes bumping a bundled module
+one pull request whose entire diff is a version, a tag and two hashes, which is a thing a reviewer
+can actually check.
+
+**The lock carries no URL.** It is derived — `<repo>/releases/download/<tag>/<sha256>` — so an entry
+cannot name one repository and download from another. The asset's name being its own hash is
+`scripts/sample-data/publish.sh`'s store layout verbatim, and it is what lets a download be verified
+against its own URL rather than against a promise beside it.
+
+**`hostApi` is checked against the tree, not merely for being an integer.** The host refuses to
+activate a module built against another host API, so a mismatched lock entry would ship a card that
+cannot be enabled. That is a CI failure, not a release note.
+
+**`bundled.json` ships beside the files, and `modules.lock` does not.** The lock is a build-time
+file; main needs the hashes at *enable*, where it re-verifies a bundled file the same way
+`sample-data.ts` re-hashes a cached sample rather than trusting it for existing. So the bundling step
+writes the lock's bundled entries beside the modules it placed — and deletes that index when the lock
+stops bundling anything, because an index for a module that is no longer there is worse than none.
+
+**Proved against a fixture, because no module has been released yet.** `--store <dir>` lets a
+directory of hash-named files stand in for a GitHub release, exactly as `TETRAVOX_SAMPLE_DIR` lets a
+fake cache stand in for the sample store. It changes where the bytes come from and never whether they
+are checked — the hash check is the same code on both paths — so the fixture tests, including the
+tampered file, the store serving the wrong bytes and the stale index, are proof about the real path.
