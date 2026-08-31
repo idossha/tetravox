@@ -9,7 +9,7 @@ title: sEEG contacts
 The flagship Tetravox extension. `tetravox.seeg` is a contact editor for stereo-EEG depth electrodes: it
 localises and hand-corrects sEEG contacts on a registered CT and writes a corrected BIDS
 `electrodes.tsv` back — reversibly, with a timestamped backup and a provenance sidecar. It is a port of
-the 3D Slicer *SEEG Contact Editor* (`seegprep`'s `slicer/SEEGContactEditor`) into Tetravox's own panes,
+the 3D Slicer _SEEG Contact Editor_ (`seegprep`'s `slicer/SEEGContactEditor`) into Tetravox's own panes,
 and it reads and writes the same files, so the two can be used on the same subject interchangeably.
 
 ## What it does
@@ -45,7 +45,7 @@ through its `csc` column.
    In one step it copies the previous table to `<name>.<YYYYMMDD-HHMMSS>.bak`, writes the tsv (your
    original columns in their original order, with `electrode`, `contact` and `status` appended), and
    writes a `<stem>_editlog.json` recording exactly what changed. That editlog is what lets `seegprep`
-   know a subject was hand-edited. ⌘S saves the *scene*, not the table; the panel says so when contacts
+   know a subject was hand-edited. ⌘S saves the _scene_, not the table; the panel says so when contacts
    are unsaved.
 
 ## How to get it
@@ -53,7 +53,7 @@ through its `csc` column.
 The sEEG editor is **bundled** with Tetravox — it ships inside the signed application, pre-consented
 (installing Tetravox was the consent) and enabled at first launch, so on most builds it is simply there
 in the toolbar's module switcher. If you are on a build that does not carry it, open **File ▸
-Extensions…**, find *sEEG contacts*, **Download & enable**, and read the permission sheet. Either way its
+Extensions…**, find _sEEG contacts_, **Download & enable**, and read the permission sheet. Either way its
 two files (`index.js` and `manifest.json`) are re-hashed against the catalogue before a byte of it runs.
 
 ## Links
