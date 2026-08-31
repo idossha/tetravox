@@ -163,9 +163,7 @@ export const DEFAULT_CONTACT_LOOK: ContactLook = {
 
 /** Everything about the layer that follows from the set — one patch per edit. */
 export function layerPatch(set: ContactSet, look: ContactLook): Partial<PointsLayer> {
-  const shaft = look.wire
-    ? shaftGeometry(set)
-    : { segments: NO_SEGMENTS, colors: NO_SEGMENTS };
+  const shaft = look.wire ? shaftGeometry(set) : { segments: NO_SEGMENTS, colors: NO_SEGMENTS };
   return {
     points: pointsOf(set),
     lineSegments: shaft.segments,

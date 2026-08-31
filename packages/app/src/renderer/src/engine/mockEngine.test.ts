@@ -24,6 +24,8 @@ interface ToolEvent {
   index: number;
   world?: vec3;
   viewId?: string;
+  /** §4.7's `PointToolEvent.reason` (2026-08-30) — `cleared` only. */
+  reason?: string;
 }
 
 /**

@@ -594,10 +594,10 @@ async function wireScene(
         lineWidthPx: 8,
         // Typed arrays do not survive the page boundary, so the colours arrive as plain numbers
         // and become a `Float32Array` here — which is what §4.4 declares.
-        ...(spec.lineColor === undefined ? {} : { lineColor: spec.lineColor }),
-        ...(spec.lineColors === undefined
+        ...(spec.lineColor === undefined
           ? {}
-          : { lineColors: new Float32Array(spec.lineColors) }),
+          : { lineColor: spec.lineColor as [number, number, number, number] }),
+        ...(spec.lineColors === undefined ? {} : { lineColors: new Float32Array(spec.lineColors) }),
       });
       engine.setLayout({ kind: '1x1', cells: ['coronal'] });
       engine.setCursor([0, 2.5, 0]);
@@ -625,7 +625,9 @@ test('lineColors paints each segment its own colour, and absent is still one lin
   expect(errors).toEqual([]);
 });
 
-test('absent lineColors is the single lineColor every scene before today drew', async ({ page }) => {
+test('absent lineColors is the single lineColor every scene before today drew', async ({
+  page,
+}) => {
   const errors = await openScene(page);
   await wireScene(page, { lineColor: [1, 0, 0, 1] });
   // Both segments, one colour: this is the branch `CONTOUR_COLORS 0` compiles, which is the shader

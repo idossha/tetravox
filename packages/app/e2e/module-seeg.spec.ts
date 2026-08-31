@@ -378,7 +378,9 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
         const layer = (window.__tetravox?.store.getState().layers ?? []).find(
           (l) => l.module === id
         );
-        return (layer as unknown as { lineSegments?: { length: number } }).lineSegments?.length ?? 0;
+        return (
+          (layer as unknown as { lineSegments?: { length: number } }).lineSegments?.length ?? 0
+        );
       }, SEEG);
 
     await expect(wire).toHaveAttribute('aria-pressed', 'true');
