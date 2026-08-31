@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.1] - 2026-08-31
+
 ### Added
 
 - **In-app updates** (ARCHITECTURE §12.4). A few seconds after launch the app asks the GitHub
