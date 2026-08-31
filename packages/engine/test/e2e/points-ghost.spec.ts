@@ -320,9 +320,14 @@ async function ringRadii(page: Page, cx: number, cyTop: number, half = 70): Prom
   return out;
 }
 
-/** A ring's measured radius must be `disc + gap` — 40 px of disc here, so 42, ± the ring's width. */
-function expectRingAt(radii: readonly number[], expected: number): void {
-  expect(radii.length, 'ring pixels found').toBeGreaterThan(80);
+/**
+ * A ring's measured radius must be `disc + gap` — 40 px of disc here, so 42, ± the ring's width.
+ *
+ * `minPixels` is the circumference floor: a 42 px ring is hundreds of pixels, a 6 px one is a few
+ * dozen, and "no ring at all" has to stay distinguishable from "a small ring" (2026-08-30).
+ */
+function expectRingAt(radii: readonly number[], expected: number, minPixels = 80): void {
+  expect(radii.length, 'ring pixels found').toBeGreaterThan(minPixels);
   expect(Math.min(...radii)).toBeGreaterThanOrEqual(expected - 2);
   expect(Math.max(...radii)).toBeLessThanOrEqual(expected + 2);
 }
@@ -535,4 +540,227 @@ test('golden: derived-points-ghost', async ({ page }) => {
   );
   expect(errors).toEqual([]);
   await expectGolden(page, 'derived-points-ghost');
+});
+
+// -------------------------------------------------------------------------------------------
+// §4.4's `lineColors` and `labelColorSource` — the sEEG UX wave (2026-08-30)
+//
+// The claim is the one the owner reported as missing: **each electrode's shaft line and its
+// contacts' names are that electrode's colour**, on a layer that carries the whole implant. Stated
+// as pixels: two segments of one layer, two different RGBAs, both read off the framebuffer, plus
+// the negative — absent, the same layer draws both in the single `lineColor` it always did.
+// -------------------------------------------------------------------------------------------
+
+const BLUE = [0, 0, 255] as const;
+/** A wire wide enough that the pixel at the segment's midpoint is unambiguously the segment. */
+const WIRE_PX = 8;
+
+/**
+ * The lattice again, with a points layer whose only content is two horizontal segments at `z = 5`:
+ * one from x = −8 to −2, one from x = +2 to +8, both on the pane's own plane (`y = 2.5`).
+ *
+ * The midpoints are therefore world x = ∓5, which `at()` turns into a pane pixel — so every
+ * expectation below is arithmetic over the layout this function states, not a measurement.
+ */
+async function wireScene(
+  page: Page,
+  layer: { lineColor?: number[]; lineColors?: number[] } = {}
+): Promise<void> {
+  await page.evaluate(
+    async ([url, opt, patch]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { opt: opt as string },
+      });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const spec = patch as { lineColor?: number[]; lineColors?: number[] };
+      engine.addLayer({
+        datasetId: ds.id,
+        kind: 'points',
+        // A points layer with no points draws nothing at all (`PointsLayerRuntime.drawItems`), so
+        // the four endpoints are here as 4 px dots — well clear of the two midpoints read below.
+        points: [
+          { position: [-8, 2.5, 5], id: 'a' },
+          { position: [-2, 2.5, 5], id: 'b' },
+          { position: [2, 2.5, 5], id: 'c' },
+          { position: [8, 2.5, 5], id: 'd' },
+        ],
+        shape: 'dot',
+        color: [0, 1, 0, 1],
+        radiusMm: 2,
+        lineSegments: new Float32Array([-8, 2.5, 5, -2, 2.5, 5, 2, 2.5, 5, 8, 2.5, 5]),
+        lineWidthPx: 8,
+        // Typed arrays do not survive the page boundary, so the colours arrive as plain numbers
+        // and become a `Float32Array` here — which is what §4.4 declares.
+        ...(spec.lineColor === undefined ? {} : { lineColor: spec.lineColor }),
+        ...(spec.lineColors === undefined
+          ? {}
+          : { lineColors: new Float32Array(spec.lineColors) }),
+      });
+      engine.setLayout({ kind: '1x1', cells: ['coronal'] });
+      engine.setCursor([0, 2.5, 0]);
+      engine.setView('coronal', { camera: { center: [0, 0], mmPerPx: 0.05 } });
+      engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+      await engine.whenSettled();
+    },
+    [LATTICE, LATTICE_OPT, layer] as const
+  );
+}
+
+test('lineColors paints each segment its own colour, and absent is still one lineColor', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  // Two segments, two RGBAs: red then blue. The fragment is `vColor * uColor` with
+  // `uColor = (1, 1, 1, opacity)`, and opacity is 1, so the pixel is the segment's colour exactly.
+  await wireScene(page, { lineColors: [1, 0, 0, 1, 0, 0, 1, 1] });
+  const [ax, ay] = at(-5, 5);
+  const [bx, by] = at(5, 5);
+  await expectPixel(page, ax, ay, [...RED, 255]);
+  await expectPixel(page, bx, by, [...BLUE, 255]);
+  // …and half the wire's width away is the slice again, so this is a line and not a fill.
+  await expectPixel(page, ax, ay - WIRE_PX, [...TAG2, 255]);
+  expect(errors).toEqual([]);
+});
+
+test('absent lineColors is the single lineColor every scene before today drew', async ({ page }) => {
+  const errors = await openScene(page);
+  await wireScene(page, { lineColor: [1, 0, 0, 1] });
+  // Both segments, one colour: this is the branch `CONTOUR_COLORS 0` compiles, which is the shader
+  // every existing golden was captured with.
+  await expectPixel(page, ...at(-5, 5), [...RED, 255]);
+  await expectPixel(page, ...at(5, 5), [...RED, 255]);
+  expect(errors).toEqual([]);
+});
+
+test('a lineColors array too short for the segments is IGNORED, never half-applied', async ({
+  page,
+}) => {
+  const errors = await openScene(page);
+  // One segment's worth of colour for two segments. §4.4 says a shaft coloured for its first half
+  // and grey for the rest lies about which electrode the rest belongs to, so the whole array is
+  // dropped and `lineColor` answers for both.
+  await wireScene(page, { lineColor: [1, 0, 0, 1], lineColors: [0, 0, 1, 1] });
+  await expectPixel(page, ...at(-5, 5), [...RED, 255]);
+  await expectPixel(page, ...at(5, 5), [...RED, 255]);
+  expect(errors).toEqual([]);
+});
+
+test("labelColorSource 'points' draws each name in its own point's colour", async ({ page }) => {
+  const errors = await openScene(page);
+  // Two on-slice points 10 mm apart, one white and one pure red, both named. With
+  // `labelColorSource: 'points'` the two names are drawn in two different colours, which is asserted
+  // by decoding each one with the ink predicate for ITS colour and finding the other one blank.
+  await page.evaluate(
+    async ([url, opt]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({
+        kind: 'path',
+        path: url as string,
+        sidecars: { opt: opt as string },
+      });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.addLayer({
+        datasetId: ds.id,
+        kind: 'points',
+        points: [
+          { position: [-5, 2.5, 5], name: 'AA', id: 'p0', color: [1, 1, 1, 1] },
+          { position: [5, 2.5, 5], name: 'BB', id: 'p1', color: [1, 0, 0, 1] },
+        ],
+        // `dot`, so the marker is 4 px and cannot reach the label 40 px above it: a 2 mm sphere's
+        // 40 px disc touches the text's own baseline, and its pixels are the point's colour too —
+        // which is precisely the colour the decoder is looking for.
+        shape: 'dot',
+        color: [1, 1, 1, 1],
+        radiusMm: 2,
+        showLabels: true,
+        labelSource: 'names',
+        labelColorSource: 'points',
+      });
+      engine.setLayout({ kind: '1x1', cells: ['coronal'] });
+      engine.setCursor([0, 2.5, 0]);
+      engine.setView('coronal', { camera: { center: [0, 0], mmPerPx: 0.05 } });
+      engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+      await engine.whenSettled();
+    },
+    [LATTICE, LATTICE_OPT] as const
+  );
+
+  const white = (r: number, g: number, b: number): boolean => r > 200 && g > 200 && b > 200;
+  const red = (r: number, g: number, b: number): boolean => r > 200 && g < 90 && b < 90;
+
+  /**
+   * Decode a label at every horizontal offset within ±2 px of where the arithmetic puts it.
+   *
+   * The projection of a world x lands on a **half** pixel here (pane pixel centres are at +0.5), so
+   * `Math.round` in `drawPointLabels` takes `x = −5` up and `x = +5` down: the two labels sit one
+   * pixel apart relative to `labelCorner`'s exact arithmetic. That is a property of the pane's
+   * centre convention and not of the colour under test, so the string is looked for rather than
+   * demanded at one pixel — while "nothing of this colour is here" stays absolute, because an empty
+   * decode at every offset is the same statement at any of them.
+   */
+  const decodeNear = async (
+    corner: { xLocal: number; yLocal: number },
+    length: number,
+    ink: (r: number, g: number, b: number) => boolean
+  ): Promise<string[]> => {
+    const out: string[] = [];
+    for (let dx = -2; dx <= 2; dx += 1) {
+      out.push(
+        await readChromeText(page, {
+          canvasHeight: PANE,
+          pane: { x: 0, y: 0, width: PANE, height: PANE },
+          xLocal: corner.xLocal + dx,
+          yLocal: corner.yLocal,
+          length,
+          ink,
+        })
+      );
+    }
+    return out;
+  };
+
+  // Each name is drawn in its own point's colour…
+  expect(await decodeNear(labelCorner(-5, 5, 2), 2, white)).toContain('AA');
+  expect(await decodeNear(labelCorner(5, 5, 2), 2, red)).toContain('BB');
+  // …and in NO pixel of the other's, which is the half that proves the two really differ. A layer
+  // with one `labelColor` would put both of these under one predicate and neither under the other.
+  expect((await decodeNear(labelCorner(5, 5, 2), 2, white)).join('')).toBe('');
+  expect((await decodeNear(labelCorner(-5, 5, 2), 2, red)).join('')).toBe('');
+  expect(errors).toEqual([]);
+});
+
+// -------------------------------------------------------------------------------------------
+// §4.4's `dotRadiusPx` — the marker's size, and the one rule the ring and the hit test share
+// -------------------------------------------------------------------------------------------
+
+test('dotRadiusPx sizes the drawn dot, and the ring follows it', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await ghostScene(page, { shape: 'dot', dotRadiusPx: 10 });
+
+  // 10 CSS px at `uiScale` 1 is a 10 device-pixel disc: 9 px out is inside it, 12 px out is not.
+  // (The default is 4, which the `shape: 'dot'` ghost case above pins.)
+  const [dx, dy] = at(-5, 5);
+  await expectPixel(page, dx, dy, [...RED, 255]);
+  await expectPixel(page, dx + 9, dy, [...RED, 255]);
+  await expectPixel(page, dx + 12, dy, [...TAG2, 255]);
+
+  // …and §7.2's ring is that disc plus the 2 px gap, measured all the way round. A ring computed
+  // from `DOT_RADIUS_PX` would still be at 6 here, which is what "one rule" means.
+  await highlight(page, { selection: { layerId, index: 0 } });
+  expectRingAt(await ringRadii(page, dx, dy, 30), 12, 40);
+  expect(errors).toEqual([]);
+});
+
+test('an absent dotRadiusPx is still the 4 px constant, so no golden moves', async ({ page }) => {
+  const errors = await openScene(page);
+  const { layerId } = await ghostScene(page, { shape: 'dot' });
+  const [dx, dy] = at(-5, 5);
+  await expectPixel(page, dx + 3, dy, [...RED, 255]);
+  await expectPixel(page, dx + 6, dy, [...TAG2, 255]);
+  await highlight(page, { selection: { layerId, index: 0 } });
+  expectRingAt(await ringRadii(page, dx, dy, 30), 6, 20);
+  expect(errors).toEqual([]);
 });

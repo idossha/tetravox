@@ -294,6 +294,47 @@ describe('pointAtPane (§7.5, §13)', () => {
     expect(pointAtPane(dots, place, ...at(-20, 0))).not.toBeNull();
   });
 
+  it('grows the grab with §4.4’s dotRadiusPx — the disc IS the target (A4)', () => {
+    // A bigger marker has to be a bigger target, or the picture and the hit rule stop being one
+    // rule: a 12 px dot with an 8 px grab would put the boundary a third of the way inside the
+    // disc the user is aiming at.
+    const dots = (dotRadiusPx?: number): PointsLayer =>
+      layer({
+        shape: 'dot',
+        radiusMm: 20,
+        ...(dotRadiusPx === undefined ? {} : { dotRadiusPx }),
+        points: [{ position: [0, 0, 0], id: 'a' }],
+      });
+    const [cx, cy] = at(0, 0);
+    // 12 px: the disc beats the 8 px floor, so the boundary is the disc.
+    expect(pointAtPane(dots(12), place, cx + 11, cy)?.discPx).toBe(12);
+    expect(pointAtPane(dots(12), place, cx + 13, cy)).toBeNull();
+    // …and absent is still 4 px under the floor, so nothing about the default moved.
+    expect(pointAtPane(dots(), place, cx + 7, cy)).not.toBeNull();
+    expect(pointAtPane(dots(), place, cx + 9, cy)).toBeNull();
+  });
+
+  it('scales §4.4’s dotRadiusPx by uiScale, like the constant it replaces', () => {
+    const hidpi: PanePlacement = {
+      ...place,
+      view: { ...axial, camera: { center: [0, 0], mmPerPx: 0.25 } },
+      rect: { width: 400, height: 400 },
+      uiScale: 2,
+    };
+    const dots = layer({
+      shape: 'dot',
+      radiusMm: 20,
+      dotRadiusPx: 10,
+      points: [{ position: [0, 0, 0], id: 'a' }],
+    });
+    const cx = 200 - 0.5;
+    const cy = 200 - 0.5;
+    // 10 CSS px at DPR 2 is 20 device pixels, which is the number `uDotPx` carries to the shader.
+    expect(pointAtPane(dots, hidpi, cx, cy)?.discPx).toBe(20);
+    expect(pointAtPane(dots, hidpi, cx + 19, cy)).not.toBeNull();
+    expect(pointAtPane(dots, hidpi, cx + 21, cy)).toBeNull();
+  });
+
   it('is null for an empty layer, and honours a caller-supplied floor', () => {
     expect(pointAtPane(layer(), place, 100, 100)).toBeNull();
     const [cx, cy] = at(0, 0);

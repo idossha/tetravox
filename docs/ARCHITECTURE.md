@@ -463,6 +463,13 @@ export interface PointsLayer extends LayerBase {
                                                  // points as full-radius discs at this alpha
   labelSource?: 'labels' | 'names';              // 'labels' (default) = the `labels` array;
                                                  // 'names' = points[].name at each point's position
+
+  // §13's sEEG UX wave (2026-08-30, second pass). Three more, same rule: absent is today.
+  lineColors?: Float32Array;                     // 4/segment RGBA, parallel to `lineSegments`;
+                                                 // absent = the single `lineColor`. Short = ignored
+  labelColorSource?: 'layer' | 'points';         // 'layer' (default) = `labelColor ?? color`;
+                                                 // 'points' = each name in its point's own `color`
+  dotRadiusPx?: number;                          // `shape:'dot'` screen radius, CSS px; absent = 4
 }
 
 export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
@@ -495,12 +502,35 @@ readable underneath it, a per-row Reset is deleting a key, and "Save LUT…" wri
 the table. `selectedLabels` is a plain `number[]`, unlike `visibleLabels`' `Uint32Array`: a selection is a
 handful of ids a panel edits click by click, not a filter over up to 65535 of them.
 
-**A points layer's five §13 fields, and what "additive" guarantees here** (2026-08-30). `LayerBase.module`,
-`points[].id` / `.group` / `.ordinal`, `PointsLayer.offPlaneOpacity` and `.labelSource` are every one of them
-optional, and **absent reproduces the previous behaviour exactly** — that is the whole of §12.3's additive
-rule, and for these fields it is checkable: `module`, `group` and `ordinal` are read by nobody in the engine,
-`id` is read only by a tool's selection, and the two rendering fields both default to the branch the shader
-and the overlay took before they existed. No existing scene changes and no §11 golden moves.
+**A points layer's eight §13 fields, and what "additive" guarantees here** (2026-08-30).
+`LayerBase.module`, `points[].id` / `.group` / `.ordinal`, `PointsLayer.offPlaneOpacity`, `.labelSource`,
+`.lineColors`, `.labelColorSource` and `.dotRadiusPx` are every one of them optional, and **absent
+reproduces the previous behaviour exactly** — that is the whole of §12.3's additive rule, and for these
+fields it is checkable: `module`, `group` and `ordinal` are read by nobody in the engine, `id` is read only
+by a tool's selection, and the five rendering fields all default to the branch the shader and the overlay
+took before they existed. No existing scene changes and no §11 golden moves.
+
+**One layer is a whole implant, so the line and the name need the electrode's colour.** `points[].group` is
+what lets twelve electrodes share one layer (see the identity paragraph below), and the price of that was a
+single `lineColor` across every shaft and a single `labelColor` across every name — a picture whose discs
+say which electrode a contact belongs to and whose lines and names, six pixels away, do not.
+**`lineColors`** is four floats per segment, parallel to `lineSegments`'s six; per *segment* rather than per
+group because the engine has no group concept — a flat array of endpoints admits no other statement — and an
+array shorter than `4 · segments` is **ignored** rather than half-applied, because a shaft coloured for three
+segments and grey for the rest lies about which electrode the rest belongs to. It is a `Float32Array`, so
+§4.6 drops it exactly as it drops `lineSegments`, and whoever rebuilds the segments rebuilds it beside them.
+**`labelColorSource: 'points'`** draws each name in its own point's `color` — the colour `packPoints` already
+gives that point's disc, so a marker and its name cannot disagree — and only `labelSource: 'names'` can
+honour it, since a `labels` entry is free-standing `T3` text with no point behind it.
+
+**`dotRadiusPx` is the `dot` branch's size, and there is one of it.** CSS pixels, because that is the unit
+the constant it replaces (`DOT_RADIUS_PX` = 4) is authored in; clamped to 0.5…64 px, because a scene file is
+editable text and `NaN` deletes the quad rather than resizing it. `overlay/point-ring.ts#dotRadiusPxOf` is
+the single function the shader uniform (`uDotPx = dotRadiusPxOf(layer) · uiScale`), the selection ring and
+`pointAtPane`'s grab radius all read, so a bigger marker is a bigger target: a 12 px disc with an 8 px grab
+would put the hit boundary a third of the way inside the thing the user is aiming at. `shape: 'sphere'` does
+not read it — a sphere's size is `radiusMm`, which is also its cross-section, its billboard, its label slab
+and its probe radius, and a second size for one of those five would disagree with the other four.
 
 **The 2D cull and the ghost.** §7.2's 2D rule for a points layer is the sphere ∩ plane disc, and a point
 further than its own radius from the plane is dropped entirely — which is what makes a points layer sweep
@@ -2070,11 +2100,17 @@ Rules:
 
 1. **Opaque** — volume base slices (2D: the slice; 3D: the plane of each `SliceView` whose owning volume
    layer has `showIn3D`), opaque meshes, opaque isosurfaces, points, a points layer's `SL` segments, and the
-   cut caps of opaque layers.
+   cut caps of opaque layers. The segments draw through §7.4's contour program; §4.4's `lineColors`
+   (2026-08-30) adds a fourth per-instance attribute and the program's one variant, `CONTOUR_COLORS` — at 0,
+   which is every mesh contour and every layer without the array, the fragment is `uColor` verbatim and the
+   compiled shader is the one every golden was captured with; at 1 the uniform becomes a
+   `vec4(1, 1, 1, opacity)` tint, so the layer's opacity still reaches a per-segment colour.
    * **Points in a 2D pane are the sphere ∩ plane disc**, radius `sqrt(r² − d²)` for a signed plane distance
      `d`, drawn *on* the plane; a point with `|d| ≥ r` is not on this slice and the vertex shader drops it
-     off screen. `shape: 'dot'` is culled by the same world rule and then drawn at a constant **4 px**
-     screen radius. §4.4's **`offPlaneOpacity > 0` adds the second case**: the dropped points are drawn as
+     off screen. `shape: 'dot'` is culled by the same world rule and then drawn at a constant screen
+     radius — **4 CSS px** unless §4.4's `dotRadiusPx` says otherwise (2026-08-30), through
+     `uDotPx = dotRadiusPxOf(layer) · uiScale`, which is the same expression the selection ring and the
+     CPU hit test read so the three cannot answer different sizes. §4.4's **`offPlaneOpacity > 0` adds the second case**: the dropped points are drawn as
      well, at the **full** radius `r` (a `dot` at its same 4 px) and at that alpha, through a `uGhostAlpha`
      uniform on the existing `POINTS_2D` program rather than a third variant — `derived.ts` already writes
      per-layer uniforms there, and the value is clamped to 0…1 because a scene file is editable text. At 0,
@@ -2129,6 +2165,13 @@ Rules:
      than `max(radiusMm, 1 mm)` from the plane. The two 2D rules diverge deliberately — a disc at
      0.6 alpha is a legible hint of where the shaft goes, and a whole shaft's worth of names on one
      slice is the smear this bullet's slab exists to prevent.
+   * **`PointsLayer.labelColorSource`** (2026-08-30) picks *whose* colour that text is drawn in:
+     `'layer'` — absent, and every layer written before the field — is `labelColor ?? color` for
+     every label; `'points'` draws each name in its own point's `color`, which is the colour
+     `packPoints` gives that point's disc, so a marker and its name cannot end up different colours.
+     It applies to `labelSource: 'names'` alone: a `labels` entry is free-standing `T3` text with no
+     point behind it. The layer's `opacity` fades whichever colour won, applied once in
+     `drawPointLabels` rather than pre-multiplied into one of the two by the caller.
    * **Point selection and hover rings** (§13's point editing, 2026-08-30). `DrawInput.pointSelection`
      and `pointHot` name a points layer and an **array index**; the pass draws a ring around that
      point in `OverlayTheme.select` — a new theme field, engine default only, so no app token work
@@ -2482,10 +2525,12 @@ Input (Freeview-like):
     hit rule cannot drift away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with the
     gizmo it draws. **Every one of those pixel numbers is a device pixel**, and `Camera2D.mmPerPx` is
     millimetres per device pixel, so a world radius reaches the screen as `radiusMm / mmPerPx` and is
-    **not** scaled by `uiScale` again — only the `dot` branch's constant is, because `uDotPx = 4 · uiScale`
-    is the one radius authored in CSS pixels (2026-08-30). The `8 px` and `14 px` floors stay device pixels
-    deliberately, the same convention as the gizmo's `HANDLE_HIT_PX`: the frame's grabbable things use one
-    unit.
+    **not** scaled by `uiScale` again — only the `dot` branch's radius is, because
+    `uDotPx = dotRadiusPxOf(layer) · uiScale` is the one authored in CSS pixels (2026-08-30). That radius is
+    §4.4's `dotRadiusPx` (absent = 4) and the hit test takes the **layer's** value, so a marker the user made
+    bigger is a bigger target: one function, `dotRadiusPxOf`, feeds the shader uniform, the ring and this
+    rule. The `8 px` and `14 px` floors stay device pixels deliberately, the same convention as the gizmo's
+    `HANDLE_HIT_PX`: the frame's grabbable things use one unit.
   * **The drag is `GestureKind 'point'`**, resolved in `resolveGesture`'s **2D** branch after the ctrl/meta
     and `Shift` tests and before the `space` one, so `Shift`+drag over a contact is still the layer's opacity
     and `space`+drag is still the pan. Each move writes `paneToWorld` into a **replaced** `points` array.

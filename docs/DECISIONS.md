@@ -4312,3 +4312,54 @@ extension check lower-cased, so `Electrodes.tsv` reached the mesh loader and cam
 a manifest cannot opt back into case sensitivity, deliberately — a reader that claimed one spelling
 and refused another would be a bug report, not a feature — and the panel now has the Open… button
 that makes the module's own All-files sheet reachable for a name no pattern will ever claim.
+
+## 2026-08-30 — an electrode's wire and its names are the electrode's colour
+
+A `PointsLayer` is **one** layer for a whole implant — §4.4's `points[].group` is the electrode — and
+that was the right call for the layer panel, the probe row and `[` / `]`. What it left behind is that
+`lineSegments` had one `lineColor` and the name labels had one `labelColor`, so on P077 fifteen shafts
+drew as one colour of line and eighty-two names as one colour of text, over discs that were already
+told apart by their palette entry. The picture said "these contacts belong to different electrodes"
+and, six pixels away, "these lines and these names do not."
+
+Two additive `PointsLayer` fields, both absent-is-today. **`lineColors`** is a `Float32Array` of four
+floats per segment, parallel to `lineSegments`'s six; per *segment* rather than per group because the
+engine has no concept of a group — `lineSegments` is a flat array of endpoints, and a parallel array
+is the only way to say "this segment is that colour" that introduces nothing new. An array shorter
+than `4 · segments` is **ignored** rather than half-applied: a shaft coloured for three segments and
+grey for the rest is a picture that lies about which electrode the rest of it belongs to, and it is
+also the out-of-range instanced read WebGL turns into a draw of nothing. Like `lineSegments` it is a
+`Float32Array`, so §4.6 does not serialise it and whoever rebuilds the segments rebuilds it beside
+them. **`labelColorSource: 'points'`** colours each name by its own point's `color`, which is the
+colour `packPoints` already gives that point's disc — so a marker and its name cannot end up
+different colours by construction. Only `labelSource: 'names'` can honour it: a `labels` entry is
+free-standing Gmsh `T3` text with no point behind it.
+
+In the shader this is `CONTOUR_COLORS`, one compile-time variant of the existing contour program
+rather than a second program: at 0 — every mesh contour, and every points layer that does not colour
+its shafts — the fragment is `uColor` verbatim, which is the shader that captured every existing
+golden. At 1 the uniform becomes a tint of `vec4(1, 1, 1, opacity)` so the layer's opacity still
+reaches a per-segment colour. The alternative, a uniform loop over a colour table, would have needed
+a per-group concept in the engine and a second upload path for something a vertex attribute already
+does.
+
+## 2026-08-30 — a contact's size is a layer field, and one number feeds the shader, the ring and the hit test
+
+`shape: 'dot'` drew at a hard-coded four CSS pixels. On a bone-window CT at a clinical zoom that is a
+speck, and the owner asked to be able to make it bigger; there was nowhere to put the answer.
+`PointsLayer.dotRadiusPx` is that field — CSS pixels, because that is the unit the constant it
+replaces is authored in, absent is `DOT_RADIUS_PX` (4), and it is clamped to 0.5…64 px on the way in
+because a scene file is editable text and `NaN` deletes the quad rather than resizing it.
+
+The rule that matters is that there is still **one** rule. `dotRadiusPxOf(layer)` is a single exported
+function: `derived.ts` sends `uDotPx = dotRadiusPxOf(layer) · uiScale`, `discRadiusPx` uses the same
+expression for the selection ring, and `pointAtPane` passes the layer's value into `discRadiusPx` so
+the grab radius is the disc the pane actually drew. A twelve-pixel marker with an eight-pixel grab
+would put the hit boundary a third of the way inside the thing the user is aiming at — the same class
+of defect as the `uiScale` bug this file recorded earlier today, which is why the fix is one function
+and not three call sites that agree today.
+
+`shape: 'sphere'` deliberately does not read it: a sphere's size is `radiusMm`, which is also its 2D
+cross-section, its 3D billboard, its label slab and its probe radius, and a second size for one of
+those five would be a knob that disagreed with the other four.
+

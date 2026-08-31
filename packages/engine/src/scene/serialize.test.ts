@@ -523,11 +523,15 @@ describe('a points layer from a parsed view', () => {
     colormap: 'turbo',
     labels: [{ position: [1, 2, 8] as [number, number, number], text: 'E001' }],
     lineSegments: new Float32Array([0, 0, 0, 1, 0, 0]),
+    // §4.4's `lineColors` (2026-08-30) is the segments' parallel array, and a `Float32Array` for
+    // the same reason — so it must leave by the same door.
+    lineColors: new Float32Array([1, 0, 0, 1]),
   } as unknown as Layer;
 
   it('drops the dataset-derived labels and segments, and keeps the user’s knobs', () => {
     const out = serializableLayer(layer) as Record<string, unknown>;
     expect(out.lineSegments).toBeUndefined();
+    expect(out.lineColors).toBeUndefined();
     expect(out.labels).toBeUndefined();
     expect(JSON.stringify(out)).not.toContain('"0":');
     // What the user actually chose survives, and so do the points a CSV layer has no other home for.

@@ -284,9 +284,18 @@ function drawPointLabelsFor(
         }
       : { width: rect.width, height: rect.height, liftPx: 6 * m.scale };
 
+    // The layer's colour is the fallback and the layer's opacity is the fade; a label that carries
+    // its own colour (§4.4's `labelColorSource: 'points'`, 2026-08-30) takes the same fade, which
+    // is why the two are handed over separately instead of pre-multiplied here.
     const color = layer.labelColor ?? layer.color;
-    const faded: vec4 = [color[0], color[1], color[2], color[3] * layer.opacity];
-    drawPointLabels(b, m, placePointLabels(labels, viewProj, place), layer.labelScale ?? 1, faded);
+    drawPointLabels(
+      b,
+      m,
+      placePointLabels(labels, viewProj, place),
+      layer.labelScale ?? 1,
+      color,
+      layer.opacity
+    );
   }
 }
 

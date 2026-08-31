@@ -10,11 +10,14 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  DOT_RADIUS_MAX_PX,
+  DOT_RADIUS_MIN_PX,
   DOT_RADIUS_PX,
   POINT_RING_GAP_PX,
   POINT_RING_MIN_RADIUS_PX,
   POINT_RING_SEGMENTS,
   discRadiusPx,
+  dotRadiusPxOf,
   drawPointRing,
   ringRadiusPx,
 } from './point-ring';
@@ -22,6 +25,23 @@ import { FLOATS_PER_VERTEX, OverlayBuilder, overlayMetrics } from './builder';
 
 const SPHERE = { shape: 'sphere' as const, radiusMm: 2 };
 const DOT = { shape: 'dot' as const, radiusMm: 2 };
+
+describe('dotRadiusPxOf', () => {
+  it('is 4 px when absent — what every layer written before §4.4 gained the field says', () => {
+    expect(dotRadiusPxOf({})).toBe(DOT_RADIUS_PX);
+    expect(dotRadiusPxOf({ dotRadiusPx: undefined })).toBe(DOT_RADIUS_PX);
+  });
+
+  it('clamps, because a scene file is editable text', () => {
+    expect(dotRadiusPxOf({ dotRadiusPx: 10 })).toBe(10);
+    expect(dotRadiusPxOf({ dotRadiusPx: 0 })).toBe(DOT_RADIUS_MIN_PX);
+    expect(dotRadiusPxOf({ dotRadiusPx: -3 })).toBe(DOT_RADIUS_MIN_PX);
+    expect(dotRadiusPxOf({ dotRadiusPx: 5000 })).toBe(DOT_RADIUS_MAX_PX);
+    // NaN would delete the quad rather than resize it, so it is not a size at all.
+    expect(dotRadiusPxOf({ dotRadiusPx: Number.NaN })).toBe(DOT_RADIUS_PX);
+    expect(dotRadiusPxOf({ dotRadiusPx: Infinity })).toBe(DOT_RADIUS_PX);
+  });
+});
 
 describe('discRadiusPx', () => {
   it('is the sphere ∩ plane radius, in DEVICE pixels', () => {
@@ -48,6 +68,16 @@ describe('discRadiusPx', () => {
     // `mmPerPx`, not through `uiScale`.
     expect(discRadiusPx(SPHERE, 2, 0, 0.1, 1)).toBeCloseTo(20, 9);
     expect(discRadiusPx(SPHERE, 2, 0, 0.05, 2)).toBeCloseTo(40, 9);
+  });
+
+  it('takes §4.4’s dotRadiusPx for the `dot` branch, and 4 px when there is none', () => {
+    // The A4 half: the marker's size is a layer field, and the ring reads the same one the shader
+    // does. Absent is the constant every scene written before the field carries.
+    expect(discRadiusPx({ ...DOT, dotRadiusPx: 9 }, 2, 0, 0.05, 1)).toBe(9);
+    expect(discRadiusPx({ ...DOT, dotRadiusPx: 9 }, 2, 0, 0.05, 2)).toBe(18);
+    expect(discRadiusPx(DOT, 2, 0, 0.05, 1)).toBe(DOT_RADIUS_PX);
+    // A sphere layer does not read it: its size is `radiusMm`, all the way through.
+    expect(discRadiusPx({ ...SPHERE, dotRadiusPx: 9 }, 2, 0, 0.05, 1)).toBeCloseTo(40, 9);
   });
 
   it('scales the `dot` branch by uiScale, because THAT radius is authored in CSS pixels', () => {

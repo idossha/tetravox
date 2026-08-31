@@ -192,7 +192,7 @@ export class PointsLayerRuntime implements LayerRuntime {
  *
  * `discRadiusPx` is what `wave1-specs.md` calls `discRadius`; there is one function and one name.
  */
-export { DOT_RADIUS_PX, discRadiusPx } from '../overlay/point-ring';
+export { DOT_RADIUS_PX, discRadiusPx, dotRadiusPxOf } from '../overlay/point-ring';
 export type { DiscShape } from '../overlay/point-ring';
 
 /**
@@ -278,7 +278,10 @@ export function pointAtPane(
     // `offPlaneOpacity: 0` is the whole of "ghosts never hit": with it, `discRadiusPx` returns
     // `null` for exactly the points §7.2's shader culls when the layer is not ghosting.
     const discPx = discRadiusPx(
-      { shape: layer.shape, radiusMm, offPlaneOpacity: 0 },
+      // §4.4's `dotRadiusPx` (2026-08-30) rides along: the disc a `dot` layer draws is the target
+      // the user aims at, so growing the marker has to grow the grab with it or the ring, the
+      // pixels and the hit test stop being one rule.
+      { shape: layer.shape, radiusMm, offPlaneOpacity: 0, dotRadiusPx: layer.dotRadiusPx },
       radiusMm,
       d,
       mmPerPx,

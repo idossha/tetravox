@@ -21,6 +21,14 @@
  *
  * A degenerate segment (both endpoints at the same place, or one behind the eye in a 3D pane) is
  * collapsed to nothing rather than being given an arbitrary normal.
+ *
+ * **`CONTOUR_COLORS` (2026-08-30)** is the one variant, and it exists for §4.4's `lineColors`: a
+ * points layer draws a whole implant's shafts through this program, and one `uColor` paints every
+ * electrode the same. At 0 — what every caller that does not ask for per-segment colour passes, and
+ * the branch every mesh contour takes — the fragment is `uColor` verbatim, so the compiled output is
+ * the shader that captured every existing golden. At 1 a fourth per-instance attribute carries the
+ * segment's own RGBA and the fragment is `vColor * uColor`, which is how the layer's opacity still
+ * reaches a per-segment colour: the pass sends `uColor = vec4(1, 1, 1, opacity)`.
  */
 
 import { PRECISION_FLOAT, VERSION } from './chunks/caps';
@@ -34,6 +42,10 @@ ${PRECISION_FLOAT}
 layout(location = 0) in vec2 aCorner;     // (t along, side across) in {0,1} x {-1,+1}
 layout(location = 1) in vec3 aA;          // per-instance: segment start, world mm
 layout(location = 2) in vec3 aB;          // per-instance: segment end, world mm
+#if CONTOUR_COLORS
+layout(location = 3) in vec4 aColor;      // per-instance: §4.4 lineColors, RGBA 0..1
+out vec4 vColor;
+#endif
 
 uniform mat4 uViewProj;
 uniform mat4 uModel;
@@ -42,6 +54,9 @@ uniform float uWidthPx;                   // contourWidthPx, already DPR-scaled
 uniform float uCapPx;                     // longitudinal extension at each end
 
 void main() {
+#if CONTOUR_COLORS
+  vColor = aColor;
+#endif
   vec4 ca = uViewProj * (uModel * vec4(aA, 1.0));
   vec4 cb = uViewProj * (uModel * vec4(aB, 1.0));
   // Both endpoints behind the near plane: emit nothing rather than a mirrored quad.
@@ -70,8 +85,17 @@ void main() {
 
 export const CONTOUR_FS = `${VERSION}
 ${PRECISION_FLOAT}
+#if CONTOUR_COLORS
+in vec4 vColor;                           // §4.4 lineColors, per instance
+#endif
 uniform vec4 uColor;
 out vec4 fragColor;
 void main() {
+#if CONTOUR_COLORS
+  // \`uColor\` is the layer's opacity as a tint (rgb = 1), so a per-segment colour fades with the
+  // layer exactly as the single-colour branch does.
+  fragColor = vColor * uColor;
+#else
   fragColor = uColor;
+#endif
 }`;

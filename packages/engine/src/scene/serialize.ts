@@ -320,6 +320,10 @@ export function serializableLayer(layer: Layer): SerializableLayer {
     // restore garbage, silently, and be megabytes of it.
     delete out.lineSegments;
     delete out.labels;
+    // §4.4's `lineColors` (2026-08-30) is the segments' parallel array and a `Float32Array` for the
+    // same reason, so it goes the same way: whoever rebuilds the segments on restore rebuilds these
+    // beside them, and a serialised one would restore as `{"0":…}` garbage.
+    delete out.lineColors;
   }
   if (layer.kind === 'mesh' && layer.label !== undefined) {
     const { name, mode, outlineWidthPx, visibleLabels } = layer.label;
