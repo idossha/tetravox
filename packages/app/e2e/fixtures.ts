@@ -31,8 +31,10 @@ export const APP_ROOT = resolve(here, '..');
  *
  *  * a store the `TETRAVOX_MODULE_DIR` seam points at, holding `index.js` + `manifest.json` and the
  *    receipt an install writes (hashes of exactly those bytes), and
- *  * a `TETRAVOX_HOME` whose `tetravoxrc` carries the consent record, which is the documented
- *    machine-wide-defaults layer of `settings.json` (`main/settings.ts#readRc`).
+ *  * the consent record itself, written by {@link SeegStage.consentInto} into a launch's own
+ *    `--user-data-dir`, which is where `main/settings.ts` keeps `settings.json`. Deliberately not
+ *    the rc file: since 2026-08-31 `readRc` strips `extensions`, because a hand-editable defaults
+ *    layer must not be able to pre-consent an extension.
  *
  * The bytes come from `TETRAVOX_SEEG_FIXTURE` — a directory with a built extension's `index.js` and
  * `manifest.json`, e.g. `gh release download v0.1.1 -R idossha/tetravox-seeg` unpacked (the release
@@ -42,11 +44,16 @@ export const APP_ROOT = resolve(here, '..');
  */
 export interface SeegStage {
   version: string;
-  /** Merge into the launch env: the store seam, the packaged-seam key, and the consenting home. */
+  /** Merge into the launch env: the install-store seam and the packaged-seam key. */
   env: Record<string, string>;
+  /**
+   * Write this stage's consent into a launch profile — the same record `enableModule` would have
+   * written after the sheet. Call it with the `--user-data-dir` that launch will use.
+   */
+  consentInto(userDataDir: string): void;
 }
 
-export function stageSeeg(opts: { home?: string } = {}): SeegStage | null {
+export function stageSeeg(): SeegStage | null {
   const src = process.env['TETRAVOX_SEEG_FIXTURE'];
   if (src === undefined || src === '') return null;
   // Every failure below answers `null`, never a throw: this runs at **spec collection** (module
@@ -86,28 +93,31 @@ export function stageSeeg(opts: { home?: string } = {}): SeegStage | null {
       2
     )}\n`
   );
-  const home = opts.home ?? join(root, 'home');
-  mkdirSync(home, { recursive: true });
-  writeFileSync(
-    join(home, 'tetravoxrc'),
-    `${JSON.stringify(
-      {
-        extensions: {
-          [manifest.id]: {
-            version: manifest.version,
-            hostApi: manifest.hostApi ?? 1,
-            grantedAt: new Date().toISOString(),
-            permissions: [],
-          },
-        },
-      },
-      null,
-      2
-    )}\n`
-  );
+  const id = manifest.id;
+  const version = manifest.version;
   return {
-    version: manifest.version,
-    env: { TETRAVOX_MODULE_DIR: store, TETRAVOX_HOME: home, TETRAVOX_E2E: '1' },
+    version,
+    env: { TETRAVOX_MODULE_DIR: store, TETRAVOX_E2E: '1' },
+    consentInto: (userDataDir: string): void => {
+      mkdirSync(userDataDir, { recursive: true });
+      writeFileSync(
+        join(userDataDir, 'settings.json'),
+        `${JSON.stringify(
+          {
+            extensions: {
+              [id]: {
+                version,
+                hostApi: manifest.hostApi ?? 1,
+                grantedAt: new Date().toISOString(),
+                permissions: [],
+              },
+            },
+          },
+          null,
+          2
+        )}\n`
+      );
+    },
   };
 }
 

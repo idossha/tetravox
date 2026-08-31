@@ -312,7 +312,7 @@ keyboard.
 
 #### `module` — run an extension's operation
 
-A **extension** ([§13]({{ site.baseurl }}/ARCHITECTURE.html)) is a first-party tool with its own panel,
+An **extension** ([§13]({{ site.baseurl }}/ARCHITECTURE.html)) is a first-party tool with its own panel,
 keys and files; the sEEG contact editor is the first. Every button in its panel is also an
 *operation*, and this one action type runs them — whichever extension, whichever operation, forever:
 
@@ -371,7 +371,7 @@ themselves.
 file: `ok: false` with the reasons in `errors`, which is what makes a failed batch diagnosable from a
 log rather than from a screen.
 
-A job that ran a **extension** operation also carries `modules` — every extension it used and the version
+A job that ran an **extension** operation also carries `modules` — every extension it used and the version
 that ran it, so a figure produced by one is re-derivable a year later:
 
 ```json

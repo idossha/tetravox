@@ -101,6 +101,7 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
   let root: string;
   let home: string;
   let stage: SeegStage;
+  let profile: string;
   let sceneTsv: string;
   let sceneIeeg: string;
 
@@ -136,19 +137,22 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
     sceneTsv = join(sceneIeeg, 'sub-P077_space-T1w_electrodes.tsv');
 
     home = mkdtempSync(join(tmpdir(), 'tetravox-p077-home-'));
-    // sEEG no longer ships bundled (2026-08-31): stage the downloaded-and-consented state into this
-    // run's own home from the bytes TETRAVOX_SEEG_FIXTURE names, or skip.
-    const staged = stageSeeg({ home });
+    // sEEG no longer ships bundled (2026-08-31): stage the downloaded-and-consented state from the
+    // bytes TETRAVOX_SEEG_FIXTURE names, or skip.
+    const staged = stageSeeg();
     test.skip(
       staged === null,
       'set TETRAVOX_SEEG_FIXTURE to a built tetravox.seeg to run this suite'
     );
     stage = staged!;
+    profile = mkdtempSync(join(tmpdir(), 'tetravox-p077-profile-'));
+    stage.consentInto(profile);
     app = await launchApp('packaged', {
       args: [scenePath],
       // The scene restore leaves the module clean, but a later snap/save makes it dirty; the packaged
       // build ignores `TETRAVOX_E2E_DISCARD` on purpose (§5 rule 12), so `afterAll` clears the flag
       // rather than leaning on it — the seam is set only so an interrupted run does not hang.
+      userDataDir: profile,
       env: { TETRAVOX_E2E_DISCARD: '1', TETRAVOX_HOME: home, ...stage.env },
     });
     page = await app.firstWindow();

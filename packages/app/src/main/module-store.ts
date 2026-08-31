@@ -33,6 +33,7 @@ import { app, net, shell } from 'electron';
 import { createHash } from 'node:crypto';
 import {
   createWriteStream,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -686,6 +687,12 @@ export async function installModule(
       });
     } catch (err) {
       const aborted = opts.signal.aborted;
+      // Leave nothing half-written: the two failure paths below (`manifest.json` invalid, hostApi
+      // mismatch) already delete the version directory, and an interrupted download that had
+      // already landed a valid `manifest.json` would otherwise leave a receipt-less install behind —
+      // enough for `installedModule` to answer non-null, which is exactly what the consent prune
+      // reads (finding, 2026-08-31).
+      rmSync(join(moduleDir(), id, version), { recursive: true, force: true });
       report(file.name, aborted ? 'cancelled' : 'error', 0, aborted ? undefined : String(err));
       return { ok: false, error: aborted ? 'cancelled' : String(err) };
     }
@@ -810,10 +817,24 @@ export function bootstrapInstalledModules(): void {
   // download of that same version would find its own consent already recorded and go live at the
   // next launch without a sheet ever being answered. Pruned here, a re-download asks, as it must.
   // Compiled-in ids are exempt: `isModuleConsented` answers for them from MANIFESTS, never a record.
+  //
+  // The test is **the directory is gone**, not "the scan did not produce it". `scanRoot` answers the
+  // same empty for a store it could not read at all, a half-written install and a manifest that does
+  // not validate — and dropping a consent on any of those would cost a user their grant over a
+  // transient, for an extension that could not have run anyway (`verifyInstalled` refuses it). So the
+  // prune asks the narrow question it means, and one write carries every answer.
   const compiledIn = new Set<string>(MANIFESTS.map((m) => m.id));
-  const live = new Set<string>(modules.map((m) => m.id));
-  for (const id of Object.keys(consents())) {
-    if (!live.has(id) && !compiledIn.has(id)) dropConsent(id);
+  const record = consents();
+  const gone = Object.keys(record).filter(
+    (id) => !compiledIn.has(id) && !existsSync(join(moduleDir(), id))
+  );
+  if (gone.length > 0) {
+    const kept = { ...record };
+    for (const id of gone) delete kept[id];
+    writeSettings({ extensions: kept });
+    console.log(
+      `[tetravox] dropped ${gone.length} consent record(s) with no extension: ${gone.join(', ')}`
+    );
   }
   for (const module of modules) {
     if (!isModuleConsented(module.id)) continue;

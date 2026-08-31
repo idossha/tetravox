@@ -10,7 +10,7 @@
  *
  *  1. **The download path, in the shipped build.** A packaged build ignores the `TETRAVOX_MODULE_DIR`
  *     / `TETRAVOX_EXT_INDEX` seams unless `TETRAVOX_E2E=1` opts back in (`module-store.ts`
- *     `envSeamsAllowed`, the `csp.spec.ts` seam). With it, a second, non-bundled fixture module is
+ *     `envSeamsAllowed`, the `csp.spec.ts` seam). With it, the fixture extension is
  *     served from a `file://` release store and a fixture index, and the whole gesture — Download &
  *     enable → the consent sheet with the manifest-derived permissions → Enable → the switcher → the
  *     module's own panel built with the host's React — runs against the real `.app`, the real

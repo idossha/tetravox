@@ -109,11 +109,14 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
       'set TETRAVOX_SEEG_FIXTURE to a built tetravox.seeg to run this suite'
     );
     tree = subjectTree();
+    // The consent goes in this launch's own profile, exactly where `enableModule` would have put it.
+    const profile = mkdtempSync(join(tmpdir(), 'tetravox-seeg-profile-'));
+    STAGE!.consentInto(profile);
     app = await launchApp(target, {
       search: SEARCH,
       args: [tree.ct],
+      userDataDir: profile,
       // The window is deliberately made dirty below; without this its close would ask (§5 rule 12).
-      // The stage's env is the store seam, the consenting home and the packaged-seam key.
       env: { TETRAVOX_E2E_DISCARD: '1', ...STAGE!.env },
     });
     page = await app.firstWindow();

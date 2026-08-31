@@ -26,9 +26,10 @@ follows; and they check the two things that are cheap to check here and expensiv
 an app launch, which are a `scope` that is not one of the three and a `save` whose `out` would climb
 out of `--out`.
 
-**Data only.** Nothing here imports the module — it is TypeScript compiled into the app — or asks
-whether the build has it. A wrapper describes an operation's arguments; the app is what runs it, and
-the app is what refuses a job naming a module it does not carry.
+**Data only.** Nothing here imports the extension — it is published separately, downloaded and
+consented to through File ▸ Extensions… — or asks whether this machine has it. A wrapper describes
+an operation's arguments; the app is what runs it, and the app is what refuses a job naming an
+extension that is not installed and enabled.
 """
 
 from __future__ import annotations

@@ -204,7 +204,13 @@ function readRc(): Partial<AppSettings> {
   try {
     const text = readFileSync(rcPath(), 'utf8');
     if (text.length > MAX_BYTES) return {};
-    return coercePatch(JSON.parse(text));
+    // `extensions` is stripped here for the reason `writeSettingsFromRenderer` strips it: a consent
+    // record is main's alone, written by `enableModule` behind the sheet the user answered. The rc
+    // file is a hand-editable defaults file — its own starter `_comment` offers theme,
+    // freesurferSubjectsDir, reopenLastScene and screenshotDefaults, never this — and a *defaults*
+    // layer that could pre-consent an installed extension would put a grant nobody was asked for
+    // one text editor away (finding, 2026-08-31).
+    return { ...coercePatch(JSON.parse(text)), extensions: undefined };
   } catch {
     return {};
   }

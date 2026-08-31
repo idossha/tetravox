@@ -231,6 +231,7 @@ afterAll(() => {
 beforeEach(() => {
   rmSync(moduleDir(), { recursive: true, force: true });
   rmSync(join(dirs.home, 'settings.json'), { force: true });
+  rmSync(join(configHome(), 'tetravoxrc'), { force: true });
   delete process.env['TETRAVOX_EXT_INDEX'];
   clearServedModules();
   clearModuleWriteLists();
@@ -612,8 +613,20 @@ describe('enabling', () => {
     expect(enableModule(ID).ok).toBe(true);
     place(moduleDir(), { version: '1.1.0', manifest: manifestText({ version: '1.1.0' }) });
     writeSettings({
-      extensions: { [ID]: { version: '1.0.0', hostApi: 1, grantedAt: '', permissions: [] } },
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          // A real timestamp: `coerceExtensions` drops an entry whose `grantedAt` is empty, so the
+          // old fixture wrote **no** record and this asserted "absent", never the version
+          // comparison it is named for (finding, 2026-08-31).
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
     });
+    expect(consents()[ID]?.version).toBe('1.0.0');
+    expect(installedModule(ID)?.version).toBe('1.1.0');
     expect(isModuleConsented(ID)).toBe(false);
   });
 });
@@ -902,6 +915,40 @@ describe('the manifest registration', () => {
       ).ok
     ).toBe(true);
     expect(consents()[ID]).toBeUndefined();
+    expect(servedModuleKeys()).toEqual([]);
+  });
+
+  it('keeps a consent whose directory is there but does not scan — a bad manifest is not a missing install', () => {
+    // `scanRoot` answers the same empty for "no such extension", "unreadable store" and "manifest
+    // does not validate". Pruning on that would cost a user their grant over a transient, so the
+    // prune asks whether the directory is gone (finding, 2026-08-31).
+    place(moduleDir(), { version: '1.0.0' });
+    expect(enableModule(ID).ok).toBe(true);
+    writeFileSync(join(moduleDir(), ID, '1.0.0', 'manifest.json'), '{ not json');
+    expect(installedModule(ID)).toBeNull();
+    bootstrapInstalledModules();
+    expect(consents()[ID]?.version).toBe('1.0.0');
+  });
+
+  it('cannot be pre-consented from the rc file: a defaults layer does not author a grant', () => {
+    // `readRc` strips `extensions` for the reason `writeSettingsFromRenderer` does — otherwise a
+    // hand-editable defaults file could enable an installed extension at boot with no sheet.
+    place(moduleDir(), { version: '1.0.0' });
+    writeFileSync(
+      join(configHome(), 'tetravoxrc'),
+      JSON.stringify({
+        extensions: {
+          [ID]: {
+            version: '1.0.0',
+            hostApi: 1,
+            grantedAt: '2026-08-30T00:00:00.000Z',
+            permissions: [],
+          },
+        },
+      })
+    );
+    expect(consents()[ID]).toBeUndefined();
+    bootstrapInstalledModules();
     expect(servedModuleKeys()).toEqual([]);
   });
 

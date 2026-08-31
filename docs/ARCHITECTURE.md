@@ -707,7 +707,7 @@ is the opposite case: it is plain JSON, there is nothing to re-derive it from, a
 is `{ ...layer }` minus the two derived points fields and plus the JSON forms of `threshold` /
 `visibleLabels` / `label`; `remapLayer` is the same spread with the dataset ids remapped. So **every**
 kind-specific field — including one this build has never heard of — survives save → load → `addLayer`. It was
-already true, it was undocumented, and §13 depends on it: a scene re-saved by an older build must keep a
+already true, it was undocumented, and §13 depends on it: a scene re-saved by an older build must keep an
 extension's points with their `id`, `group` and `ordinal` even though that build drops the `extensions` block it
 cannot describe. It is stated here so that a future `SerializableLayer` narrowed to an explicit field list is
 recognised as the breaking change it would be, and it is pinned by `roundtrip.test.ts`, which asserts deep
@@ -2766,7 +2766,7 @@ or three buttons, raised by the extension host (`host.ui.confirm`, §13.1) and b
 The **last** button is always the cancelling one, so Escape and a backdrop click — which `DialogFrame` already
 routes to `onCancel` — are the same answer as pressing it. The guard runs at every place where work would
 otherwise be thrown away without a word: **New**, opening a scene (which is also File ▸ Open Recent and the
-drop route, since all three arrive at `openScenePath`), a layer row's **✕**, which closes the dataset a
+drop route, since all three arrive at `openScenePath`), a layer row's **✕**, which closes the dataset an
 extension's layers hang off, and **opening another file an extension claims** — an extension's `openPath` replaces what
 it is editing and clears its own history, so the reader route (§13.1's `onReader`) is as destructive as New
 and asks the same question; cancelling there reports the path as *claimed*, because falling through to the
@@ -3236,7 +3236,7 @@ the `DECISIONS.md` entry in the same commit, and absent must reproduce the previ
 
 **`scene.activePlane()` is the one view fact an extension is given** (appended 2026-08-30). It answers
 `{ normal, point }` for the active 2-D pane — the view's normal through the cursor, which is §7.5's own
-rule for what a slice pane shows — and `null` for the 3-D pane. It is here rather than derived by a
+rule for what a slice pane shows — and `null` for the 3-D pane. It is here rather than derived by an
 extension for the reason §8 forbids the app deriving a world point from a pane pixel: `{normal, up}` is
 engine state, and an extension reconstructing it from `SliceMode` would be wrong on an oblique view and
 would not follow a rotation. Nothing else about a view is offered — not its camera, its zoom or its
@@ -3348,7 +3348,7 @@ makes the amendment usable rather than merely permitted — without the jump a u
 still could not move, and with it "click the thing you can see" is true of every contact on the shaft rather
 than of the one or two the current slice happens to cut.
 
-**Module-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
+**Extension-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
 concrete defect: the core points editor's per-point ↺ deletes the electrode's colour, its 0.5–20 mm radius
 slider is also the probe radius and the 2D slab, and every edit reaches `controller.patchLayer` directly,
 bypassing the extension's history and its dirty flag so its own Undo would not undo it. Visibility, opacity and
@@ -3359,8 +3359,8 @@ in a list is the one thing a reader always expects to work.
 click — including the click in a pane an extension just asked for — so **while an extension is active it stays in
 flow**. Pinned by an e2e at 960 px.
 
-**Not offered:** floating or detached panels, popovers, module-drawn canvas overlays, native menu items, left-
-column slots, per-module toolbar buttons.
+**Not offered:** floating or detached panels, popovers, extension-drawn canvas overlays, native menu items, left-
+column slots, per-extension toolbar buttons.
 
 **An extension's second extension is a library, not a fork** (2026-08-30). `tetravox.seeg` is the first of a
 family — DBS leads and ECoG grids are the shape of the next ones — and what those share is not their
@@ -3404,7 +3404,7 @@ against the live resolver rather than against this paragraph.
 
 **Resolution order** is: the engine's own canvas bindings; then `keymap.ts`; then, only if that returned
 `null` and an extension is active and the target is not editable, the extension resolver. So an extension can never
-shadow a documented binding, and adding an extension can never change what any key already does. `Esc` is never a
+shadow a documented binding, and adding an extension can never change what any key already does. `Esc` is never an
 extension key: `keymap.ts` returns `cancelMeasurement` for it unconditionally and `Shell.tsx` preventDefaults it,
 so "core first, extension on null" could not deliver it even if the pool allowed it.
 
@@ -3525,7 +3525,7 @@ is a toast plus a failed card, never a broken switcher.
 
 **An extension gets the host's own React through one global.** `renderer/src/modules/sdk-runtime.ts` sets
 `globalThis.__tetravoxModuleSdk = { hostVersion, react, ModuleHostError, stemOf, contacts }` at boot, before
-anything can activate; `@tetravox/module-sdk`'s runtime shim — **inlined** by the extension's own build, so a
+anything can activate; `@tetravox/module-sdk`'s runtime shim — **inlined** by the extension's own build, so an
 extension bundle has no imports at all — reads it. An extension's `Panel` renders inside the app's React tree, so a
 second copy would be an "invalid hook call"; `ModuleHostError` must be the same class or `instanceof` is false
 across the boundary; `stemOf` must be the same function or an extension computes a `{stem}` main did not admit.

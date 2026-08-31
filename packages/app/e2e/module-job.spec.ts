@@ -92,6 +92,10 @@ async function runJob(
   const jobPath = join(dir, 'job.json');
   const outDir = join(dir, 'out');
   mkdirSync(outDir, { recursive: true });
+  // A `--job` launch reads its consent from the profile like any other launch does, so a caller
+  // running the staged sEEG seeds this run's profile the way `enableModule` would have
+  // (`fixtures.ts#stageSeeg`). A fixture-only run passes no store seam and seeds nothing.
+  if (env['TETRAVOX_MODULE_DIR'] !== undefined) SEEG_STAGE?.consentInto(join(dir, 'profile'));
   writeFileSync(jobPath, JSON.stringify(job, null, 2));
 
   const electron = resolve(APP_ROOT, '..', '..', 'node_modules', '.bin', 'electron');

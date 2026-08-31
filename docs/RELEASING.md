@@ -468,7 +468,7 @@ and never by a step that reaches for whatever is newest.
 ### 9.1 The SDK artefact
 
 `node scripts/emit-module-sdk.mjs` writes `dist/module-sdk/tetravox-module-sdk-<hostApi>-<version>.tgz`
-— at `0.2.0` and host API 1 that is `tetravox-module-sdk-1-0.2.0.tgz`. A module repository pins it
+— at `0.2.0` and host API 1 that is `tetravox-module-sdk-1-0.2.0.tgz`. An extension repository pins it
 **by URL**:
 
 ```json
@@ -485,16 +485,16 @@ manifest contract, the `shared/contacts` kit, and a type-only subset of `@tetrav
 hand-written file is `scripts/module-sdk/sdk-runtime.ts`, which declares nothing: it reads the
 host's React, `ModuleHostError`, `stemOf` and the contacts kit off `globalThis.__tetravoxModuleSdk`.
 Every import in it is `import type`, so the emitted `index.js` has **no imports at all** — which is
-what lets a module build inline it and produce the single-file, zero-import bundle a
+what lets an extension build inline it and produce the single-file, zero-import bundle a
 `tetravox://module/` load requires.
 
 When the core tree carries `src/modules/manifest-schema.ts` — it does since the extension host
 landed — the emission also ships the validator as plain ESM, `manifest-schema.mjs` and the
-`manifest-types.mjs` it imports, so a module repository can check its own `manifest.json` with node
-and no install. It also ships `contacts.mjs` — the `shared/contacts` kit as runnable ESM — so a
-module repository's own vitest imports the kit's runtime from the SDK rather than pinning
+`manifest-types.mjs` it imports, so an extension repository can check its own `manifest.json` with node
+and no install. It also ships `contacts.mjs` — the `shared/contacts` kit as runnable ESM — so an
+extension repository's own vitest imports the kit's runtime from the SDK rather than pinning
 `shared/contacts` to a core commit sha (a pin `raw.githubusercontent` stops serving once a
-squash-merge garbage-collects that sha). Inside the app a module reads `contacts` off the host global
+squash-merge garbage-collects that sha). Inside the app an extension reads `contacts` off the host global
 — one instance — so `contacts.mjs` is for tests, not the production bundle. All of these are named in
 the package's `exports`: a package with an `exports` map serves nothing that is not listed there, so
 an entry point that is merely in the tarball is not importable.
@@ -504,7 +504,7 @@ rather than a missing file:
 
 1. every import in every staged source resolves inside the SDK;
 2. `index.js` contains no `import` and no `export … from`;
-3. the emitted package typechecks against a probe that imports it the way a module does;
+3. the emitted package typechecks against a probe that imports it the way an extension does;
 4. `manifest-schema.mjs`, when it ships, is imported and made to validate a manifest — the `.mjs`
    files are `tsc` output with their specifiers rewritten, and a rewrite that does not resolve would
    otherwise be green here and red in somebody else's CI;

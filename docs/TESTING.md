@@ -112,7 +112,7 @@ The seams, all of them environment variables, so nothing here touches a real `~/
 | `TETRAVOX_HOME` | `configHome()`, so `settings.json` — and with it the **consent record** — is a temp file |
 
 `e2e/fixtures/tetravox.fixture/` is a checked-in **emitted extension bundle**: zero imports, the SDK shim
-inlined, reading the host's React and the contacts kit off `globalThis.__tetravoxModuleSdk`. It is what a
+inlined, reading the host's React and the contacts kit off `globalThis.__tetravoxModuleSdk`. It is what an
 extension repository's `rollup -c` produces, checked in so the suite is hermetic — no network, no release
 asset, no dependency on a repository staying reachable — and
 `extensions.spec.ts` runs the same five-line "no imports at all" check on it that
