@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.2] - 2026-08-31
+
 ### Added
 
 - **The extension slot folds.** A ▾ arrow beside the slot's ✕ hides the panel body and gives the
