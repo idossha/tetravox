@@ -18,6 +18,8 @@ operator's manual for it, the way `docs/TESTING.md` is the operator's manual for
 | macOS artefacts locally | `pnpm package` |
 | Linux artefacts locally | `scripts/package-linux.sh` (Docker) |
 | Prove a packaged artefact works | `node scripts/smoke-artefact.mjs` |
+| Bundle the modules `modules.lock` pins | `node scripts/fetch-locked-modules.mjs` (§9) |
+| Build the SDK a module repository pins | `node scripts/emit-module-sdk.mjs` (§9.3) |
 
 ---
 
@@ -440,3 +442,137 @@ The Linux check, inside the container under Xvfb: `ok=true`, `smoke.png` 3,427 B
 x64 slice on this arm64 Mac took **4.9 minutes** instead of 26.1 seconds, and the same smoke test took
 3,879 ms to load instead of 354 ms. Before the fix, both ran against `release/mac` — the x64 build —
 and passed, so the leg was green and the arm64 artefact had never been launched.
+
+---
+
+## 9. Bundled modules and the module SDK
+
+ARCHITECTURE.md §13.8. A module lives in **its own repository**, is built there, and ships as
+release assets. Two of this repository's release artefacts exist because of that: the modules a
+release *bundles*, and the SDK a module repository is built against.
+
+Both are driven by files a reviewer reads as a diff — `modules.lock` and `MODULE_HOST_VERSION` —
+and never by a step that reaches for whatever is newest.
+
+### 9.1 The on-disk layout of a bundled module
+
+**The definition is the header block of `scripts/fetch-locked-modules.mjs`**; main's bundled-module
+discovery and the module repositories cite that comment, and this section restates it for an
+operator. It is one place on purpose: two descriptions of a directory layout drift, and the one that
+drifts is always the one nobody runs.
+
+```
+packages/app/resources/modules/
+  bundled.json                          what this build ships, and the hashes main re-verifies
+  <moduleId>/<version>/index.js         the module bundle the renderer imports
+  <moduleId>/<version>/manifest.json    the module's own ModuleManifest, byte for byte
+```
+
+* `electron-builder.yml` already ships `resources/**` as `extraResources` with `to: .`, so **no
+  packaging configuration changes**. The packaged root is `join(process.resourcesPath, 'modules')`
+  and the development root is `join(app.getAppPath(), 'resources', 'modules')` — the same pattern
+  `phase0FixturePath()` in `src/main/index.ts` already uses.
+* `<moduleId>` and `<version>` come from the lock and are validated before anything is written, so
+  neither can contain a path separator; every file name is one segment with no `..` in it.
+* `bundled.json` is the lock's bundled entries and nothing else. It is what lets main re-hash a
+  bundled file **at enable** without shipping `modules.lock`, which is a build-time file and is not
+  part of the app.
+* The tree is read-only and pre-consented — main seeds `settings.extensions[<id>]` from
+  `bundled.json` on first run and never writes here. A user's own installs live in the other root,
+  `~/.tetravox/modules/<id>/<version>/`, with the same per-module shape, and that one is writable.
+* **The tree is not committed.** It is rebuilt from the lock on every packaging run, which is what
+  makes "the release shipped these exact bytes" something the hashes prove rather than something the
+  repository history has to be trusted for.
+
+### 9.2 `modules.lock`
+
+```json
+{ "schema": 1,
+  "modules": [{
+    "id": "tetravox.seeg",
+    "version": "1.0.0",
+    "hostApi": 1,
+    "repo": "idossha/tetravox-seeg",
+    "tag": "v1.0.0",
+    "bundled": true,
+    "files": [{ "name": "index.js",      "bytes": 81234, "sha256": "…64 hex…" },
+              { "name": "manifest.json", "bytes": 3412,  "sha256": "…64 hex…" }] }] }
+```
+
+**A file is fetched from `https://github.com/<repo>/releases/download/<tag>/<sha256>`** — the asset's
+name is its own hash, which is `scripts/sample-data/publish.sh`'s store layout verbatim and is what
+lets a download be verified against its own URL. The lock therefore carries no URL of its own: an
+entry cannot name one repository and download from another.
+
+`files[].name` is the name **inside the app**, not the asset name in the module's release.
+
+**Bumping a bundled module is its own pull request**, and its whole diff is one entry: a version, a
+tag and two hashes. Get them from the module repository's release job, which prints the fragment.
+
+```sh
+node scripts/check-modules-lock.mjs        # every rule, every problem at once
+node scripts/fetch-locked-modules.mjs      # download, verify, place
+node scripts/fetch-locked-modules.mjs --verify-only     # no network; what CI's test leg runs
+node scripts/fetch-locked-modules.mjs --store <dir>     # a local store of hash-named files
+```
+
+**A hash that does not match fails the leg**, before anything is built. A file already on disk is
+re-hashed rather than trusted, and a download lands in `<target>.part` and is renamed only after its
+bytes verify — so an interrupted build leaves nothing a later run would accept. That is the whole
+posture: an unverified module never reaches a packaged app, and a leg that could not verify one is a
+leg that must not produce an artefact.
+
+`hostApi` is checked against this build's `MODULE_HOST_VERSION`. The host refuses to activate a
+module built against another one, so a mismatched lock entry would ship a card that cannot be
+enabled; CI is a better place to find that out than a release is.
+
+### 9.3 The SDK artefact
+
+`node scripts/emit-module-sdk.mjs` writes `dist/module-sdk/tetravox-module-sdk-<hostApi>-<version>.tgz`
+— at `0.2.0` and host API 1 that is `tetravox-module-sdk-1-0.2.0.tgz`. A module repository pins it
+**by URL**:
+
+```json
+{ "devDependencies": {
+    "@tetravox/module-sdk":
+      "https://github.com/idossha/tetravox/releases/download/v0.2.0/tetravox-module-sdk-1-0.2.0.tgz" } }
+```
+
+There is **no npm publishing**, deliberately: an SDK belongs to exactly one core release, and a
+release URL says which one.
+
+Everything in it is generated from the sources it mirrors — `host.ts` (frozen, §12.3 item 6), the
+manifest contract, the `shared/contacts` kit, and a type-only subset of `@tetravox/engine`. The one
+hand-written file is `scripts/module-sdk/sdk-runtime.ts`, which declares nothing: it reads the
+host's React, `ModuleHostError`, `stemOf` and the contacts kit off `globalThis.__tetravoxModuleSdk`.
+Every import in it is `import type`, so the emitted `index.js` has **no imports at all** — which is
+what lets a module build inline it and produce the single-file, zero-import bundle a
+`tetravox://module/` load requires.
+
+The script is three gates, and a failure in any of them is a failure to produce a *usable* SDK
+rather than a missing file:
+
+1. every import in every staged source resolves inside the SDK;
+2. `index.js` contains no `import` and no `export … from`;
+3. the emitted package typechecks against a probe that imports it the way a module does.
+
+`release.yml`'s `sdk` job emits it and attaches it to the same draft Release, and `verify` requires
+it by the name that job reported. **A release cannot be published with a module host and no SDK to
+build a module against.**
+
+### 9.4 What CI checks, and where
+
+| Check | Job | Cost |
+|---|---|---|
+| `modules.lock` is valid; the SDK emitter's rules | `docs-guard` | node only, no install |
+| The SDK emits, all three gates | `test` | one `tsc` over a small staging tree |
+| The tree agrees with the lock (`--verify-only`) | `test` | no network |
+| The locked modules are downloaded and verified | `package` (ci.yml), `build` (release.yml) | one download per file |
+| The SDK tarball is attached | `sdk` → `verify` (release.yml) | — |
+
+While `modules.lock` is empty every one of the fetching steps is a no-op. They are proved against a
+**fixture release store** rather than against a module that does not exist yet:
+`scripts/fetch-locked-modules.test.mjs` builds a directory of hash-named files, runs the real code
+over it, and drives each failure — a tampered file on disk, a store serving the wrong bytes, a stale
+`bundled.json` — because those are the paths that matter and they must be watched failing before a
+release depends on them.
