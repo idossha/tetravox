@@ -136,8 +136,16 @@ test.describe('the module surface (stand-in engine)', () => {
   test('refuses a window.open that is not a module window', async () => {
     // Main's handler is a whitelist (§13.10). Before it there was no handler at all, which is
     // Electron's permissive default — a renderer script could open any URL in a full window.
+    //
+    // The probe is deliberately **not** an `http(s)` URL, even though that is the interesting case
+    // in the handler: those are denied *by handing them to `shell.openExternal`*, which on the
+    // Linux CI runner really does spawn `xdg-open` and leave a browser process behind (it showed up
+    // as an orphan in the first run of this leg). A test must not launch the machine's browser to
+    // prove a policy. Both branches end in `action: 'deny'`, and this one asserts it without a side
+    // effect: an empty popup whose frame name is not `tetravox-module-<id>` is exactly the case the
+    // whitelist has to refuse, because it is the one a stray script would reach for.
     const opened = await page.evaluate(() => {
-      const win = window.open('https://example.invalid/', 'not-a-module');
+      const win = window.open('', 'not-a-module');
       const blocked = win === null || win.closed;
       win?.close();
       return blocked;
