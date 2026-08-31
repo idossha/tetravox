@@ -20,10 +20,10 @@ Nothing yet.
   updating is always the user's click: download with progress, then restart into the new version
   (or keep working — a downloaded update installs on the next quit). macOS, Windows and the Linux
   AppImage update in place; a `.deb`/`.tar.gz` install is offered the Releases page instead. The
-  launch check has a Settings ▸ Startup toggle, any version can be skipped, and dev/unsigned builds
-  and `--job` runs never check. Releases now carry `latest-mac.yml` / `latest-linux.yml` /
-  `latest.yml` feed files beside the installers, and the release workflow's verify gate requires
-  them.
+  launch check has a Settings ▸ Startup toggle, any version can be skipped, and dev builds and
+  `--job` runs never check. Releases now carry `latest-mac.yml` / `latest-linux.yml` / `latest.yml`
+  feed files beside the installers, and the release workflow's verify gate requires the mac and
+  linux ones.
 
 ## [0.3.0] - 2026-08-31
 

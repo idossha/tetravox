@@ -18,10 +18,12 @@
  *    `latest-linux.yml` electron-updater would, over `net.fetch`, so a catalogue answer and an
  *    updatable answer never disagree about what the newest version is.
  *
- * Everything else is refusal: a dev or unsigned build (`!app.isPackaged`) never checks, a `--job`
- * run never checks (nobody is there to answer), the automatic launch check honours the
- * `checkForUpdates` preference and stays silent about a version the user said to skip. A manual
- * check ignores the skip — asking again *is* un-skipping.
+ * Everything else is refusal: a dev tree (`!app.isPackaged`) never checks, a `--job` run never
+ * checks (nobody is there to answer), the automatic launch check honours the `checkForUpdates`
+ * preference and stays silent about a version the user said to skip. A manual check ignores the
+ * skip — asking again *is* un-skipping. (A *packaged but unsigned* local/fork build is `'inplace'`
+ * and will check; on macOS Squirrel then refuses the swap at install time, surfaced as an 'error'
+ * status — an edge only contributors' own `pnpm package` builds can reach.)
  *
  * electron-updater arrives by dynamic import inside {@link realImpl}, so unit tests inject an
  * `UpdaterImpl` and never load it — the same injected-seam reasoning as `module-store.ts`'s
@@ -93,6 +95,13 @@ export interface UpdaterDeps {
   /** The launch check's grace delay, injectable so the tests need no clock. */
   scheduleLaunchCheck?: (run: () => void) => void;
   openReleases?: () => void;
+  /**
+   * Asked before `quitAndInstall` (§5 rule 12's concern, not electron-updater's): on Windows and
+   * the AppImage the installer runs *before* `app.quit()`, so the ordinary close guard's Cancel
+   * would arrive after the swap. Resolve false to refuse the install. Absent = no unsaved state
+   * to protect (the tests, and any future caller without a window).
+   */
+  confirmQuit?: () => Promise<boolean>;
 }
 
 export type UpdateMode = 'inplace' | 'notify' | 'off';
@@ -114,8 +123,9 @@ export function updateMode(opts: {
   platform: NodeJS.Platform;
   appImage: string | undefined;
 }): UpdateMode {
-  // A dev tree and an unsigned contributor build have nothing an updater could replace — and on
-  // macOS Squirrel would refuse the swap anyway. A `--job` run has nobody to answer.
+  // A dev tree has nothing an updater could replace, and a `--job` run has nobody to answer.
+  // Deliberately NOT a signing check: a packaged-but-unsigned contributor build still checks (and
+  // on macOS fails honestly at install, when Squirrel refuses the swap) — see the header.
   if (!opts.packaged || opts.isJob) return 'off';
   if (opts.platform === 'linux' && (opts.appImage === undefined || opts.appImage === '')) {
     return 'notify';
@@ -211,7 +221,11 @@ export class UpdaterService {
   startLaunchCheck(): void {
     if (this.mode === 'off') return;
     if (!readSettings().checkForUpdates) return;
-    const run = (): void => void this.check({ auto: true });
+    // Re-tested at fire time: six seconds is long enough for the user to have opened the dialog,
+    // checked by hand and pressed Download, and a scheduled check must not stomp on any of that.
+    const run = (): void => {
+      if (this.status.phase === 'idle') void this.check({ auto: true });
+    };
     (this.deps.scheduleLaunchCheck ?? ((fn) => setTimeout(fn, 6000)))(run);
   }
 
@@ -225,7 +239,23 @@ export class UpdaterService {
     if (this.mode === 'off') {
       return this.push({ phase: 'idle' });
     }
-    if (this.checking !== null) return this.checking;
+    // Never over a download: a 'checking' push would blank the progress the user is watching, and
+    // nothing a check could learn beats the artefact already arriving. Same for 'downloaded' —
+    // the sha512-verified file on disk is the answer.
+    if (this.status.phase === 'downloading' || this.status.phase === 'downloaded') {
+      return this.status;
+    }
+    if (this.checking !== null) {
+      // A manual ask joining an in-flight launch check *upgrades* it: the skip must not silence
+      // an answer the user just requested by hand.
+      if (opts.auto !== true && this.auto) {
+        this.auto = false;
+        if (readSettings().skippedUpdateVersion !== '') {
+          writeSettings({ skippedUpdateVersion: '' });
+        }
+      }
+      return this.checking;
+    }
     this.auto = opts.auto === true;
     if (!this.auto && readSettings().skippedUpdateVersion !== '') {
       writeSettings({ skippedUpdateVersion: '' });
@@ -268,6 +298,12 @@ export class UpdaterService {
     if (this.status.phase !== 'downloaded') {
       return { ok: false, error: 'no update has been downloaded' };
     }
+    // BEFORE quitAndInstall, not instead of the close guard: on Windows and the AppImage the
+    // installer runs first and `app.quit()` only after, so the guard's Cancel would arrive with
+    // the swap already done. The question has to be asked while refusing still means something.
+    if (this.deps.confirmQuit !== undefined && !(await this.deps.confirmQuit())) {
+      return { ok: false, error: 'unsaved edits — save or discard them first' };
+    }
     try {
       const impl = await this.wiredImpl();
       impl.quitAndInstall();
@@ -308,12 +344,20 @@ export class UpdaterService {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 30_000);
-      const response = await (this.deps.fetchImpl ?? defaultFetch)(FEED_LATEST_LINUX, {
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!response.ok) throw new Error(`feed answered ${response.status}`);
-      const version = feedVersion(await response.text());
+      let text: string;
+      try {
+        const response = await (this.deps.fetchImpl ?? defaultFetch)(FEED_LATEST_LINUX, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`feed answered ${response.status}`);
+        // The timer stays armed across the body read: `net.fetch` resolves at the *headers*, and a
+        // body that stalls after them would otherwise hang this promise — and with it `checking`,
+        // which is the one flag every later check() coalesces on — for the rest of the session.
+        text = await response.text();
+      } finally {
+        clearTimeout(timer);
+      }
+      const version = feedVersion(text);
       if (version === null) throw new Error('the feed carried no version');
       if (compareVersions(version, this.status.current) > 0) {
         return this.announce(version, undefined);

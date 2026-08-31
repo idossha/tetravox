@@ -287,8 +287,8 @@ Notarisation is slow (minutes, occasionally tens of minutes on a first submissio
 `timeout-minutes: 60` covers it. When signing is live, drop the unsigned-build paragraph from
 `scripts/changelog-section.mjs` and the `xattr -dr com.apple.quarantine` walkthrough from
 `docs/USER_GUIDE.md`. In-app updates shipped 2026-08-31 (ARCHITECTURE §12.4): signed builds
-update in place, and the unsigned-build escape hatches above matter only to local/fork builds,
-whose updater stays `'off'`.
+update in place. The unsigned-build escape hatches above matter only to local/fork builds — those
+still check, but a macOS install ends at Squirrel's signature check with an honest error.
 
 Windows signing is not planned. It needs a paid certificate whose reputation SmartScreen builds up
 over downloads, which an unpopular installer never accumulates, so the warning would remain.

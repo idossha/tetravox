@@ -29,7 +29,13 @@ import {
 } from './menu';
 import type { OpenedPath } from './menu';
 import { allowPath } from './paths';
-import { installCloseGuard, registerModuleIpc } from './module-io';
+import {
+  clearDocumentEdited,
+  documentEdited,
+  installCloseGuard,
+  registerModuleIpc,
+  shouldPromptOnClose,
+} from './module-io';
 import { discoverSubjectSpaces } from './subject-spaces';
 import { discoverSurfaceSpaces } from './surface-spaces';
 import { fileUrl, handleScheme, registerScheme } from './protocol';
@@ -517,6 +523,38 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   const updater = new UpdaterService({
     isJob: isJobRun(),
     onStatus: (status) => getWindow()?.webContents.send('tetravox:update-status', status),
+    // §5 rule 12's question, asked while refusing still means something: on Windows and the
+    // AppImage, electron-updater runs the installer *before* `app.quit()`, so the ordinary close
+    // guard's Cancel would arrive after the swap. Same dialog, same two buttons, and an answered
+    // Discard clears the flag so the guard does not ask a second time on the way down.
+    confirmQuit: async () => {
+      const win = getWindow();
+      if (
+        win === null ||
+        !shouldPromptOnClose({
+          edited: documentEdited(win),
+          isJob: false,
+          packaged: app.isPackaged,
+        })
+      ) {
+        return true;
+      }
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        noLink: true,
+        title: 'Unsaved changes',
+        message: 'Discard unsaved edits and restart?',
+        detail:
+          'A module in this window has edits that have not been written to disk. Restarting into ' +
+          'the update discards them.',
+        buttons: ['Discard and Restart', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+      });
+      if (response !== 0) return false;
+      clearDocumentEdited(win);
+      return true;
+    },
   });
   ipcMain.handle('tetravox:update-state', () => updater.current());
   ipcMain.handle('tetravox:update-check', () => updater.check());

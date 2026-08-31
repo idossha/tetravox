@@ -126,6 +126,13 @@ describe('coercePatch', () => {
   it('accepts an empty directory, which is how the setting is cleared', () => {
     expect(coercePatch({ freesurferSubjectsDir: '' })).toEqual({ freesurferSubjectsDir: '' });
   });
+
+  it('drops an oversized skippedUpdateVersion — a renderer-writable string must not be able to push the file past MAX_BYTES', () => {
+    expect(coercePatch({ skippedUpdateVersion: '0.4.0' })).toEqual({
+      skippedUpdateVersion: '0.4.0',
+    });
+    expect(coercePatch({ skippedUpdateVersion: 'x'.repeat(65) })).toEqual({});
+  });
 });
 
 /**

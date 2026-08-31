@@ -244,7 +244,10 @@ export function coercePatch(raw: unknown): Partial<AppSettings> {
   const checkForUpdates = record['checkForUpdates'];
   if (typeof checkForUpdates === 'boolean') out.checkForUpdates = checkForUpdates;
   const skipped = record['skippedUpdateVersion'];
-  if (typeof skipped === 'string') out.skippedUpdateVersion = skipped;
+  // Length-capped: the key is renderer-writable, and an unbounded string here could push
+  // settings.json past MAX_BYTES — after which *every* read degrades to the defaults, wiping
+  // preferences and consents with one preferences write. No real version is this long.
+  if (typeof skipped === 'string' && skipped.length <= 64) out.skippedUpdateVersion = skipped;
   return out;
 }
 

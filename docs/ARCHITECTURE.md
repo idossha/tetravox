@@ -1128,7 +1128,12 @@ Rules:
     (one small `UpdateStatus` object — phase, two version strings, progress numbers, plain-text notes) and
     `tetravox:open-updates` (the File ▸ Check for Updates… click, carrying nothing) out. The feed, the
     download and the installer live entirely in main; the renderer can *ask* but the only bytes that move
-    are main's own, and nothing installs without `tetravox:update-install` carrying a user's click. The
+    are main's own. What the ask can reach is phase-gated in main — no download before a check announced,
+    no install before a download landed, and unsaved module edits raise rule 12's Discard/Cancel *before*
+    `quitAndInstall` (on Windows and the AppImage the installer runs before `app.quit()`, so the ordinary
+    close guard would ask too late). The channels do not prove a human click — a hostile renderer could
+    invoke them — but the worst it can reach is a restart into the sha512-verified artefact of a release
+    the pinned `idossha/tetravox` feed published, which is the app the user would have gotten anyway. The
     boot status is **pulled** (`updateStatus`), like `startupPaths` and for the same race.
 
 ---
@@ -3081,8 +3086,9 @@ wasm pre-built on the host.
 * Gate: **a clean clone with an empty pnpm store reaches `pnpm e2e` green.**
 * macOS signing: Developer ID + notarisation are **live in `release.yml`** (the four secrets are set;
   `docs/RELEASING.md` §4) and a documented fallback keeps unsigned local/fork builds working
-  (`scripts/electron-builder.sh`). §12.4's in-app updates ride on the signature — an unsigned build's
-  updater mode is `'off'`. `electron-builder` is pinned to an exact patch version.
+  (`scripts/electron-builder.sh`). §12.4's in-app updates ride on the signature — a dev tree's updater
+  mode is `'off'`, and a packaged-but-unsigned local build checks but cannot complete a macOS
+  install (Squirrel refuses the swap, surfaced as an error). `electron-builder` is pinned to an exact patch version.
 * Linux: the AppImage needs `--no-sandbox` or a correctly-owned `chrome-sandbox`; the app detects
   `caps.isSoftware` and surfaces it in the status bar rather than silently running at 2 fps.
 
@@ -3151,7 +3157,9 @@ status-bar pill for as long as it stays true — and does nothing further until 
   macOS (the signed zip beside each dmg is the update artefact; Squirrel.Mac also checks the code
   signature), Windows NSIS, Linux AppImage (`APPIMAGE` set); `'notify'` — a `.deb`/`.tar.gz` install,
   which only reads `latest-linux.yml` over `net.fetch`, compares, and offers the Releases page;
-  `'off'` — a dev or unsigned build (`!app.isPackaged`) and every `--job` run.
+  `'off'` — a dev tree (`!app.isPackaged`) and every `--job` run. (A *packaged* unsigned build —
+  a contributor's own `pnpm package` — is `'inplace'` and checks; on macOS Squirrel then refuses
+  the unsigned swap at install time, surfaced honestly as an 'error' status.)
 * **Flow.** A launch check (a few seconds after ready, gated by the `checkForUpdates` setting, silent
   about `skippedUpdateVersion`) pushes one status. Download happens on click (`autoDownload: false`),
   with progress statuses; install happens on click (`quitAndInstall`) — and a downloaded update also

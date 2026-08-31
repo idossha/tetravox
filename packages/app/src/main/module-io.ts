@@ -545,6 +545,16 @@ export function documentEdited(win: BrowserWindow | null): boolean {
 }
 
 /**
+ * Drop the edited flag after the user has *explicitly* discarded — the updater's pre-install
+ * prompt (§12.4, 2026-08-31). Without this, the Discard answered there would be asked again by
+ * {@link installCloseGuard} when the installer closes the window, and a question answered twice
+ * is a question the second copy of which teaches users to stop reading.
+ */
+export function clearDocumentEdited(win: BrowserWindow | null): void {
+  if (win !== null) editedWindows.delete(win.id);
+}
+
+/**
  * Should a `close` be interrupted?
  *
  * Pure, because the two cases that must never prompt are the ones a Playwright run and a `--job`
