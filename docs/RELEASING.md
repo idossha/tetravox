@@ -463,9 +463,10 @@ drifts is always the one nobody runs.
 
 ```
 packages/app/resources/modules/
-  bundled.json                          what this build ships, and the hashes main re-verifies
-  <moduleId>/<version>/index.js         the module bundle the renderer imports
-  <moduleId>/<version>/manifest.json    the module's own ModuleManifest, byte for byte
+  bundled.json                                 what this build shipped, one file for the tree
+  <moduleId>/<version>/index.js                the module bundle the renderer imports
+  <moduleId>/<version>/manifest.json           the module's own ModuleManifest, byte for byte
+  <moduleId>/<version>/tetravox-module.json    the install receipt main re-verifies against
 ```
 
 * `electron-builder.yml` already ships `resources/**` as `extraResources` with `to: .`, so **no
@@ -474,12 +475,19 @@ packages/app/resources/modules/
   `phase0FixturePath()` in `src/main/index.ts` already uses.
 * `<moduleId>` and `<version>` come from the lock and are validated before anything is written, so
   neither can contain a path separator; every file name is one segment with no `..` in it.
-* `bundled.json` is the lock's bundled entries and nothing else. It is what lets main re-hash a
-  bundled file **at enable** without shipping `modules.lock`, which is a build-time file and is not
-  part of the app.
-* The tree is read-only and pre-consented — main seeds `settings.extensions[<id>]` from
-  `bundled.json` on first run and never writes here. A user's own installs live in the other root,
-  `~/.tetravox/modules/<id>/<version>/`, with the same per-module shape, and that one is writable.
+* `tetravox-module.json` is the **install receipt**, and it is what main re-hashes a bundled module
+  against **at enable**. `main/module-store.ts` serves no byte of a module whose files disagree with
+  its receipt, and it applies that rule to a bundled module exactly as to a downloaded one — so the
+  bundling step writes the same receipt an install writes, from the lock entry it has just verified.
+  A bundled module with *no* receipt is a narrow exemption for a tree assembled by hand in a
+  checkout; the shipped tree always has one.
+* `bundled.json` is the lock's bundled entries and nothing else — what this *build* shipped, in one
+  file, without shipping `modules.lock`, which is a build-time file and is not part of the app.
+  `--verify-only` compares it with the lock, which is how a tree that has drifted is a red CI leg.
+* The tree is read-only and pre-consented — main discovers it by scanning it, seeds
+  `settings.extensions[<id>]` on first run, and never writes here. A user's own installs live in the
+  other root, `~/.tetravox/modules/<id>/<version>/`, with the same per-module shape, and that one is
+  writable.
 * **The tree is not committed.** It is rebuilt from the lock on every packaging run, which is what
   makes "the release shipped these exact bytes" something the hashes prove rather than something the
   repository history has to be trusted for.
@@ -574,5 +582,8 @@ While `modules.lock` is empty every one of the fetching steps is a no-op. They a
 **fixture release store** rather than against a module that does not exist yet:
 `scripts/fetch-locked-modules.test.mjs` builds a directory of hash-named files, runs the real code
 over it, and drives each failure — a tampered file on disk, a store serving the wrong bytes, a stale
-`bundled.json` — because those are the paths that matter and they must be watched failing before a
-release depends on them.
+`bundled.json`, a receipt that no longer matches the lock — because those are the paths that matter
+and they must be watched failing before a release depends on them. One test there reads
+`main/module-store.ts` and compares the receipt's field list with `InstallReceipt`'s: the two halves
+of that contract are in different processes and different test runners, and this is the only place
+they meet.

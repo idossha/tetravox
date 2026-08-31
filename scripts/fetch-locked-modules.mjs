@@ -17,9 +17,10 @@
  *
  * ```
  * packages/app/resources/modules/
- *   bundled.json                          what this build ships, and the hashes main re-verifies
- *   <moduleId>/<version>/index.js         the module bundle the renderer imports
- *   <moduleId>/<version>/manifest.json    the module's own ModuleManifest, byte for byte
+ *   bundled.json                                 what this build shipped, one file for the tree
+ *   <moduleId>/<version>/index.js                the module bundle the renderer imports
+ *   <moduleId>/<version>/manifest.json           the module's own ModuleManifest, byte for byte
+ *   <moduleId>/<version>/tetravox-module.json    the install receipt main re-verifies against
  * ```
  *
  * * `<moduleId>` is the manifest id verbatim (`tetravox.seeg`), `<version>` its version. Both are
@@ -30,12 +31,19 @@
  *   `join(process.resourcesPath, 'modules')` and the development root is
  *   `join(app.getAppPath(), 'resources', 'modules')` — exactly the `phase0FixturePath()` pattern
  *   already in `src/main/index.ts`.
+ * * `tetravox-module.json` is the **install receipt**, and it is the file main re-hashes a module
+ *   against at enable. `main/module-store.ts` refuses to serve one byte of a module whose files do
+ *   not match its receipt, and it applies that rule to a bundled module exactly as to a downloaded
+ *   one — so this step writes the same receipt an install writes, from the lock entry it has just
+ *   verified. Its fields are `InstallReceipt`'s, and `fetch-locked-modules.test.mjs` asserts them
+ *   against that declaration rather than trusting two files to say the same thing.
  * * `bundled.json` is `{ schema, modules: [{ id, version, hostApi, repo, tag, bundled: true,
- *   files: [{ name, bytes, sha256 }] }] }` — the lock's bundled entries, and nothing else. It is
- *   what lets main re-hash a bundled file at enable **without** shipping `modules.lock`, which is a
- *   build-time file and not part of the app.
- * * The tree is **read-only and pre-consented**: main seeds `settings.extensions[<id>]` from
- *   `bundled.json` on first run and never writes here. The other root — the user's installs, at
+ *   files: [{ name, bytes, sha256 }] }] }` — the lock's bundled entries, and nothing else. It is a
+ *   different claim from the receipts: what this *build* shipped, in one file, without shipping
+ *   `modules.lock`, which is a build-time file and not part of the app. `--verify-only` compares it
+ *   with the lock, which is how a tree that has drifted from the lock is a red CI leg.
+ * * The tree is **read-only and pre-consented**: main discovers what is here by scanning it, seeds
+ *   `settings.extensions[<id>]` on first run, and never writes here. The other root — the user's installs, at
  *   `~/.tetravox/modules/<id>/<version>/` — has the same per-module shape and *is* writable.
  * * The tree is **not committed**. It is rebuilt from the lock on every packaging run, which is what
  *   makes "the release shipped these exact bytes" a claim the hashes prove rather than a claim the
@@ -61,14 +69,34 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LOCK, readLock, readHostVersion, validateLock } from './check-modules-lock.mjs';
+import {
+  LOCK,
+  RECEIPT_NAME,
+  readLock,
+  readHostVersion,
+  validateLock,
+} from './check-modules-lock.mjs';
 
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The one place the layout's root is spelled. */
 export const RESOURCES_MODULES = 'packages/app/resources/modules';
-/** What main reads instead of the lock, which is a build-time file and is not shipped. */
+/** What this build shipped, in one file, so the lock itself never has to be. */
 export const BUNDLED_INDEX = 'bundled.json';
+
+/**
+ * The install receipt, written into every module directory this step places.
+ *
+ * The name and the shape are `main/module-store.ts`'s (`RECEIPT_NAME`, `InstallReceipt`): main
+ * re-hashes every file of a module against its receipt before serving any of them, and a bundled
+ * module goes through the same gate as a downloaded one. Writing it here is what makes that gate
+ * *real* for a bundled module rather than an exemption it falls through. The name is
+ * `check-modules-lock.mjs`'s, which is also where a lock entry that tries to ship a file of that
+ * name is refused.
+ */
+export { RECEIPT_NAME };
+/** `InstallReceipt.schema`, main's number, not a second one. */
+export const RECEIPT_SCHEMA = 1;
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -80,6 +108,74 @@ export function assetUrl(entry, file) {
 /** Where one file of one locked module lands. Repo-relative. */
 export function targetPath(entry, file) {
   return `${RESOURCES_MODULES}/${entry.id}/${entry.version}/${file.name}`;
+}
+
+/** Where one locked module's receipt lands. Repo-relative. */
+export function receiptPath(entry) {
+  return targetPath(entry, { name: RECEIPT_NAME });
+}
+
+/**
+ * The receipt for one verified lock entry: exactly what `installModule()` writes after a download.
+ *
+ * `files[]` is the lock's own list — the same names, byte counts and hashes the bytes on disk were
+ * just checked against — so the receipt cannot claim anything this step did not prove.
+ */
+export function receiptFor(entry, installedAt = new Date().toISOString()) {
+  return {
+    schema: RECEIPT_SCHEMA,
+    id: entry.id,
+    version: entry.version,
+    installedAt,
+    files: entry.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256 })),
+  };
+}
+
+/** Everything a receipt claims except *when* it was written — the half that must match the lock. */
+function receiptClaim(receipt) {
+  return JSON.stringify({
+    schema: receipt.schema,
+    id: receipt.id,
+    version: receipt.version,
+    files: receipt.files,
+  });
+}
+
+/**
+ * Place one module's receipt.
+ *
+ * A receipt that already agrees with the lock is **kept**, so a second run is a no-op and
+ * `installedAt` goes on saying when the bytes actually arrived rather than when the build last ran.
+ * Under `--verify-only` a receipt that disagrees is the same failure a drifted `bundled.json` is:
+ * main would refuse to enable the module, and finding that out in CI beats finding it out as a card
+ * that will not turn on.
+ */
+export function placeReceipt(root, entry, { verifyOnly = false } = {}) {
+  const rel = receiptPath(entry);
+  const absolute = join(root, rel);
+  const present = existsSync(absolute);
+  let existing = null;
+  if (present) {
+    try {
+      existing = JSON.parse(readFileSync(absolute, 'utf8'));
+    } catch {
+      existing = null;
+    }
+  }
+  const wanted = receiptFor(entry);
+  if (existing !== null && receiptClaim(existing) === receiptClaim(wanted)) {
+    return { rel, action: 'verified' };
+  }
+  if (verifyOnly) {
+    if (!present) return { rel, action: 'absent' };
+    throw new Error(
+      `${rel} does not match ${LOCK}. Main re-hashes a bundled module against its receipt, so this ` +
+        `one would refuse to enable. Re-run without --verify-only.`
+    );
+  }
+  mkdirSync(dirname(absolute), { recursive: true });
+  writeFileSync(absolute, `${JSON.stringify(wanted, null, 2)}\n`);
+  return { rel, action: 'wrote' };
 }
 
 /**
@@ -184,12 +280,19 @@ export async function fetchLocked({
 } = {}) {
   const bundled = lock.modules.filter((m) => m.bundled);
   const placed = [];
+  const receipts = [];
   for (const entry of bundled) {
     for (const file of entry.files) {
       const result = await placeFile(root, entry, file, { store, verifyOnly });
       placed.push(result);
       log(`  ${result.action.padEnd(10)} ${result.rel}`);
     }
+    // After the files and not before: a receipt is what makes a directory an installation rather
+    // than a pile of files (`installModule()` writes it last for the same reason), so a run that
+    // dies mid-download leaves something main will not enable.
+    const receipt = placeReceipt(root, entry, { verifyOnly });
+    receipts.push(receipt);
+    log(`  ${receipt.action.padEnd(10)} ${receipt.rel}`);
   }
 
   const indexPath = join(root, RESOURCES_MODULES, BUNDLED_INDEX);
@@ -213,7 +316,7 @@ export async function fetchLocked({
     rmSync(indexPath, { force: true });
     log(`  removed    ${RESOURCES_MODULES}/${BUNDLED_INDEX} (the lock bundles nothing)`);
   }
-  return { bundled: bundled.length, placed };
+  return { bundled: bundled.length, placed, receipts };
 }
 
 export async function main(

@@ -27,7 +27,9 @@
  *    `process.resourcesPath` when packaged and `<appPath>/resources` in dev). Read-only, seeded into
  *    `settings.extensions` on first run without a sheet: it shipped inside the signed application,
  *    so installing the app *was* the consent, and this is what keeps the flagship module working out
- *    of the box.
+ *    of the box. `scripts/fetch-locked-modules.mjs` builds this tree from `modules.lock` and leaves
+ *    the same {@link RECEIPT_NAME} receipt an install does, so a bundled module is verified here by
+ *    exactly the code that verifies a downloaded one.
  *  * **user** — `TETRAVOX_MODULE_DIR ?? <configHome()>/modules`, writable, everything the dialog
  *    installs. `configHome()` already honours `TETRAVOX_HOME`, so a test never touches a real
  *    `~/.tetravox`.
@@ -102,7 +104,14 @@ interface ExtensionsIndex {
 /** A module file is code, not a dataset: 32 MiB is already an order of magnitude past plausible. */
 export const MAX_MODULE_FILE_BYTES = 32 * 1024 * 1024;
 
-/** The install receipt written beside a module's files. Its name is part of the on-disk contract. */
+/**
+ * The install receipt written beside a module's files. Its name is part of the on-disk contract.
+ *
+ * Two writers, one shape: {@link installModule} after a download, and
+ * `scripts/fetch-locked-modules.mjs` for a module `modules.lock` bundles into the packaged app.
+ * That script's test reads {@link InstallReceipt} out of this file and compares the field lists, so
+ * the two halves cannot drift apart unnoticed.
+ */
 export const RECEIPT_NAME = 'tetravox-module.json';
 
 /** What a module ships as executable. Nothing else is ever put on the protocol map. */
@@ -387,9 +396,14 @@ export type EnableResult = { ok: true; served: string[] } | { ok: false; error: 
  *
  * `sample-data.ts` re-hashes a cached file rather than trusting it, and this is the same rule with
  * a sharper reason: between install and enable the file is a script that will run with the whole
- * preload bridge. A bundled module with no receipt is the one exemption — it has no download to
- * verify, its bytes are inside the application's own signature, and manufacturing hashes for it here
- * would only be a check of the file against itself.
+ * preload bridge. **A bundled module is checked the same way**: the bundling step writes a receipt
+ * from the `modules.lock` entry whose hashes it has just verified, so the check runs against a
+ * number a reviewer approved in a pull request rather than against the file itself.
+ *
+ * A bundled module with *no* receipt is the one exemption, and it is a narrow one — a tree assembled
+ * by hand in a checkout rather than by the bundling step. Its bytes are inside the application's own
+ * signature, and refusing to start over a missing receipt in a developer's `resources/` directory
+ * would be a worse failure than trusting the signature that already covers it.
  */
 export function verifyInstalled(
   module: InstalledModule

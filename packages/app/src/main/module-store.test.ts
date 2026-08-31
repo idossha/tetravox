@@ -213,6 +213,24 @@ function bundledRoot(): string {
   return join(dirs.appPath, 'resources', 'modules');
 }
 
+/**
+ * The bundled tree as `scripts/fetch-locked-modules.mjs` leaves it: the locked files, and beside
+ * them the receipt it writes from the lock entry it verified — same name, same shape, same
+ * two-space JSON. The script's own tests prove it produces this; these prove main accepts it.
+ */
+function placeLikeBundlingStep(): string {
+  const dir = place(bundledRoot(), { receipt: false });
+  const files = ['index.js', 'manifest.json'].map((name) => {
+    const bytes = readFileSync(join(dir, name));
+    return { name, bytes: bytes.length, sha256: sha(bytes) };
+  });
+  writeFileSync(
+    join(dir, RECEIPT_NAME),
+    `${JSON.stringify({ schema: 1, id: ID, version: '1.0.0', installedAt: new Date().toISOString(), files }, null, 2)}\n`
+  );
+  return dir;
+}
+
 beforeAll(() => {
   dirs.home = mkdtempSync(join(tmpdir(), 'tvx-modstore-home-'));
   dirs.appPath = mkdtempSync(join(tmpdir(), 'tvx-modstore-app-'));
@@ -517,9 +535,40 @@ describe('enabling', () => {
   });
 
   it('accepts a bundled module with no receipt, whose bytes are inside the signed application', () => {
+    // The narrow exemption: a tree assembled by hand in a checkout. The bundling step always leaves
+    // a receipt, which is what the next two tests are about.
     place(bundledRoot(), { receipt: false });
     expect(verifyInstalled(installedModule(ID)!).ok).toBe(true);
     expect(enableModule(ID).ok).toBe(true);
+  });
+
+  it('verifies a bundled module against the receipt the bundling step wrote', () => {
+    // `scripts/fetch-locked-modules.mjs` writes exactly this file from the `modules.lock` entry
+    // whose hashes it has just verified — so a bundled module goes through the same gate a
+    // downloaded one does, against numbers a reviewer approved in a pull request.
+    const dir = placeLikeBundlingStep();
+    const receipt = JSON.parse(readFileSync(join(dir, RECEIPT_NAME), 'utf8')) as {
+      schema: number;
+      files: { name: string }[];
+    };
+    expect(receipt.schema).toBe(1);
+    expect(receipt.files.map((f) => f.name).sort()).toEqual(['index.js', 'manifest.json']);
+    expect(verifyInstalled(installedModule(ID)!).ok).toBe(true);
+    expect(enableModule(ID).ok).toBe(true);
+    expect(servedModuleKeys()).toEqual([`${ID}/1.0.0/index.js`]);
+  });
+
+  it('refuses a bundled file that no longer matches its receipt, and serves nothing', () => {
+    // Before the bundling step wrote receipts this was undetectable: a bundled module with no
+    // receipt is exempt, so anything that reached `resources/modules/` ran. Now the release's own
+    // hashes are on disk beside it, and they are what decides.
+    const dir = placeLikeBundlingStep();
+    writeFileSync(join(dir, 'index.js'), 'globalThis.pwned = true;\n');
+    const result = enableModule(ID);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('refusing to run it');
+    expect(servedModuleKeys()).toEqual([]);
+    expect(consents()[ID]).toBeUndefined();
   });
 
   it('replaces the previous version’s entries rather than serving both', () => {

@@ -4452,3 +4452,33 @@ directory of hash-named files stand in for a GitHub release, exactly as `TETRAVO
 fake cache stand in for the sample store. It changes where the bytes come from and never whether they
 are checked — the hash check is the same code on both paths — so the fixture tests, including the
 tampered file, the store serving the wrong bytes and the stale index, are proof about the real path.
+
+## 2026-08-30 — one receipt, two writers: a bundled module is verified like a downloaded one
+
+**Decision.** `scripts/fetch-locked-modules.mjs` writes `tetravox-module.json` — main's install
+receipt, field for field — into every `<id>/<version>/` directory it places, built from the
+`modules.lock` entry whose hashes it has just verified. `module-store.ts#verifyInstalled` therefore
+re-hashes a bundled module against a receipt on the normal path, exactly as it does a downloaded one,
+and the "bundled, no receipt" exemption shrinks to what it should always have been: a tree somebody
+assembled by hand in a checkout.
+
+**Why the two waves disagreed, and which half moved.** The main-process half made the receipt the
+verification record for everything installed; the release half made `bundled.json` "what lets main
+re-hash a bundled file at enable". Both are reasonable and only one can be the file main opens.
+The receipt won because it is **per module**, which is the unit that is enabled, and because it is
+already the file an install writes — a second format for the same claim would have been a second
+thing to keep in step and a second thing to get wrong. `bundled.json` stays, with the narrower job it
+is actually good at: what this *build* shipped, in one file, and the thing `--verify-only` compares
+with the lock so a drifted tree is a red CI leg rather than a card that will not turn on.
+
+**The gate this closes.** Before it, anything that reached `resources/modules/` in a packaged app ran
+— the exemption swallowed the whole bundled root. Now the release's own hashes sit beside the files
+and are what decides, so a bundled module tampered with after packaging is refused by the same
+message a tampered download gets. `tetravox-module.json` is reserved in `check-modules-lock.mjs` for
+that reason: a locked module that shipped a file of that name would have it overwritten by the build.
+
+**The two halves are compared by a source scan.** They are in different processes, different
+languages of test (`node --test` and vitest) and different waves, so `fetch-locked-modules.test.mjs`
+reads `main/module-store.ts`, pulls `RECEIPT_NAME` and the `InstallReceipt` / `ReceiptFile` field
+lists out of it, and asserts the receipt it writes matches. A contract nothing compares is a contract
+that has already drifted.

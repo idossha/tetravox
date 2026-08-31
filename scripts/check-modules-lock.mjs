@@ -65,6 +65,16 @@ export const SHA256_RE = /^[0-9a-f]{64}$/;
 /** Every module release carries these two, and the app needs both to install anything. */
 export const REQUIRED_FILES = ['index.js', 'manifest.json'];
 
+/**
+ * The install receipt's name, and the one file name a locked module may **not** ship.
+ *
+ * `fetch-locked-modules.mjs` writes a `tetravox-module.json` into every module directory it places,
+ * because `main/module-store.ts` re-hashes a module against its receipt before serving any of it. A
+ * lock entry naming that file would have it overwritten by the build — so it is refused here, where
+ * the message can say why, rather than silently at placement time.
+ */
+export const RECEIPT_NAME = 'tetravox-module.json';
+
 const MODULE_KEYS = ['id', 'version', 'hostApi', 'repo', 'tag', 'bundled', 'files'];
 const FILE_KEYS = ['name', 'bytes', 'sha256'];
 
@@ -167,6 +177,11 @@ export function validateLock(raw, { hostApi } = {}) {
       if (typeof file.name !== 'string' || !FILE_RE.test(file.name)) {
         bad(
           `${fat}.name must be one path segment (no separators, no ".."), not ${JSON.stringify(file.name)}.`
+        );
+      } else if (file.name === RECEIPT_NAME) {
+        bad(
+          `${fat}.name "${RECEIPT_NAME}" is reserved: the bundling step writes the install receipt ` +
+            `under that name, and main verifies the module against it.`
         );
       } else if (names.has(file.name)) {
         bad(`${fat}.name "${file.name}" appears twice in one module.`);

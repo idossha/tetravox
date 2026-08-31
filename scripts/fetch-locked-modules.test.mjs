@@ -11,6 +11,12 @@
  * The failures are what matter here, so each has its own fixture: a tampered file on disk, a store
  * that serves the wrong bytes, a stale index for a module the lock no longer bundles. A build that
  * cannot verify a bundled module must fail, and this is where that is watched happening.
+ *
+ * One test here reads `packages/app/src/main/module-store.ts`. The **install receipt** is a contract
+ * between this script and the running app — main re-hashes a bundled module against the
+ * `tetravox-module.json` this script writes — and the two halves are in different languages, in
+ * different processes, tested by different runners. A source scan is the only place the field list
+ * can be compared, so it is compared here.
  */
 
 import { deepStrictEqual, match, ok, rejects, strictEqual } from 'node:assert/strict';
@@ -21,13 +27,17 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import {
   BUNDLED_INDEX,
+  RECEIPT_NAME,
   RESOURCES_MODULES,
   assetUrl,
   bundledIndex,
   fetchLocked,
+  receiptFor,
+  receiptPath,
   targetPath,
   verifyOnDisk,
 } from './fetch-locked-modules.mjs';
+import { validateLock } from './check-modules-lock.mjs';
 
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 const quiet = () => {};
@@ -73,6 +83,11 @@ function fixture({ bundled = true } = {}) {
 }
 
 const placed = (root, entry, name) => join(root, targetPath(entry, { name }));
+const receiptAt = (root, entry) => join(root, receiptPath(entry));
+const readReceipt = (root, entry) => JSON.parse(readFileSync(receiptAt(root, entry), 'utf8'));
+
+const MODULE_STORE = 'packages/app/src/main/module-store.ts';
+const repoFile = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
 // -- the derived facts ----------------------------------------------------------------------------
 
@@ -126,16 +141,36 @@ test('a locked module is fetched from the store, verified, and placed where the 
 
   const index = JSON.parse(readFileSync(join(root, RESOURCES_MODULES, BUNDLED_INDEX), 'utf8'));
   deepStrictEqual(index, bundledIndex(lock));
+
+  // …and the receipt, beside the files, because main will not serve a module without one.
+  deepStrictEqual(
+    result.receipts.map((r) => r.action),
+    ['wrote']
+  );
+  const receipt = readReceipt(root, lock.modules[0]);
+  deepStrictEqual(receipt.files, lock.modules[0].files);
+  strictEqual(receipt.id, 'tetravox.fixture');
+  strictEqual(receipt.version, '1.0.0');
+  strictEqual(receipt.schema, 1);
+  match(receipt.installedAt, /^\d{4}-\d\d-\d\dT[\d:.]+Z$/);
 });
 
 test('a second run re-hashes what is there and downloads nothing', async () => {
   const { root, store, lock } = fixture();
   await fetchLocked({ root, lock, store, log: quiet });
+  const first = readReceipt(root, lock.modules[0]).installedAt;
   const again = await fetchLocked({ root, lock, store, log: quiet });
   deepStrictEqual(
     again.placed.map((p) => p.action),
     ['verified', 'verified']
   );
+  // The receipt is kept rather than rewritten, so `installedAt` goes on saying when the bytes
+  // arrived rather than when the build last ran.
+  deepStrictEqual(
+    again.receipts.map((r) => r.action),
+    ['verified']
+  );
+  strictEqual(readReceipt(root, lock.modules[0]).installedAt, first);
 });
 
 test('--verify-only passes over a tree the lock agrees with, and needs no store at all', async () => {
@@ -145,6 +180,10 @@ test('--verify-only passes over a tree the lock agrees with, and needs no store 
   deepStrictEqual(
     check.placed.map((p) => p.action),
     ['verified', 'verified']
+  );
+  deepStrictEqual(
+    check.receipts.map((r) => r.action),
+    ['verified']
   );
 });
 
@@ -208,6 +247,10 @@ test('an absent file is absent under --verify-only and downloaded otherwise', as
     check.placed.map((p) => p.action),
     ['absent', 'absent']
   );
+  deepStrictEqual(
+    check.receipts.map((r) => r.action),
+    ['absent']
+  );
   await fetchLocked({ root, lock, store, log: quiet });
 });
 
@@ -236,4 +279,93 @@ test('a store that does not have the asset says so, rather than writing an empty
     (err) => err.message.includes('is not in the store')
   );
   ok(!existsSync(placed(root, lock.modules[0], 'index.js')));
+});
+
+// -- the install receipt, which is the contract with the running app --------------------------------
+
+test('the receipt names the file main looks for, with the fields main declares', () => {
+  const source = repoFile(MODULE_STORE);
+  const name = /export const RECEIPT_NAME = '([^']+)'/.exec(source);
+  ok(name !== null, `${MODULE_STORE} declares RECEIPT_NAME`);
+  strictEqual(
+    name[1],
+    RECEIPT_NAME,
+    'the file this script writes is the file main opens; one of the two moved'
+  );
+
+  const fields = (iface) => {
+    const body = new RegExp(`export interface ${iface} \\{([\\s\\S]*?)\\n\\}`).exec(source);
+    ok(body !== null, `${MODULE_STORE} declares ${iface}`);
+    return [...body[1].matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1]).sort();
+  };
+  const receipt = receiptFor({
+    id: 'a.b',
+    version: '1.0.0',
+    files: [{ name: 'index.js', bytes: 1, sha256: 'a'.repeat(64) }],
+  });
+  deepStrictEqual(Object.keys(receipt).sort(), fields('InstallReceipt'));
+  deepStrictEqual(Object.keys(receipt.files[0]).sort(), fields('ReceiptFile'));
+});
+
+test('a receipt that no longer matches the lock is refused by --verify-only, not quietly kept', async () => {
+  const { root, store, lock } = fixture();
+  await fetchLocked({ root, lock, store, log: quiet });
+  const receipt = readReceipt(root, lock.modules[0]);
+  receipt.files[0].sha256 = 'b'.repeat(64);
+  writeFileSync(receiptAt(root, lock.modules[0]), JSON.stringify(receipt));
+  await rejects(
+    () => fetchLocked({ root, lock, verifyOnly: true, log: quiet }),
+    (err) => err.message.includes(RECEIPT_NAME) && err.message.includes('refuse to enable')
+  );
+});
+
+test('an unreadable receipt is rewritten by a normal run, and refused by --verify-only', async () => {
+  const { root, store, lock } = fixture();
+  await fetchLocked({ root, lock, store, log: quiet });
+  writeFileSync(receiptAt(root, lock.modules[0]), 'not json');
+  await rejects(() => fetchLocked({ root, lock, verifyOnly: true, log: quiet }), /tetravox-module/);
+  const again = await fetchLocked({ root, lock, store, log: quiet });
+  deepStrictEqual(
+    again.receipts.map((r) => r.action),
+    ['wrote']
+  );
+  deepStrictEqual(readReceipt(root, lock.modules[0]).files, lock.modules[0].files);
+});
+
+test('a receipt deleted by hand comes back, so a module is never served without one', async () => {
+  const { root, store, lock } = fixture();
+  await fetchLocked({ root, lock, store, log: quiet });
+  rmSync(receiptAt(root, lock.modules[0]));
+  const again = await fetchLocked({ root, lock, store, log: quiet });
+  deepStrictEqual(
+    again.placed.map((p) => p.action),
+    ['verified', 'verified'],
+    'the files themselves were fine'
+  );
+  deepStrictEqual(
+    again.receipts.map((r) => r.action),
+    ['wrote']
+  );
+});
+
+test('the receipt is not one of the files the lock hashes — that name is reserved', () => {
+  const { lock } = fixture();
+  const entry = lock.modules[0];
+  const { ok: valid, errors } = validateLock(
+    {
+      schema: 1,
+      modules: [
+        {
+          ...entry,
+          files: [...entry.files, { name: RECEIPT_NAME, bytes: 12, sha256: 'c'.repeat(64) }],
+        },
+      ],
+    },
+    { hostApi: 1 }
+  );
+  strictEqual(valid, false);
+  ok(
+    errors.some((e) => e.includes(RECEIPT_NAME) && e.includes('reserved')),
+    errors.join('\n')
+  );
 });
