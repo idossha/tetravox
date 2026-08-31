@@ -1,0 +1,12 @@
+{
+  "id": "tetravox.fixture",
+  "title": "Fixture extension",
+  "version": "1.0.0",
+  "hostApi": 1,
+  "docs": "https://example.invalid/tetravox-fixture#readme",
+  "activation": ["onToggle"],
+  "commands": [{ "id": "ping", "title": "Ping", "key": "g" }],
+  "readers": [{ "id": "table", "title": "A table", "extensions": ["tsv"] }],
+  "operations": [{ "id": "ping", "args": {} }],
+  "sceneBlock": { "version": 1 }
+}

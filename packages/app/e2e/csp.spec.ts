@@ -24,9 +24,13 @@
 
 /* eslint-disable no-empty-pattern */
 
+import { createHash } from 'node:crypto';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 test.describe('the renderer CSP', () => {
@@ -158,5 +162,129 @@ test.describe('the renderer CSP', () => {
       });
     });
     expect(loaded).toBe(true);
+  });
+});
+
+/**
+ * **The positive half of the `script-src` grant, in the build that ships** (addendum correction 3).
+ *
+ * Everything above proves the policy from the outside: the host is in `script-src`, and with nothing
+ * on the map every URL under it 404s. What none of it can prove is the claim the whole feature rests
+ * on — that `tetravox://module` as a **host source** actually *matches* a `tetravox://module/…` URL
+ * in Chromium's CSP matcher, so a consented module's code really runs.
+ *
+ * It has to be asserted here rather than in `extensions.spec.ts` for one reason: **the dev server
+ * carries no CSP**, and `pnpm e2e`'s `dev` project runs the built bundle but the *packaged* project
+ * is the one ROADMAP Phase-0 gate 2 is proved by. Under `TETRAVOX_REQUIRE_PACKAGED=1` this leg
+ * cannot go green by skipping, so a policy that stopped matching would be a red CI leg rather than a
+ * feature that quietly stopped working in shipped builds only.
+ *
+ * The distinction it turns on is the same one the script-element test above makes, read the other
+ * way round: with the host source **absent** this import would raise a `securitypolicyviolation`
+ * naming `script-src`; with it present the import resolves and the module's `activate` is a
+ * function. So the assertion is *both* — no violation, and a real export — because "it loaded" and
+ * "the policy let it" are different facts and only the pair is the claim.
+ *
+ * It also incidentally proves the SDK global: the fixture bundle's top level throws unless
+ * `globalThis.__tetravoxModuleSdk` is set, and `main.tsx` sets it at boot.
+ */
+test.describe('the tetravox://module host source, in a real build', () => {
+  const FIXTURE_ID = 'tetravox.fixture';
+  const FIXTURE_VERSION = '1.0.0';
+  const ENTRY = `tetravox://module/${FIXTURE_ID}/${FIXTURE_VERSION}/index.js`;
+
+  let app: ElectronApplication;
+  let page: Page;
+  let modules: string;
+  let home: string;
+
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeAll(async ({}, workerInfo) => {
+    const target = workerInfo.project.name as LaunchTarget;
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
+
+    // Placed on disk with the receipt an install would have written, rather than downloaded: what is
+    // under test is the **policy**, and a download here would only add a way for this leg to fail
+    // for a reason that is not the CSP. `extensions.spec.ts` owns the download path.
+    modules = mkdtempSync(join(tmpdir(), 'tetravox-csp-modules-'));
+    home = mkdtempSync(join(tmpdir(), 'tetravox-csp-home-'));
+    const source = resolve(APP_ROOT, 'e2e', 'fixtures', FIXTURE_ID);
+    const dir = join(modules, FIXTURE_ID, FIXTURE_VERSION);
+    mkdirSync(dir, { recursive: true });
+    const names = ['index.js', 'manifest.json'];
+    for (const name of names) copyFileSync(join(source, name), join(dir, name));
+    writeFileSync(
+      join(dir, 'tetravox-module.json'),
+      JSON.stringify({
+        schema: 1,
+        id: FIXTURE_ID,
+        version: FIXTURE_VERSION,
+        installedAt: '2026-08-30T00:00:00.000Z',
+        files: names.map((name) => {
+          const bytes = readFileSync(join(dir, name));
+          return {
+            name,
+            bytes: bytes.length,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          };
+        }),
+      })
+    );
+
+    app = await launchApp(target, {
+      search: 'engine=mock&mockStepMs=0',
+      env: { TETRAVOX_MODULE_DIR: modules, TETRAVOX_HOME: home },
+    });
+    page = await app.firstWindow();
+    await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });
+  });
+
+  test.afterAll(async () => {
+    await app?.close();
+    for (const dir of [modules, home]) {
+      if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('404s the installed module until consent is recorded', async () => {
+    const status = await page.evaluate(async (url) => (await fetch(url)).status, ENTRY);
+    expect(status).toBe(404);
+  });
+
+  test('executes it once main puts it on the map — the host source really matches', async () => {
+    // `moduleEnable` IS the consent (`main/module-store.ts`): main re-hashes every file against the
+    // receipt and only then serves it. The sheet is the renderer's; this is the message it sends.
+    const enabled = await page.evaluate(
+      async (id) => (await window.tetravox.moduleEnable?.(id)) ?? { ok: false, error: 'no member' },
+      FIXTURE_ID
+    );
+    expect(enabled.error ?? '').toBe('');
+    expect(enabled.ok).toBe(true);
+
+    const outcome = await page.evaluate(async (url) => {
+      const violations: string[] = [];
+      const onViolation = (event: SecurityPolicyViolationEvent): void => {
+        violations.push(event.violatedDirective);
+      };
+      document.addEventListener('securitypolicyviolation', onViolation);
+      try {
+        const loaded = (await import(/* @vite-ignore */ url)) as { activate?: unknown };
+        // One turn of the loop, so a violation fired during evaluation is recorded before we look.
+        await new Promise((r) => setTimeout(r, 50));
+        return { ok: true, activate: typeof loaded.activate, violations };
+      } catch (error) {
+        await new Promise((r) => setTimeout(r, 50));
+        return { ok: false, error: String(error), violations };
+      } finally {
+        document.removeEventListener('securitypolicyviolation', onViolation);
+      }
+    }, ENTRY);
+
+    // Both halves. `violations: []` is "the policy admitted it"; `activate: 'function'` is "the code
+    // ran, with the host's own React on `globalThis.__tetravoxModuleSdk`".
+    expect(outcome.violations).toEqual([]);
+    expect(outcome).toMatchObject({ ok: true, activate: 'function' });
   });
 });
