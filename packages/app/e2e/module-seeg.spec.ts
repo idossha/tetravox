@@ -32,7 +32,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
+import {
+  APP_ROOT,
+  bundledSeegVersion,
+  clickAppMenu,
+  launchApp,
+  packagedUnavailable,
+} from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
@@ -48,7 +54,14 @@ const SEEG = 'tetravox.seeg';
  * this suite **skips**, because there is nothing for the app to discover. A packaged build always
  * carries it (the `package`/`build` legs fetch), so the packaged target is gated by the build, not here.
  */
-const DEV_BUNDLE = resolve(APP_ROOT, 'resources', 'modules', SEEG, '0.1.0', 'index.js');
+const DEV_BUNDLE = resolve(
+  APP_ROOT,
+  'resources',
+  'modules',
+  SEEG,
+  bundledSeegVersion(),
+  'index.js'
+);
 
 /** A `seegprep` derivative tree with the committed fixtures in it, in a fresh temp directory. */
 function subjectTree(): { ct: string; tsv: string; ieeg: string } {

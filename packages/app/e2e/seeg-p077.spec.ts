@@ -41,12 +41,25 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable, SHOTS_DIR } from './fixtures';
+import {
+  APP_ROOT,
+  bundledSeegVersion,
+  launchApp,
+  packagedUnavailable,
+  SHOTS_DIR,
+} from './fixtures';
 
 const EXAMPLE = '/Users/idohaber/Desktop/example';
 const SCENE_NAME = 'seeg-P077.tetravox.json';
 const SEEG = 'tetravox.seeg';
-const SEEG_BUNDLE = resolve(APP_ROOT, 'resources', 'modules', SEEG, '0.1.0', 'index.js');
+const SEEG_BUNDLE = resolve(
+  APP_ROOT,
+  'resources',
+  'modules',
+  SEEG,
+  bundledSeegVersion(),
+  'index.js'
+);
 
 /** The twelve-colour contact palette (`shared/contacts/palette.ts`), rounded like the readback. */
 const PALETTE: readonly [number, number, number, number][] = [

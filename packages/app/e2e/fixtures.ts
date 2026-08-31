@@ -6,7 +6,7 @@
  * bare `pnpm e2e` is green without a 2-minute package step.
  */
 
-import { existsSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,22 @@ import type { ElectronApplication, Page } from '@playwright/test';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const APP_ROOT = resolve(here, '..');
+
+/**
+ * The version of the bundled `tetravox.seeg` this checkout carries, read from `modules.lock` (§13.8)
+ * — the one source of truth for what a build bundles — rather than pinned in each spec, so re-pinning
+ * the module to a new patch is one edit to the lock, not a sweep across the e2e suite.
+ * `fetch-locked-modules.mjs` places the bundle at `resources/modules/<id>/<version>/`, so this is
+ * also the version segment of that path.
+ */
+export function bundledSeegVersion(): string {
+  const lock = JSON.parse(readFileSync(resolve(APP_ROOT, '..', '..', 'modules.lock'), 'utf8')) as {
+    modules?: Array<{ id: string; version: string }>;
+  };
+  const entry = lock.modules?.find((m) => m.id === 'tetravox.seeg');
+  if (!entry) throw new Error('modules.lock carries no tetravox.seeg entry');
+  return entry.version;
+}
 
 /**
  * The one directory every spec writes *evidence* PNGs to — the picture a passing test took as a side

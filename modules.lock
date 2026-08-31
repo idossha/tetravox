@@ -3,14 +3,14 @@
   "modules": [
     {
       "id": "tetravox.seeg",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "hostApi": 1,
       "repo": "idossha/tetravox-seeg",
-      "tag": "v0.1.0",
+      "tag": "v0.1.1",
       "bundled": true,
       "files": [
-        { "name": "index.js", "bytes": 105532, "sha256": "e2d99582b68db6dd9d75ef47d2f348ee92611a8e7aaa404a220edcaab4501984" },
-        { "name": "manifest.json", "bytes": 4300, "sha256": "90602a6dbdccd6145d1fad3c9cde70db8fa92b5ab7de25cce0bb4c4dedc79c52" }
+        { "name": "index.js", "bytes": 109100, "sha256": "261ef01459fb5d5d92ee881ff42242c60d0b34e70466b6c330ae8f02d55ee082" },
+        { "name": "manifest.json", "bytes": 4300, "sha256": "a6aef1d968a0535241827893c61bfc00f1c885c2d71d5f61012a66ebd134622b" }
       ]
     }
   ]

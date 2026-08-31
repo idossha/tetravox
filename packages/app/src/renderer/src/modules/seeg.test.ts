@@ -48,6 +48,15 @@ const SEEG = 'tetravox.seeg';
  * makes this the extraction's regression gate.
  */
 const HERE = dirname(fileURLToPath(import.meta.url));
+// The bundled version this checkout carries, read from `modules.lock` (the source of truth for what a
+// build bundles) rather than pinned here — so re-pinning the module is one edit to the lock, and this
+// suite runs against the fetched bytes instead of skipping on a stale path.
+const SEEG_VERSION =
+  (
+    JSON.parse(
+      readFileSync(resolve(HERE, '..', '..', '..', '..', '..', '..', 'modules.lock'), 'utf8')
+    ).modules as Array<{ id: string; version: string }>
+  ).find((m) => m.id === 'tetravox.seeg')?.version ?? '0.1.0';
 const BUNDLE = resolve(
   HERE,
   '..',
@@ -57,7 +66,7 @@ const BUNDLE = resolve(
   'resources',
   'modules',
   'tetravox.seeg',
-  '0.1.0'
+  SEEG_VERSION
 );
 const haveBundle = existsSync(join(BUNDLE, 'index.js'));
 const describeSeeg = haveBundle ? describe : describe.skip;

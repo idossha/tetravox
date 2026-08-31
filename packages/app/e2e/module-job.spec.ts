@@ -41,7 +41,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { APP_ROOT } from './fixtures';
+import { APP_ROOT, bundledSeegVersion } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
 const VOLUME = join(TESTDATA, 'vol_u8.nii.gz');
@@ -50,7 +50,14 @@ const VOLUME = join(TESTDATA, 'vol_u8.nii.gz');
 // not on disk the build carries no such module and every action is refused. Skip there, exactly
 // as `module-seeg.spec.ts` does — the cheap `test` CI leg runs `fetch-locked-modules
 // --verify-only` (no download); the packaged leg and the local P077 gate cover the fetched case.
-const SEEG_BUNDLE = resolve(APP_ROOT, 'resources', 'modules', 'tetravox.seeg', '0.1.0', 'index.js');
+const SEEG_BUNDLE = resolve(
+  APP_ROOT,
+  'resources',
+  'modules',
+  'tetravox.seeg',
+  bundledSeegVersion(),
+  'index.js'
+);
 
 const temporaryDirectories: string[] = [];
 
@@ -316,7 +323,9 @@ test.describe('a module that writes, from a job', () => {
     expect(outcome.result.errors).toEqual([]);
     expect(outcome.result.ok).toBe(true);
     expect(outcome.code).toBe(0);
-    expect(outcome.result.modules).toEqual([{ id: 'tetravox.seeg', version: '0.1.0' }]);
+    expect(outcome.result.modules).toEqual([
+      { id: 'tetravox.seeg', version: bundledSeegVersion() },
+    ]);
 
     // `load` found the CT the scene opened by its resolved path, and bound the table to it. `bound`
     // is the load-bearing field: false would mean the contacts were held and never placed, and

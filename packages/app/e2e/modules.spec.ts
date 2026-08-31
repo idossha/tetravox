@@ -28,7 +28,13 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
+import {
+  APP_ROOT,
+  bundledSeegVersion,
+  clickAppMenu,
+  launchApp,
+  packagedUnavailable,
+} from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
@@ -37,7 +43,14 @@ const VOLUME = join(TESTDATA, 'vol_u8.nii.gz');
 // by `scripts/fetch-locked-modules.mjs`. Whether it is on disk is whether this build offers a
 // product module at all — the cheap `test` CI leg runs `fetch-locked-modules --verify-only` (no
 // download), so it is absent there, exactly as `module-seeg.spec.ts` reads it.
-const SEEG_BUNDLE = resolve(APP_ROOT, 'resources', 'modules', 'tetravox.seeg', '0.1.0', 'index.js');
+const SEEG_BUNDLE = resolve(
+  APP_ROOT,
+  'resources',
+  'modules',
+  'tetravox.seeg',
+  bundledSeegVersion(),
+  'index.js'
+);
 
 const HELLO = 'tetravox.hello';
 const SEARCH = 'engine=mock&mockStepMs=0&modules=hello';

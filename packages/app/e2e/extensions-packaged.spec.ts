@@ -42,13 +42,19 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable, SHOTS_DIR } from './fixtures';
+import {
+  APP_ROOT,
+  bundledSeegVersion,
+  launchApp,
+  packagedUnavailable,
+  SHOTS_DIR,
+} from './fixtures';
 
 const FIXTURES = resolve(APP_ROOT, 'e2e', 'fixtures');
 const FIXTURE_ID = 'tetravox.fixture';
 const FIXTURE_VERSION = '1.0.0';
 const SEEG_ID = 'tetravox.seeg';
-const SEEG_VERSION = '0.1.0';
+const SEEG_VERSION = bundledSeegVersion();
 
 /** The bundled sEEG tree the packaging step copies into the `.app` — its presence in the dev tree is
  *  the same proxy `module-seeg.spec.ts` uses for "the packaged build shipped it". */
