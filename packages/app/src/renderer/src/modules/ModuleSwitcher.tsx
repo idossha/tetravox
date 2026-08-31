@@ -25,6 +25,13 @@ import { useController, useUi } from '../ui/context';
 export function ModuleSwitcher(): React.JSX.Element | null {
   const controller = useController();
   const activeModule = useUi((s) => s.activeModule);
+  // Boot-time reactivity (2026-08-31): `controller.modules()` below reads the installed-extension
+  // set that `refreshInstalledModules` fills **asynchronously** — a bundled extension
+  // (`tetravox.seeg`) or one a previous session enabled lands after first paint. That refresh sets
+  // `extensionStatuses` immediately after the set, so subscribing to it here is what re-renders the
+  // switcher when a boot-enabled extension appears; without it the control stays absent (a build
+  // with only installed modules) until an unrelated state change forces a paint.
+  useUi((s) => s.extensionStatuses);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const close = useCallback(() => setOpen(false), []);
