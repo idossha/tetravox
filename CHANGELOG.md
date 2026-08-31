@@ -10,6 +10,64 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [0.3.0]
+
+A first-party **extension surface** and its flagship, plus downloadable extensions.
+
+### Added — extensions
+
+- **Modules (ARCHITECTURE §13).** A first-party extension surface: data-only manifests, a frozen
+  `ModuleHost` API behind an ESLint import wall (a module never touches `Engine`, the store or the
+  preload bridge), a docked module panel with a toolbar switcher, module keys resolved after the core
+  keymap, a promise-based confirm dialog, per-module scene-state carried through save/load, and a
+  `docs-guard` CI job. A `tetravox.hello` fixture module ships behind `?modules=hello`.
+- **Downloadable extensions.** A **File ▸ Extensions…** catalogue (Download → per-module consent
+  sheet → Enable, with Update and Remove), a `tetravox://module` host that serves an installed module
+  from an in-memory, sha256-verified map, an install store under `~/.tetravox/modules/`, a registry
+  index (`idossha/tetravox-extensions`), a versioned `@tetravox/module-sdk` (types + an inlined
+  runtime shim), and `modules.lock` so pinned modules ship inside the packaged app pre-consented. The
+  toolbar dropdown stays the enabled-module load/unload switcher.
+- **sEEG contact editor** (`tetravox.seeg`, a bundled extension in
+  [idossha/tetravox-seeg](https://github.com/idossha/tetravox-seeg)). Localise and hand-correct
+  stereo-EEG depth-electrode contacts on a registered CT and write a corrected BIDS `electrodes.tsv`
+  back: a tolerant reader, one contacts layer (named dots, per-electrode colours, coloured shaft
+  lines, off-plane ghosting), place / select / drag / snap-to-metal / re-fit / renumber / flip-tip,
+  a wire toggle and a size control, undo/redo, and a save that writes the table plus a timestamped
+  `.bak` and a seegprep-compatible `_electrodes_editlog.json`. Every panel action is also a job-file
+  operation, with Python wrappers.
+
+### Added — engine
+
+- **A points editing substrate.** Per-point identity, grouping and ordinal on a points layer;
+  off-plane ghosting (a contact stays visible as you scroll, and a ghosted point is clickable —
+  clicking it selects it and jumps the slice); per-point / per-electrode label and line colours; a
+  screen-pixel dot size; a `LayerBase.module` owner tag.
+- **An engine-owned 2D point tool** — place, select and drag contacts, with one commit per drag, an
+  `Esc` grammar, and mutual exclusivity with measure mode.
+- **A voxel-neighbourhood read** (`sampleVoxelBox` / `peakCentroid`) for intensity-weighted
+  snap-to-metal, matching 3D Slicer's window.
+
+### Added — app
+
+- **The first unsaved-changes guard.** New / Open / Open-Recent / drop / close-dataset and window
+  close now prompt before discarding a module's unsaved edits; the module IPC admits a Save sheet's
+  declared sibling files and writes a `.bak` atomically.
+- **Module job actions** in the automation surface, validated from the manifests before a window
+  exists, with an AUTOMATION reference generated from them.
+
+### Fixed
+
+- A volume's 3D isosurfaces follow the layer's opacity slider and each region's per-region opacity;
+  a translucent isosurface blends instead of switching; an isosurface adds no empty probe row.
+- `⌘S` on a scene opened from disk now saves it in place.
+
+### Security
+
+- The extension consent sheet states every capability a module's manifest grants (reads, writes and
+  their declared siblings, keys, job operations, scene storage); a module cannot widen its writes past
+  what its consent showed, cannot forge its own consent record, and loses its file-write and serving
+  capability the moment it is disabled or removed.
+
 ## [0.2.0] - 2026-08-28
 
 The first release with artefacts. 0.1.0 was the scaffold; this is the version you can download.
