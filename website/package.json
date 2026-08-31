@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Tetravox documentation site",
   "scripts": {
-    "dev": "node scripts/sync.mjs && node scripts/gallery.mjs && node scripts/sample-data.mjs && vitepress dev",
-    "build": "node scripts/sync.mjs && node scripts/gallery.mjs && node scripts/sample-data.mjs && node scripts/check-images.mjs && vitepress build",
+    "dev": "node scripts/sync.mjs && node scripts/gallery.mjs && node scripts/sample-data.mjs && node scripts/extensions.mjs && vitepress dev",
+    "build": "node scripts/sync.mjs && node scripts/gallery.mjs && node scripts/sample-data.mjs && node scripts/extensions.mjs && node scripts/check-images.mjs && vitepress build",
     "preview": "vitepress preview"
   },
   "devDependencies": {

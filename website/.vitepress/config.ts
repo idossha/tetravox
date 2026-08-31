@@ -91,6 +91,7 @@ export default defineConfig({
           { text: 'Install', link: '/install' },
           { text: 'Get started', link: '/get-started' },
           { text: 'Sample data', link: '/sample-data' },
+          { text: 'Extensions', link: '/extensions' },
           {
             text: 'The wiki',
             collapsed: false,
