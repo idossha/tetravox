@@ -3,11 +3,13 @@
  * Generate the Sample data page from packages/app/src/shared/sample-catalog.json — the same
  * catalogue File ▸ Sample Data… reads, so the website can never list a dataset the app does not
  * offer, or the other way round. Thumbnails come from the app's own card images
- * (packages/app/src/renderer/src/assets/samples/), copied to public/samples/.
+ * (packages/app/src/renderer/src/assets/samples/), re-encoded to WebP into
+ * public/samples/ — see images.mjs; the app keeps the JPEGs it bundles.
  */
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { encode } from './images.mjs';
 
 const WEBSITE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = resolve(WEBSITE, '..');
@@ -24,6 +26,9 @@ function mb(n) {
     : `${(n / (1024 * 1024)).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 }
 
+// Cleared, not merged into: a thumbnail that leaves the catalogue (or an older encode of one)
+// would otherwise sit in public/ for ever and ship with every build.
+rmSync(PUBLIC_OUT, { recursive: true, force: true });
 mkdirSync(PUBLIC_OUT, { recursive: true });
 
 const groups = [];
@@ -36,7 +41,7 @@ title: Sample data
 # Sample data
 
 <figure class="shot">
-<img src="/media/sample-data-dialog.png" alt="The Sample Data dialog in Tetravox">
+<img src="/sample-data-dialog.webp" alt="The Sample Data dialog in Tetravox">
 <figcaption>The <strong>Sample Data</strong> dialog in Tetravox — a card per dataset with a thumbnail, description, size and licence, and one <strong>Download &amp; open</strong> button that fetches it once and opens it as a ready-made scene.</figcaption>
 </figure>
 
@@ -54,13 +59,13 @@ hosts its sample data: as assets of one GitHub release, **named by their own sha
 for (const group of groups) {
   out += `## ${group}\n\n<div class="shot-pair">\n`;
   for (const s of catalog.samples.filter((x) => x.group === group)) {
-    copyFileSync(join(THUMBS, `${s.thumbnail}.jpg`), join(PUBLIC_OUT, `${s.thumbnail}.jpg`));
+    await encode(join(THUMBS, `${s.thumbnail}.jpg`), join(PUBLIC_OUT, `${s.thumbnail}.webp`));
     const total = s.files.reduce((n, f) => n + f.bytes, 0);
     const files = s.files
       .map((f) => `<a href="${f.url}"><code>${f.name}</code></a> (${mb(f.bytes)})`)
       .join(', ');
     out += `  <figure id="${s.id}">
-    <img src="/samples/${s.thumbnail}.jpg" alt="${s.title}" loading="lazy">
+    <img src="/samples/${s.thumbnail}.webp" alt="${s.title}" loading="lazy">
     <figcaption><strong>${s.title}</strong> — ${s.description}<br>
     ${mb(total)} · <a href="${s.sourceUrl}">${s.source}</a> · ${s.licence}<br>
     Files: ${files}</figcaption>

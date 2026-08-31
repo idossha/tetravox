@@ -287,7 +287,30 @@ export interface LaunchOptions {
  * assertion would stop meaning anything. `readPixels` is unaffected either way; this is what lets the
  * *screenshot* leg assert the same bytes.
  */
-const DETERMINISM_ARGS = ['--force-color-profile=srgb', '--force-device-scale-factor=1'];
+const DETERMINISM_ARGS = [
+  '--force-color-profile=srgb',
+  `--force-device-scale-factor=${shotScale()}`,
+];
+
+/**
+ * The device scale factor every launch is pinned to — 1, so a screenshot assertion measures the same
+ * pixels on a Retina Mac and on a CI runner.
+ *
+ * `TETRAVOX_SHOT_SCALE=2` raises it, and is only for the documentation capture spec
+ * (`ui-tour-gallery.spec.ts`): the interface pictures on the website are read on Retina displays,
+ * where a 1x capture of a panel is visibly soft. Nothing changes in CSS pixels, so the clicks and
+ * bounding boxes of a spec are unaffected — only the raster is twice the size. Leave it unset for
+ * every leg that asserts on pixels.
+ */
+export function shotScale(): number {
+  const raw = process.env['TETRAVOX_SHOT_SCALE'];
+  if (raw === undefined) return 1;
+  const scale = Number(raw);
+  if (!Number.isFinite(scale) || scale < 1 || scale > 4) {
+    throw new Error(`TETRAVOX_SHOT_SCALE must be a number in [1, 4], got ${raw}`);
+  }
+  return scale;
+}
 
 /**
  * A private profile directory per launch, and why every E2E needs one.

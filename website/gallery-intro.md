@@ -7,11 +7,12 @@ user makes with the mouse (see [Automation & Python](/automation)), and ffmpeg j
 the captions. The full storyboard — shot list, timings and the reasoning behind each — is in
 [`docs/media/SHOWCASE.md`](https://github.com/idossha/tetravox/blob/main/docs/media/SHOWCASE.md).
 
-<video controls preload="metadata" poster="/shots/brain/brain-t1-pial-both.png">
+<video controls preload="metadata" poster="/shots/brain/brain-t1-pial-both.webp">
   <source src="/media/showcase.mp4" type="video/mp4">
   Your browser does not support the video tag — see the GIF below instead.
 </video>
 
-For anywhere a `<video>` tag doesn't reach, the same tour as a GIF:
+For anywhere a `<video>` tag doesn't reach, the same tour as a GIF — 7.9 MB, so it is loaded only
+when it is scrolled to:
 
-![Tetravox showcase — a tour of the interface and rendering features](/media/showcase-preview.gif)
+<img src="/media/showcase-preview.gif" alt="Tetravox showcase — a tour of the interface and rendering features" loading="lazy">

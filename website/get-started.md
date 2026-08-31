@@ -8,7 +8,7 @@ Install the app first — the [Install](/install) page has the official macOS, L
 
 ## A first look
 
-![The Tetravox window in its dark theme: layer panel, view grid and region panel](/shots/ui/ui-window-dark.png)
+![The Tetravox window in its dark theme: layer panel, view grid and region panel](/shots/ui/ui-window-dark.webp)
 
 The window is three areas: the view grid in the centre (2D panes plus a 3D pane, in a layout you cycle with
 `x`), a left panel listing your layers — volumes, meshes, points, isosurfaces — each with its own editor, and
@@ -19,7 +19,7 @@ The toolbar rail down the side holds the view controls; **⚙** opens **Settings
 directory that turns on fsaverage vertex read-out, and "reopen last scene on launch" — machine preferences,
 not scene state), and **?** opens the key-map dialog, whose tabs group every binding by what it acts on.
 
-![The key-map dialog, bindings grouped in tabs](/shots/ui/ui-keymap-tabs.png)
+![The key-map dialog, bindings grouped in tabs](/shots/ui/ui-keymap-tabs.webp)
 
 ## File formats and file associations
 

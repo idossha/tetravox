@@ -4,7 +4,7 @@ title: sEEG contacts
 
 # sEEG contacts
 
-![The sEEG contacts extension in Tetravox editing subject P077 — coloured electrode shafts across the 2×2 panes, the head mesh with labelled contacts in 3D, and the full SEEG CONTACTS panel with its electrode dropdown, Add / Snap / Re-fit / Renumber / Flip tip / Ghost / Wire controls, contact list, and Undo / Save.](/media/seeg-extension-p077.png)
+![The sEEG contacts extension in Tetravox editing subject P077 — coloured electrode shafts across the 2×2 panes, the head mesh with labelled contacts in 3D, and the full SEEG CONTACTS panel with its electrode dropdown, Add / Snap / Re-fit / Renumber / Flip tip / Ghost / Wire controls, contact list, and Undo / Save.](/seeg-extension-p077.webp)
 
 The flagship Tetravox extension. `tetravox.seeg` is a contact editor for stereo-EEG depth electrodes: it
 localises and hand-corrects sEEG contacts on a registered CT and writes a corrected BIDS

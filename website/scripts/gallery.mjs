@@ -7,9 +7,9 @@
  * The manifest is a JSON array of
  *   { file, group, title, what_it_shows, dataset }
  * where `file` is the path inside the capture directory, including its group
- * subdirectory (`hero/hero-t1-atlas-2x2.png`). sync.mjs has already copied the
- * whole directory to website/public/shots/, so this script only references
- * `/shots/<file>` and copies nothing itself.
+ * subdirectory (`hero/hero-t1-atlas-2x2.png`). sync.mjs has already mirrored the
+ * whole directory to website/public/shots/, re-encoding each still to WebP, so
+ * this script only references `/shots/<file>.webp` and copies nothing itself.
  *
  * Groups get one `## ` section each, in GROUPS order. A `motion` entry names
  * its `.gif`; the page embeds the `.mp4` sibling as an autoplaying loop.
@@ -17,6 +17,7 @@
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { webName } from './images.mjs';
 
 const WEBSITE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO = resolve(WEBSITE, '..');
@@ -90,7 +91,8 @@ function escapeText(text) {
 
 function media(entry) {
   if (entry.group !== 'motion') {
-    return `<img src="/shots/${entry.file}" alt="${escapeAttr(entry.title)}" loading="lazy">`;
+    // sync.mjs serves every still as WebP (images.mjs); the manifest names the master.
+    return `<img src="/shots/${webName(entry.file)}" alt="${escapeAttr(entry.title)}" loading="lazy">`;
   }
   const mp4 = entry.file.replace(/\.gif$/, '.mp4');
   return `<video src="/shots/${mp4}" autoplay loop muted playsinline></video>`;
