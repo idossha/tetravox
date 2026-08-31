@@ -36,6 +36,7 @@ import { InfoPanel } from '../panels/info/InfoPanel';
 import { LayerPanel } from '../panels/layers/LayerPanel';
 import { MeasurePanel } from '../panels/measure/MeasurePanel';
 import { ModuleSlot } from '../modules/ModuleSlot';
+import { ModuleWindows } from '../modules/ModuleWindows';
 import { MshOptChip } from './MshOptChip';
 import { ShellDialogs } from './ShellDialogs';
 import { StatusBar } from './StatusBar';
@@ -514,6 +515,11 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
             {jobMode ? null : <StatusBar />}
             <Toasts />
             <ShellDialogs />
+            {/* §13.10: one popped-out window per module whose placement is `'window'`. It renders
+              nothing at all when there is none — the DOM of a launch that never pops a module out is
+              unchanged — and a `--job` window never renders it, because a batch render must not put
+              a second window on anyone's screen. */}
+            {jobMode ? null : <ModuleWindows />}
           </>
         )}
       </div>

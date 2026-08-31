@@ -115,7 +115,7 @@ describe('validateManifest', () => {
     // `manifest.json` is `ModuleManifest` and nothing more: file names, sizes and hashes belong to
     // the release and to the install receipt. A typo has to be an error or it is a silent feature.
     expect(errorsFor({ entry: 'index.js' })).toEqual([
-      'manifest.entry: unknown key (expected id, title, version, hostApi, docs, activation, commands, readers, siblings, writers, operations, sceneBlock)',
+      'manifest.entry: unknown key (expected id, title, version, hostApi, docs, activation, commands, readers, siblings, writers, operations, sceneBlock, ui)',
     ]);
   });
 
@@ -316,5 +316,41 @@ describe('derivePermissions', () => {
     const lines = derivePermissions(result.manifest);
     expect(lines).toContain('Discover and read files named near a file you open');
     expect(lines).not.toEqual([]);
+  });
+});
+
+describe('the `ui` block (§13.10)', () => {
+  it('is optional, and every field of it is', () => {
+    expect(errorsFor({})).toEqual([]);
+    expect(errorsFor({ ui: {} })).toEqual([]);
+    expect(errorsFor({ ui: { popout: 'preferred', windowWidth: 900, windowHeight: 700 } })).toEqual(
+      []
+    );
+  });
+
+  it('refuses a popout mode it does not know, rather than treating it as the default', () => {
+    // The failure this prevents is silent: an unknown value falling back to `'allowed'` gives a
+    // module that asked never to be popped out a ⧉ button.
+    expect(errorsFor({ ui: { popout: 'sometimes' } })).toEqual([
+      'ui.popout: must be one of allowed, preferred, never',
+    ]);
+  });
+
+  it('refuses a window no screen can hold, and a fractional one', () => {
+    expect(errorsFor({ ui: { windowWidth: 30000 } })).not.toEqual([]);
+    expect(errorsFor({ ui: { windowHeight: 12.5 } })).not.toEqual([]);
+    expect(errorsFor({ ui: { windowWidth: 100 } })).not.toEqual([]);
+  });
+
+  it('is not a permission — where a panel draws is not a capability', () => {
+    // The consent sheet must not grow a line for a module that only asked for a bigger window: a
+    // sheet that lists layout facts beside file-write capabilities teaches people to skim it.
+    const result = validateManifest({
+      ...base(),
+      commands: [{ id: 'go', title: 'Go' }],
+      ui: { popout: 'preferred', windowWidth: 900 },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(derivePermissions(result.manifest)).toEqual([]);
   });
 });

@@ -23,6 +23,7 @@ import type { ModuleHost } from './host';
 import { ModuleHostError } from './host';
 import { blockBytes, createHistory, createModuleHost, MAX_BLOCK_BYTES } from './hostImpl';
 import { readerClaim } from './readers';
+import { setInstalledModules } from './registry';
 import { helloManifest } from '../../../modules/hello/manifest';
 import type { ModuleManifest } from '../../../modules/manifest-types';
 
@@ -774,5 +775,191 @@ describe('the wired host (§13.1)', () => {
     await expect(h.files.openDialog('nope')).resolves.toBeNull();
     await expect(h.files.saveDialog('nope', null)).resolves.toBeNull();
     await expect(h.files.siblings('/data/T1.nii.gz')).resolves.toEqual({});
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Pop-out and concurrency (§13.10, 2026-08-31)
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * A second module, injected the way an installed extension is.
+ *
+ * The registry ships exactly one fixture, and concurrency is not a claim one module can support: the
+ * assertions below are all about *two* live sessions not being one another's. `setInstalledModules`
+ * is the same door a downloaded extension comes through, so this is the real path rather than a
+ * reach into the map.
+ */
+function secondModule(): ModuleManifest {
+  return {
+    ...helloManifest,
+    id: 'vendor.second',
+    title: 'Second',
+    commands: [{ id: 'noop', title: 'No-op' }],
+  };
+}
+
+async function withSecond(controller: ShellController): Promise<ModuleManifest> {
+  // `attach()` kicks off `refreshInstalledModules`, which *replaces* the installed set with what
+  // main reports (nothing, here). Let it land first, or it wipes the module this helper just added
+  // and the test reads as "concurrency is broken" when the registry is simply empty.
+  await controller.refreshInstalledModules([]);
+  const manifest = secondModule();
+  setInstalledModules([
+    {
+      manifest,
+      load: async () => ({
+        activate: (host: ModuleHost) => ({
+          Panel: () => null,
+          runCommand: () => {
+            host.ui.status('ran');
+          },
+          dirty: () => false,
+          dispose: () => {},
+        }),
+      }),
+    },
+  ]);
+  return manifest;
+}
+
+describe('placement and concurrency (§13.10)', () => {
+  afterEach(() => setInstalledModules([]));
+
+  it('reports a freshly activated module as docked, and mirrors it into the store', async () => {
+    const { store, controller } = harness();
+    await controller.activateModule(HELLO);
+    expect(controller.modulePlacement(HELLO)).toBe('docked');
+    expect(store.getState().modulePlacement).toEqual({ [HELLO]: 'docked' });
+    expect(store.getState().activeModule).toBe(HELLO);
+  });
+
+  it('a launch with no module has an empty placement map, not a placeholder entry', () => {
+    // The whole no-module DOM has to stay byte-identical: a default entry here would be a component
+    // rendering something where nothing rendered before.
+    const { store } = harness();
+    expect(store.getState().modulePlacement).toEqual({});
+  });
+
+  it('popping out keeps the very same instance — nothing is re-activated', async () => {
+    const { store, controller } = harness();
+    await controller.activateModule(HELLO);
+    const instance = controller.moduleInstance(HELLO);
+    const host = controller.moduleHost(HELLO);
+
+    controller.setModulePlacement(HELLO, 'window');
+    expect(controller.moduleInstance(HELLO)).toBe(instance);
+    expect(controller.moduleHost(HELLO)).toBe(host);
+    // Out of the slot, still live: `activeModule` is the *slot*, and this is the one distinction the
+    // whole feature rests on.
+    expect(store.getState().activeModule).toBeNull();
+    expect(store.getState().modulePlacement).toEqual({ [HELLO]: 'window' });
+    expect(controller.modulePanelFor(HELLO)).not.toBeNull();
+    expect(controller.modulePanel()).toBeNull();
+  });
+
+  it('re-docking is the same move backwards, and neither direction disposes anything', async () => {
+    const { store, controller } = harness();
+    await controller.activateModule(HELLO);
+    const instance = controller.moduleInstance(HELLO);
+    controller.setModulePlacement(HELLO, 'window');
+    controller.setModulePlacement(HELLO, 'docked');
+    expect(controller.moduleInstance(HELLO)).toBe(instance);
+    expect(store.getState().activeModule).toBe(HELLO);
+  });
+
+  it('the host reports and can ask for its own placement', async () => {
+    const { controller } = harness();
+    await controller.activateModule(HELLO);
+    const host = controller.moduleHost(HELLO);
+    expect(host?.ui.placement()).toBe('docked');
+
+    const seen: string[] = [];
+    const off = host?.ui.onPlacement((placement) => seen.push(placement));
+    host?.ui.setPlacement('window');
+    expect(host?.ui.placement()).toBe('window');
+    expect(seen).toEqual(['window']);
+    // `isActive` deliberately still means "in the slot", so a panel gating its docked chrome on it
+    // does not draw slot chrome inside a window.
+    expect(host?.ui.isActive()).toBe(false);
+    off?.();
+    host?.ui.setPlacement('docked');
+    expect(seen).toEqual(['window']);
+  });
+
+  it('holds two modules at once, and docking the second pops the first out rather than closing it', async () => {
+    const { store, controller } = harness();
+    const second = await withSecond(controller);
+    await controller.activateModule(HELLO);
+    const helloInstance = controller.moduleInstance(HELLO);
+
+    await controller.activateModule(second.id);
+    expect(store.getState().activeModule).toBe(second.id);
+    // Not unloaded — moved. A gesture that means "show me this one too" must never be the gesture
+    // that throws the other one's unsaved edits away.
+    expect(controller.moduleInstance(HELLO)).toBe(helloInstance);
+    expect(controller.modulePlacement(HELLO)).toBe('window');
+    expect(
+      controller
+        .moduleSessionsInfo()
+        .map((s) => s.manifest.id)
+        .sort()
+    ).toEqual([HELLO, second.id].sort());
+  });
+
+  it('activating straight into a window leaves the slot alone', async () => {
+    const { store, controller } = harness();
+    const second = await withSecond(controller);
+    await controller.activateModule(HELLO);
+    await controller.activateModule(second.id, 'window');
+    expect(store.getState().activeModule).toBe(HELLO);
+    expect(controller.modulePlacement(second.id)).toBe('window');
+  });
+
+  it('closes exactly the module it is asked to close', async () => {
+    const { store, controller } = harness();
+    const second = await withSecond(controller);
+    await controller.activateModule(HELLO);
+    await controller.activateModule(second.id, 'window');
+
+    controller.deactivateModule(second.id);
+    expect(controller.modulePlacement(second.id)).toBeNull();
+    expect(controller.modulePlacement(HELLO)).toBe('docked');
+    expect(store.getState().activeModule).toBe(HELLO);
+
+    // No id is still "the one in the slot", which is what the slot's ✕ and every pre-§13.10 caller
+    // means by it.
+    controller.deactivateModule();
+    expect(store.getState().activeModule).toBeNull();
+    expect(controller.moduleSessionsInfo()).toEqual([]);
+  });
+
+  it('sends a key to the module whose window it came from, not to the one in the slot', async () => {
+    const { store, controller } = harness();
+    const second = await withSecond(controller);
+    await controller.activateModule(second.id);
+    await controller.activateModule(HELLO, 'window');
+    // `g` is the fixture's own unconditional binding; the docked `Second` binds nothing.
+    const key = {
+      key: 'g',
+      ctrlKey: false,
+      metaKey: false,
+      shiftKey: false,
+      altKey: false,
+      editable: false,
+    };
+    expect(controller.handleModuleKey(key)).toBe(false);
+    expect(controller.handleModuleKey(key, HELLO)).toBe(true);
+    expect(store.getState().activeModule).toBe(second.id);
+  });
+
+  it('detaching disposes the popped-out modules too', async () => {
+    const { store, controller } = harness();
+    const second = await withSecond(controller);
+    await controller.activateModule(HELLO, 'window');
+    await controller.activateModule(second.id, 'window');
+    controller.detach();
+    open.length = 0;
+    expect(store.getState().modulePlacement).toEqual({});
   });
 });

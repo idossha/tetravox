@@ -4875,6 +4875,7 @@ the twice-documented softprops design — the `publish:` block configures the fe
 still holds). electron-updater is excluded from electron-vite's dependency externalization because
 the packaged app ships no `node_modules` — externalized, the first check is a MODULE_NOT_FOUND.
 
+<<<<<<< HEAD
 ## 2026-08-31 — extensions only: the bundled tier is removed, and the product word is "extension"
 
 Two asks from the maintainer, taken whole. **(1) Nothing ships inside the application.** The bundled
@@ -4896,3 +4897,28 @@ scenes, users' job files or the SDK pin, for zero user-visible gain. Internal id
 names that mirror those surfaces also keep the word; renaming ~155 identifiers across 113 files was
 rejected as pure churn against in-flight branches. `tetravox.hello` stays compiled in as the test
 fixture behind `?modules=` — it is scaffolding for this whole surface, not a shipped extension.
+=======
+## 2026-08-31 — modules pop out into their own windows, and several may be live at once (§13.10)
+
+§13.3's "one docked slot, one module at a time" is narrowed to what it always actually justified: the
+**slot** holds one module, because it is one section of a 320 px column. Anything more was a property of the
+layout and not of the host — `createModuleHost(deps, manifest)` already closed over the id, `moduleStatus`,
+`moduleDirty` and `ViewSpec.extensions` were already keyed by module — so `ShellController` now holds a map
+of sessions, each carrying its `placement`, and `UiState.activeModule` is redefined as *the docked one*
+rather than *the only one*. Every existing caller of `activeModule` keeps its meaning and its behaviour, and
+a launch with no module still has `modulePlacement: {}` and the DOM it always had.
+
+A popped-out window is a **same-origin `window.open('')` popup the renderer portals the panel into**, so the
+module never leaves this renderer process, this JS realm or this instance, and `ModuleHost` stays synchronous
+— §12.3 item 6's freeze holds and this is an additive `ui.placement/setPlacement/onPlacement` at
+`hostApi: 1`, plus an optional `ui` block on the manifest that derives no consent line. The alternative, a
+second `BrowserWindow` with its own renderer, is rejected on correctness rather than cost: it needs a second
+`activate()` over one scene, and two contact editors over one electrodes table is a merge conflict. It would
+also have been §13.9's async-host rewrite in all but name, paid for a layout feature.
+
+Pop-out is also the occasion for main's first `setWindowOpenHandler`: the default was Electron's permissive
+one, and it is now a whitelist — the `tetravox-module-<id>` popup (no preload; a module window renders a
+portal and talks to main only through the opener's bridge), `http(s)` out to `shell.openExternal`, everything
+else denied and logged, and every popup denied outright outside `'normal'` window mode so a `--job` run can
+never raise a window on an unattended machine.
+>>>>>>> fbe42e2 (feat(modules): pop a module out into its own window, and hold several at once (§13.10))

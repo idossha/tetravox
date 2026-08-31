@@ -111,7 +111,13 @@ import { registrationsFor } from '../modules/installed';
 import { loadInstalledManifests } from '../modules/installedBoot';
 import type { ModuleRegistration } from '../modules/registry';
 import { createModuleHost, disposeModuleHost } from '../modules/hostImpl';
-import type { ExtensionBlock, ModuleHost, ModuleInstance, ModuleSceneEvent } from '../modules/host';
+import type {
+  ExtensionBlock,
+  ModuleHost,
+  ModuleInstance,
+  ModulePlacement,
+  ModuleSceneEvent,
+} from '../modules/host';
 import { resolveModuleKey } from '../modules/keys';
 import type { ModuleKeyEvent } from '../modules/keys';
 import { readerClaim } from '../modules/readers';
@@ -147,6 +153,20 @@ function errorMessage(error: unknown): string {
 
 /** A request plus the ticket of the card that is already on screen for it. */
 type QueuedRequest = OpenRequest & { ticket: number };
+
+/**
+ * One live module (§13.10): what `activate` built, and where its panel is showing.
+ *
+ * `placement` is mutable state on the session rather than a second map, so "which module is in the
+ * slot" is answered by the same object that holds the instance — there is no arrangement in which
+ * the two disagree.
+ */
+interface ModuleSession {
+  manifest: ModuleManifest;
+  host: ModuleHost;
+  instance: ModuleInstance;
+  placement: ModulePlacement;
+}
 
 export class ShellController {
   private readonly unsubscribers: (() => void)[] = [];
@@ -298,7 +318,9 @@ export class ShellController {
   detach(): void {
     // §13.1: a module's lifetime is the controller's. `Shell.tsx` detaches on unmount and on an
     // engine swap, and a module left holding a disposed engine would be a module drawing into it.
-    this.deactivateModule();
+    // Every session, not just the docked one (§13.10) — a popped-out module outlives the slot but
+    // not the controller.
+    for (const id of [...this.moduleSessions.keys()]) this.deactivateModule(id);
     for (const off of this.unsubscribers.splice(0)) off();
     if (this.tickTimer !== null) clearInterval(this.tickTimer);
     this.tickTimer = null;
@@ -2259,12 +2281,21 @@ export class ShellController {
   // it out of the manifest. `modules.test.ts` is what keeps that honest.
   // ============================================================================================
 
-  /** The live module: its host, its instance, and the manifest they were built from. */
-  private moduleSession: {
-    manifest: ModuleManifest;
-    host: ModuleHost;
-    instance: ModuleInstance;
-  } | null = null;
+  /**
+   * The live modules, by id — **a map since 2026-08-31** (§13.10).
+   *
+   * It was one session, because §13.3 said one tool at a time and the slot is one section of one
+   * column. Pop-out is what makes several defensible: a module in its own window is not competing
+   * for the aside, so the reason for the singleton was the *layout*, not the host. The host was
+   * always per-module — `createModuleHost(deps, manifest)` closes over the id, `moduleStatus` and
+   * `moduleDirty` are keyed by id, and `ExtensionBlock` is per module — so this is the map those
+   * three already implied.
+   *
+   * At most one session is `placement: 'docked'`, and **that one is `UiState.activeModule`**: every
+   * existing caller, key row, golden and E2E that says "the active module" still means the module in
+   * the slot, and reads the same field to find it.
+   */
+  private readonly moduleSessions = new Map<string, ModuleSession>();
 
   /**
    * The launch query the registry filters fixtures with — the `?engine=mock` seam
@@ -2295,7 +2326,38 @@ export class ShellController {
 
   /** The active module's manifest, or null — what the slot's header and the key rows read. */
   activeModuleManifest(): ModuleManifest | null {
-    return this.moduleSession?.manifest ?? null;
+    return this.dockedSession()?.manifest ?? null;
+  }
+
+  /** The docked session — the one in the slot, which is `UiState.activeModule` (§13.10). */
+  private dockedSession(): ModuleSession | null {
+    for (const session of this.moduleSessions.values()) {
+      if (session.placement === 'docked') return session;
+    }
+    return null;
+  }
+
+  /**
+   * Every live module, in switcher order, with where it is showing (§13.10).
+   *
+   * What the popped-out windows are rendered from: `Shell.tsx` maps this to one `ModuleWindow` per
+   * `placement: 'window'` entry, and the slot renders the docked one exactly as before.
+   */
+  moduleSessionsInfo(): readonly { manifest: ModuleManifest; placement: ModulePlacement }[] {
+    return [...this.moduleSessions.values()].map(({ manifest, placement }) => ({
+      manifest,
+      placement,
+    }));
+  }
+
+  /** One live module's panel, by id — the docked one's is {@link modulePanel}. */
+  modulePanelFor(id: string): ComponentType | null {
+    return this.moduleSessions.get(id)?.instance.Panel ?? null;
+  }
+
+  /** Where a module is showing, or `null` when it is not live at all. */
+  modulePlacement(id: string): ModulePlacement | null {
+    return this.moduleSessions.get(id)?.placement ?? null;
   }
 
   /**
@@ -2305,7 +2367,7 @@ export class ShellController {
    * id can rely on this being non-null in the same render.
    */
   modulePanel(): ComponentType | null {
-    return this.moduleSession?.instance.Panel ?? null;
+    return this.dockedSession()?.instance.Panel ?? null;
   }
 
   /**
@@ -2316,8 +2378,11 @@ export class ShellController {
    * testing the wiring rather than a re-creation of it. Read-only in practice — the module holds the
    * same object — and never a way for the shell to act *as* a module: everything here is generic.
    */
-  moduleHost(): ModuleHost | null {
-    return this.moduleSession?.host ?? null;
+  moduleHost(id?: string): ModuleHost | null {
+    if (id !== undefined) return this.moduleSessions.get(id)?.host ?? null;
+    // No id: the docked module, and — for a build whose only module is in a window — the one live
+    // session, so a harness that never docked anything still reaches the host it just activated.
+    return (this.dockedSession() ?? [...this.moduleSessions.values()][0])?.host ?? null;
   }
 
   /**
@@ -2331,11 +2396,19 @@ export class ShellController {
    * An `activate` that throws becomes a toast and leaves the slot empty. It must never leave a
    * half-built view grid behind, which is why the store is written only on success.
    */
-  async activateModule(id: string): Promise<boolean> {
-    if (this.moduleSession?.manifest.id === id) return true;
+  async activateModule(id: string, placement: ModulePlacement = 'docked'): Promise<boolean> {
+    // Already live: this is a *move*, not a second activation. Re-activating what is already in the
+    // slot has always been a no-op and still is; asking for the other placement is the pop-out and
+    // the re-dock, and neither disposes anything.
+    if (this.moduleSessions.has(id)) {
+      this.setModulePlacement(id, placement);
+      return true;
+    }
     const registration = registrationFor(id, this.moduleSearch);
     if (registration === null) return false;
-    this.deactivateModule();
+    // Only the *slot* is exclusive. A second docked module would have to share one column with the
+    // first; a second windowed one has its own window and shares nothing, which is the whole point.
+    if (placement === 'docked') this.undockForNewDockedModule();
     let instance: ModuleInstance;
     // Declared outside the `try` so the catch can tear it down (2026-08-30): `activate` may register
     // store projections and a `pointTool` listener and *then* throw — seeg's `createModel`
@@ -2365,8 +2438,13 @@ export class ShellController {
       this.toast('io', registration.manifest.title, errorMessage(error));
       return false;
     }
-    this.moduleSession = { manifest: registration.manifest, host, instance };
-    this.store.setState({ activeModule: registration.manifest.id });
+    this.moduleSessions.set(registration.manifest.id, {
+      manifest: registration.manifest,
+      host,
+      instance,
+      placement,
+    });
+    this.syncModulePlacements();
     // A block this scene already carries is the module's own previous state — from the file it was
     // opened from, or from the last time it was in the slot.
     const block = this.store.getState().moduleBlocks[id];
@@ -2380,11 +2458,18 @@ export class ShellController {
     return true;
   }
 
-  /** Empty the slot. The module's block and its dirty flag survive — see {@link activateModule}. */
-  deactivateModule(): void {
-    const session = this.moduleSession;
-    this.moduleSession = null;
-    if (session === null) return;
+  /**
+   * Close a module. The module's block and its dirty flag survive — see {@link activateModule}.
+   *
+   * With no id it is the **docked** one, which is what every pre-2026-08-31 caller meant by "empty
+   * the slot" and what the slot's ✕ still means.
+   */
+  deactivateModule(id?: string): void {
+    const target = id ?? this.dockedSession()?.manifest.id;
+    if (target === undefined) return;
+    const session = this.moduleSessions.get(target);
+    if (session === undefined) return;
+    this.moduleSessions.delete(target);
     try {
       session.instance.dispose();
     } finally {
@@ -2394,17 +2479,62 @@ export class ShellController {
       // sheet anyway — main should not still be holding the last subject's paths open in the
       // meantime. `?.` because a stand-in bridge need not carry the member.
       bridge().moduleClearWrites?.(session.manifest.id);
-      this.store.setState({ activeModule: null });
+      this.syncModulePlacements();
     }
   }
 
-  /** The switcher's toggle: the same module twice is "close it". */
-  async toggleModule(id: string): Promise<void> {
-    if (this.store.getState().activeModule === id) {
-      this.deactivateModule();
+  /** The switcher's toggle: the same module twice is "close it", wherever it is showing. */
+  async toggleModule(id: string, placement: ModulePlacement = 'docked'): Promise<void> {
+    if (this.moduleSessions.has(id)) {
+      this.deactivateModule(id);
       return;
     }
-    await this.activateModule(id);
+    await this.activateModule(id, placement);
+  }
+
+  /**
+   * Move a live module between the slot and its own window (§13.10).
+   *
+   * Nothing is unloaded and nothing is re-activated: the instance, its host, its layers, its undo
+   * history and its scene block are the same objects on both sides of the move — only which React
+   * root renders `Panel` changes, and React reparents it through a portal. That is the property
+   * that makes pop-out safe to offer on a module that is mid-edit, and it is why the popped-out
+   * window is a *portal target* rather than a second renderer: a second renderer would need a
+   * second instance, and two instances of one contact editor over one scene is a merge conflict.
+   */
+  setModulePlacement(id: string, placement: ModulePlacement): void {
+    const session = this.moduleSessions.get(id);
+    if (session === undefined || session.placement === placement) return;
+    // Docking B while A is docked pops **A** out rather than closing it. The alternative — refusing,
+    // or unloading A — would make "show me this one too" a destructive gesture, which is exactly the
+    // thing §13.3's guard exists to prevent.
+    if (placement === 'docked') this.undockForNewDockedModule();
+    session.placement = placement;
+    // No call into the host: `host.ui.placement()` and `host.ui.onPlacement()` read and subscribe to
+    // `UiState.modulePlacement`, which `syncModulePlacements` writes. One source of truth, and a
+    // module that never asks is never told.
+    this.syncModulePlacements();
+  }
+
+  /** The slot is exclusive: whoever is in it moves to a window before the newcomer takes it. */
+  private undockForNewDockedModule(): void {
+    const docked = this.dockedSession();
+    if (docked === null) return;
+    docked.placement = 'window';
+  }
+
+  /**
+   * Mirror the session map into the store — `activeModule` (the docked one) and `modulePlacement`.
+   *
+   * One writer for both fields, so they can never disagree about which module is in the slot.
+   */
+  private syncModulePlacements(): void {
+    const placements: Record<string, ModulePlacement> = {};
+    for (const [id, session] of this.moduleSessions) placements[id] = session.placement;
+    this.store.setState({
+      activeModule: this.dockedSession()?.manifest.id ?? null,
+      modulePlacement: placements,
+    });
   }
 
   /**
@@ -2412,8 +2542,8 @@ export class ShellController {
    * all end here, so a command has exactly one code path however it was asked for.
    */
   async moduleCommand(id: string, command: string, args?: Record<string, unknown>): Promise<void> {
-    const session = this.moduleSession;
-    if (session === null || session.manifest.id !== id) return;
+    const session = this.moduleSessions.get(id) ?? null;
+    if (session === null) return;
     try {
       await session.instance.runCommand(command, args);
     } catch (error: unknown) {
@@ -2427,8 +2557,13 @@ export class ShellController {
    * Returns whether it was consumed, so `Shell.tsx` knows whether to `preventDefault`. The gating
    * lives in `modules/keys.ts`, which is pure and unit-tested; this is only the dispatch.
    */
-  handleModuleKey(event: ModuleKeyEvent): boolean {
-    const session = this.moduleSession;
+  handleModuleKey(event: ModuleKeyEvent, id?: string): boolean {
+    // With no id this is the **main window's** keystroke, which belongs to the module in the slot.
+    // A popped-out window passes its own id: its document has its own key listener, so a module in
+    // its own window keeps its keys while another module holds the slot, and neither hears the
+    // other's (§13.10). Two windows can never both claim one keystroke — a keystroke has one target
+    // document.
+    const session = (id === undefined ? this.dockedSession() : this.moduleSessions.get(id)) ?? null;
     if (session === null) return false;
     // §13.5's two gates, read off the engine: a `when: 'selection'` key is live only with a point
     // actually selected, and a `when: 'toolArmed'` one only while the tool is armed. Both are the
@@ -2671,7 +2806,7 @@ export class ShellController {
       return true;
     }
     if (!(await this.activateModule(claim.manifest.id))) return false;
-    const instance = this.moduleSession?.instance;
+    const instance = this.moduleSessions.get(claim.manifest.id)?.instance;
     if (instance?.openPath === undefined) return false;
     try {
       return await instance.openPath(claim.readerId, path);
@@ -2701,7 +2836,7 @@ export class ShellController {
       }
       if (!any) continue;
       if (!(await this.activateModule(registration.manifest.id))) continue;
-      const instance = this.moduleSession?.instance;
+      const instance = this.moduleSessions.get(registration.manifest.id)?.instance;
       if (instance?.onSibling === undefined) continue;
       try {
         await instance.onSibling(anchor, found);
@@ -2729,11 +2864,12 @@ export class ShellController {
     const ids = dirtyModuleIds(state);
     if (ids.length === 0) return true;
     const names = ids.map((id) => manifestFor(id)?.title ?? id).join(', ');
-    const session = this.moduleSession;
-    const canSave =
-      session !== null &&
-      ids.includes(session.manifest.id) &&
-      session.manifest.commands.some((c) => c.id === 'save');
+    // The first dirty module that is live and declares `save` — with several live modules, `Save…`
+    // has to name one, and offering a button that saves only one of two dirty modules would be
+    // worse than the two-button question. `Save…` therefore appears only when *every* dirty module
+    // is that one.
+    const session = ids.length === 1 ? (this.moduleSessions.get(ids[0] as string) ?? null) : null;
+    const canSave = session !== null && session.manifest.commands.some((c) => c.id === 'save');
     const buttons: [string, string] | [string, string, string] = canSave
       ? ['Save…', 'Discard', 'Cancel']
       : ['Discard', 'Cancel'];
@@ -2780,7 +2916,7 @@ export class ShellController {
 
   /** Tear the slot down and forget every block: what `newScene` and `detach` both need. */
   private clearModules(): void {
-    this.deactivateModule();
+    for (const id of [...this.moduleSessions.keys()]) this.deactivateModule(id);
     this.store.setState({ moduleBlocks: {}, moduleDirty: {}, moduleStatus: {} });
     this.syncDocumentEdited();
     this.emitSceneEvent({ kind: 'cleared' });
@@ -2840,8 +2976,9 @@ export class ShellController {
    * calls, `runCommand`'s twin, which is what keeps §8's "there is no automation-only code path"
    * true for modules too.
    */
-  moduleInstance(): ModuleInstance | null {
-    return this.moduleSession?.instance ?? null;
+  moduleInstance(id?: string): ModuleInstance | null {
+    if (id !== undefined) return this.moduleSessions.get(id)?.instance ?? null;
+    return (this.dockedSession() ?? [...this.moduleSessions.values()][0])?.instance ?? null;
   }
 
   // ------------------------------------------------------------------------------------------
@@ -2950,7 +3087,7 @@ export class ShellController {
   async disableExtension(id: string): Promise<boolean> {
     // Out of the slot first: a module whose files are about to stop being reachable must not be
     // left holding a host. `deactivateModule` is a no-op for anything else.
-    if (this.store.getState().activeModule === id) this.deactivateModule();
+    if (this.moduleSessions.has(id)) this.deactivateModule(id);
     const result = await (bridge().moduleDisable?.(id) ??
       Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
     await this.applyExtensionResult(result, id, 'Disable');
@@ -2958,7 +3095,7 @@ export class ShellController {
   }
 
   async removeExtension(id: string): Promise<boolean> {
-    if (this.store.getState().activeModule === id) this.deactivateModule();
+    if (this.moduleSessions.has(id)) this.deactivateModule(id);
     const result = await (bridge().moduleRemove?.(id) ??
       Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
     await this.applyExtensionResult(result, id, 'Remove');

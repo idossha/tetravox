@@ -332,6 +332,37 @@ function validateOperations(raw: unknown, errors: Errors): void {
 }
 
 /**
+ * `ui` (§13.10, 2026-08-31) — the optional pop-out block.
+ *
+ * It is **not** a permission: where a panel draws is not a capability, so nothing here reaches
+ * `permissionsOf`, and an installed module that asks for a window is not asking for anything the
+ * consent sheet has to state. The bounds are sanity, not policy — a manifest asking for a 30,000 px
+ * window would open one no screen can hold, and the shell would rather refuse the manifest than
+ * hand the user a window they cannot find.
+ */
+function validateUi(raw: unknown, errors: Errors): void {
+  if (raw === undefined) return;
+  if (!isBag(raw)) {
+    errors.push('ui', 'must be { popout?, windowWidth?, windowHeight? }');
+    return;
+  }
+  errors.keys('ui', raw, ['popout', 'windowWidth', 'windowHeight']);
+  const popout = raw['popout'];
+  if (popout !== undefined && !POPOUT_MODES.includes(popout as string)) {
+    errors.push('ui.popout', `must be one of ${POPOUT_MODES.join(', ')}`);
+  }
+  for (const key of ['windowWidth', 'windowHeight'] as const) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 240 || value > 4096) {
+      errors.push(`ui.${key}`, 'must be an integer between 240 and 4096 CSS px');
+    }
+  }
+}
+
+const POPOUT_MODES: readonly string[] = ['allowed', 'preferred', 'never'];
+
+/**
  * Validate a parsed `manifest.json`.
  *
  * Returns the manifest **as read**, never a repaired one: a validator that fills in defaults is a
@@ -355,6 +386,7 @@ export function validateManifest(raw: unknown): ManifestValidation {
     'writers',
     'operations',
     'sceneBlock',
+    'ui',
   ]);
 
   const id = raw['id'];
@@ -407,6 +439,8 @@ export function validateManifest(raw: unknown): ManifestValidation {
       }
     }
   }
+
+  validateUi(raw['ui'], errors);
 
   if (errors.list.length > 0) return { ok: false, errors: errors.list };
   return { ok: true, manifest: raw as unknown as InstalledManifest };

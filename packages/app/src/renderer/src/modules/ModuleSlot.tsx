@@ -62,6 +62,23 @@ export function ModuleSlot(): React.JSX.Element | null {
           )}
         </h2>
         <div className="flex shrink-0 items-center gap-1">
+          {/* §13.10's pop-out. `'never'` is a module saying its panel is meaningless away from the
+          Info panel's Cursor block — it gets no button rather than a disabled one. */}
+          {manifest.ui?.popout !== 'never' && (
+            <button
+              type="button"
+              data-testid="module-slot-popout"
+              aria-label={`Open ${manifest.title} in its own window`}
+              title={`Open ${manifest.title} in its own window. It keeps running — nothing is unloaded, and closing the window brings it back here.`}
+              className="tvx-btn tvx-btn-sm"
+              onClick={(event) => {
+                event.currentTarget.blur();
+                controller.setModulePlacement(manifest.id, 'window');
+              }}
+            >
+              ⧉
+            </button>
+          )}
           <button
             type="button"
             data-testid="module-slot-fold"
