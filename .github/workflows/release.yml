@@ -195,6 +195,7 @@ jobs:
               packages/app/release/*.dmg
               packages/app/release/*.zip
               packages/app/release/*.blockmap
+              packages/app/release/latest-mac.yml
           # Linux hosted runners have no GPU: the GPU process dies during initialisation under Xvfb
           # and the renderer then reports `vertex shader failed to compile: (no log)` from a context
           # that is already gone. `--software-gl` names ANGLE's SwiftShader backend explicitly rather
@@ -209,6 +210,7 @@ jobs:
               packages/app/release/*.AppImage
               packages/app/release/*.deb
               packages/app/release/*.tar.gz
+              packages/app/release/latest-linux.yml
           # Windows is OPTIONAL. macOS and Linux are the priority platforms; this leg is here only
           # because it costs nothing to keep — `electron-builder --win --x64` on a stock
           # `windows-latest` downloads its own NSIS and produces an unsigned installer with no extra
@@ -223,6 +225,7 @@ jobs:
             artefacts: |
               packages/app/release/*.exe
               packages/app/release/*.blockmap
+              packages/app/release/latest.yml
 
     steps:
       - uses: actions/checkout@v5
@@ -504,6 +507,11 @@ jobs:
             "Tetravox-$VERSION-linux-x86_64.AppImage"
             "Tetravox-$VERSION-linux-amd64.deb"
             "Tetravox-$VERSION-linux-x64.tar.gz"
+            # §12.4's update feeds. Required, because a release without them is one no installed
+            # copy will ever notice: `latest-mac.yml` is what a running mac build asks for, and
+            # `latest-linux.yml` serves both the AppImage updater and the .deb/.tar.gz notify check.
+            "latest-mac.yml"
+            "latest-linux.yml"
           )
           # The module SDK is required too: a release that ships a module host and no SDK is one
           # nobody can build a module against. Its name carries the host API and the core version
@@ -517,7 +525,7 @@ jobs:
             missing_sdk=1
           fi
           # OPTIONAL — Windows is a bonus leg. Absence is reported, not fatal.
-          optional=("Tetravox-$VERSION-win-x64.exe")
+          optional=("Tetravox-$VERSION-win-x64.exe" "latest.yml")
 
           missing="${missing_sdk:-0}"
           for asset in "${required[@]}"; do

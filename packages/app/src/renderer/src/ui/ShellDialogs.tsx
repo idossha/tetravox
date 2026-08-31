@@ -22,6 +22,8 @@ import { SettingsDialog } from '../dialogs/SettingsDialog';
 import { SampleDataDialog } from '../dialogs/SampleDataDialog';
 // Appended 2026-08-30 (§13.8): File ▸ Extensions…, the Sample Data dialog's shape for code.
 import { ExtensionsDialog } from '../dialogs/ExtensionsDialog';
+// Appended 2026-08-31 (§12.4): File ▸ Check for Updates….
+import { UpdatesDialog } from '../dialogs/UpdatesDialog';
 import { useController, useUi } from './context';
 
 export function ShellDialogs(): React.JSX.Element | null {
@@ -45,6 +47,8 @@ export function ShellDialogs(): React.JSX.Element | null {
   const extensionStatuses = useUi((s) => s.extensionStatuses);
   const extensionProgress = useUi((s) => s.extensionProgress);
   const extensionDir = useUi((s) => s.extensionDir);
+  const updates = useUi((s) => s.updates);
+  const checkForUpdates = useUi((s) => s.checkForUpdates);
 
   const capture = useCallback(
     (opts: ScreenshotOptions, figure: FigureOptions | null) =>
@@ -99,6 +103,19 @@ export function ShellDialogs(): React.JSX.Element | null {
     );
   }
 
+  if (dialog === 'updates') {
+    return (
+      <UpdatesDialog
+        status={updates}
+        onCheck={() => void controller.checkForUpdates()}
+        onDownload={() => controller.downloadUpdate()}
+        onInstall={() => controller.installUpdate()}
+        onSkip={() => void controller.skipUpdate()}
+        onClose={close}
+      />
+    );
+  }
+
   if (dialog === 'settings') {
     return (
       <SettingsDialog
@@ -114,6 +131,8 @@ export function ShellDialogs(): React.JSX.Element | null {
         onBrowse={() => void controller.browseFreesurferSubjectsDir()}
         reopenLastScene={reopenLastScene}
         onReopenLastScene={(on) => void controller.setReopenLastScene(on)}
+        checkForUpdates={checkForUpdates}
+        onCheckForUpdates={(on) => void controller.setCheckForUpdates(on)}
         configPath={configPath}
         onRevealConfigFile={() => void controller.revealConfigFile()}
         onClose={close}

@@ -55,6 +55,8 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
       recentScenes: [],
       reopenLastScene: false,
       screenshotDefaults: { background: 'scene' as const, dpi: 144, autoTrim: false },
+      checkForUpdates: true,
+      skippedUpdateVersion: '',
     }),
     setSettings: async () => ({
       theme: 'system' as const,
@@ -62,6 +64,8 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
       recentScenes: [],
       reopenLastScene: false,
       screenshotDefaults: { background: 'scene' as const, dpi: 144, autoTrim: false },
+      checkForUpdates: true,
+      skippedUpdateVersion: '',
     }),
     configPath: async () => '/tvx-test/tetravoxrc',
     revealConfigFile: async () => {},

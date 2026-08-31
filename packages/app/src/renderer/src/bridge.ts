@@ -32,6 +32,10 @@ import type {
   ModuleProgress,
   ModuleProgressState,
   ModuleStatus,
+  // Appended 2026-08-31 with §12.4's update channels.
+  UpdateActionResult,
+  UpdatePhase,
+  UpdateStatus,
 } from '../../preload/index';
 
 /** `main/settings.ts`'s `DEFAULT_SCREENSHOT_DEFAULTS`, duplicated for the same reason as everything
@@ -77,6 +81,8 @@ const ABSENT: TetravoxBridge = {
     recentScenes: [],
     reopenLastScene: false,
     screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
+    checkForUpdates: true,
+    skippedUpdateVersion: '',
   }),
   setSettings: async (patch) => ({
     theme: 'system',
@@ -84,6 +90,8 @@ const ABSENT: TetravoxBridge = {
     recentScenes: [],
     reopenLastScene: false,
     screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
+    checkForUpdates: true,
+    skippedUpdateVersion: '',
     ...patch,
   }),
   // No bridge means no `tetravoxrc` either — the footer shows nothing to reveal.
@@ -133,6 +141,16 @@ const ABSENT: TetravoxBridge = {
   moduleRevealDir: async () => {},
   onModuleProgress: () => () => {},
   onOpenExtensions: () => () => {},
+  // In-app updates (§12.4, 2026-08-31). No bridge means no feed, no installer and no version to
+  // report, so the status is a permanent quiet 'idle' that cannot install — which is the honest
+  // answer for vitest and a browser tab, and exactly what a dev build reports too.
+  updateStatus: async () => ({ phase: 'idle', current: '', mode: 'off' }),
+  updateCheck: async () => ({ phase: 'idle', current: '', mode: 'off' }),
+  updateDownload: async () => ({ ok: false, error: 'no preload bridge' }),
+  updateInstall: async () => ({ ok: false, error: 'no preload bridge' }),
+  updateSkip: async () => ({ phase: 'idle', current: '', mode: 'off' }),
+  onUpdateStatus: () => () => {},
+  onOpenUpdates: () => () => {},
 };
 
 export function bridge(): TetravoxBridge {
@@ -174,4 +192,9 @@ export type {
   ModuleProgress,
   ModuleProgressState,
   ModuleStatus,
+  // Appended 2026-08-31 with §12.4's update channels; the list is append-only so that branches
+  // building on it merge.
+  UpdateActionResult,
+  UpdatePhase,
+  UpdateStatus,
 };

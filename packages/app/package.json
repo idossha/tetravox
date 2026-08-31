@@ -26,6 +26,7 @@
     "@tetravox/engine": "workspace:*",
     "@tetravox/protocol": "workspace:*",
     "@tetravox/wasm": "workspace:*",
+    "electron-updater": "^6.8.9",
     "gl-matrix": "^3.4.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

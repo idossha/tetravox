@@ -17,7 +17,7 @@ import {
   medianGpuMs,
 } from '../lib/metrics';
 import { ModuleStatusCells } from '../modules/ModuleStatusCells';
-import { useUi } from './context';
+import { useController, useUi } from './context';
 
 function Cell({
   label,
@@ -49,9 +49,18 @@ export function StatusBar(): React.JSX.Element {
   const lastLoadMs = useUi((s) => s.lastLoadMs);
   const impl = useUi((s) => s.impl);
   const lastScreenshot = useUi((s) => s.lastScreenshot);
+  const updates = useUi((s) => s.updates);
+  const controller = useController();
   // The 1 Hz heartbeat: without it, fps would freeze at its last value once rendering stops.
   const tick = useUi((s) => s.tick);
   void tick;
+
+  // §12.4's pill shows for exactly the phases where an update is actionable or in flight.
+  const updatePill =
+    updates !== null &&
+    (updates.phase === 'available' ||
+      updates.phase === 'downloading' ||
+      updates.phase === 'downloaded');
 
   const now = performance.now();
   const frames = fps(metrics, now);
@@ -151,8 +160,32 @@ export function StatusBar(): React.JSX.Element {
         </span>
       ))}
 
+      {/* §12.4's pill — the one persistent, unobtrusive place an available update keeps living
+          after its toast ages out. First of the right-aligned pair, so it takes `ml-auto` and the
+          screenshot readout only claims it when the pill is absent. */}
+      {updatePill && updates !== null && (
+        <button
+          type="button"
+          data-testid="status-update"
+          className="ml-auto shrink-0 cursor-pointer text-tvx-accent hover:underline"
+          onClick={() => controller.openUpdates()}
+        >
+          {updates.phase === 'available' && `update ${updates.available} available`}
+          {updates.phase === 'downloading' &&
+            `downloading ${updates.available}${
+              (updates.total ?? 0) > 0
+                ? ` · ${Math.min(100, Math.round(((updates.received ?? 0) / (updates.total as number)) * 100))}%`
+                : '…'
+            }`}
+          {updates.phase === 'downloaded' && 'restart to update'}
+        </button>
+      )}
+
       {lastScreenshot !== null && (
-        <span data-testid="status-screenshot" className="ml-auto shrink-0 text-tvx-dim">
+        <span
+          data-testid="status-screenshot"
+          className={updatePill ? 'shrink-0 text-tvx-dim' : 'ml-auto shrink-0 text-tvx-dim'}
+        >
           screenshot {lastScreenshot.isPng ? 'PNG' : lastScreenshot.type} ·{' '}
           {lastScreenshot.width === undefined
             ? ''

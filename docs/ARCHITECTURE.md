@@ -33,7 +33,9 @@ the number is the reason for a rule.
 
 **Non-goals:** WebGPU, Windows, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
 scope), remote/URL loading, **third-party runtime-loaded plugins** (first-party modules, compiled into the
-app, are §13), tractography, wasm64, wasm threads, auto-update, two-file `.hdr`/`.img`.
+app, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
+this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
+and *unattended* download-and-install stays a non-goal.)
 
 ---
 
@@ -1120,6 +1122,14 @@ Rules:
     `tetravox:` would also admit `tetravox://file/…`, which is every path the user has ever opened.
     `enableModule`/`disableModule`/`removeModule` are also where rule 11's write list is revoked, in main,
     rather than over the renderer-cooperative channel.
+
+14. **Updating the app is five invoke channels, one status push, and a menu push** (`main/updater.ts`,
+    §12.4, 2026-08-31). `tetravox:update-{state,check,download,install,skip}` in; `tetravox:update-status`
+    (one small `UpdateStatus` object — phase, two version strings, progress numbers, plain-text notes) and
+    `tetravox:open-updates` (the File ▸ Check for Updates… click, carrying nothing) out. The feed, the
+    download and the installer live entirely in main; the renderer can *ask* but the only bytes that move
+    are main's own, and nothing installs without `tetravox:update-install` carrying a user's click. The
+    boot status is **pulled** (`updateStatus`), like `startupPaths` and for the same race.
 
 ---
 
@@ -3069,9 +3079,10 @@ wasm pre-built on the host.
   later.
 * **`TETRAVOX_TESTDATA` is unset in CI**, and a step asserts it — real-data tests skip by design.
 * Gate: **a clean clone with an empty pnpm store reaches `pnpm e2e` green.**
-* macOS signing: **unsigned**, with the Gatekeeper consequence and the `xattr -dr com.apple.quarantine`
-  walkthrough in `docs/USER_GUIDE.md`. Developer ID + notarisation is a documented switch; auto-update is out
-  of scope while unsigned. `electron-builder` is pinned to an exact patch version.
+* macOS signing: Developer ID + notarisation are **live in `release.yml`** (the four secrets are set;
+  `docs/RELEASING.md` §4) and a documented fallback keeps unsigned local/fork builds working
+  (`scripts/electron-builder.sh`). §12.4's in-app updates ride on the signature — an unsigned build's
+  updater mode is `'off'`. `electron-builder` is pinned to an exact patch version.
 * Linux: the AppImage needs `--no-sandbox` or a correctly-owned `chrome-sandbox`; the app detects
   `caps.isSoftware` and surfaces it in the status bar rather than silently running at 2 fps.
 
@@ -3116,11 +3127,41 @@ incidental one, and it needs a line in `docs/DECISIONS.md`.
 | `react` (19), `react-dom`, `zustand`, `gl-matrix`, `tailwindcss` (4), `postcss`, `autoprefixer` | UI + math |
 | `typescript` (~5.9, **not 7**), `vite` (^7), `electron-vite`, `esbuild` | build. TS 7 is the Go-based compiler and `typescript-eslint` peers `<6.1.0`; `electron-vite` peers `vite ^5 \|\| ^6 \|\| ^7` |
 | `electron` (≥ 42, pinned major), `electron-builder` (exact patch) | shell + packaging |
+| `electron-updater` (^6) | §12.4's in-app updates: reads the release feed, downloads, sha512-verifies and installs. electron-builder's sibling, so the feed files that CI attaches are the ones it expects. Bundled into `out/main` (`electron.vite.config.ts` excludes it from dependency externalization) because the packaged app ships no `node_modules` |
 | `vitest`, `@playwright/test` (exact version — pins SwiftShader) | tests |
 | `eslint`, `prettier`, `typescript-eslint` | lint |
 
 **`pnpm-lock.yaml` and `Cargo.lock` are never merged.** On conflict, take `main`'s version and re-run
 `pnpm install` / `cargo check --workspace` to regenerate. Worktree branches rebase on `main` before merge.
+
+### 12.4 In-app updates
+
+**Opt-in, never unattended** (2026-08-31; the DECISIONS.md entry of the same date narrows §1's former
+"auto-update" non-goal). The app notices a published GitHub Release, says so — an info toast once, a
+status-bar pill for as long as it stays true — and does nothing further until the user clicks.
+
+* **Feed.** electron-updater's GitHub provider (`idossha/tetravox`), stated in `electron-builder.yml`'s
+  `publish:` block. That block does **not** publish — `--publish never` stays hard-coded in
+  `scripts/electron-builder.sh`, and `release.yml`'s own steps remain the only uploader — it embeds
+  `app-update.yml` in every packaged app and has electron-builder write `latest-mac.yml` / `latest.yml` /
+  `latest-linux.yml` into `release/`, which the release legs attach beside the installers and `verify`
+  requires (mac and linux; `latest.yml` is optional exactly as the Windows leg is). A **draft** Release is
+  invisible to the feed, so §12.1's human gate is also the update gate: nothing is offered until Publish.
+* **Modes** (`main/updater.ts#updateMode`, from facts at launch, never from preference): `'inplace'` —
+  macOS (the signed zip beside each dmg is the update artefact; Squirrel.Mac also checks the code
+  signature), Windows NSIS, Linux AppImage (`APPIMAGE` set); `'notify'` — a `.deb`/`.tar.gz` install,
+  which only reads `latest-linux.yml` over `net.fetch`, compares, and offers the Releases page;
+  `'off'` — a dev or unsigned build (`!app.isPackaged`) and every `--job` run.
+* **Flow.** A launch check (a few seconds after ready, gated by the `checkForUpdates` setting, silent
+  about `skippedUpdateVersion`) pushes one status. Download happens on click (`autoDownload: false`),
+  with progress statuses; install happens on click (`quitAndInstall`) — and a downloaded update also
+  lands on the next ordinary quit (`autoInstallOnAppQuit: true`), so "Later" is a real answer. A manual
+  check (File ▸ Check for Updates…) ignores and clears the skip: asking again is un-skipping. Artefact
+  integrity is the feed's sha512 per file, verified by electron-updater before install.
+* **IPC** is §5 rule 14. **Settings** are two ordinary `settings.json` keys (`checkForUpdates`,
+  `skippedUpdateVersion`), both renderer-writable — a skip is a preference, not a capability.
+* **Tests.** `updater.test.ts` injects the `UpdaterImpl`/`fetchImpl` seams and asserts the refusals
+  above; electron-updater itself is loaded only in a packaged `'inplace'` build, by dynamic import.
 
 ---
 

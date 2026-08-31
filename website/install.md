@@ -78,10 +78,18 @@ covers every control.
 
 ## Upgrading
 
-Install the new version over the old one — the same drag on macOS, the same installer on Windows,
-the same `apt install` on Debian. Settings (theme, capture defaults, the FreeSurfer subjects
-directory) are kept between versions; scenes are plain JSON files that any version reads. There is no
-in-app auto-update; new versions are announced on the
+The app checks for a new release a few seconds after launch (one small request to the
+[Releases page](https://github.com/idossha/tetravox/releases) — never a download) and says so with a
+notification; **File ▸ Check for Updates…** shows the release notes and installs it when you say so.
+On macOS, Windows and the Linux AppImage the update installs in place and the app restarts into the
+new version; a `.deb` or `.tar.gz` install is updated the way it was installed, so the app offers
+the Releases page instead. The launch check can be switched off in Settings ▸ Startup, updates are
+never downloaded or installed without your click, and any version can be skipped.
+
+Installing by hand still works exactly as before — the same drag on macOS, the same installer on
+Windows, the same `apt install` on Debian. Settings (theme, capture defaults, the FreeSurfer
+subjects directory) are kept between versions either way; scenes are plain JSON files that any
+version reads. New versions are announced on the
 [Releases page](https://github.com/idossha/tetravox/releases) and in the
 [changelog](https://github.com/idossha/tetravox/blob/main/CHANGELOG.md).
 

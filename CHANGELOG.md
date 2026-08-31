@@ -8,7 +8,18 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **In-app updates** (ARCHITECTURE §12.4). A few seconds after launch the app asks the GitHub
+  Releases feed whether a newer version exists — one small request, never a download — and says so
+  with a notification and a status-bar pill. **File ▸ Check for Updates…** shows the release notes;
+  updating is always the user's click: download with progress, then restart into the new version
+  (or keep working — a downloaded update installs on the next quit). macOS, Windows and the Linux
+  AppImage update in place; a `.deb`/`.tar.gz` install is offered the Releases page instead. The
+  launch check has a Settings ▸ Startup toggle, any version can be skipped, and dev/unsigned builds
+  and `--job` runs never check. Releases now carry `latest-mac.yml` / `latest-linux.yml` /
+  `latest.yml` feed files beside the installers, and the release workflow's verify gate requires
+  them.
 
 ## [0.3.0] - 2026-08-31
 

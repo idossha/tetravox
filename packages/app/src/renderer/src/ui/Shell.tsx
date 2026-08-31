@@ -274,6 +274,16 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     const offModuleProgress = bridge().onModuleProgress?.((p) => {
       if (!cancelled) controller.onModuleProgress(p);
     });
+    // File ▸ Check for Updates… (§12.4, 2026-08-31), and the statuses main pushes — the launch
+    // check's find, download progress, the downloaded flag. The boot pull comes *after* the
+    // subscription, so a status can slip between neither: whatever the pull misses, the push has.
+    const offOpenUpdates = bridge().onOpenUpdates?.(() => {
+      if (!cancelled) controller.openUpdates();
+    });
+    const offUpdateStatus = bridge().onUpdateStatus?.((status) => {
+      if (!cancelled) controller.onUpdateStatus(status);
+    });
+    void controller.loadUpdateStatus();
     return () => {
       cancelled = true;
       off();
@@ -282,6 +292,8 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
       offProgress();
       offExtensions?.();
       offModuleProgress?.();
+      offOpenUpdates?.();
+      offUpdateStatus?.();
     };
   }, [controller]);
 

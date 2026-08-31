@@ -45,6 +45,8 @@ export interface SettingsDialogProps {
   // -- Startup --
   reopenLastScene: boolean;
   onReopenLastScene(on: boolean): void;
+  checkForUpdates: boolean;
+  onCheckForUpdates(on: boolean): void;
 
   // -- Footer --
   configPath: string;
@@ -80,6 +82,8 @@ export function SettingsDialog({
   onBrowse,
   reopenLastScene,
   onReopenLastScene,
+  checkForUpdates,
+  onCheckForUpdates,
   configPath,
   onRevealConfigFile,
   onClose,
@@ -298,6 +302,25 @@ export function SettingsDialog({
             seconds of work nobody asked for. When it is on, the most recent entry of{' '}
             <span className="font-mono">File ▸ Open Recent</span> opens at launch — unless the
             launch names a file of its own, which always wins.
+          </p>
+          <span className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
+            Updates
+          </span>
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              data-testid="settings-check-for-updates"
+              checked={checkForUpdates}
+              onChange={(e) => onCheckForUpdates(e.currentTarget.checked)}
+            />
+            Check for updates on launch
+          </label>
+          <p className="text-[10px] leading-relaxed text-tvx-dim">
+            A few seconds after launch, the app asks the GitHub Releases page whether a newer
+            version exists — one small request, never a download. Finding one is a notification, not
+            an install: nothing changes until you say so in{' '}
+            <span className="font-mono">File ▸ Check for Updates…</span>, which also still works
+            with this off.
           </p>
         </div>
       )}

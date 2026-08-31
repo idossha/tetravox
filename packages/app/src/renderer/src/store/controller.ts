@@ -94,6 +94,7 @@ import type {
   ModuleStatus,
   SampleProgress,
   SceneCommand,
+  UpdateStatus,
 } from '../bridge';
 import type { SubjectSpacesReply, SurfaceSpacesReply } from '../../../preload/index';
 import { applyTheme, enginePatch, isThemeChoice, resolveTheme } from '../theme/theme';
@@ -637,6 +638,7 @@ export class ShellController {
       freesurferSubjectsDir: settings.freesurferSubjectsDir,
       recentScenes: [...(settings.recentScenes ?? [])],
       reopenLastScene: settings.reopenLastScene ?? false,
+      checkForUpdates: settings.checkForUpdates ?? true,
       screenshotDefaults: screenshotDefaults ?? s.screenshotDefaults,
       // Merge the persisted defaults into the live options the screenshot dialog edits, so a
       // background/dpi/autoTrim set once in the settings dialog applies from the very first shot —
@@ -754,6 +756,86 @@ export class ShellController {
   async setReopenLastScene(on: boolean): Promise<void> {
     this.store.setState({ reopenLastScene: on });
     await bridge().setSettings({ reopenLastScene: on });
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // File ▸ Check for Updates… (§12.4, `main/updater.ts`, 2026-08-31)
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * Boot: adopt whatever main already knows. Pulled, like `startupPaths` — a status pushed before
+   * React's first commit would be dropped, and the launch check's answer can predate the mount
+   * when a heavy scene slows the first paint.
+   */
+  async loadUpdateStatus(): Promise<void> {
+    const status = await bridge().updateStatus?.();
+    if (status !== undefined) this.store.setState({ updates: status });
+  }
+
+  /**
+   * A status pushed from main. The launch check's find gets one info toast — the first the app has
+   * ever had a use for — and only on the edge into `available`, so download progress re-pushing
+   * sixty statuses re-announces nothing.
+   */
+  onUpdateStatus(status: UpdateStatus): void {
+    const prev = this.store.getState().updates;
+    this.store.setState({ updates: status });
+    const announced = prev?.phase === 'available' && prev.available === status.available;
+    if (status.phase === 'available' && status.auto === true && !announced) {
+      this.store.setState((s) => ({
+        toasts: toasts.pushToast(s.toasts, {
+          id: ++this.toastSeq,
+          tone: 'info',
+          title: `Tetravox ${status.available} is available`,
+          detail: 'File ▸ Check for Updates… shows the notes and installs it when you are ready.',
+          at: this.now(),
+        }),
+      }));
+    }
+  }
+
+  /** Open the Software Update dialog; a quiet or previously-failed status re-asks on the way in. */
+  openUpdates(): void {
+    this.store.setState({ dialog: 'updates' });
+    const phase = this.store.getState().updates?.phase;
+    if (phase === undefined || phase === 'idle' || phase === 'none' || phase === 'error') {
+      void this.checkForUpdates();
+    }
+  }
+
+  /** Ask the feed now — the dialog's own button, and `openUpdates`'s first move. */
+  async checkForUpdates(): Promise<void> {
+    const status = await bridge().updateCheck?.();
+    if (status !== undefined) this.store.setState({ updates: status });
+  }
+
+  /** Download the announced version. Progress and failure both arrive as pushed statuses. */
+  downloadUpdate(): void {
+    void bridge().updateDownload?.();
+  }
+
+  /** Restart into the downloaded version — or, on a notify-only install, open the Releases page. */
+  installUpdate(): void {
+    void bridge().updateInstall?.();
+  }
+
+  /** "Skip this version": quiet about this one until a newer release or a manual check. */
+  async skipUpdate(): Promise<void> {
+    const version = this.store.getState().updates?.available;
+    if (version === undefined) return;
+    const status = await bridge().updateSkip?.(version);
+    if (status !== undefined) this.store.setState({ updates: status });
+    this.store.setState((s) => (s.dialog === 'updates' ? { dialog: 'none' } : {}));
+  }
+
+  /** Settings ▸ Startup: "Check for updates on launch" (§12.4). */
+  async setCheckForUpdates(on: boolean): Promise<void> {
+    this.store.setState({ checkForUpdates: on });
+    try {
+      await bridge().setSettings({ checkForUpdates: on });
+    } catch {
+      // An unwritable preference still applies to this session (`main/settings.ts`).
+    }
   }
 
   // ------------------------------------------------------------------------------------------

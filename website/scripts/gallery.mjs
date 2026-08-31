@@ -44,7 +44,7 @@ const GROUPS = [
     id: 'modalities',
     heading: 'Modalities',
     blurb:
-      "Nothing in the viewer is head-specific. The same build, controls and job runner across MRI, CT and segmentations of the head, chest, abdomen, spine and pelvis — each dataset as the plain contrast and then with the segmentation that came with it.",
+      'Nothing in the viewer is head-specific. The same build, controls and job runner across MRI, CT and segmentations of the head, chest, abdomen, spine and pelvis — each dataset as the plain contrast and then with the segmentation that came with it.',
   },
   {
     id: 'features',

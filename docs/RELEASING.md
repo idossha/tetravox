@@ -49,7 +49,17 @@ Tetravox-<v>-linux-x86_64.AppImage
 Tetravox-<v>-linux-amd64.deb
 Tetravox-<v>-linux-x64.tar.gz
 Tetravox-<v>-win-x64.exe          (optional)
+latest-mac.yml                    latest-linux.yml
+latest.yml                        (optional, with the Windows leg)
 ```
+
+The three `latest*.yml` are the **in-app update feeds** (ARCHITECTURE §12.4): a running install asks
+`releases/latest/download/latest-<os>.yml` what the newest version is, so a release without them is
+one no installed copy ever notices. electron-builder writes them into `release/` beside the
+installers (the `publish:` block in `electron-builder.yml` configures the feed without publishing —
+`--publish never` still holds); the workflow's per-leg globs attach them, and `verify` requires the
+mac and linux ones. Publishing the draft is what makes the release visible to running apps — the
+feed cannot see a draft, so nothing updates until a human presses Publish.
 
 **`${arch}` resolves per target to that ecosystem's spelling**, which matters if you are writing a
 download link by hand: macOS and `.tar.gz` get `arm64` / `x64`, the `.AppImage` gets `x86_64`, and the
@@ -276,7 +286,9 @@ This happened on the v0.2.0 runs of 2026-08-29. Recovery is entirely outside CI:
 Notarisation is slow (minutes, occasionally tens of minutes on a first submission); the mac leg's
 `timeout-minutes: 60` covers it. When signing is live, drop the unsigned-build paragraph from
 `scripts/changelog-section.mjs` and the `xattr -dr com.apple.quarantine` walkthrough from
-`docs/USER_GUIDE.md`. Auto-update stays out of scope regardless.
+`docs/USER_GUIDE.md`. In-app updates shipped 2026-08-31 (ARCHITECTURE §12.4): signed builds
+update in place, and the unsigned-build escape hatches above matter only to local/fork builds,
+whose updater stays `'off'`.
 
 Windows signing is not planned. It needs a paid certificate whose reputation SmartScreen builds up
 over downloads, which an unpopular installer never accumulates, so the warning would remain.

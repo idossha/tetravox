@@ -106,6 +106,18 @@ export interface AppSettings {
    * they shipped inside the signed application, so installing the app *was* the consent.
    */
   extensions: Record<string, ModuleConsent>;
+  /**
+   * "Check for updates on launch" (§12.4, 2026-08-31) — on by default, because a viewer that never
+   * says a fix exists leaves every user on the release with the bug. It gates only the *automatic*
+   * launch check; File ▸ Check for Updates… always asks.
+   */
+  checkForUpdates: boolean;
+  /**
+   * The one version the user said to skip (§12.4). `''` = none. Cleared by a manual check — asking
+   * again is un-skipping — and moot the moment a newer version exists, because the launch check
+   * compares equality against exactly this string, not an ordering.
+   */
+  skippedUpdateVersion: string;
 }
 
 /** §8's File ▸ Open Recent holds ten, which is the maintainer's ask for directed task 13. */
@@ -118,6 +130,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reopenLastScene: false,
   screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
   extensions: {},
+  checkForUpdates: true,
+  skippedUpdateVersion: '',
 };
 
 /** A settings file is a preference, not a document: a megabyte of it is a bug or an attack. */
@@ -171,8 +185,9 @@ export function ensureRcFile(): void {
   const starter = {
     _comment:
       'Tetravox rc file. JSON has no comments, so this field is the explanation: uncomment ' +
-      '(add) any of theme / freesurferSubjectsDir / reopenLastScene / screenshotDefaults to set a ' +
-      'machine-wide default. settings.json (the in-app dialog) wins over this file when both set ' +
+      '(add) any of theme / freesurferSubjectsDir / reopenLastScene / screenshotDefaults / ' +
+      'checkForUpdates to set a machine-wide default. settings.json (the in-app dialog) wins ' +
+      'over this file when both set ' +
       'the same key.',
   };
   try {
@@ -226,6 +241,10 @@ export function coercePatch(raw: unknown): Partial<AppSettings> {
   if (screenshotDefaults !== undefined) out.screenshotDefaults = screenshotDefaults;
   const extensions = coerceExtensions(record['extensions']);
   if (extensions !== undefined) out.extensions = extensions;
+  const checkForUpdates = record['checkForUpdates'];
+  if (typeof checkForUpdates === 'boolean') out.checkForUpdates = checkForUpdates;
+  const skipped = record['skippedUpdateVersion'];
+  if (typeof skipped === 'string') out.skippedUpdateVersion = skipped;
   return out;
 }
 
