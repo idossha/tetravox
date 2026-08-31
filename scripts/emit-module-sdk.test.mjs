@@ -25,6 +25,7 @@ import {
   declarationIndex,
   engineSubset,
   indexDts,
+  mjsSpecifiers,
   packageJsonFor,
   rewriteSpecifier,
   specifierSites,
@@ -86,10 +87,27 @@ test('every subpath the README tells a module repo to import is one the package 
   const exported = packageJsonFor(1, '0.2.0', [
     'manifest-schema.mjs',
     'manifest-types.mjs',
+    'contacts.mjs',
   ]).exports;
   for (const name of wanted) {
     ok(`./${name}` in exported, `the README imports ${name}, which the package does not export`);
   }
+});
+
+test('the mjs rewrite gives every relative specifier the extension node resolves', () => {
+  // The plain-ESM entry points are run by node with no bundler, where `from './model'` is
+  // ERR_MODULE_NOT_FOUND. Both the schema and the contacts kit depend on this one rewrite, so a
+  // sibling and a subdirectory import are pinned here.
+  strictEqual(
+    mjsSpecifiers("export { x } from './model';\n"),
+    "export { x } from './model.mjs';\n"
+  );
+  strictEqual(
+    mjsSpecifiers("import { a } from './contacts/index';\n"),
+    "import { a } from './contacts/index.mjs';\n"
+  );
+  // A bare specifier is left alone: the kit's only bare import is `react`, and it is type-only anyway.
+  strictEqual(mjsSpecifiers("import x from 'react';\n"), "import x from 'react';\n");
 });
 
 // -- the import wall (gate 1) --------------------------------------------------------------------

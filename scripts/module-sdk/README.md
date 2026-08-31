@@ -119,6 +119,23 @@ node -e "import('@tetravox/module-sdk/manifest-schema.mjs').then(async (m) => {
 })"
 ```
 
+## The contacts kit in your tests
+
+Inside the app your module reads `contacts` from the package root — the host's single instance, shared
+with core, which is what keeps one TSV reader and one editlog behind two contact modules. But your
+module's **own** vitest has no host global to read, so if this SDK carries `contacts.mjs` you import
+the kit's runtime from there instead of pinning `shared/contacts` to a core commit (a pin
+`raw.githubusercontent` stops serving the moment a squash-merge garbage-collects that sha):
+
+```ts
+import { parseTable, snapContacts, emptySet } from '@tetravox/module-sdk/contacts.mjs';
+// …assert on the same functions your production panel calls through `contacts.*`.
+```
+
+It is the same code the app runs, cut from the same declarations `contacts.*` is typed against —
+which is why your test and your panel cannot disagree. Import it **only in tests**: your production
+bundle uses the root `contacts`, so it stays one instance and one copy.
+
 ## Releasing a module
 
 Name each asset by its own sha256 — the store layout the app already uses for sample data, and what

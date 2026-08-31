@@ -337,7 +337,7 @@ function scanRoot(root: string | null, bundled: boolean): InstalledModule[] {
 /** The newest installed copy of each id, bundled winning a collision. */
 export function installedModules(): InstalledModule[] {
   // A compiled-in id cannot be shadowed by an on-disk module (manifests.ts: "module-store.ts refuses
-  // an installed module whose id collides"). An installed copy of `tetravox.seeg`/`tetravox.hello`
+  // an installed module whose id collides"). An installed copy of `tetravox.hello`
   // is refused **entirely** here — the same skip the renderer's eligibility check makes — so its
   // bytes are never served, no consent is fabricated for it at boot, its manifest never joins the
   // registered set, and it never mislabels the built-in module's card (finding, 2026-08-31).

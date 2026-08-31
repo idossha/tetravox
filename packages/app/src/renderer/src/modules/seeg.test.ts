@@ -15,27 +15,97 @@
  * rather than a no-op.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Layer, PointsLayer } from '@tetravox/engine';
-import type { TetravoxBridge } from '../../../preload/index';
+import type { ModuleStatus, TetravoxBridge } from '../../../preload/index';
 import { NoGlEngine } from '../engine/mockEngine';
 import { ctPhantomContacts } from '../engine/mockData';
 import { ShellController } from '../store/controller';
 import { createUiStore } from '../store/store';
 import type { UiStore } from '../store/store';
-import { seegManifest } from '../../../modules/seeg/manifest';
+import type { InstalledManifest } from '../../../modules/manifest-types';
+import type { ModuleActivate } from './host';
+import type * as InstalledLoader from './installed';
+import { installModuleSdk } from './sdk-runtime';
 import { paletteColor } from './shared/contacts/palette';
-import {
-  FROM_CT_COORDSYSTEM,
-  FROM_CT_EDITLOG,
-  FROM_CT_T1,
-  FROM_CT_TSV,
-  FROM_TSV_COORDSYSTEM,
-  FROM_TSV_CT,
-  FROM_TSV_EDITLOG,
-} from './seeg/bids';
 
 const SEEG = 'tetravox.seeg';
+
+/**
+ * The **bundled** `tetravox.seeg`, reached the way the running app reaches it (§13.8, 2026-08-31),
+ * not compiled in any more. The fake bridge reports it exactly as main reports a pre-consented
+ * bundled module, the controller's `refreshInstalledModules` registers it through the real
+ * eligibility gate, and the one step a `tetravox://module/` URL cannot take under vitest — `import()`
+ * of the bundle — is the only thing mocked, and it resolves to the very bytes the release ships
+ * (`resources/modules/`, populated from `modules.lock` by `scripts/fetch-locked-modules.mjs`).
+ *
+ * When that tree is absent — the cheap `test` CI leg runs `fetch-locked-modules --verify-only`, which
+ * never downloads — every suite here **skips**, exactly as a real-data test skips without its dataset
+ * (AGENTS.md rule 2). Locally, after a fetch, they run against the release's bytes, which is what
+ * makes this the extraction's regression gate.
+ */
+const HERE = dirname(fileURLToPath(import.meta.url));
+const BUNDLE = resolve(
+  HERE,
+  '..',
+  '..',
+  '..',
+  '..',
+  'resources',
+  'modules',
+  'tetravox.seeg',
+  '0.1.0'
+);
+const haveBundle = existsSync(join(BUNDLE, 'index.js'));
+const describeSeeg = haveBundle ? describe : describe.skip;
+
+// Shared with the hoisted `vi.mock` factory: the bundle's `activate`, filled once the bundle is
+// imported below. The mocked `load()` reads it at call time, which is after that import has run.
+const bundle = vi.hoisted(() => ({ activate: null as ModuleActivate | null }));
+
+// Only the loader's URL `import()` is mocked; the manifest registration, the eligibility gate and the
+// status all stay the real code, driven by the bridge — so this exercises the installed-module path
+// end to end, against the compiled bundle rather than the source.
+vi.mock('../modules/installed', async (importOriginal) => {
+  const actual = await importOriginal<typeof InstalledLoader>();
+  const { installedManifests } = await import('../../../modules/manifests');
+  return {
+    ...actual,
+    registrationsFor: (statuses: readonly ModuleStatus[], compiledInIds: readonly string[]) =>
+      actual.eligibleInstalled(installedManifests(), statuses, compiledInIds).map((manifest) => ({
+        manifest,
+        load: async () => ({ activate: bundle.activate as ModuleActivate }),
+      })),
+  };
+});
+
+let bundledManifest: InstalledManifest | null = null;
+if (haveBundle) {
+  installModuleSdk();
+  bundledManifest = JSON.parse(
+    readFileSync(join(BUNDLE, 'manifest.json'), 'utf8')
+  ) as InstalledManifest;
+  bundle.activate = (
+    (await import(pathToFileURL(join(BUNDLE, 'index.js')).href)) as { activate: ModuleActivate }
+  ).activate;
+}
+
+/** The status main reports for the pre-consented, auto-enabled bundled module. */
+function seegStatus(): ModuleStatus {
+  return {
+    id: SEEG,
+    title: bundledManifest?.title ?? 'sEEG contacts',
+    installed: bundledManifest?.version ?? '0.1.0',
+    bundled: true,
+    enabled: true,
+    available: null,
+    updatable: false,
+    permissions: [],
+  };
+}
 const DERIV = '/bids/derivatives/seegprep/sub-P076';
 const CT = `${DERIV}/ct/sub-P076_acq-bone_space-T1w_ct.nii.gz`;
 const TSV = `${DERIV}/ieeg/sub-P076_space-T1w_electrodes.tsv`;
@@ -79,6 +149,10 @@ function fakeBridge(files: Record<string, string>): FakeFs {
     screenshotDefaults: { background: 'scene' as const, dpi: 144, autoTrim: false },
   };
   const bridge = {
+    // What main reports for the bundled, pre-consented module — the discovery `refreshInstalledModules`
+    // runs at attach, which is what registers `tetravox.seeg` in this window (§13.8).
+    moduleManifests: async () => (haveBundle && bundledManifest !== null ? [bundledManifest] : []),
+    moduleStatuses: async () => (haveBundle ? [seegStatus()] : []),
     settings: async () => settings,
     setSettings: async () => settings,
     allowPath: async (path: string) =>
@@ -152,12 +226,15 @@ interface Harness {
   fs: FakeFs;
 }
 
-function harness(files: Record<string, string> = {}): Harness {
+async function harness(files: Record<string, string> = {}): Promise<Harness> {
   const fs = fakeBridge(files);
   const engine = new NoGlEngine({ stepMs: 0 });
   const store = createUiStore();
   const controller = new ShellController(engine, store);
   controller.attach();
+  // `attach` fires `refreshInstalledModules` fire-and-forget; await it so the bundled module is
+  // registered before a file is opened, the way boot registers it before a drop in the real app.
+  await controller.refreshInstalledModules();
   open.push(controller);
   return { engine, store, controller, fs };
 }
@@ -184,7 +261,7 @@ function seegLayer(h: Harness): PointsLayer | undefined {
  * manifest's patterns through `allowPath`, the module activates and reads the table.
  */
 async function loadSubject(table = phantomTable()): Promise<Harness> {
-  const h = harness({ [TSV]: table, [CT]: 'a volume' });
+  const h = await harness({ [TSV]: table, [CT]: 'a volume' });
   h.controller.open([{ name: 'sub-P076 CT', path: CT, source: { kind: 'path', path: CT } }]);
   await until(() => seegLayer(h) !== undefined, 'the contacts layer');
   return h;
@@ -207,30 +284,37 @@ function pointNamed(h: Harness, name: string): { id: string; position: [number, 
 
 // ------------------------------------------------------------------------------------------------
 
-describe('the manifest and the module agree about the BIDS layout', () => {
-  it('declares the same sibling templates the module reads back', () => {
-    const [fromCt, fromTsv] = seegManifest.siblings ?? [];
+describeSeeg('the manifest and the module agree about the BIDS layout', () => {
+  it('carries the seegprep sibling templates in its bundled manifest', () => {
+    // The BIDS layout the reader resolves against, asserted on the manifest the release ships (the
+    // module-internal `bids.ts` constants moved out with the module). `readerFor` below proves they
+    // actually claim a file; this proves the release carries the pair the panel was built around.
+    const [fromCt, fromTsv] = bundledManifest?.siblings ?? [];
     expect(fromCt?.candidates).toEqual([
-      FROM_CT_TSV,
-      FROM_CT_COORDSYSTEM,
-      FROM_CT_EDITLOG,
-      FROM_CT_T1,
+      '../ieeg/{sub}_space-{space}_electrodes.tsv',
+      '../ieeg/{sub}_space-{space}_coordsystem.json',
+      '../ieeg/{sub}_space-{space}_electrodes_editlog.json',
+      '../../../SimNIBS/{sub}/m2m_{id}/T1.nii.gz',
     ]);
-    expect(fromTsv?.candidates).toEqual([FROM_TSV_CT, FROM_TSV_COORDSYSTEM, FROM_TSV_EDITLOG]);
+    expect(fromTsv?.candidates).toEqual([
+      '../ct/{sub}_acq-bone_space-{space}_ct.nii.gz',
+      '{sub}_space-{space}_coordsystem.json',
+      '{stem}_editlog.json',
+    ]);
   });
 
-  it('claims an electrodes table and nothing else', () => {
-    const h = harness();
+  it('claims an electrodes table and nothing else', async () => {
+    const h = await harness();
     expect(h.controller.readerFor(TSV)?.manifest.id).toBe(SEEG);
     expect(h.controller.readerFor('/bids/sub-P076/anat/sub-P076_T1w.nii.gz')).toBeNull();
     // A `.tsv` that is not an electrodes table is not claimed: the reader matches the basename.
     expect(h.controller.readerFor('/bids/participants.tsv')).toBeNull();
   });
 
-  it('claims a table whose name is capitalised, the way the extension already was', () => {
+  it('claims a table whose name is capitalised, the way the extension already was', async () => {
     // A site exporting `Electrodes.tsv` got the mesh loader's "unsupported" toast while
     // `electrodes.tsv` opened: the extension check lower-cased and the name pattern did not.
-    const h = harness();
+    const h = await harness();
     expect(h.controller.readerFor('/exports/Electrodes.tsv')?.manifest.id).toBe(SEEG);
     expect(h.controller.readerFor('/exports/SUB-01_CONTACTS.TSV')?.manifest.id).toBe(SEEG);
     // Still narrow: the basename has to say what the file is, whatever its case.
@@ -261,7 +345,7 @@ describe('the manifest and the module agree about the BIDS layout', () => {
  * host — leaving them attached for the life of the window, with no `moduleSession` for
  * `deactivateModule` to reach them through, and another set leaked on every retry.
  */
-describe('an activate that throws', () => {
+describeSeeg('an activate that throws', () => {
   it('disposes the half-built host rather than leaking its subscriptions', async () => {
     fakeBridge({ [CT]: 'a volume' });
     const engine = new NoGlEngine({ stepMs: 0 });
@@ -281,6 +365,7 @@ describe('an activate that throws', () => {
 
     const controller = new ShellController(engine, store);
     controller.attach();
+    await controller.refreshInstalledModules();
     open.push(controller);
     controller.open([{ name: 'ct', path: CT, source: { kind: 'path', path: CT } }]);
     await until(() => store.getState().datasets.length === 1, 'the CT');
@@ -305,7 +390,7 @@ describe('an activate that throws', () => {
   });
 });
 
-describe('opening a subject', () => {
+describeSeeg('opening a subject', () => {
   it('builds one points layer with §4.4’s module fields and Slicer’s display preset', async () => {
     const h = await loadSubject();
     const layer = contactsLayer(h);
@@ -345,7 +430,7 @@ describe('opening a subject', () => {
   });
 
   it('holds a table opened before any volume, and binds it when one lands', async () => {
-    const h = harness({ [TSV]: phantomTable(), [CT]: 'a volume' });
+    const h = await harness({ [TSV]: phantomTable(), [CT]: 'a volume' });
     // The reader route, with nothing to bind to: `openPath` claims the file either way.
     h.controller.open([{ name: 'electrodes', path: TSV, source: { kind: 'path', path: TSV } }]);
     await until(() => h.store.getState().activeModule === SEEG, 'the module to activate');
@@ -364,7 +449,7 @@ describe('opening a subject', () => {
   });
 });
 
-describe('commands', () => {
+describeSeeg('commands', () => {
   it('snaps the selected contact onto the metal it is beside', async () => {
     const h = await loadSubject();
     const before = pointNamed(h, 'A03');
@@ -666,7 +751,7 @@ describe('commands', () => {
   });
 });
 
-describe('saving', () => {
+describeSeeg('saving', () => {
   it('writes the table, its backup and its editlog', async () => {
     const h = await loadSubject();
     h.fs.savePath = TSV;
@@ -859,7 +944,7 @@ describe('saving', () => {
   });
 });
 
-describe('the scene block', () => {
+describeSeeg('the scene block', () => {
   const SCENE = `${DERIV}/sub-P076.tetravox.json`;
 
   /** Save the scene, and hand its text back the way a second window would read it off disk. */
@@ -876,7 +961,7 @@ describe('the scene block', () => {
     expect(JSON.parse(text).extensions[SEEG].module).toBe(SEEG);
 
     // A fresh window, opening the same scene.
-    const second = harness({ [SCENE]: text, [CT]: 'a volume' });
+    const second = await harness({ [SCENE]: text, [CT]: 'a volume' });
     await expect(second.controller.openScenePath(SCENE)).resolves.toBe(true);
     expect(second.store.getState().activeModule).toBe(SEEG);
     const layer = contactsLayer(second);
@@ -900,7 +985,7 @@ describe('the scene block', () => {
     const text = await savedScene(h);
     expect(JSON.parse(text).extensions[SEEG].data.wire).toBe(false);
 
-    const second = harness({ [SCENE]: text, [CT]: 'a volume' });
+    const second = await harness({ [SCENE]: text, [CT]: 'a volume' });
     await expect(second.controller.openScenePath(SCENE)).resolves.toBe(true);
     expect(contactsLayer(second).lineSegments).toHaveLength(0);
     // …and turning it back on rebuilds both arrays against the restored set.
@@ -915,7 +1000,7 @@ describe('the scene block', () => {
     delete spec['extensions'];
     const stripped = JSON.stringify(spec);
 
-    const second = harness({ [SCENE]: stripped, [CT]: 'a volume' });
+    const second = await harness({ [SCENE]: stripped, [CT]: 'a volume' });
     await expect(second.controller.openScenePath(SCENE)).resolves.toBe(true);
     // Nothing activates: with no block there is no `onSceneBlock` route, so the user opens it.
     await second.controller.activateModule(SEEG);
@@ -927,7 +1012,7 @@ describe('the scene block', () => {
   });
 });
 
-describe('operations (§13.6)', () => {
+describeSeeg('operations (§13.6)', () => {
   it('runs every declared operation through the same code as the panel', async () => {
     const h = await loadSubject();
     const instance = h.controller.moduleInstance();
@@ -997,7 +1082,7 @@ describe('operations (§13.6)', () => {
   it('binds the CT the load operation named, not the first volume that looks like one', async () => {
     const PREOP = `${DERIV}/ct/sub-P076_acq-preop_space-T1w_ct.nii.gz`;
     const TABLE = `${DERIV}/ieeg/sub-P076_desc-job_electrodes.tsv`;
-    const h = harness({ [PREOP]: 'a volume', [CT]: 'a volume', [TABLE]: phantomTable() });
+    const h = await harness({ [PREOP]: 'a volume', [CT]: 'a volume', [TABLE]: phantomTable() });
     // `scene.files` order: the pre-op CT lands first, exactly as a job listing it first would.
     h.controller.open([
       { name: 'preop', path: PREOP, source: { kind: 'path', path: PREOP } },
@@ -1091,7 +1176,7 @@ describe('operations (§13.6)', () => {
  * the block, or it is not, and the operation *says so* in its result, where a job author reading
  * `job-result.json` will find it.
  */
-describe('the load operation’s T1', () => {
+describeSeeg('the load operation’s T1', () => {
   const T1 = '/bids/derivatives/SimNIBS/sub-P076/m2m_P076/T1.nii.gz';
 
   function volumeLayerFor(h: Harness, path: string): Layer | undefined {
@@ -1160,7 +1245,7 @@ describe('the load operation’s T1', () => {
   });
 });
 
-describe('the host’s active plane', () => {
+describeSeeg('the host’s active plane', () => {
   it('is the active pane’s normal through the cursor, and null in 3D', async () => {
     const h = await loadSubject();
     h.controller.setActiveView('axial');

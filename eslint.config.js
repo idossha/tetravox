@@ -16,6 +16,10 @@ export default tseslint.config(
       'target/**',
       // wasm-pack output: generated glue, not ours to lint.
       'packages/wasm/pkg/**',
+      // Bundled extensions: downloaded, hash-verified module artefacts placed by
+      // scripts/fetch-locked-modules.mjs and rebuilt from modules.lock on every packaging run
+      // (§13.8). Not committed, not ours to lint.
+      'packages/app/resources/modules/**',
       'test-results/**',
       'playwright-report/**',
       // Jekyll site assets and any agent worktrees checked out under .claude/ are not ours to lint.

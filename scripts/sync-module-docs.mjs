@@ -89,10 +89,13 @@ export function renderSection(manifests) {
   const lines = [
     HEADING,
     '',
-    'Every operation every module in this build declares, with the arguments each one takes.',
-    '**This section is generated** from the manifests by `scripts/sync-module-docs.mjs` — the same',
-    'declarations the job validator checks an action against — so edit a manifest and re-run the',
-    'script rather than editing the table. CI checks it with `--check`.',
+    'Every operation every **compiled-in** module declares, with the arguments each one takes. A',
+    '*bundled* or *installed* extension declares its operations in its own manifest and documents them',
+    'in its own repository and the Extensions catalogue, so it is not listed here — the sEEG editor is',
+    'one such extension now (§13.8). **This section is generated** from the manifests by',
+    '`scripts/sync-module-docs.mjs` — the same declarations the job validator checks an action against',
+    '— so edit a manifest and re-run the script rather than editing the table. CI checks it with',
+    '`--check`.',
     '',
   ];
   for (const manifest of [...manifests].sort((a, b) => a.id.localeCompare(b.id))) {

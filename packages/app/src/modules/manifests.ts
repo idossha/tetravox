@@ -12,10 +12,11 @@
 
 import type { InstalledManifest, ModuleManifest } from './manifest-types';
 import { helloManifest } from './hello/manifest';
-// §13.7's "one line in MANIFESTS", 2026-08-30: the sEEG contact editor.
-import { seegManifest } from './seeg/manifest';
 
-export const MANIFESTS: readonly ModuleManifest[] = [helloManifest, seegManifest];
+// The sEEG editor is not compiled in: it ships as the bundled `tetravox.seeg` extension and reaches
+// `allManifests()` through `installed` below, seeded from `resources/modules/` at boot (§13.8,
+// 2026-08-31). `hello` is the only compiled-in manifest — a fixture the launch query names.
+export const MANIFESTS: readonly ModuleManifest[] = [helloManifest];
 
 /**
  * The manifests of the modules **installed under `~/.tetravox/modules/`** (downloadable extensions,

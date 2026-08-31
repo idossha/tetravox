@@ -39,6 +39,17 @@ const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
 const SEARCH = 'engine=mock&mockStepMs=0';
 const SEEG = 'tetravox.seeg';
 
+/**
+ * sEEG is the **bundled** `tetravox.seeg` extension now (§13.8, 2026-08-31), not compiled in: the app
+ * discovers it in `resources/modules/`, pre-consents it and auto-enables it at boot, and `onSibling`
+ * activates it exactly as before. `app.getAppPath()` in the dev target is `packages/app`, so the dev
+ * bundled root is this path; `scripts/fetch-locked-modules.mjs` populates it from `modules.lock`.
+ * When it is absent — the cheap `test` CI leg runs `fetch-locked-modules --verify-only`, no download —
+ * this suite **skips**, because there is nothing for the app to discover. A packaged build always
+ * carries it (the `package`/`build` legs fetch), so the packaged target is gated by the build, not here.
+ */
+const DEV_BUNDLE = resolve(APP_ROOT, 'resources', 'modules', SEEG, '0.1.0', 'index.js');
+
 /** A `seegprep` derivative tree with the committed fixtures in it, in a fresh temp directory. */
 function subjectTree(): { ct: string; tsv: string; ieeg: string } {
   const root = mkdtempSync(join(tmpdir(), 'tetravox-seeg-'));
@@ -93,6 +104,12 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     const target = workerInfo.project.name as LaunchTarget;
     const blocked = target === 'packaged' ? packagedUnavailable() : null;
     test.skip(blocked !== null, blocked ?? '');
+    // The dev target activates the bundled module out of `packages/app/resources/modules/`; with the
+    // tree unfetched there is nothing to discover, so skip rather than fail (AGENTS.md rule 2's shape).
+    test.skip(
+      target !== 'packaged' && !existsSync(DEV_BUNDLE),
+      'the bundled tetravox.seeg is not in resources/modules — run `node scripts/fetch-locked-modules.mjs`'
+    );
     tree = subjectTree();
     app = await launchApp(target, {
       search: SEARCH,

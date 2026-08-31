@@ -3,14 +3,20 @@
  * module per §13.4).
  *
  * `scripts/gen-fixtures.py` writes two electrode tables beside the CT phantom and then computes,
- * with numpy and nibabel reading those files *back*, every number this module is supposed to
- * produce: the PCA axis and its RMS, the spacing CV and the median pitch, the re-spaced positions,
- * which end of each shaft is the tip, the names a relabel writes, the snapped position of every
- * contact, and the string Python's `repr` gives for a set of awkward doubles. This test replays
- * them. A disagreement is a real disagreement, because neither side has ever seen the other's code.
+ * with numpy and nibabel reading those files *back*, every number the `shared/contacts` kit is
+ * supposed to produce: the PCA axis and its RMS, the spacing CV and the median pitch, the snapped
+ * position of every contact, and the string Python's `repr` gives for a set of awkward doubles. This
+ * test replays them. A disagreement is a real disagreement, because neither side has ever seen the
+ * other's code.
  *
- * It lives outside `modules/seeg/` for the same reason `hostImpl.test.ts` does: §13.1's import wall
- * covers every file under a module's directory, and this one reads the repository off disk.
+ * The *depth-electrode* kernels — the re-spaced positions, which end of each shaft is the tip, and
+ * the names a relabel writes — moved out of core with the module (§13.8, 2026-08-31): they are the
+ * `tetravox-seeg` repository's now, and their numpy fixtures test went with them. What this file
+ * keeps is the kit's own numbers, because `shared/contacts` stays in core whatever module reads it.
+ *
+ * It lives at the `modules/` level rather than inside a module's directory for the same reason
+ * `hostImpl.test.ts` does: §13.1's import wall covers every file under a module's own directory, and
+ * this one reads the repository off disk.
  */
 
 import { readFileSync } from 'node:fs';
@@ -25,7 +31,6 @@ import { contactsOf } from './shared/contacts/model';
 import type { Contact, ContactSet } from './shared/contacts/model';
 import { fitLine, lineMetrics } from './shared/contacts/geometry';
 import { applySnap, snapContacts } from './shared/contacts/snap';
-import { refitShaft, renumberTipFirst, tipEnd } from './seeg/shaft';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TESTDATA = resolve(HERE, '..', '..', '..', '..', '..', '..', 'testdata');
@@ -125,42 +130,11 @@ describe('the line fit, against numpy’s SVD', () => {
   }
 });
 
-describe('the tip rule, the re-fit and the relabel', () => {
-  const set = readSet(FIXTURE.table);
-  const reference = FIXTURE.tipReference as vec3;
-
-  for (const expected of FIXTURE.electrodes) {
-    it(`numbers ${expected.electrode} from the end numpy says is nearer the centre`, () => {
-      const positions = contactsOf(set, expected.electrode).map((c) => c.position);
-      expect(tipEnd(positions, reference)).toBe(expected.tip);
-    });
-
-    it(`re-fits ${expected.electrode} onto the same positions numpy computes`, () => {
-      const result = refitShaft(set, expected.electrode, reference, 2);
-      expect(result).not.toBeNull();
-      const after = contactsOf((result as { set: ContactSet }).set, expected.electrode);
-      expect(after.map((c) => c.name)).toEqual(expected.namesTipFirst);
-      after.forEach((contact, index) => {
-        expectVec(contact.position, expected.refitWorld[index] as number[], 8);
-      });
-      // …and the re-fit really did straighten it: the residual is zero to numpy's own precision.
-      const metrics = lineMetrics(after.map((c) => c.position));
-      expect(metrics?.rmsMm).toBeCloseTo(expected.refitMetrics.rmsMm, 8);
-      expect(metrics?.pitchMm).toBeCloseTo(expected.refitMetrics.pitchMm as number, 8);
-    });
-
-    it(`relabels ${expected.electrode} tip-first without moving it`, () => {
-      const before = contactsOf(set, expected.electrode).map((c) => [...c.position]);
-      const { set: after } = renumberTipFirst(set, expected.electrode, reference, 2);
-      const contacts = contactsOf(after, expected.electrode);
-      expect(contacts.map((c) => c.name)).toEqual(expected.namesTipFirst);
-      // The same positions, in the same order along the shaft — only the labels moved.
-      const sorted = (list: readonly number[][]): number[][] =>
-        [...list].sort((a, b) => (a[0] as number) - (b[0] as number));
-      expect(sorted(contacts.map((c) => [...c.position]))).toEqual(sorted(before));
-    });
-  }
-});
+// The tip rule, the re-fit and the relabel — `tipEnd`, `refitShaft`, `renumberTipFirst` — are the
+// depth-electrode kernels, and they moved out of core with the module (§13.8, 2026-08-31): they are
+// specific to what a *shaft* is, not to a contact set, so `tetravox-seeg` owns them and their numpy
+// fixtures test. What stays here is the `shared/contacts` kit's own numbers — the reader, the line
+// fit, the snap and the float formatting — which is core and needs this check whatever module uses it.
 
 describe('snapping, against numpy’s peak centroid on the phantom', () => {
   // The stand-in engine's phantom, which `mockData.ts` recomputes from the same geometry

@@ -37,6 +37,7 @@ website/public/media/
 website/public/gallery/
 website/public/samples/
 website/sample-data.md
+website/extensions.md
 website/.vitepress/cache/
 website/.vitepress/dist/
 

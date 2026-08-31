@@ -30,6 +30,8 @@
  *   README.md               how a module repo consumes it
  *   manifest-schema.mjs     the manifest validator as plain ESM (when the core tree carries one)
  *   manifest-types.mjs      what it imports, beside it, because a .mjs may not reach into src
+ *   contacts.mjs            the contacts kit as runnable ESM, for a module repo's own tests
+ *   contacts/*.mjs          the kit's compiled modules, reached only through contacts.mjs
  *   types/host.d.ts             from renderer/src/modules/host.ts        (FROZEN §12.3 item 6)
  *   types/manifest-types.d.ts   from src/modules/manifest-types.ts
  *   types/manifest-schema.d.ts  from src/modules/manifest-schema.ts      (when present)
@@ -55,7 +57,7 @@
  * package is then compiled once more against a probe file, so a subset that does not typecheck never
  * ships.
  *
- * ## The four gates this script is
+ * ## The five gates this script is
  *
  * 1. every import in every staged source resolves inside the SDK;
  * 2. `index.js` contains no `import` and no `export … from` — the property the module repo's
@@ -63,7 +65,9 @@
  * 3. the emitted package typechecks against a probe that imports it the way a module does;
  * 4. `manifest-schema.mjs`, when it ships, is *imported* and made to validate a manifest — the
  *    README tells a module repo to run exactly that, and a specifier rewrite that did not resolve
- *    would otherwise ship as a green build and fail in somebody else's CI.
+ *    would otherwise ship as a green build and fail in somebody else's CI;
+ * 5. `contacts.mjs` is *imported* and made to build a set — the same rewrite, and the runtime a
+ *    module repo's own vitest depends on, so it is proved to resolve here rather than in that CI.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -561,6 +565,45 @@ export async function assertSchemaRuns(schemaPath, hostApi) {
   }
 }
 
+/**
+ * `tsc`'s JavaScript, with every relative specifier given the `.mjs` extension the shipped files
+ * carry.
+ *
+ * The extra entry points are plain ESM run by node with no bundler and no install, so a bare
+ * `from './model'` — which `moduleResolution: bundler` was happy to emit — is `ERR_MODULE_NOT_FOUND`
+ * there. This is the one rewrite that turns the compiler's output into files node resolves, and it is
+ * shared by `manifest-schema.mjs` and the contacts kit so the two cannot drift.
+ */
+export function mjsSpecifiers(js) {
+  return js.replace(/(from\s*['"])(\.[\w./-]+?)(['"])/g, '$1$2.mjs$3');
+}
+
+/**
+ * Gate 5: the contacts kit this SDK ships is *run*.
+ *
+ * `contacts.mjs` is the runtime the module repo's own vitest imports — there is no host global in a
+ * test, so a module that pins the kit to a core commit sha to test against is pinning something a
+ * squash-merge can garbage-collect (W3 issue #1). The kit is emitted from the same JavaScript the
+ * types are cut from, and its relative specifiers are only proved by resolving them, so it is
+ * imported here and made to build a set exactly as a test would.
+ */
+export async function assertContactsRuns(contactsPath) {
+  const mod = await import(`${pathToFileURL(contactsPath).href}?emit=${Date.now()}`);
+  for (const name of ['emptySet', 'contactById']) {
+    if (typeof mod[name] !== 'function') {
+      throw new Error(
+        `${contactsPath} exports no ${name} — the contacts kit did not emit as runtime ESM`
+      );
+    }
+  }
+  const set = mod.emptySet();
+  if (mod.contactById(set, 'nothing') !== null) {
+    throw new Error(
+      `${contactsPath}: contactById on an empty set is not null — the kit is not running`
+    );
+  }
+}
+
 /** The probe a module repo's `tsc --noEmit` is a bigger version of. Gate 3. */
 export function probeSource() {
   return `import type { ModuleActivate, ModuleHost, ModuleInstance } from '@tetravox/module-sdk';
@@ -756,12 +799,30 @@ export async function emit({ root = REPO_ROOT, out, tarball = true, log = consol
     for (const name of ['manifest-schema', 'manifest-types']) {
       const src = join(jsDir, `${name}.js`);
       if (!existsSync(src)) continue;
-      writeFileSync(
-        join(pkg, `${name}.mjs`),
-        readFileSync(src, 'utf8').replace(/(from\s*['"])(\.\/[\w.-]+?)(['"])/g, '$1$2.mjs$3')
-      );
+      writeFileSync(join(pkg, `${name}.mjs`), mjsSpecifiers(readFileSync(src, 'utf8')));
       subpaths.push(`${name}.mjs`);
     }
+  }
+  // The contacts kit as runnable ESM (W3 issue #1). A module running inside the app reads `contacts`
+  // off the host global — one instance, shared — but a module's *own* vitest has no host, so without
+  // this it had to fetch `shared/contacts` from a pinned core commit that a squash-merge can
+  // garbage-collect. The kit's only value imports are of each other (its engine imports are
+  // `import type`, erased by the JS compile), so the same `.mjs` specifier rewrite the schema uses is
+  // all it needs. `contacts.mjs` re-exports the compiled barrel; the barrel and the kit modules sit
+  // beside it under `contacts/`, reached only through it, so `exports` names one entry, not eight.
+  const contactsJsDir = join(jsDir, 'contacts');
+  if (existsSync(contactsJsDir)) {
+    mkdirSync(join(pkg, 'contacts'), { recursive: true });
+    for (const file of readdirSync(contactsJsDir)) {
+      if (!file.endsWith('.js')) continue;
+      const name = file.slice(0, -3);
+      writeFileSync(
+        join(pkg, 'contacts', `${name}.mjs`),
+        mjsSpecifiers(readFileSync(join(contactsJsDir, file), 'utf8'))
+      );
+    }
+    writeFileSync(join(pkg, 'contacts.mjs'), "export * from './contacts/index.mjs';\n");
+    subpaths.push('contacts.mjs');
   }
   writeFileSync(
     join(pkg, 'package.json'),
@@ -772,6 +833,10 @@ export async function emit({ root = REPO_ROOT, out, tarball = true, log = consol
   // exactly this import.
   if (subpaths.includes('manifest-schema.mjs')) {
     await assertSchemaRuns(join(pkg, 'manifest-schema.mjs'), hostApi);
+  }
+  // Gate 5: the contacts runtime is imported and made to build a set, the way a module's test does.
+  if (subpaths.includes('contacts.mjs')) {
+    await assertContactsRuns(join(pkg, 'contacts.mjs'));
   }
 
   // 6. Gate 3: the emitted package typechecks against a probe that imports it the way a module does.

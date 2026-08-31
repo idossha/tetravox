@@ -142,20 +142,13 @@ describe('every module manifest', () => {
    * operation fails this test until somebody either writes the operation or writes down why there
    * cannot be one. A module absent from this map is asserted to have an operation per command.
    */
+  // Only compiled-in manifests are iterated below (this test walks `MANIFESTS`), so only `hello` is
+  // here now. The sEEG editor's command/operation parity moved to `tetravox-seeg` with the module
+  // (§13.8, 2026-08-31); the manifest the bundle ships is held to the same rule by that repo's tests.
   const COMMANDS_THAT_ARE_NOT_OPERATIONS: Record<string, Record<string, string>> = {
     'tetravox.hello': {
       ping: 'the fixture’s own demonstration of the status cell',
       'select-demo': 'reports the live point selection, which a job does not have',
-    },
-    'tetravox.seeg': {
-      add: 'arms place mode — every contact it adds comes from a live click in a pane',
-      next: 'moves the selection; changes nothing a saved file would show',
-      prev: 'moves the selection; changes nothing a saved file would show',
-      undo: 'the session’s own history stack, which a job has no use for',
-      redo: 'the session’s own history stack, which a job has no use for',
-      'snap-electrode': 'the `snap` operation with `scope: "electrode"`',
-      'snap-all': 'the `snap` operation with `scope: "all"`, plus a confirmation',
-      'save-as': 'opens a file sheet; the `save` operation is handed `out` instead',
     },
   };
 

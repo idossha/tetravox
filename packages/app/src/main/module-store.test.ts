@@ -278,10 +278,14 @@ describe('the catalogue', () => {
   });
 
   it('falls back to the shipped copy when the override does not parse', () => {
+    // No override yet (beforeEach cleared it): this is the copy the build ships, which carries the
+    // bundled sEEG extension since the extraction (§13.8) rather than being empty.
+    const shipped = catalogue().map((m) => m.id);
+    expect(shipped).toContain('tetravox.seeg');
     const path = join(dirs.home, 'bad.json');
     writeFileSync(path, '{ not json');
     process.env['TETRAVOX_EXT_INDEX'] = path;
-    expect(catalogue()).toEqual([]);
+    expect(catalogue().map((m) => m.id)).toEqual(shipped);
   });
 
   it('ignores TETRAVOX_MODULE_DIR and TETRAVOX_EXT_INDEX in a shipped build, unless the E2E opts back in', () => {
@@ -296,11 +300,15 @@ describe('the catalogue', () => {
       expect(catalogue().map((m) => m.id)).toEqual([ID]);
 
       // Packaged: an ambient env var cannot repoint the store or spoof the catalogue — the real
-      // configHome()/modules store and the shipped (empty) catalogue win (finding, 2026-08-31).
+      // configHome()/modules store and the shipped catalogue win (finding, 2026-08-31). The shipped
+      // index carries the bundled sEEG since the extraction (§13.8), so the win is that the env
+      // fixture's id is absent, not that the catalogue is empty.
       dirs.packaged = true;
       expect(moduleDir()).toBe(join(configHome(), 'modules'));
       expect(moduleDir()).not.toBe(evil);
-      expect(catalogue()).toEqual([]);
+      const shippedPackaged = catalogue().map((m) => m.id);
+      expect(shippedPackaged).toContain('tetravox.seeg');
+      expect(shippedPackaged).not.toContain(ID);
 
       // …unless the packaged E2E leg opts back in with TETRAVOX_E2E=1 (the csp.spec.ts seam).
       process.env['TETRAVOX_E2E'] = '1';
@@ -787,7 +795,7 @@ describe('disabling and removing', () => {
 });
 
 describe('a compiled-in id cannot be shadowed by an on-disk module', () => {
-  const SHADOW = 'tetravox.seeg'; // a real MANIFESTS id in this build
+  const SHADOW = 'tetravox.hello'; // a real MANIFESTS id in this build (sEEG left MANIFESTS on 2026-08-31)
 
   it('refuses it entirely — not installed, not served, no consent fabricated at boot', () => {
     place(moduleDir(), {

@@ -631,19 +631,22 @@ describe('the module envelope', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('validates the sEEG module`s `size` against the shipped manifest, arguments and all', () => {
+  it('validates a shipped module operation against its manifest, arguments and all', () => {
     // The default argument is `MANIFESTS`, so this is the operation as a real job file meets it —
-    // §13.6's promise that a manifest entry is the schema, with no second declaration anywhere.
+    // §13.6's promise that a manifest entry is the schema, with no second declaration anywhere. The
+    // sEEG editor is a bundled extension now (§13.8), validated the same way once its manifest is
+    // registered (`module-store.test.ts`, `allManifests()` + consent); the compiled-in fixture is
+    // the shipped example here.
     expect(
-      validateJob(moduleJob({ module: 'tetravox.seeg', op: 'size', args: { px: 7 } })).errors
+      validateJob(moduleJob({ module: 'tetravox.hello', op: 'echo', args: { text: 'hi' } })).errors
     ).toEqual([]);
-    // `px` is required and is a number: the two ways a job file gets it wrong.
+    // `text` is required and is a string: the two ways a job file gets it wrong.
     expect(
-      validateJob(moduleJob({ module: 'tetravox.seeg', op: 'size', args: {} })).errors
-    ).toEqual(['actions[0].args.px: is required (a finite number)']);
+      validateJob(moduleJob({ module: 'tetravox.hello', op: 'echo', args: {} })).errors
+    ).toEqual(['actions[0].args.text: is required (a string)']);
     expect(
-      validateJob(moduleJob({ module: 'tetravox.seeg', op: 'size', args: { px: '7' } })).errors
-    ).toEqual(['actions[0].args.px: must be a finite number']);
+      validateJob(moduleJob({ module: 'tetravox.hello', op: 'echo', args: { text: 7 } })).errors
+    ).toEqual(['actions[0].args.text: must be a string']);
   });
 
   it('names the modules this build carries when the id is unknown', () => {
