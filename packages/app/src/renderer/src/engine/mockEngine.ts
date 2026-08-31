@@ -50,6 +50,7 @@ import type {
   NewMeasurement,
   PickResult,
   PanePlacement,
+  PointPaneHit,
   PointSelection,
   PointsLayer,
   PointToolSpec,
@@ -404,7 +405,7 @@ export class NoGlEngine implements Engine {
       const last = this.state.layers[this.state.layers.length - 1];
       this.state.activeLayerId = last === undefined ? null : last.id;
     }
-    if (this.pointToolSpec?.layerId === id) this.setPointTool(null);
+    if (this.pointToolSpec?.layerId === id) this.disarmPointTool('layer');
     this.emit('layers', [...this.state.layers]);
     this.reconcilePointSelection();
   }
@@ -595,7 +596,7 @@ export class NoGlEngine implements Engine {
   setMeasureMode(on: boolean): void {
     // §7.5's one-armed-mode invariant (2026-08-30): arming one click-consuming mode disarms the
     // other, here as in the real engine.
-    if (on && this.pointToolSpec !== null) this.setPointTool(null);
+    if (on && this.pointToolSpec !== null) this.disarmPointTool('measure');
     this.measureModeOn = on;
     this.requestRender();
   }
@@ -664,23 +665,7 @@ export class NoGlEngine implements Engine {
 
   setPointTool(spec: PointToolSpec | null): void {
     if (spec === null) {
-      const tool = this.pointToolSpec;
-      if (tool === null) return;
-      // §13 (2026-08-30): a drag in flight is committed on the way out, never dropped — the real
-      // engine's rule, mirrored here because `?engine=mock` is what the app's E2E drives and
-      // "Esc mid-drag lost the undo entry" has to be false in both engines.
-      if (
-        this.pointDragState !== null &&
-        this.indexOfPointId(this.pointDragState.layerId, this.pointDragState.pointId) !== null
-      ) {
-        this.pointToolDragEnd();
-      }
-      this.pointToolSpec = null;
-      this.pointDragState = null;
-      const layerId = this.pointSelectionId?.layerId ?? tool.layerId;
-      this.pointSelectionId = null;
-      this.emit('pointTool', { layerId, kind: 'cleared', pointId: null, index: -1 });
-      this.requestRender();
+      this.disarmPointTool('host');
       return;
     }
     // §7.5's one-armed-mode invariant, the same way round as in the real engine.
@@ -694,6 +679,31 @@ export class NoGlEngine implements Engine {
     if (this.pointSelectionId !== null && this.pointSelectionId.layerId !== spec.layerId) {
       this.setPointSelection(null);
     }
+    this.requestRender();
+  }
+
+  /**
+   * The disarm half, told why — `PointToolEvent.reason` (§4.7, 2026-08-30), mirrored because
+   * `?engine=mock` is what the app's E2E drives and a module reads the reason to decide whether to
+   * arm again.
+   */
+  private disarmPointTool(reason: 'esc' | 'measure' | 'load' | 'layer' | 'host'): void {
+    const tool = this.pointToolSpec;
+    if (tool === null) return;
+    // §13 (2026-08-30): a drag in flight is committed on the way out, never dropped — the real
+    // engine's rule, mirrored here because `?engine=mock` is what the app's E2E drives and
+    // "Esc mid-drag lost the undo entry" has to be false in both engines.
+    if (
+      this.pointDragState !== null &&
+      this.indexOfPointId(this.pointDragState.layerId, this.pointDragState.pointId) !== null
+    ) {
+      this.pointToolDragEnd();
+    }
+    this.pointToolSpec = null;
+    this.pointDragState = null;
+    const layerId = this.pointSelectionId?.layerId ?? tool.layerId;
+    this.pointSelectionId = null;
+    this.emit('pointTool', { layerId, kind: 'cleared', pointId: null, index: -1, reason });
     this.requestRender();
   }
 
@@ -715,6 +725,24 @@ export class NoGlEngine implements Engine {
    * geometry the real engine does not have.
    */
   pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null {
+    const hit = this.pointHitAt(viewId, px, py);
+    if (hit === null) return null;
+    return { layerId: hit.layerId, pointId: hit.pointId, index: hit.index };
+  }
+
+  /**
+   * The same hit, plus whether it was a **ghost** — the real engine's private `#pointAt` (§7.5,
+   * 2026-08-30).
+   *
+   * Mirrored because the ghost flag is what decides the *grammar* of a press: a ghost is selected
+   * and never grabbed, and `?engine=mock` is what the app's E2E clicks with. `pointAtScreen` drops
+   * it for the same reason the real engine does — §4.7's answer is which point, not which gesture.
+   */
+  private pointHitAt(
+    viewId: ViewId,
+    px: number,
+    py: number
+  ): (PointSelection & { ghost: boolean }) | null {
     const view = this.state.slices.find((s) => s.id === viewId);
     if (view === undefined) return null;
     const place: PanePlacement = {
@@ -726,19 +754,24 @@ export class NoGlEngine implements Engine {
       rect: this.pointPane,
       uiScale: 1,
     };
-    let best: { layer: PointsLayer; index: number; distancePx: number } | null = null;
+    let best: { layer: PointsLayer; hit: PointPaneHit } | null = null;
     for (const layer of this.pointLayers()) {
       const hit = pointAtPane(layer, place, px, py);
       if (hit === null) continue;
-      if (best === null || hit.distancePx < best.distancePx) {
-        best = { layer, index: hit.index, distancePx: hit.distancePx };
+      // An on-slice hit outranks a ghost between layers too, exactly as it does within one.
+      if (
+        best === null ||
+        (hit.ghost !== best.hit.ghost ? !hit.ghost : hit.distancePx < best.hit.distancePx)
+      ) {
+        best = { layer, hit };
       }
     }
     if (best === null) return null;
     return {
       layerId: best.layer.id,
-      pointId: pointIdAt(best.layer, best.index),
-      index: best.index,
+      pointId: pointIdAt(best.layer, best.hit.index),
+      index: best.hit.index,
+      ghost: best.hit.ghost,
     };
   }
 
@@ -747,7 +780,13 @@ export class NoGlEngine implements Engine {
       const prev = this.pointSelectionId;
       this.pointSelectionId = null;
       if (prev === null) return;
-      this.emit('pointTool', { layerId: prev.layerId, kind: 'cleared', pointId: null, index: -1 });
+      this.emit('pointTool', {
+        layerId: prev.layerId,
+        kind: 'cleared',
+        pointId: null,
+        index: -1,
+        reason: 'selection',
+      });
       this.requestRender();
       return;
     }
@@ -777,7 +816,13 @@ export class NoGlEngine implements Engine {
   // would have made are exposed instead — `pointer.ts`'s `#onDown`, its `'point'` dispatch, and the
   // `end` it forwards from all three exits.
 
-  /** A left click at a pane pixel while the tool is armed — `pointer.ts`'s `#onDown` slot. */
+  /**
+   * A left click at a pane pixel while the tool is armed — `pointer.ts`'s `#onDown` slot.
+   *
+   * A hit on a **ghost** selects and grabs nothing (§7.5, 2026-08-30): no drag state, so a
+   * `pointToolDrag` after one moves nothing and there is no `dragEnd` to emit — the real engine's
+   * `'consumed'` branch, in the shape this seam has.
+   */
   pointToolClick(viewId: ViewId, px: number, py: number): void {
     const tool = this.pointToolSpec;
     if (tool === null) return;
@@ -785,9 +830,10 @@ export class NoGlEngine implements Engine {
       this.placePoint(tool, viewId, px, py);
       return;
     }
-    const hit = this.pointAtScreen(viewId, px, py);
+    const hit = this.pointHitAt(viewId, px, py);
     if (hit === null) return;
     this.setPointSelection({ layerId: hit.layerId, pointId: hit.pointId });
+    if (hit.ghost) return;
     this.pointDragState = { layerId: hit.layerId, pointId: hit.pointId, viewId };
   }
 
@@ -830,7 +876,7 @@ export class NoGlEngine implements Engine {
       this.setPointTool({ ...tool, mode: 'select' });
       return true;
     }
-    this.setPointTool(null);
+    this.disarmPointTool('esc');
     return true;
   }
 
@@ -927,7 +973,13 @@ export class NoGlEngine implements Engine {
     if (this.indexOfPointId(sel.layerId, sel.pointId) !== null) return;
     this.pointSelectionId = null;
     this.pointDragState = null;
-    this.emit('pointTool', { layerId: sel.layerId, kind: 'cleared', pointId: null, index: -1 });
+    this.emit('pointTool', {
+      layerId: sel.layerId,
+      kind: 'cleared',
+      pointId: null,
+      index: -1,
+      reason: 'selection',
+    });
   }
 
   /**
@@ -1189,7 +1241,7 @@ export class NoGlEngine implements Engine {
   async load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
     // §13: every layer is about to be replaced, so a tool armed on one of them is pointed at
     // nothing — disarmed here, with the `cleared` a module re-arms on.
-    this.setPointTool(null);
+    this.disarmPointTool('load');
     for (const ref of spec.datasets) {
       const path = resolve(ref);
       if (path === null) continue;

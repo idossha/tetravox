@@ -14,8 +14,8 @@ import {
   placePointLabels,
   pointLabelAnchors,
 } from './point-labels';
-import { OverlayBuilder, overlayMetrics } from './builder';
-import type { mat4, vec3 } from '../scene/types';
+import { FLOATS_PER_VERTEX, OverlayBuilder, overlayMetrics } from './builder';
+import type { mat4, vec3, vec4 } from '../scene/types';
 
 /**
  * An orthographic view-projection mapping world `[-100, 100]` on x and y to clip `[-1, 1]`, looking
@@ -171,3 +171,98 @@ describe('labelSource', () => {
     expect(pointLabelAnchors({ labelSource: 'names' })).toEqual([]);
   });
 });
+
+/**
+ * §4.4's `labelColorSource` (2026-08-30) — *whose* colour a name is drawn in.
+ *
+ * One points layer carries a whole implant, so one `labelColor` writes every electrode's names in
+ * the same colour while the discs beside them are already told apart by theirs. Absent is that
+ * behaviour, which is why the first case asserts the anchors carry no colour at all.
+ */
+describe('labelColorSource', () => {
+  const coloured = {
+    points: [
+      { position: [1, 2, 3] as vec3, name: 'A01', color: [1, 0, 0, 1] as vec4 },
+      { position: [4, 5, 6] as vec3, name: 'B01', color: [0, 0, 1, 1] as vec4 },
+      { position: [7, 8, 9] as vec3, name: 'C01' },
+    ],
+    labelSource: 'names' as const,
+  };
+
+  it('absent leaves every anchor colourless, so the pass uses the layer’s one colour', () => {
+    for (const anchor of pointLabelAnchors(coloured)) {
+      expect(anchor.color).toBeUndefined();
+    }
+    expect(pointLabelAnchors({ ...coloured, labelColorSource: 'layer' })[0]?.color).toBeUndefined();
+  });
+
+  it("'points' gives each name its own point's colour, and falls back for one with none", () => {
+    const anchors = pointLabelAnchors({ ...coloured, labelColorSource: 'points' });
+    expect(anchors.map((a) => a.color)).toEqual([[1, 0, 0, 1], [0, 0, 1, 1], undefined]);
+  });
+
+  it('cannot apply to the labels array — a Gmsh T3 has no point behind it', () => {
+    const anchors = pointLabelAnchors({
+      points: [{ position: [1, 2, 3], name: 'A01', color: [1, 0, 0, 1] }],
+      labels: [{ position: [0, 0, 0], text: 'GMSH' }],
+      labelColorSource: 'points',
+    });
+    expect(anchors).toEqual([{ position: [0, 0, 0], text: 'GMSH' }]);
+  });
+
+  it('is carried through placePointLabels to the placed label', () => {
+    const placed = placePointLabels(
+      [{ position: [0, 0, 0], text: 'A01', color: [0.2, 0.4, 0.6, 1] }],
+      ortho100(),
+      { width: 200, height: 100, liftPx: 0 }
+    );
+    expect(placed[0]?.color).toEqual([0.2, 0.4, 0.6, 1]);
+  });
+
+  it('drawPointLabels uses the label’s colour over the layer’s, and fades both alike', () => {
+    const b = new OverlayBuilder();
+    b.begin(200, 100);
+    const m = overlayMetrics(200, 100, 1);
+    // Two labels: one with its own colour, one without. The builder's vertex colours are what the
+    // pass would upload, so the assertion is on the ink itself rather than on a screenshot.
+    drawPointLabels(
+      b,
+      m,
+      [
+        { text: 'A', x: 40, y: 50, color: [1, 0, 0, 1] },
+        { text: 'B', x: 120, y: 50 },
+      ],
+      1,
+      [0, 1, 0, 1],
+      0.5
+    );
+    const inks = new Set(bodyInks(b));
+    // `labelWithHalo` draws four dark halo copies and one body copy per glyph, so the two body
+    // colours are the two RGBAs below and the halo's is the fifth entry.
+    expect(inks.has('1,0,0,0.5')).toBe(true);
+    expect(inks.has('0,1,0,0.5')).toBe(true);
+  });
+
+  it('an opacity of 1 leaves the caller’s colour byte-identical — the default is a no-op', () => {
+    const b = new OverlayBuilder();
+    b.begin(200, 100);
+    const m = overlayMetrics(200, 100, 1);
+    drawPointLabels(b, m, [{ text: 'A', x: 40, y: 50 }], 1, [0.25, 0.5, 0.75, 0.5]);
+    expect(new Set(bodyInks(b)).has('0.25,0.5,0.75,0.5')).toBe(true);
+  });
+});
+
+/** Every distinct RGBA the builder was handed, as `r,g,b,a` strings. */
+function bodyInks(b: OverlayBuilder): string[] {
+  const data = b.build();
+  const out: string[] = [];
+  for (let i = 0; i < b.vertexCount; i += 1) {
+    const o = i * FLOATS_PER_VERTEX;
+    out.push(
+      [data[o + 4], data[o + 5], data[o + 6], data[o + 7]]
+        .map((v) => Number((v ?? 0).toFixed(4)))
+        .join(',')
+    );
+  }
+  return out;
+}

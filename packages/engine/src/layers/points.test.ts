@@ -243,13 +243,95 @@ describe('pointAtPane (§7.5, §13)', () => {
     expect(pointAtPane(tiny, place, cx + 9, cy)).toBeNull();
   });
 
-  it('never hits a ghost: an off-slice point is not selectable even when the layer draws it', () => {
+  // -- §7.5's ghost rule, amended 2026-08-30 ----------------------------------------------------
+  //
+  // A ghost the layer DRAWS is hit and flagged; a ghost it does not draw does not exist. The
+  // amendment is what makes the eighty-two contacts a P077 slice paints clickable — before it, two
+  // of them were — and the flag is what keeps "do not drag a contact in a plane it is not in" true:
+  // `Engine.pointToolDown` selects a ghost hit and starts no gesture.
+
+  it('does not hit a ghost the layer is not drawing: absent and 0 are both invisible', () => {
     const [gx, gy] = at(-20, 0);
-    expect(pointAtPane(shafted(), place, gx, gy), 'culled, so no hit').toBeNull();
+    expect(pointAtPane(shafted(), place, gx, gy), 'no offPlaneOpacity: culled').toBeNull();
     expect(
-      pointAtPane(shafted({ offPlaneOpacity: 0.6 }), place, gx, gy),
-      'drawn as a ghost, and still no hit'
+      pointAtPane(shafted({ offPlaneOpacity: 0 }), place, gx, gy),
+      'offPlaneOpacity 0: the shader culls it, so nothing is there to click'
     ).toBeNull();
+  });
+
+  it('hits a drawn ghost at its FULL radius, and says it was a ghost', () => {
+    const ghosting = shafted({ offPlaneOpacity: 0.6 });
+    const [gx, gy] = at(-20, 0);
+    const hit = pointAtPane(ghosting, place, gx, gy);
+    expect(hit).not.toBeNull();
+    expect(hit!.index, 'the off-slice one').toBe(2);
+    expect(hit!.ghost).toBe(true);
+    // The ghost is painted at the full `r`, not at a cross-section: 2 mm at 0.5 mm/px is 4 px —
+    // `discRadiusPx`'s own answer for it, which is the disc on screen.
+    expect(hit!.discPx).toBeCloseTo(4, 9);
+    // …and the 8 px floor applies to it exactly as it does to an on-slice disc.
+    expect(pointAtPane(ghosting, place, gx + 7, gy), 'inside the floor').not.toBeNull();
+    expect(pointAtPane(ghosting, place, gx + 9, gy), 'outside it').toBeNull();
+  });
+
+  it('gives an on-slice hit the press even when a ghost centre is nearer the pixel', () => {
+    // The ghost is 1 mm (2 px) from the pixel and the on-slice contact 3 mm (6 px) — both discs
+    // cover it. Class before distance: the contact the slice really cuts is the one on the screen
+    // the user is looking at, and a ghost of another slice's contact must not take the press.
+    const both = layer({
+      radiusMm: 4,
+      offPlaneOpacity: 0.6,
+      points: [
+        { position: [3, 0, 0], id: 'onSlice' },
+        { position: [1, 0, 10], id: 'ghost' },
+      ],
+    });
+    const hit = pointAtPane(both, place, ...at(0, 0));
+    expect(hit!.index, 'the on-slice one, though it is further away').toBe(0);
+    expect(hit!.ghost).toBe(false);
+    // With the on-slice contact gone the same pixel finds the ghost — so the case really was a tie
+    // the ranking broke, and not a ghost that could never have been hit.
+    const alone = layer({
+      radiusMm: 4,
+      offPlaneOpacity: 0.6,
+      points: [{ position: [1, 0, 10], id: 'ghost' }],
+    });
+    expect(pointAtPane(alone, place, ...at(0, 0))!.ghost).toBe(true);
+  });
+
+  it('takes the nearest ghost when only ghosts are under the pixel', () => {
+    const shafts = layer({
+      radiusMm: 4,
+      offPlaneOpacity: 0.6,
+      points: [
+        { position: [0, 0, 10], id: 'far' },
+        { position: [2, 0, 10], id: 'near' },
+      ],
+    });
+    // 1.4 mm from the second and 2.6 mm from the first — `nearest wins`, within the ghost class.
+    expect(pointAtPane(shafts, place, ...at(3.4, 0))!.index).toBe(1);
+    expect(pointAtPane(shafts, place, ...at(-1.4, 0))!.index).toBe(0);
+  });
+
+  it("flags an ordinary on-slice hit as not a ghost, so a host's grammar is decidable", () => {
+    expect(pointAtPane(shafted(), place, ...at(20, 0))!.ghost).toBe(false);
+    expect(pointAtPane(shafted({ offPlaneOpacity: 0.6 }), place, ...at(20, 0))!.ghost).toBe(false);
+  });
+
+  it("hits a `dot` layer's ghost at the dot radius, not the sphere's", () => {
+    // The cull is by world distance and the radius is the dot's, in both branches: a 12 px dot
+    // 10 mm off a 2 mm sphere is still a 12 px target.
+    const dots = layer({
+      shape: 'dot',
+      radiusMm: 2,
+      dotRadiusPx: 12,
+      offPlaneOpacity: 0.6,
+      points: [{ position: [0, 0, 10], id: 'ghost' }],
+    });
+    const [cx, cy] = at(0, 0);
+    expect(pointAtPane(dots, place, cx + 11, cy)?.discPx).toBe(12);
+    expect(pointAtPane(dots, place, cx + 11, cy)?.ghost).toBe(true);
+    expect(pointAtPane(dots, place, cx + 13, cy)).toBeNull();
   });
 
   it('takes the nearest of two overlapping discs, not the first in the array', () => {
@@ -294,6 +376,47 @@ describe('pointAtPane (§7.5, §13)', () => {
     expect(pointAtPane(dots, place, ...at(-20, 0))).not.toBeNull();
   });
 
+  it('grows the grab with §4.4’s dotRadiusPx — the disc IS the target (A4)', () => {
+    // A bigger marker has to be a bigger target, or the picture and the hit rule stop being one
+    // rule: a 12 px dot with an 8 px grab would put the boundary a third of the way inside the
+    // disc the user is aiming at.
+    const dots = (dotRadiusPx?: number): PointsLayer =>
+      layer({
+        shape: 'dot',
+        radiusMm: 20,
+        ...(dotRadiusPx === undefined ? {} : { dotRadiusPx }),
+        points: [{ position: [0, 0, 0], id: 'a' }],
+      });
+    const [cx, cy] = at(0, 0);
+    // 12 px: the disc beats the 8 px floor, so the boundary is the disc.
+    expect(pointAtPane(dots(12), place, cx + 11, cy)?.discPx).toBe(12);
+    expect(pointAtPane(dots(12), place, cx + 13, cy)).toBeNull();
+    // …and absent is still 4 px under the floor, so nothing about the default moved.
+    expect(pointAtPane(dots(), place, cx + 7, cy)).not.toBeNull();
+    expect(pointAtPane(dots(), place, cx + 9, cy)).toBeNull();
+  });
+
+  it('scales §4.4’s dotRadiusPx by uiScale, like the constant it replaces', () => {
+    const hidpi: PanePlacement = {
+      ...place,
+      view: { ...axial, camera: { center: [0, 0], mmPerPx: 0.25 } },
+      rect: { width: 400, height: 400 },
+      uiScale: 2,
+    };
+    const dots = layer({
+      shape: 'dot',
+      radiusMm: 20,
+      dotRadiusPx: 10,
+      points: [{ position: [0, 0, 0], id: 'a' }],
+    });
+    const cx = 200 - 0.5;
+    const cy = 200 - 0.5;
+    // 10 CSS px at DPR 2 is 20 device pixels, which is the number `uDotPx` carries to the shader.
+    expect(pointAtPane(dots, hidpi, cx, cy)?.discPx).toBe(20);
+    expect(pointAtPane(dots, hidpi, cx + 19, cy)).not.toBeNull();
+    expect(pointAtPane(dots, hidpi, cx + 21, cy)).toBeNull();
+  });
+
   it('is null for an empty layer, and honours a caller-supplied floor', () => {
     expect(pointAtPane(layer(), place, 100, 100)).toBeNull();
     const [cx, cy] = at(0, 0);
@@ -335,6 +458,10 @@ describe('pointAtPane3D (§13)', () => {
       { position: [0, 0, 0], id: 'a' },
       { position: [25, 0, 0], id: 'b' },
     ],
+  });
+
+  it('has no ghosts: a 3D pane has no slice for a point to be off', () => {
+    expect(pointAtPane3D(three, viewProj, rect, 149.5, 99.5)!.ghost).toBe(false);
   });
 
   it('grabs the nearest projected centre within 14 px', () => {

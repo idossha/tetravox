@@ -776,6 +776,59 @@ export interface PointsLayer extends LayerBase {
    * other, equally common case stated once.
    */
   labelSource?: 'labels' | 'names';
+
+  // -------------------------------------------------------------------------------------------
+  // Appended for §13's sEEG UX wave (2026-08-30, second pass — see `docs/DECISIONS.md`). All three
+  // are optional and all three default to the behaviour above, so no existing scene changes and no
+  // §11 golden moves.
+  // -------------------------------------------------------------------------------------------
+
+  /**
+   * Per-**segment** RGBA for {@link PointsLayer.lineSegments} — **4 floats per segment**, parallel
+   * to its 6-float stride. Absent, and every layer written before today, is the single
+   * {@link PointsLayer.lineColor} the segments have always been drawn in.
+   *
+   * One points layer carries a whole implant (§13: `points[].group` is the electrode), so a single
+   * `lineColor` paints fifteen different shafts the same colour and the picture stops saying which
+   * line belongs to which contact. Per **segment** and not per group because the engine knows
+   * nothing about groups: `lineSegments` is a flat array of endpoints, and a parallel colour array
+   * is the only way to say "this segment is that colour" that needs no second concept.
+   *
+   * An array with fewer than `4 · segments` floats is **ignored** — the layer falls back to
+   * `lineColor` — rather than half-applied: a shaft coloured for its first three segments and grey
+   * for the rest is a picture that lies about which electrode the rest of it belongs to.
+   *
+   * Like `lineSegments` it is a `Float32Array`, so §4.6 does not serialise it (`JSON.stringify`
+   * makes `{"0":…}` of one); whoever built the segments rebuilds these beside them.
+   */
+  lineColors?: Float32Array;
+
+  /**
+   * Where a name label takes its colour from — `'layer'` (the default, and the behaviour before
+   * today) is {@link PointsLayer.labelColor} ?? {@link PointsLayer.color} for every label;
+   * `'points'` colours each label by its own point's `color`.
+   *
+   * Only `labelSource: 'names'` can honour it: a `labels` entry is free-standing text with no point
+   * behind it (§6.2), so there is no per-point colour to take. A point with no `color` of its own
+   * falls back to the layer's, which is the same fallback `packPoints` uses for the disc — so the
+   * label and the marker it names are the same colour by construction.
+   */
+  labelColorSource?: 'layer' | 'points';
+
+  /**
+   * The screen radius of a `shape: 'dot'` marker, in **CSS pixels** — absent is the constant 4 px
+   * the dot branch has always drawn at (`overlay/point-ring.ts`'s `DOT_RADIUS_PX`).
+   *
+   * CSS pixels, not render-target pixels, because that is the unit the constant it replaces is
+   * authored in: the shader is sent `uDotPx = dotRadiusPx · uiScale`, and the CPU rule
+   * (`discRadiusPx`) multiplies by the same `uiScale`, so the disc, the selection ring and the hit
+   * test are one number at every DPR. Clamped to 0.5…64 px on the way in, because a scene file is
+   * editable text and a marker larger than the pane is not a size anyone asked for.
+   *
+   * `shape: 'sphere'` does not read it: a sphere's size is `radiusMm`, which is also its 2D
+   * cross-section, its 3D billboard, its label slab and its probe radius.
+   */
+  dotRadiusPx?: number;
 }
 
 /** A parsed view's points, labels and lines, as they sit on a {@link MeshDataset} (§6.5.1). */

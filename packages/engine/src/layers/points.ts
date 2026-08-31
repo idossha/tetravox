@@ -192,7 +192,7 @@ export class PointsLayerRuntime implements LayerRuntime {
  *
  * `discRadiusPx` is what `wave1-specs.md` calls `discRadius`; there is one function and one name.
  */
-export { DOT_RADIUS_PX, discRadiusPx } from '../overlay/point-ring';
+export { DOT_RADIUS_PX, discRadiusPx, dotRadiusPxOf } from '../overlay/point-ring';
 export type { DiscShape } from '../overlay/point-ring';
 
 /**
@@ -218,6 +218,15 @@ export interface PointPaneHit {
   distancePx: number;
   /** The radius that point is actually drawn at in this pane — the disc rule's answer. */
   discPx: number;
+  /**
+   * Whether this hit is a **ghost** — the point is off this slice (`|d| >= r`) and is on screen
+   * only because the layer draws its off-plane points (§4.4's `offPlaneOpacity`, 2026-08-30).
+   *
+   * The caller needs it because §7.5 gives the two hits different grammar: an on-slice hit is
+   * grabbed and dragged, a ghost hit is **selected and nothing else** — a contact whose slice the
+   * pane is not showing must not be dragged in a plane it is not in.
+   */
+  ghost: boolean;
 }
 
 /**
@@ -240,16 +249,27 @@ export interface PanePlacement {
 /**
  * Which point of a points layer a **2D** pane pixel grabs, or `null` (§7.5's point tool).
  *
- * Three rules, and each of them is a decision:
+ * Four rules, and each of them is a decision:
  *
- * * **On-slice only.** The disc rule is asked with the ghost switched *off*
- *   (`offPlaneOpacity: 0`), so a point the slice does not cut is not hittable even on a layer that
- *   draws it as a ghost. A ghost is a projection of something on another slice; grabbing one and
- *   dragging it would move a contact the user cannot see, in a plane it is not in.
+ * * **A drawn ghost is hit, and says so** (2026-08-30). Until now the disc rule was asked with the
+ *   ghost switched *off*, so a point the slice does not cut was not hittable at all — and on a
+ *   fifteen-shaft implant with `offPlaneOpacity: 0.6` that is eighty-two contacts drawn and two of
+ *   them clickable: every other click fell through to §7.5's R1 cursor-set and the user read it as
+ *   "selection does not update". A ghost is now hit at the radius it is **drawn** at (the full `r`,
+ *   which is what `discRadiusPx` returns for it) and the hit carries {@link PointPaneHit.ghost} so
+ *   the caller can select it *without* dragging it: the old rule's real content was never "do not
+ *   select" but "do not drag a contact in a plane it is not in", and that half is kept in
+ *   `Engine.pointToolDown`.
+ * * **A ghost is hit only when the layer draws one.** The ghost branch is entered only for
+ *   `offPlaneOpacity > 0`, so with ghosting off this function answers exactly what it answered
+ *   before the branch existed — nothing invisible is ever grabbable.
  * * **`max(disc, {@link POINT_HIT_MIN_PX})`.** The disc is the thing on screen, so it is the target;
- *   the floor is what makes a small contact grabbable at all.
- * * **Nearest wins.** At a 3.5 mm contact pitch two discs overlap at any useful zoom, and "the first
- *   one in the array" would hand the user whichever contact was imported first.
+ *   the floor is what makes a small contact grabbable at all. It applies to a ghost's disc too.
+ * * **Nearest wins — but an on-slice hit beats every ghost.** At a 3.5 mm contact pitch two discs
+ *   overlap at any useful zoom, and "the first one in the array" would hand the user whichever
+ *   contact was imported first. The two classes are ranked before the distance is: a contact the
+ *   pane really cuts is the one the user is looking at, and a ghost of a neighbouring slice's
+ *   contact must never take a press away from it however much nearer its centre happens to be.
  *
  * `x`/`y` are pane-local **device** pixels, top-left origin — the convention every pointer event and
  * `worldAtScreen` already use.
@@ -265,7 +285,12 @@ export function pointAtPane(
   if (points.length === 0) return null;
   const plane = slicePlane(place.view, place.cursor);
   const mmPerPx = place.view.camera.mmPerPx;
-  let best: PointPaneHit | null = null;
+  // The layer's own ghost opacity, read once: it is the only thing that decides whether the second
+  // branch below exists at all, so a layer that does not ghost takes the pre-2026-08-30 path
+  // literally unchanged.
+  const ghostOpacity = layer.offPlaneOpacity ?? 0;
+  let onSlice: PointPaneHit | null = null;
+  let ghost: PointPaneHit | null = null;
   for (let i = 0; i < points.length; i += 1) {
     const p = points[i];
     if (p === undefined) continue;
@@ -275,16 +300,34 @@ export function pointAtPane(
       plane.normal[1] * p.position[1] +
       plane.normal[2] * p.position[2] +
       plane.offset;
-    // `offPlaneOpacity: 0` is the whole of "ghosts never hit": with it, `discRadiusPx` returns
-    // `null` for exactly the points §7.2's shader culls when the layer is not ghosting.
-    const discPx = discRadiusPx(
-      { shape: layer.shape, radiusMm, offPlaneOpacity: 0 },
+    // §4.4's `dotRadiusPx` (2026-08-30) rides along: the disc a `dot` layer draws is the target the
+    // user aims at, so growing the marker has to grow the grab with it or the ring, the pixels and
+    // the hit test stop being one rule.
+    const shape = { shape: layer.shape, radiusMm, dotRadiusPx: layer.dotRadiusPx };
+    // Asked twice, of the same function, with the ghost off and then on: off, `discRadiusPx`
+    // returns `null` for exactly the points §7.2's shader culls when the layer is not ghosting, so
+    // a non-`null` first answer *is* "the slice cuts this point". On, it returns the full radius the
+    // ghost is painted at — the disc the user is actually aiming at.
+    let discPx = discRadiusPx(
+      { ...shape, offPlaneOpacity: 0 },
       radiusMm,
       d,
       mmPerPx,
       place.uiScale
     );
-    if (discPx === null) continue;
+    let isGhost = false;
+    if (discPx === null) {
+      if (!(ghostOpacity > 0)) continue;
+      discPx = discRadiusPx(
+        { ...shape, offPlaneOpacity: ghostOpacity },
+        radiusMm,
+        d,
+        mmPerPx,
+        place.uiScale
+      );
+      if (discPx === null) continue;
+      isGhost = true;
+    }
     const [sx, sy] = worldToPane(
       place.view,
       place.cursor,
@@ -295,9 +338,15 @@ export function pointAtPane(
     );
     const distancePx = Math.hypot(sx - x, sy - y);
     if (distancePx > Math.max(discPx, minHitPx)) continue;
-    if (best === null || distancePx < best.distancePx) best = { index: i, distancePx, discPx };
+    const hit: PointPaneHit = { index: i, distancePx, discPx, ghost: isGhost };
+    if (isGhost) {
+      if (ghost === null || distancePx < ghost.distancePx) ghost = hit;
+    } else if (onSlice === null || distancePx < onSlice.distancePx) {
+      onSlice = hit;
+    }
   }
-  return best;
+  // Class before distance: a contact this slice really cuts wins over any ghost at the same pixel.
+  return onSlice ?? ghost;
 }
 
 /**
@@ -326,7 +375,9 @@ export function pointAtPane3D(
     const distancePx = Math.hypot(projected[0] - x, projected[1] - y);
     if (distancePx > hitPx) continue;
     if (best === null || distancePx < best.distancePx) {
-      best = { index: i, distancePx, discPx: hitPx };
+      // `ghost: false` always: a 3D pane has no slice for a point to be off, so the distinction
+      // §7.5 draws in a 2D pane does not exist here and every 3D hit is an ordinary one.
+      best = { index: i, distancePx, discPx: hitPx, ghost: false };
     }
   }
   return best;

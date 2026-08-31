@@ -119,6 +119,18 @@ class TestSeegWrappers(unittest.TestCase):
         self.assertEqual(action(seeg.ghost(Job(files=["/a.nii"]), on=True))["args"], {"on": True})
         self.assertEqual(action(seeg.ghost(Job(files=["/a.nii"]), on=False))["args"], {"on": False})
 
+    def test_wire_sends_a_boolean_both_ways(self) -> None:
+        self.assertEqual(action(seeg.wire(Job(files=["/a.nii"]), on=True))["args"], {"on": True})
+        self.assertEqual(action(seeg.wire(Job(files=["/a.nii"]), on=False))["args"], {"on": False})
+
+    def test_size_sends_a_float_and_leaves_the_clamp_to_the_app(self) -> None:
+        # The wrapper's job is the vocabulary, not the range: the app holds `px` to the stepper's
+        # own 2–12 and reports what it settled on, so a client-side clamp would be a second copy of
+        # a bound that lives in `contacts/layer.ts`.
+        self.assertEqual(action(seeg.size(Job(files=["/a.nii"]), px=7))["args"], {"px": 7.0})
+        self.assertEqual(action(seeg.size(Job(files=["/a.nii"]), px=40))["args"], {"px": 40.0})
+        self.assertEqual(action(seeg.size(Job(files=["/a.nii"]), px=7))["op"], "size")
+
     def test_stats_takes_nothing_and_writes_nothing(self) -> None:
         self.assertEqual(action(seeg.stats(Job(files=["/a.nii"])))["op"], "stats")
 
@@ -186,6 +198,12 @@ class TestSeegWrappers(unittest.TestCase):
                 "ghost",
                 "stats",
                 "save",
+                # Appended 2026-08-30 with the sEEG UX wave: the shaft line is a display switch a
+                # figure has to be able to turn off, exactly as `ghost` is.
+                "wire",
+                # …and so is how big a contact is drawn, which a job otherwise had to set by
+                # patching the module's own layer by its display name.
+                "size",
                 # Appended 2026-08-30 with §13.6's parity rule: a deterministic edit to a named
                 # electrode or contact belongs in a job file too.
                 "flip_tip",

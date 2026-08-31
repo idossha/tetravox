@@ -4482,3 +4482,161 @@ languages of test (`node --test` and vitest) and different waves, so `fetch-lock
 reads `main/module-store.ts`, pulls `RECEIPT_NAME` and the `InstallReceipt` / `ReceiptFile` field
 lists out of it, and asserts the receipt it writes matches. A contract nothing compares is a contract
 that has already drifted.
+
+## 2026-08-30 — an electrode's wire and its names are the electrode's colour
+
+A `PointsLayer` is **one** layer for a whole implant — §4.4's `points[].group` is the electrode — and
+that was the right call for the layer panel, the probe row and `[` / `]`. What it left behind is that
+`lineSegments` had one `lineColor` and the name labels had one `labelColor`, so on P077 fifteen shafts
+drew as one colour of line and eighty-two names as one colour of text, over discs that were already
+told apart by their palette entry. The picture said "these contacts belong to different electrodes"
+and, six pixels away, "these lines and these names do not."
+
+Two additive `PointsLayer` fields, both absent-is-today. **`lineColors`** is a `Float32Array` of four
+floats per segment, parallel to `lineSegments`'s six; per *segment* rather than per group because the
+engine has no concept of a group — `lineSegments` is a flat array of endpoints, and a parallel array
+is the only way to say "this segment is that colour" that introduces nothing new. An array shorter
+than `4 · segments` is **ignored** rather than half-applied: a shaft coloured for three segments and
+grey for the rest is a picture that lies about which electrode the rest of it belongs to, and it is
+also the out-of-range instanced read WebGL turns into a draw of nothing. Like `lineSegments` it is a
+`Float32Array`, so §4.6 does not serialise it and whoever rebuilds the segments rebuilds it beside
+them. **`labelColorSource: 'points'`** colours each name by its own point's `color`, which is the
+colour `packPoints` already gives that point's disc — so a marker and its name cannot end up
+different colours by construction. Only `labelSource: 'names'` can honour it: a `labels` entry is
+free-standing Gmsh `T3` text with no point behind it.
+
+In the shader this is `CONTOUR_COLORS`, one compile-time variant of the existing contour program
+rather than a second program: at 0 — every mesh contour, and every points layer that does not colour
+its shafts — the fragment is `uColor` verbatim, which is the shader that captured every existing
+golden. At 1 the uniform becomes a tint of `vec4(1, 1, 1, opacity)` so the layer's opacity still
+reaches a per-segment colour. The alternative, a uniform loop over a colour table, would have needed
+a per-group concept in the engine and a second upload path for something a vertex attribute already
+does.
+
+## 2026-08-30 — a contact's size is a layer field, and one number feeds the shader, the ring and the hit test
+
+`shape: 'dot'` drew at a hard-coded four CSS pixels. On a bone-window CT at a clinical zoom that is a
+speck, and the owner asked to be able to make it bigger; there was nowhere to put the answer.
+`PointsLayer.dotRadiusPx` is that field — CSS pixels, because that is the unit the constant it
+replaces is authored in, absent is `DOT_RADIUS_PX` (4), and it is clamped to 0.5…64 px on the way in
+because a scene file is editable text and `NaN` deletes the quad rather than resizing it.
+
+The rule that matters is that there is still **one** rule. `dotRadiusPxOf(layer)` is a single exported
+function: `derived.ts` sends `uDotPx = dotRadiusPxOf(layer) · uiScale`, `discRadiusPx` uses the same
+expression for the selection ring, and `pointAtPane` passes the layer's value into `discRadiusPx` so
+the grab radius is the disc the pane actually drew. A twelve-pixel marker with an eight-pixel grab
+would put the hit boundary a third of the way inside the thing the user is aiming at — the same class
+of defect as the `uiScale` bug this file recorded earlier today, which is why the fix is one function
+and not three call sites that agree today.
+
+`shape: 'sphere'` deliberately does not read it: a sphere's size is `radiusMm`, which is also its 2D
+cross-section, its 3D billboard, its label slab and its probe radius, and a second size for one of
+those five would be a knob that disagreed with the other four.
+
+## 2026-08-30 — `cleared` says why, and select mode is the sEEG module's resting state
+
+The owner clicked contacts on P077 and the electrode dropdown did not follow. The diagnosis is worth
+recording because the obvious answer was wrong: the point tool **is** armed in `select` after a table
+load and after a scene restore — measured, in both routes — and the click that misses is the one that
+lands on a **ghost**. §7.5's select rule is on-slice only (`|d| < r`, r = 1.5 mm here) while
+`offPlaneOpacity: 0.6` draws every contact of every shaft, so on a P077 slice eighty-two contacts are
+visible and one or two are hittable. That rule is not weakened here: a ghost is a projection of a
+contact on another slice, and grabbing one would drag it in a plane it is not in. It is written down
+as the open question it is.
+
+What *was* broken is that three ordinary things cleared the tool and nothing put it back — `Esc`,
+deleting the selected contact, and measure mode — and an unarmed left click is §7.5's R1 cursor-set,
+which never hit-tests: the dropdown, the ring and the crosshair all stop following the pointer, with
+nothing on screen to say why. The module could not tell those cases apart, because one `cleared`
+event served six different causes; it guessed from the layer list one event later, which can answer
+"did my layer survive" and can never answer "did the user pick measure mode instead".
+
+`PointToolEvent.reason` is that answer — `'esc' | 'measure' | 'load' | 'layer' | 'host' |
+'selection'`, `cleared` only, absent meaning `'host'`, which is what every clear meant before the
+field existed. The module's policy is then stated rather than inferred: `'selection'` leaves the tool
+alone (the tool never moved — this is every delete of the selected contact, and reading it as a
+disarm is what stopped later scene loads re-arming); `'measure'` stands down, because §7.5 arms one
+click-consuming mode at a time and re-arming would turn measure mode straight off again and make `m`
+do nothing while the panel is open; `'load'` and `'layer'` wait for the `layers` event and re-arm
+against whatever layer the module owns then; `'esc'` and `'host'` re-arm `select` at once, because
+the layer is untouched.
+
+So `Esc` keeps the step that matters — `place` → `select`, which is what a user who armed placing by
+mistake wants — and no longer leaves the module needing two presses of Add before a click means
+anything again. §13.3 says so in those words, and the module's layer-identity heuristic is deleted:
+the engine now states what the module used to deduce.
+
+## 2026-08-30 — the shaft line is a display switch, and it is in the block
+
+Fifteen shafts' worth of lines over a bone-window CT is a lot of ink for a slice figure about one of
+them, so the wire gets a toggle (`d`), a `wire { on }` operation and a place in the scene block.
+Module-side entirely: the segments are rebuilt from the contact set on every write anyway, so
+"hidden" is simply not building them — patched in as an **empty** `Float32Array` rather than removed,
+because a `Partial<Layer>` merge cannot unset a field and the engine's own rule is already that fewer
+than one segment draws nothing. No engine change, and no new mechanism.
+
+It is in the block for the same reason `ghost` is: §4.6 does not serialise `lineSegments` at all, so
+a scene reopened without the module's record puts every shaft back and a figure saved with the wire
+off would not reproduce. `wire` and `dotRadiusPx` are both additive there — absent reads as "on" and
+as 4 px, which is what a block written before them meant — so `sceneBlock.version` stays 1. Both are
+display switches and not edits: no history entry, no dirty mark, nothing to save to a table.
+
+The **size** control is deliberately panel-only. §13.6 exempts a command that needs a live pointer, a
+dialog, the undo stack or only the selection; a size stepper is none of those, so it is not a command
+at all — it is a panel entry point beside the snap-radius field, with no key, because `+` and `-`
+belong to the engine's zoom (§7.5) and §13.5's pool is for commands.
+
+## 2026-08-30 — a ghost click selects, and that is the only click that does not drag
+
+The open question the entry above wrote down is closed, in the direction the measurement pointed. On a
+P077 slice `offPlaneOpacity: 0.6` draws eighty-two contacts and §7.5's on-slice rule made one or two of
+them hittable; the other eighty presses were §7.5's R1 cursor-set, which never hit-tests, and the owner
+read the result as "the selection does not update". A user cannot be asked to tell a hittable disc from
+an unhittable one by its opacity.
+
+What the old rule was actually protecting was never "do not select": it was **"do not drag a contact in
+a plane it is not in"**, and only the second half needed the ban. So `pointAtPane` now asks
+`discRadiusPx` **twice** — with the ghost off, and, for the points that answers `null` for, with the
+layer's own `offPlaneOpacity` — and returns which branch answered as `PointPaneHit.ghost`.
+`Engine.pointToolDown` reads that flag and answers `'consumed'`: the point becomes the selection and
+**no `'point'` gesture starts**. The module's existing `selected` handler jumps the cursor onto the
+contact (§13.3), so the press the user aimed at a ghost leaves them looking at that contact on the
+slice, and the next press is an ordinary grab. Click, the view comes to you, drag.
+
+Three details are decisions rather than consequences. **A ghost is hit only when the layer draws one**
+(`offPlaneOpacity > 0`), so with ghosting off the function is bit-identical to what it was — the
+amendment cannot make anything invisible grabbable. **The ghost's clickable disc is its full drawn
+radius**, from the same `discRadiusPx` that sizes the shader's quad and the selection ring, under the
+same 8 px floor: one rule, one function, and a target that is exactly the thing on screen. And **an
+on-slice hit outranks every ghost at the same pixel**, before distance is compared and across layers as
+well as within one — at a 3.5 mm pitch a ghost of the next slice's contact is routinely nearer the
+pointer than the contact the pane actually cuts, and handing it the press would be the same defect from
+the other side.
+
+**No `dragEnd` for a ghost click, and the asymmetry is documented rather than smoothed over.** A
+`select`-mode click emits `selected` + a zero-length `dragEnd` when it grabbed, and `selected` alone
+when it hit a ghost. The alternative — emit the pair anyway, so hosts see one shape — was rejected
+because it changes what the event *means*: `dragEnd` is a drag's commit point, hosts compare positions
+against the `selected` snapshot to decide whether anything happened, and firing it for a gesture that
+never began would make the one event that says "a drag ended" also say "a press landed". A frozen
+contract may have surprises; it may not have silent ones, so it is in `api.ts`'s `PointToolEvent`, in
+§7.5 and in §13.3.
+
+The hover half follows for free and is left to: it is the same hit test, so a ghost is now hot and shows
+the `grab` cursor. The picture must not say "not clickable" about a press that selects.
+
+## 2026-08-30 — `size` is an operation because it is a property of the figure, not of the session
+
+`dotRadiusPx` shipped this morning as a panel-only control, on the argument that §13.6 exempts a command
+needing a live pointer, a dialog, the undo stack or only the selection — and a size stepper is none of
+those, so it is not a *command*. That argument was about §13.5's key pool and it is still right; it says
+nothing about the **operation** half, and the two are separable. The evidence is the P077 proof job in
+this wave, which had to reach for `{ "type": "set", "layer": "Contacts · …", "patch": { "dotRadiusPx": 7 } }`
+— naming a module-owned layer from outside the module, by its display name, to set a field the module
+believes it owns. Every screenshot after a module operation would have had to repeat it.
+
+So `size { px }` joins `ghost` and `wire` as the third display switch, with the same shape: same clamp as
+the stepper (2–12, `clampDotRadius`), same `doSize` the panel button calls, no history entry, no dirty
+mark, one line in the scene block. It is an operation with no command, which `modules.test.ts` already
+allows — its parity rule runs commands → operations, because the gap that rule exists to catch is a
+panel action a job cannot reach, and never the reverse.

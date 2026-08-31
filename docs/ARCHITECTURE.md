@@ -463,6 +463,13 @@ export interface PointsLayer extends LayerBase {
                                                  // points as full-radius discs at this alpha
   labelSource?: 'labels' | 'names';              // 'labels' (default) = the `labels` array;
                                                  // 'names' = points[].name at each point's position
+
+  // §13's sEEG UX wave (2026-08-30, second pass). Three more, same rule: absent is today.
+  lineColors?: Float32Array;                     // 4/segment RGBA, parallel to `lineSegments`;
+                                                 // absent = the single `lineColor`. Short = ignored
+  labelColorSource?: 'layer' | 'points';         // 'layer' (default) = `labelColor ?? color`;
+                                                 // 'points' = each name in its point's own `color`
+  dotRadiusPx?: number;                          // `shape:'dot'` screen radius, CSS px; absent = 4
 }
 
 export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
@@ -495,12 +502,35 @@ readable underneath it, a per-row Reset is deleting a key, and "Save LUT…" wri
 the table. `selectedLabels` is a plain `number[]`, unlike `visibleLabels`' `Uint32Array`: a selection is a
 handful of ids a panel edits click by click, not a filter over up to 65535 of them.
 
-**A points layer's five §13 fields, and what "additive" guarantees here** (2026-08-30). `LayerBase.module`,
-`points[].id` / `.group` / `.ordinal`, `PointsLayer.offPlaneOpacity` and `.labelSource` are every one of them
-optional, and **absent reproduces the previous behaviour exactly** — that is the whole of §12.3's additive
-rule, and for these fields it is checkable: `module`, `group` and `ordinal` are read by nobody in the engine,
-`id` is read only by a tool's selection, and the two rendering fields both default to the branch the shader
-and the overlay took before they existed. No existing scene changes and no §11 golden moves.
+**A points layer's eight §13 fields, and what "additive" guarantees here** (2026-08-30).
+`LayerBase.module`, `points[].id` / `.group` / `.ordinal`, `PointsLayer.offPlaneOpacity`, `.labelSource`,
+`.lineColors`, `.labelColorSource` and `.dotRadiusPx` are every one of them optional, and **absent
+reproduces the previous behaviour exactly** — that is the whole of §12.3's additive rule, and for these
+fields it is checkable: `module`, `group` and `ordinal` are read by nobody in the engine, `id` is read only
+by a tool's selection, and the five rendering fields all default to the branch the shader and the overlay
+took before they existed. No existing scene changes and no §11 golden moves.
+
+**One layer is a whole implant, so the line and the name need the electrode's colour.** `points[].group` is
+what lets twelve electrodes share one layer (see the identity paragraph below), and the price of that was a
+single `lineColor` across every shaft and a single `labelColor` across every name — a picture whose discs
+say which electrode a contact belongs to and whose lines and names, six pixels away, do not.
+**`lineColors`** is four floats per segment, parallel to `lineSegments`'s six; per *segment* rather than per
+group because the engine has no group concept — a flat array of endpoints admits no other statement — and an
+array shorter than `4 · segments` is **ignored** rather than half-applied, because a shaft coloured for three
+segments and grey for the rest lies about which electrode the rest belongs to. It is a `Float32Array`, so
+§4.6 drops it exactly as it drops `lineSegments`, and whoever rebuilds the segments rebuilds it beside them.
+**`labelColorSource: 'points'`** draws each name in its own point's `color` — the colour `packPoints` already
+gives that point's disc, so a marker and its name cannot disagree — and only `labelSource: 'names'` can
+honour it, since a `labels` entry is free-standing `T3` text with no point behind it.
+
+**`dotRadiusPx` is the `dot` branch's size, and there is one of it.** CSS pixels, because that is the unit
+the constant it replaces (`DOT_RADIUS_PX` = 4) is authored in; clamped to 0.5…64 px, because a scene file is
+editable text and `NaN` deletes the quad rather than resizing it. `overlay/point-ring.ts#dotRadiusPxOf` is
+the single function the shader uniform (`uDotPx = dotRadiusPxOf(layer) · uiScale`), the selection ring and
+`pointAtPane`'s grab radius all read, so a bigger marker is a bigger target: a 12 px disc with an 8 px grab
+would put the hit boundary a third of the way inside the thing the user is aiming at. `shape: 'sphere'` does
+not read it — a sphere's size is `radiusMm`, which is also its cross-section, its billboard, its label slab
+and its probe radius, and a second size for one of those five would disagree with the other four.
 
 **The 2D cull and the ghost.** §7.2's 2D rule for a points layer is the sphere ∩ plane disc, and a point
 further than its own radius from the plane is dropped entirely — which is what makes a points layer sweep
@@ -2070,11 +2100,17 @@ Rules:
 
 1. **Opaque** — volume base slices (2D: the slice; 3D: the plane of each `SliceView` whose owning volume
    layer has `showIn3D`), opaque meshes, opaque isosurfaces, points, a points layer's `SL` segments, and the
-   cut caps of opaque layers.
+   cut caps of opaque layers. The segments draw through §7.4's contour program; §4.4's `lineColors`
+   (2026-08-30) adds a fourth per-instance attribute and the program's one variant, `CONTOUR_COLORS` — at 0,
+   which is every mesh contour and every layer without the array, the fragment is `uColor` verbatim and the
+   compiled shader is the one every golden was captured with; at 1 the uniform becomes a
+   `vec4(1, 1, 1, opacity)` tint, so the layer's opacity still reaches a per-segment colour.
    * **Points in a 2D pane are the sphere ∩ plane disc**, radius `sqrt(r² − d²)` for a signed plane distance
      `d`, drawn *on* the plane; a point with `|d| ≥ r` is not on this slice and the vertex shader drops it
-     off screen. `shape: 'dot'` is culled by the same world rule and then drawn at a constant **4 px**
-     screen radius. §4.4's **`offPlaneOpacity > 0` adds the second case**: the dropped points are drawn as
+     off screen. `shape: 'dot'` is culled by the same world rule and then drawn at a constant screen
+     radius — **4 CSS px** unless §4.4's `dotRadiusPx` says otherwise (2026-08-30), through
+     `uDotPx = dotRadiusPxOf(layer) · uiScale`, which is the same expression the selection ring and the
+     CPU hit test read so the three cannot answer different sizes. §4.4's **`offPlaneOpacity > 0` adds the second case**: the dropped points are drawn as
      well, at the **full** radius `r` (a `dot` at its same 4 px) and at that alpha, through a `uGhostAlpha`
      uniform on the existing `POINTS_2D` program rather than a third variant — `derived.ts` already writes
      per-layer uniforms there, and the value is clamped to 0…1 because a scene file is editable text. At 0,
@@ -2129,6 +2165,13 @@ Rules:
      than `max(radiusMm, 1 mm)` from the plane. The two 2D rules diverge deliberately — a disc at
      0.6 alpha is a legible hint of where the shaft goes, and a whole shaft's worth of names on one
      slice is the smear this bullet's slab exists to prevent.
+   * **`PointsLayer.labelColorSource`** (2026-08-30) picks *whose* colour that text is drawn in:
+     `'layer'` — absent, and every layer written before the field — is `labelColor ?? color` for
+     every label; `'points'` draws each name in its own point's `color`, which is the colour
+     `packPoints` gives that point's disc, so a marker and its name cannot end up different colours.
+     It applies to `labelSource: 'names'` alone: a `labels` entry is free-standing `T3` text with no
+     point behind it. The layer's `opacity` fades whichever colour won, applied once in
+     `drawPointLabels` rather than pre-multiplied into one of the two by the caller.
    * **Point selection and hover rings** (§13's point editing, 2026-08-30). `DrawInput.pointSelection`
      and `pointHot` name a points layer and an **array index**; the pass draws a ring around that
      point in `OverlayTheme.select` — a new theme field, engine default only, so no app token work
@@ -2475,25 +2518,56 @@ Input (Freeview-like):
     sit about five pixels apart at a default zoom, and the click that matters most is the one filling the gap
     *between* two that were found; a hit-first rule would answer it by selecting a neighbour. The point is
     `{ ...template, id: 'p<n>', position }`, it becomes the selection, and one `placed` event says so.
-  * **`select`: a press hits, and the hit starts a drag.** The rule is on-slice only (`|d| < r`, so **a ghost
-    is never hit**), within `max(disc px, 8 px)` of the disc the pane actually drew, nearest wins; in the 3D
+  * **`select`: a press hits, and an *on-slice* hit starts a drag.** The rule is within
+    `max(disc px, 8 px)` of the disc the pane actually drew, nearest wins; in the 3D
     pane the nearest projected centre within 14 px, and **no drag** in v1. The disc radius is
     `overlay/point-ring.ts`'s `discRadiusPx` — the same function §7.2 sizes the selection ring with, so the
     hit rule cannot drift away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with the
     gizmo it draws. **Every one of those pixel numbers is a device pixel**, and `Camera2D.mmPerPx` is
     millimetres per device pixel, so a world radius reaches the screen as `radiusMm / mmPerPx` and is
-    **not** scaled by `uiScale` again — only the `dot` branch's constant is, because `uDotPx = 4 · uiScale`
-    is the one radius authored in CSS pixels (2026-08-30). The `8 px` and `14 px` floors stay device pixels
-    deliberately, the same convention as the gizmo's `HANDLE_HIT_PX`: the frame's grabbable things use one
-    unit.
+    **not** scaled by `uiScale` again — only the `dot` branch's radius is, because
+    `uDotPx = dotRadiusPxOf(layer) · uiScale` is the one authored in CSS pixels (2026-08-30). That radius is
+    §4.4's `dotRadiusPx` (absent = 4) and the hit test takes the **layer's** value, so a marker the user made
+    bigger is a bigger target: one function, `dotRadiusPxOf`, feeds the shader uniform, the ring and this
+    rule. The `8 px` and `14 px` floors stay device pixels deliberately, the same convention as the gizmo's
+    `HANDLE_HIT_PX`: the frame's grabbable things use one unit.
+  * **A ghost the layer *draws* is hit, and the hit SELECTS without grabbing** (2026-08-30). Until then the
+    rule was on-slice only — the disc test was asked with `offPlaneOpacity: 0`, so a point the slice does not
+    cut was not hittable at all. Measured on a fifteen-shaft implant with `offPlaneOpacity: 0.6`, that is
+    **eighty-two contacts drawn on a slice and about two of them clickable**: every other press fell through
+    to R1's cursor-set, which never hit-tests, and reads as "the selection does not update". So `pointAtPane`
+    now asks `discRadiusPx` **twice** — once with the ghost off, and, for the points that answers `null` for,
+    once with the layer's own `offPlaneOpacity` — and reports which branch answered. The rules that decide it:
+    * **only when the layer draws them.** The second branch is entered for `offPlaneOpacity > 0` and nothing
+      else, so with ghosting off this test answers exactly what it answered before the branch existed.
+      Nothing invisible is grabbable.
+    * **the ghost's clickable disc is its FULL drawn radius** `r` — the same number `discRadiusPx` gives the
+      shader and the selection ring — under the same `max(disc, 8 px)` floor. One rule, one function, one
+      picture.
+    * **an on-slice hit beats any ghost at the same pixel**, before distance is compared and across layers as
+      well as within one; among ghosts, nearest projected centre wins. A contact the pane really cuts is the
+      one the user is looking at.
+    * **no drag, ever.** `Engine.pointToolDown` answers `'consumed'` for a ghost hit: the press is the tool's,
+      the point becomes the selection, and **no `'point'` gesture starts and no `pointDrag` is taken**. This
+      is the surviving half of the old rule and the reason it existed — an off-slice contact has no honest
+      plane to be dragged in, and dragging one would move a contact the user cannot see. A host that jumps the
+      cursor onto its selection (§13.3's contact modules do) brings the slice to the contact, and the next
+      press on it is an ordinary on-slice grab.
+    * **and therefore no `dragEnd`.** A `select`-mode click emits `selected` + `dragEnd` when it grabbed, and
+      `selected` **alone** when it hit a ghost. `dragEnd` means "a drag ended", and emitting a zero-length one
+      for a gesture that never began would have made it mean "a press landed" — after which every host that
+      compares positions at `dragEnd` would be doing so for presses that cannot have moved anything. The
+      asymmetry is stated in `api.ts`'s `PointToolEvent` as well as here, because a contract's surprises
+      belong in the contract.
   * **The drag is `GestureKind 'point'`**, resolved in `resolveGesture`'s **2D** branch after the ctrl/meta
     and `Shift` tests and before the `space` one, so `Shift`+drag over a contact is still the layer's opacity
     and `space`+drag is still the pan. Each move writes `paneToWorld` into a **replaced** `points` array.
     The gesture's `end` is forwarded to the tool from **all three exits** — `#onUp`, `#onCancel`
     (`pointercancel`, and the window `blur` bound to it) and the second-pointer branch of `down()` — and
     becomes exactly one `dragEnd`, which is what makes one drag one undo step and one dirty mark for the host.
-    **A plain click is a zero-length drag and emits one too**: a `select`-mode click grabs the point under
-    it, so clicking through contacts produces `selected`, `dragEnd`, `selected`, `dragEnd`, … "One drag is
+    **A plain click on an on-slice point is a zero-length drag and emits one too**: such a click grabs the
+    point under it, so clicking through contacts produces `selected`, `dragEnd`, `selected`, `dragEnd`, …
+    (a click on a ghost grabs nothing and emits `selected` alone, above.) "One drag is
     one undo step" is therefore not "every `dragEnd` is an undo step" — a host compares positions against
     the snapshot it took at `selected` and commits only what moved. The engine does not suppress the event:
     the grab really did happen, a host may want it, and a silent exception in a frozen contract is worse
@@ -2508,8 +2582,17 @@ Input (Freeview-like):
     "one drag is one undo step" true however the drag ended. The scene has already moved by then — every
     intermediate position was written into the layer — so dropping the drag left an edit with no commit
     point: no undo entry, no dirty mark, nothing for the discard guard to ask about.
+  * **A `cleared` event says why** (`PointToolEvent.reason`, 2026-08-30): `'esc'`, `'measure'`, `'load'`,
+    `'layer'`, `'host'` (an explicit `setPointTool(null)`, and what absent means) or `'selection'` — the last
+    of which is not a disarm at all, only `setPointSelection(null)` or a `points` replacement that lost the
+    selected id. Six causes shared one event, and a host that re-arms has to tell them apart: re-arming after
+    `'measure'` would turn measure mode straight back off, because arming the point tool disarms it, so `m`
+    would do nothing at all while such a module was active. The reason is which of the engine's own routes
+    ran and not something a caller supplies, which is why `setPointTool(null)` stays a one-argument member.
   * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
-    `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). A user who
+    `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). The *same*
+    test, so a drawn ghost is hot and shows `grab` too: the picture must not say "not clickable" about a
+    press that selects. A user who
     is not editing points pays one property read per move, so §8's 16 ms hover budget is untouched.
 * Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic, `m`
   measure, `Esc` cancel a measurement, `[`/`]` cycle the active layer, `v` toggle its visibility,
@@ -3168,6 +3251,26 @@ is 320 px and stays 320 px; a resizable right aside is on the ROADMAP, not in v1
    container that has overflowed — after them it would simply not be on screen.
 3. **Pool keys**, live only while the module is active (§13.5), listed in the `?` sheet's Modules tab.
 4. **One `confirm` dialog** with two or three buttons (§8).
+
+**While a contact module is active, `select` is the resting state of its tool** (2026-08-30). §7.5's R1 is
+that a left click in a 2D pane sets the cursor; the point tool only hit-tests while it is armed. So a panel
+whose whole job is "click contacts" has to keep its tool armed, or the electrode dropdown, the selection ring
+and the crosshair silently stop following the pointer — which is exactly what the owner reported after `Esc`.
+The module therefore re-arms `select` on a `cleared` it did not ask for, reading §7.5's `reason` to tell the
+cases apart: after `'esc'` and `'host'` at once, after `'load'` and `'layer'` when the `layers` event says
+the new layer exists, never after `'measure'` (the user picked the other click-consuming mode), and not at
+all for `'selection'`, which is not a disarm. `Esc` keeps the step that matters — `place` → `select` — and a
+click that hits nothing still falls through to R1's cursor-set, because a `select`-mode miss changes nothing.
+Leaving the module is how a user turns the tool off.
+
+**A click on a ghosted contact jumps the slice onto it** (2026-08-30). §7.5 now lets a press select a contact
+the layer draws off-slice, and selecting it is all the engine does — the cursor stays where it was, because
+moving it is an application decision. The module's answer to `selected` has always been `setCursor(contact)`,
+so the jump is already written: the press selects the ghost, the crosshair lands on the contact, all three
+panes re-cut through it, and the marker the user aimed at is now the on-slice one they can drag. That is what
+makes the amendment usable rather than merely permitted — without the jump a user would select a contact they
+still could not move, and with it "click the thing you can see" is true of every contact on the shaft rather
+than of the one or two the current slice happens to cut.
 
 **Module-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
 concrete defect: the core points editor's per-point ↺ deletes the electrode's colour, its 0.5–20 mm radius

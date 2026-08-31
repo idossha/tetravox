@@ -192,9 +192,14 @@ function fullPointsLayer(): Layer {
     module: 'tetravox.seeg',
     offPlaneOpacity: 0.6,
     labelSource: 'names',
+    // The sEEG UX wave's three (2026-08-30): two persist, and `lineColors` does not — it is a
+    // `Float32Array` beside `lineSegments` and leaves with it.
+    labelColorSource: 'points',
+    dotRadiusPx: 7,
     // Dataset-derived: written by the loader, never by the scene file.
     labels: [{ position: [1, 2, 3], text: 'E001' }],
     lineSegments: Float32Array.from([0, 0, 0, 1, 1, 1]),
+    lineColors: Float32Array.from([1, 0, 0, 1]),
   } as unknown as Layer;
 }
 
@@ -258,13 +263,14 @@ describe('the §4.6 round trip on a full scene', () => {
     const original = fullPointsLayer() as unknown as Record<string, unknown>;
     const out = roundTrip(fullPointsLayer());
     for (const [key, value] of Object.entries(original)) {
-      if (['id', 'datasetId', 'labels', 'lineSegments'].includes(key)) continue;
+      if (['id', 'datasetId', 'labels', 'lineSegments', 'lineColors'].includes(key)) continue;
       expect(out[key], key).toEqual(value);
     }
     // Re-seeded from `MeshDataset.geo` on load — and `lineSegments` in particular must never be
     // written: `JSON.stringify` turns a Float32Array into `{"0":…}`, megabytes that restore garbage.
     expect(out['labels']).toBeUndefined();
     expect(out['lineSegments']).toBeUndefined();
+    expect(out['lineColors']).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------------------------

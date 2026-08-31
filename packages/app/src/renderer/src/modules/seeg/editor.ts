@@ -60,8 +60,14 @@ import type { ColumnMap } from '../shared/contacts/tsv';
 import { buildEditlog, editlogDate, formatEditlog } from '../shared/contacts/editlog';
 import type { DeletedContact } from '../shared/contacts/editlog';
 import { cssColor, paletteColor } from '../shared/contacts/palette';
+import type { ContactLook } from '../shared/contacts/layer';
 import {
+  CONTACT_DOT_RADIUS_MAX_PX,
+  CONTACT_DOT_RADIUS_MIN_PX,
+  CONTACT_DOT_RADIUS_PX,
+  CONTACT_DOT_RADIUS_STEP_PX,
   CONTACT_LAYER_STYLE,
+  clampDotRadius,
   contactLayerName,
   contactSetFromLayer,
   ctDisplayPreset,
@@ -137,6 +143,12 @@ export interface SeegView {
   electrode: string | null;
   snapRadiusMm: number;
   ghost: boolean;
+  /** Whether the shaft line between consecutive contacts is drawn (§4.4's `lineSegments`). */
+  wire: boolean;
+  /** §4.4's `dotRadiusPx`, in CSS pixels — the panel's Size control. */
+  dotRadiusPx: number;
+  /** The bounds and the step that control moves in, so the panel states no number of its own. */
+  sizeBounds: { min: number; max: number; step: number };
   placing: boolean;
   stats: ShaftStats | null;
   tipName: string | null;
@@ -192,6 +204,8 @@ export interface SeegModel {
   // Panel-only entry points. Each one is a command with an argument the keyboard cannot supply.
   setElectrode(name: string): void;
   setSnapRadius(mm: number): void;
+  /** §4.4's `dotRadiusPx`, in CSS pixels — the panel's Size stepper, clamped on the way in. */
+  setSize(px: number): void;
   jumpTo(id: string): void;
   deleteContact(id: string): void;
 }
@@ -203,6 +217,8 @@ export function createModel(host: ModuleHost): SeegModel {
   let namePad = 2;
   let snapRadiusMm = SNAP_RADIUS_DEFAULT_MM;
   let ghost = true;
+  let wire = true;
+  let dotRadiusPx: number = CONTACT_DOT_RADIUS_PX;
   let electrode: string | null = null;
   let selectedId: string | null = null;
   let source: SeegBlockSource | null = null;
@@ -224,16 +240,8 @@ export function createModel(host: ModuleHost): SeegModel {
   let armed = false;
   /** The mode {@link ensureArmed} restores. The **engine** owns which mode is live; this is intent. */
   let wantMode: 'select' | 'place' = 'select';
-  /** The layer the tool was last armed against — how a `cleared` event says who cleared it. */
-  let armedLayerId: LayerId | null = null;
   /** Set while this module is the one taking the tool away, so its own `cleared` is not a surprise. */
   let selfCleared = false;
-  /**
-   * The layer a `cleared` this module did not ask for took the tool off, until a `layers` event says
-   * why. See {@link reconcileTool} — the store's layer list lags the engine by one event, so the
-   * question "did my layer survive?" cannot be answered inside the `cleared` handler itself.
-   */
-  let clearedFrom: LayerId | null = null;
   let dragBase: Snapshot | null = null;
   const operations = {
     refit: new Set<string>(),
@@ -329,9 +337,12 @@ export function createModel(host: ModuleHost): SeegModel {
 
   const reference = (): vec3 => tipReference(boundsOfVolume(), set);
 
+  /** The three display switches as one value — what the layer and the block both read. */
+  const look = (): ContactLook => ({ ghost, wire, dotRadiusPx });
+
   const writeLayer = (): void => {
     if (layerId === null) return;
-    host.scene.updateLayer<PointsLayer>(layerId, layerPatch(set, ghost));
+    host.scene.updateLayer<PointsLayer>(layerId, layerPatch(set, look()));
   };
 
   /**
@@ -339,7 +350,7 @@ export function createModel(host: ModuleHost): SeegModel {
    * §13.2's 256 KiB cap. The host throws for an oversized block; two fallbacks, then a warning.
    */
   const writeBlock = (): void => {
-    const input = { set, deleted, source, snapRadiusMm, namePad, ghost };
+    const input = { set, deleted, source, snapRadiusMm, namePad, ghost, wire, dotRadiusPx };
     const attempts: SeegBlock[] = [
       toBlock(input),
       shrinkBlock(toBlock(input), 1),
@@ -393,7 +404,6 @@ export function createModel(host: ModuleHost): SeegModel {
     if (layer === null) return;
     armed = true;
     wantMode = mode;
-    armedLayerId = layer.id;
     const current = host.tool.pointTool();
     if (current?.layerId === layer.id && current.mode === mode) return;
     const group = electrode ?? set.groups[0]?.name ?? 'E';
@@ -409,7 +419,6 @@ export function createModel(host: ModuleHost): SeegModel {
   const disarm = (): void => {
     armed = false;
     wantMode = 'select';
-    armedLayerId = null;
     if (host.tool.pointTool() === null) return;
     selfCleared = true;
     try {
@@ -420,28 +429,16 @@ export function createModel(host: ModuleHost): SeegModel {
   };
 
   /**
-   * What a `cleared` the module did not ask for turned out to mean, decided against the layer list.
+   * Put the tool back on whatever layer this module owns now, once the store agrees it exists.
    *
    * Run from the `layers` subscription, because that is the first moment the store agrees with the
-   * engine about which layers exist. The module's layer being **still there** means the user pressed
-   * Esc: the tool stays away until `a` or a load arms it again. The layer having been **replaced**
-   * means `Engine.load` or a layer removal took it, which is not a request to stop, so the tool
-   * comes back against whatever layer this module owns now. Owning no layer at all is the window
-   * between a scene load's disarm and its restored layer — keep waiting rather than guess.
+   * engine about which layers exist — which is exactly the window a scene load's disarm opens.
+   * Until 2026-08-30 this also had to *guess why* the tool had been cleared, by comparing the layer
+   * it was armed against with the one that came back; §4.7's `PointToolEvent.reason` says so
+   * outright now, so all that is left here is "if the module wants the tool, make sure it has it".
    */
   const reconcileTool = (): void => {
-    if (armed) {
-      ensureArmed();
-      return;
-    }
-    if (clearedFrom === null) return;
-    const layer = ownedLayer();
-    if (layer === null) return;
-    const survived = layer.id === clearedFrom;
-    clearedFrom = null;
-    if (survived) return;
-    layerId = layer.id;
-    arm('select');
+    if (armed) ensureArmed();
   };
 
   /** Re-arm after the engine cleared the tool — `Engine.load` does, and so does removing the layer. */
@@ -535,13 +532,12 @@ export function createModel(host: ModuleHost): SeegModel {
         selfCleared = false;
       }
       layerId = null;
-      armedLayerId = null;
       existing = null;
     }
     if (existing !== null) {
       layerId = existing.id;
       host.scene.updateLayer<PointsLayer>(existing.id, {
-        ...layerPatch(set, ghost),
+        ...layerPatch(set, look()),
         name: contactLayerName(stem),
       });
     } else {
@@ -550,7 +546,7 @@ export function createModel(host: ModuleHost): SeegModel {
         ...CONTACT_LAYER_STYLE,
         name: contactLayerName(stem),
         color: paletteColor(0),
-        ...layerPatch(set, ghost),
+        ...layerPatch(set, look()),
       });
       layerId = created.id;
     }
@@ -713,6 +709,13 @@ export function createModel(host: ModuleHost): SeegModel {
       electrode,
       snapRadiusMm,
       ghost,
+      wire,
+      dotRadiusPx,
+      sizeBounds: {
+        min: CONTACT_DOT_RADIUS_MIN_PX,
+        max: CONTACT_DOT_RADIUS_MAX_PX,
+        step: CONTACT_DOT_RADIUS_STEP_PX,
+      },
       placing,
       stats: electrode === null ? null : shaftStats(set, electrode),
       tipName: rows.find((r) => r.tip)?.name ?? null,
@@ -806,6 +809,31 @@ export function createModel(host: ModuleHost): SeegModel {
 
   const doGhost = (on: boolean): void => {
     ghost = on;
+    writeLayer();
+    writeBlock();
+    notify();
+  };
+
+  /**
+   * Show or hide the shaft lines — §4.4's `lineSegments`, patched to an empty array and back.
+   *
+   * Module-side entirely: the segments are rebuilt from the set on every write anyway, so "hidden"
+   * is simply not building them. It is a **display** switch and not an edit, so it pushes no history
+   * entry and marks nothing dirty; what it does do is write the block, because §4.6 does not
+   * serialise `lineSegments` and a scene reopened without the record would put every shaft back.
+   */
+  const doWire = (on: boolean): void => {
+    wire = on;
+    writeLayer();
+    writeBlock();
+    notify();
+  };
+
+  /** §4.4's `dotRadiusPx`. Like the wire, a display switch: no history, no dirty mark, one block. */
+  const doSize = (px: number): void => {
+    const next = clampDotRadius(px);
+    if (next === dotRadiusPx) return;
+    dotRadiusPx = next;
     writeLayer();
     writeBlock();
     notify();
@@ -1006,7 +1034,7 @@ export function createModel(host: ModuleHost): SeegModel {
     set = { groups: set.groups, contacts };
     // Only the shaft lines: rewriting `points` from the set would fight the drag the engine is in
     // the middle of. The next `layers` event finds nothing different, so this cannot loop.
-    host.scene.updateLayer<PointsLayer>(layer.id, layerPatch(set, ghost));
+    host.scene.updateLayer<PointsLayer>(layer.id, layerPatch(set, look()));
     notify();
   };
 
@@ -1068,29 +1096,45 @@ export function createModel(host: ModuleHost): SeegModel {
         return;
       }
       case 'cleared': {
+        // **Why the tool was cleared decides what to do about it** — §4.7's `reason` (2026-08-30).
+        // Absent is `'host'`, which is what every clear meant before the field existed.
+        const reason = event.reason ?? 'host';
+        // A selection-only clear leaves the tool armed: `setPointSelection(null)`, and a `points`
+        // replacement that lost the selected id — which is every delete of the selected contact.
+        // Treating it as a disarm used to leave `armed` false while the engine was still armed, so
+        // the module stopped re-arming after the next scene load for no reason a user could see.
         selectedId = null;
         dragBase = null;
-        // **Why the tool was cleared decides what to do about it**, and the module can tell the
-        // three cases apart:
-        //
-        //  * *this module* asked (`disarm`, or removing its own layer) — nothing to undo;
-        //  * the **user** pressed Esc. The engine's grammar is place → select → off (§4.7) and the
-        //    layer it was armed against is still there. Re-arming here is what made Escape cycle
-        //    place → select → place for ever, so every click kept dropping a contact;
-        //  * the **engine** took the layer away — `Engine.load` disarms at its start, and so does
-        //    removing the tool's layer. Then the layer this was armed against is gone, and staying
-        //    armed is how the module comes back against the layer a scene load restores.
+        if (reason === 'selection') {
+          notify();
+          return;
+        }
         if (selfCleared) {
           notify();
           return;
         }
-        // Disarm now and decide later: `host.scene.layers()` is the store's projection and it is
-        // written by the `layers` event that *follows* this one, so asking it here would answer
-        // about the scene as it was a moment ago. {@link reconcileTool} answers when it can.
-        armed = false;
+        if (reason === 'measure') {
+          // §7.5 lets one click-consuming mode be armed, and the user just picked the other one.
+          // Arming again here would turn measure mode straight back off — the point tool's own
+          // `setPointTool` disarms it — so a click would go to a mode the user did not choose.
+          armed = false;
+          wantMode = 'select';
+          syncStatus();
+          notify();
+          return;
+        }
+        // `'esc'`, `'load'`, `'layer'`, `'host'`: **select is this module's resting state**
+        // (§13.3, 2026-08-30). A contact editor whose panel is open is an editor the user is about
+        // to click contacts in, and an unarmed left click is §7.5's R1 cursor-set that never hit
+        // tests — so the dropdown, the crosshair and the ring all stop following the clicks. Esc
+        // still means what it meant, because the step that matters is `place` → `select`: what it
+        // no longer does is leave the module needing two presses of Add to answer a click again.
+        armed = true;
         wantMode = 'select';
-        clearedFrom = armedLayerId;
-        armedLayerId = null;
+        // Only Esc (and a host's own disarm) can be answered at once: the layer is untouched, so
+        // the store's list is current. A load or a removal is asking about a layer that is on its
+        // way out, and `reconcileTool` answers those from the `layers` event that follows.
+        if (reason === 'esc' || reason === 'host') ensureArmed();
         syncStatus();
         notify();
         return;
@@ -1144,10 +1188,11 @@ export function createModel(host: ModuleHost): SeegModel {
       message = null;
       electrode = null;
       selectedId = null;
+      ghost = true;
+      wire = true;
+      dotRadiusPx = CONTACT_DOT_RADIUS_PX;
       armed = false;
       wantMode = 'select';
-      armedLayerId = null;
-      clearedFrom = null;
       markDirty(false);
     })
   );
@@ -1239,6 +1284,8 @@ export function createModel(host: ModuleHost): SeegModel {
       }
       case 'ghost':
         return doGhost(!ghost);
+      case 'wire':
+        return doWire(!wire);
       case 'delete': {
         if (selectedId === null) return;
         doDelete(selectedId);
@@ -1369,6 +1416,18 @@ export function createModel(host: ModuleHost): SeegModel {
       case 'ghost': {
         doGhost(args['on'] === true);
         return { ghost };
+      }
+      case 'wire': {
+        doWire(args['on'] === true);
+        return { wire };
+      }
+      // The third display switch (2026-08-30). `doSize` is the panel stepper's own function, so the
+      // 2–12 clamp, the layer write and the scene block are one code path — a job that asks for 40
+      // gets 12 and is told so by the `dotRadiusPx` this answers with, rather than getting a
+      // marker the panel could never have made.
+      case 'size': {
+        doSize(Number(args['px']));
+        return { dotRadiusPx };
       }
       case 'stats':
         return { electrodes: allShaftStats(set) };
@@ -1511,6 +1570,8 @@ export function createModel(host: ModuleHost): SeegModel {
         if (data !== null) {
           snapRadiusMm = clampSnapRadius(data.snapRadiusMm);
           ghost = data.ghost;
+          wire = data.wire;
+          dotRadiusPx = clampDotRadius(data.dotRadiusPx);
           namePad = data.namePad;
         }
         notify();
@@ -1530,6 +1591,8 @@ export function createModel(host: ModuleHost): SeegModel {
       saveSiblings = {};
       snapRadiusMm = clampSnapRadius(data?.snapRadiusMm ?? SNAP_RADIUS_DEFAULT_MM);
       ghost = data?.ghost ?? true;
+      wire = data?.wire ?? true;
+      dotRadiusPx = clampDotRadius(data?.dotRadiusPx ?? CONTACT_DOT_RADIUS_PX);
       electrode = set.groups[0]?.name ?? null;
       selectedId = null;
       // The deletions come back with the block: the layer cannot carry them — a deleted contact is
@@ -1579,6 +1642,10 @@ export function createModel(host: ModuleHost): SeegModel {
       snapRadiusMm = clampSnapRadius(mm);
       writeBlock();
       notify();
+    },
+
+    setSize(px) {
+      doSize(px);
     },
 
     jumpTo(id) {

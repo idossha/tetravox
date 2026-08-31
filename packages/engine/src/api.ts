@@ -334,8 +334,21 @@ export interface PointSelection {
  *   positions against the snapshot taken at `selected` (or at `placed`) before committing** — an
  *   unchanged one commits nothing. This is stated here, in the contract, rather than only in the
  *   engine's own e2e, because it is the first thing a second module gets wrong (2026-08-30).
+ *
+ *   **The one exception, and it is an asymmetry worth knowing: a click on a *ghost* emits
+ *   `selected` and NO `dragEnd`** (2026-08-30). Since §7.5 lets a press select a contact the layer
+ *   draws off-slice, and such a press deliberately starts **no gesture** — there is no honest plane
+ *   to drag an off-slice contact in — there is no drag to commit and the engine emits no commit for
+ *   one. So a `select`-mode click produces either `selected` + `dragEnd` (on-slice: it was grabbed)
+ *   or `selected` alone (a ghost). A host must not wait for a `dragEnd` to learn that a selection
+ *   happened; `selected` is what says so, and `dragEnd` only ever says a *drag* ended. Emitting a
+ *   zero-length `dragEnd` for a gesture that never began was the alternative and was rejected: it
+ *   would have made the event mean "a press landed" rather than "a drag ended", and every host that
+ *   compares positions at `dragEnd` would then be doing so for presses that cannot have moved
+ *   anything.
  * * `cleared` — there is no selection any more: `Esc`, an explicit `null`, or the selected id
- *   disappearing from a replaced `points` array. `pointId` is `null` and `index` is `-1`.
+ *   disappearing from a replaced `points` array. `pointId` is `null` and `index` is `-1`, and
+ *   {@link PointToolEvent.reason} says which of them it was.
  */
 export interface PointToolEvent {
   layerId: LayerId;
@@ -344,6 +357,29 @@ export interface PointToolEvent {
   index: number;
   world?: vec3;
   viewId?: ViewId;
+  /**
+   * Why the tool cleared — `cleared` only, absent on every other kind (2026-08-30).
+   *
+   * Six different things emit one `cleared`, and a host that cannot tell them apart cannot answer
+   * the only question it has: *should I arm again?* The sEEG module had to guess by comparing the
+   * layer list one event later, which works for "did my layer survive" and cannot work at all for
+   * "did the user pick measure mode instead" — and a module that re-armed on that `cleared` would
+   * turn measure mode straight back off, because §7.5 lets only one click-consuming mode be armed.
+   *
+   * * `'esc'` — {@link Engine.cancelPointTool}: `select` → off. The layer is untouched and the
+   *   user meant "stop this mode", not "throw my tool away", so a module whose resting state is
+   *   `select` may put it back.
+   * * `'measure'` — {@link Engine.setMeasureMode}`(true)` took the click. Arming again would undo
+   *   the user's choice; wait for them.
+   * * `'load'` — {@link Engine.load} disarmed at its start, before replacing every layer.
+   * * `'layer'` — the tool's own layer was removed.
+   * * `'host'` — a caller passed `null` to {@link Engine.setPointTool}. Absent means this: a
+   *   handler written before the field reads every clear as "somebody asked", which is what it
+   *   assumed anyway.
+   * * `'selection'` — only the **selection** went; the tool is still armed. `setPointSelection(null)`
+   *   and a `points` replacement that lost the selected id both land here.
+   */
+  reason?: 'esc' | 'measure' | 'load' | 'layer' | 'host' | 'selection';
 }
 
 export interface EngineEvents {

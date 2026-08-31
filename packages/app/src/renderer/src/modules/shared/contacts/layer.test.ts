@@ -10,14 +10,20 @@ import { describe, expect, it } from 'vitest';
 import type { Layer, PointsLayer, vec3 } from '@tetravox/engine';
 import type { Contact, ContactSet } from './model';
 import {
+  CONTACT_DOT_RADIUS_MAX_PX,
+  CONTACT_DOT_RADIUS_MIN_PX,
+  CONTACT_DOT_RADIUS_PX,
   CONTACT_LAYER_STYLE,
+  clampDotRadius,
   contactLayerName,
   contactSetFromLayer,
   ctDisplayPreset,
+  DEFAULT_CONTACT_LOOK,
   GHOST_OPACITY,
   layerPatch,
   namePadOfLayer,
   pointsOf,
+  shaftGeometry,
   shaftSegments,
 } from './layer';
 import { paletteColor } from './palette';
@@ -83,15 +89,75 @@ describe('shaftSegments', () => {
   });
 });
 
+/** Float32 rounds, so a palette colour is compared channel by channel rather than for equality. */
+function expectColor(actual: Float32Array, expected: readonly number[]): void {
+  expect(actual).toHaveLength(expected.length);
+  expected.forEach((channel, i) => expect(actual[i]).toBeCloseTo(channel, 6));
+}
+
+describe('shaftGeometry', () => {
+  it('gives every segment its own electrode’s colour, parallel to the endpoints (§4.4)', () => {
+    const { segments, colors } = shaftGeometry(SET);
+    // Two segments: four floats of colour each, against six floats of geometry each.
+    expect(segments).toHaveLength(12);
+    expect(colors).toHaveLength(8);
+    expectColor(colors.slice(0, 4), paletteColor(0));
+    expectColor(colors.slice(4), paletteColor(1));
+  });
+
+  it('keeps the two arrays in step when a group contributes no segment', () => {
+    // B has one contact, so it contributes no segment — and therefore no colour either. A second
+    // loop is exactly where that stops being true and a shaft takes its neighbour's colour.
+    const { segments, colors } = shaftGeometry({
+      contacts: [
+        contact('c1', 'A', 1, [0, 0, 0]),
+        contact('c2', 'A', 2, [0, 0, 3.5]),
+        contact('c3', 'B', 1, [5, 0, 0]),
+      ],
+      groups: SET.groups,
+    });
+    expect(segments).toHaveLength(6);
+    expectColor(colors, paletteColor(0));
+  });
+});
+
+describe('clampDotRadius', () => {
+  it('holds §4.4’s dotRadiusPx inside the panel’s bounds, and defaults a number that is not one', () => {
+    expect(clampDotRadius(6)).toBe(6);
+    expect(clampDotRadius(0)).toBe(CONTACT_DOT_RADIUS_MIN_PX);
+    expect(clampDotRadius(99)).toBe(CONTACT_DOT_RADIUS_MAX_PX);
+    expect(clampDotRadius(Number.NaN)).toBe(CONTACT_DOT_RADIUS_PX);
+  });
+});
+
 describe('layerPatch', () => {
   it('switches the ghost between Slicer’s 0.6 and §7.2’s plain cull', () => {
-    expect(layerPatch(SET, true).offPlaneOpacity).toBe(GHOST_OPACITY);
+    expect(layerPatch(SET, DEFAULT_CONTACT_LOOK).offPlaneOpacity).toBe(GHOST_OPACITY);
     // 0, not `undefined`: absent would leave whatever the layer already had.
-    expect(layerPatch(SET, false).offPlaneOpacity).toBe(0);
+    expect(layerPatch(SET, { ...DEFAULT_CONTACT_LOOK, ghost: false }).offPlaneOpacity).toBe(0);
+  });
+
+  it('hides the wire with an EMPTY array, because a Partial merge cannot unset a field', () => {
+    const off = layerPatch(SET, { ...DEFAULT_CONTACT_LOOK, wire: false });
+    expect(off.lineSegments).toHaveLength(0);
+    expect(off.lineColors).toHaveLength(0);
+    // …and the same patch with the wire back on rebuilds both, so the toggle is symmetric.
+    const on = layerPatch(SET, DEFAULT_CONTACT_LOOK);
+    expect(on.lineSegments).toHaveLength(12);
+    expect(on.lineColors).toHaveLength(8);
+  });
+
+  it('carries the size through the clamp rather than whatever the panel last typed', () => {
+    expect(layerPatch(SET, { ...DEFAULT_CONTACT_LOOK, dotRadiusPx: 40 }).dotRadiusPx).toBe(
+      CONTACT_DOT_RADIUS_MAX_PX
+    );
+    expect(layerPatch(SET, DEFAULT_CONTACT_LOOK).dotRadiusPx).toBe(CONTACT_DOT_RADIUS_PX);
   });
 
   it('is the whole of what an edit changes on the layer', () => {
-    expect(Object.keys(layerPatch(SET, true)).sort()).toEqual([
+    expect(Object.keys(layerPatch(SET, DEFAULT_CONTACT_LOOK)).sort()).toEqual([
+      'dotRadiusPx',
+      'lineColors',
       'lineSegments',
       'offPlaneOpacity',
       'points',

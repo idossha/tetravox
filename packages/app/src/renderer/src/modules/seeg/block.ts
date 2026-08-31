@@ -25,6 +25,7 @@ import type { vec3, vec4 } from '@tetravox/engine';
 import type { Contact, ContactSet, TipEnd } from '../shared/contacts/model';
 import type { ColumnMap, Delimiter } from '../shared/contacts/tsv';
 import { paletteColor } from '../shared/contacts/palette';
+import { CONTACT_DOT_RADIUS_PX } from '../shared/contacts/layer';
 
 /** `manifest.sceneBlock.version`. Bumping it means an older build's block needs migrating. */
 export const SEEG_BLOCK_VERSION = 1;
@@ -100,6 +101,19 @@ export interface SeegBlock {
   snapRadiusMm: number;
   namePad: number;
   ghost: boolean;
+  /**
+   * The panel's two other display switches (2026-08-30). Both additive: a block written without
+   * them restores to what this build did before they existed — the wire drawn, the marker at the
+   * engine's own 4 px — so `sceneBlock.version` is still 1.
+   *
+   * They are here rather than left to the layer for the same reason `ghost` is: `wire: false`
+   * writes an **empty** `lineSegments`, and §4.6 does not serialise that array at all, so a scene
+   * reopened without the block would put every shaft back and a figure saved without them would
+   * not reproduce.
+   */
+  wire: boolean;
+  /** §4.4's `dotRadiusPx`, in CSS pixels. */
+  dotRadiusPx: number;
 }
 
 export interface BlockInput {
@@ -110,6 +124,8 @@ export interface BlockInput {
   snapRadiusMm: number;
   namePad: number;
   ghost: boolean;
+  wire: boolean;
+  dotRadiusPx: number;
 }
 
 function rowOf(contact: Contact): SeegBlockRow {
@@ -143,6 +159,8 @@ export function toBlock(input: BlockInput): SeegBlock {
     snapRadiusMm: input.snapRadiusMm,
     namePad: input.namePad,
     ghost: input.ghost,
+    wire: input.wire,
+    dotRadiusPx: input.dotRadiusPx,
   };
 }
 
@@ -299,6 +317,7 @@ export function fromBlock(data: unknown): SeegBlock | null {
 
   const snapRadiusMm = raw['snapRadiusMm'];
   const namePad = raw['namePad'];
+  const dotRadiusPx = raw['dotRadiusPx'];
   return {
     source: sourceOf(raw['source']),
     rows,
@@ -308,6 +327,14 @@ export function fromBlock(data: unknown): SeegBlock | null {
       typeof snapRadiusMm === 'number' && Number.isFinite(snapRadiusMm) ? snapRadiusMm : 1.5,
     namePad: typeof namePad === 'number' && Number.isFinite(namePad) ? Math.trunc(namePad) : 2,
     ghost: raw['ghost'] !== false,
+    // `!== false` for the same reason `ghost` uses it: absent means "on", which is what a block
+    // written before these keys existed meant. The size is clamped by the caller, which owns the
+    // panel's bounds; here it only has to be a number.
+    wire: raw['wire'] !== false,
+    dotRadiusPx:
+      typeof dotRadiusPx === 'number' && Number.isFinite(dotRadiusPx)
+        ? dotRadiusPx
+        : CONTACT_DOT_RADIUS_PX,
   };
 }
 

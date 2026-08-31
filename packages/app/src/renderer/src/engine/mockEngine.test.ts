@@ -24,6 +24,8 @@ interface ToolEvent {
   index: number;
   world?: vec3;
   viewId?: string;
+  /** §4.7's `PointToolEvent.reason` (2026-08-30) — `cleared` only. */
+  reason?: string;
 }
 
 /**
@@ -130,10 +132,30 @@ describe('NoGlEngine: the point tool (§13)', () => {
     expect(ends[0]!.world![0]).toBeCloseTo(40, 6);
   });
 
-  it('never grabs a ghost, and misses cleanly', async () => {
-    // 10 mm off the axial plane with a 4 mm radius: no cross-section at all.
-    const { engine, layerId } = await harness([{ position: [0, 0, 10], id: 'ghost' }]);
+  it('selects a drawn ghost and grabs nothing (§7.5, 2026-08-30)', async () => {
+    // 10 mm off the axial plane with a 4 mm radius: no cross-section at all, so what is on the
+    // screen is the ghost the layer draws — and since the amendment, that is what a click finds.
+    const { engine, layerId, events } = await harness([{ position: [0, 0, 10], id: 'ghost' }]);
     engine.updateLayer<PointsLayer>(layerId, { offPlaneOpacity: 0.6 });
+    engine.setPointTool({ layerId, mode: 'select' });
+    expect(engine.pointAtScreen('axial', ...at(0, 0))).toEqual({
+      layerId,
+      pointId: 'ghost',
+      index: 0,
+    });
+    engine.pointToolClick('axial', ...at(0, 0));
+    expect(engine.pointSelection()).toEqual({ layerId, pointId: 'ghost', index: 0 });
+    expect(events.filter((e) => e.kind === 'selected')).toHaveLength(1);
+
+    // No drag was taken, so a move writes nothing and the release emits no `dragEnd`.
+    engine.pointToolDrag('axial', at(0, 0)[0] + 40, at(0, 0)[1]);
+    expect(pointsOf(engine, layerId)[0]!.position).toEqual([0, 0, 10]);
+    engine.pointToolDragEnd();
+    expect(events.filter((e) => e.kind === 'dragEnd')).toEqual([]);
+  });
+
+  it('does not grab a ghost the layer is not drawing', async () => {
+    const { engine, layerId } = await harness([{ position: [0, 0, 10], id: 'ghost' }]);
     engine.setPointTool({ layerId, mode: 'select' });
     expect(engine.pointAtScreen('axial', ...at(0, 0))).toBeNull();
     engine.pointToolClick('axial', ...at(0, 0));
@@ -246,6 +268,46 @@ describe('NoGlEngine: the point tool (§13)', () => {
     await second.engine.load(second.engine.serialize(), () => null);
     expect(second.engine.pointTool()).toBeNull();
     expect(second.events.filter((e) => e.kind === 'cleared').length).toBeGreaterThan(0);
+  });
+
+  /**
+   * §4.7's `PointToolEvent.reason` (2026-08-30), mirrored here because `?engine=mock` is what the
+   * app's E2E drives and a module reads the reason to decide whether to arm again.
+   */
+  it('says WHY it cleared, one reason per route', async () => {
+    const esc = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    esc.engine.setPointTool({ layerId: esc.layerId, mode: 'select' });
+    esc.engine.cancelPointTool();
+    expect(esc.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('esc');
+
+    const measure = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    measure.engine.setPointTool({ layerId: measure.layerId, mode: 'select' });
+    measure.engine.setMeasureMode(true);
+    expect(measure.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('measure');
+
+    const gone = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    gone.engine.setPointTool({ layerId: gone.layerId, mode: 'select' });
+    gone.engine.removeLayer(gone.layerId);
+    expect(gone.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('layer');
+
+    const loaded = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    loaded.engine.setPointTool({ layerId: loaded.layerId, mode: 'select' });
+    await loaded.engine.load(loaded.engine.serialize(), () => null);
+    expect(loaded.events.filter((e) => e.kind === 'cleared').at(0)?.reason).toBe('load');
+
+    const host = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    host.engine.setPointTool({ layerId: host.layerId, mode: 'select' });
+    host.engine.setPointTool(null);
+    expect(host.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('host');
+
+    // A selection that goes while the tool stays armed is a different event with a different
+    // answer — this is the one a host must NOT read as "the tool is no longer mine".
+    const sel = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    sel.engine.setPointTool({ layerId: sel.layerId, mode: 'select' });
+    sel.engine.setPointSelection({ layerId: sel.layerId, pointId: 'c1' });
+    sel.engine.setPointSelection(null);
+    expect(sel.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('selection');
+    expect(sel.engine.pointTool()).not.toBeNull();
   });
 
   it('returns copies, so a caller cannot edit the armed spec in place', async () => {

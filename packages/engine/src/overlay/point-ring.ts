@@ -15,8 +15,10 @@
  * something other than what the user sees. **The same function is the CPU hit test's**:
  * `layers/points.ts#pointAtPane` imports it and re-exports it under its own name, because a hit rule
  * restated in a second place is a hit rule that drifts away from the picture — exactly as
- * `gizmoHandleAt` shares `handlePoints` with `drawGizmo`. Calling it with `offPlaneOpacity: 0` is
- * the whole of §4.7's "ghosts are never hit".
+ * `gizmoHandleAt` shares `handlePoints` with `drawGizmo`. Since 2026-08-30 that test asks it
+ * **twice** — once with `offPlaneOpacity: 0` and, for the points it culls, once with the layer's own
+ * — which is how §7.5 tells an on-slice hit (grab and drag) from a ghost hit (select only): both
+ * answers are this one function's, so the two hit classes are still the picture's.
  *
  * **It is screen-space quad expansion**, like the gizmo's ring and the measurement's segment:
  * `gl.lineWidth()` is a no-op (§7.0.6), so a "1 px" ring is a strip of quads and its width is in
@@ -49,11 +51,33 @@ export const POINT_RING_MIN_RADIUS_PX = 4;
  */
 export const DOT_RADIUS_PX = 4;
 
+/** The smallest and largest `dotRadiusPx` a layer may ask for, in CSS pixels (§4.4). */
+export const DOT_RADIUS_MIN_PX = 0.5;
+export const DOT_RADIUS_MAX_PX = 64;
+
 /** What a points layer needs to say how big its discs are. A structural type: §11 builds one by hand. */
 export interface DiscShape {
   shape: 'sphere' | 'dot';
   radiusMm: number;
   offPlaneOpacity?: number;
+  /** §4.4's `dotRadiusPx` (2026-08-30) — CSS pixels; absent is {@link DOT_RADIUS_PX}. */
+  dotRadiusPx?: number;
+}
+
+/**
+ * The `dot` branch's radius for one layer, in **CSS** pixels — {@link DOT_RADIUS_PX} unless the
+ * layer asked for another, clamped to {@link DOT_RADIUS_MIN_PX}…{@link DOT_RADIUS_MAX_PX} (§4.4).
+ *
+ * One function, exported, because three places have to agree about it and a fourth would drift:
+ * `derived.ts` sends `uDotPx = dotRadiusPxOf(layer) · uiScale` to the shader, {@link discRadiusPx}
+ * uses it for the ring and for `pointAtPane`'s hit radius, and §11 asserts all three against the
+ * same number. Clamped rather than trusted because a scene file is editable text: `NaN` would make
+ * the whole quad vanish and 5000 would fill the pane with one marker.
+ */
+export function dotRadiusPxOf(layer: { dotRadiusPx?: number }): number {
+  const asked = layer.dotRadiusPx;
+  if (asked === undefined || !Number.isFinite(asked)) return DOT_RADIUS_PX;
+  return Math.min(DOT_RADIUS_MAX_PX, Math.max(DOT_RADIUS_MIN_PX, asked));
 }
 
 /**
@@ -65,8 +89,9 @@ export interface DiscShape {
  * * the disc is the sphere ∩ plane circle, `sqrt(r² − d²)` for the signed plane distance `d`;
  * * `|d| ≥ r` is off this slice: `null`, unless {@link DiscShape.offPlaneOpacity} is above 0, in
  *   which case the ghost is drawn at the **full** radius `r`;
- * * `shape: 'dot'` replaces whichever of those radii applies with a constant `4 · uiScale` pixels,
- *   after the same cull — a screen-space marker is culled by world distance and drawn by pixels.
+ * * `shape: 'dot'` replaces whichever of those radii applies with `dotRadiusPxOf(layer) · uiScale`
+ *   pixels — a constant `4 · uiScale` unless §4.4's `dotRadiusPx` says otherwise — after the same
+ *   cull: a screen-space marker is culled by world distance and drawn by pixels.
  *
  * **The units, because getting them wrong is the failure this function exists to prevent.**
  * `mmPerPx` is `Camera2D.mmPerPx`, and that is millimetres per **device** pixel, not per CSS pixel:
@@ -76,8 +101,9 @@ export interface DiscShape {
  * pixels and must not be scaled again — the shader draws the sphere's cross-section at exactly that
  * many device pixels (`shaders/points.ts` expands a world-space quad of radius `r` mm and nothing
  * else is applied to it). `uiScale` appears in the `dot` branch alone, because that branch is the
- * only one whose radius is authored in CSS pixels: `derived.ts` sends `uDotPx = 4 · uiScale`, so the
- * CPU's constant is `DOT_RADIUS_PX · uiScale` and the two agree at every DPR.
+ * only one whose radius is authored in CSS pixels: `derived.ts` sends
+ * `uDotPx = dotRadiusPxOf(layer) · uiScale`, so the CPU's number is that same expression and the two
+ * agree at every DPR and at every size §4.4's `dotRadiusPx` asks for.
  *
  * Until 2026-08-30 the sphere branch multiplied by `uiScale` too, which on a Retina display put the
  * selection ring and the CPU hit radius at **twice** the radius of the disc the pane had drawn: a
@@ -102,7 +128,7 @@ export function discRadiusPx(
   } else {
     return null;
   }
-  if (layer.shape === 'dot') return DOT_RADIUS_PX * uiScale;
+  if (layer.shape === 'dot') return dotRadiusPxOf(layer) * uiScale;
   if (!(mmPerPx > 0)) return null;
   // No `uiScale`: `mmPerPx` is already per device pixel. See the units note above.
   return radiusMm / mmPerPx;

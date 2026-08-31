@@ -26,6 +26,7 @@ const CHORDS: Record<string, string> = {
   refit: 'f',
   'flip-tip': 't',
   ghost: 'g',
+  wire: 'd',
   next: 'n',
   prev: 'p',
   undo: 'z',
@@ -291,6 +292,16 @@ export function SeegPanel({ model }: { model: SeegModel }): React.JSX.Element {
         </button>
         <button
           type="button"
+          data-testid="seeg-wire"
+          aria-pressed={view.wire}
+          className={`tvx-btn ${view.wire ? 'tvx-btn-on' : ''}`}
+          title={label('wire', 'Draw the shaft line between consecutive contacts')}
+          onClick={command('wire')}
+        >
+          Wire
+        </button>
+        <button
+          type="button"
           data-testid="seeg-revert"
           className="tvx-btn"
           title="Put every contact back where the table had it"
@@ -298,6 +309,45 @@ export function SeegPanel({ model }: { model: SeegModel }): React.JSX.Element {
         >
           Revert
         </button>
+        {/*
+          Size is a stepper and not a slider: the useful range is ten whole pixels wide, a slider
+          would need a label to say which of them it is on, and the gesture a clinician wants is
+          "one more" rather than "somewhere around here". It is the one control here that is not a
+          command — it changes what is drawn, not what is on disk, so it has no key (§13.5's pool is
+          for commands) and `+`/`-` belong to the engine's zoom.
+        */}
+        <span className="ml-auto flex shrink-0 items-center gap-1 text-tvx-dim">
+          <span title="how big a contact is drawn, in pixels">size</span>
+          <button
+            type="button"
+            data-testid="seeg-size-down"
+            className="tvx-btn tvx-btn-sm"
+            disabled={view.dotRadiusPx <= view.sizeBounds.min}
+            title="Smaller contacts"
+            onClick={(event) => {
+              blur(event);
+              model.setSize(view.dotRadiusPx - view.sizeBounds.step);
+            }}
+          >
+            −
+          </button>
+          <span data-testid="seeg-size" className="w-4 text-center tabular-nums text-tvx-text">
+            {view.dotRadiusPx}
+          </span>
+          <button
+            type="button"
+            data-testid="seeg-size-up"
+            className="tvx-btn tvx-btn-sm"
+            disabled={view.dotRadiusPx >= view.sizeBounds.max}
+            title="Bigger contacts"
+            onClick={(event) => {
+              blur(event);
+              model.setSize(view.dotRadiusPx + view.sizeBounds.step);
+            }}
+          >
+            +
+          </button>
+        </span>
       </div>
 
       <p data-testid="seeg-stats" className="tabular-nums text-tvx-dim">

@@ -24,6 +24,7 @@ import { ShellController } from '../store/controller';
 import { createUiStore } from '../store/store';
 import type { UiStore } from '../store/store';
 import { seegManifest } from '../../../modules/seeg/manifest';
+import { paletteColor } from './shared/contacts/palette';
 import {
   FROM_CT_COORDSYSTEM,
   FROM_CT_EDITLOG,
@@ -464,6 +465,40 @@ describe('commands', () => {
     expect(contactsLayer(h).offPlaneOpacity).toBe(0.6);
   });
 
+  it('gives every shaft segment its own electrode’s colour, and every name too (A1)', async () => {
+    const h = await loadSubject();
+    const layer = contactsLayer(h);
+    // Three electrodes of 6/5/4 contacts: 5 + 4 + 3 segments, four colour floats each.
+    expect(layer.lineColors).toHaveLength(12 * 4);
+    const colorAt = (segment: number): number[] =>
+      Array.from((layer.lineColors as Float32Array).slice(segment * 4, segment * 4 + 4));
+    // A's five segments are one colour, B's four are the next — and they differ.
+    expect(colorAt(0)).toEqual(colorAt(4));
+    expect(colorAt(5)).not.toEqual(colorAt(0));
+    expect(colorAt(0).slice(0, 3)).toEqual(paletteColor(0).slice(0, 3).map(Math.fround));
+    expect(colorAt(5).slice(0, 3)).toEqual(paletteColor(1).slice(0, 3).map(Math.fround));
+    // The names take the point's colour, which is the same palette entry the disc is drawn in.
+    expect(layer.labelColorSource).toBe('points');
+    expect(layer.points?.[0]?.color).toEqual(paletteColor(0));
+  });
+
+  it('shows and hides the wire, without touching a contact (A2)', async () => {
+    const h = await loadSubject();
+    expect(contactsLayer(h).lineSegments).toHaveLength(12 * 6);
+    await h.controller.moduleCommand(SEEG, 'wire');
+    // Empty, not absent: a `Partial<PointsLayer>` merge cannot unset a field, and the engine's own
+    // rule is that fewer than one segment draws nothing.
+    expect(contactsLayer(h).lineSegments).toHaveLength(0);
+    expect(contactsLayer(h).lineColors).toHaveLength(0);
+    // A display switch is not an edit: no history entry, no dirty mark, nothing to save.
+    expect(h.store.getState().moduleDirty[SEEG]).toBeFalsy();
+    expect(contactsLayer(h).points).toHaveLength(15);
+
+    await h.controller.moduleCommand(SEEG, 'wire');
+    expect(contactsLayer(h).lineSegments).toHaveLength(12 * 6);
+    expect(contactsLayer(h).lineColors).toHaveLength(12 * 4);
+  });
+
   it('reverts every contact to where the table put it', async () => {
     const h = await loadSubject();
     const before = pointNamed(h, 'A01').position;
@@ -497,14 +532,15 @@ describe('commands', () => {
   });
 
   /**
-   * The engine's Esc grammar is place → select → off (§4.7), and it has to reach `off`.
+   * The engine's Esc grammar is place → select → off (§4.7), and the step that matters is the first.
    *
    * The first step emits nothing at all — `setPointTool`'s non-null branch is silent — so a module
-   * mirroring the mode in a flag of its own goes stale on the first press; the second step emits
-   * `cleared`, and a handler that re-armed on every `cleared` put the tool straight back into place
-   * mode, so Escape cycled for ever and every click kept dropping a contact.
+   * mirroring the mode in a flag of its own goes stale on the first press. The second emits
+   * `cleared`, and what the module does with it changed on 2026-08-30: **select is the module's
+   * resting state** (§13.3), so it puts the tool straight back in `select`. What Escape must never
+   * do is come back in `place` — that was the bug that made every click keep dropping a contact.
    */
-  it('lets Escape disarm the tool for good, place → select → off', async () => {
+  it('takes Escape out of place mode and leaves select armed, never place', async () => {
     const h = await loadSubject();
     await h.controller.moduleCommand(SEEG, 'add');
     expect(h.engine.pointTool()?.mode).toBe('place');
@@ -514,16 +550,86 @@ describe('commands', () => {
     // Esc #1: place → select. Silent, which is exactly the step a module-local flag misses.
     expect(h.engine.cancelPointTool()).toBe(true);
     expect(h.engine.pointTool()?.mode).toBe('select');
-    // Esc #2: select → off, and it stays off.
+    // Esc #2: the engine clears it and the module arms `select` again — not `place`.
     expect(h.engine.cancelPointTool()).toBe(true);
-    expect(h.engine.pointTool()).toBeNull();
+    expect(h.engine.pointTool()).toMatchObject({
+      layerId: contactsLayer(h).id,
+      mode: 'select',
+    });
 
-    // A click now places nothing, which is the whole point of having pressed Escape.
+    // A click now places nothing, which is the whole point of having pressed Escape…
     h.engine.pointToolClick('axial', 240, 240);
     expect(contactsLayer(h).points).toHaveLength(16);
-    // …and `a` arms it again: Escape turned the tool off rather than breaking it.
+    // …and `a` still turns placing back on.
     await h.controller.moduleCommand(SEEG, 'add');
     expect(h.engine.pointTool()?.mode).toBe('place');
+  });
+
+  /**
+   * §13.3 (2026-08-30): while the panel is open, a plain click on a contact selects it.
+   *
+   * The owner's report was that clicking contacts did not move the electrode dropdown. The tool is
+   * armed after a load — that part was already true — but three ordinary things cleared it and
+   * nothing put it back: `Esc`, deleting the selected contact (which clears the *selection* and
+   * used to be read as a disarm), and a scene the module had already been through. An unarmed left
+   * click is §7.5's R1 cursor-set, which never hit-tests, so the dropdown, the ring and the
+   * crosshair all stop following the pointer with nothing on screen to say why.
+   */
+  it('answers a click on a contact after Escape, with no explicit re-arming', async () => {
+    const h = await loadSubject();
+    const b01 = pointNamed(h, 'B01');
+    // Start on A, and press Escape to the point where the tool used to be gone for good.
+    expect(h.engine.cancelPointTool()).toBe(true);
+    expect(h.engine.pointTool()?.mode).toBe('select');
+
+    // Put the crosshair on B01 so its disc is on this slice, and click where it is drawn.
+    h.engine.setCursor(b01.position);
+    const axial = h.engine.scene.slices.find((s) => s.mode === 'axial');
+    h.engine.pointToolClick(axial?.id ?? 'axial', 256, 256);
+    expect(h.engine.pointSelection()?.pointId).toBe(b01.id);
+
+    // …and the module's own `electrode` followed it, which is what the dropdown renders. Asked
+    // through `refit`, whose toast names the electrode it acted on: the module was on A a moment
+    // ago, so this is the click having moved it. (The rendered `<select>` is asserted in
+    // `e2e/module-seeg.spec.ts`; vitest runs under `environment: 'node'`.)
+    await h.controller.moduleCommand(SEEG, 'refit');
+    const toast = h.store.getState().toasts.at(-1);
+    expect(toast?.detail ?? '').toContain('Re-fitted B');
+  });
+
+  it('stays armed when the selected contact is deleted', async () => {
+    // Deleting the selection emits `cleared` with `reason: 'selection'` — the tool never moved. It
+    // used to be read as a disarm, which left the module's intent false while the engine was still
+    // armed, so the next scene load never re-armed it.
+    const h = await loadSubject();
+    const a03 = pointNamed(h, 'A03');
+    h.engine.setPointSelection({ layerId: contactsLayer(h).id, pointId: a03.id });
+    await h.controller.moduleCommand(SEEG, 'delete');
+    expect(h.engine.pointTool()).toMatchObject({ mode: 'select' });
+
+    // …and the re-arm after a layer replacement still works, which is what the flag gates.
+    const gone = contactsLayer(h);
+    h.engine.removeLayer(gone.id);
+    const rebuilt = h.engine.addLayer({
+      datasetId: gone.datasetId,
+      kind: 'points',
+      module: SEEG,
+      points: [{ id: 'c1', name: 'A01', group: 'A', ordinal: 1, position: [0, 0, 0] }],
+    });
+    expect(h.engine.pointTool()).toMatchObject({ layerId: rebuilt.id, mode: 'select' });
+  });
+
+  it('lets measure mode have the click, and does not fight it back', async () => {
+    // §7.5 arms one click-consuming mode at a time. A module that re-armed on every `cleared` would
+    // turn measure mode straight off again — `setPointTool` disarms it — so `m` would do nothing at
+    // all while this panel is open. `reason: 'measure'` is what tells the two apart.
+    const h = await loadSubject();
+    h.engine.setMeasureMode(true);
+    expect(h.engine.measureMode()).toBe(true);
+    expect(h.engine.pointTool()).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    expect(h.engine.measureMode()).toBe(true);
+    expect(h.engine.pointTool()).toBeNull();
   });
 
   it('takes the Add toggle from the engine, not from a flag that Escape left stale', async () => {
@@ -785,6 +891,24 @@ describe('the scene block', () => {
     expect(second.fs.writes[0]?.text).toContain('\tedited\n');
   });
 
+  it('remembers a hidden wire, which the layer alone could not (A2)', async () => {
+    // §4.6 does not serialise `lineSegments`, so a scene reopened without the block puts every
+    // shaft back — which is why the switch is in the block and not left to the layer.
+    const h = await loadSubject();
+    await h.controller.moduleCommand(SEEG, 'wire');
+    expect(contactsLayer(h).lineSegments).toHaveLength(0);
+    const text = await savedScene(h);
+    expect(JSON.parse(text).extensions[SEEG].data.wire).toBe(false);
+
+    const second = harness({ [SCENE]: text, [CT]: 'a volume' });
+    await expect(second.controller.openScenePath(SCENE)).resolves.toBe(true);
+    expect(contactsLayer(second).lineSegments).toHaveLength(0);
+    // …and turning it back on rebuilds both arrays against the restored set.
+    await second.controller.moduleCommand(SEEG, 'wire');
+    expect(contactsLayer(second).lineSegments).toHaveLength(12 * 6);
+    expect(contactsLayer(second).lineColors).toHaveLength(12 * 4);
+  });
+
   it('degrades honestly when a build without the module dropped the block', async () => {
     const h = await loadSubject();
     const spec = JSON.parse(await savedScene(h)) as Record<string, unknown>;
@@ -835,6 +959,20 @@ describe('operations (§13.6)', () => {
 
     expect(await instance?.runOperation?.('ghost', { on: false })).toEqual({ ghost: false });
     expect(contactsLayer(h).offPlaneOpacity).toBe(0);
+
+    expect(await instance?.runOperation?.('wire', { on: false })).toEqual({ wire: false });
+    expect(contactsLayer(h).lineSegments).toHaveLength(0);
+    expect(await instance?.runOperation?.('wire', { on: true })).toEqual({ wire: true });
+    expect(contactsLayer(h).lineSegments).toHaveLength(12 * 6);
+
+    // The third display switch (2026-08-30), through the stepper's own function: it writes §4.4's
+    // `dotRadiusPx` and it is held to the panel's 2–12, so a job cannot ask for a marker the panel
+    // could not make — and it answers with the size it settled on rather than the one it was given.
+    expect(await instance?.runOperation?.('size', { px: 7 })).toEqual({ dotRadiusPx: 7 });
+    expect(contactsLayer(h).dotRadiusPx).toBe(7);
+    expect(await instance?.runOperation?.('size', { px: 40 })).toEqual({ dotRadiusPx: 12 });
+    expect(contactsLayer(h).dotRadiusPx).toBe(12);
+    expect(await instance?.runOperation?.('size', { px: 4 })).toEqual({ dotRadiusPx: 4 });
 
     const stats = (await instance?.runOperation?.('stats', {})) as {
       electrodes: { electrode: string; n: number }[];

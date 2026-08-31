@@ -22,7 +22,13 @@
  *  * **`lineSegments` is regenerated, never stored.** §4.6 does not serialise it (a `Float32Array`
  *    through `JSON.stringify` is megabytes of `{"0":…}` that restore as garbage), so it is rebuilt
  *    from the set on every change and on every scene load — which is also what keeps the shaft
- *    following an edit for free.
+ *    following an edit for free. §4.4's `lineColors` is its parallel array and goes the same way.
+ *  * **The shaft and the names take the electrode's colour** (§4.4's `lineColors` and
+ *    `labelColorSource: 'points'`, 2026-08-30). One layer carries the whole implant, so a single
+ *    `lineColor` drew fifteen shafts in one colour and a single `labelColor` wrote every name in it:
+ *    the discs said which electrode a contact belonged to and the two things drawn *next* to them
+ *    did not. Both are now the group's palette colour, which is the colour `pointsOf` already gives
+ *    the disc — so the marker, its line and its name cannot disagree.
  */
 
 import type { Layer, PointsLayer, Threshold, vec3, vec4 } from '@tetravox/engine';
@@ -47,6 +53,8 @@ export const CONTACT_LAYER_STYLE = {
   radiusMm: 1.5,
   showLabels: true,
   labelSource: 'names' as const,
+  // §4.4 (2026-08-30): each name in its own electrode's colour, which is the point's own colour.
+  labelColorSource: 'points' as const,
   offPlaneOpacity: 0.6,
   lineWidthPx: 2,
   pickable: false,
@@ -57,6 +65,39 @@ export const CONTACT_LAYER_STYLE = {
 
 /** How opaque an off-slice contact is drawn when the ghost is on. Slicer's slice projection. */
 export const GHOST_OPACITY = 0.6;
+
+/**
+ * How big a contact marker is, in CSS pixels — §4.4's `dotRadiusPx`, and the panel's Size control.
+ *
+ * The default is the engine's own `DOT_RADIUS_PX`, so a layer built at the default size is the
+ * layer this module drew before the control existed. The bounds are the useful range and no more:
+ * below 2 px a marker is a pixel of noise over a bone-window CT, and above 12 px one contact covers
+ * the neighbour a clinician is comparing it with.
+ */
+export const CONTACT_DOT_RADIUS_PX = 4;
+export const CONTACT_DOT_RADIUS_MIN_PX = 2;
+export const CONTACT_DOT_RADIUS_MAX_PX = 12;
+/** One press of the panel's Size stepper. */
+export const CONTACT_DOT_RADIUS_STEP_PX = 1;
+
+/** A size the panel or a scene block asked for, held to {@link CONTACT_DOT_RADIUS_MIN_PX}…MAX. */
+export function clampDotRadius(px: number): number {
+  if (!Number.isFinite(px)) return CONTACT_DOT_RADIUS_PX;
+  return Math.min(CONTACT_DOT_RADIUS_MAX_PX, Math.max(CONTACT_DOT_RADIUS_MIN_PX, px));
+}
+
+/**
+ * The empty geometry a hidden wire patches in — **one** instance, so `derived/store.ts`'s identity
+ * check sees the same array on every write and re-uploads nothing.
+ *
+ * Hiding the wire is a patch and not a deletion because a `Partial<PointsLayer>` merge cannot
+ * *unset* a field: `{ ...layer, ...patch }` keeps whatever the layer had wherever the patch is
+ * silent, and `lineSegments: undefined` would be spread as an explicit `undefined` only by luck of
+ * the merge implementation. An empty array is the honest statement — the engine's own rule is
+ * "fewer than one segment draws nothing" (`store.lineSegments` returns `null` under six floats), so
+ * this needs no engine change and no new mechanism at all.
+ */
+const NO_SEGMENTS = new Float32Array(0);
 
 /** `points[]` for a set, in the set's own (drawing) order. */
 export function pointsOf(set: ContactSet): ContactPoint[] {
@@ -72,31 +113,63 @@ export function pointsOf(set: ContactSet): ContactPoint[] {
 }
 
 /**
- * The shaft polylines: one segment between consecutive **ordinals** of each group.
+ * The shaft polylines and their colours: one segment between consecutive **ordinals** of each group.
  *
- * Six floats per segment, the layout §4.4's `lineSegments` declares. Consecutive by ordinal rather
- * than by array order, because the array is drawing order — a contact inserted between 4 and 5 sits
- * wherever the editor put it and still belongs on the line between them.
+ * Six floats per segment and four per segment, the layouts §4.4's `lineSegments` and `lineColors`
+ * declare. Consecutive by ordinal rather than by array order, because the array is drawing order —
+ * a contact inserted between 4 and 5 sits wherever the editor put it and still belongs on the line
+ * between them.
+ *
+ * One function for both arrays rather than two, because §4.4's contract is that they are
+ * **parallel**: two loops over the same groups is two places for a `continue` to be added to one of
+ * them, and the failure that produces is a shaft painted in its neighbour's colour.
  */
-export function shaftSegments(set: ContactSet): Float32Array {
+export function shaftGeometry(set: ContactSet): { segments: Float32Array; colors: Float32Array } {
   const values: number[] = [];
+  const colors: number[] = [];
   for (const group of set.groups) {
     const contacts = contactsOf(set, group.name);
     for (let i = 1; i < contacts.length; i += 1) {
       const a = (contacts[i - 1] as Contact).position;
       const b = (contacts[i] as Contact).position;
       values.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+      colors.push(group.color[0], group.color[1], group.color[2], group.color[3]);
     }
   }
-  return new Float32Array(values);
+  return { segments: new Float32Array(values), colors: new Float32Array(colors) };
 }
 
+/** Just the segments — {@link shaftGeometry}'s first half, for a caller that wants only geometry. */
+export function shaftSegments(set: ContactSet): Float32Array {
+  return shaftGeometry(set).segments;
+}
+
+/** What the panel's three display switches are, as one value the block and the layer both read. */
+export interface ContactLook {
+  /** §4.4's `offPlaneOpacity`: draw the contacts that are not on this slice. */
+  ghost: boolean;
+  /** Draw the shaft line between consecutive contacts. */
+  wire: boolean;
+  /** §4.4's `dotRadiusPx`, in CSS pixels. */
+  dotRadiusPx: number;
+}
+
+/** The look a layer has when nothing has said otherwise — today's picture, field for field. */
+export const DEFAULT_CONTACT_LOOK: ContactLook = {
+  ghost: true,
+  wire: true,
+  dotRadiusPx: CONTACT_DOT_RADIUS_PX,
+};
+
 /** Everything about the layer that follows from the set — one patch per edit. */
-export function layerPatch(set: ContactSet, ghost: boolean): Partial<PointsLayer> {
+export function layerPatch(set: ContactSet, look: ContactLook): Partial<PointsLayer> {
+  const shaft = look.wire ? shaftGeometry(set) : { segments: NO_SEGMENTS, colors: NO_SEGMENTS };
   return {
     points: pointsOf(set),
-    lineSegments: shaftSegments(set),
-    offPlaneOpacity: ghost ? GHOST_OPACITY : 0,
+    lineSegments: shaft.segments,
+    lineColors: shaft.colors,
+    offPlaneOpacity: look.ghost ? GHOST_OPACITY : 0,
+    dotRadiusPx: clampDotRadius(look.dotRadiusPx),
   };
 }
 

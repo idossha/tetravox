@@ -329,19 +329,71 @@ test('@angle the hit boundary is the disc, with the 8 px floor under it', async 
   expect(await selectionOf(page)).toEqual({ pointId: 'c1', index: 0 });
 });
 
-test('@angle a ghost is never hit, however visibly it is drawn', async ({ page }) => {
-  await openScene(page);
+test('@angle a drawn ghost SELECTS, and starts no drag at all', async ({ page }) => {
+  // §7.5's amendment (2026-08-30). The rule used to be "a ghost is never hit", and on a fifteen-
+  // shaft implant that made eighty-two drawn contacts into two clickable ones: every other press
+  // fell through to R1's cursor-set and read as "the selection does not update". A drawn ghost is
+  // now hit — and *only* selected, because there is no honest plane to drag an off-slice contact in.
+  const errors = await openScene(page);
   // 10 mm off the pane's plane with a 2 mm radius: no cross-section, so only a ghost can draw it.
   const { layerId } = await toolScene(page, [{ id: 'ghost', position: [0, 12.5, 0] }], {
     offPlaneOpacity: 0.6,
   });
   await arm(page, { layerId, mode: 'select' });
   const [cx, cy] = at(0, 0);
+  const before = await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3);
 
   // It IS drawn — the ghost paints the layer's red over the pane at 0.6.
   const px = await readCanvasRect(page, Math.round(cx), Math.round(cy), 1, 1);
   expect(px[0]!, 'the ghost is on the picture').toBeGreaterThan(120);
-  // …and it is not selectable, from either the query or the click.
+  // …and what is on the picture is what the query answers.
+  expect(
+    await page.evaluate(
+      ([x, y]) => window.__tvxEngine!.pointAtScreen('coronal', x as number, y as number),
+      [cx, cy] as const
+    )
+  ).toMatchObject({ pointId: 'ghost', index: 0 });
+
+  await clickAt(page, cx, cy);
+  expect(await selectionOf(page)).toEqual({ pointId: 'ghost', index: 0 });
+
+  // Exactly one `selected`, and **no `dragEnd`**: no gesture ever started, so there is no drag to
+  // commit and the engine does not invent a zero-length one (§4.7's `PointToolEvent` states the
+  // asymmetry). This is the assertion the whole amendment turns on.
+  const events = await eventsOf(page);
+  expect(events.filter((e) => e.kind === 'selected')).toHaveLength(1);
+  expect(events.filter((e) => e.kind === 'dragEnd')).toEqual([]);
+  expect(events.filter((e) => e.kind === 'placed')).toEqual([]);
+
+  // **The engine does not move the cursor**: the press was consumed, so R1's cursor-set did not run
+  // either. Jumping the slice onto the contact is the *module's* answer to `selected` (§13.3), and
+  // an engine that did it here would be doing an app's job.
+  expect(await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3)).toEqual(before);
+
+  // A press-and-drag over the ghost moves nothing, from either half: no drag state was taken, so
+  // the moves write nothing and the release still emits no `dragEnd`.
+  const at0 = (await pointsOf(page, layerId))[0]!.position;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy);
+  await settle(page);
+  await page.mouse.up();
+  await settle(page);
+  expect((await pointsOf(page, layerId))[0]!.position).toEqual(at0);
+  expect((await eventsOf(page)).filter((e) => e.kind === 'dragEnd')).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('@angle with ghosting OFF the same press is the miss it always was', async ({ page }) => {
+  // The other half of the amendment: a ghost is hit **only when the layer draws one**. With
+  // `offPlaneOpacity` absent nothing about this press changed — it hits nothing, it is not
+  // consumed, and it falls through to §7.5's R1 cursor-set.
+  await openScene(page);
+  const { layerId } = await toolScene(page, [{ id: 'ghost', position: [0, 12.5, 0] }]);
+  await arm(page, { layerId, mode: 'select' });
+  // The very pixel the ghost occupies in the case above, so the two tests differ in one field.
+  const [cx, cy] = at(0, 0);
+
   expect(
     await page.evaluate(
       ([x, y]) => window.__tvxEngine!.pointAtScreen('coronal', x as number, y as number),
@@ -350,6 +402,11 @@ test('@angle a ghost is never hit, however visibly it is drawn', async ({ page }
   ).toBeNull();
   await clickAt(page, cx, cy);
   expect(await selectionOf(page)).toBeNull();
+  expect((await eventsOf(page)).filter((e) => e.kind === 'selected')).toEqual([]);
+  // R1 ran: the click that missed set the cursor, exactly as it does with no tool armed.
+  const cursor = await page.evaluate(() => [...window.__tvxEngine!.scene.cursor] as Vec3);
+  const target = worldOfPixel(cx, cy);
+  for (const k of [0, 1, 2] as const) expect(cursor[k]).toBeCloseTo(target[k], 6);
 });
 
 test('@angle a 40 px drag moves the contact 40 · mmPerPx, and ends exactly once', async ({
