@@ -108,8 +108,10 @@ export interface PointerHost {
   readonly pointToolMode: 'select' | 'place' | null;
   /**
    * A left press while the tool is armed. `'consumed'` — the tool took the click and no gesture
-   * follows; `'grabbed'` — a point was grabbed and a `'point'` drag should start; `'miss'` — the
-   * press was not the tool's and falls through to the gizmo and the gesture machine.
+   * follows (`place` mode, a 3D `select` click, and a `select` click on a **ghost**, which selects
+   * without grabbing — §7.5, 2026-08-30); `'grabbed'` — an on-slice point was grabbed and a
+   * `'point'` drag should start; `'miss'` — the press was not the tool's and falls through to the
+   * gizmo and the gesture machine.
    */
   pointToolDown(
     viewId: string,
@@ -117,7 +119,13 @@ export interface PointerHost {
     y: number,
     is3D: boolean
   ): 'consumed' | 'grabbed' | 'miss';
-  /** The armed hover hit test (2D, `select` mode only): `true` when a point is under the pointer. */
+  /**
+   * The armed hover hit test (2D, `select` mode only): `true` when a point is under the pointer.
+   *
+   * The **same** test `pointToolDown` runs, so since 2026-08-30 a drawn ghost is hot and shows the
+   * `grab` cursor too. Anything else would be the picture saying "not clickable" about a press that
+   * selects.
+   */
   pointToolHover(viewId: string | null, x: number, y: number): boolean;
   /** One move of a `'point'` drag. */
   pointToolDrag(viewId: string, x: number, y: number): void;

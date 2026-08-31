@@ -371,6 +371,109 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await dropdown.selectOption('A');
   });
 
+  test('a ghosted contact is clickable: the click brings the slice to it, and then it drags', async () => {
+    // §7.5's amendment (2026-08-30), end to end. With `offPlaneOpacity: 0.6` a P077 slice draws
+    // eighty-two contacts and — under the old on-slice-only rule — two of them were clickable; every
+    // other press fell through to R1's cursor-set and the owner read it as "the selection does not
+    // update". This spec puts the crosshair where **no** contact is on the slice, so every marker in
+    // the pane is a ghost, and asserts the three things the amendment promises: the press selects,
+    // the module's jump brings the slice onto the contact, and the contact is then an ordinary
+    // draggable one.
+    const dropdown = page.locator('[data-testid="seeg-electrode"]');
+
+    // Put the pane centre over B03's shaft, then take the cursor above the whole implant along the
+    // axial normal. The normal is perpendicular to the pane's basis, so the in-plane projection is
+    // unchanged — every contact is still drawn where it was — and not one of them is on this slice.
+    // The list shows the chosen electrode's contacts, so pick B before asking for B03's row.
+    await dropdown.selectOption('B');
+    await page.click('[data-testid="seeg-jump-B03"]');
+    const scene = await page.evaluate((id) => {
+      const engine = window.__tetravox!.engine as unknown as {
+        scene: { cursor: number[] };
+        setCursor(world: number[]): void;
+        pointAtScreen(
+          viewId: string,
+          px: number,
+          py: number
+        ): { pointId: string; index: number } | null;
+      };
+      const c = engine.scene.cursor;
+      const layer = (window.__tetravox!.store.getState().layers ?? []).find((l) => l.module === id);
+      const points = (
+        layer as unknown as {
+          points?: { id: string; name: string; group: string; position: number[] }[];
+          radiusMm: number;
+        }
+      ).points!;
+      // 4 mm above the highest contact: more than any contact's radius, so the slice cuts none.
+      engine.setCursor([c[0]!, c[1]!, Math.max(...points.map((p) => p.position[2]!)) + 4]);
+      const cursor = engine.scene.cursor;
+      return {
+        // How near the slice the nearest contact is: the whole set has to be off it for this to be
+        // the dead click the owner reported.
+        nearestMm: Math.min(...points.map((p) => Math.abs(p.position[2]! - cursor[2]!))),
+        radiusMm: (layer as unknown as { radiusMm: number }).radiusMm,
+        hit: engine.pointAtScreen('axial', 256, 256),
+        points,
+      };
+    }, SEEG);
+
+    // The press is over a ghost and nothing else: no contact's sphere reaches this slice.
+    expect(scene.nearestMm).toBeGreaterThan(scene.radiusMm);
+    expect(scene.hit, 'the pane centre is over a drawn ghost').not.toBeNull();
+    const target = scene.points.find((p) => p.id === scene.hit!.pointId)!;
+    expect(target).toBeDefined();
+
+    // Send the dropdown to the *other* electrode, so following it is a visible change.
+    await dropdown.selectOption(target.group === 'A' ? 'C' : 'A');
+
+    await page.evaluate(() => {
+      (
+        window.__tetravox?.engine as unknown as {
+          pointToolClick(viewId: string, px: number, py: number): void;
+        }
+      ).pointToolClick('axial', 256, 256);
+    });
+
+    // 1. the dropdown and the list follow the ghost that was clicked …
+    await expect(dropdown).toHaveValue(target.group);
+    await expect(page.locator(`[data-testid="seeg-row-${target.name}"]`)).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    // 2. … and the pane slice arrives at it: the module answers `selected` with a cursor jump
+    //    (§13.3), which is what turns a ghost into the contact the slice cuts.
+    const cursor = await page.evaluate(
+      () => (window.__tetravox!.engine as unknown as { scene: { cursor: number[] } }).scene.cursor
+    );
+    for (const k of [0, 1, 2] as const) expect(cursor[k]).toBeCloseTo(target.position[k]!, 6);
+
+    // 3. and now it is an ordinary on-slice contact: the same pixel grabs it and a drag moves it.
+    const moved = await page.evaluate(
+      ([id, pointId]) => {
+        const engine = window.__tetravox!.engine as unknown as {
+          pointToolClick(viewId: string, px: number, py: number): void;
+          pointToolDrag(viewId: string, px: number, py: number): void;
+          pointToolDragEnd(): void;
+        };
+        engine.pointToolClick('axial', 256, 256);
+        engine.pointToolDrag('axial', 268, 256);
+        engine.pointToolDragEnd();
+        const layer = (window.__tetravox!.store.getState().layers ?? []).find(
+          (l) => l.module === id
+        );
+        const points = (layer as unknown as { points: { id: string; position: number[] }[] })
+          .points;
+        return points.find((p) => p.id === pointId)!.position;
+      },
+      [SEEG, target.id] as const
+    );
+    expect(Math.hypot(...moved.map((v, i) => v - target.position[i]!))).toBeGreaterThan(0.5);
+
+    // Put the panel back where the specs after this one expect it.
+    await dropdown.selectOption('A');
+  });
+
   test('Wire hides and restores the shaft lines, from the button and from its key', async () => {
     const wire = page.locator('[data-testid="seeg-wire"]');
     const segments = (): Promise<number> =>

@@ -334,6 +334,18 @@ export interface PointSelection {
  *   positions against the snapshot taken at `selected` (or at `placed`) before committing** — an
  *   unchanged one commits nothing. This is stated here, in the contract, rather than only in the
  *   engine's own e2e, because it is the first thing a second module gets wrong (2026-08-30).
+ *
+ *   **The one exception, and it is an asymmetry worth knowing: a click on a *ghost* emits
+ *   `selected` and NO `dragEnd`** (2026-08-30). Since §7.5 lets a press select a contact the layer
+ *   draws off-slice, and such a press deliberately starts **no gesture** — there is no honest plane
+ *   to drag an off-slice contact in — there is no drag to commit and the engine emits no commit for
+ *   one. So a `select`-mode click produces either `selected` + `dragEnd` (on-slice: it was grabbed)
+ *   or `selected` alone (a ghost). A host must not wait for a `dragEnd` to learn that a selection
+ *   happened; `selected` is what says so, and `dragEnd` only ever says a *drag* ended. Emitting a
+ *   zero-length `dragEnd` for a gesture that never began was the alternative and was rejected: it
+ *   would have made the event mean "a press landed" rather than "a drag ended", and every host that
+ *   compares positions at `dragEnd` would then be doing so for presses that cannot have moved
+ *   anything.
  * * `cleared` — there is no selection any more: `Esc`, an explicit `null`, or the selected id
  *   disappearing from a replaced `points` array. `pointId` is `null` and `index` is `-1`, and
  *   {@link PointToolEvent.reason} says which of them it was.

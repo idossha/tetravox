@@ -4415,3 +4415,42 @@ The **size** control is deliberately panel-only. §13.6 exempts a command that n
 dialog, the undo stack or only the selection; a size stepper is none of those, so it is not a command
 at all — it is a panel entry point beside the snap-radius field, with no key, because `+` and `-`
 belong to the engine's zoom (§7.5) and §13.5's pool is for commands.
+
+## 2026-08-30 — a ghost click selects, and that is the only click that does not drag
+
+The open question the entry above wrote down is closed, in the direction the measurement pointed. On a
+P077 slice `offPlaneOpacity: 0.6` draws eighty-two contacts and §7.5's on-slice rule made one or two of
+them hittable; the other eighty presses were §7.5's R1 cursor-set, which never hit-tests, and the owner
+read the result as "the selection does not update". A user cannot be asked to tell a hittable disc from
+an unhittable one by its opacity.
+
+What the old rule was actually protecting was never "do not select": it was **"do not drag a contact in
+a plane it is not in"**, and only the second half needed the ban. So `pointAtPane` now asks
+`discRadiusPx` **twice** — with the ghost off, and, for the points that answers `null` for, with the
+layer's own `offPlaneOpacity` — and returns which branch answered as `PointPaneHit.ghost`.
+`Engine.pointToolDown` reads that flag and answers `'consumed'`: the point becomes the selection and
+**no `'point'` gesture starts**. The module's existing `selected` handler jumps the cursor onto the
+contact (§13.3), so the press the user aimed at a ghost leaves them looking at that contact on the
+slice, and the next press is an ordinary grab. Click, the view comes to you, drag.
+
+Three details are decisions rather than consequences. **A ghost is hit only when the layer draws one**
+(`offPlaneOpacity > 0`), so with ghosting off the function is bit-identical to what it was — the
+amendment cannot make anything invisible grabbable. **The ghost's clickable disc is its full drawn
+radius**, from the same `discRadiusPx` that sizes the shader's quad and the selection ring, under the
+same 8 px floor: one rule, one function, and a target that is exactly the thing on screen. And **an
+on-slice hit outranks every ghost at the same pixel**, before distance is compared and across layers as
+well as within one — at a 3.5 mm pitch a ghost of the next slice's contact is routinely nearer the
+pointer than the contact the pane actually cuts, and handing it the press would be the same defect from
+the other side.
+
+**No `dragEnd` for a ghost click, and the asymmetry is documented rather than smoothed over.** A
+`select`-mode click emits `selected` + a zero-length `dragEnd` when it grabbed, and `selected` alone
+when it hit a ghost. The alternative — emit the pair anyway, so hosts see one shape — was rejected
+because it changes what the event *means*: `dragEnd` is a drag's commit point, hosts compare positions
+against the `selected` snapshot to decide whether anything happened, and firing it for a gesture that
+never began would make the one event that says "a drag ended" also say "a press landed". A frozen
+contract may have surprises; it may not have silent ones, so it is in `api.ts`'s `PointToolEvent`, in
+§7.5 and in §13.3.
+
+The hover half follows for free and is left to: it is the same hit test, so a ghost is now hot and shows
+the `grab` cursor. The picture must not say "not clickable" about a press that selects.

@@ -388,8 +388,8 @@ All three are saved with the scene, so a figure reopens looking the way you left
 
 | Do this | With |
 |---|---|
-| select a contact | click it in a pane, or click its row in the list |
-| move one | drag it in a 2D pane |
+| select a contact | click it in a pane — ghosts included — or click its row in the list |
+| move one | drag it in a 2D pane, once the slice is on it |
 | add contacts | **Add** (`a`) — then every click in a pane drops a new contact on the chosen electrode |
 | walk the electrode | `n` / `p`, or the list — the crosshair follows, so every pane slices through the contact |
 | snap to the metal | `s` for the selected contact, `⇧S` for the whole electrode, **Snap all…** for every one |
@@ -405,10 +405,12 @@ the one you have. You do not arm anything first — while the panel is open, cli
 click does, and `Esc` puts you back into selecting rather than turning the tool off. A click that is not
 on a contact still moves the crosshair, exactly as it does with no module open.
 
-One thing that is not obvious: **a ghosted contact cannot be clicked**. The ghost is a projection of a
-contact that lives on another slice, and dragging one would move it in a plane it is not in — so a click
-only finds the contacts the current slice actually cuts. Scroll onto the contact first (or use `n`/`p`,
-or the list, which take the crosshair there for you).
+**Clicking a ghosted contact jumps the slice to it.** A ghost is a contact that lives on another slice, so
+there is no sensible way to *drag* one — it would move in a plane it is not in. Clicking one therefore does
+the useful half instead: it selects that contact and takes the crosshair there, so every pane re-cuts through
+it. The contact you clicked is now on the slice, and a second click grabs it in the ordinary way. In practice
+you click the marker you can see, the view comes to it, and you drag from there — you never have to scroll
+onto a contact first to be able to pick it.
 
 **Snap** moves a contact to the intensity-weighted peak of a small box around it — the metal it is
 inside — at the radius the panel's field sets (0.5–5 mm, 1.5 mm by default). A contact with nothing

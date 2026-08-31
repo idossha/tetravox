@@ -50,6 +50,7 @@ import type {
   NewMeasurement,
   PickResult,
   PanePlacement,
+  PointPaneHit,
   PointSelection,
   PointsLayer,
   PointToolSpec,
@@ -724,6 +725,24 @@ export class NoGlEngine implements Engine {
    * geometry the real engine does not have.
    */
   pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null {
+    const hit = this.pointHitAt(viewId, px, py);
+    if (hit === null) return null;
+    return { layerId: hit.layerId, pointId: hit.pointId, index: hit.index };
+  }
+
+  /**
+   * The same hit, plus whether it was a **ghost** — the real engine's private `#pointAt` (§7.5,
+   * 2026-08-30).
+   *
+   * Mirrored because the ghost flag is what decides the *grammar* of a press: a ghost is selected
+   * and never grabbed, and `?engine=mock` is what the app's E2E clicks with. `pointAtScreen` drops
+   * it for the same reason the real engine does — §4.7's answer is which point, not which gesture.
+   */
+  private pointHitAt(
+    viewId: ViewId,
+    px: number,
+    py: number
+  ): (PointSelection & { ghost: boolean }) | null {
     const view = this.state.slices.find((s) => s.id === viewId);
     if (view === undefined) return null;
     const place: PanePlacement = {
@@ -735,19 +754,24 @@ export class NoGlEngine implements Engine {
       rect: this.pointPane,
       uiScale: 1,
     };
-    let best: { layer: PointsLayer; index: number; distancePx: number } | null = null;
+    let best: { layer: PointsLayer; hit: PointPaneHit } | null = null;
     for (const layer of this.pointLayers()) {
       const hit = pointAtPane(layer, place, px, py);
       if (hit === null) continue;
-      if (best === null || hit.distancePx < best.distancePx) {
-        best = { layer, index: hit.index, distancePx: hit.distancePx };
+      // An on-slice hit outranks a ghost between layers too, exactly as it does within one.
+      if (
+        best === null ||
+        (hit.ghost !== best.hit.ghost ? !hit.ghost : hit.distancePx < best.hit.distancePx)
+      ) {
+        best = { layer, hit };
       }
     }
     if (best === null) return null;
     return {
       layerId: best.layer.id,
-      pointId: pointIdAt(best.layer, best.index),
-      index: best.index,
+      pointId: pointIdAt(best.layer, best.hit.index),
+      index: best.hit.index,
+      ghost: best.hit.ghost,
     };
   }
 
@@ -792,7 +816,13 @@ export class NoGlEngine implements Engine {
   // would have made are exposed instead — `pointer.ts`'s `#onDown`, its `'point'` dispatch, and the
   // `end` it forwards from all three exits.
 
-  /** A left click at a pane pixel while the tool is armed — `pointer.ts`'s `#onDown` slot. */
+  /**
+   * A left click at a pane pixel while the tool is armed — `pointer.ts`'s `#onDown` slot.
+   *
+   * A hit on a **ghost** selects and grabs nothing (§7.5, 2026-08-30): no drag state, so a
+   * `pointToolDrag` after one moves nothing and there is no `dragEnd` to emit — the real engine's
+   * `'consumed'` branch, in the shape this seam has.
+   */
   pointToolClick(viewId: ViewId, px: number, py: number): void {
     const tool = this.pointToolSpec;
     if (tool === null) return;
@@ -800,9 +830,10 @@ export class NoGlEngine implements Engine {
       this.placePoint(tool, viewId, px, py);
       return;
     }
-    const hit = this.pointAtScreen(viewId, px, py);
+    const hit = this.pointHitAt(viewId, px, py);
     if (hit === null) return;
     this.setPointSelection({ layerId: hit.layerId, pointId: hit.pointId });
+    if (hit.ghost) return;
     this.pointDragState = { layerId: hit.layerId, pointId: hit.pointId, viewId };
   }
 

@@ -15,8 +15,10 @@
  * something other than what the user sees. **The same function is the CPU hit test's**:
  * `layers/points.ts#pointAtPane` imports it and re-exports it under its own name, because a hit rule
  * restated in a second place is a hit rule that drifts away from the picture — exactly as
- * `gizmoHandleAt` shares `handlePoints` with `drawGizmo`. Calling it with `offPlaneOpacity: 0` is
- * the whole of §4.7's "ghosts are never hit".
+ * `gizmoHandleAt` shares `handlePoints` with `drawGizmo`. Since 2026-08-30 that test asks it
+ * **twice** — once with `offPlaneOpacity: 0` and, for the points it culls, once with the layer's own
+ * — which is how §7.5 tells an on-slice hit (grab and drag) from a ghost hit (select only): both
+ * answers are this one function's, so the two hit classes are still the picture's.
  *
  * **It is screen-space quad expansion**, like the gizmo's ring and the measurement's segment:
  * `gl.lineWidth()` is a no-op (§7.0.6), so a "1 px" ring is a strip of quads and its width is in

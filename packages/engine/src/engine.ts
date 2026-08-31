@@ -2768,10 +2768,21 @@ export class TetravoxEngine implements Engine, PointerHost {
     };
   }
 
-  /** §4.7: which point a **CSS**-pixel pane coordinate would grab, without grabbing it. */
+  /**
+   * §4.7: which point a **CSS**-pixel pane coordinate would grab, without grabbing it.
+   *
+   * Since 2026-08-30 that includes a **ghost** the layer draws (§7.5), because a press there now
+   * selects — this member answers what a press would find, and an answer that omitted the ghosts
+   * would say a visible contact is not there. Whether the hit was a ghost is the pointer layer's
+   * business and not §4.7's, so it is dropped here rather than added to the frozen
+   * {@link PointSelection}: a host that needs it is asking about a gesture, and gestures are
+   * `pointToolDown`'s.
+   */
   pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null {
     const dpr = this.#dpr();
-    return this.#pointAt(viewId, px * dpr, py * dpr);
+    const hit = this.#pointAt(viewId, px * dpr, py * dpr);
+    if (hit === null) return null;
+    return { layerId: hit.layerId, pointId: hit.pointId, index: hit.index };
   }
 
   /**
@@ -2832,11 +2843,22 @@ export class TetravoxEngine implements Engine, PointerHost {
    *
    * `'consumed'` — the press was the tool's and no gesture follows it: every click in `place` mode
    * (a 3D click that hit nothing places nothing, and is still swallowed — the mode is on, so it
-   * must not fall through to "set the cursor"), and a 3D `select` click, which selects but starts
-   * no drag (v1 has no 3D point drag: that needs a points `PickItem` and a pick shader).
-   * `'grabbed'` — a 2D `select` click hit a point: it is now the selection and the caller starts a
-   * `'point'` gesture. `'miss'` — nothing here; the press falls through to the gizmo and the
-   * gesture machine, exactly as it did before the tool existed.
+   * must not fall through to "set the cursor"), a 3D `select` click, which selects but starts no
+   * drag (v1 has no 3D point drag: that needs a points `PickItem` and a pick shader), and — since
+   * 2026-08-30 — a 2D `select` click that hit a **ghost**.
+   * `'grabbed'` — a 2D `select` click hit an **on-slice** point: it is now the selection and the
+   * caller starts a `'point'` gesture. `'miss'` — nothing here; the press falls through to the
+   * gizmo and the gesture machine, exactly as it did before the tool existed.
+   *
+   * **A ghost hit is select-only, and that asymmetry is deliberate** (§7.5). The contact is off
+   * this slice, so there is no honest plane to drag it in: `pointToolDrag` would write the *pane's*
+   * plane into a point that does not live there and silently move it. Selecting it is the useful
+   * half — a host that jumps the cursor onto the selection (which is what §13.3's contact modules
+   * do) brings the slice to the contact, and the very next press on it is an ordinary on-slice grab.
+   * Because no gesture starts, **no `dragEnd` is emitted either**: `dragEnd` is a drag's commit
+   * point and there was no drag, so a ghost click is one `selected` and nothing else. That is the
+   * one place a `select`-mode click does not produce the `selected`/`dragEnd` pair §4.7 documents,
+   * and it is stated there and in §7.5 rather than left to be discovered.
    */
   pointToolDown(
     viewId: ViewId,
@@ -2853,7 +2875,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     const hit = this.#pointAt(viewId, x, y);
     if (hit === null) return 'miss';
     this.setPointSelection({ layerId: hit.layerId, pointId: hit.pointId });
-    if (is3D) return 'consumed';
+    if (is3D || hit.ghost) return 'consumed';
     this.#pointDrag = { layerId: hit.layerId, pointId: hit.pointId, viewId };
     return 'grabbed';
   }
@@ -2977,8 +2999,14 @@ export class TetravoxEngine implements Engine, PointerHost {
     return tool === null ? layers : layers.filter((l) => l.id === tool.layerId);
   }
 
-  /** The hit test, in **device** pixels — `pointAtScreen`'s and the pointer layer's one path. */
-  #pointAt(viewId: ViewId, x: number, y: number): PointSelection | null {
+  /**
+   * The hit test, in **device** pixels — `pointAtScreen`'s and the pointer layer's one path.
+   *
+   * Answers a {@link PointSelection} **plus** whether the hit was a ghost (§7.5, 2026-08-30). The
+   * flag is internal on purpose: it decides the *grammar* of a press — select, or select and grab —
+   * and that is `pointToolDown`'s question, not a member of the frozen selection type.
+   */
+  #pointAt(viewId: ViewId, x: number, y: number): (PointSelection & { ghost: boolean }) | null {
     const view = this.#store.view(viewId);
     const rect = this.paneRect(viewId);
     if (view === undefined || rect === null) return null;
@@ -2986,7 +3014,16 @@ export class TetravoxEngine implements Engine, PointerHost {
     if (layers.length === 0) return null;
     const uiScale = Math.max(1, Math.round(this.#dpr()));
 
+    // Nearest wins between layers, with `pointAtPane`'s own rule applied across them too: an
+    // on-slice hit outranks a ghost however much nearer the ghost's centre is. Without the second
+    // clause a scene holding two points layers would answer differently from a scene holding one,
+    // which is the kind of difference nobody would think to look for.
     let best: { layer: PointsLayer; hit: PointPaneHit } | null = null;
+    const beats = (hit: PointPaneHit): boolean => {
+      if (best === null) return true;
+      if (hit.ghost !== best.hit.ghost) return !hit.ghost;
+      return hit.distancePx < best.hit.distancePx;
+    };
     if (isSliceView(view)) {
       const place = {
         view,
@@ -2998,9 +3035,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       };
       for (const layer of layers) {
         const hit = pointAtPane(layer, place, x, y);
-        if (hit !== null && (best === null || hit.distancePx < best.hit.distancePx)) {
-          best = { layer, hit };
-        }
+        if (hit !== null && beats(hit)) best = { layer, hit };
       }
     } else {
       // The 3D pane's projection is the one the **last frame** used, like `pick` (§7.2.3): a hit
@@ -3009,9 +3044,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       if (viewProj === undefined) return null;
       for (const layer of layers) {
         const hit = pointAtPane3D(layer, viewProj, rect, x, y);
-        if (hit !== null && (best === null || hit.distancePx < best.hit.distancePx)) {
-          best = { layer, hit };
-        }
+        if (hit !== null && beats(hit)) best = { layer, hit };
       }
     }
     if (best === null) return null;
@@ -3019,6 +3052,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       layerId: best.layer.id,
       pointId: pointIdAt(best.layer, best.hit.index),
       index: best.hit.index,
+      ghost: best.hit.ghost,
     };
   }
 

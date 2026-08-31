@@ -2518,8 +2518,8 @@ Input (Freeview-like):
     sit about five pixels apart at a default zoom, and the click that matters most is the one filling the gap
     *between* two that were found; a hit-first rule would answer it by selecting a neighbour. The point is
     `{ ...template, id: 'p<n>', position }`, it becomes the selection, and one `placed` event says so.
-  * **`select`: a press hits, and the hit starts a drag.** The rule is on-slice only (`|d| < r`, so **a ghost
-    is never hit**), within `max(disc px, 8 px)` of the disc the pane actually drew, nearest wins; in the 3D
+  * **`select`: a press hits, and an *on-slice* hit starts a drag.** The rule is within
+    `max(disc px, 8 px)` of the disc the pane actually drew, nearest wins; in the 3D
     pane the nearest projected centre within 14 px, and **no drag** in v1. The disc radius is
     `overlay/point-ring.ts`'s `discRadiusPx` — the same function §7.2 sizes the selection ring with, so the
     hit rule cannot drift away from the picture, exactly as `gizmoHandleAt` shares `handlePoints` with the
@@ -2531,14 +2531,43 @@ Input (Freeview-like):
     bigger is a bigger target: one function, `dotRadiusPxOf`, feeds the shader uniform, the ring and this
     rule. The `8 px` and `14 px` floors stay device pixels deliberately, the same convention as the gizmo's
     `HANDLE_HIT_PX`: the frame's grabbable things use one unit.
+  * **A ghost the layer *draws* is hit, and the hit SELECTS without grabbing** (2026-08-30). Until then the
+    rule was on-slice only — the disc test was asked with `offPlaneOpacity: 0`, so a point the slice does not
+    cut was not hittable at all. Measured on a fifteen-shaft implant with `offPlaneOpacity: 0.6`, that is
+    **eighty-two contacts drawn on a slice and about two of them clickable**: every other press fell through
+    to R1's cursor-set, which never hit-tests, and reads as "the selection does not update". So `pointAtPane`
+    now asks `discRadiusPx` **twice** — once with the ghost off, and, for the points that answers `null` for,
+    once with the layer's own `offPlaneOpacity` — and reports which branch answered. The rules that decide it:
+    * **only when the layer draws them.** The second branch is entered for `offPlaneOpacity > 0` and nothing
+      else, so with ghosting off this test answers exactly what it answered before the branch existed.
+      Nothing invisible is grabbable.
+    * **the ghost's clickable disc is its FULL drawn radius** `r` — the same number `discRadiusPx` gives the
+      shader and the selection ring — under the same `max(disc, 8 px)` floor. One rule, one function, one
+      picture.
+    * **an on-slice hit beats any ghost at the same pixel**, before distance is compared and across layers as
+      well as within one; among ghosts, nearest projected centre wins. A contact the pane really cuts is the
+      one the user is looking at.
+    * **no drag, ever.** `Engine.pointToolDown` answers `'consumed'` for a ghost hit: the press is the tool's,
+      the point becomes the selection, and **no `'point'` gesture starts and no `pointDrag` is taken**. This
+      is the surviving half of the old rule and the reason it existed — an off-slice contact has no honest
+      plane to be dragged in, and dragging one would move a contact the user cannot see. A host that jumps the
+      cursor onto its selection (§13.3's contact modules do) brings the slice to the contact, and the next
+      press on it is an ordinary on-slice grab.
+    * **and therefore no `dragEnd`.** A `select`-mode click emits `selected` + `dragEnd` when it grabbed, and
+      `selected` **alone** when it hit a ghost. `dragEnd` means "a drag ended", and emitting a zero-length one
+      for a gesture that never began would have made it mean "a press landed" — after which every host that
+      compares positions at `dragEnd` would be doing so for presses that cannot have moved anything. The
+      asymmetry is stated in `api.ts`'s `PointToolEvent` as well as here, because a contract's surprises
+      belong in the contract.
   * **The drag is `GestureKind 'point'`**, resolved in `resolveGesture`'s **2D** branch after the ctrl/meta
     and `Shift` tests and before the `space` one, so `Shift`+drag over a contact is still the layer's opacity
     and `space`+drag is still the pan. Each move writes `paneToWorld` into a **replaced** `points` array.
     The gesture's `end` is forwarded to the tool from **all three exits** — `#onUp`, `#onCancel`
     (`pointercancel`, and the window `blur` bound to it) and the second-pointer branch of `down()` — and
     becomes exactly one `dragEnd`, which is what makes one drag one undo step and one dirty mark for the host.
-    **A plain click is a zero-length drag and emits one too**: a `select`-mode click grabs the point under
-    it, so clicking through contacts produces `selected`, `dragEnd`, `selected`, `dragEnd`, … "One drag is
+    **A plain click on an on-slice point is a zero-length drag and emits one too**: such a click grabs the
+    point under it, so clicking through contacts produces `selected`, `dragEnd`, `selected`, `dragEnd`, …
+    (a click on a ghost grabs nothing and emits `selected` alone, above.) "One drag is
     one undo step" is therefore not "every `dragEnd` is an undo step" — a host compares positions against
     the snapshot it took at `selected` and commits only what moved. The engine does not suppress the event:
     the grab really did happen, a host may want it, and a silent exception in a frozen contract is worse
@@ -2561,7 +2590,9 @@ Input (Freeview-like):
     would do nothing at all while such a module was active. The reason is which of the engine's own routes
     ran and not something a caller supplies, which is why `setPointTool(null)` stays a one-argument member.
   * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
-    `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). A user who
+    `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). The *same*
+    test, so a drawn ghost is hot and shows `grab` too: the picture must not say "not clickable" about a
+    press that selects. A user who
     is not editing points pays one property read per move, so §8's 16 ms hover budget is untouched.
 * Keys: `r` reset view, `1..6` presets, `c` toggle crosshair, `x` cycle layout, `o` orthographic, `m`
   measure, `Esc` cancel a measurement, `[`/`]` cycle the active layer, `v` toggle its visibility,
@@ -3231,6 +3262,15 @@ the new layer exists, never after `'measure'` (the user picked the other click-c
 all for `'selection'`, which is not a disarm. `Esc` keeps the step that matters — `place` → `select` — and a
 click that hits nothing still falls through to R1's cursor-set, because a `select`-mode miss changes nothing.
 Leaving the module is how a user turns the tool off.
+
+**A click on a ghosted contact jumps the slice onto it** (2026-08-30). §7.5 now lets a press select a contact
+the layer draws off-slice, and selecting it is all the engine does — the cursor stays where it was, because
+moving it is an application decision. The module's answer to `selected` has always been `setCursor(contact)`,
+so the jump is already written: the press selects the ghost, the crosshair lands on the contact, all three
+panes re-cut through it, and the marker the user aimed at is now the on-slice one they can drag. That is what
+makes the amendment usable rather than merely permitted — without the jump a user would select a contact they
+still could not move, and with it "click the thing you can see" is true of every contact on the shaft rather
+than of the one or two the current slice happens to cut.
 
 **Module-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
 concrete defect: the core points editor's per-point ↺ deletes the electrode's colour, its 0.5–20 mm radius

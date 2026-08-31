@@ -132,10 +132,30 @@ describe('NoGlEngine: the point tool (§13)', () => {
     expect(ends[0]!.world![0]).toBeCloseTo(40, 6);
   });
 
-  it('never grabs a ghost, and misses cleanly', async () => {
-    // 10 mm off the axial plane with a 4 mm radius: no cross-section at all.
-    const { engine, layerId } = await harness([{ position: [0, 0, 10], id: 'ghost' }]);
+  it('selects a drawn ghost and grabs nothing (§7.5, 2026-08-30)', async () => {
+    // 10 mm off the axial plane with a 4 mm radius: no cross-section at all, so what is on the
+    // screen is the ghost the layer draws — and since the amendment, that is what a click finds.
+    const { engine, layerId, events } = await harness([{ position: [0, 0, 10], id: 'ghost' }]);
     engine.updateLayer<PointsLayer>(layerId, { offPlaneOpacity: 0.6 });
+    engine.setPointTool({ layerId, mode: 'select' });
+    expect(engine.pointAtScreen('axial', ...at(0, 0))).toEqual({
+      layerId,
+      pointId: 'ghost',
+      index: 0,
+    });
+    engine.pointToolClick('axial', ...at(0, 0));
+    expect(engine.pointSelection()).toEqual({ layerId, pointId: 'ghost', index: 0 });
+    expect(events.filter((e) => e.kind === 'selected')).toHaveLength(1);
+
+    // No drag was taken, so a move writes nothing and the release emits no `dragEnd`.
+    engine.pointToolDrag('axial', at(0, 0)[0] + 40, at(0, 0)[1]);
+    expect(pointsOf(engine, layerId)[0]!.position).toEqual([0, 0, 10]);
+    engine.pointToolDragEnd();
+    expect(events.filter((e) => e.kind === 'dragEnd')).toEqual([]);
+  });
+
+  it('does not grab a ghost the layer is not drawing', async () => {
+    const { engine, layerId } = await harness([{ position: [0, 0, 10], id: 'ghost' }]);
     engine.setPointTool({ layerId, mode: 'select' });
     expect(engine.pointAtScreen('axial', ...at(0, 0))).toBeNull();
     engine.pointToolClick('axial', ...at(0, 0));
