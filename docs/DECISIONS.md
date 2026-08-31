@@ -4482,3 +4482,123 @@ languages of test (`node --test` and vitest) and different waves, so `fetch-lock
 reads `main/module-store.ts`, pulls `RECEIPT_NAME` and the `InstallReceipt` / `ReceiptFile` field
 lists out of it, and asserts the receipt it writes matches. A contract nothing compares is a contract
 that has already drifted.
+
+## 2026-08-30 — the extension loader is one hoisted variable import, guarded against the bundler
+
+**Decision.** `renderer/src/modules/installed.ts` loads a downloaded module with a URL hoisted into a
+local `const` and a dynamic import of that identifier, carrying `/* @vite-ignore */`; the loaded
+namespace is shape-checked before it is registered; and `scripts/check-module-loader.mjs` asserts the
+**built chunk** still contains `tetravox://module/`, contains a variable `import(x)`, and contains no
+`__variableDynamicImportRuntimeHelper`. `registry.ts` gains `setInstalledModules()`, appended after
+`MODULES` inside `enabledModules()` — the one place every route into a module already goes.
+
+**Why the exact form matters, measured rather than assumed.** Three shapes were built against this
+repository's own Vite (7.3.6). A literal specifier — what the compiled-in registrations use — becomes
+`__vitePreload(() => import("./index-<hash>.js"), …)`: fully owned by the bundler and unable to name a
+runtime URL. An **inline template**, `` import(`tetravox://module/${id}/…`) ``, is *partially
+analysable*, so Vite rewrites it into a glob helper and the URL stops being in the chunk at all — loud,
+at least. The identifier form **without** `@vite-ignore` is the dangerous one: it is silently rewritten
+into `__variableDynamicImportRuntimeHelper` over an **empty** glob, which rejects every URL at runtime
+with no build warning, no type error and no failing unit test. The identifier form *with* the comment
+ships verbatim, and `__vitePreload` is correctly not applied — the preload helper injects a
+`<link rel=modulepreload>`, which is meaningless for a URL that only exists after a consent.
+
+**So the guard reads the build output, not the source.** Everything above is a claim about software we
+do not control and cannot pin behaviour from. A lint rule or a vitest could only assert what the source
+says; the failure mode is the *bundler* disagreeing with it. `check-module-loader.mjs` therefore runs
+in the `test` job after `pnpm e2e` (which builds `out/`), and its own fixtures — the three ways it can
+break, driven red — run in `docs-guard` where they need no toolchain. An empty chunk list is a failure
+rather than a pass: "there was no build output to check" and "the build output is correct" must never
+be the same answer from a guard.
+
+**The namespace is shape-checked because a downloaded chunk is not typechecked by our build.** That is
+the whole difference between an installed module and a compiled-in one. `activate` missing is a
+sentence naming the module, raised where `ShellController.activateModule`'s existing catch already
+turns it into a toast, rather than a `TypeError` deep inside the host wiring. Extra exports are
+accepted: a module may ship whatever else it likes, and refusing them would be a rule with no reason.
+
+**A failed load must never leave a broken switcher.** The registration is a manifest, and the failure
+is inside `load()`, so the row survives, the slot stays empty, and the Extensions dialog's card is
+marked failed through `extensionProgress` — the same field a failed *download* writes. One "this
+extension is broken" surface rather than two.
+
+**Registrations are rebuilt from the same array that redrew the card.** Every action reply carries
+`ModuleActionResult.statuses`, and the controller feeds that exact array to both, so the switcher and
+the dialog cannot disagree about what is enabled. The manifests are re-fetched at the same moment:
+`main.tsx` registered them before the first paint, but that was a snapshot of the disk at launch, and
+installing a module changes the disk — without the re-fetch an extension installed in *this* session
+would be consented, served, and still absent from the switcher until the next relaunch.
+
+## 2026-08-30 — the app half of the SDK global, and where it is installed
+
+**Decision.** `renderer/src/modules/sdk-runtime.ts` sets
+`globalThis.__tetravoxModuleSdk = { hostVersion, react, ModuleHostError, stemOf, contacts }` from
+`main.tsx`, **synchronously at boot**, beside `loadInstalledManifests()` and before the first render.
+
+**Why boot and not `activateModule`.** A module's bundle executes its top level the moment `import()`
+resolves it, and the inlined shim reads the global *there* — not when `activate` is called. Installing
+it inside `activateModule`, next to the code that awaits `registration.load()`, would be one statement
+too late in every case that matters.
+
+**Why exactly five members, and why they are the host's own values.** The list is pinned from both
+sides: `scripts/emit-module-sdk.test.mjs` reads `TetravoxModuleSdk` out of the shim, and
+`installed.test.ts` asserts the object this file builds has exactly those keys. The two halves live in
+different processes' code and were written in different waves, so a sixth member added on one side only
+would be a module throwing "not running inside a Tetravox module host" at load with nothing else to go
+on. Each member is a value the host already owns because a *copy* would be wrong, specifically: a
+second React is an "invalid hook call" the first time a panel renders (§13.3 renders it inside the
+app's own tree); a second `ModuleHostError` class makes every `instanceof` across the boundary false,
+which is the one thing the class exists for; a second `stemOf` computes a different `{stem}`, and a
+module's editlog write is then refused by the very list that admitted its table.
+
+**The `contacts` namespace is assembled, not barrelled.** `scripts/emit-module-sdk.mjs` *generates* the
+SDK's `types/contacts/index.ts` as `export * from './<name>'` over the kit's modules, so adding a real
+`index.ts` to `shared/contacts/` would make the generated barrel re-export itself. The renderer imports
+the seven modules as namespaces and spreads them, which is what `export *` means at runtime, and the
+kit has no duplicate export — an ambiguity would be a build error there and a silent last-wins here.
+
+**The global is not a capability, and saying so is the point.** Everything on it is already reachable
+from any renderer script, because a renderer script is first-party code by construction. What admits a
+*downloaded* module is the `tetravox://module` map, which only main fills and only after consent. This
+object is merely what such a module finds when it looks for the host's React.
+
+## 2026-08-30 — File ▸ Extensions…: the Sample Data dialog, with a consent sheet in the middle
+
+**Decision.** `DialogKind` gains `'extensions'`; `dialogs/ExtensionsDialog.tsx` is
+`SampleDataDialog.tsx`'s frame, card grid, single-state button, progress bar and directory footer, with
+the consent sheet as a **state of the same dialog**. It is reached from `File ▸ Extensions…` (a native
+menu item, `tetravox:open-extensions`, mirroring `onOpenSampleData` exactly) and from one
+`Manage extensions…` row at the bottom of the module switcher.
+
+**Why the Sample Data dialog and not a new shape.** Both answer the same question — "get something from
+the network onto this machine, once" — and the existing dialog had already settled the parts that are
+easy to get wrong: one button that says the true state rather than a state plus a verb, a progress bar
+with Cancel in the card rather than a modal, a footer naming the directory with a Show button, and a
+`data-testid` per card that an e2e can drive. Nothing here is a new UI primitive.
+
+**The switcher stays load/unload (§13.3).** It gains exactly one row, below a rule, and that row opens
+a dialog; it does not grow install, enable or remove. §13.3's "no new toolbar button" holds for the
+same reason it did before: a second management surface in the toolbar would be a second place to look.
+
+**Installing is not enabling, and the sheet is what sits between them.** "Download & enable" is two
+calls with a sheet in the middle, never one — the files land inert in `~/.tetravox/modules/` and
+`moduleEnable` is the message that says the user agreed. The sheet's permission list is
+`derivePermissions(manifest)`, read out of the manifest the user is about to run, so the card, the
+sheet and what the module can actually do cannot disagree; a separately declared list would be a second
+source of truth and the one an author would write for the reader rather than for the runtime.
+
+**The sheet's state is local to the component, not a store field.** It is a step *inside* one gesture —
+install, then answer — and nothing outside the dialog can be mid-way through it. `UiState` gains only
+the four Sample Data fields' twins (`extensions`, `extensionStatuses`, `extensionProgress`,
+`extensionDir`), none persisted: the only persisted key is `AppSettings.extensions`, which main owns
+and the renderer never writes.
+
+**An empty catalogue says "nothing to show".** The dialog reads the index the build shipped and is
+correct with no network at all, so "the registry is unreachable" and "nothing is listed yet" have the
+same, honest rendering — never an error. An **incompatible** module is listed and greyed with the host
+API it needs, rather than hidden: "needs a newer Tetravox" is an answer and an absent card is not.
+
+**Disable and Remove deactivate first.** A module whose files are about to stop being reachable must
+not be left holding a host, so the controller empties the slot before it sends either message. Main
+then does the half the renderer is not asked about — the protocol map, the settings key and the write
+list — because withdrawing a capability cannot be a message main hopes to receive.

@@ -99,6 +99,54 @@ The extension surface is tested at three levels, and the split is not a matter o
 | The host | `renderer/src/modules/hostImpl.test.ts` | `NoGlEngine` + `createUiStore` + `ShellController.attach()` (the `panels.test.ts` idiom): activation, commands, the status cell, the dirty flag, the scene block's round trip through a saved file, the confirm dialog and the discard guard. **State and calls, never pixels.** |
 | The window | `packages/app/e2e/modules.spec.ts` | Everything §13.3 says about *layout*: the slot's height cap, the toolbar's height unchanged after an activation at 1440×900, the status cell left of the dataset cells, the aside in flow at 960 px, the rendered confirm dialog. vitest runs under `environment: 'node'`, so none of this can be asserted anywhere else. |
 | A module end to end | `renderer/src/modules/seeg.test.ts`, `seeg-fixtures.test.ts`, `packages/app/e2e/module-seeg.spec.ts` | The three levels again, for the first *product* module. The harness drives every command through the controller against `NoGlEngine`; the fixtures replay numpy's own answers for the line fit, the re-fit, the tip rule, the snap and the float formatting; the e2e opens a real `seegprep` tree in a temp directory and reads the table, its `.bak` and its `_editlog.json` back off disk. |
+| A **downloadable** extension | `main/module-store.test.ts`, `renderer/src/modules/installed.test.ts`, `packages/app/e2e/extensions.spec.ts`, `packages/app/e2e/csp.spec.ts`, `scripts/check-module-loader.mjs` | §13.8. Main's store (download, hash, consent, serve, revoke) and the renderer's loader are unit-tested; the e2e drives the whole round trip through a real Electron; the CSP spec proves the `script-src` grant from both sides; the loader guard reads the **built chunk**. See below. |
+
+### Downloadable extensions (§13.8)
+
+The seams, all of them environment variables, so nothing here touches a real `~/.tetravox` or the network:
+
+| Variable | What it redirects |
+|---|---|
+| `TETRAVOX_MODULE_DIR` | where extensions are installed (default `<TETRAVOX_HOME>/modules`) |
+| `TETRAVOX_EXT_INDEX` | the catalogue JSON, instead of the shipped `src/shared/extensions-index.json` |
+| `TETRAVOX_HOME` | `configHome()`, so `settings.json` — and with it the **consent record** — is a temp file |
+
+`e2e/fixtures/tetravox.fixture/` is a checked-in **emitted module bundle**: zero imports, the SDK shim
+inlined, reading the host's React and the contacts kit off `globalThis.__tetravoxModuleSdk`. It is what a
+module repository's `rollup -c` produces, checked in because no module repository exists yet, and
+`extensions.spec.ts` runs the same five-line "no imports at all" check on it that
+`scripts/module-sdk/README.md` tells a module repository to run in its own CI.
+`e2e/fixtures/tetravox.future/` is a manifest alone, at `hostApi: 2`, for the greyed-card case.
+
+`extensions.spec.ts` stages that bundle as a **release store** — each asset named by its own sha256, the
+`scripts/sample-data/publish.sh` layout — and installs it over a `file://` URL, so the download path runs for
+real with no server. Then: catalogue → install → consent sheet with the derived permissions → enable →
+the switcher row → the module's own panel → disable → remove, with a `fetch('tetravox://module/…')` before
+and after each consent change, because *consent gates execution* is the claim and a 404 is how it is visible.
+
+Two claims live in `csp.spec.ts` instead, because a policy can only be proved from inside the page it governs
+and **the dev server carries no CSP**:
+
+```sh
+pnpm --filter @tetravox/app run e2e                            # dev: everything above
+pnpm package && TETRAVOX_REQUIRE_PACKAGED=1 \
+  pnpm --filter @tetravox/app run e2e:packaged                 # the shipped bundle
+```
+
+The packaged leg is the gate for the `script-src 'self' 'wasm-unsafe-eval' tetravox://module` **host source**:
+it enables a pre-seeded fixture through the preload bridge and then `import()`s its URL, asserting **both**
+that no `securitypolicyviolation` fired *and* that `activate` came back a function. "It loaded" and "the policy
+let it" are different facts, and only the pair is the claim.
+
+`scripts/check-module-loader.mjs` is the third kind of test, and the only one that can catch its failure: the
+loader's variable dynamic import is rewritten by Vite into an **empty** glob helper if the `@vite-ignore`
+comment is ever lost, with no build warning and no failing unit test. It reads
+`packages/app/out/renderer/assets/*.js`:
+
+```sh
+pnpm --filter @tetravox/app run build && node scripts/check-module-loader.mjs
+node --test scripts/check-module-loader.test.mjs   # its own fixtures, driven red
+```
 
 The fixture module is the subject throughout, driven with `?modules=hello` — the same seam `?engine=mock`
 uses. It is compiled into every build and listed only behind that parameter, because `pnpm e2e` drives the
@@ -111,12 +159,15 @@ node --test scripts/check-frozen-docs.test.mjs   # its own rules, driven red
 node scripts/check-frozen-docs.mjs --base origin/main
 node --test scripts/sync-module-docs.test.mjs    # the generator's own fixtures, same idiom
 node scripts/sync-module-docs.mjs --check        # §2.7 still says what the manifests say
+node --test scripts/check-module-loader.test.mjs # §13.8's loader guard, driven red
 ```
 
-CI runs all four in the `docs-guard` job, which checks out with `fetch-depth: 0` because rule one is a
-merge-base diff. Locally, without `--base`, the script says it has nothing to diff and checks only the rule
+CI runs all of these in the `docs-guard` job — the *self-tests* of the loader guard included, because they
+need neither an install nor a toolchain; the loader guard's real run needs a build and is a step of `test`,
+right after `pnpm e2e`, which is what builds `out/`. `docs-guard` checks out with `fetch-depth: 0` because
+rule one is a merge-base diff. Locally, without `--base`, the script says it has nothing to diff and checks only the rule
 that needs no diff — a guard that failed when it could not do half its job would be switched off within a
-week. The last two are §13.6's half of the same idea: §2.7 is *generated* from the manifests
+week. The middle two are §13.6's half of the same idea: §2.7 is *generated* from the manifests
 (`node scripts/sync-module-docs.mjs` rewrites it), so a table that drifted would promise a user a job the
 validator refuses.
 

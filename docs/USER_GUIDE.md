@@ -324,6 +324,63 @@ it here: the block is carried through untouched.
 editor, so the module's own controls stay the only way to change them; closing such a layer's dataset
 closes the module's layers with it.
 
+Some modules ship inside Tetravox and some are downloaded — see **Extensions** for the second kind.
+
+
+## Extensions
+
+An **extension** is a module that was not compiled into Tetravox: it is downloaded, checked, and turned
+on by hand. Everything the **Modules** section describes then applies to it unchanged — it appears in
+the same switcher, opens in the same slot, binds keys from the same pool and writes into the same
+scenes. The difference is where it came from and what you had to agree to.
+
+**File ▸ Extensions…** opens the list, and so does *Manage extensions…* at the bottom of the toolbar's
+module switcher. Each card is one extension and one button that says its true state:
+
+| The card says | What it means |
+|---|---|
+| **Download & enable** | It is in the catalogue and not on this machine. |
+| **Enable** | Its files are here and it is not allowed to run. |
+| **Enabled ✓**, with **Disable** | It is running. |
+| **Update to 1.1.0** | A newer version this build can run is available. |
+| **Bundled** | It shipped with Tetravox. You can turn it off; you cannot remove it. |
+| Greyed, *needs Tetravox host API 2* | It was written for a newer Tetravox. Update the app. |
+
+**Downloading is not turning on.** The files land in `~/.tetravox/modules/` and can do nothing at all
+until you say so. When you enable one for the first time, Tetravox shows a sheet naming the extension,
+its version, the repository it came from, and — read out of the extension's own manifest, not out of a
+description it wrote about itself — everything it will be able to do:
+
+- read the file types it declares, in files *you* choose from a dialog;
+- write the file types it declares, to files *you* name in a Save sheet, plus the sidecars it declares
+  beside them (a timestamped `.bak`, an edit log);
+- bind its keys while it is active;
+- run the operations it declares from a job file;
+- keep its own record inside a saved scene.
+
+**Enable it only if you trust where it came from.** An enabled extension runs as part of Tetravox, with
+the same access to your files as the app itself. Tetravox verifies that the bytes it downloaded are
+exactly the bytes the catalogue promised — every file is checked by its SHA-256 at download **and again
+every time it is enabled** — so nobody can substitute different code for the version you agreed to. That
+is a guarantee about *tampering*, not about intent: it cannot tell you whether the author is
+trustworthy. Extensions in the Tetravox catalogue are reviewed before they are listed.
+
+**Disable** withdraws consent immediately: the extension leaves the switcher, its code stops being
+reachable, and any permission a Save sheet had granted it is taken back. Its files stay on disk, so
+turning it on again is one click and one sheet. **Remove** disables it and deletes the files. **Show
+folder** opens `~/.tetravox/modules/` if you want to look.
+
+**Updates** ask again. A new version is new code with a possibly different list of things it can do, so
+consent is recorded per version rather than once per extension.
+
+**Offline is normal.** The catalogue Tetravox ships with is used when the registry cannot be reached, so
+the dialog always opens and always lists what is already installed. An empty catalogue says so rather
+than looking like a failure.
+
+**Automation.** A job file may name an extension's operations exactly as it names a built-in module's,
+but only one you have enabled. A job naming an installed-but-not-enabled extension stops before it does
+anything and tells you which one to turn on.
+
 
 ## sEEG contacts
 

@@ -210,6 +210,7 @@ const GUIDE_PAGES = [
   { heading: 'Points & electrodes', slug: 'points-electrodes' },
   { heading: 'Measurements', slug: 'measurements' },
   { heading: 'Modules', slug: 'modules' },
+  { heading: 'Extensions', slug: 'extensions' },
   { heading: 'sEEG contacts', slug: 'seeg-contacts' },
   { heading: 'Coordinates', slug: 'coordinates' },
   { heading: 'Themes & settings', slug: 'themes-settings' },

@@ -1077,6 +1077,19 @@ Rules:
     is honoured **only when `app.isPackaged` is false** (2026-08-30): it is ambient environment, and a
     dotfile or a launcher exporting it must not be able to switch off a shipped build's only guard on
     unsaved edits. `installCloseGuard` takes `packaged` from main, so `shouldPromptOnClose` stays pure.
+13. **Installing an extension is nine channels and a third `tetravox://` host** (`main/module-store.ts`,
+    `main/protocol.ts`; §13.8, 2026-08-30). `tetravox:module-{catalog,statuses,manifests,install,cancel,
+    enable,disable,remove,reveal-dir}` plus a `tetravox:module-progress` push, mirroring §8's Sample Data
+    block one door further in. **No path crosses this bridge in either direction.** The renderer sends an id
+    and a version and receives card states, progress numbers and manifests — which are data, no DOM type and
+    nothing to execute. A module's *code* is reachable only as `tetravox://module/<id>/<version>/<file>`, off
+    a `Map<string, string>` that only `enableModule()` fills, and only after re-hashing every file against
+    the install receipt. So the renderer cannot name a module file, cannot read one, and cannot make one
+    reachable; the one thing it can do is ask, and the sheet the user answers is what the ask is for.
+    `script-src` therefore gains the **host source** `tetravox://module` and nothing else — the scheme form
+    `tetravox:` would also admit `tetravox://file/…`, which is every path the user has ever opened.
+    `enableModule`/`disableModule`/`removeModule` are also where rule 11's write list is revoked, in main,
+    rather than over the renderer-cooperative channel.
 
 ---
 
@@ -3106,8 +3119,12 @@ leave a half-built view grid behind. **Deactivating is not destructive**: a modu
 layers and its own state in `moduleBlocks`, so re-activating restores through `restoreBlock` — the same code
 path opening a scene takes.
 
-**Distribution.** In-tree, by pull request (`CONTRIBUTING.md`, "Adding a module"). A lab-internal module is a
-branch build, and this document says so plainly rather than implying an installer that does not exist.
+**Distribution.** Two routes, one host surface. **In-tree**, by pull request (`CONTRIBUTING.md`, "Adding a
+module") — the module is compiled in and `MODULES` names it. **Downloaded**, from its own repository through
+File ▸ Extensions… — the module is verified, consented to per version and loaded over `tetravox://module`
+(§13.8). Everything below this line is identical for both: the same `ModuleManifest`, the same frozen
+`ModuleHost`, the same key pool, the same scene block, the same job envelope. What differs is where the bytes
+came from and what counted as consent, and both are §13.8's subject.
 
 ### 13.2 Persistence
 
@@ -3295,16 +3312,82 @@ no remedy at all (DECISIONS, 2026-08-30).
 7. Nothing added to `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts`. If a module
    seems to need something there, the host is missing a member — add it to `host.ts` under §12.3's rules.
 
-`tetravox.hello` is the worked example; read it before writing a manifest.
+`tetravox.hello` is the worked example; read it before writing a manifest. A module that ships **separately**
+follows the same list with two substitutions — `@tetravox/module-sdk` in place of the relative imports, and a
+URL in place of item 3's guide heading (§13.8, settled decision O3).
 
-### 13.8 Stage 2, and what it would cost
+### 13.8 Downloadable extensions — the shipped design
 
-A **community tier** — modules loaded at runtime from disk rather than compiled in — is described here as the
-path and is not built. It needs: a module Worker with no DOM and a JSON-only host bridge (a mechanical `await`
-pass over the modules that exist by then, not a redesign, which is exactly what the sync-plus-lint-wall design
-buys); a permission model with reasons; a Restricted Mode for a scene that arrives with an unknown module; a
-single-file library build so a module has something stable to compile against; a §5 rule 9 rewrite; and a
-security review of the whole path. It is 8–9 engineer-days and a different threat model, and nothing in stage 1
-prevents it — the wall on `modules/<id>/**` exists precisely so that day is a port and not a rewrite.
+A module no longer has to be compiled in. **Two tiers, one mechanism**: a *bundled* module ships inside the
+signed application, and an *installed* one is downloaded, verified and consented to at runtime. Both are
+`manifest.json` plus `index.js` in a versioned directory; both are re-hashed before they are allowed to run;
+both reach the switcher through the same registry. What separates them is where the bytes came from and what
+counted as consent.
 
-Until then, "community" means a pull request that adds one directory, cites this section and passes §13.7.
+```
+~/.tetravox/modules/<id>/<version>/{manifest.json,index.js,tetravox-module.json}   # installed (TETRAVOX_MODULE_DIR)
+<app resources>/modules/<id>/<version>/…                                           # bundled, read-only
+packages/app/src/modules/manifest-schema.ts        # the JSON carrier's `tsc`
+packages/app/src/main/module-store.ts              # catalogue, install, verify, consent, enable, remove
+packages/app/src/renderer/src/modules/installed.ts # the loader
+packages/app/src/renderer/src/modules/sdk-runtime.ts  # globalThis.__tetravoxModuleSdk
+packages/app/src/renderer/src/dialogs/ExtensionsDialog.tsx  # File ▸ Extensions…
+modules.lock  ·  scripts/fetch-locked-modules.mjs  ·  scripts/emit-module-sdk.mjs
+```
+
+**Nothing is reachable until it is consented to.** A downloaded module sits inert: the renderer cannot name a
+path, and `tetravox://module/<id>/<version>/<file>` is served out of a map only `module-store.ts#enableModule()`
+fills, after re-hashing every file against the install receipt. So an installed-but-unconsented module 404s
+from the scheme — **consent gates execution, not merely the switcher row** — and `disableModule` is a delete
+from that map, effective on the next request. §5 rule 13 and the `script-src` grant are recorded in
+`docs/DECISIONS.md`; the grant is a **host source**, because the scheme form would also admit
+`tetravox://file/…`.
+
+**The consent sheet is derived, never declared.** `manifest-schema.ts#derivePermissions` reads the manifest
+the user is about to run — `readers[].extensions`, the writers' filters and sibling templates,
+`commands[].key`, `operations[].id`, `sceneBlock` — so the card, the sheet and what the module can actually do
+cannot disagree. Consent is recorded per **version** in `AppSettings.extensions`; an update is new bytes with
+a new list, so it asks again. **Bundled modules are pre-consented**: they shipped inside the signed
+application, so installing Tetravox was the consent.
+
+**The loader is one variable dynamic import, and it is fragile on purpose.**
+`renderer/src/modules/installed.ts` hoists the URL into a `const` and imports the identifier with
+`/* @vite-ignore */`. An inline template is rewritten by Vite into a glob helper; the identifier form *without*
+the comment is silently rewritten into `__variableDynamicImportRuntimeHelper` over an **empty** glob, which
+rejects every URL with no build warning. `scripts/check-module-loader.mjs` therefore asserts the built chunk
+still carries the URL literal, carries a variable `import(x)`, and carries no glob helper. The loaded namespace
+is shape-checked before it is registered — a downloaded chunk is not typechecked by our build — and a failure
+is a toast plus a failed card, never a broken switcher.
+
+**A module gets the host's own React through one global.** `renderer/src/modules/sdk-runtime.ts` sets
+`globalThis.__tetravoxModuleSdk = { hostVersion, react, ModuleHostError, stemOf, contacts }` at boot, before
+anything can activate; `@tetravox/module-sdk`'s runtime shim — **inlined** by the module's own build, so a
+module bundle has no imports at all — reads it. A module's `Panel` renders inside the app's React tree, so a
+second copy would be an "invalid hook call"; `ModuleHostError` must be the same class or `instanceof` is false
+across the boundary; `stemOf` must be the same function or a module computes a `{stem}` main did not admit.
+The alternatives (an inline import map, a served second entry) are compared in `docs/DECISIONS.md`.
+
+**Versioning is a gate, not a hope.** A manifest whose `hostApi` is not `MODULE_HOST_VERSION` is listed,
+greyed, and says which host it needs; no registration is built for it, so it cannot reach the switcher or a
+job. `InstalledManifest.hostApi` is a `number` precisely so a stale value can be *held* in order to be refused.
+
+**The honest posture.** An enabled extension is **trusted renderer code**: it has the DOM and the whole preload
+bridge, and a narrower `allowPath` would not contain a malicious one. The trust boundary is the consent sheet
+and the registry's pull-request review — the CSP only stops *unconsented* script. §13.9 is what would move
+that boundary.
+
+Distribution: `modules.lock` names what a release bundles (`scripts/fetch-locked-modules.mjs` verifies and
+places it); `scripts/emit-module-sdk.mjs` emits the SDK a module repository compiles against; the catalogue is
+`src/shared/extensions-index.json`, with `TETRAVOX_EXT_INDEX` as the test seam. `docs/RELEASING.md` §9 is the
+operator's half.
+
+### 13.9 Stage 3, and what it would cost
+
+A **sandboxed tier** — an extension in a Worker with no DOM and a JSON-only host bridge — is described here as
+the path and is not built. It needs: the Worker and the bridge (a mechanical `await` pass over the modules that
+exist by then, not a redesign, which is exactly what the sync-plus-lint-wall design buys); a permission model
+with *enforcement* rather than only disclosure; a Restricted Mode for a scene that arrives with an unknown
+module; a §5 rule 9 rewrite that makes `allowPath` the last line rather than the first; and a security review
+of the whole path. It is 8–9 engineer-days and a different threat model, and nothing in §13.8 prevents it — the
+wall on `modules/<id>/**` exists precisely so that day is a port and not a rewrite. It is the tier that would
+let an extension be *untrusted*; until it exists, §13.8's posture is stated plainly rather than implied.
