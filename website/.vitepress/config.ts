@@ -108,7 +108,6 @@ export default defineConfig({
               { text: 'Vector fields', link: '/guide/vector-fields' },
               { text: 'Points & electrodes', link: '/guide/points-electrodes' },
               { text: 'Measurements', link: '/guide/measurements' },
-              { text: 'Modules', link: '/guide/modules' },
               { text: 'Coordinates', link: '/guide/coordinates' },
               { text: 'Themes & settings', link: '/guide/themes-settings' },
               { text: 'Scenes', link: '/guide/scenes' },
@@ -123,7 +122,8 @@ export default defineConfig({
             items: [
               { text: 'Overview', link: '/extensions' },
               { text: 'sEEG contacts', link: '/extensions/seeg' },
-              { text: 'Build an extension', link: '/guide/extensions' },
+              { text: 'Using extensions', link: '/guide/extensions' },
+              { text: 'Build an extension', link: '/developers/contributing' },
             ],
           },
           { text: 'Gallery', link: '/gallery' },

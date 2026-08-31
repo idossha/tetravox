@@ -289,16 +289,6 @@ jobs:
       - name: pnpm install
         run: pnpm install --frozen-lockfile
 
-      # §13.8: the modules `modules.lock` bundles, downloaded from their own repositories' releases
-      # and sha256-verified into `packages/app/resources/modules/` — which `electron-builder.yml`
-      # already ships as `extraResources`, so no packaging configuration changes. A hash that does
-      # not match fails the leg here, before anything is built: an unverified module must never
-      # reach a packaged app. The layout is defined in the script's header, and it is a no-op while
-      # the lock is empty.
-      - name: Bundle the locked modules
-        shell: bash
-        run: node scripts/fetch-locked-modules.mjs
-
       # The Linux smoke test launches the packaged binary, so this leg needs the same runtime
       # libraries and display the `test` job provides. `libasound2t64` is the 24.04 name — the
       # 64-bit-time_t rename makes an unqualified `libasound2` unsatisfiable there.

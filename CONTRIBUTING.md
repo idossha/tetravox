@@ -37,14 +37,18 @@ Rust is pinned by `rust-toolchain.toml`; Node ≥ 22 and pnpm (`packageManager` 
 - Do not bump versions or push tags in a PR; releases are cut by a maintainer per
   `docs/RELEASING.md`.
 
-## Adding a module
+## Adding an extension
 
-A **module** is a first-party tool that ships with the app — its own panel, keys and files, one active
-at a time in the right column. `docs/ARCHITECTURE.md` §13 is the contract; this is the short version.
+An **extension** is a first-party tool with its own panel, keys and files, one active at a time in the
+right column. It does **not** ship with the app: it lives in its own repository, is built against
+`@tetravox/module-sdk`, and users download it from File ▸ Extensions… (the "…and an extension that ships
+separately" section below is therefore the normal path; the in-repo steps that follow exist for the
+`tetravox.hello` test fixture and for prototyping). `docs/ARCHITECTURE.md` §13 is the contract; this is
+the short version.
 
-The rule the whole design rests on: **a module is a directory and one line in a registry.** If you find
+The rule the whole design rests on: **an extension is a directory and one line in a registry.** If you find
 yourself editing `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts` to make
-your module work, the _host_ is missing a member — add it to
+your extension work, the _host_ is missing a member — add it to
 `packages/app/src/renderer/src/modules/host.ts` under §12.3's rules, and say why in
 `docs/DECISIONS.md`.
 
@@ -53,10 +57,10 @@ your module work, the _host_ is missing a member — add it to
    before a window exists. Add it to `manifests.ts`.
 2. `packages/app/src/renderer/src/modules/<name>/` — `index.ts` exporting `activate(host)`, a
    `Panel.tsx`, and whatever pure kernels the work needs. Add one line to `registry.ts`.
-3. Your module may import `../host`, the shared control kit and `@tetravox/engine` **types**. Not the
+3. Your extension may import `../host`, the shared control kit and `@tetravox/engine` **types**. Not the
    store, not the engine's runtime, not `bridge()`. ESLint enforces it and `modules.test.ts` re-proves
    it by reading your source, so an inline disable will not help.
-4. Keys come from §13.5's pool (`a s d f g n p t z Delete Backspace`) or your module has none. A key
+4. Keys come from §13.5's pool (`a s d f g n p t z Delete Backspace`) or your extension has none. A key
    that would destroy something is bound with `when: 'selection'`.
 5. A `## ` section in `docs/USER_GUIDE.md` named by your manifest's `docs`, plus its entry in
    `website/scripts/sync.mjs`'s `GUIDE_PAGES` and the sidebar in `website/.vitepress/config.ts`. The
@@ -67,9 +71,9 @@ your module work, the _host_ is missing a member — add it to
 
 `tetravox.hello` (`?modules=hello`) is the worked example. Read it before writing a manifest.
 
-### …and a module that ships separately
+### …and an extension that ships separately
 
-The steps above are for a module **in this repository**, reviewed as a pull request here. A module can also
+The steps above are for an extension **in this repository**, reviewed as a pull request here. An extension can also
 be its own repository and be downloaded at runtime — see `docs/ARCHITECTURE.md` §13.8 and the user-facing
 **Extensions** section of `docs/USER_GUIDE.md`. Two things change and nothing else does:
 
@@ -78,10 +82,10 @@ be its own repository and be downloaded at runtime — see `docs/ARCHITECTURE.md
   bundle must have no imports" CI check, and the release loop that names each asset by its own sha256. Read
   it before writing a line;
 - your `docs` field is a **URL** rather than a `## ` heading in `docs/USER_GUIDE.md`. The docs guard ties a
-  heading to the guide for modules in this tree; it has no reach into another repository's README.
+  heading to the guide for extensions in this tree; it has no reach into another repository's README.
 
 Everything else is identical, deliberately: the same `ModuleManifest`, the same `ModuleHost`, the same key
-pool, the same scene block. A module written in-tree becomes an external one by changing its imports.
+pool, the same scene block. An extension written in-tree becomes an external one by changing its imports.
 
 ## Reporting bugs
 

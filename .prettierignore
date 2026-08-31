@@ -9,10 +9,6 @@ test-results/
 playwright-report/
 README.md
 
-# Bundled extensions: downloaded, hash-verified module artefacts placed by
-# scripts/fetch-locked-modules.mjs and rebuilt from modules.lock on every packaging run (§13.8).
-# Not committed, not ours to format.
-packages/app/resources/modules/
 
 # The contract and its measured reference values are hand-formatted and must not be reflowed.
 docs/

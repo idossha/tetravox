@@ -43,28 +43,29 @@ cube, colour bars and crosshair as toggleable chrome; light and dark themes.
 saved in the scene), a region panel for label volumes / mesh tags / annots, a histogram widget with draggable
 window and threshold handles, and a screenshot dialog writing DPI into the PNG.
 
-**Modules.** A first-party extension surface (§13): a docked panel slot in the right column with one active
-module at a time, a toolbar switcher, a status cell, a key pool that resolves after the §7.5 map, a confirm
-dialog, per-module scene blocks carried through save and load — including for modules a build does not have —
-and an import wall that keeps a module to `ModuleHost`. The host is complete and **frozen** (§12.3 item 6):
+**Extensions.** A first-party extension surface (§13): a docked panel slot in the right column with one active
+extension at a time, a toolbar switcher, a status cell, a key pool that resolves after the §7.5 map, a confirm
+dialog, per-module scene blocks carried through save and load — including for extensions a build does not have —
+and an import wall that keeps an extension to `ModuleHost`. The host is complete and **frozen** (§12.3 item 6):
 its scene, tool and file members are the engine's point tool, the engine's bounded local reads and the
-main-process IO channels. The fixture module `tetravox.hello` (`?modules=hello`) is the worked example; the
+main-process IO channels. The fixture extension `tetravox.hello` (`?modules=hello`) is the worked example; the
 sEEG contact editor is the first real one.
 
 **The point-set substrate.** Per-point identity (`id` / `group` / `ordinal`), off-plane ghosting, a selection
 ring, `sampleVoxelBox` / `peakCentroid`, and a 2D point tool with place, select and drag — the engine half
 every later point-set tool inherits.
 
-**Module file IO.** A read-text channel capped at 1 MiB over the existing allow-list, a Save sheet that admits
+**Extension file IO.** A read-text channel capped at 1 MiB over the existing allow-list, a Save sheet that admits
 the manifest's same-directory siblings into a per-module write list, a main-side timestamped `.bak` and a
-temp+rename write, and the codebase's first `BrowserWindow 'close'` guard on unsaved module edits.
+temp+rename write, and the codebase's first `BrowserWindow 'close'` guard on unsaved extension edits.
 
-**Downloadable extensions** (§13.8). A module can now arrive from outside the build: a third `tetravox://`
+**Downloadable extensions** (§13.8). An extension can now arrive from outside the build: a third `tetravox://`
 host serving a verified-file *map* rather than a directory, a content-addressed install store with the sample
 data's own hashing discipline, a per-version consent record whose permission list is **derived from the
 manifest**, File ▸ Extensions… on the Sample Data dialog's shape, a one-variable dynamic import with a
-build-output guard, `@tetravox/module-sdk` reaching the host's React through one global, and `modules.lock`
-for what a release bundles. An enabled extension is trusted renderer code; the trust boundary is the consent
+build-output guard, and `@tetravox/module-sdk` reaching the host's React through one global. Nothing is
+bundled into a release (2026-08-31): the catalogue is the one route in. An enabled extension is trusted
+renderer code; the trust boundary is the consent
 sheet and the registry's review, and the CSP only stops *unconsented* script.
 
 **Scenes.** `*.tetravox.json` — every layer setting, region edit, measurement, camera, layout and the theme.
@@ -110,17 +111,17 @@ macOS, with the packaging matrix carried in the workflow.
   and boundary segments even on the 3D clip path, which discards both. Frozen interface — an additive change.
 - Typed-array pooling, oct-encoded normals (85 → 57 MB for ernie's de-indexed variant), instanced points.
 
-**Modules** (§13)
+**Extensions** (§13)
 - The **sEEG contact editor**: BIDS `electrodes.tsv` in and out, intensity-weighted snap, shaft re-fit,
   renumbering, an editlog beside the table and a `.bak` of what it replaced.
 - Job-file operations (`{"type":"module", …}`) and their Python wrappers, so every panel action is reachable
   headlessly.
 - A **resizable right aside**. The column is 320 px and the slot lives in it; there is no splitter primitive
-  in the shell, and a module with a long list wants one. A `wide` manifest hint was considered and dropped —
+  in the shell, and an extension with a long list wants one. A `wide` manifest hint was considered and dropped —
   widening the aside shrinks the toolbar's centre column below what its controls need, which wraps the row.
 - **Stage 3, the sandboxed tier** (§13.9): an extension in a Worker with no DOM, a JSON-only host bridge,
   permissions with *enforcement* rather than only disclosure, a Restricted Mode for a scene naming an unknown
-  module, and a security review. 8–9 days and a different threat model; the import wall exists so that day is
+  extension, and a security review. 8–9 days and a different threat model; the import wall exists so that day is
   a port, not a rewrite. It is the tier that would let an extension be *untrusted* — §13.8's are not.
 - **The extension registry and its website page**: `idossha/tetravox-extensions`' `index.json`, the review
   policy that is the trust gate, and a `/extensions` page built from the same index the app ships.
@@ -130,14 +131,14 @@ macOS, with the packaging matrix carried in the workflow.
 - **Tighten `allowPath` itself** (§5 rules 9–11). `tetravox:allow-path` admits *any* existing absolute path
   the renderer names, with no gesture, and every other admission in the app sits on top of it. Both write
   lists are therefore only as strong as the renderer: the scene carve-out is now minted where main hands the
-  path over, and a module's admissions are revoked when its editing session ends (2026-08-30), but each of
+  path over, and an extension's admissions are revoked when its editing session ends (2026-08-30), but each of
   those scopes an *accident* — a compromised renderer simply never sends the revocation. The real fix is an
   `allowPath` that admits only what a gesture, a sidecar rule or an opened dataset's own directory justifies.
   It is a change to the oldest security surface in the app, and it is wanted before §13.9's sandboxed tier.
   It would not contain a *malicious* extension — one runs in the renderer with the whole bridge — but it is
   what would make `allowPath` the last line rather than the first.
-- An **engine command stack**, so undo is the engine's rather than each module keeping snapshots.
-- A **Compute panel**: a module that shells out to an external tool with a streamed log. It needs the first
+- An **engine command stack**, so undo is the engine's rather than each extension keeping snapshots.
+- A **Compute panel**: an extension that shells out to an external tool with a streamed log. It needs the first
   async subprocess in main, argv validated token by token, a scrubbed environment and a notarisation check.
 
 **Packaging**

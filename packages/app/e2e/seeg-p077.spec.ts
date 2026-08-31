@@ -2,7 +2,7 @@
  * **The sEEG editor against the owner's real P077 subject, in the packaged app** (ARCHITECTURE.md
  * §13.3, §13.4; the Plan A ghost-click amendment, §7.5, 2026-08-30).
  *
- * `module-seeg.spec.ts` drives the bundled module against a synthetic phantom under `?engine=mock`.
+ * `module-seeg.spec.ts` drives the same extension against a synthetic phantom under `?engine=mock`.
  * This spec is the other end of the ladder: the **real** engine (WebGL on the host GPU), the **real**
  * P077 scene — a T1, a bone CT and an 82-contact / 15-electrode BIDS `electrodes.tsv` — opened in the
  * **packaged** `.app` by argument, exactly as the interactive relaunch and `<binary> scene.tetravox.json`
@@ -20,7 +20,7 @@
  * scene's directory first (§4.6), so a scene beside the copied tree loads the copy.
  *
  * Gated three ways, and skips (never fails) on any: the packaged target must be built
- * (`packagedUnavailable`), it must carry the bundled sEEG (the cheap CI leg packages without it), and
+ * (`packagedUnavailable`), `TETRAVOX_SEEG_FIXTURE` must name a built sEEG to stage (§13.8), and
  * the owner's `~/Desktop/example` must be present (it is real-subject data, not a committed fixture —
  * the `TETRAVOX_TESTDATA` discipline of AGENTS.md rule 2).
  */
@@ -38,28 +38,15 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  APP_ROOT,
-  bundledSeegVersion,
-  launchApp,
-  packagedUnavailable,
-  SHOTS_DIR,
-} from './fixtures';
+import { launchApp, packagedUnavailable, SHOTS_DIR, stageSeeg } from './fixtures';
+import type { SeegStage } from './fixtures';
 
 const EXAMPLE = '/Users/idohaber/Desktop/example';
 const SCENE_NAME = 'seeg-P077.tetravox.json';
 const SEEG = 'tetravox.seeg';
-const SEEG_BUNDLE = resolve(
-  APP_ROOT,
-  'resources',
-  'modules',
-  SEEG,
-  bundledSeegVersion(),
-  'index.js'
-);
 
 /** The twelve-colour contact palette (`shared/contacts/palette.ts`), rounded like the readback. */
 const PALETTE: readonly [number, number, number, number][] = [
@@ -113,6 +100,8 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
   let page: Page;
   let root: string;
   let home: string;
+  let stage: SeegStage;
+  let profile: string;
   let sceneTsv: string;
   let sceneIeeg: string;
 
@@ -123,7 +112,6 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
     test.skip(wi.project.name !== 'packaged', 'the packaged target only');
     const blocked = packagedUnavailable();
     test.skip(blocked !== null, blocked ?? '');
-    test.skip(!existsSync(SEEG_BUNDLE), 'the bundled tetravox.seeg is not in resources/modules');
     test.skip(!existsSync(join(EXAMPLE, SCENE_NAME)), `the P077 subject is not at ${EXAMPLE}`);
 
     // Copy ONLY the three files the scene names — the T1, the bone CT and the electrodes.tsv — into a
@@ -149,12 +137,23 @@ test.describe('the sEEG editor on real P077 (packaged, real engine)', () => {
     sceneTsv = join(sceneIeeg, 'sub-P077_space-T1w_electrodes.tsv');
 
     home = mkdtempSync(join(tmpdir(), 'tetravox-p077-home-'));
+    // sEEG no longer ships bundled (2026-08-31): stage the downloaded-and-consented state from the
+    // bytes TETRAVOX_SEEG_FIXTURE names, or skip.
+    const staged = stageSeeg();
+    test.skip(
+      staged === null,
+      'set TETRAVOX_SEEG_FIXTURE to a built tetravox.seeg to run this suite'
+    );
+    stage = staged!;
+    profile = mkdtempSync(join(tmpdir(), 'tetravox-p077-profile-'));
+    stage.consentInto(profile);
     app = await launchApp('packaged', {
       args: [scenePath],
       // The scene restore leaves the module clean, but a later snap/save makes it dirty; the packaged
       // build ignores `TETRAVOX_E2E_DISCARD` on purpose (§5 rule 12), so `afterAll` clears the flag
       // rather than leaning on it — the seam is set only so an interrupted run does not hang.
-      env: { TETRAVOX_E2E_DISCARD: '1', TETRAVOX_HOME: home },
+      userDataDir: profile,
+      env: { TETRAVOX_E2E_DISCARD: '1', TETRAVOX_HOME: home, ...stage.env },
     });
     page = await app.firstWindow();
     await app.evaluate(({ BrowserWindow }) =>

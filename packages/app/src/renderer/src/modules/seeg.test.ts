@@ -16,8 +16,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Layer, PointsLayer } from '@tetravox/engine';
 import type { ModuleStatus, TetravoxBridge } from '../../../preload/index';
@@ -35,40 +35,23 @@ import { paletteColor } from './shared/contacts/palette';
 const SEEG = 'tetravox.seeg';
 
 /**
- * The **bundled** `tetravox.seeg`, reached the way the running app reaches it (§13.8, 2026-08-31),
- * not compiled in any more. The fake bridge reports it exactly as main reports a pre-consented
- * bundled module, the controller's `refreshInstalledModules` registers it through the real
+ * The `tetravox.seeg` extension, reached the way the running app reaches it (§13.8, 2026-08-31),
+ * not compiled in any more. The fake bridge reports it exactly as main reports an installed and
+ * enabled extension, the controller's `refreshInstalledModules` registers it through the real
  * eligibility gate, and the one step a `tetravox://module/` URL cannot take under vitest — `import()`
- * of the bundle — is the only thing mocked, and it resolves to the very bytes the release ships
- * (`resources/modules/`, populated from `modules.lock` by `scripts/fetch-locked-modules.mjs`).
+ * of the bundle — is the only thing mocked, and it resolves to the very bytes a release ships
+ * (the directory `TETRAVOX_SEEG_FIXTURE` names — a downloaded `idossha/tetravox-seeg` release).
  *
- * When that tree is absent — the cheap `test` CI leg runs `fetch-locked-modules --verify-only`, which
- * never downloads — every suite here **skips**, exactly as a real-data test skips without its dataset
- * (AGENTS.md rule 2). Locally, after a fetch, they run against the release's bytes, which is what
- * makes this the extraction's regression gate.
+ * When that env is unset — every CI leg — every suite here **skips**, exactly as a real-data test
+ * skips without its dataset (AGENTS.md rule 2). Locally, pointed at release bytes, they run — which
+ * is what makes this the extraction's regression gate.
  */
-const HERE = dirname(fileURLToPath(import.meta.url));
-// The bundled version this checkout carries, read from `modules.lock` (the source of truth for what a
-// build bundles) rather than pinned here — so re-pinning the module is one edit to the lock, and this
-// suite runs against the fetched bytes instead of skipping on a stale path.
-const SEEG_VERSION =
-  (
-    JSON.parse(
-      readFileSync(resolve(HERE, '..', '..', '..', '..', '..', '..', 'modules.lock'), 'utf8')
-    ).modules as Array<{ id: string; version: string }>
-  ).find((m) => m.id === 'tetravox.seeg')?.version ?? '0.1.0';
-const BUNDLE = resolve(
-  HERE,
-  '..',
-  '..',
-  '..',
-  '..',
-  'resources',
-  'modules',
-  'tetravox.seeg',
-  SEEG_VERSION
-);
-const haveBundle = existsSync(join(BUNDLE, 'index.js'));
+// Nothing ships bundled (2026-08-31): the release bytes come from `TETRAVOX_SEEG_FIXTURE` — a
+// directory holding a built extension's `index.js` + `manifest.json`, e.g. a downloaded
+// `idossha/tetravox-seeg` release. Unset (every CI leg), every suite here skips, exactly as a
+// real-data test skips without its dataset (AGENTS.md rule 2).
+const BUNDLE = process.env['TETRAVOX_SEEG_FIXTURE'] ?? '';
+const haveBundle = BUNDLE !== '' && existsSync(join(BUNDLE, 'index.js'));
 const describeSeeg = haveBundle ? describe : describe.skip;
 
 // Shared with the hoisted `vi.mock` factory: the bundle's `activate`, filled once the bundle is
@@ -102,13 +85,12 @@ if (haveBundle) {
   ).activate;
 }
 
-/** The status main reports for the pre-consented, auto-enabled bundled module. */
+/** The status main reports for an installed-and-enabled `tetravox.seeg`. */
 function seegStatus(): ModuleStatus {
   return {
     id: SEEG,
     title: bundledManifest?.title ?? 'sEEG contacts',
     installed: bundledManifest?.version ?? '0.1.0',
-    bundled: true,
     enabled: true,
     available: null,
     updatable: false,
@@ -158,7 +140,7 @@ function fakeBridge(files: Record<string, string>): FakeFs {
     screenshotDefaults: { background: 'scene' as const, dpi: 144, autoTrim: false },
   };
   const bridge = {
-    // What main reports for the bundled, pre-consented module — the discovery `refreshInstalledModules`
+    // What main reports for the installed, consented extension — the discovery `refreshInstalledModules`
     // runs at attach, which is what registers `tetravox.seeg` in this window (§13.8).
     moduleManifests: async () => (haveBundle && bundledManifest !== null ? [bundledManifest] : []),
     moduleStatuses: async () => (haveBundle ? [seegStatus()] : []),

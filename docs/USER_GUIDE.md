@@ -249,11 +249,11 @@ carries per-point values (a parsed Gmsh view with data attached), the layer can 
 solid colour, with the same colormap choices as mesh field colouring, and a label-size control appears for
 sources that actually have labels to size.
 
-**A points layer a [module]({{ site.baseurl }}/guide/modules.html) owns is different**, and the layer panel says so: it shows a read-only
-summary where that editor would be, and the module's own panel is the only way to change it. Contacts read
-from an electrodes table belong to the [sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module — its editor is where they are
+**A points layer an [extension]({{ site.baseurl }}/guide/extensions.html) owns is different**, and the layer panel says so: it shows a read-only
+summary where that editor would be, and the extension's own panel is the only way to change it. Contacts read
+from an electrodes table belong to the [sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) extension — its editor is where they are
 placed, snapped, re-fitted, renumbered and saved, because the core editor here would rewrite the electrode
-colours and the radius it is not allowed to touch, and its edits would go around the module's own undo. What
+colours and the radius it is not allowed to touch, and its edits would go around the extension's own undo. What
 stays on the row is what belongs to the panel: visibility, opacity and the stacking order.
 
 <div class="shot-pair">
@@ -284,58 +284,51 @@ a jump-to and a delete, and saved with the scene.
 
 ![Distance and angle measurements across the panes](screenshots/2026-08-29/features/feat-measure.png)
 
-## Modules
-
-A **module** is a first-party tool that Tetravox ships with, bigger than a toolbar toggle and smaller
-than a second application — an editor for one kind of data, with its own panel, its own keys and its
-own file formats. One module is active at a time.
-
-**The switcher** is the `▾` button in the toolbar's right cluster, beside `?` and `⚙`. It lists every
-module this build carries; picking one opens its panel, picking it again closes it. The panel itself is
-the **module slot**: a section in the right column, above the Info panel, so the crosshair read-out
-stays visible while you work — that is the feedback most module actions are judged by. The slot never
-takes more than a bit over half the column and scrolls inside itself; with no module active it is not
-there at all.
-
-Below about 1000 px the sidebars normally collapse into overlays that close on the next click in a
-pane. While a module is active the right sidebar stays **in flow** instead, because a module asks you
-to click in the panes and an editor that closed itself on the first click would be unusable.
-
-**Keys.** A module may bind `a s d f g n p t z Delete Backspace`, on their own or with Shift, and only
-while it is active. They resolve **after** the ordinary key map, so no module can shadow `r`, `x`, `c`,
-`v`, `m`, the camera presets or anything else in this guide, and `Esc` is never a module key. The
-toolbar's `?` sheet grows a **Modules** tab listing the active module's chords.
-
-**A module's status** — how many things it holds, what mode it is in — is one cell at the left of the
-status bar, before the dataset cells.
-
-**Unsaved edits.** A module's own edits are separate from the scene's. While one has unsaved work the
-window title carries the same `•` a dirty scene does, and **New**, opening a scene, dropping a scene on
-the window and closing a dataset all ask first, offering *Save…*, *Discard* and *Cancel*. `⌘S` saves the
-**scene**; when a module still has unsaved work it says so rather than letting you believe otherwise —
-a module saves its own files from its own panel.
-
-**Scenes carry modules.** What a module needs to reopen — never a copy of the data, just its own small
-record — is written into the `*.tetravox.json` under the module's id, and read back when the scene is
-opened. A scene written by a build that has a module you do not is not damaged by opening and re-saving
-it here: the block is carried through untouched.
-
-**Layers a module owns** are marked in the layer panel and show a read-only summary instead of the usual
-editor, so the module's own controls stay the only way to change them; closing such a layer's dataset
-closes the module's layers with it.
-
-Some modules ship inside Tetravox and some are downloaded — see **Extensions** for the second kind.
-
-
 ## Extensions
 
-An **extension** is a module that was not compiled into Tetravox: it is downloaded, checked, and turned
-on by hand. Everything the **Modules** section describes then applies to it unchanged — it appears in
-the same switcher, opens in the same slot, binds keys from the same pool and writes into the same
-scenes. The difference is where it came from and what you had to agree to.
+An **extension** is a first-party tool that Tetravox does not ship with: bigger than a toolbar
+toggle and smaller than a second application — an editor for one kind of data, with its own panel,
+its own keys and its own file formats — downloaded, checked, and turned on by hand. Nothing is built
+in: every extension arrives the same way, through **File ▸ Extensions…**. One extension is active at
+a time.
 
-**File ▸ Extensions…** opens the list, and so does *Manage extensions…* at the bottom of the toolbar's
-module switcher. Each card is one extension and one button that says its true state:
+**The switcher** is the `▾` button in the toolbar's right cluster, beside `?` and `⚙`. It lists every
+extension this machine carries; picking one opens its panel, picking it again closes it. The panel
+itself is the **slot**: a section in the right column, above the Info panel, so the crosshair
+read-out stays visible while you work — that is the feedback most extension actions are judged by.
+The slot never takes more than a bit over half the column and scrolls inside itself; with no
+extension active it is not there at all.
+
+Below about 1000 px the sidebars normally collapse into overlays that close on the next click in a
+pane. While an extension is active the right sidebar stays **in flow** instead, because an extension
+asks you to click in the panes and an editor that closed itself on the first click would be unusable.
+
+**Keys.** An extension may bind `a s d f g n p t z Delete Backspace`, on their own or with Shift, and
+only while it is active. They resolve **after** the ordinary key map, so no extension can shadow `r`,
+`x`, `c`, `v`, `m`, the camera presets or anything else in this guide, and `Esc` is never an
+extension key. The toolbar's `?` sheet grows an **Extensions** tab listing the active extension's
+chords.
+
+**An extension's status** — how many things it holds, what mode it is in — is one cell at the left of
+the status bar, before the dataset cells.
+
+**Unsaved edits.** An extension's own edits are separate from the scene's. While one has unsaved work
+the window title carries the same `•` a dirty scene does, and **New**, opening a scene, dropping a
+scene on the window and closing a dataset all ask first, offering *Save…*, *Discard* and *Cancel*.
+`⌘S` saves the **scene**; when an extension still has unsaved work it says so rather than letting you
+believe otherwise — an extension saves its own files from its own panel.
+
+**Scenes carry extensions.** What an extension needs to reopen — never a copy of the data, just its
+own small record — is written into the `*.tetravox.json` under the extension's id, and read back when
+the scene is opened. A scene written by a build that has an extension you do not is not damaged by
+opening and re-saving it here: the block is carried through untouched.
+
+**Layers an extension owns** are marked in the layer panel and show a read-only summary instead of
+the usual editor, so the extension's own controls stay the only way to change them; closing such a
+layer's dataset closes the extension's layers with it.
+
+**File ▸ Extensions…** opens the list, and so does *Manage extensions…* at the bottom of the
+toolbar's switcher. Each card is one extension and one button that says its true state:
 
 | The card says | What it means |
 |---|---|
@@ -343,7 +336,6 @@ module switcher. Each card is one extension and one button that says its true st
 | **Enable** | Its files are here and it is not allowed to run. |
 | **Enabled ✓**, with **Disable** | It is running. |
 | **Update to 1.1.0** | A newer version this build can run is available. |
-| **Bundled** | It shipped with Tetravox. You can turn it off; you cannot remove it. |
 | Greyed, *needs Tetravox host API 2* | It was written for a newer Tetravox. Update the app. |
 
 **Downloading is not turning on.** The files land in `~/.tetravox/modules/` and can do nothing at all
@@ -377,30 +369,27 @@ consent is recorded per version rather than once per extension.
 the dialog always opens and always lists what is already installed. An empty catalogue says so rather
 than looking like a failure.
 
-**Automation.** A job file may name an extension's operations exactly as it names a built-in module's,
-but only one you have enabled. A job naming an installed-but-not-enabled extension stops before it does
-anything and tells you which one to turn on.
+**Automation.** A job file may name an enabled extension's operations. A job naming an
+installed-but-not-enabled extension stops before it does anything and tells you which one to turn on.
 
 
 ## sEEG contacts
 
-The **sEEG contacts** module is a contact editor for stereo-EEG depth electrodes: open a registered CT
+The **sEEG contacts** extension is a contact editor for stereo-EEG depth electrodes: open a registered CT
 and the BIDS `electrodes.tsv` that was localised on it, fix what the localiser got wrong, and write the
 table back — reversibly, with a backup and a provenance sidecar. It reproduces the 3D Slicer *SEEG
 Contact Editor* workflow (`seegprep`'s `slicer/SEEGContactEditor`) in Tetravox's own panes, and reads
 and writes the same files, so the two can be used on the same subject interchangeably.
 
-It **ships as a bundled extension** (`tetravox.seeg`): it is part of the signed application —
-pre-consented and enabled the moment you install Tetravox, with nothing to download — and you can see
-it, and turn it off, in **File ▸ Extensions…** alongside anything you have installed yourself. Its own
-source, and the deeper reference for what it does, live at
+It is an extension like any other (`tetravox.seeg`): nothing ships inside Tetravox, so you download
+it once from **File ▸ Extensions…**, read the permission sheet, and enable it — after which it is in
+the toolbar's switcher (`▾`, right of the panes), and opening one of its files is enough to bring it
+up. Its own source, and the deeper reference for what it does, live at
 [github.com/idossha/tetravox-seeg](https://github.com/idossha/tetravox-seeg).
-
-Open it from the toolbar's module switcher (`▾`, right of the panes), or just open one of the files.
 
 ### Opening a subject
 
-Drop, or **Open…**, either of these and the module finds the other beside it:
+Drop, or **Open…**, either of these and the extension finds the other beside it:
 
 | File | Where |
 |---|---|
@@ -408,11 +397,11 @@ Drop, or **Open…**, either of these and the module finds the other beside it:
 | the electrodes table | `derivatives/seegprep/sub-<id>/ieeg/sub-<id>_space-T1w_electrodes.tsv` |
 
 From the CT it also looks for the `_coordsystem.json`, an existing `_editlog.json`, and the subject's
-T1 at `derivatives/SimNIBS/sub-<id>/m2m_<id>/T1.nii.gz`. Nothing is searched for: the module knows those
+T1 at `derivatives/SimNIBS/sub-<id>/m2m_<id>/T1.nii.gz`. Nothing is searched for: the extension knows those
 four names and asks whether each one exists.
 
 Opening the **table first** is fine — it is read and held until a volume arrives, and the panel says so.
-The CT has to be open for anything that needs image intensities (that is Snap), because a module reads
+The CT has to be open for anything that needs image intensities (that is Snap), because an extension reads
 the volume through the app rather than opening files itself.
 
 The reader is deliberately forgiving. It detects tab, comma, semicolon or whitespace; strips a UTF-8
@@ -424,7 +413,7 @@ thing it refuses, and the message names the delimiter it detected and the column
 
 On load the CT is set the way the Slicer editor sets it — grey, fully opaque, and everything below
 **150 HU hidden**, so soft tissue drops away and bone and metal are what is left. Colormap, opacity and
-the intensity floor stay in the ordinary volume-layer editor on the left; the module sets them once and
+the intensity floor stay in the ordinary volume-layer editor on the left; the extension sets them once and
 then leaves them to you. If a T1 is loaded above the CT in the layer list, raise the CT above it — the
 floor only reveals what is underneath.
 
@@ -467,7 +456,7 @@ operations (`ghost`, `wire`, `size`) — which of them are on is part of what a 
 contact's shaft, the crosshair moves onto it so every pane slices through it, and a ring is drawn round
 the one you have. You do not arm anything first — while the panel is open, clicking contacts is what a
 click does, and `Esc` puts you back into selecting rather than turning the tool off. A click that is not
-on a contact still moves the crosshair, exactly as it does with no module open.
+on a contact still moves the crosshair, exactly as it does with no extension open.
 
 **Clicking a ghosted contact jumps the slice to it.** A ghost is a contact that lives on another slice, so
 there is no sensible way to *drag* one — it would move in a plane it is not in. Clicking one therefore does
@@ -516,22 +505,22 @@ things happen, in this order:
 
 That editlog name matters: `seegprep` looks for `*_electrodes_editlog.json` in the subject's `ieeg/`
 directory and **refuses to re-run over a hand-edited subject unless you pass `--force`**. If you save
-under a name whose stem does not end in `_electrodes`, or outside an `ieeg/` directory, the module warns
+under a name whose stem does not end in `_electrodes`, or outside an `ieeg/` directory, the extension warns
 you that the guard will not see it.
 
 **Revert to loaded positions** puts every contact back where the file had it and forgets the additions,
 which is the in-session undo of everything; the `.bak` is the on-disk one.
 
-⌘S saves the **scene**, not the table. When contacts are unsaved the module says so, the window title
+⌘S saves the **scene**, not the table. When contacts are unsaved the extension says so, the window title
 carries a `•`, and closing the window, starting a new scene, opening another one or closing the CT all
 ask first.
 
-### Scenes, and a build without the module
+### Scenes, and a build without the extension
 
 The contacts are ordinary scene layers, so a `*.tetravox.json` written here opens anywhere — including
-in a build that has no sEEG module, which still draws every contact with its name, its electrode and its
-number. What that build cannot carry is the module's own record: which table the contacts came from,
-where that table put each one, and its other columns. Re-open such a scene here and the module rebuilds
+in a build that has no sEEG extension, which still draws every contact with its name, its electrode and its
+number. What that build cannot carry is the extension's own record: which table the contacts came from,
+where that table put each one, and its other columns. Re-open such a scene here and the extension rebuilds
 the electrodes from the layer, tells you the provenance is gone, and turns Save into Save as… rather than
 writing a table in which everything looks new.
 
@@ -686,11 +675,11 @@ the app, grouped in tabs by what each binding acts on.
 Drag the gizmo ring handles to rotate the plane; drag its stem to slide it along the normal. Plane-from-3-points
 takes the next three clicks in any 2D pane. A camera preset puts the pane back on axial / coronal / sagittal.
 
-**Module keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
-lent to whichever [module](#modules) is open and mean nothing when none is. They are resolved **after**
-everything above, so no module can change what any key on this page does, and `Esc` is never one of them.
-The `?` sheet grows a **Modules** tab listing the active module's own chords. The
-[sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) module binds these:
+**Extension keys** are not in this table, and that is deliberate: `a s d f g n p t z Delete Backspace` are
+lent to whichever [extension](#extensions) is open and mean nothing when none is. They are resolved
+**after** everything above, so no extension can change what any key on this page does, and `Esc` is
+never one of them. The `?` sheet grows an **Extensions** tab listing the active extension's own
+chords. The [sEEG contacts]({{ site.baseurl }}/guide/seeg-contacts.html) extension binds these:
 
 | Key | Action |
 |---|---|

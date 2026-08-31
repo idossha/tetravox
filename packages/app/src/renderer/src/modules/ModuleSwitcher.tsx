@@ -26,8 +26,8 @@ export function ModuleSwitcher(): React.JSX.Element | null {
   const controller = useController();
   const activeModule = useUi((s) => s.activeModule);
   // Boot-time reactivity (2026-08-31): `controller.modules()` below reads the installed-extension
-  // set that `refreshInstalledModules` fills **asynchronously** — a bundled extension
-  // (`tetravox.seeg`) or one a previous session enabled lands after first paint. That refresh sets
+  // set that `refreshInstalledModules` fills **asynchronously** — an extension a previous session
+  // enabled lands after first paint. That refresh sets
   // `extensionStatuses` immediately after the set, so subscribing to it here is what re-renders the
   // switcher when a boot-enabled extension appears; without it the control stays absent (a build
   // with only installed modules) until an unrelated state change forces a paint.
@@ -68,16 +68,16 @@ export function ModuleSwitcher(): React.JSX.Element | null {
         aria-expanded={open}
         // `aria-pressed` while one is active, like every other toolbar toggle.
         aria-pressed={active !== null}
-        title="Modules — one tool at a time, in the panel above (§13)"
+        title="Extensions — one tool at a time, in the panel above (§13)"
         className={active === null ? 'tvx-btn' : 'tvx-btn tvx-btn-on'}
         onClick={() => setOpen((v) => !v)}
       >
-        {active === null ? 'Modules' : active.manifest.title} ▾
+        {active === null ? 'Extensions' : active.manifest.title} ▾
       </button>
       {open && (
         <div
           role="menu"
-          aria-label="Modules"
+          aria-label="Extensions"
           data-testid="module-switcher-list"
           className="absolute right-0 top-full z-20 mt-1 flex min-w-[10rem] flex-col gap-0.5 rounded border border-tvx-line bg-tvx-panel p-1 shadow-lg"
         >

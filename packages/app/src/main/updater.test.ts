@@ -191,6 +191,28 @@ describe('the launch check', () => {
     expect(svc.current().phase).toBe('idle');
   });
 
+  it("the scheduled run bails when the user's own actions moved the phase off idle first", async () => {
+    const impl = stubImpl();
+    impl.checkForUpdates = async (): Promise<unknown> => {
+      impl.calls.push('check');
+      impl.fire('update-available', { version: '0.4.0' });
+      return null;
+    };
+    let fire = (): void => {};
+    const [svc] = service({
+      ...INPLACE,
+      impl,
+      scheduleLaunchCheck: (run) => {
+        fire = run;
+      },
+    });
+    svc.startLaunchCheck();
+    await svc.check(); // the user beat the timer with a manual check
+    fire(); // the +6s timer lands on phase 'available' and must do nothing
+    expect(impl.calls).toEqual(['check']);
+    expect(svc.current().auto).toBe(false);
+  });
+
   it('announces a version newer than the skipped one', async () => {
     writeSettings({ skippedUpdateVersion: '0.4.0' });
     const impl = stubImpl();
@@ -242,6 +264,61 @@ describe('a manual check', () => {
     expect(status.phase).toBe('error');
     // Only the first line: the updater's network errors love a stack-shaped paragraph.
     expect(status.error).toBe('ENOTFOUND github.com');
+  });
+
+  it('never runs over a download — the progress on screen outranks anything a check could learn', async () => {
+    const impl = stubImpl();
+    impl.checkForUpdates = async (): Promise<unknown> => {
+      impl.calls.push('check');
+      impl.fire('update-available', { version: '0.4.0' });
+      return null;
+    };
+    let release = (): void => {};
+    impl.downloadUpdate = async (): Promise<unknown> => {
+      impl.fire('download-progress', { transferred: 1, total: 2 });
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      impl.fire('update-downloaded');
+      return null;
+    };
+    const [svc] = service({ ...INPLACE, impl });
+    await svc.check();
+    const downloading = svc.download();
+    await vi.waitFor(() => expect(svc.current().phase).toBe('downloading'));
+    const status = await svc.check({ auto: true });
+    expect(status.phase).toBe('downloading');
+    expect(impl.calls).toEqual(['check']);
+    release();
+    await downloading;
+    expect((await svc.check()).phase).toBe('downloaded');
+  });
+
+  it('a manual ask joining the in-flight launch check upgrades it: the skip is cleared and reported', async () => {
+    writeSettings({ skippedUpdateVersion: '0.4.0' });
+    const impl = stubImpl();
+    let answer = (): void => {};
+    let started = (): void => {};
+    const checkStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    impl.checkForUpdates = async (): Promise<unknown> => {
+      started();
+      await new Promise<void>((resolve) => {
+        answer = resolve;
+      });
+      impl.fire('update-available', { version: '0.4.0' });
+      return null;
+    };
+    const [svc] = service({ ...INPLACE, impl });
+    const auto = svc.check({ auto: true });
+    await checkStarted;
+    const manual = svc.check();
+    answer();
+    const [a, m] = await Promise.all([auto, manual]);
+    expect(m.phase).toBe('available');
+    expect(a.phase).toBe('available');
+    expect(readSettings().skippedUpdateVersion).toBe('');
   });
 
   it('coalesces concurrent checks into one', async () => {
@@ -306,6 +383,28 @@ describe('download and install are gated on the user having something to say yes
     const [svc] = service({ ...INPLACE, impl });
     await svc.check();
     await svc.download();
+    expect((await svc.install()).ok).toBe(true);
+    expect(impl.calls).toContain('install');
+  });
+
+  it('refuses to install while confirmQuit says the unsaved edits are worth more', async () => {
+    const impl = stubImpl();
+    impl.checkForUpdates = async (): Promise<unknown> => {
+      impl.fire('update-available', { version: '0.4.0' });
+      return null;
+    };
+    impl.downloadUpdate = async (): Promise<unknown> => {
+      impl.fire('update-downloaded');
+      return null;
+    };
+    let allow = false;
+    const [svc] = service({ ...INPLACE, impl, confirmQuit: async () => allow });
+    await svc.check();
+    await svc.download();
+    const refused = await svc.install();
+    expect(refused.ok).toBe(false);
+    expect(impl.calls).not.toContain('install');
+    allow = true;
     expect((await svc.install()).ok).toBe(true);
     expect(impl.calls).toContain('install');
   });
@@ -379,6 +478,44 @@ describe('the notify mode (.deb / .tar.gz): says, never installs', () => {
     const status = await svc.check();
     expect(status.phase).toBe('error');
     expect(status.error).toContain('500');
+  });
+
+  it('the 30s bound covers the body read, so a stalled feed cannot wedge every later check', async () => {
+    vi.useFakeTimers();
+    try {
+      let fetches = 0;
+      const [svc] = service({
+        ...NOTIFY,
+        fetchImpl: async (_url, init) => (
+          (fetches += 1),
+          {
+            ok: true,
+            status: 200,
+            // A body that never arrives: text() settles only on abort — which is what Electron's
+            // net.fetch does when the signal aborts mid-body. The already-aborted branch matters:
+            // under fake timers the abort can fire before text() subscribes.
+            text: () =>
+              new Promise<string>((_resolve, reject) => {
+                const fail = (): void => reject(new Error('aborted'));
+                if (init.signal.aborted) fail();
+                else init.signal.addEventListener('abort', fail);
+              }),
+          } as unknown as Response
+        ),
+      });
+      const checking = svc.check();
+      await vi.advanceTimersByTimeAsync(30_001);
+      const status = await checking;
+      expect(status.phase).toBe('error');
+      // The wedge this guards against: the next check must actually RUN (a second fetch), not
+      // return a promise hung on the first body forever.
+      const again = svc.check();
+      await vi.advanceTimersByTimeAsync(30_001);
+      expect((await again).phase).toBe('error');
+      expect(fetches).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('install opens the Releases page instead of touching the machine', async () => {

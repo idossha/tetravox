@@ -20,9 +20,10 @@
  * proves the seam.
  *
  * Three AGENTS rules shape it, as they shape `automation-realdata.spec.ts`: the launch is a plain
- * `spawn` and the window is never shown (rule 9); the data is `testdata/`, so it runs everywhere
- * rather than skipping (rule 2 does not apply — nothing here needs a subject); and every claim is a
- * value read back out of a file, never a picture (rule 1).
+ * `spawn` and the window is never shown (rule 9); the data is `testdata/`, so the fixture half runs
+ * everywhere rather than skipping (the sEEG half needs an extension to stage and is gated on
+ * `TETRAVOX_SEEG_FIXTURE`, rule 2's shape); and every claim is a value read back out of a file,
+ * never a picture (rule 1).
  */
 
 /* eslint-disable no-empty-pattern */
@@ -41,23 +42,16 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { APP_ROOT, bundledSeegVersion } from './fixtures';
+import { APP_ROOT, stageSeeg } from './fixtures';
+import type { SeegStage } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
 const VOLUME = join(TESTDATA, 'vol_u8.nii.gz');
-// The second describe drives a real `tetravox.seeg` job. sEEG ships as the bundled extension
-// (§13.8), placed under `resources/modules/` by `scripts/fetch-locked-modules.mjs`; when it is
-// not on disk the build carries no such module and every action is refused. Skip there, exactly
-// as `module-seeg.spec.ts` does — the cheap `test` CI leg runs `fetch-locked-modules
-// --verify-only` (no download); the packaged leg and the local P077 gate cover the fetched case.
-const SEEG_BUNDLE = resolve(
-  APP_ROOT,
-  'resources',
-  'modules',
-  'tetravox.seeg',
-  bundledSeegVersion(),
-  'index.js'
-);
+// The second describe drives a real `tetravox.seeg` job. Nothing ships bundled (2026-08-31): the
+// suite stages the downloaded-and-consented state from the bytes `TETRAVOX_SEEG_FIXTURE` names
+// (`fixtures.ts#stageSeeg`), and skips when the env is unset — every CI leg, exactly as it used
+// to skip when the bundled tree was unfetched.
+const SEEG_STAGE: SeegStage | null = stageSeeg();
 
 const temporaryDirectories: string[] = [];
 
@@ -88,12 +82,20 @@ interface JobOutcome {
  * kept to what this spec needs. A private `--user-data-dir` per run because the single-instance
  * lock is keyed by it and is otherwise shared with a developer's own running copy.
  */
-async function runJob(job: unknown, name: string): Promise<JobOutcome> {
+async function runJob(
+  job: unknown,
+  name: string,
+  env: Record<string, string> = {}
+): Promise<JobOutcome> {
   const dir = mkdtempSync(join(tmpdir(), `tetravox-modjob-${name}-`));
   temporaryDirectories.push(dir);
   const jobPath = join(dir, 'job.json');
   const outDir = join(dir, 'out');
   mkdirSync(outDir, { recursive: true });
+  // A `--job` launch reads its consent from the profile like any other launch does, so a caller
+  // running the staged sEEG seeds this run's profile the way `enableModule` would have
+  // (`fixtures.ts#stageSeeg`). A fixture-only run passes no store seam and seeds nothing.
+  if (env['TETRAVOX_MODULE_DIR'] !== undefined) SEEG_STAGE?.consentInto(join(dir, 'profile'));
   writeFileSync(jobPath, JSON.stringify(job, null, 2));
 
   const electron = resolve(APP_ROOT, '..', '..', 'node_modules', '.bin', 'electron');
@@ -110,7 +112,11 @@ async function runJob(job: unknown, name: string): Promise<JobOutcome> {
   ];
 
   const outcome = await new Promise<{ code: number; stdout: string; stderr: string }>((done) => {
-    const child = spawn(electron, args, { cwd: APP_ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(electron, args, {
+      cwd: APP_ROOT,
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => (stdout += String(chunk)));
@@ -267,8 +273,8 @@ test.describe('a module that writes, from a job', () => {
   test.beforeAll(({}, testInfo) => {
     test.skip(testInfo.project.name !== 'dev', 'the dev target only');
     test.skip(
-      !existsSync(SEEG_BUNDLE),
-      'the bundled tetravox.seeg is not in resources/modules — run `node scripts/fetch-locked-modules.mjs`'
+      SEEG_STAGE === null,
+      'set TETRAVOX_SEEG_FIXTURE to a built tetravox.seeg to run this suite'
     );
   });
 
@@ -317,15 +323,14 @@ test.describe('a module that writes, from a job', () => {
           { type: 'module', module: 'tetravox.seeg', op: 'save', args: { out } },
         ],
       },
-      'seeg-round-trip'
+      'seeg-round-trip',
+      SEEG_STAGE!.env
     );
 
     expect(outcome.result.errors).toEqual([]);
     expect(outcome.result.ok).toBe(true);
     expect(outcome.code).toBe(0);
-    expect(outcome.result.modules).toEqual([
-      { id: 'tetravox.seeg', version: bundledSeegVersion() },
-    ]);
+    expect(outcome.result.modules).toEqual([{ id: 'tetravox.seeg', version: SEEG_STAGE!.version }]);
 
     // `load` found the CT the scene opened by its resolved path, and bound the table to it. `bound`
     // is the load-bearing field: false would mean the contacts were held and never placed, and
@@ -427,7 +432,8 @@ test.describe('a module that writes, from a job', () => {
           { type: 'module', module: 'tetravox.seeg', op: 'save', args: { out } },
         ],
       },
-      'seeg-nested-out'
+      'seeg-nested-out',
+      SEEG_STAGE!.env
     );
 
     expect(outcome.result.errors).toEqual([]);
@@ -468,7 +474,8 @@ test.describe('a module that writes, from a job', () => {
           },
         ],
       },
-      'seeg-escaping-out'
+      'seeg-escaping-out',
+      SEEG_STAGE!.env
     );
 
     expect(outcome.result.ok).toBe(false);

@@ -52,9 +52,9 @@ export function UpdatesDialog({
       onCancel={onClose}
       footer={
         <>
-          {mode !== 'off' && (phase === 'none' || phase === 'error') && (
+          {mode !== 'off' && (phase === 'idle' || phase === 'none' || phase === 'error') && (
             <button type="button" data-testid="updates-check" className="tvx-btn" onClick={onCheck}>
-              {phase === 'error' ? 'Try Again' : 'Check Again'}
+              {phase === 'error' ? 'Try Again' : phase === 'idle' ? 'Check Now' : 'Check Again'}
             </button>
           )}
           {phase === 'available' && (
@@ -102,7 +102,16 @@ export function UpdatesDialog({
           </p>
         )}
 
-        {mode !== 'off' && (phase === 'idle' || phase === 'checking') && (
+        {/* 'idle' is at rest, not in flight: main lands here when the launch check found only a
+            skipped version, and a resting state that says "Checking…" with nothing checking reads
+            as hung. `openUpdates` re-checks on the way in, so this shows only between pushes. */}
+        {mode !== 'off' && phase === 'idle' && (
+          <p className="text-[11px] text-tvx-dim" role="status">
+            Not checked yet.
+          </p>
+        )}
+
+        {mode !== 'off' && phase === 'checking' && (
           <p className="text-[11px] text-tvx-dim" role="status">
             Checking for updates…
           </p>

@@ -634,7 +634,7 @@ describe('the module envelope', () => {
   it('validates a shipped module operation against its manifest, arguments and all', () => {
     // The default argument is `MANIFESTS`, so this is the operation as a real job file meets it —
     // §13.6's promise that a manifest entry is the schema, with no second declaration anywhere. The
-    // sEEG editor is a bundled extension now (§13.8), validated the same way once its manifest is
+    // sEEG editor is a downloaded extension (§13.8), validated the same way once its manifest is
     // registered (`module-store.test.ts`, `allManifests()` + consent); the compiled-in fixture is
     // the shipped example here.
     expect(
@@ -651,10 +651,10 @@ describe('the module envelope', () => {
 
   it('names the modules this build carries when the id is unknown', () => {
     expect(moduleErrors({ module: 'tetravox.nope', op: 'echo' })).toEqual([
-      'actions[0].module: must be a module this build carries: test.every, test.quiet',
+      'actions[0].module: must be an extension this build carries: test.every, test.quiet',
     ]);
     // A missing or non-string `module` is the same failure, and gets the same list.
-    expect(moduleErrors({ op: 'echo' })[0]).toContain('actions[0].module: must be a module');
+    expect(moduleErrors({ op: 'echo' })[0]).toContain('actions[0].module: must be an extension');
     expect(moduleErrors({ module: 7, op: 'echo' })[0]).toContain('actions[0].module');
   });
 

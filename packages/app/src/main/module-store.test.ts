@@ -213,28 +213,6 @@ function place(
   return dir;
 }
 
-function bundledRoot(): string {
-  return join(dirs.appPath, 'resources', 'modules');
-}
-
-/**
- * The bundled tree as `scripts/fetch-locked-modules.mjs` leaves it: the locked files, and beside
- * them the receipt it writes from the lock entry it verified — same name, same shape, same
- * two-space JSON. The script's own tests prove it produces this; these prove main accepts it.
- */
-function placeLikeBundlingStep(): string {
-  const dir = place(bundledRoot(), { receipt: false });
-  const files = ['index.js', 'manifest.json'].map((name) => {
-    const bytes = readFileSync(join(dir, name));
-    return { name, bytes: bytes.length, sha256: sha(bytes) };
-  });
-  writeFileSync(
-    join(dir, RECEIPT_NAME),
-    `${JSON.stringify({ schema: 1, id: ID, version: '1.0.0', installedAt: new Date().toISOString(), files }, null, 2)}\n`
-  );
-  return dir;
-}
-
 beforeAll(() => {
   dirs.home = mkdtempSync(join(tmpdir(), 'tvx-modstore-home-'));
   dirs.appPath = mkdtempSync(join(tmpdir(), 'tvx-modstore-app-'));
@@ -252,8 +230,8 @@ afterAll(() => {
 
 beforeEach(() => {
   rmSync(moduleDir(), { recursive: true, force: true });
-  rmSync(bundledRoot(), { recursive: true, force: true });
   rmSync(join(dirs.home, 'settings.json'), { force: true });
+  rmSync(join(configHome(), 'tetravoxrc'), { force: true });
   delete process.env['TETRAVOX_EXT_INDEX'];
   clearServedModules();
   clearModuleWriteLists();
@@ -279,7 +257,7 @@ describe('the catalogue', () => {
 
   it('falls back to the shipped copy when the override does not parse', () => {
     // No override yet (beforeEach cleared it): this is the copy the build ships, which carries the
-    // bundled sEEG extension since the extraction (§13.8) rather than being empty.
+    // downloadable sEEG extension since the extraction (§13.8) rather than being empty.
     const shipped = catalogue().map((m) => m.id);
     expect(shipped).toContain('tetravox.seeg');
     const path = join(dirs.home, 'bad.json');
@@ -301,7 +279,7 @@ describe('the catalogue', () => {
 
       // Packaged: an ambient env var cannot repoint the store or spoof the catalogue — the real
       // configHome()/modules store and the shipped catalogue win (finding, 2026-08-31). The shipped
-      // index carries the bundled sEEG since the extraction (§13.8), so the win is that the env
+      // index carries the downloadable sEEG since the extraction (§13.8), so the win is that the env
       // fixture's id is absent, not that the catalogue is empty.
       dirs.packaged = true;
       expect(moduleDir()).toBe(join(configHome(), 'modules'));
@@ -522,14 +500,6 @@ describe('what is on disk', () => {
     expect(readdirSync(join(moduleDir(), ID)).sort()).toEqual(['1.0.0', '1.2.0']);
     expect(installedModule(ID)?.version).toBe('1.2.0');
   });
-
-  it('lets a bundled module win a collision with a user-installed one of the same id', () => {
-    place(moduleDir(), { version: '9.0.0', manifest: manifestText({ version: '9.0.0' }) });
-    place(bundledRoot(), { version: '1.0.0' });
-    const found = installedModule(ID);
-    expect(found?.bundled).toBe(true);
-    expect(found?.version).toBe('1.0.0');
-  });
 });
 
 describe('enabling', () => {
@@ -619,41 +589,13 @@ describe('enabling', () => {
     if (!result.ok) expect(result.error).toContain('nothing to load');
   });
 
-  it('accepts a bundled module with no receipt, whose bytes are inside the signed application', () => {
-    // The narrow exemption: a tree assembled by hand in a checkout. The bundling step always leaves
-    // a receipt, which is what the next two tests are about.
-    place(bundledRoot(), { receipt: false });
-    expect(verifyInstalled(installedModule(ID)!).ok).toBe(true);
-    expect(enableModule(ID).ok).toBe(true);
-  });
-
-  it('verifies a bundled module against the receipt the bundling step wrote', () => {
-    // `scripts/fetch-locked-modules.mjs` writes exactly this file from the `modules.lock` entry
-    // whose hashes it has just verified — so a bundled module goes through the same gate a
-    // downloaded one does, against numbers a reviewer approved in a pull request.
-    const dir = placeLikeBundlingStep();
-    const receipt = JSON.parse(readFileSync(join(dir, RECEIPT_NAME), 'utf8')) as {
-      schema: number;
-      files: { name: string }[];
-    };
-    expect(receipt.schema).toBe(1);
-    expect(receipt.files.map((f) => f.name).sort()).toEqual(['index.js', 'manifest.json']);
-    expect(verifyInstalled(installedModule(ID)!).ok).toBe(true);
-    expect(enableModule(ID).ok).toBe(true);
-    expect(servedModuleKeys()).toEqual([`${ID}/1.0.0/index.js`]);
-  });
-
-  it('refuses a bundled file that no longer matches its receipt, and serves nothing', () => {
-    // Before the bundling step wrote receipts this was undetectable: a bundled module with no
-    // receipt is exempt, so anything that reached `resources/modules/` ran. Now the release's own
-    // hashes are on disk beside it, and they are what decides.
-    const dir = placeLikeBundlingStep();
-    writeFileSync(join(dir, 'index.js'), 'globalThis.pwned = true;\n');
-    const result = enableModule(ID);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('refusing to run it');
+  it('refuses ANY install with no receipt — there is no bundled exemption any more', () => {
+    // 2026-08-31: the bundled tier is gone, and with it the hand-assembled-checkout exemption. A
+    // tree without recorded hashes is a tree nothing vouches for, wherever it came from.
+    place(moduleDir(), { receipt: false });
+    expect(verifyInstalled(installedModule(ID)!).ok).toBe(false);
+    expect(enableModule(ID).ok).toBe(false);
     expect(servedModuleKeys()).toEqual([]);
-    expect(consents()[ID]).toBeUndefined();
   });
 
   it('replaces the previous version’s entries rather than serving both', () => {
@@ -671,8 +613,20 @@ describe('enabling', () => {
     expect(enableModule(ID).ok).toBe(true);
     place(moduleDir(), { version: '1.1.0', manifest: manifestText({ version: '1.1.0' }) });
     writeSettings({
-      extensions: { [ID]: { version: '1.0.0', hostApi: 1, grantedAt: '', permissions: [] } },
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          // A real timestamp: `coerceExtensions` drops an entry whose `grantedAt` is empty, so the
+          // old fixture wrote **no** record and this asserted "absent", never the version
+          // comparison it is named for (finding, 2026-08-31).
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
     });
+    expect(consents()[ID]?.version).toBe('1.0.0');
+    expect(installedModule(ID)?.version).toBe('1.1.0');
     expect(isModuleConsented(ID)).toBe(false);
   });
 });
@@ -781,17 +735,6 @@ describe('disabling and removing', () => {
     expect(existsSync(join(moduleDir(), ID))).toBe(false);
     expect(installedModules()).toEqual([]);
   });
-
-  it('refuses to remove a bundled module, and disables it instead', () => {
-    place(bundledRoot());
-    expect(enableModule(ID).ok).toBe(true);
-    const result = removeModule(ID);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('ships with Tetravox');
-    // Disabled all the same: the refusal is about deleting files, not about withdrawing consent.
-    expect(servedModuleKeys()).toEqual([]);
-    expect(existsSync(join(bundledRoot(), ID))).toBe(true);
-  });
 });
 
 describe('a compiled-in id cannot be shadowed by an on-disk module', () => {
@@ -817,7 +760,7 @@ describe('a compiled-in id cannot be shadowed by an on-disk module', () => {
 });
 
 describe('the card states', () => {
-  it('says installed, enabled, bundled and updatable, and derives the permission list', () => {
+  it('says installed, enabled and updatable, and derives the permission list', () => {
     const { index } = indexFor([{ name: 'index.js', text: ENTRY_JS }], { version: '1.4.0' });
     writeIndex(index);
     place(moduleDir(), { version: '1.0.0', manifest: manifestText({ version: '1.0.0' }) });
@@ -825,7 +768,6 @@ describe('the card states', () => {
     expect(before).toMatchObject({
       installed: '1.0.0',
       enabled: false,
-      bundled: false,
       available: '1.4.0',
       updatable: true,
     });
@@ -883,20 +825,139 @@ describe('the manifest registration', () => {
     expect(installedManifests()).toEqual([]);
   });
 
-  it('pre-consents a bundled module at startup and serves it without a sheet', () => {
-    place(bundledRoot());
-    bootstrapInstalledModules();
-    expect(consents()[ID]?.version).toBe('1.0.0');
-    expect(servedModuleKeys()).toEqual([`${ID}/1.0.0/index.js`]);
-  });
-
-  it('does not pre-consent a user-installed module at startup', () => {
+  it("consents NOTHING at startup — a consent record is only ever the sheet's (2026-08-31)", () => {
+    // The bundled tier and its "installing the app was the consent" shortcut are gone. Boot reads,
+    // registers and re-serves what the user already consented to; it never widens the record.
     place(moduleDir());
     bootstrapInstalledModules();
     expect(consents()[ID]).toBeUndefined();
     expect(servedModuleKeys()).toEqual([]);
     // …but it is registered, so a job naming it gets the honest message rather than "no such module".
     expect(installedManifests().map((m) => m.id)).toEqual([ID]);
+  });
+
+  it("prunes a consent record with no install behind it — the bundled tier's leftover grant", () => {
+    // Every machine that ran a pre-2026-08-31 build carries a seeded grant for the extension that
+    // used to ship inside the app. Its files left with the tier, so the record covers nothing.
+    writeSettings({
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
+    });
+    bootstrapInstalledModules();
+    expect(consents()[ID]).toBeUndefined();
+  });
+
+  it('so a later download of that same version still has to be consented to (finding, 2026-08-31)', async () => {
+    // The migration path end to end: the leftover grant, the boot that prunes it, then the user
+    // downloading exactly the version the grant named. Without the prune this install would find
+    // its own consent already on file and go live at the next launch with no sheet ever answered.
+    writeSettings({
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
+    });
+    bootstrapInstalledModules();
+    const { index, bodies } = indexFor([
+      { name: 'manifest.json', text: manifestText() },
+      { name: 'index.js', text: ENTRY_JS },
+    ]);
+    writeIndex(index);
+    expect(
+      (
+        await installModule(ID, '1.0.0', {
+          fetchImpl: serveFrom(bodies),
+          signal: new AbortController().signal,
+        })
+      ).ok
+    ).toBe(true);
+    expect(consents()[ID]).toBeUndefined();
+    expect(isModuleConsented(ID)).toBe(false);
+    // …and a second boot leaves it inert rather than serving it.
+    bootstrapInstalledModules();
+    expect(servedModuleKeys()).toEqual([]);
+  });
+
+  it('a FIRST install drops a same-version record it did not earn, even without a boot in between', async () => {
+    // Belt to the prune's braces: the rule is "a fresh install always asks", so the drop does not
+    // depend on a launch having happened between the leftover record and the download.
+    const { index, bodies } = indexFor([
+      { name: 'manifest.json', text: manifestText() },
+      { name: 'index.js', text: ENTRY_JS },
+    ]);
+    writeIndex(index);
+    writeSettings({
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
+    });
+    expect(
+      (
+        await installModule(ID, '1.0.0', {
+          fetchImpl: serveFrom(bodies),
+          signal: new AbortController().signal,
+        })
+      ).ok
+    ).toBe(true);
+    expect(consents()[ID]).toBeUndefined();
+    expect(servedModuleKeys()).toEqual([]);
+  });
+
+  it('keeps a consent whose directory is there but does not scan — a bad manifest is not a missing install', () => {
+    // `scanRoot` answers the same empty for "no such extension", "unreadable store" and "manifest
+    // does not validate". Pruning on that would cost a user their grant over a transient, so the
+    // prune asks whether the directory is gone (finding, 2026-08-31).
+    place(moduleDir(), { version: '1.0.0' });
+    expect(enableModule(ID).ok).toBe(true);
+    writeFileSync(join(moduleDir(), ID, '1.0.0', 'manifest.json'), '{ not json');
+    expect(installedModule(ID)).toBeNull();
+    bootstrapInstalledModules();
+    expect(consents()[ID]?.version).toBe('1.0.0');
+  });
+
+  it('cannot be pre-consented from the rc file: a defaults layer does not author a grant', () => {
+    // `readRc` strips `extensions` for the reason `writeSettingsFromRenderer` does — otherwise a
+    // hand-editable defaults file could enable an installed extension at boot with no sheet.
+    place(moduleDir(), { version: '1.0.0' });
+    writeFileSync(
+      join(configHome(), 'tetravoxrc'),
+      JSON.stringify({
+        extensions: {
+          [ID]: {
+            version: '1.0.0',
+            hostApi: 1,
+            grantedAt: '2026-08-30T00:00:00.000Z',
+            permissions: [],
+          },
+        },
+      })
+    );
+    expect(consents()[ID]).toBeUndefined();
+    bootstrapInstalledModules();
+    expect(servedModuleKeys()).toEqual([]);
+  });
+
+  it('re-serves a previously consented install at startup, without asking again', () => {
+    place(moduleDir());
+    expect(enableModule(ID).ok).toBe(true);
+    clearServedModules();
+    bootstrapInstalledModules();
+    expect(servedModuleKeys()).toEqual([`${ID}/1.0.0/index.js`]);
   });
 });
 
@@ -921,10 +982,10 @@ describe('a job naming an installed module (settled decision O4)', () => {
     expect(validateJob(job, allManifests(), isModuleConsented).ok).toBe(true);
   });
 
-  it('still says "not a module this build carries" for a module nobody installed', () => {
+  it('still says "not an extension this build carries" for one nobody installed', () => {
     const result = validateJob(job, allManifests(), isModuleConsented);
     expect(result.ok).toBe(false);
-    expect(result.errors.join('\n')).toContain('must be a module this build carries');
+    expect(result.errors.join('\n')).toContain('must be an extension this build carries');
   });
 
   it('leaves a compiled-in module alone: the default gate consents to everything', () => {

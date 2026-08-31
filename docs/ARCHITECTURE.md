@@ -32,8 +32,8 @@ the number is the reason for a rule.
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
 
 **Non-goals:** WebGPU, Windows, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
-scope), remote/URL loading, **third-party runtime-loaded plugins** (first-party modules, compiled into the
-app, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
+scope), remote/URL loading, **third-party runtime-loaded plugins** (first-party extensions, downloaded
+through File ▸ Extensions…, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
 and *unattended* download-and-install stays a non-goal.)
 
@@ -327,9 +327,9 @@ it is sub-voxel and needs no absolute threshold. It is `null` on a flat box, whe
 
 **That half-extent is a parity rule, not a numerical preference** (2026-08-30): it is
 `SEEGContactEditor.snapToMetal`'s `rad_vox = np.maximum((radius_mm / spacing).astype(int), 1)`, character for
-character — truncation, floor of one voxel. §13's sEEG module tells users it reproduces the 3D Slicer editor's
+character — truncation, floor of one voxel. §13's sEEG extension tells users it reproduces the 3D Slicer editor's
 workflow "so the two can be used on the same subject interchangeably", and a snap is interchangeable only if
-it searches the same neighbourhood. `ceil` differs on every non-integer `radius / spacing`: at the module's
+it searches the same neighbourhood. `ceil` differs on every non-integer `radius / spacing`: at the extension's
 default 1.5 mm it is 5×5×5 on a 1 mm CT where Slicer is 3×3×3. Two things here are deliberately **not**
 Slicer's, and both are argued in `DECISIONS.md`: the query's voxel index is rounded HALF-UP (`Math.round`)
 where Python's `round` is half-to-even, and a **flat** box answers `null` where Slicer's `+ 1e-6` in the
@@ -707,18 +707,18 @@ is the opposite case: it is plain JSON, there is nothing to re-derive it from, a
 is `{ ...layer }` minus the two derived points fields and plus the JSON forms of `threshold` /
 `visibleLabels` / `label`; `remapLayer` is the same spread with the dataset ids remapped. So **every**
 kind-specific field — including one this build has never heard of — survives save → load → `addLayer`. It was
-already true, it was undocumented, and §13 depends on it: a scene re-saved by an older build must keep a
-module's points with their `id`, `group` and `ordinal` even though that build drops the `extensions` block it
+already true, it was undocumented, and §13 depends on it: a scene re-saved by an older build must keep an
+extension's points with their `id`, `group` and `ordinal` even though that build drops the `extensions` block it
 cannot describe. It is stated here so that a future `SerializableLayer` narrowed to an explicit field list is
 recognised as the breaking change it would be, and it is pinned by `roundtrip.test.ts`, which asserts deep
 equality over every key of a fully-populated layer of each kind.
 
 **`extensions` — §13's per-module blocks, written by the app.** Typed on `ViewSpec` exactly like `theme`, and
 for the same reason: it belongs to the file, but `Engine.serialize()` cannot produce it. `toViewSpec`
-enumerates `Scene` fields, and there is no module state in `Scene` — `LayerBase.module` is a tag the engine
-never interprets — so the **app** writes this field on save and hands each block back to its module on load,
-carrying an unknown module's block forward verbatim. §13.2 owns the rules: ≤ 256 KiB of JSON per block, and
-never a `LayerId` or `DatasetId` inside one, because both are reassigned on load. A module finds its layer
+enumerates `Scene` fields, and there is no extension state in `Scene` — `LayerBase.module` is a tag the engine
+never interprets — so the **app** writes this field on save and hands each block back to its extension on load,
+carrying an unknown extension's block forward verbatim. §13.2 owns the rules: ≤ 256 KiB of JSON per block, and
+never a `LayerId` or `DatasetId` inside one, because both are reassigned on load. An extension finds its layer
 again through `LayerBase.module`.
 
 **`sidecars` — because "re-derived from the dataset and its LUT" needs the LUT.** `ernie.msh` carries no
@@ -946,7 +946,7 @@ landing must not delete what a user is typing.
 
 **The point tool's five members are the same shape as measure mode's, and for the same reason.** Only the
 engine can turn a pane pixel into a world point, and §8 forbids the app deriving one — so the *mode* is engine
-state, the app (or a §13 module) owns the button that arms it, and `input/pointer.ts` is where a click becomes
+state, the app (or a §13 extension) owns the button that arms it, and `input/pointer.ts` is where a click becomes
 a placement or a grab (§7.5 has the grammar). Three things are decided here rather than in a host:
 **selection is by `points[].id`**, so it survives the `points` replacement every edit is — the engine re-finds
 it after each `updateLayer` and emits `cleared` when the id has gone, rather than leaving a ring on whatever
@@ -1059,7 +1059,7 @@ Rules:
     script cannot manufacture one. `readSceneFile` admits **nothing** (2026-08-30): `tetravox:allow-path`
     takes any existing absolute path with no gesture, so a write derived from a read was a write the renderer
     could mint for any scene file on the disk — read it, then overwrite it, with no dialog anywhere.
-11. **Module file IO is four channels, and a module-scoped write list** (`main/module-io.ts`, registered from
+11. **Extension file IO is four channels, and a module-scoped write list** (`main/module-io.ts`, registered from
     main like `registerJobIpc()`; §13). Small text only, paths in both directions, and each one narrower than
     a door that is already open:
 
@@ -1068,10 +1068,10 @@ Rules:
     | `tetravox:module-read-text` | UTF-8 text of a path **already on the read allow-list**, ≤ 1 MiB, extensions `.tsv .csv .json .txt .fcsv`. It admits nothing and has no write twin — a policy restatement of what `readSceneFile` (8 MiB, any allow-listed path, no content check) and `tetravox:subject-spaces` already return. |
     | `tetravox:module-open-dialog` | An Open sheet with the reader's title and filters; the result is allow-listed exactly like File ▸ Open's. |
     | `tetravox:module-save-dialog` | A Save sheet whose result admits the chosen path **and** the writer's declared same-directory siblings for writing. |
-    | `tetravox:module-write-text` | UTF-8 text, ≤ 8 MiB, to a path on **that module's** list, `.part` + rename, with an optional main-side `.bak` copy first. |
+    | `tetravox:module-write-text` | UTF-8 text, ≤ 8 MiB, to a path on **that extension's** list, `.part` + rename, with an optional main-side `.bak` copy first. |
 
-    The write list is `Map<moduleId, …>`, separate from `scene-io.ts`'s `writable`: a module cannot write over
-    a scene, the scene channel cannot write a module's files, and one module's Save sheet admits nothing for
+    The write list is `Map<moduleId, …>`, separate from `scene-io.ts`'s `writable`: an extension cannot write over
+    a scene, the scene channel cannot write an extension's files, and one extension's Save sheet admits nothing for
     another. A **sibling template** (`{name}.{stamp}.bak`, `{stem}_editlog.json`) must match
     `^[A-Za-z0-9_.{}-]{1,96}$` before substitution, and after substituting `{name}` (the basename), `{stem}`
     (it without its extension chain) and `{stamp}` (`YYYYMMDD-HHMMSS`) must still be a plain name — no
@@ -1088,20 +1088,20 @@ Rules:
     admission-policy gain over that status quo, and no listing or glob IPC exists or is wanted.
 
     **An admission belongs to the editing session that earned it, not to the process** (2026-08-30). A fifth
-    channel, `tetravox:module-clear-writes`, drops one module's whole list; the renderer sends it from
-    `deactivateModule`, which is also where the module's own `savePath` dies, so the next save shows a sheet
-    anyway. Main drops **every** module's list where it replaces the document itself — `sendOpenScene` and
+    channel, `tetravox:module-clear-writes`, drops one extension's whole list; the renderer sends it from
+    `deactivateModule`, which is also where the extension's own `savePath` dies, so the next save shows a sheet
+    anyway. Main drops **every** extension's list where it replaces the document itself — `sendOpenScene` and
     `sendSceneCommand('new'|'open')`. Without this, saving subject A's `electrodes.tsv` left A's table and
     the `<anchor>.<stamp>.bak` *shape* beside it writable for the rest of the session, including after the
     user moved to subject B. It is inert for a `--job` run, whose `out` admissions come from the envelope
-    before there is a window and whose actions activate modules in whatever order they are listed. This
+    before there is a window and whose actions activate extensions in whatever order they are listed. This
     scopes **accidents**: a compromised renderer simply never sends it, and the durable answer is a narrower
     `allowPath` (`docs/ROADMAP.md`).
-12. **Unsaved module edits interrupt a window close.** The renderer pushes `tetravox:set-document-edited`
-    (from a module's `ui.setDirty`, never from `sceneDirty`, which any cursor click sets); main calls
+12. **Unsaved extension edits interrupt a window close.** The renderer pushes `tetravox:set-document-edited`
+    (from an extension's `ui.setDirty`, never from `sceneDirty`, which any cursor click sets); main calls
     `win.setDocumentEdited` with it and keeps the flag per window. A `BrowserWindow 'close'` on a window
     holding that flag is `preventDefault`ed and answered with a two-button `dialog.showMessageBox`
-    **{Discard, Cancel}** — and no Save: saving is the module's own Save sheet and `module-write-text`, and a
+    **{Discard, Cancel}** — and no Save: saving is the extension's own Save sheet and `module-write-text`, and a
     Save button here would be a second write path driven from main. Discard clears the flag and destroys the
     window; Cancel leaves it open. The handler is **not installed on a `--job` window** — a batch render has
     nobody to answer a box and would hang to the watchdog — and it is inert under `TETRAVOX_E2E_DISCARD=1`,
@@ -1114,9 +1114,9 @@ Rules:
     enable,disable,remove,reveal-dir}` plus a `tetravox:module-progress` push, mirroring §8's Sample Data
     block one door further in. **No path crosses this bridge in either direction.** The renderer sends an id
     and a version and receives card states, progress numbers and manifests — which are data, no DOM type and
-    nothing to execute. A module's *code* is reachable only as `tetravox://module/<id>/<version>/<file>`, off
+    nothing to execute. An extension's *code* is reachable only as `tetravox://module/<id>/<version>/<file>`, off
     a `Map<string, string>` that only `enableModule()` fills, and only after re-hashing every file against
-    the install receipt. So the renderer cannot name a module file, cannot read one, and cannot make one
+    the install receipt. So the renderer cannot name an extension file, cannot read one, and cannot make one
     reachable; the one thing it can do is ask, and the sheet the user answers is what the ask is for.
     `script-src` therefore gains the **host source** `tetravox://module` and nothing else — the scheme form
     `tetravox:` would also admit `tetravox://file/…`, which is every path the user has ever opened.
@@ -1128,7 +1128,12 @@ Rules:
     (one small `UpdateStatus` object — phase, two version strings, progress numbers, plain-text notes) and
     `tetravox:open-updates` (the File ▸ Check for Updates… click, carrying nothing) out. The feed, the
     download and the installer live entirely in main; the renderer can *ask* but the only bytes that move
-    are main's own, and nothing installs without `tetravox:update-install` carrying a user's click. The
+    are main's own. What the ask can reach is phase-gated in main — no download before a check announced,
+    no install before a download landed, and unsaved extension edits raise rule 12's Discard/Cancel *before*
+    `quitAndInstall` (on Windows and the AppImage the installer runs before `app.quit()`, so the ordinary
+    close guard would ask too late). The channels do not prove a human click — a hostile renderer could
+    invoke them — but the worst it can reach is a restart into the sha512-verified artefact of a release
+    the pinned `idossha/tetravox` feed published, which is the app the user would have gotten anyway. The
     boot status is **pulled** (`updateStatus`), like `startupPaths` and for the same race.
 
 ---
@@ -2518,7 +2523,7 @@ Input (Freeview-like):
   `Esc` — and leaving the mode — drops whatever is pending and touches nothing already placed. The mode is
   engine state and the half-placed gesture rides on `DrawInput`, never on `Scene`: a `*.tetravox.json` must
   not carry one.
-* **The point tool** (§13, `Engine.setPointTool`; a module arms it, and no core toolbar button does).
+* **The point tool** (§13, `Engine.setPointTool`; an extension arms it, and no core toolbar button does).
   While it is armed a left click is the tool's, in the `#onDown` precedence slot **after measure mode and
   before the gizmo** — the same argument that put measure mode ahead of the gizmo, so a contact in the 3D pane
   is not eaten by a handle the pointer happens to be over. **At most one click-consuming mode is armed**:
@@ -2574,7 +2579,7 @@ Input (Freeview-like):
       the point becomes the selection, and **no `'point'` gesture starts and no `pointDrag` is taken**. This
       is the surviving half of the old rule and the reason it existed — an off-slice contact has no honest
       plane to be dragged in, and dragging one would move a contact the user cannot see. A host that jumps the
-      cursor onto its selection (§13.3's contact modules do) brings the slice to the contact, and the next
+      cursor onto its selection (§13.3's contact extensions do) brings the slice to the contact, and the next
       press on it is an ordinary on-slice grab.
     * **and therefore no `dragEnd`.** A `select`-mode click emits `selected` + `dragEnd` when it grabbed, and
       `selected` **alone** when it hit a ghost. `dragEnd` means "a drag ended", and emitting a zero-length one
@@ -2597,9 +2602,9 @@ Input (Freeview-like):
     than a stated one (2026-08-30).
   * **`Esc` is `place` → `select` → off**, in the engine's own keydown beside `cancelMeasurement`'s and before
     the "is the pointer over a pane" test, because the app's `keymap.ts` answers `Escape` unconditionally and
-    "core first, module on null" could never deliver it here. **A disarm that lands mid-drag commits the drag
+    "core first, extension on null" could never deliver it here. **A disarm that lands mid-drag commits the drag
     first** (2026-08-30): `setPointTool(null)` — whether it came from `Esc` with the button still down or from
-    a module — emits that drag's `dragEnd`, at the position the drag reached, *before* `cleared`. `Esc`
+    an extension — emits that drag's `dragEnd`, at the position the drag reached, *before* `cleared`. `Esc`
     cannot be gated on "is a gesture running" without ceasing to be the mode key, so the only two honest
     exits are commit and revert; commit is chosen because it makes `Esc` mean what `pointerup` means and keeps
     "one drag is one undo step" true however the drag ended. The scene has already moved by then — every
@@ -2610,7 +2615,7 @@ Input (Freeview-like):
     of which is not a disarm at all, only `setPointSelection(null)` or a `points` replacement that lost the
     selected id. Six causes shared one event, and a host that re-arms has to tell them apart: re-arming after
     `'measure'` would turn measure mode straight back off, because arming the point tool disarms it, so `m`
-    would do nothing at all while such a module was active. The reason is which of the engine's own routes
+    would do nothing at all while such an extension was active. The reason is which of the engine's own routes
     ran and not something a caller supplies, which is why `setPointTool(null)` stays a one-argument member.
   * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
     `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). The *same*
@@ -2652,12 +2657,12 @@ Input (Freeview-like):
 **Regions.** **Left**: layer panel (ordered list, per-row disclosure, eye, opacity slider, per-kind property
 editor, 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed +
 Cancel). **Centre**: view grid (coloured border on the active view pane). **Right**, top to bottom in this
-order: coordinate bar, the `.msh.opt` defaults chip (§7.6), measurements panel, **module panel — one active
-module at a time (§13)** — and the info panel. **Top**: toolbar — the `Tetravox` menu (Open…, Sample data…,
+order: coordinate bar, the `.msh.opt` defaults chip (§7.6), measurements panel, **extension panel — one active
+extension at a time (§13)** — and the info panel. **Top**: toolbar — the `Tetravox` menu (Open…, Sample data…,
 New, Open scene…, Save, Save as…) and the scene's name in the left column; layout, radiological toggle,
 Reset, crosshair, colour bars, measure mode, scale bar, orientation cube and screenshot in the centre; the
-**module switcher**, the keyboard sheet (`?`) and settings (`⚙`) in the right column. **Status bar** along
-the bottom, with each active module's cell **before** the per-dataset cells.
+**extension switcher**, the keyboard sheet (`?`) and settings (`⚙`) in the right column. **Status bar** along
+the bottom, with each active extension's cell **before** the per-dataset cells.
 
 The theme is **not** a toolbar control: `system`/`light`/`dark` live in the settings dialog's Appearance tab
 (directed task: toolbar consolidation, 2026-08-28), so `⚙` is the single home for every standing preference
@@ -2757,20 +2762,20 @@ second instance. `main/menu.ts` splits scenes from datasets on the way in, so th
 filename. `docs/USER_GUIDE.md` is the user-facing half.
 
 **Asking before losing work.** `DialogKind` carries a `confirm` case: a promise-resolving question with two
-or three buttons, raised by the module host (`host.ui.confirm`, §13.1) and by the shell's own discard guard.
+or three buttons, raised by the extension host (`host.ui.confirm`, §13.1) and by the shell's own discard guard.
 The **last** button is always the cancelling one, so Escape and a backdrop click — which `DialogFrame` already
 routes to `onCancel` — are the same answer as pressing it. The guard runs at every place where work would
 otherwise be thrown away without a word: **New**, opening a scene (which is also File ▸ Open Recent and the
-drop route, since all three arrive at `openScenePath`), a layer row's **✕**, which closes the dataset a
-module's layers hang off, and **opening another file a module claims** — a module's `openPath` replaces what
+drop route, since all three arrive at `openScenePath`), a layer row's **✕**, which closes the dataset an
+extension's layers hang off, and **opening another file an extension claims** — an extension's `openPath` replaces what
 it is editing and clears its own history, so the reader route (§13.1's `onReader`) is as destructive as New
 and asks the same question; cancelling there reports the path as *claimed*, because falling through to the
-ordinary dataset load would try an electrodes table as a mesh. A module's own Open sheet asks for itself,
+ordinary dataset load would try an electrodes table as a mesh. An extension's own Open sheet asks for itself,
 through `host.ui.confirm`, since the shell never sees that gesture. It is keyed on `UiState.moduleDirty`,
 **never** on `sceneDirty`: `sceneDirty` is set
 by any cursor click and is deliberately conservative, so it cannot mean "this work is unsaved". The window
-title's `•` is the OR of the two. `⌘S` saves the *scene*; while a module has unsaved work it also says so,
-because a module writes its own files from its own panel.
+title's `•` is the OR of the two. `⌘S` saves the *scene*; while an extension has unsaved work it also says so,
+because an extension writes its own files from its own panel.
 
 **Screenshot**: `screenshot(opts: ScreenshotOptions)` (§4.7) → PNG with the DPI written into the pHYs chunk.
 The same path is exposed headlessly by the **automation surface** (`docs/AUTOMATION.md`):
@@ -3038,7 +3043,7 @@ a rule about signatures spread over many files, and a `crates/**` trigger would 
 implementation change and teach everyone to ignore the job. Item 6 — `modules/host.ts` — **is**
 enforced by path from the day it was frozen (2026-08-30), for the reason the four before it are: for
 a file that *is* the interface, "the file changed" and "the interface changed" are the same event.
-Second, **§13.1**: every module
+Second, **§13.1**: every extension
 manifest's `docs` heading must exist as a `## ` section in `docs/USER_GUIDE.md`, in
 `website/scripts/sync.mjs`'s `GUIDE_PAGES`, **and** as a `/guide/<slug>` entry in
 `website/.vitepress/config.ts`'s sidebar. The first two because the website's splitter throws on a
@@ -3081,8 +3086,9 @@ wasm pre-built on the host.
 * Gate: **a clean clone with an empty pnpm store reaches `pnpm e2e` green.**
 * macOS signing: Developer ID + notarisation are **live in `release.yml`** (the four secrets are set;
   `docs/RELEASING.md` §4) and a documented fallback keeps unsigned local/fork builds working
-  (`scripts/electron-builder.sh`). §12.4's in-app updates ride on the signature — an unsigned build's
-  updater mode is `'off'`. `electron-builder` is pinned to an exact patch version.
+  (`scripts/electron-builder.sh`). §12.4's in-app updates ride on the signature — a dev tree's updater
+  mode is `'off'`, and a packaged-but-unsigned local build checks but cannot complete a macOS
+  install (Squirrel refuses the swap, surfaced as an error). `electron-builder` is pinned to an exact patch version.
 * Linux: the AppImage needs `--no-sandbox` or a correctly-owned `chrome-sandbox`; the app detects
   `caps.isSoftware` and surfaces it in the status bar rather than silently running at 2 fps.
 
@@ -3098,7 +3104,7 @@ wasm pre-built on the host.
 5. Every Rust signature in §6.0–§6.4.
 6. `packages/app/src/renderer/src/modules/host.ts` — §13.1's `ModuleHost` / `ModuleInstance`, frozen from
    2026-08-30 at `MODULE_HOST_VERSION = 1`, when the wiring commit made `tool`, `files` and
-   `scene.peakCentroid` real. It is the surface every module is written against and the one a
+   `scene.peakCentroid` real. It is the surface every extension is written against and the one a
    worker-hosted stage 2 (§13.8) would have to honour, so it changes the way `api.ts` does. The
    **manifests** it is paired with (`packages/app/src/modules/**`) are not frozen but are typechecked by
    all three tsconfigs — `tsconfig.node.json`, `tsconfig.web.json`, `tsconfig.e2e.json` — because main
@@ -3151,7 +3157,9 @@ status-bar pill for as long as it stays true — and does nothing further until 
   macOS (the signed zip beside each dmg is the update artefact; Squirrel.Mac also checks the code
   signature), Windows NSIS, Linux AppImage (`APPIMAGE` set); `'notify'` — a `.deb`/`.tar.gz` install,
   which only reads `latest-linux.yml` over `net.fetch`, compares, and offers the Releases page;
-  `'off'` — a dev or unsigned build (`!app.isPackaged`) and every `--job` run.
+  `'off'` — a dev tree (`!app.isPackaged`) and every `--job` run. (A *packaged* unsigned build —
+  a contributor's own `pnpm package` — is `'inplace'` and checks; on macOS Squirrel then refuses
+  the unsigned swap at install time, surfaced honestly as an 'error' status.)
 * **Flow.** A launch check (a few seconds after ready, gated by the `checkForUpdates` setting, silent
   about `skippedUpdateVersion`) pushes one status. Download happens on click (`autoDownload: false`),
   with progress statuses; install happens on click (`quitAndInstall`) — and a downloaded update also
@@ -3165,22 +3173,29 @@ status-bar pill for as long as it stays true — and does nothing further until 
 
 ---
 
-## 13. Modules — the first-party extension surface
+## 13. Extensions
 
-A **module** is a first-party tool: bigger than a toolbar toggle, smaller than a second application, owning
-one kind of data end to end — its own panel, its own keys, its own files, its own undo. It reaches the shell
-one of two ways (§13.8): compiled into `out/renderer` — the fixture `tetravox.hello`, and the shape this
-section describes — or shipped as a versioned **extension**, a `manifest.json` plus `index.js` that is
-*bundled* inside the signed app or *installed* at runtime. The sEEG contact editor is the first product
-module, and it ships bundled (`resources/modules/`, `modules.lock`); DBS leads, ECoG grids and an ROI tool
-are the shape of the next ones. §1's "plugins" non-goal is **narrowed, not withdrawn**: third-party code
-loaded at runtime is still out of scope, and §13.8 says what it would cost.
+An **extension** is a first-party tool: bigger than a toolbar toggle, smaller than a second application,
+owning one kind of data end to end — its own panel, its own keys, its own files, its own undo. It is a
+versioned `manifest.json` plus `index.js`, **installed at runtime** through File ▸ Extensions… (§13.8);
+nothing ships inside the application (the bundled tier was removed 2026-08-31), and the one compiled-in
+entry is the test fixture `tetravox.hello`, reachable only behind the `?modules=` launch query. The sEEG
+contact editor is the first product extension; DBS leads, ECoG grids and an ROI tool are the shape of the
+next ones. §1's "plugins" non-goal is **narrowed, not withdrawn**: third-party code is still out of scope,
+and §13.9 says what admitting untrusted code would cost.
 
-The rule this section exists to hold: **a module is a directory and one line in a registry.** Nothing
-module-specific may appear in `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts` — the
-shell reads every module-specific fact out of a manifest. `modules.test.ts` is what keeps that true.
+*A note on names (2026-08-31):* the product word is **extension**, everywhere a user or a document reads.
+The word `module` survives in the machine surfaces that predate the rename and are frozen against published
+extensions and user state — the manifest's keys, the `ModuleHost` API, `tetravox://module`,
+`~/.tetravox/modules/`, `@tetravox/module-sdk`, the job-file action `"type": "module"`, the Python
+`Job.module()` — and in internal identifiers and file names that mirror them. Those are wire and disk
+formats, not vocabulary.
 
-### 13.1 What a module is, and where it lives
+The rule this section exists to hold: **an extension is a directory and one line in a registry.** Nothing
+extension-specific may appear in `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts` —
+the shell reads every extension-specific fact out of a manifest. `modules.test.ts` is what keeps that true.
+
+### 13.1 What an extension is, and where it lives
 
 ```
 packages/app/src/modules/manifest-types.ts        # ModuleManifest, ArgShape — no DOM, no node:
@@ -3199,17 +3214,17 @@ once. So manifests carry type annotations and object literals only — erasable 
 type is a compile error), `tsconfig.web.json` and `tsconfig.e2e.json`. A vitest reads the sources back and
 fails a manifest that imports anything outside its own directory.
 
-**Ids.** A module id is `<vendor>.<name>` (`tetravox.seeg`). Command, reader, writer and operation ids are
+**Ids.** An extension id is `<vendor>.<name>` (`tetravox.seeg`). Command, reader, writer and operation ids are
 **unprefixed inside a manifest**; the host namespaces them as `<moduleId>/<id>` wherever they leave the
-module, so a manifest never repeats its own id and two modules may both declare `save`.
+extension, so a manifest never repeats its own id and two extensions may both declare `save`.
 
 **`ModuleHost` is the whole surface.** Scene reads and writes are **synchronous** — they are calls into the
 engine through the controller, exactly as every §8 panel's are — and only files, dialogs and confirmations are
-promises, because those cross §5's process boundary or wait for a person. A module receives this object and
+promises, because those cross §5's process boundary or wait for a person. An extension receives this object and
 imports nothing else: an ESLint wall on `modules/<id>/**` allows `../host`, the shared control kit and
 `@tetravox/engine` **types**, and forbids the store, the engine's runtime, `bridge()` and `automation/*`. A
 lint rule can be switched off inline, so `modules.test.ts` re-proves the same property by reading the sources.
-That wall is the precondition for §13.8, and it means the blast radius of a worker-hosted module tier is
+That wall is the precondition for §13.8, and it means the blast radius of a worker-hosted extension tier is
 `hostImpl.ts` and nothing else.
 
 **Frozen (§12.3 item 6), at `MODULE_HOST_VERSION = 1`.** It was pre-freeze for exactly as long as the
@@ -3219,11 +3234,11 @@ been frozen around stubs. All three were wired on 2026-08-30 and the surface was
 commit — one governance round, not four. From here it changes additively, with the `ARCHITECTURE.md` edit and
 the `DECISIONS.md` entry in the same commit, and absent must reproduce the previous behaviour.
 
-**`scene.activePlane()` is the one view fact a module is given** (appended 2026-08-30). It answers
+**`scene.activePlane()` is the one view fact an extension is given** (appended 2026-08-30). It answers
 `{ normal, point }` for the active 2-D pane — the view's normal through the cursor, which is §7.5's own
-rule for what a slice pane shows — and `null` for the 3-D pane. It is here rather than derived by a
-module for the reason §8 forbids the app deriving a world point from a pane pixel: `{normal, up}` is
-engine state, and a module reconstructing it from `SliceMode` would be wrong on an oblique view and
+rule for what a slice pane shows — and `null` for the 3-D pane. It is here rather than derived by an
+extension for the reason §8 forbids the app deriving a world point from a pane pixel: `{normal, up}` is
+engine state, and an extension reconstructing it from `SliceMode` would be wrong on an oblique view and
 would not follow a rotation. Nothing else about a view is offered — not its camera, its zoom or its
 per-view layer visibility — because the one thing a panel *beside* the panes has to be able to say is
 how far the thing in its list is from the slice the user is looking at.
@@ -3234,45 +3249,45 @@ shipping build — `ShellController.activateModule` passes the engine's tool, `c
 bridge().allowPath)` and the engine's `peakCentroid` — and the optional dependencies stay because the
 distinction is what a harness, and a host version that outruns a build, are built on.
 
-**Versioning.** `MODULE_HOST_VERSION` is an integer and `manifest.hostApi` names the version a module was
+**Versioning.** `MODULE_HOST_VERSION` is an integer and `manifest.hostApi` names the version an extension was
 written against. Host changes are additive under §12.3 exactly like `api.ts`; a breaking change bumps the
 integer with a `DECISIONS.md` line, and the registry test then refuses every stale manifest.
 
 **Lifecycle.** Registration is build time; activation is lazy — the switcher, a reader hit, a sibling hit
-after a dataset lands, or a scene carrying the module's block. One module is in the slot at a time
+after a dataset lands, or a scene carrying the extension's block. One extension is in the slot at a time
 (`UiState.activeModule`, set only once `activate` resolved). `dispose()` runs on deactivate, on `newScene` and
 on `ShellController.detach`. An `activate` that throws becomes a toast and leaves the slot empty; it may never
-leave a half-built view grid behind. **Deactivating is not destructive**: a module's edits live in the scene's
+leave a half-built view grid behind. **Deactivating is not destructive**: an extension's edits live in the scene's
 layers and its own state in `moduleBlocks`, so re-activating restores through `restoreBlock` — the same code
 path opening a scene takes.
 
-**Distribution.** Two routes, one host surface. **In-tree**, by pull request (`CONTRIBUTING.md`, "Adding a
-module") — the module is compiled in and `MODULES` names it. **Downloaded**, from its own repository through
-File ▸ Extensions… — the module is verified, consented to per version and loaded over `tetravox://module`
-(§13.8). Everything below this line is identical for both: the same `ModuleManifest`, the same frozen
-`ModuleHost`, the same key pool, the same scene block, the same job envelope. What differs is where the bytes
-came from and what counted as consent, and both are §13.8's subject.
+**Distribution.** One route: **downloaded**, from its own repository through File ▸ Extensions… — the
+extension is verified, consented to per version and loaded over `tetravox://module` (§13.8). (The in-tree,
+compiled-in route survives only for the `tetravox.hello` fixture — `CONTRIBUTING.md`, "Adding an
+extension" — which is test scaffolding, not a shipped extension.) Everything below this line is the same
+either way: the same `ModuleManifest`, the same frozen `ModuleHost`, the same key pool, the same scene
+block, the same job envelope.
 
 ### 13.2 Persistence
 
 Two halves, and neither is a new scene concept.
 
-**Core-typed layers.** A module's geometry is ordinary `Scene.layers` — a `PointsLayer` of contacts, not a new
-layer kind. So a build without the module still *draws* the scene, `serialize` still round-trips it, and no
+**Core-typed layers.** An extension's geometry is ordinary `Scene.layers` — a `PointsLayer` of contacts, not a new
+layer kind. So a build without the extension still *draws* the scene, `serialize` still round-trips it, and no
 pass, registry or property editor grew a case for it. `LayerBase.module` records the owner.
 
-**One opaque block per module**, at `ViewSpec.extensions[<moduleId>]`:
+**One opaque block per extension**, at `ViewSpec.extensions[<moduleId>]`:
 `{ module, version, moduleVersion, data }`. It is written by the **app**'s `serialiseScene`, exactly like
-`theme` and for the same reason: `Engine.serialize()` enumerates engine fields and a module's record is not
+`theme` and for the same reason: `Engine.serialize()` enumerates engine fields and an extension's record is not
 one of them. Three rules make it portable:
 
 * **A block never contains a `LayerId` or a `DatasetId`.** Both are reassigned on load, so a block holding one
-  would point at someone else's layer the second time a scene was opened. A module finds its own layer by
+  would point at someone else's layer the second time a scene was opened. An extension finds its own layer by
   `LayerBase.module`.
 * **≤ 256 KiB of JSON**, enforced by the host. A block is a *record* — provenance, per-point status, the
-  module's own settings — not a second copy of the data.
-* **A block for a module this build does not have is carried through verbatim.** Opening a colleague's scene
-  and re-saving it must not delete their work. A build that *does* have the module but is older reads the
+  extension's own settings — not a second copy of the data.
+* **A block for an extension this build does not have is carried through verbatim.** Opening a colleague's scene
+  and re-saving it must not delete their work. A build that *does* have the extension but is older reads the
   block's `version` and decides for itself. Verbatim is the **whole envelope**, not the four fields a given
   build knows about: `sceneExtensions` validates `module` / `version` / `moduleVersion` and re-states them
   over the block it was handed, so a fifth field a later host adds under §12.3's additive rule survives an
@@ -3280,11 +3295,11 @@ one of them. Three rules make it portable:
 
 The read side is strict about the envelope and tolerant about `data`: a block whose key and `module` field
 disagree, or whose `version` is not a number, is **dropped**, because handing a malformed block to
-`restoreBlock` is a module crash on file open; `data` is not inspected at all, because it is not ours to
+`restoreBlock` is an extension crash on file open; `data` is not inspected at all, because it is not ours to
 validate.
 
-**Degradation, stated.** A scene re-saved by a build without the module keeps the layer and every per-point
-field — they ride the `{ ...layer }` spread §4.6 promises — and drops `extensions`. A module reopening such a
+**Degradation, stated.** A scene re-saved by a build without the extension keeps the layer and every per-point
+field — they ride the `{ ...layer }` spread §4.6 promises — and drops `extensions`. An extension reopening such a
 scene rebuilds what it can from the layer, marks its provenance unknown, and says so.
 
 ### 13.3 The user interface
@@ -3293,61 +3308,61 @@ scene rebuilds what it can from the layer, marks its provenance unknown, and say
 floating, draggable or popover primitive, pane overlays are `pointer-events: none` by contract so a palette
 over the canvas would fight the WebGL grid for pointer capture, and at 1512 px the sidebars already take
 608 px — a floating editor would cover the pane it asks the user to click in. Not a tab either: the feedback
-most module actions are judged by is the info panel's Cursor block, and a tab hides it at the moment it
+most extension actions are judged by is the info panel's Cursor block, and a tab hides it at the moment it
 matters.
 
-The slot renders **nothing at all** while idle, so the DOM is unchanged with no module active, and it sits
+The slot renders **nothing at all** while idle, so the DOM is unchanged with no extension active, and it sits
 **outside** the info panel's scrolling container, which is what makes `max-h-[55%]` plus its own scroller a
-hard cap rather than a suggestion — inside it, a tall module would squeeze the info panel to zero. The column
+hard cap rather than a suggestion — inside it, a tall extension would squeeze the info panel to zero. The column
 is 320 px and stays 320 px; a resizable right aside is on the ROADMAP, not in v1.
 
 **Four bounded secondary surfaces, and no fifth:**
 
 1. **One switcher**, in the toolbar's right column, directly above the slot it opens — never a button per
-   module. `Toolbar.tsx` is `flex-wrap`, so a second module's button in the centre cluster wraps the row at
+   extension. `Toolbar.tsx` is `flex-wrap`, so a second extension's button in the centre cluster wraps the row at
    1440 px, grows the header and shrinks the view grid: the same canvas-resize class the status bar was pinned
    against. A Playwright assertion pins the toolbar's height unchanged after an activation at 1440×900.
-2. **One status-bar cell per active module, ≤ 40 characters, before the dataset cells.** Two BIDS-named
+2. **One status-bar cell per active extension, ≤ 40 characters, before the dataset cells.** Two BIDS-named
    datasets already overflow the strip, which does not scroll, and `ml-auto` cannot pull a cell back inside a
    container that has overflowed — after them it would simply not be on screen.
-3. **Pool keys**, live only while the module is active (§13.5), listed in the `?` sheet's Modules tab.
+3. **Pool keys**, live only while the extension is active (§13.5), listed in the `?` sheet's Extensions tab.
 4. **One `confirm` dialog** with two or three buttons (§8).
 
-**While a contact module is active, `select` is the resting state of its tool** (2026-08-30). §7.5's R1 is
+**While a contact extension is active, `select` is the resting state of its tool** (2026-08-30). §7.5's R1 is
 that a left click in a 2D pane sets the cursor; the point tool only hit-tests while it is armed. So a panel
 whose whole job is "click contacts" has to keep its tool armed, or the electrode dropdown, the selection ring
 and the crosshair silently stop following the pointer — which is exactly what the owner reported after `Esc`.
-The module therefore re-arms `select` on a `cleared` it did not ask for, reading §7.5's `reason` to tell the
+The extension therefore re-arms `select` on a `cleared` it did not ask for, reading §7.5's `reason` to tell the
 cases apart: after `'esc'` and `'host'` at once, after `'load'` and `'layer'` when the `layers` event says
 the new layer exists, never after `'measure'` (the user picked the other click-consuming mode), and not at
 all for `'selection'`, which is not a disarm. `Esc` keeps the step that matters — `place` → `select` — and a
 click that hits nothing still falls through to R1's cursor-set, because a `select`-mode miss changes nothing.
-Leaving the module is how a user turns the tool off.
+Leaving the extension is how a user turns the tool off.
 
 **A click on a ghosted contact jumps the slice onto it** (2026-08-30). §7.5 now lets a press select a contact
 the layer draws off-slice, and selecting it is all the engine does — the cursor stays where it was, because
-moving it is an application decision. The module's answer to `selected` has always been `setCursor(contact)`,
+moving it is an application decision. The extension's answer to `selected` has always been `setCursor(contact)`,
 so the jump is already written: the press selects the ghost, the crosshair lands on the contact, all three
 panes re-cut through it, and the marker the user aimed at is now the on-slice one they can drag. That is what
 makes the amendment usable rather than merely permitted — without the jump a user would select a contact they
 still could not move, and with it "click the thing you can see" is true of every contact on the shaft rather
 than of the one or two the current slice happens to cut.
 
-**Module-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
+**Extension-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
 concrete defect: the core points editor's per-point ↺ deletes the electrode's colour, its 0.5–20 mm radius
 slider is also the probe radius and the 2D slab, and every edit reaches `controller.patchLayer` directly,
-bypassing the module's history and its dirty flag so its own Undo would not undo it. Visibility, opacity and
-stacking stay on the row: they are the panel's, they cost the module nothing, and hiding a layer you can see
+bypassing the extension's history and its dirty flag so its own Undo would not undo it. Visibility, opacity and
+stacking stay on the row: they are the panel's, they cost the extension nothing, and hiding a layer you can see
 in a list is the one thing a reader always expects to work.
 
 **Narrow mode (< 1000 px):** the right aside normally becomes a temporary overlay whose backdrop closes on any
-click — including the click in a pane a module just asked for — so **while a module is active it stays in
+click — including the click in a pane an extension just asked for — so **while an extension is active it stays in
 flow**. Pinned by an e2e at 960 px.
 
-**Not offered:** floating or detached panels, popovers, module-drawn canvas overlays, native menu items, left-
-column slots, per-module toolbar buttons.
+**Not offered:** floating or detached panels, popovers, extension-drawn canvas overlays, native menu items, left-
+column slots, per-extension toolbar buttons.
 
-**A module's second module is a library, not a fork** (2026-08-30). `tetravox.seeg` is the first of a
+**An extension's second extension is a library, not a fork** (2026-08-30). `tetravox.seeg` is the first of a
 family — DBS leads and ECoG grids are the shape of the next ones — and what those share is not their
 geometry but their *data*: a list of named 3-D positions grouped into electrodes, read from a table
 and written back to one. So the model, the tolerant reader, the canonical BIDS writer, the editlog
@@ -3356,29 +3371,29 @@ snap scoping live in `renderer/src/modules/shared/contacts/**` and **stay in cor
 them as `sdk.contacts` (§13.8), so an extension gets the host's one instance rather than a fork. The
 sEEG editor, an extension in its own repository now, supplies only what is true of a **depth
 electrode**: which end is contact 1, what re-fitting a shaft means, and where `seegprep` puts a
-subject's files. `shared/contacts/README.md` draws that line and says what a second contact module
+subject's files. `shared/contacts/README.md` draws that line and says what a second contact extension
 has to bring. Everything under `shared/` is inside §13.1's import wall — the ESLint rule and
-`modules.test.ts` both scan it exactly as they scan a compiled-in module's directory — so a shared
-library that reached the store would fail for its own file; a compiled-in module reaches it as
+`modules.test.ts` both scan it exactly as they scan a compiled-in extension's directory — so a shared
+library that reached the store would fail for its own file; a compiled-in extension reaches it as
 `../shared/**` beside `../host` and the control kit, and an extension reaches the same code through
 `sdk.contacts`.
 
 ### 13.4 Test obligations
 
-A module ships with all of these or it does not ship:
+An extension ships with all of these or it does not ship:
 
 * **`modules.test.ts` covers it for free** — manifest shape, unique ids, semver, `hostApi`, key-pool
   membership, collision with `resolveKey` and with the engine's own keys, the `docs` heading, and the import
-  wall — because that test iterates `MANIFESTS` rather than naming a module.
+  wall — because that test iterates `MANIFESTS` rather than naming an extension.
 * **Every kernel is a pure function with a vitest**, and where an algorithm has a numeric reference the
-  expectations come from a fixture produced by an independent implementation (§11's rule, applied to modules).
+  expectations come from a fixture produced by an independent implementation (§11's rule, applied to extensions).
 * **Panel behaviour is a Playwright spec.** vitest runs under `environment: 'node'`, so a claim about layout
   or about a rendered control can only be made against a window.
 * **Real data is gated on an environment variable and skips, never fails, when it is unset.**
-* **The fixture module `tetravox.hello`** is compiled into every build and listed only behind
+* **The fixture extension `tetravox.hello`** is compiled into every build and listed only behind
   `?modules=hello` — the `?engine=mock` seam — because `pnpm e2e` drives the production bundle, so a fixture
   excluded from it would prove nothing about the bundle users get. It exercises every part of the host that is
-  wired, which is what keeps the surface from rotting between real modules.
+  wired, which is what keeps the surface from rotting between real extensions.
 
 ### 13.5 Keys
 
@@ -3388,18 +3403,18 @@ the **engine** binds on the canvas, which no resolver probe would reveal. `modul
 against the live resolver rather than against this paragraph.
 
 **Resolution order** is: the engine's own canvas bindings; then `keymap.ts`; then, only if that returned
-`null` and a module is active and the target is not editable, the module resolver. So a module can never
-shadow a documented binding, and adding a module can never change what any key already does. `Esc` is never a
-module key: `keymap.ts` returns `cancelMeasurement` for it unconditionally and `Shell.tsx` preventDefaults it,
-so "core first, module on null" could not deliver it even if the pool allowed it.
+`null` and an extension is active and the target is not editable, the extension resolver. So an extension can never
+shadow a documented binding, and adding an extension can never change what any key already does. `Esc` is never an
+extension key: `keymap.ts` returns `cancelMeasurement` for it unconditionally and `Shell.tsx` preventDefaults it,
+so "core first, extension on null" could not deliver it even if the pool allowed it.
 
 **The one exception to "a plain key stays harmless"** (`keymap.ts`'s rule that an unmodified key never
-destroys anything) is `when`: a module command may be bound with `when: 'selection'` or `when: 'toolArmed'`,
+destroys anything) is `when`: an extension command may be bound with `when: 'selection'` or `when: 'toolArmed'`,
 and is then live **only** with an explicit selection or an armed tool. With neither, the key resolves to
 nothing at all — not to a command that does nothing. That distinction is the whole of the exception's safety,
 and it is unit-tested from both sides.
 
-**Chords are per module and listed in the `?` sheet's Modules tab**, generated from the active manifest. Those
+**Chords are per extension and listed in the `?` sheet's Extensions tab**, generated from the active manifest. Those
 rows carry no `Command['kind']`, exactly as the pointer gestures do not, so `bindings.test.ts`'s coverage
 assertion keeps meaning what it meant.
 
@@ -3420,22 +3435,22 @@ does not use one is unaffected.
 **The manifest is the schema, and two of its types are about files rather than values.** `number`, `string`
 and `boolean` (each with an optional `?` form) and `vec3?` are checked exactly as the same shapes are checked
 anywhere else in the document. A **`path`** (or `path?`) is an *input*: `${VAR}` is expanded, a relative one
-resolves against the job file's directory, main allow-lists it before the window opens, and the module is
+resolves against the job file's directory, main allow-lists it before the window opens, and the extension is
 handed the resolved path — the treatment `scene.files` have had since the first job ran, for the reason §5
 directive A2 gives, which is that the job file naming a path *is* the user naming it. An **`out`** is a name
-under `--out`, held to the same rule every other output name is, and admitted — with that module's declared
+under `--out`, held to the same rule every other output name is, and admitted — with that extension's declared
 writer siblings (§5 rule 11) — to its module-scoped write list, because a batch run has no Save sheet to open
-one with; the module is handed the resolved path there too, so an operation that saves is written once and
+one with; the extension is handed the resolved path there too, so an operation that saves is written once and
 does the same thing from a panel and from a job. An `out` can therefore never name the file the job read: it
 is under `--out` and nowhere else, so a first save there mints no `.bak` because there is nothing to back up.
 
-`runOperation`'s return value — a plain JSON object, the module's own report — is recorded as that action's
+`runOperation`'s return value — a plain JSON object, the extension's own report — is recorded as that action's
 `result` in `job-result.json`. Without it a `stats` operation could not exist: a job that can only write files
 cannot answer a question.
 
 **Every panel action is also an operation.** That is what keeps §8's "there is no automation-only code path"
-literally true for modules: `ModuleInstance.runCommand` is what a button and a key call, `runOperation` is
-what a job calls, and a module that let them diverge would be shipping two products.
+literally true for extensions: `ModuleInstance.runCommand` is what a button and a key call, `runOperation` is
+what a job calls, and an extension that let them diverge would be shipping two products.
 
 Said precisely, because it is a rule a test enforces rather than an aspiration: **a command that changes the
 scene and needs neither a live pointer nor a dialog is an operation of the same id**, and its command and its
@@ -3458,36 +3473,34 @@ no remedy at all (DECISIONS, 2026-08-30).
    `website/scripts/sync.mjs`'s `GUIDE_PAGES` and the site sidebar. The `docs-guard` CI job fails without them.
 4. Keys from §13.5's pool, or none.
 5. Tests per §13.4.
-6. A `docs/DECISIONS.md` entry for anything the module decides that a reader would otherwise have to infer.
-7. Nothing added to `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts`. If a module
+6. A `docs/DECISIONS.md` entry for anything the extension decides that a reader would otherwise have to infer.
+7. Nothing added to `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts`. If an extension
    seems to need something there, the host is missing a member — add it to `host.ts` under §12.3's rules.
 
-`tetravox.hello` is the worked example; read it before writing a manifest. A module that ships **separately**
+`tetravox.hello` is the worked example; read it before writing a manifest. An extension that ships **separately**
 follows the same list with two substitutions — `@tetravox/module-sdk` in place of the relative imports, and a
 URL in place of item 3's guide heading (§13.8, settled decision O3).
 
 ### 13.8 Downloadable extensions — the shipped design
 
-A module no longer has to be compiled in. **Two tiers, one mechanism**: a *bundled* module ships inside the
-signed application, and an *installed* one is downloaded, verified and consented to at runtime. Both are
-`manifest.json` plus `index.js` in a versioned directory; both are re-hashed before they are allowed to run;
-both reach the switcher through the same registry. What separates them is where the bytes came from and what
-counted as consent.
+**One tier, one mechanism** (the *bundled* tier was removed 2026-08-31 — nothing ships inside the
+application): an extension is downloaded, verified and consented to at runtime. It is `manifest.json`
+plus `index.js` in a versioned directory, re-hashed before it is allowed to run, reaching the switcher
+through the registry.
 
 ```
 ~/.tetravox/modules/<id>/<version>/{manifest.json,index.js,tetravox-module.json}   # installed (TETRAVOX_MODULE_DIR)
-<app resources>/modules/<id>/<version>/…                                           # bundled, read-only
 packages/app/src/modules/manifest-schema.ts        # the JSON carrier's `tsc`
 packages/app/src/main/module-store.ts              # catalogue, install, verify, consent, enable, remove
 packages/app/src/renderer/src/modules/installed.ts # the loader
 packages/app/src/renderer/src/modules/sdk-runtime.ts  # globalThis.__tetravoxModuleSdk
 packages/app/src/renderer/src/dialogs/ExtensionsDialog.tsx  # File ▸ Extensions…
-modules.lock  ·  scripts/fetch-locked-modules.mjs  ·  scripts/emit-module-sdk.mjs
+scripts/emit-module-sdk.mjs                        # the SDK an extension repository compiles against
 ```
 
-**Nothing is reachable until it is consented to.** A downloaded module sits inert: the renderer cannot name a
+**Nothing is reachable until it is consented to.** A downloaded extension sits inert: the renderer cannot name a
 path, and `tetravox://module/<id>/<version>/<file>` is served out of a map only `module-store.ts#enableModule()`
-fills, after re-hashing every file against the install receipt. So an installed-but-unconsented module 404s
+fills, after re-hashing every file against the install receipt. So an installed-but-unconsented extension 404s
 from the scheme — **consent gates execution, not merely the switcher row** — and `disableModule` is a delete
 from that map, effective on the next request. §5 rule 13 and the `script-src` grant are recorded in
 `docs/DECISIONS.md`; the grant is a **host source**, because the scheme form would also admit
@@ -3495,10 +3508,11 @@ from that map, effective on the next request. §5 rule 13 and the `script-src` g
 
 **The consent sheet is derived, never declared.** `manifest-schema.ts#derivePermissions` reads the manifest
 the user is about to run — `readers[].extensions`, the writers' filters and sibling templates,
-`commands[].key`, `operations[].id`, `sceneBlock` — so the card, the sheet and what the module can actually do
+`commands[].key`, `operations[].id`, `sceneBlock` — so the card, the sheet and what the extension can actually do
 cannot disagree. Consent is recorded per **version** in `AppSettings.extensions`; an update is new bytes with
-a new list, so it asks again. **Bundled modules are pre-consented**: they shipped inside the signed
-application, so installing Tetravox was the consent.
+a new list, so it asks again. **Nothing is ever pre-consented**: the bundled tier's "installing the app
+was the consent" shortcut left with the tier, and the only writer of a consent record is `enableModule`,
+behind the sheet the user answered.
 
 **The loader is one variable dynamic import, and it is fragile on purpose.**
 `renderer/src/modules/installed.ts` hoists the URL into a `const` and imports the identifier with
@@ -3509,12 +3523,12 @@ still carries the URL literal, carries a variable `import(x)`, and carries no gl
 is shape-checked before it is registered — a downloaded chunk is not typechecked by our build — and a failure
 is a toast plus a failed card, never a broken switcher.
 
-**A module gets the host's own React through one global.** `renderer/src/modules/sdk-runtime.ts` sets
+**An extension gets the host's own React through one global.** `renderer/src/modules/sdk-runtime.ts` sets
 `globalThis.__tetravoxModuleSdk = { hostVersion, react, ModuleHostError, stemOf, contacts }` at boot, before
-anything can activate; `@tetravox/module-sdk`'s runtime shim — **inlined** by the module's own build, so a
-module bundle has no imports at all — reads it. A module's `Panel` renders inside the app's React tree, so a
+anything can activate; `@tetravox/module-sdk`'s runtime shim — **inlined** by the extension's own build, so an
+extension bundle has no imports at all — reads it. An extension's `Panel` renders inside the app's React tree, so a
 second copy would be an "invalid hook call"; `ModuleHostError` must be the same class or `instanceof` is false
-across the boundary; `stemOf` must be the same function or a module computes a `{stem}` main did not admit.
+across the boundary; `stemOf` must be the same function or an extension computes a `{stem}` main did not admit.
 The alternatives (an inline import map, a served second entry) are compared in `docs/DECISIONS.md`.
 
 **Versioning is a gate, not a hope.** A manifest whose `hostApi` is not `MODULE_HOST_VERSION` is listed,
@@ -3526,18 +3540,17 @@ bridge, and a narrower `allowPath` would not contain a malicious one. The trust 
 and the registry's pull-request review — the CSP only stops *unconsented* script. §13.9 is what would move
 that boundary.
 
-Distribution: `modules.lock` names what a release bundles (`scripts/fetch-locked-modules.mjs` verifies and
-places it); `scripts/emit-module-sdk.mjs` emits the SDK a module repository compiles against; the catalogue is
-`src/shared/extensions-index.json`, with `TETRAVOX_EXT_INDEX` as the test seam. `docs/RELEASING.md` §9 is the
-operator's half.
+Distribution: the catalogue — `src/shared/extensions-index.json` shipped, the
+`idossha/tetravox-extensions` registry live, `TETRAVOX_EXT_INDEX` as the test seam — is the one route
+into the app; `scripts/emit-module-sdk.mjs` emits the SDK an extension repository compiles against.
 
 ### 13.9 Stage 3, and what it would cost
 
 A **sandboxed tier** — an extension in a Worker with no DOM and a JSON-only host bridge — is described here as
-the path and is not built. It needs: the Worker and the bridge (a mechanical `await` pass over the modules that
+the path and is not built. It needs: the Worker and the bridge (a mechanical `await` pass over the extensions that
 exist by then, not a redesign, which is exactly what the sync-plus-lint-wall design buys); a permission model
 with *enforcement* rather than only disclosure; a Restricted Mode for a scene that arrives with an unknown
-module; a §5 rule 9 rewrite that makes `allowPath` the last line rather than the first; and a security review
+extension; a §5 rule 9 rewrite that makes `allowPath` the last line rather than the first; and a security review
 of the whole path. It is 8–9 engineer-days and a different threat model, and nothing in §13.8 prevents it — the
 wall on `modules/<id>/**` exists precisely so that day is a port and not a rewrite. It is the tier that would
 let an extension be *untrusted*; until it exists, §13.8's posture is stated plainly rather than implied.

@@ -424,7 +424,7 @@ describe('module-write-text', () => {
     const path = join(dir, 'unadmitted.tsv');
     expect(moduleWriteText(SEEG, path, 'x', {})).toEqual({
       ok: false,
-      error: 'not on the module write list',
+      error: 'not on the extension write list',
     });
     expect(existsSync(path)).toBe(false);
   });
@@ -485,7 +485,7 @@ describe('module-write-text', () => {
     // Creating a directory is not admitting one: an unadmitted path under it is still refused.
     expect(moduleWriteText(SEEG, join(dir, 'tables', 'nested', 'other.tsv'), 'x', {})).toEqual({
       ok: false,
-      error: 'not on the module write list',
+      error: 'not on the extension write list',
     });
   });
 
@@ -658,7 +658,7 @@ describe('giving a write admission back', () => {
     revokeModuleWrites(SEEG);
     expect(moduleWriteText(SEEG, path, 'clobbered\n', {})).toEqual({
       ok: false,
-      error: 'not on the module write list',
+      error: 'not on the extension write list',
     });
     expect(readFileSync(path, 'utf8')).toBe('after\n');
     expect(existsSync(`${path}.part`)).toBe(false);

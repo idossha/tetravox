@@ -32,13 +32,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  APP_ROOT,
-  bundledSeegVersion,
-  clickAppMenu,
-  launchApp,
-  packagedUnavailable,
-} from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable, stageSeeg } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
@@ -46,22 +40,13 @@ const SEARCH = 'engine=mock&mockStepMs=0';
 const SEEG = 'tetravox.seeg';
 
 /**
- * sEEG is the **bundled** `tetravox.seeg` extension now (§13.8, 2026-08-31), not compiled in: the app
- * discovers it in `resources/modules/`, pre-consents it and auto-enables it at boot, and `onSibling`
- * activates it exactly as before. `app.getAppPath()` in the dev target is `packages/app`, so the dev
- * bundled root is this path; `scripts/fetch-locked-modules.mjs` populates it from `modules.lock`.
- * When it is absent — the cheap `test` CI leg runs `fetch-locked-modules --verify-only`, no download —
- * this suite **skips**, because there is nothing for the app to discover. A packaged build always
- * carries it (the `package`/`build` legs fetch), so the packaged target is gated by the build, not here.
+ * sEEG is the downloadable `tetravox.seeg` extension (§13.8; nothing ships bundled since
+ * 2026-08-31). This suite stages the state a user's download-and-consent leaves — a receipted store
+ * behind `TETRAVOX_MODULE_DIR` and a consenting `TETRAVOX_HOME` — from the bytes
+ * `TETRAVOX_SEEG_FIXTURE` names; unset (every CI leg), the suite **skips**, exactly as it used to
+ * when the bundled tree was unfetched.
  */
-const DEV_BUNDLE = resolve(
-  APP_ROOT,
-  'resources',
-  'modules',
-  SEEG,
-  bundledSeegVersion(),
-  'index.js'
-);
+const STAGE = stageSeeg();
 
 /** A `seegprep` derivative tree with the committed fixtures in it, in a fresh temp directory. */
 function subjectTree(): { ct: string; tsv: string; ieeg: string } {
@@ -117,21 +102,22 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     const target = workerInfo.project.name as LaunchTarget;
     const blocked = target === 'packaged' ? packagedUnavailable() : null;
     test.skip(blocked !== null, blocked ?? '');
-    // The bundled module is discovered from `packages/app/resources/modules/`: the dev target reads it
-    // there directly, and the packaged `.dmg` ships a copy `electron-builder` took from that same tree
-    // at package time. Either way an unfetched tree means nothing to discover, so skip rather than fail
-    // (AGENTS.md rule 2's shape) — the cheap CI leg packages after `--verify-only`, so its `.dmg` has no
-    // sEEG just as its dev tree does; a release (or the on-demand `package` job) fetches, and then it runs.
+    // Skip rather than fail without the staged extension (AGENTS.md rule 2's shape): the bytes come
+    // from TETRAVOX_SEEG_FIXTURE, which no CI leg sets.
     test.skip(
-      !existsSync(DEV_BUNDLE),
-      'the bundled tetravox.seeg is not in resources/modules — run `node scripts/fetch-locked-modules.mjs`'
+      STAGE === null,
+      'set TETRAVOX_SEEG_FIXTURE to a built tetravox.seeg to run this suite'
     );
     tree = subjectTree();
+    // The consent goes in this launch's own profile, exactly where `enableModule` would have put it.
+    const profile = mkdtempSync(join(tmpdir(), 'tetravox-seeg-profile-'));
+    STAGE!.consentInto(profile);
     app = await launchApp(target, {
       search: SEARCH,
       args: [tree.ct],
+      userDataDir: profile,
       // The window is deliberately made dirty below; without this its close would ask (§5 rule 12).
-      env: { TETRAVOX_E2E_DISCARD: '1' },
+      env: { TETRAVOX_E2E_DISCARD: '1', ...STAGE!.env },
     });
     page = await app.firstWindow();
     await setSize(app, 1440, 900);
@@ -222,9 +208,16 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
   });
 
   test('the selected contact is marked in the list and in the shaft sketch', async () => {
-    // Nothing is selected until something selects: no row is marked, and the sketch has no halo.
-    await expect(page.locator('[data-testid="seeg-list"] [data-selected="true"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(0);
+    // The jump above selected A04 — one contact is marked, in the list and in the sketch, and the
+    // two agree. (The suite is serial and shares one window, so "nothing is selected yet" is a claim
+    // about the previous test rather than about this feature; what the feature promises is that
+    // exactly one contact is marked and both views name the same one.)
+    await expect(page.locator('[data-testid="seeg-list"] [data-selected="true"]')).toHaveCount(1);
+    await expect(page.locator('[data-testid="seeg-row-A04"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    await expect(page.locator('[data-testid="seeg-diagram-selected"]')).toHaveCount(1);
 
     await page.click('[data-testid="seeg-select-A03"]');
     // Exactly one row is the selected one, and it is that one…

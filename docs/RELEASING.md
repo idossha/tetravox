@@ -18,7 +18,6 @@ operator's manual for it, the way `docs/TESTING.md` is the operator's manual for
 | macOS artefacts locally | `pnpm package` |
 | Linux artefacts locally | `scripts/package-linux.sh` (Docker) |
 | Prove a packaged artefact works | `node scripts/smoke-artefact.mjs` |
-| Bundle the modules `modules.lock` pins | `node scripts/fetch-locked-modules.mjs` (§9) |
 | Build the SDK a module repository pins | `node scripts/emit-module-sdk.mjs` (§9.3) |
 
 ---
@@ -287,8 +286,8 @@ Notarisation is slow (minutes, occasionally tens of minutes on a first submissio
 `timeout-minutes: 60` covers it. When signing is live, drop the unsigned-build paragraph from
 `scripts/changelog-section.mjs` and the `xattr -dr com.apple.quarantine` walkthrough from
 `docs/USER_GUIDE.md`. In-app updates shipped 2026-08-31 (ARCHITECTURE §12.4): signed builds
-update in place, and the unsigned-build escape hatches above matter only to local/fork builds,
-whose updater stays `'off'`.
+update in place. The unsigned-build escape hatches above matter only to local/fork builds — those
+still check, but a macOS install ends at Squirrel's signature check with an honest error.
 
 Windows signing is not planned. It needs a paid certificate whose reputation SmartScreen builds up
 over downloads, which an unpopular installer never accumulates, so the warning would remain.
@@ -457,99 +456,19 @@ and passed, so the leg was green and the arm64 artefact had never been launched.
 
 ---
 
-## 9. Bundled modules and the module SDK
+## 9. The extension SDK
 
-ARCHITECTURE.md §13.8. A module lives in **its own repository**, is built there, and ships as
-release assets. Two of this repository's release artefacts exist because of that: the modules a
-release *bundles*, and the SDK a module repository is built against.
-
-Both are driven by files a reviewer reads as a diff — `modules.lock` and `MODULE_HOST_VERSION` —
+ARCHITECTURE.md §13.8. An extension lives in **its own repository**, is built there, and ships as
+release assets; users download it through File ▸ Extensions… — **nothing is bundled into the
+application** (the bundled tier, `modules.lock` and `scripts/fetch-locked-modules.mjs` were removed
+2026-08-31). The one extension artefact this repository's release carries is the SDK an extension
+repository is built against, driven by `MODULE_HOST_VERSION` — a value a reviewer reads as a diff —
 and never by a step that reaches for whatever is newest.
 
-### 9.1 The on-disk layout of a bundled module
-
-**The definition is the header block of `scripts/fetch-locked-modules.mjs`**; main's bundled-module
-discovery and the module repositories cite that comment, and this section restates it for an
-operator. It is one place on purpose: two descriptions of a directory layout drift, and the one that
-drifts is always the one nobody runs.
-
-```
-packages/app/resources/modules/
-  bundled.json                                 what this build shipped, one file for the tree
-  <moduleId>/<version>/index.js                the module bundle the renderer imports
-  <moduleId>/<version>/manifest.json           the module's own ModuleManifest, byte for byte
-  <moduleId>/<version>/tetravox-module.json    the install receipt main re-verifies against
-```
-
-* `electron-builder.yml` already ships `resources/**` as `extraResources` with `to: .`, so **no
-  packaging configuration changes**. The packaged root is `join(process.resourcesPath, 'modules')`
-  and the development root is `join(app.getAppPath(), 'resources', 'modules')` — the same pattern
-  `phase0FixturePath()` in `src/main/index.ts` already uses.
-* `<moduleId>` and `<version>` come from the lock and are validated before anything is written, so
-  neither can contain a path separator; every file name is one segment with no `..` in it.
-* `tetravox-module.json` is the **install receipt**, and it is what main re-hashes a bundled module
-  against **at enable**. `main/module-store.ts` serves no byte of a module whose files disagree with
-  its receipt, and it applies that rule to a bundled module exactly as to a downloaded one — so the
-  bundling step writes the same receipt an install writes, from the lock entry it has just verified.
-  A bundled module with *no* receipt is a narrow exemption for a tree assembled by hand in a
-  checkout; the shipped tree always has one.
-* `bundled.json` is the lock's bundled entries and nothing else — what this *build* shipped, in one
-  file, without shipping `modules.lock`, which is a build-time file and is not part of the app.
-  `--verify-only` compares it with the lock, which is how a tree that has drifted is a red CI leg.
-* The tree is read-only and pre-consented — main discovers it by scanning it, seeds
-  `settings.extensions[<id>]` on first run, and never writes here. A user's own installs live in the
-  other root, `~/.tetravox/modules/<id>/<version>/`, with the same per-module shape, and that one is
-  writable.
-* **The tree is not committed.** It is rebuilt from the lock on every packaging run, which is what
-  makes "the release shipped these exact bytes" something the hashes prove rather than something the
-  repository history has to be trusted for.
-
-### 9.2 `modules.lock`
-
-```json
-{ "schema": 1,
-  "modules": [{
-    "id": "tetravox.seeg",
-    "version": "1.0.0",
-    "hostApi": 1,
-    "repo": "idossha/tetravox-seeg",
-    "tag": "v1.0.0",
-    "bundled": true,
-    "files": [{ "name": "index.js",      "bytes": 81234, "sha256": "…64 hex…" },
-              { "name": "manifest.json", "bytes": 3412,  "sha256": "…64 hex…" }] }] }
-```
-
-**A file is fetched from `https://github.com/<repo>/releases/download/<tag>/<sha256>`** — the asset's
-name is its own hash, which is `scripts/sample-data/publish.sh`'s store layout verbatim and is what
-lets a download be verified against its own URL. The lock therefore carries no URL of its own: an
-entry cannot name one repository and download from another.
-
-`files[].name` is the name **inside the app**, not the asset name in the module's release.
-
-**Bumping a bundled module is its own pull request**, and its whole diff is one entry: a version, a
-tag and two hashes. Get them from the module repository's release job, which prints the fragment.
-
-```sh
-node scripts/check-modules-lock.mjs        # every rule, every problem at once
-node scripts/fetch-locked-modules.mjs      # download, verify, place
-node scripts/fetch-locked-modules.mjs --verify-only     # no network; what CI's test leg runs
-node scripts/fetch-locked-modules.mjs --store <dir>     # a local store of hash-named files
-```
-
-**A hash that does not match fails the leg**, before anything is built. A file already on disk is
-re-hashed rather than trusted, and a download lands in `<target>.part` and is renamed only after its
-bytes verify — so an interrupted build leaves nothing a later run would accept. That is the whole
-posture: an unverified module never reaches a packaged app, and a leg that could not verify one is a
-leg that must not produce an artefact.
-
-`hostApi` is checked against this build's `MODULE_HOST_VERSION`. The host refuses to activate a
-module built against another one, so a mismatched lock entry would ship a card that cannot be
-enabled; CI is a better place to find that out than a release is.
-
-### 9.3 The SDK artefact
+### 9.1 The SDK artefact
 
 `node scripts/emit-module-sdk.mjs` writes `dist/module-sdk/tetravox-module-sdk-<hostApi>-<version>.tgz`
-— at `0.2.0` and host API 1 that is `tetravox-module-sdk-1-0.2.0.tgz`. A module repository pins it
+— at `0.2.0` and host API 1 that is `tetravox-module-sdk-1-0.2.0.tgz`. An extension repository pins it
 **by URL**:
 
 ```json
@@ -566,16 +485,16 @@ manifest contract, the `shared/contacts` kit, and a type-only subset of `@tetrav
 hand-written file is `scripts/module-sdk/sdk-runtime.ts`, which declares nothing: it reads the
 host's React, `ModuleHostError`, `stemOf` and the contacts kit off `globalThis.__tetravoxModuleSdk`.
 Every import in it is `import type`, so the emitted `index.js` has **no imports at all** — which is
-what lets a module build inline it and produce the single-file, zero-import bundle a
+what lets an extension build inline it and produce the single-file, zero-import bundle a
 `tetravox://module/` load requires.
 
 When the core tree carries `src/modules/manifest-schema.ts` — it does since the extension host
 landed — the emission also ships the validator as plain ESM, `manifest-schema.mjs` and the
-`manifest-types.mjs` it imports, so a module repository can check its own `manifest.json` with node
-and no install. It also ships `contacts.mjs` — the `shared/contacts` kit as runnable ESM — so a
-module repository's own vitest imports the kit's runtime from the SDK rather than pinning
+`manifest-types.mjs` it imports, so an extension repository can check its own `manifest.json` with node
+and no install. It also ships `contacts.mjs` — the `shared/contacts` kit as runnable ESM — so an
+extension repository's own vitest imports the kit's runtime from the SDK rather than pinning
 `shared/contacts` to a core commit sha (a pin `raw.githubusercontent` stops serving once a
-squash-merge garbage-collects that sha). Inside the app a module reads `contacts` off the host global
+squash-merge garbage-collects that sha). Inside the app an extension reads `contacts` off the host global
 — one instance — so `contacts.mjs` is for tests, not the production bundle. All of these are named in
 the package's `exports`: a package with an `exports` map serves nothing that is not listed there, so
 an entry point that is merely in the tarball is not importable.
@@ -585,7 +504,7 @@ rather than a missing file:
 
 1. every import in every staged source resolves inside the SDK;
 2. `index.js` contains no `import` and no `export … from`;
-3. the emitted package typechecks against a probe that imports it the way a module does;
+3. the emitted package typechecks against a probe that imports it the way an extension does;
 4. `manifest-schema.mjs`, when it ships, is imported and made to validate a manifest — the `.mjs`
    files are `tsc` output with their specifiers rewritten, and a rewrite that does not resolve would
    otherwise be green here and red in somebody else's CI;
@@ -596,22 +515,10 @@ rather than a missing file:
 it by the name that job reported. **A release cannot be published with a module host and no SDK to
 build a module against.**
 
-### 9.4 What CI checks, and where
+### 9.2 What CI checks, and where
 
 | Check | Job | Cost |
 |---|---|---|
-| `modules.lock` is valid; the SDK emitter's rules | `docs-guard` | node only, no install |
+| The SDK emitter's rules | `docs-guard` | node only, no install |
 | The SDK emits, all five gates | `test` | one `tsc` over a small staging tree |
-| The tree agrees with the lock (`--verify-only`) | `test` | no network |
-| The locked modules are downloaded and verified | `package` (ci.yml), `build` (release.yml) | one download per file |
 | The SDK tarball is attached | `sdk` → `verify` (release.yml) | — |
-
-While `modules.lock` is empty every one of the fetching steps is a no-op. They are proved against a
-**fixture release store** rather than against a module that does not exist yet:
-`scripts/fetch-locked-modules.test.mjs` builds a directory of hash-named files, runs the real code
-over it, and drives each failure — a tampered file on disk, a store serving the wrong bytes, a stale
-`bundled.json`, a receipt that no longer matches the lock — because those are the paths that matter
-and they must be watched failing before a release depends on them. One test there reads
-`main/module-store.ts` and compares the receipt's field list with `InstallReceipt`'s: the two halves
-of that contract are in different processes and different test runners, and this is the only place
-they meet.

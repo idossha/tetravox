@@ -161,7 +161,14 @@ if (existsSync(SHOTS_SRC)) {
 }
 
 mkdirSync(join(PUBLIC, 'media'), { recursive: true });
-for (const asset of ['showcase.mp4', 'showcase-preview.gif']) {
+for (const asset of [
+  'showcase.mp4',
+  'showcase-preview.gif',
+  // The two figures that moved out of `website/public/` on 2026-08-31: a page referencing one of
+  // them is a red `check-images` (and a broken image on the site) until it is copied here.
+  'sample-data-dialog.png',
+  'seeg-extension-p077.png',
+]) {
   const from = join(DOCS, 'media', asset);
   if (existsSync(from)) cpSync(from, join(PUBLIC, 'media', asset));
 }
@@ -209,7 +216,6 @@ const GUIDE_PAGES = [
   { heading: 'Vector fields', slug: 'vector-fields' },
   { heading: 'Points & electrodes', slug: 'points-electrodes' },
   { heading: 'Measurements', slug: 'measurements' },
-  { heading: 'Modules', slug: 'modules' },
   { heading: 'Extensions', slug: 'extensions' },
   { heading: 'sEEG contacts', slug: 'seeg-contacts' },
   { heading: 'Coordinates', slug: 'coordinates' },

@@ -4,7 +4,7 @@ title: sEEG contacts
 
 # sEEG contacts
 
-![The sEEG contacts extension in Tetravox editing subject P077 — coloured electrode shafts across the 2×2 panes, the head mesh with labelled contacts in 3D, and the full SEEG CONTACTS panel with its electrode dropdown, Add / Snap / Re-fit / Renumber / Flip tip / Ghost / Wire controls, contact list, and Undo / Save.](/seeg-extension-p077.png)
+![The sEEG contacts extension in Tetravox editing subject P077 — coloured electrode shafts across the 2×2 panes, the head mesh with labelled contacts in 3D, and the full SEEG CONTACTS panel with its electrode dropdown, Add / Snap / Re-fit / Renumber / Flip tip / Ghost / Wire controls, contact list, and Undo / Save.](/media/seeg-extension-p077.png)
 
 The flagship Tetravox extension. `tetravox.seeg` is a contact editor for stereo-EEG depth electrodes: it
 localises and hand-corrects sEEG contacts on a registered CT and writes a corrected BIDS
@@ -50,11 +50,11 @@ through its `csc` column.
 
 ## How to get it
 
-The sEEG editor is **bundled** with Tetravox — it ships inside the signed application, pre-consented
-(installing Tetravox was the consent) and enabled at first launch, so on most builds it is simply there
-in the toolbar's module switcher. If you are on a build that does not carry it, open **File ▸
-Extensions…**, find _sEEG contacts_, **Download & enable**, and read the permission sheet. Either way its
-two files (`index.js` and `manifest.json`) are re-hashed against the catalogue before a byte of it runs.
+Open **File ▸ Extensions…**, find _sEEG contacts_, **Download & enable**, and read the permission
+sheet — like every extension, it is downloaded, never shipped inside the application, and nothing runs
+until you have agreed to what its manifest declares. Its two files (`index.js` and `manifest.json`) are
+checked against the catalogue's SHA-256 as they download, recorded in a receipt beside them, and
+re-hashed against that receipt at every enable — before a byte of it runs.
 
 ## Links
 

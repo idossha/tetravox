@@ -13,8 +13,8 @@
 import type { InstalledManifest, ModuleManifest } from './manifest-types';
 import { helloManifest } from './hello/manifest';
 
-// The sEEG editor is not compiled in: it ships as the bundled `tetravox.seeg` extension and reaches
-// `allManifests()` through `installed` below, seeded from `resources/modules/` at boot (§13.8,
+// The sEEG editor is not compiled in: it is the downloadable `tetravox.seeg` extension and reaches
+// `allManifests()` through `installed` below once the user has installed and enabled it (§13.8,
 // 2026-08-31). `hello` is the only compiled-in manifest — a fixture the launch query names.
 export const MANIFESTS: readonly ModuleManifest[] = [helloManifest];
 

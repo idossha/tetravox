@@ -98,12 +98,13 @@ export interface AppSettings {
   /** Persisted §4.7 screenshot defaults, applied to `screenshotOptions` on startup. */
   screenshotDefaults: ScreenshotDefaults;
   /**
-   * Which installed extensions the user has consented to run, by module id (2026-08-30).
+   * Which installed extensions the user has consented to run, by extension id (2026-08-30).
    *
    * The one key here whose absence is a **security** property rather than a preference: an id that
-   * is not in this record is a module main never puts on the `tetravox://module` map, never hands to
-   * a job, and never lists as enabled. Bundled modules are seeded on first run without a sheet —
-   * they shipped inside the signed application, so installing the app *was* the consent.
+   * is not in this record is an extension main never puts on the `tetravox://module` map, never
+   * hands to a job, and never lists as enabled. Nothing is ever seeded into it: since the bundled
+   * tier was removed (2026-08-31) every record is written by `enableModule`, behind the consent
+   * sheet the user answered, and `bootstrapInstalledModules` prunes any record whose files are gone.
    */
   extensions: Record<string, ModuleConsent>;
   /**
@@ -203,7 +204,13 @@ function readRc(): Partial<AppSettings> {
   try {
     const text = readFileSync(rcPath(), 'utf8');
     if (text.length > MAX_BYTES) return {};
-    return coercePatch(JSON.parse(text));
+    // `extensions` is stripped here for the reason `writeSettingsFromRenderer` strips it: a consent
+    // record is main's alone, written by `enableModule` behind the sheet the user answered. The rc
+    // file is a hand-editable defaults file — its own starter `_comment` offers theme,
+    // freesurferSubjectsDir, reopenLastScene and screenshotDefaults, never this — and a *defaults*
+    // layer that could pre-consent an installed extension would put a grant nobody was asked for
+    // one text editor away (finding, 2026-08-31).
+    return { ...coercePatch(JSON.parse(text)), extensions: undefined };
   } catch {
     return {};
   }
@@ -244,7 +251,10 @@ export function coercePatch(raw: unknown): Partial<AppSettings> {
   const checkForUpdates = record['checkForUpdates'];
   if (typeof checkForUpdates === 'boolean') out.checkForUpdates = checkForUpdates;
   const skipped = record['skippedUpdateVersion'];
-  if (typeof skipped === 'string') out.skippedUpdateVersion = skipped;
+  // Length-capped: the key is renderer-writable, and an unbounded string here could push
+  // settings.json past MAX_BYTES — after which *every* read degrades to the defaults, wiping
+  // preferences and consents with one preferences write. No real version is this long.
+  if (typeof skipped === 'string' && skipped.length <= 64) out.skippedUpdateVersion = skipped;
   return out;
 }
 

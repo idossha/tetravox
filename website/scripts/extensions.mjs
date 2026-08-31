@@ -28,11 +28,10 @@ and managed in **File ▸ Extensions…** in the app. This page is an overview �
 what is available; each extension's own page, or its repository, covers what it does. The curated source
 is [idossha/tetravox-extensions](https://github.com/idossha/tetravox-extensions).
 
-An extension reaches the app one of two ways. A **bundled** one ships inside the signed application,
-pre-consented — installing Tetravox was the consent — and enabled at first launch. An **installed** one
-is downloaded from that source, verified against the hashes the app ships, and consented to at runtime. Either
-way the two files an extension is — \`index.js\` and \`manifest.json\` — are re-hashed before the app runs a
-byte of it, and the consent sheet always shows the permissions the *installed* manifest actually implies.
+Every extension reaches the app the same way: downloaded from that source, verified against the hashes
+the app ships, and consented to at runtime — nothing is bundled inside the application. The two files an
+extension is — \`index.js\` and \`manifest.json\` — are re-hashed before the app runs a byte of it, and the
+consent sheet always shows the permissions the *installed* manifest actually implies.
 `;
 
 if (index.modules.length === 0) {

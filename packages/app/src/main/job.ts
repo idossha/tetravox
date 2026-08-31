@@ -1002,7 +1002,7 @@ function validateAction(
       if (manifest === null) {
         errors.push(
           `${path}.module`,
-          `must be a module this build carries: ${manifests.map((m) => m.id).join(', ')}`
+          `must be an extension this build carries: ${manifests.map((m) => m.id).join(', ')}`
         );
         return;
       }

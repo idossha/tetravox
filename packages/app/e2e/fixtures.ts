@@ -6,7 +6,16 @@
  * bare `pnpm e2e` is green without a 2-minute package step.
  */
 
-import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,19 +26,99 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const APP_ROOT = resolve(here, '..');
 
 /**
- * The version of the bundled `tetravox.seeg` this checkout carries, read from `modules.lock` (§13.8)
- * — the one source of truth for what a build bundles — rather than pinned in each spec, so re-pinning
- * the module to a new patch is one edit to the lock, not a sweep across the e2e suite.
- * `fetch-locked-modules.mjs` places the bundle at `resources/modules/<id>/<version>/`, so this is
- * also the version segment of that path.
+ * Stage the sEEG extension for a spec — nothing ships bundled any more (2026-08-31), so a test that
+ * needs an *enabled* `tetravox.seeg` builds the same state a user's download-and-consent leaves:
+ *
+ *  * a store the `TETRAVOX_MODULE_DIR` seam points at, holding `index.js` + `manifest.json` and the
+ *    receipt an install writes (hashes of exactly those bytes), and
+ *  * the consent record itself, written by {@link SeegStage.consentInto} into a launch's own
+ *    `--user-data-dir`, which is where `main/settings.ts` keeps `settings.json`. Deliberately not
+ *    the rc file: since 2026-08-31 `readRc` strips `extensions`, because a hand-editable defaults
+ *    layer must not be able to pre-consent an extension.
+ *
+ * The bytes come from `TETRAVOX_SEEG_FIXTURE` — a directory with a built extension's `index.js` and
+ * `manifest.json`, e.g. `gh release download v0.1.1 -R idossha/tetravox-seeg` unpacked (the release
+ * assets are named by their own sha256; rename them back to `index.js`/`manifest.json`). Unset, this
+ * returns null and the spec skips — the same shape as when the bundled tree was unfetched, and the
+ * state every CI leg is in.
  */
-export function bundledSeegVersion(): string {
-  const lock = JSON.parse(readFileSync(resolve(APP_ROOT, '..', '..', 'modules.lock'), 'utf8')) as {
-    modules?: Array<{ id: string; version: string }>;
+export interface SeegStage {
+  version: string;
+  /** Merge into the launch env: the install-store seam and the packaged-seam key. */
+  env: Record<string, string>;
+  /**
+   * Write this stage's consent into a launch profile — the same record `enableModule` would have
+   * written after the sheet. Call it with the `--user-data-dir` that launch will use.
+   */
+  consentInto(userDataDir: string): void;
+}
+
+export function stageSeeg(): SeegStage | null {
+  const src = process.env['TETRAVOX_SEEG_FIXTURE'];
+  if (src === undefined || src === '') return null;
+  // Every failure below answers `null`, never a throw: this runs at **spec collection** (module
+  // scope), where a throw is a suite-wide error rather than the skip a missing fixture deserves.
+  if (!existsSync(join(src, 'index.js')) || !existsSync(join(src, 'manifest.json'))) return null;
+  let manifest: { id?: string; version?: string; hostApi?: number };
+  try {
+    manifest = JSON.parse(readFileSync(join(src, 'manifest.json'), 'utf8')) as typeof manifest;
+  } catch {
+    return null;
+  }
+  if (manifest.id !== 'tetravox.seeg' || typeof manifest.version !== 'string') return null;
+  const root = mkdtempSync(join(tmpdir(), 'tvx-seeg-stage-'));
+  const store = join(root, 'modules');
+  const dir = join(store, manifest.id, manifest.version);
+  mkdirSync(dir, { recursive: true });
+  const files = ['index.js', 'manifest.json'].map((name) => {
+    const bytes = readFileSync(join(src, name));
+    writeFileSync(join(dir, name), bytes);
+    return {
+      name,
+      bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    };
+  });
+  writeFileSync(
+    join(dir, 'tetravox-module.json'),
+    `${JSON.stringify(
+      {
+        schema: 1,
+        id: manifest.id,
+        version: manifest.version,
+        installedAt: new Date().toISOString(),
+        files,
+      },
+      null,
+      2
+    )}\n`
+  );
+  const id = manifest.id;
+  const version = manifest.version;
+  return {
+    version,
+    env: { TETRAVOX_MODULE_DIR: store, TETRAVOX_E2E: '1' },
+    consentInto: (userDataDir: string): void => {
+      mkdirSync(userDataDir, { recursive: true });
+      writeFileSync(
+        join(userDataDir, 'settings.json'),
+        `${JSON.stringify(
+          {
+            extensions: {
+              [id]: {
+                version,
+                hostApi: manifest.hostApi ?? 1,
+                grantedAt: new Date().toISOString(),
+                permissions: [],
+              },
+            },
+          },
+          null,
+          2
+        )}\n`
+      );
+    },
   };
-  const entry = lock.modules?.find((m) => m.id === 'tetravox.seeg');
-  if (!entry) throw new Error('modules.lock carries no tetravox.seeg entry');
-  return entry.version;
 }
 
 /**

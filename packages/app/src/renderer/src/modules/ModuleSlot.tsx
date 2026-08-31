@@ -52,7 +52,11 @@ export function ModuleSlot(): React.JSX.Element | null {
         <h2 className="truncate text-[11px] font-semibold uppercase tracking-wide text-tvx-dim">
           {manifest.title}
           {dirty === true && (
-            <span data-testid="module-dirty" title="Unsaved edits in this module" className="ml-1">
+            <span
+              data-testid="module-dirty"
+              title="Unsaved edits in this extension"
+              className="ml-1"
+            >
               •
             </span>
           )}

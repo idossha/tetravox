@@ -21,20 +21,12 @@
  *  3. **The manifest is validated, not parsed.** `manifest-schema.ts` is `tsc` for the JSON carrier;
  *     a manifest that fails it is a module that is never registered, never listed and never served.
  *
- * Two roots, read in this order:
+ * One root: `TETRAVOX_MODULE_DIR ?? <configHome()>/modules` — everything the dialog installs.
+ * `configHome()` already honours `TETRAVOX_HOME`, so a test never touches a real `~/.tetravox`.
  *
- *  * **bundled** — `resources/modules/` inside the application (`extraResources`, so
- *    `process.resourcesPath` when packaged and `<appPath>/resources` in dev). Read-only, seeded into
- *    `settings.extensions` on first run without a sheet: it shipped inside the signed application,
- *    so installing the app *was* the consent, and this is what keeps the flagship module working out
- *    of the box. `scripts/fetch-locked-modules.mjs` builds this tree from `modules.lock` and leaves
- *    the same {@link RECEIPT_NAME} receipt an install does, so a bundled module is verified here by
- *    exactly the code that verifies a downloaded one.
- *  * **user** — `TETRAVOX_MODULE_DIR ?? <configHome()>/modules`, writable, everything the dialog
- *    installs. `configHome()` already honours `TETRAVOX_HOME`, so a test never touches a real
- *    `~/.tetravox`.
- *
- * A bundled id wins a collision: a user-installed module can never shadow one the build ships.
+ * There is deliberately no bundled tier any more (2026-08-31): nothing ships inside the
+ * application, every extension is downloaded through File ▸ Extensions…, and every one is
+ * consented to explicitly — the "installing the app was the consent" shortcut left with the tier.
  */
 
 import { app, net, shell } from 'electron';
@@ -105,12 +97,12 @@ interface ExtensionsIndex {
 export const MAX_MODULE_FILE_BYTES = 32 * 1024 * 1024;
 
 /**
- * The install receipt written beside a module's files. Its name is part of the on-disk contract.
+ * The install receipt written beside an extension's files. Its name is part of the on-disk contract.
  *
- * Two writers, one shape: {@link installModule} after a download, and
- * `scripts/fetch-locked-modules.mjs` for a module `modules.lock` bundles into the packaged app.
- * That script's test reads {@link InstallReceipt} out of this file and compares the field lists, so
- * the two halves cannot drift apart unnoticed.
+ * One writer, {@link installModule}, recording the hashes the catalogue promised for the bytes it
+ * just wrote — so {@link verifyInstalled} checks every later launch against a number the download
+ * was verified against, not against the file itself. (There was a second writer until 2026-08-31,
+ * the bundling step; it went with the bundled tier.)
  */
 export const RECEIPT_NAME = 'tetravox-module.json';
 
@@ -136,7 +128,7 @@ function readIndexFile(path: string): ExtensionsIndex | null {
  * They are **trust-relevant**: an ambient export from a dotfile, a wrapper script or a parent process
  * could silently repoint the installed store or replace the whole catalogue the user browses — a
  * spoofed 'official' module whose sha256 self-consistency passes because the same attacker authored
- * both the index and the files. A **shipped** build must ignore them and always read its bundled
+ * both the index and the files. A **shipped** build must ignore them and always read its shipped
  * catalogue and the real `configHome()/modules` store, exactly the reasoning that closed the
  * identical `TETRAVOX_E2E_DISCARD` seam in a packaged build (`shouldPromptOnClose`, module-io.ts,
  * 2026-08-30). They stay live for dev (`!app.isPackaged`) and for the packaged E2E leg, which sets
@@ -211,24 +203,6 @@ export function moduleDir(): string {
   return override ?? join(configHome(), 'modules');
 }
 
-/**
- * The read-only root inside the application, or null when there is none.
- *
- * `electron-builder.yml` already ships `resources/**` as `extraResources` with `to: .`, and
- * `main/index.ts` already resolves a resource this way for the Phase-0 fixture — so bundling a
- * module needs no packaging change at all, which is the whole reason the layout is this one.
- */
-export function bundledModuleDir(): string | null {
-  try {
-    const root = app.isPackaged
-      ? join(process.resourcesPath, 'modules')
-      : join(app.getAppPath(), 'resources', 'modules');
-    return existsSync(root) ? root : null;
-  } catch {
-    return null;
-  }
-}
-
 // ------------------------------------------------------------------------------------------------
 // What is on disk
 // ------------------------------------------------------------------------------------------------
@@ -254,9 +228,8 @@ export interface InstalledModule {
   title: string;
   /** The directory holding `manifest.json`, the entry file and the receipt. */
   dir: string;
-  bundled: boolean;
   manifest: InstalledManifest;
-  /** The receipt, or null for a bundled module that shipped without one. */
+  /** The receipt, or null when the file beside the install is missing or unreadable. */
   receipt: InstallReceipt | null;
 }
 
@@ -280,7 +253,7 @@ function isModuleFileName(name: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/.test(name) && !name.includes('..');
 }
 
-function readModuleAt(dir: string, bundled: boolean): InstalledModule | null {
+function readModuleAt(dir: string): InstalledModule | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
@@ -296,13 +269,12 @@ function readModuleAt(dir: string, bundled: boolean): InstalledModule | null {
     hostApi: manifest.hostApi,
     title: manifest.title,
     dir,
-    bundled,
     manifest,
     receipt: readReceipt(dir),
   };
 }
 
-function scanRoot(root: string | null, bundled: boolean): InstalledModule[] {
+function scanRoot(root: string | null): InstalledModule[] {
   if (root === null) return [];
   let ids: string[];
   try {
@@ -323,7 +295,7 @@ function scanRoot(root: string | null, bundled: boolean): InstalledModule[] {
       continue;
     }
     for (const version of versions) {
-      const found = readModuleAt(join(root, id, version), bundled);
+      const found = readModuleAt(join(root, id, version));
       if (found === null) continue;
       // The directory names are not evidence — the manifest is — but they have to agree, or an
       // update would install beside itself under a name nothing looks for.
@@ -334,7 +306,7 @@ function scanRoot(root: string | null, bundled: boolean): InstalledModule[] {
   return out;
 }
 
-/** The newest installed copy of each id, bundled winning a collision. */
+/** The newest installed copy of each id. */
 export function installedModules(): InstalledModule[] {
   // A compiled-in id cannot be shadowed by an on-disk module (manifests.ts: "module-store.ts refuses
   // an installed module whose id collides"). An installed copy of `tetravox.hello`
@@ -342,22 +314,13 @@ export function installedModules(): InstalledModule[] {
   // bytes are never served, no consent is fabricated for it at boot, its manifest never joins the
   // registered set, and it never mislabels the built-in module's card (finding, 2026-08-31).
   const compiledIn = new Set<string>(MANIFESTS.map((m) => m.id));
-  const found = [...scanRoot(bundledModuleDir(), true), ...scanRoot(moduleDir(), false)].filter(
-    (m) => !compiledIn.has(m.id)
-  );
+  const found = scanRoot(moduleDir()).filter((m) => !compiledIn.has(m.id));
   const best = new Map<string, InstalledModule>();
   for (const module of found) {
     const current = best.get(module.id);
-    if (current === undefined) {
+    if (current === undefined || compareVersions(module.version, current.version) > 0) {
       best.set(module.id, module);
-      continue;
     }
-    if (current.bundled && !module.bundled) continue;
-    if (!current.bundled && module.bundled) {
-      best.set(module.id, module);
-      continue;
-    }
-    if (compareVersions(module.version, current.version) > 0) best.set(module.id, module);
   }
   return [...best.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
@@ -427,20 +390,12 @@ export type EnableResult = { ok: true; served: string[] } | { ok: false; error: 
  *
  * `sample-data.ts` re-hashes a cached file rather than trusting it, and this is the same rule with
  * a sharper reason: between install and enable the file is a script that will run with the whole
- * preload bridge. **A bundled module is checked the same way**: the bundling step writes a receipt
- * from the `modules.lock` entry whose hashes it has just verified, so the check runs against a
- * number a reviewer approved in a pull request rather than against the file itself.
- *
- * A bundled module with *no* receipt is the one exemption, and it is a narrow one — a tree assembled
- * by hand in a checkout rather than by the bundling step. Its bytes are inside the application's own
- * signature, and refusing to start over a missing receipt in a developer's `resources/` directory
- * would be a worse failure than trusting the signature that already covers it.
+ * preload bridge. There is no exemption: a missing receipt is a refusal, whoever put the tree there.
  */
 export function verifyInstalled(
   module: InstalledModule
 ): { ok: true } | { ok: false; error: string } {
   if (module.receipt === null) {
-    if (module.bundled) return { ok: true };
     return {
       ok: false,
       error: `${module.id}: no ${RECEIPT_NAME} beside it — refusing to run files whose hashes were never recorded`,
@@ -481,7 +436,7 @@ export function verifyInstalled(
  */
 export function enableModule(id: string): EnableResult {
   const module = installedModule(id);
-  if (module === null) return { ok: false, error: `no module ${id} is installed` };
+  if (module === null) return { ok: false, error: `no extension ${id} is installed` };
   if (module.hostApi !== MODULE_HOST_VERSION) {
     return {
       ok: false,
@@ -524,17 +479,11 @@ export function disableModule(id: string): boolean {
   return had;
 }
 
-/** Disable, then delete the directory. A bundled module is refused: it is not ours to delete. */
+/** Disable, then delete the directory. */
 export function removeModule(id: string): { ok: true } | { ok: false; error: string } {
   const module = installedModule(id);
   disableModule(id);
   if (module === null) return { ok: true };
-  if (module.bundled) {
-    return {
-      ok: false,
-      error: `${id} ships with Tetravox and cannot be removed — disable it instead`,
-    };
-  }
   rmSync(join(moduleDir(), id), { recursive: true, force: true });
   refreshInstalledManifests();
   return { ok: true };
@@ -567,7 +516,6 @@ export interface ModuleStatus {
   title: string;
   /** Installed at this version, or null. */
   installed: string | null;
-  bundled: boolean;
   /** The installed version's files are on the `tetravox://module` protocol map — it is live. */
   enabled: boolean;
   /** The newest catalogue version this build's host API can run, or null. */
@@ -592,7 +540,6 @@ export function moduleStatuses(): ModuleStatus[] {
       id,
       title: module?.title ?? entry?.title ?? id,
       installed: module?.version ?? null,
-      bundled: module?.bundled ?? false,
       // `enabled` is the **served map**, not the consent record: a module is enabled iff its
       // installed version's files are on the protocol scheme right now. Deriving it from consent-vs-
       // newest-installed made the card lie in two directions — an in-session update left the old
@@ -696,7 +643,7 @@ export async function installModule(
   opts: { fetchImpl?: FetchLike; signal: AbortSignal; onProgress?: (p: ModuleProgress) => void }
 ): Promise<InstallResult> {
   const entry = catalogueEntry(id);
-  if (entry === null) return { ok: false, error: `unknown module ${id}` };
+  if (entry === null) return { ok: false, error: `unknown extension ${id}` };
   const wanted = entry.versions.find((v) => v.version === version);
   if (wanted === undefined) return { ok: false, error: `${id} has no version ${version}` };
   if (wanted.hostApi !== MODULE_HOST_VERSION) {
@@ -708,6 +655,10 @@ export async function installModule(
   if (!wanted.files.some((f) => f.name === 'manifest.json')) {
     return { ok: false, error: `${id} ${version} ships no manifest.json` };
   }
+
+  // Read before anything is written: whether this id had *any* installed copy going in decides,
+  // below, whether a consent record found afterwards can possibly belong to these bytes.
+  const hadInstall = installedModule(id) !== null;
 
   const total = wanted.files.reduce((n, f) => n + f.bytes, 0);
   let before = 0;
@@ -736,6 +687,12 @@ export async function installModule(
       });
     } catch (err) {
       const aborted = opts.signal.aborted;
+      // Leave nothing half-written: the two failure paths below (`manifest.json` invalid, hostApi
+      // mismatch) already delete the version directory, and an interrupted download that had
+      // already landed a valid `manifest.json` would otherwise leave a receipt-less install behind —
+      // enough for `installedModule` to answer non-null, which is exactly what the consent prune
+      // reads (finding, 2026-08-31).
+      rmSync(join(moduleDir(), id, version), { recursive: true, force: true });
       report(file.name, aborted ? 'cancelled' : 'error', 0, aborted ? undefined : String(err));
       return { ok: false, error: aborted ? 'cancelled' : String(err) };
     }
@@ -744,7 +701,7 @@ export async function installModule(
 
   report('', 'verifying', total);
   const dir = join(moduleDir(), id, version);
-  const read = readModuleAt(dir, false);
+  const read = readModuleAt(dir);
   if (read === null || read.id !== id || read.version !== version) {
     rmSync(dir, { recursive: true, force: true });
     const error = `${id} ${version}: its manifest.json is not a valid module manifest for ${id}@${version}`;
@@ -777,7 +734,11 @@ export async function installModule(
   // (finding, 2026-08-31).
   const servedVersion = servedModuleVersion(id);
   const consentVersion = consents()[id]?.version;
+  // `hadInstall` is read BEFORE this install landed (above), so a **first** install of an id drops
+  // any consent record it finds even at the same version: such a record can only predate the files
+  // it claims to cover, and a download nobody has been asked about must not arrive pre-consented.
   if (
+    !hadInstall ||
     (servedVersion !== null && servedVersion !== version) ||
     (consentVersion !== undefined && consentVersion !== version)
   ) {
@@ -840,7 +801,8 @@ export function refreshInstalledManifests(): readonly InstalledManifest[] {
 
 /**
  * Everything that has to happen before `prepareJob` parses a job file (§13.6): the installed set is
- * read, bundled modules are pre-consented, and every consented module is verified and served.
+ * read, and every *consented* extension is verified and served. Nothing is consented here — a
+ * consent record is written only by `enableModule`, behind the sheet the user answered.
  *
  * Called once from `main/index.ts` at module scope — **before** `prepareJob`, because a job naming a
  * module has to be validated against the manifests this launch actually carries, and after
@@ -849,8 +811,30 @@ export function refreshInstalledManifests(): readonly InstalledManifest[] {
 export function bootstrapInstalledModules(): void {
   const installed = refreshInstalledManifests();
   const modules = installedModules();
-  for (const module of modules) {
-    if (module.bundled && consents()[module.id]?.version !== module.version) grantConsent(module);
+  // A consent record with no install behind it is a leftover, and the bundled tier left exactly
+  // those: every machine that ran a build before 2026-08-31 carries a seeded
+  // `tetravox.seeg` grant whose files went away with the tier. Left alone it is not inert — a later
+  // download of that same version would find its own consent already recorded and go live at the
+  // next launch without a sheet ever being answered. Pruned here, a re-download asks, as it must.
+  // Compiled-in ids are exempt: `isModuleConsented` answers for them from MANIFESTS, never a record.
+  //
+  // The test is **the directory is gone**, not "the scan did not produce it". `scanRoot` answers the
+  // same empty for a store it could not read at all, a half-written install and a manifest that does
+  // not validate — and dropping a consent on any of those would cost a user their grant over a
+  // transient, for an extension that could not have run anyway (`verifyInstalled` refuses it). So the
+  // prune asks the narrow question it means, and one write carries every answer.
+  const compiledIn = new Set<string>(MANIFESTS.map((m) => m.id));
+  const record = consents();
+  const gone = Object.keys(record).filter(
+    (id) => !compiledIn.has(id) && !existsSync(join(moduleDir(), id))
+  );
+  if (gone.length > 0) {
+    const kept = { ...record };
+    for (const id of gone) delete kept[id];
+    writeSettings({ extensions: kept });
+    console.log(
+      `[tetravox] dropped ${gone.length} consent record(s) with no extension: ${gone.join(', ')}`
+    );
   }
   for (const module of modules) {
     if (!isModuleConsented(module.id)) continue;
@@ -892,7 +876,7 @@ function withStatuses(result: { ok: true } | { ok: false; error: string }): Modu
 /** `tetravox:module-enable` — consent, verify, serve. */
 export function enableModuleAction(id: unknown): ModuleActionResult {
   if (typeof id !== 'string' || id === '') {
-    return { ok: false, error: 'not a module id', statuses: moduleStatuses() };
+    return { ok: false, error: 'not an extension id', statuses: moduleStatuses() };
   }
   const enabled = enableModule(id);
   return withStatuses(enabled.ok ? { ok: true } : { ok: false, error: enabled.error });
@@ -901,7 +885,7 @@ export function enableModuleAction(id: unknown): ModuleActionResult {
 /** `tetravox:module-disable` — withdraw consent, unserve, revoke the write list. */
 export function disableModuleAction(id: unknown): ModuleActionResult {
   if (typeof id !== 'string' || id === '') {
-    return { ok: false, error: 'not a module id', statuses: moduleStatuses() };
+    return { ok: false, error: 'not an extension id', statuses: moduleStatuses() };
   }
   disableModule(id);
   return withStatuses({ ok: true });
@@ -910,7 +894,7 @@ export function disableModuleAction(id: unknown): ModuleActionResult {
 /** `tetravox:module-remove` — disable, then delete the directory. */
 export function removeModuleAction(id: unknown): ModuleActionResult {
   if (typeof id !== 'string' || id === '') {
-    return { ok: false, error: 'not a module id', statuses: moduleStatuses() };
+    return { ok: false, error: 'not an extension id', statuses: moduleStatuses() };
   }
   return withStatuses(removeModule(id));
 }
@@ -923,7 +907,7 @@ export async function installModuleAction(
   fetchImpl?: FetchLike
 ): Promise<ModuleActionResult> {
   if (typeof id !== 'string' || id === '') {
-    return { ok: false, error: 'not a module id', statuses: moduleStatuses() };
+    return { ok: false, error: 'not an extension id', statuses: moduleStatuses() };
   }
   const entry = catalogueEntry(id);
   const wanted =

@@ -296,7 +296,8 @@ function extensionOf(name: string): string {
  * gesture's.
  */
 export function moduleReadText(moduleId: unknown, candidate: unknown): ModuleReadResult {
-  if (typeof moduleId !== 'string' || moduleId === '') return { ok: false, error: 'not a module' };
+  if (typeof moduleId !== 'string' || moduleId === '')
+    return { ok: false, error: 'not an extension' };
   if (typeof candidate !== 'string') return { ok: false, error: 'not a path' };
   const real = resolveAllowed(candidate);
   if (real === null) return { ok: false, error: 'not on the allow-list' };
@@ -470,13 +471,14 @@ export function moduleWriteText(
   text: unknown,
   raw: unknown
 ): ModuleWriteResult {
-  if (typeof moduleId !== 'string' || moduleId === '') return { ok: false, error: 'not a module' };
+  if (typeof moduleId !== 'string' || moduleId === '')
+    return { ok: false, error: 'not an extension' };
   if (typeof candidate !== 'string' || typeof text !== 'string') {
     return { ok: false, error: 'not a path and a string' };
   }
   const path = normalise(candidate);
   if (path === null || !isModuleWritable(moduleId, path)) {
-    return { ok: false, error: 'not on the module write list' };
+    return { ok: false, error: 'not on the extension write list' };
   }
   const bytes = Buffer.byteLength(text, 'utf8');
   if (bytes > MAX_MODULE_WRITE_BYTES) {
@@ -545,6 +547,16 @@ export function documentEdited(win: BrowserWindow | null): boolean {
 }
 
 /**
+ * Drop the edited flag after the user has *explicitly* discarded — the updater's pre-install
+ * prompt (§12.4, 2026-08-31). Without this, the Discard answered there would be asked again by
+ * {@link installCloseGuard} when the installer closes the window, and a question answered twice
+ * is a question the second copy of which teaches users to stop reading.
+ */
+export function clearDocumentEdited(win: BrowserWindow | null): void {
+  if (win !== null) editedWindows.delete(win.id);
+}
+
+/**
  * Should a `close` be interrupted?
  *
  * Pure, because the two cases that must never prompt are the ones a Playwright run and a `--job`
@@ -607,8 +619,8 @@ export function installCloseGuard(
         title: 'Unsaved changes',
         message: 'Discard unsaved edits?',
         detail:
-          'A module in this window has edits that have not been written to disk. Closing the ' +
-          'window discards them.',
+          'An extension in this window has edits that have not been written to disk. Closing ' +
+          'the window discards them.',
         buttons: ['Discard', 'Cancel'],
         defaultId: 1,
         cancelId: 1,

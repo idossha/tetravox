@@ -36,7 +36,7 @@ title: Sample data
 # Sample data
 
 <figure class="shot">
-<img src="/sample-data-dialog.png" alt="The Sample Data dialog in Tetravox">
+<img src="/media/sample-data-dialog.png" alt="The Sample Data dialog in Tetravox">
 <figcaption>The <strong>Sample Data</strong> dialog in Tetravox — a card per dataset with a thumbnail, description, size and licence, and one <strong>Download &amp; open</strong> button that fetches it once and opens it as a ready-made scene.</figcaption>
 </figure>
 

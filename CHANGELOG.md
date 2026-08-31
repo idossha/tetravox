@@ -10,14 +10,35 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **The module slot folds.** A ▾ arrow beside the slot's ✕ hides the panel body and gives the column
-  back to the Info panel, while the module stays active — its layers, its table and its history are
-  all still there, and the arrow puts the panel back.
+- **The extension slot folds.** A ▾ arrow beside the slot's ✕ hides the panel body and gives the
+  column back to the Info panel, while the extension stays active — its layers, its table and its
+  history are all still there, and the arrow puts the panel back.
 
 ### Changed
 
-- The bundled `tetravox.seeg` extension is pinned at **0.1.2**, which marks the selected contact in
-  its list and in its shaft sketch.
+- **Nothing ships bundled any more — every extension is a download.** The sEEG contact editor is no
+  longer packed inside the application and pre-consented at first launch; like every extension it is
+  fetched once from **File ▸ Extensions…**, and nothing runs until the permission sheet is answered.
+  The bundled tier is gone whole: `modules.lock`, the build-time fetch, the pre-consent seeding, the
+  un-removable "Bundled" card. Consents you have already granted are unaffected; a job that names
+  sEEG now needs it downloaded and enabled first.
+- **One word: extension.** The product no longer says "module" anywhere a user or a document reads —
+  the switcher, the keyboard sheet, the dialogs, every error message, the guide and the website all
+  say _extension_. Machine surfaces keep their historical names (the job-file action
+  `"type": "module"`, the manifest keys, `tetravox://module`, `~/.tetravox/modules/`,
+  `@tetravox/module-sdk`, Python's `Job.module()`): they are wire and disk formats frozen against
+  published extensions, saved scenes and existing job scripts.
+- The catalogue offers **`tetravox.seeg` 0.1.2**, which marks the selected contact in its list and in
+  its shaft sketch. It is a download like every other extension — the pin that used to bundle it went
+  with the tier.
+
+### Fixed
+
+- The updater hardening reviewed after v0.3.1 was cut actually ships now (it had been committed but
+  not pushed before the release): the notify-mode feed timeout covers the whole response, a launch
+  check can no longer stomp an in-flight download, "skip this version" cannot dead-end the dialog,
+  unsaved extension edits are asked about _before_ the installer runs on Windows/AppImage, and an
+  oversized skip value can no longer reset `settings.json`.
 
 ## [0.3.1] - 2026-08-31
 
@@ -29,10 +50,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   updating is always the user's click: download with progress, then restart into the new version
   (or keep working — a downloaded update installs on the next quit). macOS, Windows and the Linux
   AppImage update in place; a `.deb`/`.tar.gz` install is offered the Releases page instead. The
-  launch check has a Settings ▸ Startup toggle, any version can be skipped, and dev/unsigned builds
-  and `--job` runs never check. Releases now carry `latest-mac.yml` / `latest-linux.yml` /
-  `latest.yml` feed files beside the installers, and the release workflow's verify gate requires
-  them.
+  launch check has a Settings ▸ Startup toggle, any version can be skipped, and dev builds and
+  `--job` runs never check. Releases now carry `latest-mac.yml` / `latest-linux.yml` / `latest.yml`
+  feed files beside the installers, and the release workflow's verify gate requires the mac and
+  linux ones.
 
 ## [0.3.0] - 2026-08-31
 

@@ -35,9 +35,9 @@ export interface ModuleRegistration {
 
 export const MODULES: readonly ModuleRegistration[] = [
   { manifest: helloManifest, load: () => import('./hello'), fixture: true },
-  // The sEEG editor is no longer compiled in: it ships as the **bundled** `tetravox.seeg` extension
-  // (`modules.lock`, `resources/modules/`), discovered at boot and pre-consented, and reaches the
-  // switcher through `installed` below exactly as a downloaded module does (§13.7, §13.8, 2026-08-31).
+  // The sEEG editor is no longer compiled in: it is the `tetravox.seeg` extension, downloaded and
+  // consented through File ▸ Extensions…, and it reaches the switcher through `installed` below
+  // exactly as every extension does (§13.7, §13.8, 2026-08-31).
 ];
 
 /**

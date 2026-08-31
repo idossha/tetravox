@@ -452,7 +452,7 @@ export class JobRunner {
     const id = String(action['module']);
     const op = String(action['op']);
     if (!(await this.env.controller.activateModule(id))) {
-      throw new Error(`actions[${index}]: this build has no module ${id}`);
+      throw new Error(`actions[${index}]: this build has no extension ${id}`);
     }
     const instance = this.env.controller.moduleInstance();
     if (instance?.runOperation === undefined) {
