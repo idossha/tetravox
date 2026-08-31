@@ -256,6 +256,7 @@ jobs:
       # full suite and go green, which is the worst possible failure mode for this change. The
       # engine's `e2e` script is exactly `playwright test`, so calling it directly loses nothing.
       - name: Engine Playwright ${{ matrix.shard && format('(shard {0})', matrix.shard) || '' }}
+        id: engine
         if: matrix.leg == 'engine'
         env:
           TETRAVOX_ALLOW_SOFTWARE_ANGLE: ${{ runner.os == 'Linux' && '1' || '' }}
@@ -288,8 +289,13 @@ jobs:
         run: node scripts/check-module-loader.mjs
 
       # The blob from a sharded leg: not a report anyone opens, an input to `e2e-report`.
+      #
+      # `if-no-files-found: error` is kept — a shard that RAN and wrote no blob is a real problem —
+      # but the step is skipped when the Playwright step never ran, because a leg that died in setup
+      # would otherwise report a second, misleading failure on top of the real one. That is exactly
+      # what run 33444860430 did: `pnpm wasm` failed, and the missing blob was the louder red.
       - name: Upload the blob report (sharded legs)
-        if: ${{ matrix.shard != '' && !cancelled() }}
+        if: ${{ matrix.shard != '' && !cancelled() && steps.engine.conclusion != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
           name: blob-engine-${{ matrix.os }}-${{ strategy.job-index }}

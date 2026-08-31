@@ -42,6 +42,18 @@ runs:
       run: |
         echo "ELECTRON_CACHE=$HOME/.cache/electron" >> "$GITHUB_ENV"
         echo "PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright" >> "$GITHUB_ENV"
+        # wasm-pack's OWN download cache — where it keeps the binaryen tarball it fetches from a
+        # GitHub release to get `wasm-opt`. Not a §12.2 cache, because until CI fanned out nothing
+        # noticed it: one leg downloaded it once. Now several legs build the crate concurrently, and
+        # one of them losing that download is a red build — run 33444860430 `e2e (engine 1/3)`,
+        # which died on it while three sibling legs building the same crate succeeded. Caching it
+        # means the fetch happens on a cold lockfile and never again. The location is wasm-pack's,
+        # not ours, so it is read per platform rather than pinned.
+        case "$RUNNER_OS" in
+          macOS)   echo "WASM_PACK_CACHE=$HOME/Library/Caches/.wasm-pack" >> "$GITHUB_ENV" ;;
+          Windows) echo "WASM_PACK_CACHE=$LOCALAPPDATA\\.wasm-pack" >> "$GITHUB_ENV" ;;
+          *)       echo "WASM_PACK_CACHE=$HOME/.cache/.wasm-pack" >> "$GITHUB_ENV" ;;
+        esac
 
     # rust-toolchain.toml pins stable 1.93.0 with rustfmt, clippy and wasm32-unknown-unknown, and
     # rustup honours it. `rustup show` is what makes it install, before anything needs it.
@@ -70,6 +82,15 @@ runs:
           target
         key: cargo-${{ inputs.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
         restore-keys: cargo-${{ inputs.os }}-
+
+    # Keyed on the wasm-pack version alone: the tarball it holds is a function of that and the
+    # platform, and of nothing in this repository. `scripts/build-wasm.sh` retries the download as
+    # well — the cache removes the fetch, the retry survives the run that still has to make it.
+    - name: wasm-pack download cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.WASM_PACK_CACHE }}
+        key: wasm-pack-dl-${{ inputs.os }}-${{ inputs.wasm-pack-version }}
 
     - name: Resolve the pnpm store path
       id: pnpm-store
