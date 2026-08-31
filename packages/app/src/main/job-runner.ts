@@ -368,7 +368,7 @@ export function prepareJob(argv: readonly string[], cwd: string): JobInvocation 
   // §5 directive A2: the job file naming a path *is* the user naming it. Sidecars are admitted by
   // the renderer's own `requestFromPath`, which asks main for each candidate.
   const expansionErrors: string[] = [];
-  const wanted = jobInputPaths(job).map((raw) => {
+  const wanted = jobInputPaths(job, allManifests()).map((raw) => {
     const expanded = expandEnv(raw, process.env);
     if (!expanded.ok) {
       expansionErrors.push(
@@ -405,13 +405,13 @@ export function prepareJob(argv: readonly string[], cwd: string): JobInvocation 
   // order `jobInputPaths` took them, which is the scene's files and then every module action's
   // `path` arguments (§13.6) — one pass, so a module's input is admitted and resolved by exactly
   // the code that admits and resolves a scene's.
-  const resolved = withInputPaths(job, admitted);
+  const resolved = withInputPaths(job, admitted, allManifests());
 
   // An `out` argument names a file under `--out` that the module itself writes. Admitting it here —
   // with the sibling templates its writers declare — is what lets a module save in a batch run
   // without a Save sheet, and without main growing a second write path (§5 rule 11).
   try {
-    for (const target of moduleOutTargets(resolved)) {
+    for (const target of moduleOutTargets(resolved, allManifests())) {
       admitModuleWrite(
         target.module,
         resolveOutput(invocation.outDir, target.name),
@@ -473,7 +473,7 @@ function finish(report: JobFinish): void {
   // §13.6: which modules the run depended on, and the version that ran them — main's answer, since
   // main validated the actions against `MANIFESTS` before the window existed. Present only when the
   // job used one, so a job that uses no module writes the result file it always wrote.
-  const modules = request === null ? [] : jobModules(request.job);
+  const modules = request === null ? [] : jobModules(request.job, allManifests());
   const result: JobResult = {
     ok: report.ok,
     schemaVersion: JOB_SCHEMA_VERSION,

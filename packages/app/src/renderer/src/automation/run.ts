@@ -35,8 +35,8 @@ import type { OpenRequest } from '../open/sources';
 // §13.6's envelope: the manifest is the schema, and the renderer reads the same barrel main
 // validated the action against — so `out` is resolved against `--out` by the one list of argument
 // types there is. Nothing here names a module.
-import { MANIFESTS } from '../../../modules/manifests';
-import type { ModuleManifest } from '../../../modules/manifest-types';
+import { MANIFESTS, allManifests } from '../../../modules/manifests';
+import type { InstalledManifest } from '../../../modules/manifest-types';
 import { planPreset } from './presets';
 import type { PresetName } from './presets';
 import {
@@ -197,7 +197,7 @@ export function moduleSearchFor(search: string, ids: readonly string[]): string 
 export function moduleOperationArgs(
   action: Bag,
   outDir: string,
-  manifests: readonly ModuleManifest[] = MANIFESTS
+  manifests: readonly InstalledManifest[] = MANIFESTS
 ): { args: Record<string, unknown>; files: string[] } {
   const given = (action['args'] ?? {}) as Bag;
   const operation = manifests
@@ -458,7 +458,7 @@ export class JobRunner {
     if (instance?.runOperation === undefined) {
       throw new Error(`actions[${index}]: ${id} has no operation ${op}`);
     }
-    const { args, files } = moduleOperationArgs(action, this.spec.outDir);
+    const { args, files } = moduleOperationArgs(action, this.spec.outDir, allManifests());
     await this.env.engine.whenSettled();
     const result = await instance.runOperation(op, args);
     this.env.engine.requestRender();
