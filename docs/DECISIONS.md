@@ -4925,3 +4925,27 @@ already points at release assets whose repository is trusted the same way); fetc
 only (a launch refresh costs one small request and means the dialog is right the first time it is
 opened); replacing the shipped copy entirely (a build with no catalogue is a dialog that is empty
 offline, which is worse than one that is merely behind).
+
+## 2026-08-31 — extensions pop out into their own windows, and several may be live at once (§13.10)
+
+§13.3's "one docked slot, one extension at a time" is narrowed to what it always actually justified: the
+**slot** holds one extension, because it is one section of a 320 px column. Anything more was a property of the
+layout and not of the host — `createModuleHost(deps, manifest)` already closed over the id, `moduleStatus`,
+`moduleDirty` and `ViewSpec.extensions` were already keyed by extension id — so `ShellController` now holds a map
+of sessions, each carrying its `placement`, and `UiState.activeModule` is redefined as *the docked one*
+rather than *the only one*. Every existing caller of `activeModule` keeps its meaning and its behaviour, and
+a launch with no extension still has `modulePlacement: {}` and the DOM it always had.
+
+A popped-out window is a **same-origin `window.open('')` popup the renderer portals the panel into**, so the
+extension never leaves this renderer process, this JS realm or this instance, and `ModuleHost` stays synchronous
+— §12.3 item 6's freeze holds and this is an additive `ui.placement/setPlacement/onPlacement` at
+`hostApi: 1`, plus an optional `ui` block on the manifest that derives no consent line. The alternative, a
+second `BrowserWindow` with its own renderer, is rejected on correctness rather than cost: it needs a second
+`activate()` over one scene, and two contact editors over one electrodes table is a merge conflict. It would
+also have been §13.9's async-host rewrite in all but name, paid for a layout feature.
+
+Pop-out is also the occasion for main's first `setWindowOpenHandler`: the default was Electron's permissive
+one, and it is now a whitelist — the `tetravox-module-<id>` popup (no preload; an extension window renders a
+portal and talks to main only through the opener's bridge), `http(s)` out to `shell.openExternal`, everything
+else denied and logged, and every popup denied outright outside `'normal'` window mode so a `--job` run can
+never raise a window on an unattended machine.

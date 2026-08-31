@@ -94,6 +94,23 @@ export interface ModuleEvents {
 export type ModuleSceneEvent =
   { kind: 'loaded'; blocks: Record<string, ExtensionBlock> } | { kind: 'cleared' };
 
+/**
+ * Where a module's panel is showing (§13.10, 2026-08-31).
+ *
+ * `'docked'` is the §13.3 slot — one section of the right column, above the Info panel. `'window'`
+ * is the module's own OS window, which exists so that several modules can be open at once and so
+ * that a module needing real estate (a time-domain view, a table of a thousand contacts) can have a
+ * monitor rather than 20 rem.
+ *
+ * **The module does not change process, thread or realm when it moves.** The popped-out window is a
+ * same-origin popup the renderer portals the panel into, so `ModuleHost` stays synchronous — §12.3
+ * item 6's freeze holds, and this addition is a layout fact rather than a new execution model. A
+ * second `BrowserWindow` with its own renderer was the alternative and was rejected: it needs a
+ * second module *instance* over one scene, and two contact editors over one electrodes table is a
+ * merge conflict, not a feature.
+ */
+export type ModulePlacement = 'docked' | 'window';
+
 /** A bounded undo stack over whatever snapshot a module chooses to push. */
 export interface ModuleHistory<T> {
   push(state: T): void;
@@ -196,7 +213,32 @@ export interface ModuleHost {
     ): Promise<0 | 1 | 2>;
     /** The module's status-bar cell. `null` removes it. Kept short — the strip does not scroll. */
     status(text: string | null): void;
+    /**
+     * "Am I the module in the slot." Unchanged in meaning by §13.10: a module showing in its own
+     * window is live and answers `false` here, which is what a panel gating its docked-width chrome
+     * wants. Ask {@link placement} for where it is showing.
+     */
     isActive(): boolean;
+
+    /**
+     * Where this module's panel is showing (§13.10, appended 2026-08-31, additively).
+     *
+     * Absent, every module was docked, so `'docked'` is what a build without pop-out reported and
+     * what a module that never asks still behaves as. A panel uses it to *reflow* — a window has the
+     * room for a two-column layout the 20 rem aside does not — and for nothing else: it is a layout
+     * fact, not a capability, and no host member is gated on it.
+     */
+    placement(): ModulePlacement;
+    /**
+     * Ask to be moved. The shell may dock at most one module at a time, so `setPlacement('docked')`
+     * pops whatever held the slot out to its own window — nothing is ever unloaded by a move.
+     *
+     * A no-op when the module is already there, and — like every other move — it does not
+     * re-activate: the instance, its history and its layers are the same objects afterwards.
+     */
+    setPlacement(placement: ModulePlacement): void;
+    /** Subscribe to moves. Returns the unsubscribe, like `scene.on`. */
+    onPlacement(cb: (placement: ModulePlacement) => void): () => void;
   };
 
   history<T>(limit?: number): ModuleHistory<T>;

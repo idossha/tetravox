@@ -54,7 +54,7 @@ import type { ThemeName } from '../theme/tokens';
 import { loadPanelPrefs } from '../lib/panels';
 // Modules (2026-08-30, §13). Types only — the store holds a module's *record*, never its code.
 import type { ModuleId } from '../../../modules/manifest-types';
-import type { ExtensionBlock } from '../modules/host';
+import type { ExtensionBlock, ModulePlacement } from '../modules/host';
 
 /**
  * §8's coordinate bar space, as a `CoordSpaceRef` (directed task 8, 2026-08-28).
@@ -304,13 +304,24 @@ export interface UiState {
 
   // -- Modules (2026-08-30; ARCHITECTURE.md §13) -------------------------------------------------
   /**
-   * The module in the slot, or null. **One at a time** (§13.3): the slot is one section of a 20 rem
-   * column, and two modules in it would be two editors fighting for the same clicks in the panes.
+   * The module **in the slot**, or null. Still one at a time (§13.3): the slot is one section of a
+   * 20 rem column, and two modules in it would be two editors fighting for the same clicks in the
+   * panes. Since 2026-08-31 that is a fact about the *slot* and not about the app — a module popped
+   * out to its own window is live and is not this field (§13.10, {@link modulePlacement}).
    *
    * Set only once `activate` has resolved, so a component that sees a non-null id can rely on the
    * instance — and on its `Panel` — existing.
    */
   activeModule: ModuleId | null;
+  /**
+   * Every live module and where it is showing (§13.10, 2026-08-31).
+   *
+   * `{}` is a window with no module, which is every launch until one is loaded — so the default is
+   * byte-identical to the pre-pop-out state and nothing that does not read this field can tell the
+   * difference. Exactly one entry may be `'docked'`, and that entry is {@link activeModule}: the
+   * controller writes both in one `setState`, so they cannot drift.
+   */
+  modulePlacement: Record<string, ModulePlacement>;
   /**
    * Per module, its status-bar cell text (`host.ui.status`). Keyed by `ModuleId` rather than held as
    * one string because a module keeps its cell across a deactivate/re-activate cycle, exactly as it
@@ -501,6 +512,7 @@ export const INITIAL_UI: UiState = {
   // Modules (2026-08-30, §13). Every one of these is empty in a build with no module active, which
   // is what makes "the DOM is byte-identical while the slot is idle" true.
   activeModule: null,
+  modulePlacement: {},
   moduleStatus: {},
   moduleDirty: {},
   moduleBlocks: {},

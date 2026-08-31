@@ -3567,3 +3567,56 @@ extension; a §5 rule 9 rewrite that makes `allowPath` the last line rather than
 of the whole path. It is 8–9 engineer-days and a different threat model, and nothing in §13.8 prevents it — the
 wall on `modules/<id>/**` exists precisely so that day is a port and not a rewrite. It is the tier that would
 let an extension be *untrusted*; until it exists, §13.8's posture is stated plainly rather than implied.
+
+### 13.10 Pop-out windows, and several extensions at once
+
+**An extension's panel shows in one of two places: the §13.3 slot, or its own OS window.** `ModuleHost.ui`
+publishes the fact as `placement()` / `setPlacement()` / `onPlacement()`, appended additively at
+`MODULE_HOST_VERSION = 1` — absent, every extension was docked, which is exactly what `'docked'` means and what an
+extension that never asks still behaves as. A manifest may state a preference and a size in an optional `ui`
+block (`popout`, `windowWidth`, `windowHeight`); it is **not a permission** and derives no line in the consent
+sheet, because where a panel draws is not a capability.
+
+**Why it exists.** §13.3's slot is one section of a 320 px column, which is the right home for a contact
+editor working beside the info panel's Cursor block and the wrong home for two of anything. Three things
+follow from a window and from nothing else: several extensions open at once, one per monitor, and an extension
+whose panel genuinely needs the room — a time-domain trace, a table of a thousand rows — being usable at all.
+
+**The mechanism is a same-origin popup and a React portal, not a second renderer.** `window.open('',
+'tetravox-module-<id>')` from the renderer stays in *this* renderer process and this JS realm, so the panel is
+rendered by the same React root, out of the same `ModuleInstance`, over the same `ModuleHost`. That is what
+keeps §12.3 item 6's freeze intact: the host stays **synchronous**, and pop-out is a layout change rather than
+the execution-model change §13.9 prices. A second `BrowserWindow` with its own renderer was the alternative
+and is rejected on correctness, not on cost — it needs a second `activate()` over one scene, and two contact
+editors over one electrodes table is a merge conflict, not a feature.
+
+Four consequences the implementation has to honour, each of which is a bug if it is dropped:
+
+1. **The popup's stylesheets are cloned from the opener's head**, and kept in step by a `MutationObserver` —
+   a portal moves DOM, never CSS, and a popup document starts empty. The theme attribute and body class are
+   mirrored the same way, or a popped-out extension stays in yesterday's palette after a theme switch.
+2. **A keystroke has exactly one target document**, so the popup installs its own `handleModuleKey` dispatch
+   naming its own extension. That is what makes §13.5 well-defined with several extensions live: the main window's
+   keys belong to the one in the slot, a window's keys belong to the one in it, and no two sessions can
+   claim one key.
+3. **Moving is never destructive.** Popping out, re-docking, and closing the window all keep the instance,
+   its undo history, its layers and its scene block — closing the *window* re-docks, and only the slot's ✕ and
+   the switcher's toggle unload. Docking a second extension pops the first one out rather than closing it, for
+   the same reason: "show me this one too" must not be the gesture that discards unsaved work.
+4. **A `--job` window opens none of them.** `windowMode` is `'offscreen'` for a job by definition, and main's
+   `setWindowOpenHandler` denies every popup outside `'normal'` mode, so a batch render can never put a
+   window on an unattended machine's screen.
+
+**`UiState.activeModule` still means "the extension in the slot"** — every pre-existing caller, key row, golden
+and E2E that says "the active module" is unchanged and still correct. The live set and where each one is
+showing is the new `UiState.modulePlacement`, which is `{}` for a window with no extension, so a launch that
+never pops anything out has the DOM it always had. `ModuleHost.ui.isActive()` likewise keeps its meaning: it
+answers "am I in the slot", which is what a panel gating its docked-width chrome wants, and an extension asks
+`placement()` for where it is showing.
+
+**Main's window policy is a whitelist** (`setWindowOpenHandler`). Before pop-out there was no handler, which
+is Electron's permissive default; the feature that needs `window.open` is also the occasion to bound it. Only
+an empty-document popup whose frame name is `tetravox-module-<id>` is allowed, and it is created with no
+preload — an extension window renders a portal and never talks to main, so everything an extension does still travels
+the opener's bridge on the opener's channels. An `http(s)` URL goes to the user's browser through
+`shell.openExternal`; everything else is denied and logged.

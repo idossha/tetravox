@@ -100,6 +100,59 @@ test.describe('the module surface (stand-in engine)', () => {
     expect(await page.evaluate(() => window.__tetravox?.store.getState().activeModule)).toBe(HELLO);
   });
 
+  test('pops the module out into its own window, and closing that window brings it back', async () => {
+    // §13.10. The claim only exists in a real Electron build — a popup is an OS window, and `vitest`
+    // has none — so this is the leg that proves the portal, the cloned stylesheets and main's
+    // `setWindowOpenHandler` whitelist all agree.
+    await activate(page);
+    await expect(page.locator('[data-testid="module-slot"]')).toBeVisible();
+
+    const popupPromise = app.waitForEvent('window');
+    await page.click('[data-testid="module-slot-popout"]');
+    const popup = await popupPromise;
+
+    // The panel is *in* the second window — the same instance, reparented, not a second copy.
+    await expect(popup.locator('[data-testid="hello-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="hello-panel"]')).toHaveCount(0);
+    // Out of the slot and still live: `activeModule` is the slot, `modulePlacement` is the truth.
+    expect(await page.evaluate(() => window.__tetravox?.store.getState().activeModule)).toBeNull();
+    expect(await page.evaluate(() => window.__tetravox?.store.getState().modulePlacement)).toEqual({
+      [HELLO]: 'window',
+    });
+    // The stylesheets were cloned, not linked: an unstyled popup is the failure this catches, and it
+    // is invisible to a DOM-only assertion.
+    expect(
+      await popup.evaluate(() => document.head.querySelectorAll('[data-tvx-adopted]').length)
+    ).toBeGreaterThan(0);
+
+    await popup.close();
+    // Closing the *window* re-docks; it never unloads. The module is back where the ✕ that does
+    // unload it lives.
+    await expect(page.locator('[data-testid="module-slot"]')).toBeVisible();
+    await expect(page.locator('[data-testid="hello-panel"]')).toBeVisible();
+    expect(await page.evaluate(() => window.__tetravox?.store.getState().activeModule)).toBe(HELLO);
+  });
+
+  test('refuses a window.open that is not a module window', async () => {
+    // Main's handler is a whitelist (§13.10). Before it there was no handler at all, which is
+    // Electron's permissive default — a renderer script could open any URL in a full window.
+    //
+    // The probe is deliberately **not** an `http(s)` URL, even though that is the interesting case
+    // in the handler: those are denied *by handing them to `shell.openExternal`*, which on the
+    // Linux CI runner really does spawn `xdg-open` and leave a browser process behind (it showed up
+    // as an orphan in the first run of this leg). A test must not launch the machine's browser to
+    // prove a policy. Both branches end in `action: 'deny'`, and this one asserts it without a side
+    // effect: an empty popup whose frame name is not `tetravox-module-<id>` is exactly the case the
+    // whitelist has to refuse, because it is the one a stray script would reach for.
+    const opened = await page.evaluate(() => {
+      const win = window.open('', 'not-a-module');
+      const blocked = win === null || win.closed;
+      win?.close();
+      return blocked;
+    });
+    expect(opened).toBe(true);
+  });
+
   test('the slot sits between the measurement strip and the Info panel, and caps its own height', async () => {
     const info = await page.locator('[data-testid="right-panel"] >> text=Cursor').first();
     await expect(info).toBeVisible();

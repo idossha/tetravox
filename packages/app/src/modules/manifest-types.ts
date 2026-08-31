@@ -187,6 +187,26 @@ export interface ModuleOperation {
   args: ArgShape;
 }
 
+/**
+ * What a module says about where it wants to be shown (§13.10).
+ *
+ * Every field is optional and every default is what the app did before pop-out existed, which is
+ * what makes this additive under §12.3: a manifest with no `ui` block is offered the ⧉ button, opens
+ * docked, and gets a window sized from the slot's own width if the user pops it out.
+ *
+ * `popout` is a *request*, not a permission — the shell has no security interest in where a panel
+ * draws. `'never'` is for a module whose panel is meaningless away from the Info panel's Cursor
+ * block; `'preferred'` opens in a window the first time it is loaded, which is the setting a
+ * large-canvas module (a time-domain view) wants and the reason this field is not a boolean.
+ */
+export interface ModuleUi {
+  /** Default `'allowed'`. */
+  popout?: 'allowed' | 'preferred' | 'never';
+  /** CSS px the popped-out window opens at. Clamped by the shell to something a screen can hold. */
+  windowWidth?: number;
+  windowHeight?: number;
+}
+
 export interface ModuleManifest {
   id: ModuleId;
   title: string;
@@ -204,6 +224,11 @@ export interface ModuleManifest {
   operations?: ModuleOperation[];
   /** The version of the module's `ViewSpec.extensions[id]` block (§13.2). */
   sceneBlock?: { version: number };
+  /**
+   * How this module wants to be shown (§13.10, appended 2026-08-31). All optional; absent is the
+   * pre-pop-out behaviour exactly — docked, and pop-out offered.
+   */
+  ui?: ModuleUi;
 }
 
 /**

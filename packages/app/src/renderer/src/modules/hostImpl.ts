@@ -24,6 +24,7 @@ import type {
   ModuleEvents,
   ModuleHistory,
   ModuleHost,
+  ModulePlacement,
   ModuleSceneEvent,
   PointSelection,
   PointToolSpec,
@@ -254,7 +255,29 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
       toast: (kind, text): void => controller.moduleToast(kind, manifest.title, text),
       confirm: (title, body, buttons) => controller.confirmDialog(title, body, buttons),
       status: (text: string | null): void => controller.setModuleStatus(id, text),
+      // "Am I the module in the slot" — which since §13.10 is no longer the same question as "am I
+      // live", and deliberately keeps its original meaning: `isActive` is what a module gates its
+      // *slot* chrome on, and a popped-out module answering `true` here would draw the fold caret
+      // and the aside-width layout inside its own window.
       isActive: (): boolean => store.getState().activeModule === id,
+
+      // -- Pop-out (§13.10, 2026-08-31), appended --------------------------------------------
+      // Both read `UiState.modulePlacement`, which the controller writes in the same `setState` as
+      // `activeModule`, rather than a callback the controller fires: a module that never asks is
+      // never told, and there is no ordering in which a module sees a placement the shell has not
+      // rendered yet.
+      placement: (): ModulePlacement => store.getState().modulePlacement[id] ?? 'docked',
+      setPlacement: (placement: ModulePlacement): void =>
+        controller.setModulePlacement(id, placement),
+      onPlacement: (cb: (placement: ModulePlacement) => void): (() => void) => {
+        let last = store.getState().modulePlacement[id] ?? 'docked';
+        return store.subscribe((state) => {
+          const next = state.modulePlacement[id] ?? 'docked';
+          if (next === last) return;
+          last = next;
+          cb(next);
+        });
+      },
     },
 
     history: <T>(limit?: number): ModuleHistory<T> => createHistory<T>(limit),

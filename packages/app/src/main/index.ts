@@ -300,6 +300,53 @@ function createWindow(): BrowserWindow {
   // chain. `ready-to-show` still fires; only the reaction to it is suppressed.
   if (MODE === 'normal') win.once('ready-to-show', () => win.show());
 
+  // §13.10's pop-out windows, and **nothing else** (2026-08-31).
+  //
+  // Before this there was no handler at all, which is Electron's "allow" default: any script in the
+  // renderer could have opened any URL in a full window. The feature that needs `window.open` is
+  // also the reason to bound it — so the rule is narrow and stated in one place. A module's window
+  // is `window.open('', 'tetravox-module-<id>')`: an **empty** document, same origin, same renderer
+  // process, so the panel is a React portal out of the one live instance rather than a second copy
+  // of the app (`renderer/src/modules/ModuleWindow.tsx` says why that matters). Everything else is
+  // denied, and an `http(s)` URL — a module's docs link — goes to the user's browser, never into a
+  // window wearing this app's chrome and this app's origin.
+  win.webContents.setWindowOpenHandler(({ url, frameName, features }) => {
+    // A job run is unattended by definition: it must not put a second window on anyone's screen, and
+    // a module popping itself out in a batch render would do exactly that. The gate is `isJobRun()`
+    // rather than `MODE`, because `'offscreen'` is also what an E2E leg runs in — and denying there
+    // would make the one claim only a real Electron build can prove (§13.10) untestable. An
+    // offscreen leg gets the window it needs and `show: false` keeps it off the monitor, which is
+    // the same bargain the main window already makes (AGENTS rule 8, `window.ts`).
+    if (isJobRun()) return { action: 'deny' };
+    if ((url === '' || url === 'about:blank') && frameName.startsWith('tetravox-module-')) {
+      return {
+        action: 'allow',
+        outlivesOpener: false,
+        overrideBrowserWindowOptions: {
+          // The renderer asked for a size in `features`; Electron parses it, and these are the
+          // properties it must not be allowed to ask for.
+          show: MODE === 'normal',
+          backgroundColor: startupBackground(),
+          minWidth: 240,
+          minHeight: 240,
+          webPreferences: {
+            // No preload: a module window renders a portal and never talks to main. Everything the
+            // module does still goes through the opener's bridge, on the opener's channels.
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false,
+          },
+        },
+      };
+    }
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    console.warn(`[tetravox] refused window.open: ${url || '(empty)'} ${frameName} ${features}`);
+    return { action: 'deny' };
+  });
+
   const search = launchSearch(process.argv);
   const devServer = process.env['ELECTRON_RENDERER_URL'];
   if (devServer && process.env['TETRAVOX_FORCE_PROTOCOL'] !== '1') {

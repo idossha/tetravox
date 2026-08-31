@@ -175,6 +175,51 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     expect(ct.threshold).toMatchObject({ lo: 150, mode: 'hide' });
   });
 
+  test('pops out into its own window and reflows to two columns there (§13.10)', async () => {
+    // §13.10 landed in the core before the sEEG release that uses it, and the fixture is whichever
+    // release the developer staged — so this asks the *staged manifest* whether it carries the `ui`
+    // block, and skips when it does not. An older extension skips rather than failing for being
+    // old, which is AGENTS rule 2's shape and the same bargain the suite already makes about
+    // `TETRAVOX_SEEG_FIXTURE` itself.
+    test.skip(
+      STAGE?.hasUiBlock !== true,
+      `the staged sEEG ${STAGE?.version ?? '(none)'} predates the §13.10 ui block`
+    );
+
+    // Docked, the panel is one column in a 320 px aside — the layout it has always had.
+    await expect(page.locator('[data-testid="seeg-panel"]')).toHaveAttribute(
+      'data-layout',
+      'narrow'
+    );
+
+    const popupPromise = app.waitForEvent('window');
+    await page.click('[data-testid="module-slot-popout"]');
+    const popup = await popupPromise;
+
+    const panel = popup.locator('[data-testid="seeg-panel"]');
+    await expect(panel).toBeVisible();
+    // The reflow is driven by the panel's own **measured width**, not by the placement — so this
+    // asserts the module really got the room the manifest asked for, rather than that it was told
+    // it was in a window.
+    await expect(panel).toHaveAttribute('data-layout', 'wide');
+    // The contact list is the half that wanted the room: wide, it is its own scroller beside the
+    // controls rather than the tail of one column.
+    const list = await popup.locator('[data-testid="seeg-list"]').boundingBox();
+    const controls = await popup.locator('[data-testid="seeg-source"]').boundingBox();
+    expect(list).not.toBeNull();
+    expect(controls).not.toBeNull();
+    expect((list as { x: number }).x).toBeGreaterThan((controls as { x: number }).x);
+    // The editor is the same one: it is still editing this subject's table, with its edits intact.
+    await expect(popup.locator('[data-testid="seeg-source"]')).toContainText('sub-P076');
+
+    await popup.close();
+    await expect(page.locator('[data-testid="seeg-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="seeg-panel"]')).toHaveAttribute(
+      'data-layout',
+      'narrow'
+    );
+  });
+
   test('an existing editlog is a banner: somebody has been here before you', async () => {
     await expect(page.locator('[data-testid="seeg-banner"]')).toContainText('2026-08-14');
   });
