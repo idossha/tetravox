@@ -11,6 +11,15 @@
  * from `new URL(…, import.meta.url)`, which Vite emits as a same-origin asset, so `'self'` covers
  * every worker that is supposed to exist. A Blob module worker built from fetched text was the one
  * thing `blob:` covered, and nothing here wants one.
+ *
+ * `script-src tetravox://module` was **added** the same day, for downloadable extensions. The two
+ * changes pull in opposite directions and that is deliberate: the door that was closed executed
+ * *anything the renderer could assemble*, and the one that was opened executes only what main put on
+ * an explicit map after verifying its sha256 against a manifest the user consented to. The tests
+ * below assert the second half from the side a policy can actually be proved from — **negatively**.
+ * With nothing installed there is nothing on that map, so every URL under the new host 404s, which
+ * is the claim that matters: adding a host source to `script-src` did not make the host *reachable*.
+ * The positive half — an installed, consented module really loading — is `extensions.spec.ts`'s.
  */
 
 /* eslint-disable no-empty-pattern */
@@ -75,6 +84,59 @@ test.describe('the renderer CSP', () => {
       return response.ok;
     });
     expect(ok).toBe(true);
+  });
+
+  test('404s an unregistered tetravox://module URL, because the map is empty', async () => {
+    // The host is in `script-src`; that grants nothing on its own. `protocol.ts`'s `handleModule`
+    // does a **map lookup** — no root directory, no path joining — and only `enableModule` fills the
+    // map. A launch with no installed extension therefore has an inert host.
+    const status = await page.evaluate(async () => {
+      const response = await fetch('tetravox://module/tetravox.absent/1.0.0/index.js');
+      return response.status;
+    });
+    expect(status).toBe(404);
+  });
+
+  test('404s a module that is installed but not enabled — consent gates execution', async () => {
+    // There is nothing installed in this profile either, so this is the same 404 arriving by a
+    // different route; what it pins is that the *scheme* is where consent bites, not the switcher.
+    // `extensions.spec.ts` runs the version of this with a real fixture module on disk.
+    const statuses = await page.evaluate(async () => {
+      const urls = [
+        'tetravox://module/tetravox.fixture/1.0.0/index.js',
+        'tetravox://module/tetravox.fixture/1.0.0/manifest.json',
+        'tetravox://module//etc/passwd',
+        'tetravox://module/..%2F..%2Fetc%2Fpasswd',
+      ];
+      const out: number[] = [];
+      for (const url of urls) out.push((await fetch(url)).status);
+      return out;
+    });
+    expect(statuses).toEqual([404, 404, 404, 404]);
+  });
+
+  test('a script element under the new host is admitted by the policy and still fails to load', async () => {
+    // The distinction the CSP diff turns on. `script-src 'self'` alone would report a
+    // *`securitypolicyviolation`* for this element; with `tetravox://module` in the list the policy
+    // permits it and the load fails on the 404 instead. "Blocked by policy" and "there is nothing
+    // there" are different failures, and this is the one that proves which one is happening.
+    const outcome = await page.evaluate(async () => {
+      return new Promise<string>((resolve) => {
+        document.addEventListener(
+          'securitypolicyviolation',
+          (event) => resolve(`violation:${event.violatedDirective}`),
+          { once: true }
+        );
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = 'tetravox://module/tetravox.absent/1.0.0/index.js';
+        script.onerror = () => resolve('network-error');
+        script.onload = () => resolve('loaded');
+        document.head.appendChild(script);
+        setTimeout(() => resolve('nothing happened'), 4000);
+      });
+    });
+    expect(outcome).toBe('network-error');
   });
 
   test('keeps img-src blob:, which the screenshot preview needs', async () => {
