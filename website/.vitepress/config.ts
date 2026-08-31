@@ -91,7 +91,15 @@ export default defineConfig({
           { text: 'Install', link: '/install' },
           { text: 'Get started', link: '/get-started' },
           { text: 'Sample data', link: '/sample-data' },
-          { text: 'Extensions', link: '/extensions' },
+          {
+            text: 'Extensions',
+            collapsed: false,
+            items: [
+              { text: 'Overview', link: '/extensions' },
+              { text: 'sEEG contacts', link: '/extensions/seeg' },
+              { text: 'Build an extension', link: '/guide/extensions' },
+            ],
+          },
           {
             text: 'The wiki',
             collapsed: false,
@@ -107,8 +115,6 @@ export default defineConfig({
               { text: 'Points & electrodes', link: '/guide/points-electrodes' },
               { text: 'Measurements', link: '/guide/measurements' },
               { text: 'Modules', link: '/guide/modules' },
-              { text: 'Extensions', link: '/guide/extensions' },
-              { text: 'sEEG contacts', link: '/guide/seeg-contacts' },
               { text: 'Coordinates', link: '/guide/coordinates' },
               { text: 'Themes & settings', link: '/guide/themes-settings' },
               { text: 'Scenes', link: '/guide/scenes' },

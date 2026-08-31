@@ -35,6 +35,11 @@ title: Sample data
 
 # Sample data
 
+<figure class="shot">
+<img src="/sample-data-dialog.png" alt="The Sample Data dialog in Tetravox">
+<figcaption>The <strong>Sample Data</strong> dialog in Tetravox — a card per dataset with a thumbnail, description, size and licence, and one <strong>Download &amp; open</strong> button that fetches it once and opens it as a ready-made scene.</figcaption>
+</figure>
+
 Public datasets to try Tetravox on, the same list as **File ▸ Sample Data…** in the app. In the app one
 click downloads a sample into the cache (once, verified by sha256) and opens it as a ready-made scene —
 layout, colour maps, thresholds and camera already set; here every file is a direct link, for scripting or for a machine without the app. Nothing on this page is original work — each
