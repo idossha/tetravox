@@ -3221,6 +3221,17 @@ is 320 px and stays 320 px; a resizable right aside is on the ROADMAP, not in v1
 3. **Pool keys**, live only while the module is active (§13.5), listed in the `?` sheet's Modules tab.
 4. **One `confirm` dialog** with two or three buttons (§8).
 
+**While a contact module is active, `select` is the resting state of its tool** (2026-08-30). §7.5's R1 is
+that a left click in a 2D pane sets the cursor; the point tool only hit-tests while it is armed. So a panel
+whose whole job is "click contacts" has to keep its tool armed, or the electrode dropdown, the selection ring
+and the crosshair silently stop following the pointer — which is exactly what the owner reported after `Esc`.
+The module therefore re-arms `select` on a `cleared` it did not ask for, reading §7.5's `reason` to tell the
+cases apart: after `'esc'` and `'host'` at once, after `'load'` and `'layer'` when the `layers` event says
+the new layer exists, never after `'measure'` (the user picked the other click-consuming mode), and not at
+all for `'selection'`, which is not a disarm. `Esc` keeps the step that matters — `place` → `select` — and a
+click that hits nothing still falls through to R1's cursor-set, because a `select`-mode miss changes nothing.
+Leaving the module is how a user turns the tool off.
+
 **Module-owned layers get a read-only summary instead of the core property editor**, and each half prevents a
 concrete defect: the core points editor's per-point ↺ deletes the electrode's colour, its 0.5–20 mm radius
 slider is also the probe radius and the 2D slab, and every edit reaches `controller.patchLayer` directly,

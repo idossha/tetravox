@@ -49,6 +49,10 @@ export const seegManifest: ModuleManifest = {
     { id: 'renumber', title: 'Renumber tip-first' },
     { id: 'flip-tip', title: 'Flip tip end', key: 't' },
     { id: 'ghost', title: 'Contacts visible through slices', key: 'g' },
+    // Appended 2026-08-30. `d` is the one key left in §13.5's pool that this manifest does not
+    // already bind, and it is what §13.5 calls a plain harmless key: it changes what is drawn and
+    // nothing on disk.
+    { id: 'wire', title: 'Draw the shaft line between contacts', key: 'd' },
     { id: 'delete', title: 'Delete selected contact', key: 'Delete', when: 'selection' },
     { id: 'undo', title: 'Undo', key: 'z' },
     { id: 'redo', title: 'Redo', key: 'z', shift: true },
@@ -120,6 +124,11 @@ export const seegManifest: ModuleManifest = {
     { id: 'refit', args: { electrode: 'string?' } },
     { id: 'renumber', args: { electrode: 'string?' } },
     { id: 'ghost', args: { on: 'boolean' } },
+    // Appended 2026-08-30 beside `ghost`, and for the same reason it exists: which of a contact
+    // set's three display switches are on is part of what a figure *is*, so a job that renders one
+    // has to be able to say. Fifteen shafts' worth of lines over a bone-window CT is exactly the
+    // clutter a slice figure does not want, and there was no way to turn it off headlessly.
+    { id: 'wire', args: { on: 'boolean' } },
     { id: 'stats', args: {} },
     { id: 'save', args: { out: 'out' } },
     // Appended 2026-08-30. `tip: 'auto'` is a heuristic — DECISIONS says an occipital shaft entering

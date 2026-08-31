@@ -4396,3 +4396,22 @@ mistake wants — and no longer leaves the module needing two presses of Add bef
 anything again. §13.3 says so in those words, and the module's layer-identity heuristic is deleted:
 the engine now states what the module used to deduce.
 
+## 2026-08-30 — the shaft line is a display switch, and it is in the block
+
+Fifteen shafts' worth of lines over a bone-window CT is a lot of ink for a slice figure about one of
+them, so the wire gets a toggle (`d`), a `wire { on }` operation and a place in the scene block.
+Module-side entirely: the segments are rebuilt from the contact set on every write anyway, so
+"hidden" is simply not building them — patched in as an **empty** `Float32Array` rather than removed,
+because a `Partial<Layer>` merge cannot unset a field and the engine's own rule is already that fewer
+than one segment draws nothing. No engine change, and no new mechanism.
+
+It is in the block for the same reason `ghost` is: §4.6 does not serialise `lineSegments` at all, so
+a scene reopened without the module's record puts every shaft back and a figure saved with the wire
+off would not reproduce. `wire` and `dotRadiusPx` are both additive there — absent reads as "on" and
+as 4 px, which is what a block written before them meant — so `sceneBlock.version` stays 1. Both are
+display switches and not edits: no history entry, no dirty mark, nothing to save to a table.
+
+The **size** control is deliberately panel-only. §13.6 exempts a command that needs a live pointer, a
+dialog, the undo stack or only the selection; a size stepper is none of those, so it is not a command
+at all — it is a panel entry point beside the snap-radius field, with no key, because `+` and `-`
+belong to the engine's zoom (§7.5) and §13.5's pool is for commands.

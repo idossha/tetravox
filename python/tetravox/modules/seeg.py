@@ -6,6 +6,7 @@
     job = Job(files=[ct], preset="plain")
     seeg.load(job, ct=ct, tsv=tsv)
     seeg.snap(job, scope="all", radius_mm=1.5)
+    seeg.wire(job, on=False)
     seeg.flip_tip(job, electrode="LOCC")
     seeg.refit(job)
     seeg.save(job, out="sub-01_space-T1w_electrodes.tsv")
@@ -134,6 +135,16 @@ def ghost(job: Job, on: bool) -> Job:
     The 2D projection Slicer has on by default; off for a figure of one slice's contacts alone.
     """
     return job.module(MODULE_ID, "ghost", on=bool(on))
+
+
+def wire(job: Job, on: bool) -> Job:
+    """Draw the shaft line between consecutive contacts of each electrode, or hide it.
+
+    On by default, in the electrode's own colour. Off is for a figure of the contacts alone: fifteen
+    shafts' worth of lines over a bone-window CT is a lot of ink for a slice that is about one of
+    them. Hiding it changes nothing on disk — the line is drawn from the contact positions.
+    """
+    return job.module(MODULE_ID, "wire", on=bool(on))
 
 
 def stats(job: Job) -> Job:

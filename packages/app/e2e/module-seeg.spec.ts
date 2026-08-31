@@ -303,13 +303,15 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     expect(await mode()).toBe('select');
 
     // Esc #2 emits `cleared`, the panel renders, and the button is not pressed — where the old
-    // handler re-armed place mode inside this very keydown and left it held down.
+    // handler re-armed place mode inside this very keydown and left it held down. Since 2026-08-30
+    // the module puts `select` straight back (§13.3: select is its resting state), so what Escape
+    // must never do is come back in `place`.
     expect(await escape()).toBe(true);
-    expect(await mode()).toBeNull();
+    expect(await mode()).toBe('select');
     await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'false');
 
-    // One press arms place mode again — Escape turned the tool off rather than breaking it — and a
-    // second leaves the tool where the specs after this one expect it: armed, selecting.
+    // One press arms place mode again, and a second leaves the tool where the specs after this one
+    // expect it: armed, selecting.
     await page.click('[data-testid="seeg-add"]');
     await expect(page.locator('[data-testid="seeg-add"]')).toHaveAttribute('aria-pressed', 'true');
     expect(await mode()).toBe('place');
@@ -337,6 +339,97 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
 
     await page.click('[data-testid="seeg-refit"]');
     await expect(page.locator('[data-testid="seeg-stats"]')).toContainText('rms 0.0 mm');
+  });
+
+  test('clicking a contact moves the electrode dropdown, with nothing armed by hand', async () => {
+    // The owner's report, as a window assertion: a plain click on a contact has to move the
+    // dropdown. Nothing here arms anything — the module keeps `select` armed while it is active
+    // (§13.3), which is the whole fix.
+    const dropdown = page.locator('[data-testid="seeg-electrode"]');
+
+    // Put the crosshair on B01 so its disc is on the slice under the pane centre, then send the
+    // dropdown back to A — the click is what has to bring it to B.
+    await dropdown.selectOption('B');
+    await page.click('[data-testid="seeg-jump-B01"]');
+    await dropdown.selectOption('A');
+    await expect(dropdown).toHaveValue('A');
+
+    await page.evaluate(() => {
+      (
+        window.__tetravox?.engine as unknown as {
+          pointToolClick(viewId: string, px: number, py: number): void;
+        }
+      ).pointToolClick('axial', 256, 256);
+    });
+
+    await expect(dropdown).toHaveValue('B');
+    await expect(page.locator('[data-testid="seeg-row-B01"]')).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+    // Put the panel back where the specs after this one expect it.
+    await dropdown.selectOption('A');
+  });
+
+  test('Wire hides and restores the shaft lines, from the button and from its key', async () => {
+    const wire = page.locator('[data-testid="seeg-wire"]');
+    const segments = (): Promise<number> =>
+      page.evaluate((id) => {
+        const layer = (window.__tetravox?.store.getState().layers ?? []).find(
+          (l) => l.module === id
+        );
+        return (layer as unknown as { lineSegments?: { length: number } }).lineSegments?.length ?? 0;
+      }, SEEG);
+
+    await expect(wire).toHaveAttribute('aria-pressed', 'true');
+    expect(await segments()).toBeGreaterThan(0);
+    await page.click('[data-testid="seeg-wire"]');
+    await expect(wire).toHaveAttribute('aria-pressed', 'false');
+    // Empty, not absent: a `Partial<Layer>` merge cannot unset a field (§4.4).
+    expect(await segments()).toBe(0);
+
+    // …and the manifest's `d` reaches the same command, which is §13.5's half of this.
+    await focusShell(page);
+    await page.keyboard.press('d');
+    await expect(wire).toHaveAttribute('aria-pressed', 'true');
+    expect(await segments()).toBeGreaterThan(0);
+  });
+
+  test('the Size stepper writes §4.4’s dotRadiusPx and stops at its bounds', async () => {
+    const size = page.locator('[data-testid="seeg-size"]');
+    const drawn = (): Promise<number | undefined> =>
+      page.evaluate((id) => {
+        const layer = (window.__tetravox?.store.getState().layers ?? []).find(
+          (l) => l.module === id
+        );
+        return (layer as unknown as { dotRadiusPx?: number }).dotRadiusPx;
+      }, SEEG);
+
+    await expect(size).toHaveText('4');
+    expect(await drawn()).toBe(4);
+    await page.click('[data-testid="seeg-size-up"]');
+    await page.click('[data-testid="seeg-size-up"]');
+    await expect(size).toHaveText('6');
+    expect(await drawn()).toBe(6);
+
+    // The bound is real, and the panel states it by disabling the button rather than by letting a
+    // press do nothing: step up until it stops, and it stops at 12.
+    const up = page.locator('[data-testid="seeg-size-up"]');
+    for (let i = 0; i < 20 && !(await up.isDisabled()); i += 1) await up.click();
+    await expect(size).toHaveText('12');
+    await expect(up).toBeDisabled();
+    expect(await drawn()).toBe(12);
+
+    // …and the same at the other end.
+    const down = page.locator('[data-testid="seeg-size-down"]');
+    for (let i = 0; i < 20 && !(await down.isDisabled()); i += 1) await down.click();
+    await expect(size).toHaveText('2');
+    await expect(down).toBeDisabled();
+
+    // Back to the default, so the specs after this one see the layer they expect.
+    for (let i = 0; i < 2; i += 1) await up.click();
+    await expect(size).toHaveText('4');
+    expect(await drawn()).toBe(4);
   });
 
   test('a module-owned layer gets a summary, not the core points editor', async () => {

@@ -54,6 +54,10 @@ const INPUT = {
   snapRadiusMm: 2.25,
   namePad: 2,
   ghost: false,
+  // The two display switches appended 2026-08-30, set to the non-default value for the same reason
+  // `ghost: false` is: a round trip that only ever carried the default proves nothing.
+  wire: false,
+  dotRadiusPx: 7,
 };
 
 describe('toBlock', () => {

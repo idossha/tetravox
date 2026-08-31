@@ -370,10 +370,21 @@ hand-edited: somebody has been here before you.
 
 ### Editing
 
-The contacts are one points layer named `Contacts · <table stem>`, one dot per contact, coloured by
-electrode, labelled with its name, with the shaft drawn as a line between consecutive contacts. Contacts
-that are not on the current slice are drawn as **ghosts** at 0.6 opacity so a shaft reads as a shaft
-while you scroll; `g` turns that off and on.
+The contacts are one points layer named `Contacts · <table stem>`, one dot per contact, with the shaft
+drawn as a line between consecutive contacts and each contact's name beside it. **The dot, its shaft
+line and its name are all the electrode's own colour**, so on a fifteen-shaft implant you can tell at a
+glance which line belongs to which contact. Contacts that are not on the current slice are drawn as
+**ghosts** at 0.6 opacity so a shaft reads as a shaft while you scroll; `g` turns that off and on.
+
+Three switches decide how much of that is drawn, and none of them touches the table:
+
+| Switch | Does |
+|---|---|
+| **Ghost** (`g`) | draw the contacts that are not on this slice, faintly |
+| **Wire** (`d`) | draw the shaft lines. Off is for a figure about one slice's contacts |
+| **size − / +** | how big a contact is drawn, 2–12 px. The bigger dot is also a bigger click target |
+
+All three are saved with the scene, so a figure reopens looking the way you left it.
 
 | Do this | With |
 |---|---|
@@ -387,6 +398,17 @@ while you scroll; `g` turns that off and on.
 | flip which end is the tip | `t` |
 | delete | `Delete` or `⌫` |
 | undo / redo | `z` / `⇧Z` |
+
+**Clicking a contact selects it**, and everything follows: the electrode dropdown switches to that
+contact's shaft, the crosshair moves onto it so every pane slices through it, and a ring is drawn round
+the one you have. You do not arm anything first — while the panel is open, clicking contacts is what a
+click does, and `Esc` puts you back into selecting rather than turning the tool off. A click that is not
+on a contact still moves the crosshair, exactly as it does with no module open.
+
+One thing that is not obvious: **a ghosted contact cannot be clicked**. The ghost is a projection of a
+contact that lives on another slice, and dragging one would move it in a plane it is not in — so a click
+only finds the contacts the current slice actually cuts. Scroll onto the contact first (or use `n`/`p`,
+or the list, which take the crosshair there for you).
 
 **Snap** moves a contact to the intensity-weighted peak of a small box around it — the metal it is
 inside — at the radius the panel's field sets (0.5–5 mm, 1.5 mm by default). A contact with nothing
@@ -450,7 +472,7 @@ writing a table in which everything looks new.
 ### From a job file
 
 Every button is also a job-file operation, so a batch can do what the panel does — `load`, `snap`,
-`refit`, `renumber`, `flip-tip`, `revert`, `delete`, `ghost`, `stats` and `save`. `flip-tip` matters more
+`refit`, `renumber`, `flip-tip`, `revert`, `delete`, `ghost`, `wire`, `stats` and `save`. `flip-tip` matters more
 than it looks: which end of a shaft is contact 1 comes from a heuristic, `renumber` applies whatever the
 tip currently is, and this is how a batch corrects the shaft the heuristic read backwards — the same thing
 `t` does in the panel. See [Automation]({{ site.baseurl }}/AUTOMATION.html).
