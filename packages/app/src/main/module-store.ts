@@ -53,6 +53,7 @@ import { MANIFESTS, registerInstalledManifests } from '../modules/manifests';
 import { revokeModuleWrites } from './module-io';
 import { serveModuleFile, servedModuleKeys, servedModuleVersion, unserveModule } from './protocol';
 import { configHome, readSettings, writeSettings } from './settings';
+import { cachedIndex } from './registry';
 import type { ModuleConsent } from './settings';
 
 // ------------------------------------------------------------------------------------------------
@@ -153,6 +154,11 @@ export function catalogue(): readonly ExtensionEntry[] {
     const loaded = readIndexFile(override);
     if (loaded !== null) return loaded.modules;
   }
+  // The curated index, when a refresh has cached one (§13.8, `registry.ts`). It is re-validated on
+  // every read, so a cache that is absent, stale-shaped or hand-edited simply falls through to the
+  // copy the build ships — which is why the dialog is still right with no network, ever.
+  const live = cachedIndex();
+  if (live !== null) return live.modules as ExtensionEntry[];
   return SHIPPED_INDEX.modules;
 }
 
