@@ -41,6 +41,7 @@ import type {
   SampleProgress,
   SampleStatus,
   ScreenshotDefaults,
+  UpdateStatus,
 } from '../../../preload/index';
 import type { LoadCard } from '../lib/loads';
 import type { Toast } from '../lib/toasts';
@@ -353,6 +354,16 @@ export interface UiState {
   extensionProgress: Readonly<Record<string, ModuleProgress>>;
   /** `~/.tetravox/modules/`, for the dialog's footer. A directory name, never a reachable path. */
   extensionDir: string;
+
+  // -- In-app updates (2026-08-31, §12.4; appended, per the shared-file rule) ---------------------
+  /**
+   * The last `UpdateStatus` main pushed or the boot pull answered; null until either has. Chrome:
+   * main owns the fact, this is the last value React saw — the status-bar pill and the Software
+   * Update dialog both render from here.
+   */
+  updates: UpdateStatus | null;
+  /** "Check for updates on launch", mirrored from `settings.json` so the dialog can render it. */
+  checkForUpdates: boolean;
 }
 
 /** Where this scene lives on disk, and when it was last written there. */
@@ -376,7 +387,10 @@ export type DialogKind =
   // Appended 2026-08-30: File ▸ Extensions… (§13.8). The Sample Data dialog's shape for code rather
   // than for data, and one more case of `dialog` for the same reason — it covers the window, so a
   // stack would only ever hide one behind another.
-  | 'extensions';
+  | 'extensions'
+  // Appended 2026-08-31: File ▸ Check for Updates… (§12.4). One more case of `dialog`, like the two
+  // above it.
+  | 'updates';
 
 /** The unified settings dialog's tabs (directed task: unified settings, 2026-08-28). */
 export type SettingsTab = 'appearance' | 'capture' | 'paths' | 'startup';
@@ -497,6 +511,10 @@ export const INITIAL_UI: UiState = {
   extensionStatuses: [],
   extensionProgress: {},
   extensionDir: '',
+  // In-app updates (2026-08-31, §12.4). Null until main has said anything, which in vitest and a
+  // plain browser tab is forever — and a pill that renders from null renders nothing.
+  updates: null,
+  checkForUpdates: true,
 };
 
 export type UiStore = StoreApi<UiState>;

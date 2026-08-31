@@ -13,6 +13,20 @@ appId: dev.tetravox.viewer
 productName: Tetravox
 copyright: Tetravox contributors
 
+# §12.4's in-app updates read GitHub Releases. This block does NOT publish — `--publish never` is
+# hard-coded in `scripts/electron-builder.sh`, and release.yml's own softprops steps stay the only
+# thing that attaches assets. What it does do is (a) embed `app-update.yml` (owner/repo/provider)
+# into every packaged app, which is the feed electron-updater reads at runtime, and (b) have
+# electron-builder write `latest-mac.yml`/`latest.yml`/`latest-linux.yml` into `release/`, which the
+# release workflow then attaches beside the installers. Before this block existed the same two
+# things already happened implicitly, resolved from `package.json`'s `repository` field (the shipped
+# 0.3.0 carries the identical app-update.yml) — stated here so the updater's feed is a fact of this
+# file rather than an inference nobody can grep for.
+publish:
+  provider: github
+  owner: idossha
+  repo: tetravox
+
 directories:
   output: release
   buildResources: build

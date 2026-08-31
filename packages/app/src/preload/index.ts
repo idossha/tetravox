@@ -266,6 +266,50 @@ export interface TetravoxBridge {
    * that the six invoke channels above do not already gate.
    */
   onOpenExtensions?(listener: () => void): () => void;
+
+  // -- In-app updates (§12.4, `main/updater.ts`, 2026-08-31) --------------------------------------
+  // One status object each way and clicks going in. Main owns the feed, the download and the
+  // installer; nothing here can start an install without the user's gesture arriving first.
+  //
+  // Every member is optional for the same reason `moduleClearWrites` is: a `TetravoxBridge`
+  // written before them is still one, and the renderer calls them with `?.`.
+
+  /** The status as it stands — pulled on boot and on every open of the dialog, never guessed. */
+  updateStatus?(): Promise<UpdateStatus>;
+  /** Ask the feed now. Resolves with the answer; the same statuses also arrive on `onUpdateStatus`. */
+  updateCheck?(): Promise<UpdateStatus>;
+  /** Download the announced version. `'inplace'` installs only; the result carries the refusal. */
+  updateDownload?(): Promise<UpdateActionResult>;
+  /** Restart into the downloaded version — or, on a notify-only install, open the Releases page. */
+  updateInstall?(): Promise<UpdateActionResult>;
+  /** "Skip this version": the launch check stays quiet about exactly this one. */
+  updateSkip?(version: string): Promise<UpdateStatus>;
+  /** Status pushes from main — the launch check's find, download progress, the downloaded flag. */
+  onUpdateStatus?(listener: (status: UpdateStatus) => void): () => void;
+  /** Menu File ▸ Check for Updates…, pushed from main. Carries nothing but the click. */
+  onOpenUpdates?(listener: () => void): () => void;
+}
+
+// Mirror `main/updater.ts`'s types; duplicated because preload must not import from main.
+export type UpdatePhase =
+  'idle' | 'checking' | 'available' | 'none' | 'downloading' | 'downloaded' | 'error';
+export interface UpdateStatus {
+  phase: UpdatePhase;
+  /** `app.getVersion()` — the renderer's only version readout, so it rides along on every status. */
+  current: string;
+  available?: string;
+  notes?: string;
+  received?: number;
+  total?: number;
+  error?: string;
+  /** `'inplace'` downloads and restarts; `'notify'` (`.deb`/`.tar.gz`) offers the Releases page; `'off'` is a dev build. */
+  mode: 'inplace' | 'notify' | 'off';
+  /** True on statuses born from the launch check, so the renderer toasts instead of assuming a dialog. */
+  auto?: boolean;
+}
+export interface UpdateActionResult {
+  ok: boolean;
+  error?: string;
 }
 
 /** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
@@ -331,6 +375,10 @@ export interface AppSettings {
   reopenLastScene: boolean;
   /** Persisted §4.7 screenshot defaults, merged into `screenshotOptions` on startup. */
   screenshotDefaults: ScreenshotDefaults;
+  /** "Check for updates on launch" (§12.4); on by default. Gates the automatic check only. */
+  checkForUpdates: boolean;
+  /** The one version the user said to skip (§12.4); `''` = none. */
+  skippedUpdateVersion: string;
 }
 
 /** Mirrors `main/menu.ts`'s own union; duplicated because preload must not import from main. */
@@ -566,6 +614,25 @@ const bridge: TetravoxBridge = {
     const wrapped = (): void => listener();
     ipcRenderer.on('tetravox:open-extensions', wrapped);
     return () => ipcRenderer.removeListener('tetravox:open-extensions', wrapped);
+  },
+  // In-app updates (§12.4, 2026-08-31). One status object each way; clicks in, never bytes.
+  // 'update-state', not 'update-status': the pull and the push are different channels, like
+  // `settings` vs the push channels everywhere else on this bridge.
+  updateStatus: () => ipcRenderer.invoke('tetravox:update-state'),
+  updateCheck: () => ipcRenderer.invoke('tetravox:update-check'),
+  updateDownload: () => ipcRenderer.invoke('tetravox:update-download'),
+  updateInstall: () => ipcRenderer.invoke('tetravox:update-install'),
+  updateSkip: (version) => ipcRenderer.invoke('tetravox:update-skip', version),
+  onUpdateStatus: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, status: UpdateStatus): void =>
+      listener(status);
+    ipcRenderer.on('tetravox:update-status', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:update-status', wrapped);
+  },
+  onOpenUpdates: (listener) => {
+    const wrapped = (): void => listener();
+    ipcRenderer.on('tetravox:open-updates', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:open-updates', wrapped);
   },
 };
 

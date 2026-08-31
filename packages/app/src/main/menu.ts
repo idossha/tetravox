@@ -187,6 +187,17 @@ export function sendOpenExtensions(win: BrowserWindow | null): void {
 }
 
 /**
+ * Ask the renderer to open the Software Update dialog (File ▸ Check for Updates…, §12.4).
+ *
+ * `sendOpenSettings`'s twin, and as empty: the renderer opens the dialog and asks main back over
+ * `tetravox:update-check`, where the mode and the feed are decided. In a dev build the dialog says
+ * updates come with packaged builds — an honest answer beats a greyed-out item nobody can ask about.
+ */
+export function sendOpenUpdates(win: BrowserWindow | null): void {
+  win?.webContents.send('tetravox:open-updates');
+}
+
+/**
  * The File ▸ Open Recent submenu (directed task 13).
  *
  * Built from `settings.json` each time {@link buildMenu} runs, which is on launch and after every
@@ -288,6 +299,13 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
           label: 'Settings…',
           accelerator: 'CmdOrCtrl+,',
           click: () => sendOpenSettings(getWindow()),
+        },
+        // §12.4. In File beside Settings… on every platform, rather than under the macOS app menu:
+        // that menu is `{ role: 'appMenu' }`, and replacing a stock role with a hand-built submenu
+        // to gain one item would trade three localised system items for it.
+        {
+          label: 'Check for Updates…',
+          click: () => sendOpenUpdates(getWindow()),
         },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },

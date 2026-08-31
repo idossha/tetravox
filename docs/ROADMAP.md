@@ -143,4 +143,4 @@ macOS, with the packaging matrix carried in the workflow.
 **Packaging**
 - The §12.1 `package` legs green end to end: `.dmg` arm64 + x64, `.AppImage`, `.deb`, each opening
   `ernie.msh` and passing the artefact smoke test.
-- macOS signing is a documented switch, not a plan; auto-update stays out of scope while unsigned.
+- macOS signing is live in `release.yml`; in-app updates (ARCHITECTURE §12.4) ride on it since 2026-08-31.

@@ -4858,3 +4858,19 @@ catalogue. Extending `sync-module-docs.mjs` to read bundled manifests was reject
 committed and the `docs-guard` leg has no network, so a generated section that depended on it could not be
 deterministic. `USER_GUIDE.md`'s `## sEEG contacts` page is **kept** — users still need it — reframed to
 say it ships bundled and is managed in File ▸ Extensions…, and its `GUIDE_PAGES`/sidebar rows are unchanged.
+
+## 2026-08-31 — in-app updates, opt-in per click (§12.4), and the `electron-updater` dependency
+
+§1's "auto-update" non-goal is narrowed, not withdrawn: the 2026-08-27 reasoning was
+"out of scope while unsigned", signing has been live in `release.yml` since v0.3.0, and the shipped
+0.3.0 app already carries the `app-update.yml` feed pointer electron-builder derives from
+`package.json`'s `repository`. What stays out of scope is *unattended* download-and-install: the
+launch check is one metadata request (off-switch in Settings ▸ Startup), and every download and every
+install is a click in the Software Update dialog, with "skip this version" honoured. `'inplace'` on
+macOS/Windows/AppImage, notify-only on `.deb`/`.tar.gz`, `'off'` for dev builds and `--job` runs.
+Alternatives rejected: a hand-rolled "check the GitHub API and open the browser" (loses differential
+downloads, sha512 verification and the signed Squirrel.Mac swap that electron-updater gets from the
+files CI already builds); `--publish always` (would hand release uploads to electron-builder against
+the twice-documented softprops design — the `publish:` block configures the feed, `--publish never`
+still holds). electron-updater is excluded from electron-vite's dependency externalization because
+the packaged app ships no `node_modules` — externalized, the first check is a MODULE_NOT_FOUND.

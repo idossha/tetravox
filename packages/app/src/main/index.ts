@@ -84,6 +84,9 @@ import {
   rememberRecentScene,
   writeSettingsFromRenderer,
 } from './settings';
+// §12.4's in-app updates (`updater.ts`, 2026-08-31). Constructed after the IPC handlers below are
+// registered and started from `whenReady`, so no channel can be invoked before it exists.
+import { UpdaterService } from './updater';
 
 /**
  * `BrowserWindow.backgroundColor` for this launch: the `bg` token of the theme the renderer will
@@ -507,6 +510,19 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     ensureRcFile();
     shell.showItemInFolder(configPath());
   });
+  // -- In-app updates (§12.4, `updater.ts`, 2026-08-31) -------------------------------------------
+  // Main owns the feed, the download and the installer; the renderer sees one small status object
+  // and sends clicks. Never bytes (§5 rule 3), and never an install without `tetravox:update-install`
+  // carrying a user's gesture.
+  const updater = new UpdaterService({
+    isJob: isJobRun(),
+    onStatus: (status) => getWindow()?.webContents.send('tetravox:update-status', status),
+  });
+  ipcMain.handle('tetravox:update-state', () => updater.current());
+  ipcMain.handle('tetravox:update-check', () => updater.check());
+  ipcMain.handle('tetravox:update-download', () => updater.download());
+  ipcMain.handle('tetravox:update-install', () => updater.install());
+  ipcMain.handle('tetravox:update-skip', (_event, version: unknown) => updater.skip(version));
   ipcMain.handle('tetravox:read-scene', (_event, path: unknown) => readSceneFile(path));
   ipcMain.handle('tetravox:write-scene', (_event, path: unknown, text: unknown) =>
     writeSceneFile(path, text)
@@ -635,6 +651,10 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     // only in a build that runs tests: `app.isPackaged` closes that seam, so ambient environment
     // cannot switch off a shipped build's only unsaved-work guard (2026-08-30).
     installCloseGuard(mainWindow, { isJob: isJobRun(), packaged: app.isPackaged });
+
+    // §12.4's launch check — scheduled with a grace delay, never awaited: first paint owes nothing
+    // to a network round trip, and `updater.ts` refuses on its own in a dev build or a `--job` run.
+    updater.startLaunchCheck();
 
     if (isJobRun() && mainWindow !== null) {
       // A job that never reports is a job that hung: without these two the process would sit alive

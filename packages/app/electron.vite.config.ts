@@ -19,6 +19,14 @@ export default defineConfig({
       target: 'node22',
       minify: false,
       sourcemap: true,
+      // §12.4: electron-updater has to ride *inside* the bundle. The packaged app ships no
+      // node_modules (`electron-builder.yml` excludes them, because "everything is bundled by
+      // electron-vite") — but electron-vite's default is the opposite for the main process: every
+      // `dependencies` entry is silently externalized (`build.externalizeDeps` defaults to true),
+      // which no other main-process import has ever tripped over because main's imports were all
+      // electron/node/local until now. Externalized, the first Check for Updates in a shipped
+      // build is a MODULE_NOT_FOUND.
+      externalizeDeps: { exclude: ['electron-updater'] },
     },
   },
   preload: {

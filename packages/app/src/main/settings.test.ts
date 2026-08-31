@@ -71,6 +71,8 @@ describe('coerceSettings', () => {
       reopenLastScene: false,
       screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
       extensions: {},
+      checkForUpdates: true,
+      skippedUpdateVersion: '',
     });
   });
 
@@ -114,6 +116,8 @@ describe('coercePatch', () => {
       reopenLastScene: false,
       screenshotDefaults: DEFAULT_SCREENSHOT_DEFAULTS,
       extensions: {},
+      checkForUpdates: true,
+      skippedUpdateVersion: '',
     });
     // …and what it would have been with `coerceSettings` on the patch: the theme, silently lost.
     expect(coerceSettings({ ...onDisk, ...coerceSettings(patch) }).theme).toBe('system');
