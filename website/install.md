@@ -22,11 +22,6 @@ Pick the file for your machine. Names follow `Tetravox-<version>-<os>-<arch>.<ex
 | Linux, anything else   | `Tetravox-<version>-linux-x64.tar.gz`      | Unpack and run `Tetravox` from the folder.                           |
 | Windows, x86-64        | `Tetravox-<version>-win-x64.exe`           | NSIS installer. Unsigned — see below.                                |
 
-**macOS and Linux are the primary platforms.** Both are built, launched and rendered by CI on every
-release. The Windows installer is built and launch-tested on every release too, but CI cannot render
-on a hosted Windows runner, so rendering on Windows is not covered — it is expected to work, and a
-report either way is welcome.
-
 ## macOS
 
 1. Open the `.dmg` and drag **Tetravox** into **Applications**.
