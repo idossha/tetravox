@@ -3126,11 +3126,14 @@ incidental one, and it needs a line in `docs/DECISIONS.md`.
 
 ## 13. Modules — the first-party extension surface
 
-A **module** is a first-party tool compiled into `out/renderer`: bigger than a toolbar toggle, smaller than a
-second application, owning one kind of data end to end — its own panel, its own keys, its own files, its own
-undo. The sEEG contact editor is the first; DBS leads, ECoG grids and an ROI tool are the shape of the next
-ones. §1's "plugins" non-goal is **narrowed, not withdrawn**: third-party code loaded at runtime is still out
-of scope, and §13.8 says what it would cost.
+A **module** is a first-party tool: bigger than a toolbar toggle, smaller than a second application, owning
+one kind of data end to end — its own panel, its own keys, its own files, its own undo. It reaches the shell
+one of two ways (§13.8): compiled into `out/renderer` — the fixture `tetravox.hello`, and the shape this
+section describes — or shipped as a versioned **extension**, a `manifest.json` plus `index.js` that is
+*bundled* inside the signed app or *installed* at runtime. The sEEG contact editor is the first product
+module, and it ships bundled (`resources/modules/`, `modules.lock`); DBS leads, ECoG grids and an ROI tool
+are the shape of the next ones. §1's "plugins" non-goal is **narrowed, not withdrawn**: third-party code
+loaded at runtime is still out of scope, and §13.8 says what it would cost.
 
 The rule this section exists to hold: **a module is a directory and one line in a registry.** Nothing
 module-specific may appear in `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts` — the
@@ -3308,13 +3311,16 @@ family — DBS leads and ECoG grids are the shape of the next ones — and what 
 geometry but their *data*: a list of named 3-D positions grouped into electrodes, read from a table
 and written back to one. So the model, the tolerant reader, the canonical BIDS writer, the editlog
 schema, the PCA line primitives, the group palette, the `ContactSet` ⇄ `PointsLayer` bridge and the
-snap scoping live in `renderer/src/modules/shared/contacts/**`, and the sEEG module supplies only
-what is true of a **depth electrode**: which end is contact 1, what re-fitting a shaft means, and
-where `seegprep` puts a subject's files. `shared/contacts/README.md` draws that line and says what a
-second module has to bring. Everything under `shared/` is inside §13.1's import wall — the ESLint
-rule and `modules.test.ts` both scan it exactly as they scan a module's own directory — so a shared
-library that reached the store would fail for its own file, and a module may import `../shared/**`
-beside `../host` and the control kit and nothing more.
+snap scoping live in `renderer/src/modules/shared/contacts/**` and **stay in core** — the SDK exposes
+them as `sdk.contacts` (§13.8), so an extension gets the host's one instance rather than a fork. The
+sEEG editor, an extension in its own repository now, supplies only what is true of a **depth
+electrode**: which end is contact 1, what re-fitting a shaft means, and where `seegprep` puts a
+subject's files. `shared/contacts/README.md` draws that line and says what a second contact module
+has to bring. Everything under `shared/` is inside §13.1's import wall — the ESLint rule and
+`modules.test.ts` both scan it exactly as they scan a compiled-in module's directory — so a shared
+library that reached the store would fail for its own file; a compiled-in module reaches it as
+`../shared/**` beside `../host` and the control kit, and an extension reaches the same code through
+`sdk.contacts`.
 
 ### 13.4 Test obligations
 

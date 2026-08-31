@@ -1,23 +1,26 @@
 /**
- * The sEEG module against a **real seegprep subject** — AGENTS.md rule 2's real-data half for §13.
+ * The `shared/contacts` kit against a **real seegprep table** — AGENTS.md rule 2's real-data half
+ * for §13, on the half of §13 that stays in core.
  *
  * Skips (never fails) without `TETRAVOX_SEEG_TESTDATA`, which points at a subject directory inside a
  * `seegprep` derivative tree:
  *
  * ```sh
  * export TETRAVOX_SEEG_TESTDATA=/path/to/derivatives/seegprep/sub-P076
- * #   <dir>/ct/sub-<id>_acq-bone_space-T1w_ct.nii.gz
  * #   <dir>/ieeg/sub-<id>_space-T1w_electrodes.tsv
  * ```
  *
  * **No such subject exists on the development machine**, which is why every assertion here is a
  * *property* rather than a number: a real table's contact count, its column set and its coordinates
  * are the site's, not this repository's, and a test that pinned them could only ever be run by
- * whoever generated it. What it does check is what would be wrong with the module rather than with
- * the data — a coordinate that is not in a head, a shaft that is not straight, a save that does not
- * round-trip, a sibling pattern that does not resolve the file it was written for.
+ * whoever generated it. What it checks is what would be wrong with the **kit** rather than with the
+ * data — a coordinate that is not in a head, a shaft the line fit cannot straighten, a save that does
+ * not round-trip.
  *
- * The synthetic half is `seeg-fixtures.test.ts`, where the expectations come from numpy.
+ * The *depth-electrode* real-data checks — the tip rule, the shaft re-fit, the `seegprep` sibling
+ * bundle and editlog guard — moved out of core with the module (§13.8, 2026-08-31): `tetravox-seeg`
+ * owns them now. The synthetic half is `seeg-fixtures.test.ts`, where the expectations come from
+ * numpy.
  */
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -27,12 +30,6 @@ import type { vec3 } from '@tetravox/engine';
 import { contactSetFrom, parseTable, writeTable } from './shared/contacts/tsv';
 import { contactsOf } from './shared/contacts/model';
 import { lineMetrics } from './shared/contacts/geometry';
-import { editlogDate } from './shared/contacts/editlog';
-import { instantiateSiblings } from './siblings';
-import { seegManifest } from '../../../modules/seeg/manifest';
-import { bundleOf, seegprepWarning, stemOf } from './seeg/bids';
-import { resolveTip, shaftStats, tipReference } from './seeg/shaft';
-
 const ROOT = process.env['TETRAVOX_SEEG_TESTDATA'] ?? '';
 const have = ROOT !== '' && existsSync(ROOT);
 
@@ -76,39 +73,29 @@ describe.skipIf(!have)('a real seegprep subject', () => {
     }
   });
 
-  it('finds every electrode straight, evenly spaced and numbered from one end', () => {
+  it('finds every electrode straight and evenly spaced', () => {
+    // The `shared/contacts` line fit against a real implant. The *depth-electrode* reading of it —
+    // which end is the tip, and the shaft re-fit — is `tetravox-seeg`'s now (§13.8, 2026-08-31), so
+    // this checks the kit's own geometry rather than the module's kernels.
     const parsed = parseTable(readFileSync(tablePath(), 'utf8'));
     const { set } = contactSetFrom(parsed);
-    const reference = tipReference(null, set);
 
     for (const group of set.groups) {
       const contacts = contactsOf(set, group.name);
-      const stats = shaftStats(set, group.name);
-      expect(stats.n).toBe(contacts.length);
       if (contacts.length < 3) continue;
+      const metrics = lineMetrics(contacts.map((c) => c.position));
+      expect(metrics, `${group.name} line fit`).not.toBeNull();
+      const stats = metrics as { rmsMm: number; spacingCv: number | null; pitchMm: number | null };
 
       // A depth electrode is a rigid rod: a millimetre of residual is already a lot, and anything
       // above three means the contacts of one "electrode" are not on one shaft.
       expect(stats.rmsMm, `${group.name} line RMS`).toBeLessThan(3);
       // Contacts of one electrode are equally spaced by construction; a CV above a half means a
       // missing contact has been filled from the wrong end, or two electrodes share a name.
-      expect(stats.spacingCv, `${group.name} spacing CV`).toBeLessThan(0.5);
+      expect(stats.spacingCv as number, `${group.name} spacing CV`).toBeLessThan(0.5);
       // A clinical pitch is 3.5–10 mm depending on the model.
-      expect(stats.pitchMm, `${group.name} pitch`).toBeGreaterThan(1);
-      expect(stats.pitchMm, `${group.name} pitch`).toBeLessThan(15);
-
-      // The tip rule answers, and it answers one of exactly two things.
-      const tip = resolveTip(
-        group,
-        contacts.map((c) => c.position),
-        reference
-      );
-      expect(['low', 'high']).toContain(tip);
-
-      // …and the file's own numbering is monotonic along the shaft, which is what "contact 1 is the
-      // tip" means once the localiser has done its job.
-      const along = lineMetrics(contacts.map((c) => c.position));
-      expect(along).not.toBeNull();
+      expect(stats.pitchMm as number, `${group.name} pitch`).toBeGreaterThan(1);
+      expect(stats.pitchMm as number, `${group.name} pitch`).toBeLessThan(15);
     }
   });
 
@@ -140,35 +127,8 @@ describe.skipIf(!have)('a real seegprep subject', () => {
     expect(written).not.toContain('\tadded\n');
   });
 
-  it('resolves the CT from the table and the table from the CT', () => {
-    const path = tablePath();
-    const rules = seegManifest.siblings ?? [];
-    const fromTable: Record<string, string | null> = {};
-    for (const rule of rules) {
-      for (const candidate of instantiateSiblings(rule, path)) {
-        fromTable[candidate.template] = existsSync(candidate.path) ? candidate.path : null;
-      }
-    }
-    const bundle = bundleOf(fromTable);
-    expect(bundle.ct, `no CT beside ${path}`).not.toBeNull();
-    expect(existsSync(bundle.ct as string)).toBe(true);
-
-    const fromCt: Record<string, string | null> = {};
-    for (const rule of rules) {
-      for (const candidate of instantiateSiblings(rule, bundle.ct as string)) {
-        fromCt[candidate.template] = existsSync(candidate.path) ? candidate.path : null;
-      }
-    }
-    expect(bundleOf(fromCt).tsv).toBe(path);
-  });
-
-  it('would write an editlog seegprep’s --force guard can find', () => {
-    const path = tablePath();
-    expect(seegprepWarning(path), 'this subject would get an editlog seegprep ignores').toBeNull();
-    // …and an editlog that is already there is one this build can read the date out of.
-    const editlog = join(ROOT, 'ieeg', `${stemOf(path.split('/').pop() as string)}_editlog.json`);
-    if (!existsSync(editlog)) return;
-    const when = editlogDate(readFileSync(editlog, 'utf8'));
-    expect(when === null || /^\d{4}-\d{2}-\d{2}/.test(when)).toBe(true);
-  });
+  // The sibling resolution (`bundleOf`), the tip rule and the `seegprep` editlog guard were
+  // module-specific — bids and shaft — and moved out of core with the module (§13.8, 2026-08-31).
+  // Their real-data checks live in `tetravox-seeg`; `seeg.test.ts`'s harness still proves the reader
+  // and the sibling patterns wire up, against the bundled manifest, on the synthetic phantom.
 });

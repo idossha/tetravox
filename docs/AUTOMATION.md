@@ -424,33 +424,19 @@ An input file that does not exist is named. A job that produces no result at all
 
 ### 2.7 Module operations
 
-Every operation every module in this build declares, with the arguments each one takes.
-**This section is generated** from the manifests by `scripts/sync-module-docs.mjs` — the same
-declarations the job validator checks an action against — so edit a manifest and re-run the
-script rather than editing the table. CI checks it with `--check`.
+Every operation every **compiled-in** module declares, with the arguments each one takes. A
+*bundled* or *installed* extension declares its operations in its own manifest and documents them
+in its own repository and the Extensions catalogue, so it is not listed here — the sEEG editor is
+one such extension now (§13.8). **This section is generated** from the manifests by
+`scripts/sync-module-docs.mjs` — the same declarations the job validator checks an action against
+— so edit a manifest and re-run the script rather than editing the table. CI checks it with
+`--check`.
 
 #### `tetravox.hello` — Hello 1.0.0
 
 | Operation | Arguments |
 |---|---|
 | `echo` | `text` a string |
-
-#### `tetravox.seeg` — sEEG contacts 0.1.0
-
-| Operation | Arguments |
-|---|---|
-| `load` | `ct` a path to an existing file<br>`tsv` a path to an existing file<br>`t1` a path to an existing file *(optional)* |
-| `snap` | `scope` a string<br>`electrode` a string *(optional)*<br>`contact` a string *(optional)*<br>`radiusMm` a number *(optional)* |
-| `refit` | `electrode` a string *(optional)* |
-| `renumber` | `electrode` a string *(optional)* |
-| `ghost` | `on` true or false |
-| `wire` | `on` true or false |
-| `size` | `px` a number |
-| `stats` | — |
-| `save` | `out` a file name under `--out` |
-| `flip-tip` | `electrode` a string *(optional)* |
-| `revert` | — |
-| `delete` | `contact` a string |
 
 ---
 

@@ -16,7 +16,6 @@
 
 import type { ModuleId, ModuleManifest } from '../../../modules/manifest-types';
 import { helloManifest } from '../../../modules/hello/manifest';
-import { seegManifest } from '../../../modules/seeg/manifest';
 import type { ModuleActivate } from './host';
 
 export interface ModuleRegistration {
@@ -36,9 +35,9 @@ export interface ModuleRegistration {
 
 export const MODULES: readonly ModuleRegistration[] = [
   { manifest: helloManifest, load: () => import('./hello'), fixture: true },
-  // §13.7's "one line in MODULES", 2026-08-30. Not a fixture: the sEEG editor is a product feature,
-  // so it is in the switcher of every build.
-  { manifest: seegManifest, load: () => import('./seeg') },
+  // The sEEG editor is no longer compiled in: it ships as the **bundled** `tetravox.seeg` extension
+  // (`modules.lock`, `resources/modules/`), discovered at boot and pre-consented, and reaches the
+  // switcher through `installed` below exactly as a downloaded module does (§13.7, §13.8, 2026-08-31).
 ];
 
 /**

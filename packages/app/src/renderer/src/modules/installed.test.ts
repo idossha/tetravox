@@ -193,15 +193,17 @@ describe('the registry merges the installed set', () => {
 
   it('lets a compiled-in module win a duplicate id', () => {
     // `eligibleInstalled` already refuses this, so the registry's own guard is the second lock —
-    // and the one that would matter if a caller built registrations some other way.
+    // and the one that would matter if a caller built registrations some other way. `hello` is the
+    // only compiled-in module since the sEEG editor became a bundled extension (§13.8, 2026-08-31);
+    // it is a fixture, so the search names it to bring the compiled-in copy into `enabledModules`.
     setInstalledModules([
       {
-        manifest: { ...manifest({ id: 'tetravox.seeg' }), hostApi: 1 },
+        manifest: { ...manifest({ id: 'tetravox.hello' }), hostApi: 1 },
         load: async () => ({ activate: () => ({}) as never }),
       },
     ]);
-    const ids = enabledModules('').map((m) => m.manifest.id);
-    expect(ids.filter((id) => id === 'tetravox.seeg')).toHaveLength(1);
+    const ids = enabledModules('?modules=hello').map((m) => m.manifest.id);
+    expect(ids.filter((id) => id === 'tetravox.hello')).toHaveLength(1);
   });
 
   it('drops everything again when the set is replaced', () => {

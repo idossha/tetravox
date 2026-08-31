@@ -4777,3 +4777,34 @@ and documented as a **tests-only** import: the production bundle keeps using the
 there is still exactly one instance and one copy at runtime. The follow-up — dropping
 `contacts.pin.json`/`fetch-contacts.mjs` from `tetravox-seeg` — is a commit to that repo, noted not
 blocked on here.
+
+## 2026-08-31 — the sEEG editor leaves the build: it is the first bundled extension, not compiled-in code
+
+`tetravox.seeg` is no longer in `MANIFESTS` or `MODULES`. Its source (`packages/app/src/modules/seeg/`
+and `renderer/src/modules/seeg/`) is deleted from core and lives in `idossha/tetravox-seeg`; the app
+ships it as a **bundled extension** — `modules.lock` pins the two release-asset hashes,
+`fetch-locked-modules.mjs` places them under `resources/modules/tetravox.seeg/0.1.0/` at package time,
+and main discovers the tree at boot, pre-consents it (it shipped inside the signed app) and enables it.
+So the switcher, the readers, the sibling patterns and every job operation reach it through the same
+installed-module path a downloaded extension takes (§13.8), and nothing in the shell knows it is special.
+
+What **stays** in core: `renderer/src/modules/shared/contacts/**` (the SDK exposes it as `sdk.contacts`,
+so two contact modules share one implementation — §13.3), and `python/tetravox/modules/seeg.py` (the
+data-only job-builder wrapper). What **moved** with the module: the depth-electrode kernels (`bids.ts`,
+`shaft.ts`, `block.ts`) and their kernel tests, which are the seeg repository's now.
+
+The app-harness tests **stayed and were retargeted**. `seeg.test.ts` drives the *bundled bytes* through
+the real controller: the fake bridge reports the module as main does, `refreshInstalledModules` registers
+it through the true eligibility gate, and only the loader's `import('tetravox://module/…')` — which no
+vitest can resolve — is mocked, to the compiled `index.js` in `resources/modules/`. `seeg-fixtures.test.ts`
+and `seeg-realdata.test.ts` keep the `shared/contacts` checks (core) and dropped the shaft/bids ones
+(moved). All of them, and `e2e/module-seeg.spec.ts`, **skip when the bundled tree is not on disk** — the
+cheap `test` CI leg runs `fetch-locked-modules --verify-only`, no download — exactly as a real-data test
+skips without its dataset. The definitive post-extraction proof is the P077 bundled-job regression gate.
+
+`AUTOMATION.md` §2.7 is now honest about tiers: it lists **compiled-in** modules only (just `hello`), and
+says a bundled or installed extension documents its operations in its own repository and the Extensions
+catalogue. Extending `sync-module-docs.mjs` to read bundled manifests was rejected: the tree is not
+committed and the `docs-guard` leg has no network, so a generated section that depended on it could not be
+deterministic. `USER_GUIDE.md`'s `## sEEG contacts` page is **kept** — users still need it — reframed to
+say it ships bundled and is managed in File ▸ Extensions…, and its `GUIDE_PAGES`/sidebar rows are unchanged.
