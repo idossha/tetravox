@@ -64,7 +64,7 @@ export default tseslint.config(
     },
   },
   {
-    // ARCHITECTURE.md §13.1's **module wall**, and the reason stage 2 (§13.8) is a one-file change
+    // ARCHITECTURE.md §13.1's **module wall**, and the reason stage 3 (§13.9) is a one-file change
     // rather than a redesign: a module may reach `../host` for its types, the shared control kit
     // under `ui/`, and `@tetravox/engine` **types only** — never the store, the engine's runtime,
     // `bridge()`, the automation surface or a panel's internals.

@@ -4,7 +4,7 @@
  * The wall between a module and the app is drawn exactly here. `hostImpl.ts` imports the controller
  * and the store; every `modules/<id>/**` file imports `../host` and nothing else, enforced by an
  * ESLint rule and re-proved by a source scan in `modules.test.ts`. That is a one-file blast radius
- * for §13.8's stage 2 — an async, worker-hosted module tier changes this file and the module's
+ * for §13.9's stage 3 — an async, worker-hosted module tier changes this file and the module's
  * `await`s, and nothing in between.
  *
  * **Unwired members throw rather than lie.** `tool`, `files` and `scene.peakCentroid` are optional

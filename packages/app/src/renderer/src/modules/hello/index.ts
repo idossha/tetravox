@@ -12,7 +12,7 @@
  *
  * **Imports.** `../host` for types, `react` for the panel, and nothing else. The ESLint wall on
  * `modules/<id>/**` and the source scan in `modules.test.ts` both enforce that; the point of the rule
- * is §13.8's stage 2, where a module runs in a worker and could not reach the store even if it tried.
+ * is §13.9's stage 3, where a module runs in a worker and could not reach the store even if it tried.
  */
 
 import { createElement } from 'react';

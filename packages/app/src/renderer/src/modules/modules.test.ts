@@ -280,7 +280,7 @@ describe('the module import wall (§13.1)', () => {
           const where = `${relative(CODE_DIR, file)} imports ${specifier}`;
           expect(forbidden.test(specifier), where).toBe(false);
           if (specifier !== '@tetravox/engine') continue;
-          // Types only. A value import would put engine code inside a module, which §13.8's worker
+          // Types only. A value import would put engine code inside a module, which §13.9's worker
           // tier could never allow — and would make the wall a style rule rather than a boundary.
           // Anchored at a line start, the way `importsOf` matches: an import statement always
           // begins one, and an unanchored pattern also matches the word "import" in a doc comment

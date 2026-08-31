@@ -13,7 +13,7 @@
  * **Sync for the scene, async only where the app already is.** Reading and writing scene state is a
  * synchronous call into the engine through the controller, exactly as every §8 panel's is; files,
  * dialogs and confirmations are promises because they cross §5's process boundary or wait for a
- * person. §13.8 records what stage 2 (runtime-loaded modules in a worker) would cost: a mechanical
+ * person. §13.9 records what stage 3 (a sandboxed module in a worker) would cost: a mechanical
  * `await` pass over the modules that exist by then, not a redesign.
  *
  * **What is deliberately absent.** No `Engine`, no store, no `bridge()`, no React state. A module
@@ -63,7 +63,7 @@ export interface ExtensionBlock {
 // `ModuleEvents.pointTool` *is* `EngineEvents.pointTool`, so a second declaration of these three
 // would be a second thing to keep in step with a frozen file. A module imports them from `../host`
 // and never from `@tetravox/engine`, which is what the ESLint wall on `modules/<id>/**` requires
-// (types from the engine are allowed there, but one import site is one place to change for §13.8).
+// (types from the engine are allowed there, but one import site is one place to change for §13.9).
 
 export type { PointSelection, PointToolEvent, PointToolSpec };
 
