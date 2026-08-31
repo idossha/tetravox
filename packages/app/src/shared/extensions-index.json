@@ -1,0 +1,6 @@
+{
+  "$comment": "The extensions catalogue: what File ▸ Extensions… offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed — `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses — and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
+  "schema": 1,
+  "generated": "2026-08-30T00:00:00Z",
+  "modules": []
+}

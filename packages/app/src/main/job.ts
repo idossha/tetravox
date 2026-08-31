@@ -18,7 +18,7 @@
 // engine), which is exactly what lets a `type: "module"` action be validated **before a window
 // exists** (§13.6) and reported alongside every other problem in the document.
 import { MANIFESTS } from '../modules/manifests';
-import type { ArgShape, ArgType, ModuleManifest } from '../modules/manifest-types';
+import type { ArgShape, ArgType, InstalledManifest } from '../modules/manifest-types';
 
 export const JOB_SCHEMA_VERSION = 1;
 
@@ -808,11 +808,23 @@ function validateScene(scene: unknown, errors: Errors): void {
   errors.enum('scene.preset', scene['preset'], PRESETS);
 }
 
+/**
+ * "May this launch run this module?" — `() => true` for everything by default (2026-08-30).
+ *
+ * A compiled-in module is always runnable; an **installed** one is runnable only while the user's
+ * consent is on record (settled decision O4). The predicate rather than a pre-filtered manifest list
+ * is what lets the error say *which* of the two problems this is: a module nobody has heard of and a
+ * module sitting on disk waiting for one click are the same message otherwise, and only one of them
+ * has a fix the user can act on.
+ */
+export type ModuleConsented = (id: string) => boolean;
+
 function validateAction(
   action: unknown,
   path: string,
   errors: Errors,
-  manifests: readonly ModuleManifest[]
+  manifests: readonly InstalledManifest[],
+  consented: ModuleConsented
 ): void {
   if (!isBag(action)) {
     errors.push(path, 'must be an object');
@@ -994,6 +1006,13 @@ function validateAction(
         );
         return;
       }
+      if (!consented(manifest.id)) {
+        errors.push(
+          `${path}.module`,
+          `${manifest.id} is installed but not enabled — open File ▸ Extensions…, enable it, and run this job again`
+        );
+        return;
+      }
       const operations = manifest.operations ?? [];
       const operation = operations.find((o) => o.id === action['op']);
       if (operation === undefined) {
@@ -1032,7 +1051,8 @@ function validateAction(
  */
 export function validateJob(
   input: unknown,
-  manifests: readonly ModuleManifest[] = MANIFESTS
+  manifests: readonly InstalledManifest[] = MANIFESTS,
+  consented: ModuleConsented = () => true
 ): ValidationResult {
   const errors = new Errors();
   if (!isBag(input)) {
@@ -1060,7 +1080,7 @@ export function validateJob(
     errors.push('actions', 'must be a non-empty array');
   } else {
     for (const [i, action] of actions.entries()) {
-      validateAction(action, `actions[${i}]`, errors, manifests);
+      validateAction(action, `actions[${i}]`, errors, manifests, consented);
     }
   }
 
@@ -1120,8 +1140,8 @@ export function expandEnv(
 /** The operation one module action names, or null — for a document that has been validated, never null. */
 function operationOf(
   action: JobAction,
-  manifests: readonly ModuleManifest[]
-): { manifest: ModuleManifest; args: ArgShape } | null {
+  manifests: readonly InstalledManifest[]
+): { manifest: InstalledManifest; args: ArgShape } | null {
   if (action.type !== 'module') return null;
   const manifest = manifests.find((m) => m.id === action.module);
   const operation = manifest?.operations?.find((o) => o.id === action.op);
@@ -1137,7 +1157,7 @@ function operationOf(
  * collects the values and {@link withInputPaths} puts the resolved ones back, and the two agree
  * because they walk the same list rather than each deriving one.
  */
-function modulePathKeys(action: JobAction, manifests: readonly ModuleManifest[]): string[] {
+function modulePathKeys(action: JobAction, manifests: readonly InstalledManifest[]): string[] {
   const operation = operationOf(action, manifests);
   if (operation === null) return [];
   const args = (action as ModuleAction).args ?? {};
@@ -1155,7 +1175,7 @@ function modulePathKeys(action: JobAction, manifests: readonly ModuleManifest[])
  */
 export function jobInputPaths(
   job: Job,
-  manifests: readonly ModuleManifest[] = MANIFESTS
+  manifests: readonly InstalledManifest[] = MANIFESTS
 ): string[] {
   const paths = 'path' in job.scene ? [job.scene.path] : [...job.scene.files];
   for (const action of job.actions) {
@@ -1177,7 +1197,7 @@ export function jobInputPaths(
 export function withInputPaths(
   job: Job,
   resolved: readonly string[],
-  manifests: readonly ModuleManifest[] = MANIFESTS
+  manifests: readonly InstalledManifest[] = MANIFESTS
 ): Job {
   let next = 0;
   const take = (fallback: string): string => resolved[next++] ?? fallback;
@@ -1216,7 +1236,7 @@ export interface ModuleOutTarget {
  */
 export function moduleOutTargets(
   job: Job,
-  manifests: readonly ModuleManifest[] = MANIFESTS
+  manifests: readonly InstalledManifest[] = MANIFESTS
 ): ModuleOutTarget[] {
   const targets: ModuleOutTarget[] = [];
   for (const action of job.actions) {
@@ -1237,7 +1257,7 @@ export function moduleOutTargets(
 /** The modules a job runs an operation on, with their versions, in first-use order (§13.6). */
 export function jobModules(
   job: Job,
-  manifests: readonly ModuleManifest[] = MANIFESTS
+  manifests: readonly InstalledManifest[] = MANIFESTS
 ): { id: string; version: string }[] {
   const seen = new Map<string, string>();
   for (const action of job.actions) {

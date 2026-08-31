@@ -220,6 +220,43 @@ export interface TetravoxBridge {
    * preload beside a newer renderer) is still one; the renderer calls it with `?.`.
    */
   moduleClearWrites?(moduleId: string): void;
+
+  // -- Extensions (§13, `main/module-store.ts`, 2026-08-30) --------------------------------------
+  // The Sample Data members again, for code instead of data. Main owns the network, the hashing, the
+  // consent record and the `tetravox://module` map; the renderer sees a catalogue, card states and
+  // progress. **No path ever crosses this half of the bridge**: an enabled module is reachable only
+  // as `tetravox://module/<id>/<version>/<file>`, and only because main put it there.
+  //
+  // Every member is optional for the same reason `moduleClearWrites` is: a `TetravoxBridge` written
+  // before them is still one, and the renderer calls them with `?.`.
+
+  /** The catalogue (`shared/extensions-index.json`, or `TETRAVOX_EXT_INDEX`) and the install root. */
+  moduleCatalog?(): Promise<{ modules: ExtensionEntry[]; dir: string }>;
+  /** One card state per module: installed, enabled, updatable, and the derived permission list. */
+  moduleStatuses?(): Promise<ModuleStatus[]>;
+  /**
+   * The manifests of every installed module, for the renderer's own `registerInstalledManifests()`.
+   * Data, not a capability: knowing a module's title admits nothing.
+   */
+  moduleManifests?(): Promise<unknown[]>;
+  /** Download and verify one version. Installing is **not** enabling; nothing is served by this. */
+  moduleInstall?(id: string, version?: string): Promise<ModuleActionResult>;
+  /** Abort an in-flight install; `false` when none was running. */
+  moduleCancel?(id: string): Promise<boolean>;
+  /**
+   * Record the user's consent and make the module reachable: main re-hashes every file against the
+   * install receipt and only then puts it on the `tetravox://module` map. This call **is** the
+   * consent — the sheet is the renderer's, the grant is main's.
+   */
+  moduleEnable?(id: string): Promise<ModuleActionResult>;
+  /** Withdraw consent: off the map, out of settings, and its write admissions revoked in main. */
+  moduleDisable?(id: string): Promise<ModuleActionResult>;
+  /** Disable, then delete the directory. A bundled module is refused. */
+  moduleRemove?(id: string): Promise<ModuleActionResult>;
+  /** Open `~/.tetravox/modules/` in the OS file manager. */
+  moduleRevealDir?(): Promise<void>;
+  /** Install progress, pushed from main. */
+  onModuleProgress?(listener: (p: ModuleProgress) => void): () => void;
 }
 
 /** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
@@ -369,6 +406,56 @@ export type ModuleReadResult = { ok: true; text: string } | { ok: false; error: 
 export type ModuleWriteResult =
   { ok: true; backupPath: string | null } | { ok: false; error: string };
 
+// Mirror `main/module-store.ts`'s types; duplicated because preload must not import from main.
+export interface ExtensionFile {
+  name: string;
+  bytes: number;
+  sha256: string;
+  url: string;
+}
+export interface ExtensionVersion {
+  version: string;
+  hostApi: number;
+  published?: string;
+  files: ExtensionFile[];
+}
+export interface ExtensionEntry {
+  id: string;
+  title: string;
+  summary: string;
+  description?: string;
+  repo?: string;
+  author?: string;
+  licence?: string;
+  docs?: string;
+  versions: ExtensionVersion[];
+}
+export interface ModuleStatus {
+  id: string;
+  title: string;
+  installed: string | null;
+  bundled: boolean;
+  enabled: boolean;
+  available: string | null;
+  updatable: boolean;
+  incompatible?: string;
+  permissions: string[];
+}
+export interface ModuleActionResult {
+  ok: boolean;
+  error?: string;
+  statuses: ModuleStatus[];
+}
+export type ModuleProgressState = 'downloading' | 'verifying' | 'done' | 'error' | 'cancelled';
+export interface ModuleProgress {
+  id: string;
+  file: string;
+  received: number;
+  total: number;
+  state: ModuleProgressState;
+  error?: string;
+}
+
 const bridge: TetravoxBridge = {
   openDialog: () => ipcRenderer.invoke('tetravox:open-dialog'),
   getDroppedFilePath: (file) => {
@@ -451,6 +538,21 @@ const bridge: TetravoxBridge = {
     ipcRenderer.invoke('tetravox:module-write-text', moduleId, path, text, opts),
   setDocumentEdited: (edited) => ipcRenderer.send('tetravox:set-document-edited', edited),
   moduleClearWrites: (moduleId) => ipcRenderer.send('tetravox:module-clear-writes', moduleId),
+  // Extensions (§13, 2026-08-30). Ids and card states only — never a path, never a byte.
+  moduleCatalog: () => ipcRenderer.invoke('tetravox:module-catalog'),
+  moduleStatuses: () => ipcRenderer.invoke('tetravox:module-statuses'),
+  moduleManifests: () => ipcRenderer.invoke('tetravox:module-manifests'),
+  moduleInstall: (id, version) => ipcRenderer.invoke('tetravox:module-install', id, version),
+  moduleCancel: (id) => ipcRenderer.invoke('tetravox:module-cancel', id),
+  moduleEnable: (id) => ipcRenderer.invoke('tetravox:module-enable', id),
+  moduleDisable: (id) => ipcRenderer.invoke('tetravox:module-disable', id),
+  moduleRemove: (id) => ipcRenderer.invoke('tetravox:module-remove', id),
+  moduleRevealDir: () => ipcRenderer.invoke('tetravox:module-reveal-dir'),
+  onModuleProgress: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, p: ModuleProgress): void => listener(p);
+    ipcRenderer.on('tetravox:module-progress', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:module-progress', wrapped);
+  },
 };
 
 contextBridge.exposeInMainWorld('tetravox', bridge);

@@ -4312,3 +4312,66 @@ extension check lower-cased, so `Electrodes.tsv` reached the mesh loader and cam
 a manifest cannot opt back into case sensitivity, deliberately — a reader that claimed one spelling
 and refused another would be a bug report, not a feature — and the panel now has the Open… button
 that makes the module's own All-files sheet reachable for a name no pattern will ever claim.
+
+## 2026-08-30 — downloadable extensions, main's half: a map, not a directory; consent, not a flag
+
+**Decision.** Main grows a third `tetravox://` host, an install store and a consent record.
+`protocol.ts` serves `tetravox://module/<id>/<version>/<file>` out of a `Map<string, string>` that
+only `module-store.ts#enableModule()` fills, after re-hashing every file against the receipt written
+at install time; the renderer CSP's `script-src` gains the **host source** `tetravox://module`.
+`~/.tetravox/modules/<id>/<version>/` (`TETRAVOX_MODULE_DIR`) holds what was installed, verified the
+way `sample-data.ts` verifies a sample — content-addressed catalogue, `.part` then `renameSync`, a
+cached file re-hashed rather than trusted. `AppSettings.extensions` records who may run.
+`src/modules/manifest-schema.ts` validates the JSON carrier of a manifest, and
+`manifests.ts#registerInstalledManifests()` is called in **both** processes.
+
+**Why a map and not a root directory.** `handleApp` and `handleFile` both join a caller-supplied
+string onto a root and then have to prove containment; the new handler does neither, because the
+pathname is a **key**. There is no traversal surface to defend rather than a well-defended one, and
+three properties fall out for free: a module that is installed but not consented is simply not on the
+map, so **consent gates execution** and not merely the switcher row; only `.js` and `.css` are ever
+reachable, because those are the only names `enableModule` adds; and `disableModule` is a `delete`,
+so withdrawing consent takes effect on the next request rather than on the next relaunch.
+
+**What the CSP grant costs, stated plainly.** `script-src 'self'` meant "the page can only run code
+the build shipped". It now means "…plus code **main** put on an explicit map after verifying its
+sha256 against a manifest the user consented to". That is strictly narrower than the two doors this
+same feature would otherwise reach for and which this repository has already closed: `blob:` in
+`worker-src` (removed the same day — "a working script-execution path through a policy whose whole
+point is `script-src 'self'`") and `'unsafe-inline'`. The **host** source is load-bearing: the scheme
+form `tetravox:` would also admit `tetravox://file/…`, which is every path the user has ever opened,
+and would turn an arbitrary-file-read into an arbitrary-script-execute. The honest cost is that an
+enabled module is *trusted renderer code*, with the DOM and the whole preload bridge; the trust
+boundary is the consent sheet and the registry's PR review, and the CSP only stops **unconsented**
+script. `csp.spec.ts` proves the form from the only side a policy can be proved from — a script
+element under the new host is admitted by the policy and fails on the 404, which is a different
+failure from being blocked.
+
+**Consent is the record, and there is no `enabled` flag.** `settings.extensions[id]` carries the
+version, the `hostApi` and the derived permission list the sheet showed; disabling **deletes** it,
+because a module the user has withdrawn consent from must not be one keystroke away from running
+again. It is also the one settings key whose coercion fails *closed*: every other field degrades to a
+default, and a default here would be a capability nobody confirmed. The version is part of the
+question — an update is a new set of bytes with a new permission list, so a consent for 1.0.0 is not
+one for 1.1.0. Bundled modules are seeded on first run without a sheet: they shipped inside the
+signed application, so installing the app was the consent.
+
+**Revocation is main's own act.** `disableModule` and `removeModule` call `revokeModuleWrites(id)`
+themselves, in the same breath as emptying the protocol map. The renderer-cooperative channel
+(`tetravox:module-clear-writes`, above) is right for "a module left the slot" and exactly wrong here:
+withdrawing a capability cannot be a message main hopes to receive, because a renderer that has been
+taken over simply never sends it.
+
+**`hostApi` is a `number` on an installed manifest, and that is the point.** A compiled-in manifest
+cannot carry a stale one — the literal type `1` makes it a compile error — but an installed manifest
+is a file another repository wrote, and the host has to be able to *hold* a `2` in order to refuse
+it. `InstalledManifest` is `ModuleManifest` with that one field widened, so one list holds both kinds
+and `validateJob` validates against it. The schema deliberately **accepts** a `hostApi` this build
+does not implement: refusing it there would turn "needs Tetravox host API 2" into "not a manifest".
+
+**A job honours the record (settled decision O4).** `validateJob` gains a consent predicate,
+defaulting to "everything is runnable" so nothing that does not pass one changes. Installed manifests
+join the list whether or not they are consented — hiding the *name* would only turn "installed but
+not enabled" into "no such module", which is a worse message — and a job naming an unconsented module
+fails validation with the click that fixes it. Compiled-in modules always pass: they are code the
+build shipped, reviewed in the pull request that added it.

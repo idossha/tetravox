@@ -38,6 +38,8 @@ import { allowPath } from './paths';
 // §13.6: a module operation's `out` argument is admitted for writing here, through the same
 // module-scoped write list a Save sheet fills (§5 rule 11) — a batch run has no sheet to open.
 import { admitModuleWrite } from './module-io';
+import { isModuleConsented } from './module-store';
+import { allManifests } from '../modules/manifests';
 import {
   expandEnv,
   parseJobArgs,
@@ -350,7 +352,11 @@ export function prepareJob(argv: readonly string[], cwd: string): JobInvocation 
     fail(invocation, [`job file is not JSON: ${error instanceof Error ? error.message : error}`]);
     return null;
   }
-  const validated = validateJob(parsedJob);
+  // The manifests this launch actually carries — compiled-in **and** installed (2026-08-30) — plus
+  // the consent gate. `bootstrapInstalledModules()` has already read the installed set off disk in
+  // `main/index.ts`, before this line, so §13.6's promise that a job is validated before a window
+  // exists survives: this is a lookup in an array, not a filesystem walk.
+  const validated = validateJob(parsedJob, allManifests(), isModuleConsented);
   if (!validated.ok || validated.job === undefined) {
     fail(invocation, validated.errors);
     return null;
