@@ -176,19 +176,14 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
   });
 
   test('pops out into its own window and reflows to two columns there (§13.10)', async () => {
-    // §13.10 landed in the core before the sEEG release that uses it. The claim is about the
-    // *module's* layout, so it is only askable of a bundle that carries the `ui` block — an older
-    // pinned bundle skips, exactly as a real-data test skips without its dataset, rather than
-    // failing for being pinned. `modules.lock` moving to 0.1.2 is what turns this leg on.
-    const manifest = JSON.parse(
-      readFileSync(
-        resolve(APP_ROOT, 'resources', 'modules', SEEG, bundledSeegVersion(), 'manifest.json'),
-        'utf8'
-      )
-    ) as { ui?: unknown };
+    // §13.10 landed in the core before the sEEG release that uses it, and the fixture is whichever
+    // release the developer staged — so this asks the *staged manifest* whether it carries the `ui`
+    // block, and skips when it does not. An older extension skips rather than failing for being
+    // old, which is AGENTS rule 2's shape and the same bargain the suite already makes about
+    // `TETRAVOX_SEEG_FIXTURE` itself.
     test.skip(
-      manifest.ui === undefined,
-      `the bundled sEEG ${bundledSeegVersion()} predates the §13.10 ui block`
+      STAGE?.hasUiBlock !== true,
+      `the staged sEEG ${STAGE?.version ?? '(none)'} predates the §13.10 ui block`
     );
 
     // Docked, the panel is one column in a 320 px aside — the layout it has always had.

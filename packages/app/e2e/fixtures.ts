@@ -44,6 +44,14 @@ export const APP_ROOT = resolve(here, '..');
  */
 export interface SeegStage {
   version: string;
+  /**
+   * Whether the staged manifest carries §13.10's `ui` block.
+   *
+   * The pop-out leg is a claim about the *extension's* layout, so it is only askable of a build that
+   * has one — and the fixture is whichever release the developer downloaded. Reading it here rather
+   * than in the spec keeps the "what did we stage" questions in one place, beside `version`.
+   */
+  hasUiBlock: boolean;
   /** Merge into the launch env: the install-store seam and the packaged-seam key. */
   env: Record<string, string>;
   /**
@@ -59,7 +67,7 @@ export function stageSeeg(): SeegStage | null {
   // Every failure below answers `null`, never a throw: this runs at **spec collection** (module
   // scope), where a throw is a suite-wide error rather than the skip a missing fixture deserves.
   if (!existsSync(join(src, 'index.js')) || !existsSync(join(src, 'manifest.json'))) return null;
-  let manifest: { id?: string; version?: string; hostApi?: number };
+  let manifest: { id?: string; version?: string; hostApi?: number; ui?: unknown };
   try {
     manifest = JSON.parse(readFileSync(join(src, 'manifest.json'), 'utf8')) as typeof manifest;
   } catch {
@@ -97,6 +105,7 @@ export function stageSeeg(): SeegStage | null {
   const version = manifest.version;
   return {
     version,
+    hasUiBlock: manifest.ui !== undefined,
     env: { TETRAVOX_MODULE_DIR: store, TETRAVOX_E2E: '1' },
     consentInto: (userDataDir: string): void => {
       mkdirSync(userDataDir, { recursive: true });
