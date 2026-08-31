@@ -82,7 +82,7 @@ import {
   ensureRcFile,
   readSettings,
   rememberRecentScene,
-  writeSettings,
+  writeSettingsFromRenderer,
 } from './settings';
 
 /**
@@ -494,7 +494,13 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   // for the persisted choice on boot and writes the new one when the user picks. `set` returns the
   // merged settings, so the renderer never has to guess whether the write landed.
   ipcMain.handle('tetravox:settings', () => readSettings());
-  ipcMain.handle('tetravox:set-settings', (_event, patch: unknown) => writeSettings(patch));
+  // `writeSettingsFromRenderer`, not `writeSettings`: the generic settings channel must never author
+  // the `extensions` consent map — that key is main's alone, granted by `enableModule` and dropped by
+  // `disableModule`. A renderer (or a lingering module closure) that could write it here would forge
+  // consent the sheet never showed (finding, 2026-08-31).
+  ipcMain.handle('tetravox:set-settings', (_event, patch: unknown) =>
+    writeSettingsFromRenderer(patch)
+  );
   // -- rc-style config file (directed task: unified settings, 2026-08-28) ------------------------
   ipcMain.handle('tetravox:config-path', () => configPath());
   ipcMain.handle('tetravox:reveal-config-file', () => {

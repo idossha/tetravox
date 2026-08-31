@@ -38,6 +38,7 @@ import {
   rcPath,
   readSettings,
   writeSettings,
+  writeSettingsFromRenderer,
 } from './settings';
 
 /**
@@ -341,6 +342,28 @@ describe('the extensions consent record', () => {
       const settings = readSettings();
       expect(settings.theme).toBe('dark');
       expect(settings.extensions['tetravox.seeg']).toEqual(good);
+    });
+  });
+
+  it('cannot be authored from the renderer settings channel — `writeSettingsFromRenderer` strips it', () => {
+    withTempHome(() => {
+      const forged = {
+        'acme.tool': {
+          version: '9.9.9',
+          hostApi: 1,
+          grantedAt: '2026-08-31T00:00:00.000Z',
+          permissions: ['Read everything'],
+        },
+      };
+      // The renderer channel drops `extensions`: a hostile in-renderer script's forged grant never
+      // lands, while a real preference in the same patch still does (finding, 2026-08-31).
+      const after = writeSettingsFromRenderer({ theme: 'dark', extensions: forged });
+      expect(after.theme).toBe('dark');
+      expect(after.extensions).toEqual({});
+
+      // Why the channel is gated rather than trusting the shape check: `writeSettings` itself — the
+      // path `grantConsent`/`dropConsent` use internally — *would* persist the forged record.
+      expect(writeSettings({ extensions: forged }).extensions['acme.tool']).toBeDefined();
     });
   });
 });

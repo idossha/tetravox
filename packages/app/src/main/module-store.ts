@@ -59,7 +59,7 @@ import type { InstalledManifest } from '../modules/manifest-types';
 import { MODULE_HOST_VERSION } from '../modules/manifest-types';
 import { MANIFESTS, registerInstalledManifests } from '../modules/manifests';
 import { revokeModuleWrites } from './module-io';
-import { serveModuleFile, servedModuleKeys, unserveModule } from './protocol';
+import { serveModuleFile, servedModuleKeys, servedModuleVersion, unserveModule } from './protocol';
 import { configHome, readSettings, writeSettings } from './settings';
 import type { ModuleConsent } from './settings';
 
@@ -131,14 +131,32 @@ function readIndexFile(path: string): ExtensionsIndex | null {
 }
 
 /**
+ * Whether the dev/E2E env seams (`TETRAVOX_MODULE_DIR`, `TETRAVOX_EXT_INDEX`) are honoured.
+ *
+ * They are **trust-relevant**: an ambient export from a dotfile, a wrapper script or a parent process
+ * could silently repoint the installed store or replace the whole catalogue the user browses — a
+ * spoofed 'official' module whose sha256 self-consistency passes because the same attacker authored
+ * both the index and the files. A **shipped** build must ignore them and always read its bundled
+ * catalogue and the real `configHome()/modules` store, exactly the reasoning that closed the
+ * identical `TETRAVOX_E2E_DISCARD` seam in a packaged build (`shouldPromptOnClose`, module-io.ts,
+ * 2026-08-30). They stay live for dev (`!app.isPackaged`) and for the packaged E2E leg, which sets
+ * `TETRAVOX_E2E=1` so `csp.spec.ts` can still stage a fixture module against a real build (finding,
+ * 2026-08-31).
+ */
+function envSeamsAllowed(): boolean {
+  return !app.isPackaged || process.env['TETRAVOX_E2E'] === '1';
+}
+
+/**
  * The catalogue the dialog shows.
  *
  * The **shipped** copy by default — `sample-data.ts`'s precedent exactly, and the reason the dialog
  * is correct with no network at all. `TETRAVOX_EXT_INDEX` names a JSON file instead, which is how
- * the E2E and the unit tests offer a fixture module without a registry existing.
+ * the E2E and the unit tests offer a fixture module without a registry existing — honoured only when
+ * {@link envSeamsAllowed}, so a shipped build cannot be pointed at a spoofed catalogue.
  */
 export function catalogue(): readonly ExtensionEntry[] {
-  const override = process.env['TETRAVOX_EXT_INDEX'];
+  const override = envSeamsAllowed() ? process.env['TETRAVOX_EXT_INDEX'] : undefined;
   if (override !== undefined && override !== '') {
     const loaded = readIndexFile(override);
     if (loaded !== null) return loaded.modules;
@@ -183,9 +201,14 @@ export function compareVersions(a: string, b: string): number {
 // The two roots
 // ------------------------------------------------------------------------------------------------
 
-/** Where the dialog installs. `TETRAVOX_MODULE_DIR` is the E2E's and the tests' seam. */
+/**
+ * Where the dialog installs. `TETRAVOX_MODULE_DIR` is the E2E's and the tests' seam, honoured only
+ * when {@link envSeamsAllowed} — a shipped build always reads the real `configHome()/modules` store,
+ * so an ambient env var cannot repoint where installed modules are read from.
+ */
 export function moduleDir(): string {
-  return process.env['TETRAVOX_MODULE_DIR'] ?? join(configHome(), 'modules');
+  const override = envSeamsAllowed() ? process.env['TETRAVOX_MODULE_DIR'] : undefined;
+  return override ?? join(configHome(), 'modules');
 }
 
 /**
@@ -313,7 +336,15 @@ function scanRoot(root: string | null, bundled: boolean): InstalledModule[] {
 
 /** The newest installed copy of each id, bundled winning a collision. */
 export function installedModules(): InstalledModule[] {
-  const found = [...scanRoot(bundledModuleDir(), true), ...scanRoot(moduleDir(), false)];
+  // A compiled-in id cannot be shadowed by an on-disk module (manifests.ts: "module-store.ts refuses
+  // an installed module whose id collides"). An installed copy of `tetravox.seeg`/`tetravox.hello`
+  // is refused **entirely** here — the same skip the renderer's eligibility check makes — so its
+  // bytes are never served, no consent is fabricated for it at boot, its manifest never joins the
+  // registered set, and it never mislabels the built-in module's card (finding, 2026-08-31).
+  const compiledIn = new Set<string>(MANIFESTS.map((m) => m.id));
+  const found = [...scanRoot(bundledModuleDir(), true), ...scanRoot(moduleDir(), false)].filter(
+    (m) => !compiledIn.has(m.id)
+  );
   const best = new Map<string, InstalledModule>();
   for (const module of found) {
     const current = best.get(module.id);
@@ -537,7 +568,7 @@ export interface ModuleStatus {
   /** Installed at this version, or null. */
   installed: string | null;
   bundled: boolean;
-  /** Consent recorded for the installed version — the module is on the protocol map. */
+  /** The installed version's files are on the `tetravox://module` protocol map — it is live. */
   enabled: boolean;
   /** The newest catalogue version this build's host API can run, or null. */
   available: string | null;
@@ -551,20 +582,24 @@ export interface ModuleStatus {
 
 export function moduleStatuses(): ModuleStatus[] {
   const installed = installedModules();
-  const granted = consents();
   const ids = new Set<string>([...installed.map((m) => m.id), ...catalogue().map((c) => c.id)]);
   const out: ModuleStatus[] = [];
   for (const id of [...ids].sort()) {
     const module = installed.find((m) => m.id === id) ?? null;
     const entry = catalogueEntry(id);
     const newest = entry === null ? null : newestCompatible(entry);
-    const record = module === null ? undefined : granted[id];
     out.push({
       id,
       title: module?.title ?? entry?.title ?? id,
       installed: module?.version ?? null,
       bundled: module?.bundled ?? false,
-      enabled: record !== undefined && record.version === module?.version,
+      // `enabled` is the **served map**, not the consent record: a module is enabled iff its
+      // installed version's files are on the protocol scheme right now. Deriving it from consent-vs-
+      // newest-installed made the card lie in two directions — an in-session update left the old
+      // version served while the pill went dark, and a consented module whose enable failed at boot
+      // (tampered file, incompatible hostApi) showed "Enabled ✓" though nothing was on the map
+      // (finding, 2026-08-31).
+      enabled: module !== null && servedModuleVersion(id) === module.version,
       available: newest?.version ?? null,
       updatable:
         module !== null && newest !== null && compareVersions(newest.version, module.version) > 0,
@@ -731,6 +766,26 @@ export async function installModule(
     files: wanted.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256 })),
   };
   writeFileSync(join(dir, RECEIPT_NAME), `${JSON.stringify(receipt, null, 2)}\n`);
+
+  // An update over an enabled module must not leave the previous version live. Installing is not
+  // enabling, but the newly-installed version is now the newest of its id, so the card flips to
+  // "Enable" (its consent no longer matches) — and without this the old version's files would stay
+  // on the protocol map and its Save-sheet write admissions would stay honoured, a module the user
+  // sees as inert still running with capability they believe was withdrawn. So when a *different*
+  // version is currently served or consented, take it off the map, revoke its writes and drop its
+  // stale consent, leaving the id in the same inert, must-re-consent state the card advertises
+  // (finding, 2026-08-31).
+  const servedVersion = servedModuleVersion(id);
+  const consentVersion = consents()[id]?.version;
+  if (
+    (servedVersion !== null && servedVersion !== version) ||
+    (consentVersion !== undefined && consentVersion !== version)
+  ) {
+    unserveModule(id);
+    revokeModuleWrites(id);
+    dropConsent(id);
+  }
+
   refreshInstalledManifests();
   report('', 'done', total);
   return { ok: true, version };

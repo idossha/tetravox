@@ -425,6 +425,17 @@ export function derivePermissions(manifest: InstalledManifest): string[] {
   const out: string[] = [];
   const reads = [...new Set((manifest.readers ?? []).flatMap((r) => r.extensions))].sort();
   if (reads.length > 0) out.push(`Read ${reads.map((e) => `.${e}`).join(', ')} files you choose`);
+  // A top-level `siblings` block is a read/allow-list-widening capability in its own right: at
+  // runtime `host.files.siblings(anchor)` (renderer/src/modules/hostFiles.ts) instantiates the
+  // module's declared candidates against an anchor the module supplies and passes each resolved path
+  // to `allowPath`, which admits any existing text file to the read allow-list and returns it — the
+  // module then reads it with `host.files.readText`. Without this line a siblings-only manifest
+  // derives an **empty** list, and the consent sheet renders that as "nothing beyond drawing in its
+  // own panel" for a module that can read files off disk: an affirmative denial of a granted
+  // capability. The itemized list must never deny what the manifest grants (finding, 2026-08-31).
+  if ((manifest.siblings ?? []).length > 0) {
+    out.push('Discover and read files named near a file you open');
+  }
   const writes = [...new Set((manifest.writers ?? []).flatMap((w) => w.siblings))].sort();
   if ((manifest.writers ?? []).length > 0) {
     const filters = [

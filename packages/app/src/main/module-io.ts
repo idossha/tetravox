@@ -406,9 +406,19 @@ export async function moduleOpenDialog(
  * **The manifest is the authority**, as for the Open sheet: `writerId` names one of the module's
  * declared writers and its title, filters and **sibling templates** are read out of `MANIFESTS`
  * here — which is the half that matters, because a template is what admits a second path for
- * writing. The renderer's copies stay as the fallback for a module this build does not carry, and
- * every template is validated by `isSiblingTemplate` + `substituteSibling` whichever end it came
- * from: a bad one is inert, not trusted because a manifest said it.
+ * writing.
+ *
+ * For a module main **carries** (`manifestFor !== null`) the renderer's own `filters`/`siblings` are
+ * never used: a downloaded module runs as first-party renderer code and can call this bridge method
+ * directly with a `writerId` that resolves to nothing and a `siblings` array of its own invention, so
+ * a fallback there would let it admit an undisclosed second path for writing — an executable
+ * `<dir>/<stem>.command` beside the file the user actually named — that no consent sheet ever showed.
+ * So a resolved writer is the *only* source of filters and templates; an unresolved `writerId` gets
+ * the chosen path alone, and the renderer never widens its own save (finding, 2026-08-31). The
+ * renderer's copies remain the fallback strictly for the harness case where main does **not** carry
+ * the module (`manifestFor === null` — a `--job` window told about a module this build's barrel does
+ * not hold), and every template is still validated by `isSiblingTemplate` + `substituteSibling`
+ * whichever end it came from: a bad one is inert, not trusted because a manifest said it.
  */
 export async function moduleSaveDialog(
   win: BrowserWindow | null,
@@ -418,17 +428,18 @@ export async function moduleSaveDialog(
   if (typeof moduleId !== 'string' || moduleId === '') return null;
   const { title, filters, siblings, defaultPath, writerId } = (raw ??
     {}) as Partial<ModuleSaveOptions>;
+  const known = manifestFor(moduleId) !== null;
   const writer = writerOf(moduleId, writerId);
   const options: Electron.SaveDialogOptions = {
     title: coerceTitle(writer?.title ?? title, 'Save'),
-    filters: coerceFilters(writer?.filters ?? filters),
+    filters: coerceFilters(writer?.filters ?? (known ? [] : filters)),
     ...(typeof defaultPath === 'string' && defaultPath !== '' ? { defaultPath } : {}),
   };
   const result = win
     ? await dialog.showSaveDialog(win, options)
     : await dialog.showSaveDialog(options);
   if (result.canceled || result.filePath === undefined || result.filePath === '') return null;
-  const declared = writer?.siblings ?? siblings;
+  const declared = writer?.siblings ?? (known ? [] : siblings);
   const templates = Array.isArray(declared)
     ? declared.filter((s): s is string => typeof s === 'string').slice(0, 8)
     : [];

@@ -212,6 +212,22 @@ export function servedModuleKeys(): string[] {
   return [...served.keys()].sort();
 }
 
+/**
+ * The version of `id` currently on the map, or null when nothing of it is served.
+ *
+ * `enableModule` unserves every version of an id before it serves the one it is enabling, so at most
+ * one version of any id is ever on the map — which is what makes "is this module enabled?" a
+ * question the served map alone can answer, without a second consult of the consent record
+ * (module-store.ts `moduleStatuses`, and its update-teardown, 2026-08-31).
+ */
+export function servedModuleVersion(id: string): string | null {
+  const prefix = `${id}/`;
+  for (const key of served.keys()) {
+    if (key.startsWith(prefix)) return key.slice(prefix.length).split('/')[0] ?? null;
+  }
+  return null;
+}
+
 /** Test seam, mirroring `paths.ts#clearAllowList`. */
 export function clearServedModules(): void {
   served.clear();

@@ -305,19 +305,48 @@ describe('module-save-dialog', () => {
     expect(isModuleWritable(SEEG, join(dir, 'authority_elsewhere.json'))).toBe(false);
   });
 
-  it('falls back to the renderer’s values for a writer no manifest declares', async () => {
+  it('never falls back to the renderer for a module main carries: an unknown writerId admits no undeclared sibling', async () => {
     const target = join(dir, 'fallback.tsv');
     saveSheetReturns(target);
-    await moduleSaveDialog(null, SEEG, {
+    // The finding's attack, verbatim: a downloaded module (which runs as first-party renderer code)
+    // calls this bridge method directly on its own id with a writerId that resolves to nothing and a
+    // `siblings` array of its own invention — an executable `<stem>.command` beside the file the user
+    // named. `SEEG` is a module main carries (`manifestFor` !== null), so none of it is used.
+    const admitted = await moduleSaveDialog(null, SEEG, {
+      writerId: 'not-declared',
+      title: 'Save anything at all',
+      filters: [{ name: 'Everything', extensions: ['*'] }],
+      siblings: [EDITLOG, '{stem}.command'],
+      defaultPath: null,
+    });
+    // The chosen path is still admitted — the user confirmed it in a native sheet — but nothing else.
+    expect(admitted?.path).toBe(target);
+    expect(isModuleWritable(SEEG, target)).toBe(true);
+    // The renderer's sibling templates are refused: neither the plausible `_editlog.json` nor the
+    // executable `.command` is on the write list.
+    expect(isModuleWritable(SEEG, join(dir, 'fallback_editlog.json'))).toBe(false);
+    expect(isModuleWritable(SEEG, join(dir, 'fallback.command'))).toBe(false);
+    // And the sheet's filters came from the manifest (empty, since no writer resolved), never the
+    // renderer's forged `*`.
+    const options = vi.mocked(dialog.showSaveDialog).mock.calls.at(-1)?.[0] as
+      Electron.SaveDialogOptions | undefined;
+    expect(options?.filters).toEqual([]);
+  });
+
+  it('keeps the renderer fallback for the harness case — a module main does NOT carry', async () => {
+    // `OTHER` is a module `manifestFor` returns null for: the `--job`/harness case the fallback
+    // exists for. There the renderer's writerId, filters and siblings are still used (and sanitised).
+    const target = join(dir, 'harness.tsv');
+    saveSheetReturns(target);
+    await moduleSaveDialog(null, OTHER, {
       writerId: 'not-declared',
       title: 'Save electrodes',
       filters: [{ name: 'Electrode table', extensions: ['tsv'] }],
       siblings: [EDITLOG],
       defaultPath: null,
     });
-    // Still sanitised, still validated — the fallback never trusted the renderer, it only used it.
-    expect(isModuleWritable(SEEG, join(dir, 'fallback_editlog.json'))).toBe(true);
-    expect(isModuleWritable(SEEG, join(dir, 'anything.json'))).toBe(false);
+    expect(isModuleWritable(OTHER, join(dir, 'harness_editlog.json'))).toBe(true);
+    expect(isModuleWritable(OTHER, join(dir, 'anything.json'))).toBe(false);
   });
 });
 

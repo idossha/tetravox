@@ -349,3 +349,22 @@ export function writeSettings(patch: unknown): AppSettings {
   }
   return next;
 }
+
+/**
+ * The **renderer-facing** settings write: {@link writeSettings} with the `extensions` consent map
+ * stripped out (finding, 2026-08-31).
+ *
+ * `extensions` is the one settings key whose absence is a security property (see {@link AppSettings}):
+ * a consent record is authored **only** by main's `grantConsent`/`dropConsent`, which call
+ * `writeSettings` directly and so are unaffected by this. The generic `tetravox:set-settings` channel
+ * is reachable by any in-renderer script — including an enabled module running with the full bridge —
+ * so routing it through here keeps a renderer from forging a consent record (a fabricated
+ * permissions string the sheet never showed, a grant recorded without ever calling `enableModule`)
+ * through the back door of a preferences write. Consent stays exactly what `enableModule` recorded.
+ */
+export function writeSettingsFromRenderer(patch: unknown): AppSettings {
+  if (patch !== null && typeof patch === 'object' && !Array.isArray(patch)) {
+    return writeSettings({ ...(patch as Record<string, unknown>), extensions: undefined });
+  }
+  return writeSettings(patch);
+}
