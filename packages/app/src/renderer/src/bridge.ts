@@ -24,6 +24,14 @@ import type {
   ModuleSaveOptions,
   ModuleSaveTarget,
   ModuleWriteResult,
+  // Appended 2026-08-30 with §13.8's extension channels.
+  ExtensionEntry,
+  ExtensionFile,
+  ExtensionVersion,
+  ModuleActionResult,
+  ModuleProgress,
+  ModuleProgressState,
+  ModuleStatus,
 } from '../../preload/index';
 
 /** `main/settings.ts`'s `DEFAULT_SCREENSHOT_DEFAULTS`, duplicated for the same reason as everything
@@ -109,6 +117,22 @@ const ABSENT: TetravoxBridge = {
   moduleWriteText: async () => ({ ok: false, error: 'no preload bridge' }),
   // No window to mark, and no window to guard: a context with no bridge cannot be closed by a user.
   setDocumentEdited: () => {},
+  // Extensions (§13.8, 2026-08-30). No bridge means no disk, no network and no consent record, so
+  // the dialog shows an empty catalogue and every action answers "no preload bridge" with the
+  // statuses it already had — which is `[]`. That is the honest answer for vitest and a browser tab:
+  // a context that cannot install a module also cannot be running one, because the only way to reach
+  // a module's code is a `tetravox://module` URL only main can put a file behind.
+  moduleCatalog: async () => ({ modules: [], dir: '' }),
+  moduleStatuses: async () => [],
+  moduleManifests: async () => [],
+  moduleInstall: async () => ({ ok: false, error: 'no preload bridge', statuses: [] }),
+  moduleCancel: async () => false,
+  moduleEnable: async () => ({ ok: false, error: 'no preload bridge', statuses: [] }),
+  moduleDisable: async () => ({ ok: false, error: 'no preload bridge', statuses: [] }),
+  moduleRemove: async () => ({ ok: false, error: 'no preload bridge', statuses: [] }),
+  moduleRevealDir: async () => {},
+  onModuleProgress: () => () => {},
+  onOpenExtensions: () => () => {},
 };
 
 export function bridge(): TetravoxBridge {
@@ -141,4 +165,13 @@ export type {
   ModuleSaveOptions,
   ModuleSaveTarget,
   ModuleWriteResult,
+  // Appended 2026-08-30 with §13.8's extension channels; the list is append-only so that branches
+  // building on it merge.
+  ExtensionEntry,
+  ExtensionFile,
+  ExtensionVersion,
+  ModuleActionResult,
+  ModuleProgress,
+  ModuleProgressState,
+  ModuleStatus,
 };

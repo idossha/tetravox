@@ -20,6 +20,8 @@ import { ScreenshotDialog } from '../dialogs/ScreenshotDialog';
 import type { FigureOptions } from '../lib/figure';
 import { SettingsDialog } from '../dialogs/SettingsDialog';
 import { SampleDataDialog } from '../dialogs/SampleDataDialog';
+// Appended 2026-08-30 (§13.8): File ▸ Extensions…, the Sample Data dialog's shape for code.
+import { ExtensionsDialog } from '../dialogs/ExtensionsDialog';
 import { useController, useUi } from './context';
 
 export function ShellDialogs(): React.JSX.Element | null {
@@ -39,6 +41,10 @@ export function ShellDialogs(): React.JSX.Element | null {
   const sampleStatuses = useUi((s) => s.sampleStatuses);
   const sampleProgress = useUi((s) => s.sampleProgress);
   const sampleCacheDir = useUi((s) => s.sampleCacheDir);
+  const extensions = useUi((s) => s.extensions);
+  const extensionStatuses = useUi((s) => s.extensionStatuses);
+  const extensionProgress = useUi((s) => s.extensionProgress);
+  const extensionDir = useUi((s) => s.extensionDir);
 
   const capture = useCallback(
     (opts: ScreenshotOptions, figure: FigureOptions | null) =>
@@ -70,6 +76,24 @@ export function ShellDialogs(): React.JSX.Element | null {
         onCancel={(id) => controller.cancelSample(id)}
         onRemove={(id) => void controller.removeSample(id)}
         onRevealCache={() => controller.revealSampleCache()}
+        onClose={close}
+      />
+    );
+  }
+
+  if (dialog === 'extensions') {
+    return (
+      <ExtensionsDialog
+        catalogue={extensions}
+        statuses={extensionStatuses}
+        progress={extensionProgress}
+        dir={extensionDir}
+        onInstall={(id, version) => controller.installExtension(id, version)}
+        onCancel={(id) => controller.cancelExtension(id)}
+        onEnable={(id) => controller.enableExtension(id)}
+        onDisable={(id) => void controller.disableExtension(id)}
+        onRemove={(id) => void controller.removeExtension(id)}
+        onRevealDir={() => controller.revealExtensionDir()}
         onClose={close}
       />
     );

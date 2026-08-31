@@ -88,7 +88,13 @@ import {
   setClipFollowsCursor,
 } from '../panels/layers/mesh/state';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
-import type { SampleProgress, SceneCommand } from '../bridge';
+import type {
+  ModuleActionResult,
+  ModuleProgress,
+  ModuleStatus,
+  SampleProgress,
+  SceneCommand,
+} from '../bridge';
 import type { SubjectSpacesReply, SurfaceSpacesReply } from '../../../preload/index';
 import { applyTheme, enginePatch, isThemeChoice, resolveTheme } from '../theme/theme';
 import type { ThemeChoice } from '../theme/theme';
@@ -97,7 +103,11 @@ import type { ThemeChoice } from '../theme/theme';
 import type { ComponentType } from 'react';
 import type { ModuleManifest } from '../../../modules/manifest-types';
 import { manifestFor } from '../../../modules/manifests';
-import { enabledModules, registrationFor } from '../modules/registry';
+import { MODULES, enabledModules, registrationFor, setInstalledModules } from '../modules/registry';
+// Extensions (§13.8, 2026-08-30): the loader for modules that arrived from outside the build, and
+// the manifest fetch `main.tsx` runs at boot — an install changes the disk, so it runs again here.
+import { registrationsFor } from '../modules/installed';
+import { loadInstalledManifests } from '../modules/installedBoot';
 import type { ModuleRegistration } from '../modules/registry';
 import { createModuleHost, disposeModuleHost } from '../modules/hostImpl';
 import type { ExtensionBlock, ModuleHost, ModuleInstance, ModuleSceneEvent } from '../modules/host';
@@ -276,6 +286,12 @@ export class ShellController {
         toasts: toasts.pruneToasts(s.toasts, this.now()),
       }));
     }, 500);
+
+    // Extensions (§13.8, 2026-08-30), appended: the manifests were registered before the first paint
+    // (`installedBoot.ts`); this is the half that needs a controller, because a module whose file
+    // will not load has to reach a toast and a card. A launch with none is one `moduleStatuses()`
+    // round trip that answers `[]`.
+    void this.refreshInstalledModules();
   }
 
   detach(): void {
@@ -2744,6 +2760,158 @@ export class ShellController {
    */
   moduleInstance(): ModuleInstance | null {
     return this.moduleSession?.instance ?? null;
+  }
+
+  // ------------------------------------------------------------------------------------------
+  // File ▸ Extensions… (`main/module-store.ts`, §13.8, 2026-08-30). Appended per the shared-file
+  // rule, and deliberately the Sample Data block's shape: main downloads, hashes, consents and
+  // serves; this only asks, mirrors the reply and says what went wrong.
+  // ------------------------------------------------------------------------------------------
+
+  /**
+   * Re-read the installed set: the manifests, then the registrations they imply.
+   *
+   * Called at {@link attach} and after every action reply. It is the controller's rather than
+   * `main.tsx`'s because a module whose file will not load has to reach a toast and a card, and
+   * neither exists before the shell does.
+   *
+   * **The manifests are re-fetched, not reused.** `main.tsx` registered them before the first paint
+   * — the half that has to be synchronous, because `manifestFor` is called while rendering — but
+   * that was a snapshot of the disk at launch, and installing a module changes the disk. Without
+   * this line an extension installed in *this* session would be consented, served and still absent
+   * from the switcher until the next relaunch, because the renderer would never have heard its name.
+   */
+  async refreshInstalledModules(statuses?: readonly ModuleStatus[]): Promise<void> {
+    await loadInstalledManifests();
+    const list = statuses ?? (await (bridge().moduleStatuses?.() ?? Promise.resolve([])));
+    setInstalledModules(
+      registrationsFor(
+        list,
+        MODULES.map((m) => m.manifest.id),
+        (id, reason) => this.markExtensionFailed(id, reason)
+      )
+    );
+    this.store.setState({ extensionStatuses: list });
+  }
+
+  /**
+   * A module's own file did not load, or did not export `activate`.
+   *
+   * The card is marked through `extensionProgress` — the same field a failed download writes — so
+   * there is one "this extension is broken" surface rather than two. `activateModule`'s existing
+   * catch raises the toast; the slot stays empty and the switcher row stays where it was, because a
+   * registration is a manifest and the failure is inside `load()`.
+   */
+  private markExtensionFailed(id: string, reason: string): void {
+    this.store.setState((s) => ({
+      extensionProgress: {
+        ...s.extensionProgress,
+        [id]: { id, file: 'index.js', received: 0, total: 0, state: 'error', error: reason },
+      },
+    }));
+  }
+
+  /** Open the dialog, refreshing the catalogue and the card states from main first. */
+  async openExtensions(): Promise<void> {
+    this.store.setState({ dialog: 'extensions' });
+    const [catalogue, statuses] = await Promise.all([
+      bridge().moduleCatalog?.() ?? Promise.resolve({ modules: [], dir: '' }),
+      bridge().moduleStatuses?.() ?? Promise.resolve([]),
+    ]);
+    this.store.setState({
+      extensions: catalogue.modules,
+      extensionDir: catalogue.dir,
+      extensionStatuses: statuses,
+    });
+  }
+
+  /** Install progress pushed from main. A finished install clears its entry, like a sample's. */
+  onModuleProgress(p: ModuleProgress): void {
+    if (p.state === 'done' || p.state === 'cancelled') {
+      this.store.setState((s) => {
+        const next = { ...s.extensionProgress };
+        delete next[p.id];
+        return { extensionProgress: next };
+      });
+      return;
+    }
+    this.store.setState((s) => ({ extensionProgress: { ...s.extensionProgress, [p.id]: p } }));
+  }
+
+  /**
+   * Download and verify one version. **Installing is not enabling** — the files land inert, and the
+   * dialog's next step is the consent sheet.
+   */
+  async installExtension(id: string, version?: string): Promise<boolean> {
+    const result = await (bridge().moduleInstall?.(id, version) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Install');
+    return result.ok;
+  }
+
+  cancelExtension(id: string): void {
+    void bridge().moduleCancel?.(id);
+  }
+
+  /**
+   * Record the consent and make the module reachable. **This call is the consent** — main re-hashes
+   * every file against the install receipt and only then puts it on the `tetravox://module` map.
+   */
+  async enableExtension(id: string): Promise<boolean> {
+    const result = await (bridge().moduleEnable?.(id) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Enable');
+    return result.ok;
+  }
+
+  /** Withdraw consent. Main empties the protocol map and revokes the write list; this unloads. */
+  async disableExtension(id: string): Promise<boolean> {
+    // Out of the slot first: a module whose files are about to stop being reachable must not be
+    // left holding a host. `deactivateModule` is a no-op for anything else.
+    if (this.store.getState().activeModule === id) this.deactivateModule();
+    const result = await (bridge().moduleDisable?.(id) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Disable');
+    return result.ok;
+  }
+
+  async removeExtension(id: string): Promise<boolean> {
+    if (this.store.getState().activeModule === id) this.deactivateModule();
+    const result = await (bridge().moduleRemove?.(id) ??
+      Promise.resolve({ ok: false, error: 'no preload bridge', statuses: [] }));
+    await this.applyExtensionResult(result, id, 'Remove');
+    return result.ok;
+  }
+
+  revealExtensionDir(): void {
+    void bridge().moduleRevealDir?.();
+  }
+
+  /**
+   * Mirror one `ModuleActionResult`: the refreshed statuses, the registrations they imply, and the
+   * failure if there was one.
+   *
+   * Every reply carries the statuses, which is why nothing here asks for them again — and why the
+   * registration set is rebuilt from the same array that redrew the card, so the switcher and the
+   * dialog can never disagree about what is enabled.
+   */
+  private async applyExtensionResult(
+    result: ModuleActionResult,
+    id: string,
+    what: string
+  ): Promise<void> {
+    await this.refreshInstalledModules(result.statuses);
+    if (result.ok) {
+      this.store.setState((s) => {
+        const next = { ...s.extensionProgress };
+        delete next[id];
+        return { extensionProgress: next };
+      });
+      return;
+    }
+    const message = result.error ?? `${what.toLowerCase()} failed`;
+    this.markExtensionFailed(id, message);
+    if (!/cancel|abort/i.test(message)) this.toast('io', `${what} ${id}`, message);
   }
 }
 

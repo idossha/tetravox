@@ -176,6 +176,17 @@ export function sendOpenSampleData(win: BrowserWindow | null): void {
 }
 
 /**
+ * Ask the renderer to open the Extensions dialog (File ▸ Extensions…, §13.8, 2026-08-30).
+ *
+ * `sendOpenSampleData`'s twin, and deliberately as empty: the message carries no id, no path and no
+ * catalogue — it says only that the menu item was clicked. Everything the dialog then does goes back
+ * through the `tetravox:module-*` invoke channels, where main decides.
+ */
+export function sendOpenExtensions(win: BrowserWindow | null): void {
+  win?.webContents.send('tetravox:open-extensions');
+}
+
+/**
  * The File ▸ Open Recent submenu (directed task 13).
  *
  * Built from `settings.json` each time {@link buildMenu} runs, which is on launch and after every
@@ -239,6 +250,13 @@ export function buildMenu(getWindow: () => BrowserWindow | null): void {
         {
           label: 'Sample Data…',
           click: () => sendOpenSampleData(getWindow()),
+        },
+        // §13.8, 2026-08-30. Beside Sample Data… rather than in a menu of its own: both are "get
+        // something from the network into this machine, once", and the switcher stays what §13.3
+        // says it is — load and unload, never a place to manage what exists.
+        {
+          label: 'Extensions…',
+          click: () => sendOpenExtensions(getWindow()),
         },
         { type: 'separator' },
         // Scene save/load is *asked for* here and *done* in the renderer: only the renderer holds

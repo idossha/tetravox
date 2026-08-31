@@ -34,6 +34,9 @@ import type {
   vec3,
 } from '@tetravox/engine';
 import type {
+  ExtensionEntry,
+  ModuleProgress,
+  ModuleStatus,
   Sample,
   SampleProgress,
   SampleStatus,
@@ -333,6 +336,23 @@ export interface UiState {
    * selector compares with `Object.is` is no place for a closure.
    */
   confirm: ConfirmRequest | null;
+
+  // -- Appended; File ▸ Extensions… (downloadable extensions, 2026-08-30) --------------------------
+  /**
+   * The catalogue and the card states the Extensions dialog renders, mirrored from main when it
+   * opens and refreshed by every action reply — `ModuleActionResult` carries the new statuses, so a
+   * card never has to make a second round trip to find out what it now says.
+   *
+   * These are the Sample Data four with the same jobs: what may be installed, what *is* installed,
+   * what is downloading, and where it lands. Nothing here is persisted — the only persisted key is
+   * `AppSettings.extensions`, which main owns and the renderer never writes.
+   */
+  extensions: readonly ExtensionEntry[];
+  extensionStatuses: readonly ModuleStatus[];
+  /** In-flight or just-failed installs by module id; a `done` entry is removed. */
+  extensionProgress: Readonly<Record<string, ModuleProgress>>;
+  /** `~/.tetravox/modules/`, for the dialog's footer. A directory name, never a reachable path. */
+  extensionDir: string;
 }
 
 /** Where this scene lives on disk, and when it was last written there. */
@@ -352,7 +372,11 @@ export type DialogKind =
   // Appended 2026-08-30 (§13.3): the host's own two- or three-button question, raised by
   // `host.ui.confirm` and by the module-dirty guard. Full-window like every other dialog, so it is
   // one more case of `dialog` rather than a second modal layer.
-  | 'confirm';
+  | 'confirm'
+  // Appended 2026-08-30: File ▸ Extensions… (§13.8). The Sample Data dialog's shape for code rather
+  // than for data, and one more case of `dialog` for the same reason — it covers the window, so a
+  // stack would only ever hide one behind another.
+  | 'extensions';
 
 /** The unified settings dialog's tabs (directed task: unified settings, 2026-08-28). */
 export type SettingsTab = 'appearance' | 'capture' | 'paths' | 'startup';
@@ -467,6 +491,12 @@ export const INITIAL_UI: UiState = {
   moduleDirty: {},
   moduleBlocks: {},
   confirm: null,
+  // Extensions (2026-08-30). Empty until the dialog opens, and an empty catalogue is a dialog that
+  // says "nothing to show" rather than one that says something went wrong.
+  extensions: [],
+  extensionStatuses: [],
+  extensionProgress: {},
+  extensionDir: '',
 };
 
 export type UiStore = StoreApi<UiState>;

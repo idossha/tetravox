@@ -265,12 +265,23 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     const offProgress = bridge().onSampleProgress((p) => {
       if (!cancelled) controller.onSampleProgress(p);
     });
+    // File ▸ Extensions… (§13.8, 2026-08-30), and the install progress main pushes while it is up.
+    // The same two lines as Sample Data, and module-specific in exactly the way that block is: it
+    // names no module, only a dialog and a channel.
+    const offExtensions = bridge().onOpenExtensions?.(() => {
+      if (!cancelled) void controller.openExtensions();
+    });
+    const offModuleProgress = bridge().onModuleProgress?.((p) => {
+      if (!cancelled) controller.onModuleProgress(p);
+    });
     return () => {
       cancelled = true;
       off();
       offScene();
       offSample();
       offProgress();
+      offExtensions?.();
+      offModuleProgress?.();
     };
   }, [controller]);
 

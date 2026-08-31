@@ -257,6 +257,15 @@ export interface TetravoxBridge {
   moduleRevealDir?(): Promise<void>;
   /** Install progress, pushed from main. */
   onModuleProgress?(listener: (p: ModuleProgress) => void): () => void;
+  /**
+   * Menu File ▸ Extensions…, pushed from main (2026-08-30).
+   *
+   * `onOpenSampleData`'s twin, and appended for the same reason it exists: an accelerator and a
+   * native menu item live in main, and the dialog lives in the renderer. Main sends nothing but the
+   * fact that the item was clicked — no id, no path, no catalogue — so this channel grants nothing
+   * that the six invoke channels above do not already gate.
+   */
+  onOpenExtensions?(listener: () => void): () => void;
 }
 
 /** Mirrors `main/job.ts`'s `Job` plus the run's own two fields; kept structural, not imported. */
@@ -552,6 +561,11 @@ const bridge: TetravoxBridge = {
     const wrapped = (_event: Electron.IpcRendererEvent, p: ModuleProgress): void => listener(p);
     ipcRenderer.on('tetravox:module-progress', wrapped);
     return () => ipcRenderer.removeListener('tetravox:module-progress', wrapped);
+  },
+  onOpenExtensions: (listener) => {
+    const wrapped = (): void => listener();
+    ipcRenderer.on('tetravox:open-extensions', wrapped);
+    return () => ipcRenderer.removeListener('tetravox:open-extensions', wrapped);
   },
 };
 
