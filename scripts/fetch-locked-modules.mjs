@@ -43,8 +43,9 @@
  *   `modules.lock`, which is a build-time file and not part of the app. `--verify-only` compares it
  *   with the lock, which is how a tree that has drifted from the lock is a red CI leg.
  * * The tree is **read-only and pre-consented**: main discovers what is here by scanning it, seeds
- *   `settings.extensions[<id>]` on first run, and never writes here. The other root — the user's installs, at
- *   `~/.tetravox/modules/<id>/<version>/` — has the same per-module shape and *is* writable.
+ *   `settings.extensions[<id>]` on first run, and never writes here. The other root — the user's
+ *   installs, at `~/.tetravox/modules/<id>/<version>/` — has the same per-module shape and *is*
+ *   writable.
  * * The tree is **not committed**. It is rebuilt from the lock on every packaging run, which is what
  *   makes "the release shipped these exact bytes" a claim the hashes prove rather than a claim the
  *   repository history has to be trusted for.
@@ -85,16 +86,16 @@ export const RESOURCES_MODULES = 'packages/app/resources/modules';
 export const BUNDLED_INDEX = 'bundled.json';
 
 /**
- * The install receipt, written into every module directory this step places.
+ * The install receipt, written into every module directory this step places. Re-exported from
+ * `check-modules-lock.mjs`, which is where a lock entry shipping a file of that name is refused.
  *
  * The name and the shape are `main/module-store.ts`'s (`RECEIPT_NAME`, `InstallReceipt`): main
  * re-hashes every file of a module against its receipt before serving any of them, and a bundled
  * module goes through the same gate as a downloaded one. Writing it here is what makes that gate
- * *real* for a bundled module rather than an exemption it falls through. The name is
- * `check-modules-lock.mjs`'s, which is also where a lock entry that tries to ship a file of that
- * name is refused.
+ * *real* for a bundled module rather than an exemption it falls through.
  */
 export { RECEIPT_NAME };
+
 /** `InstallReceipt.schema`, main's number, not a second one. */
 export const RECEIPT_SCHEMA = 1;
 

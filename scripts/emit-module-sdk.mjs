@@ -533,7 +533,9 @@ export function packageJsonFor(hostApi, coreVersion, subpaths = []) {
  * be loaded, or that accepts an empty object, is not a usable SDK.
  */
 export async function assertSchemaRuns(schemaPath, hostApi) {
-  const mod = await import(pathToFileURL(schemaPath).href);
+  // The query string is a cache-buster: a second emission in one process writes new bytes to the
+  // same path, and the module registry would otherwise hand back the first one.
+  const mod = await import(`${pathToFileURL(schemaPath).href}?emit=${Date.now()}`);
   if (typeof mod.validateManifest !== 'function') {
     throw new Error(`${schemaPath} exports no validateManifest`);
   }
