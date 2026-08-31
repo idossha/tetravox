@@ -365,6 +365,11 @@ folder** opens `~/.tetravox/modules/` if you want to look.
 **Updates** ask again. A new version is new code with a possibly different list of things it can do, so
 consent is recorded per version rather than once per extension.
 
+**The list refreshes itself.** Tetravox re-reads the curated catalogue when it starts and whenever you
+open this dialog, so a new version of an extension shows up as **Update to X** without waiting for a new
+Tetravox. Switching off "Check for updates on launch" (Settings ▸ Startup) stops the launch refresh;
+opening the dialog still asks.
+
 **Offline is normal.** The catalogue Tetravox ships with is used when the registry cannot be reached, so
 the dialog always opens and always lists what is already installed. An empty catalogue says so rather
 than looking like a failure.

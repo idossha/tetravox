@@ -1,0 +1,233 @@
+/**
+ * The live extensions catalogue (§13.8): the policy, not the plumbing.
+ *
+ * `module-store.test.ts`'s doctrine — every assertion is a **refusal or an admission**, because that
+ * is the feature. A fetched index decides what the dialog offers and what an install is verified
+ * against, so what matters is which ones are refused: a non-200, an oversized body, a shape that
+ * does not validate, a hash that is not a hash, and — the one this file exists for — a `url` that
+ * points somewhere other than a GitHub release. No network: every fetch goes through the injected
+ * `fetchImpl`, exactly as `sample-data.test.ts` and `module-store.test.ts` do.
+ */
+
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const dirs = vi.hoisted(() => ({ home: '', appPath: '' }));
+
+vi.mock('electron', () => ({
+  app: {
+    getPath: (): string => dirs.home,
+    getAppPath: (): string => dirs.appPath,
+    isPackaged: false,
+  },
+  net: { fetch: async (): Promise<Response> => new Response(null, { status: 404 }) },
+  shell: { openPath: async (): Promise<string> => '' },
+  protocol: { registerSchemesAsPrivileged: (): void => {}, handle: (): void => {} },
+  dialog: {},
+  ipcMain: { handle: (): void => {}, on: (): void => {} },
+  BrowserWindow: class {},
+}));
+
+import { catalogue } from './module-store';
+import {
+  MAX_INDEX_BYTES,
+  cachePath,
+  cachedIndex,
+  refreshCatalogue,
+  refreshCatalogueOnce,
+  registryFetchAllowed,
+  resetRegistry,
+  validateIndex,
+} from './registry';
+
+/** A minimal well-formed entry — the shape the registry really publishes. */
+function entry(
+  over: { id?: string; version?: string; url?: string; sha256?: string } = {}
+): object {
+  return {
+    id: over.id ?? 'vendor.thing',
+    title: 'Thing',
+    versions: [
+      {
+        version: over.version ?? '2.0.0',
+        hostApi: 1,
+        files: [
+          {
+            name: 'index.js',
+            bytes: 10,
+            sha256: over.sha256 ?? 'a'.repeat(64),
+            url:
+              over.url ??
+              `https://github.com/idossha/tetravox-seeg/releases/download/v2.0.0/${'a'.repeat(64)}`,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function indexOf(...entries: object[]): object {
+  return { schema: 1, modules: entries };
+}
+
+function serve(body: string, status = 200): typeof fetchStub {
+  const fetchStub = async (): Promise<Response> =>
+    ({ ok: status >= 200 && status < 300, status, text: async () => body }) as unknown as Response;
+  return fetchStub;
+}
+
+beforeEach(() => {
+  dirs.home = mkdtempSync(join(tmpdir(), 'tvx-registry-home-'));
+  dirs.appPath = mkdtempSync(join(tmpdir(), 'tvx-registry-app-'));
+  process.env['TETRAVOX_HOME'] = dirs.home;
+  delete process.env['TETRAVOX_EXT_INDEX'];
+  resetRegistry();
+});
+
+afterEach(() => {
+  delete process.env['TETRAVOX_HOME'];
+  rmSync(dirs.home, { recursive: true, force: true });
+  rmSync(dirs.appPath, { recursive: true, force: true });
+});
+
+describe('validateIndex', () => {
+  it('accepts the shape the registry publishes', () => {
+    expect(validateIndex(indexOf(entry()))).not.toBeNull();
+  });
+
+  it.each([
+    ['not an object', 42],
+    ['no modules array', { schema: 1 }],
+    ['an id that is not <vendor>.<name>', indexOf(entry({ id: 'thing' }))],
+    ['a version that is not semver', indexOf(entry({ version: 'latest' }))],
+    ['a sha256 that is not one', indexOf(entry({ sha256: 'nope' }))],
+  ])('refuses %s', (_name, raw) => {
+    expect(validateIndex(raw)).toBeNull();
+  });
+
+  it('refuses a file url that is not https on a GitHub host — the one an attacker would want', () => {
+    // A fetched index that could name any host would turn a catalogue refresh into "download from
+    // wherever I say". The hash still has to match, but the hash is in the same document.
+    expect(
+      validateIndex(indexOf(entry({ url: 'http://github.com/a/b/releases/download/v1/x' })))
+    ).toBeNull();
+    expect(validateIndex(indexOf(entry({ url: 'https://evil.example/x' })))).toBeNull();
+    expect(validateIndex(indexOf(entry({ url: 'https://github.com.evil.example/x' })))).toBeNull();
+    expect(
+      validateIndex(indexOf(entry({ url: 'https://objects.githubusercontent.com/ok' })))
+    ).not.toBeNull();
+  });
+
+  it('refuses a file name that could climb out of its directory', () => {
+    const bad = indexOf(entry()) as { modules: { versions: { files: { name: string }[] }[] }[] };
+    bad.modules[0]!.versions[0]!.files[0]!.name = '../evil.js';
+    expect(validateIndex(bad)).toBeNull();
+  });
+});
+
+describe('refreshCatalogue', () => {
+  it('writes the cache when the answer is good', async () => {
+    const ok = await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) });
+    expect(ok).toBe(true);
+    expect(cachedIndex()).not.toBeNull();
+  });
+
+  it.each([
+    ['a non-200', serve('{}', 500)],
+    ['a body that is not JSON', serve('<html>nope</html>')],
+    ['an index that does not validate', serve(JSON.stringify(indexOf(entry({ id: 'nope' }))))],
+    ['an oversized body', serve(JSON.stringify(indexOf(entry())) + ' '.repeat(MAX_INDEX_BYTES))],
+  ])('leaves the previous answer standing on %s', async (_name, impl) => {
+    // A good copy first, so "unchanged" is a claim with something to lose.
+    expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) })).toBe(
+      true
+    );
+    const before = readFileSync(cachePath(), 'utf8');
+    expect(await refreshCatalogue({ fetchImpl: impl })).toBe(false);
+    expect(readFileSync(cachePath(), 'utf8')).toBe(before);
+  });
+
+  it('answers false rather than throwing when the fetch itself fails', async () => {
+    const boom = async (): Promise<Response> => {
+      throw new Error('ENOTFOUND raw.githubusercontent.com');
+    };
+    expect(await refreshCatalogue({ fetchImpl: boom })).toBe(false);
+    expect(cachedIndex()).toBeNull();
+  });
+
+  it('coalesces concurrent refreshes into one request', async () => {
+    let calls = 0;
+    const counting = async (): Promise<Response> => {
+      calls += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(indexOf(entry())),
+      } as unknown as Response;
+    };
+    await Promise.all([
+      refreshCatalogueOnce({ fetchImpl: counting }),
+      refreshCatalogueOnce({ fetchImpl: counting }),
+    ]);
+    expect(calls).toBe(1);
+  });
+});
+
+describe('when Tetravox may reach the registry at all', () => {
+  it('never in a dev tree, which is what keeps `pnpm e2e` hermetic', async () => {
+    // `app.isPackaged` is false in this mock, as it is for every dev launch and every e2e run. A
+    // refresh with no injected fetch must therefore not touch the network — the suites would
+    // otherwise depend on raw.githubusercontent.com being up.
+    expect(registryFetchAllowed()).toBe(false);
+    expect(await refreshCatalogueOnce()).toBe(false);
+    expect(cachedIndex()).toBeNull();
+  });
+
+  it('an injected fetch is a test driving the real code, and is always allowed', async () => {
+    expect(await refreshCatalogueOnce({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) })).toBe(
+      true
+    );
+  });
+});
+
+describe('cachedIndex', () => {
+  it('refuses a hand-edited cache, so a local file cannot widen what the app offers', () => {
+    writeFileSync(cachePath(), JSON.stringify(indexOf(entry({ url: 'https://evil.example/x' }))));
+    expect(cachedIndex()).toBeNull();
+  });
+
+  it('refuses an unparseable cache rather than throwing', () => {
+    writeFileSync(cachePath(), '{ not json');
+    expect(cachedIndex()).toBeNull();
+  });
+});
+
+describe('what the catalogue answers with', () => {
+  it('prefers a refreshed copy over the shipped one — this is the whole feature', async () => {
+    // The shipped copy is the floor…
+    expect(catalogue().some((m) => m.id === 'tetravox.seeg')).toBe(true);
+    expect(catalogue().some((m) => m.id === 'vendor.thing')).toBe(false);
+    // …and a refresh raises it without a core release.
+    expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) })).toBe(
+      true
+    );
+    expect(catalogue().some((m) => m.id === 'vendor.thing')).toBe(true);
+  });
+
+  it('falls back to the shipped copy when the cache is bad, never to nothing', () => {
+    writeFileSync(cachePath(), '{ not json');
+    expect(catalogue().some((m) => m.id === 'tetravox.seeg')).toBe(true);
+  });
+
+  it('lets the dev/E2E seam win over a refreshed copy, so a fixture run is not raced by the network', async () => {
+    expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) })).toBe(
+      true
+    );
+    const fixture = join(dirs.appPath, 'fixture-index.json');
+    writeFileSync(fixture, JSON.stringify(indexOf(entry({ id: 'fixture.only' }))));
+    process.env['TETRAVOX_EXT_INDEX'] = fixture;
+    expect(catalogue().map((m) => m.id)).toEqual(['fixture.only']);
+  });
+});

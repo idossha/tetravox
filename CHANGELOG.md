@@ -14,6 +14,11 @@ Nothing yet.
 
 ### Added
 
+- **Extension updates no longer wait for a Tetravox release.** The catalogue is refreshed from the
+  curated index at launch and whenever **File ▸ Extensions…** opens, so a new version of an extension
+  appears as **Update to X** on its own. Offline is unchanged: a failed refresh leaves the previous
+  catalogue standing, and the copy the app ships is still the floor. A fetched index is validated
+  strictly — every hash checked, and every download URL required to be HTTPS on a GitHub host.
 - **The extension slot folds.** A ▾ arrow beside the slot's ✕ hides the panel body and gives the
   column back to the Info panel, while the extension stays active — its layers, its table and its
   history are all still there, and the arrow puts the panel back.
