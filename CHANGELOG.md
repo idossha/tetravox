@@ -10,7 +10,7 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
-## [0.3.0]
+## [0.3.0] - 2026-08-31
 
 A first-party **extension surface** and its flagship, plus downloadable extensions.
 
