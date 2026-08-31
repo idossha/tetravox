@@ -235,7 +235,11 @@ test.describe('the tetravox://module host source, in a real build', () => {
 
     app = await launchApp(target, {
       search: 'engine=mock&mockStepMs=0',
-      env: { TETRAVOX_MODULE_DIR: modules, TETRAVOX_HOME: home },
+      // `TETRAVOX_E2E=1` keeps `TETRAVOX_MODULE_DIR` live in the **packaged** leg: a shipped build
+      // otherwise ignores that seam on purpose (module-store.ts `envSeamsAllowed`, 2026-08-31), the
+      // same way it ignores `TETRAVOX_E2E_DISCARD`. This is the one packaged spec that stages a
+      // fixture module through the seam, so it is the one that has to opt back in.
+      env: { TETRAVOX_MODULE_DIR: modules, TETRAVOX_HOME: home, TETRAVOX_E2E: '1' },
     });
     page = await app.firstWindow();
     await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });

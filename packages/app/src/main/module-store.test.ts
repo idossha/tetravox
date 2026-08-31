@@ -36,7 +36,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
  * body does; every member below reads them from inside a function, so the mock sees the real
  * directories by the time anything calls it.
  */
-const dirs = vi.hoisted(() => ({ home: '', appPath: '' }));
+const dirs = vi.hoisted(() => ({ home: '', appPath: '', packaged: false }));
 
 /** Captured so the `tetravox://module` handler can be driven directly, not only in a packaged E2E. */
 const captured = vi.hoisted(() => ({
@@ -47,7 +47,11 @@ vi.mock('electron', () => ({
   app: {
     getPath: (): string => dirs.home,
     getAppPath: (): string => dirs.appPath,
-    isPackaged: false,
+    // A getter, so the env-seam test can flip `app.isPackaged` and put it back; every other test
+    // sees the dev default (`false`).
+    get isPackaged(): boolean {
+      return dirs.packaged;
+    },
   },
   net: {
     // `streamFile` fetches the file it is serving through `net.fetch(pathToFileURL(file))`.
@@ -96,7 +100,7 @@ import { clearServedModules, handleScheme, servedModuleKeys } from './protocol';
 import { admitModuleWrite, clearModuleWriteLists, isModuleWritable } from './module-io';
 import { allManifests, installedManifests, registerInstalledManifests } from '../modules/manifests';
 import { validateJob } from './job';
-import { writeSettings } from './settings';
+import { configHome, writeSettings } from './settings';
 
 const sha = (b: Uint8Array | string): string =>
   createHash('sha256')
@@ -279,6 +283,37 @@ describe('the catalogue', () => {
     process.env['TETRAVOX_EXT_INDEX'] = path;
     expect(catalogue()).toEqual([]);
   });
+
+  it('ignores TETRAVOX_MODULE_DIR and TETRAVOX_EXT_INDEX in a shipped build, unless the E2E opts back in', () => {
+    const realModuleDir = process.env['TETRAVOX_MODULE_DIR'];
+    const evil = join(dirs.home, 'evil-modules');
+    const { index } = indexFor([{ name: 'index.js', text: ENTRY_JS }]);
+    writeIndex(index); // sets TETRAVOX_EXT_INDEX to a real fixture file
+    process.env['TETRAVOX_MODULE_DIR'] = evil;
+    try {
+      // Dev (unpackaged): both seams are honoured, exactly as the E2E and this file rely on.
+      expect(moduleDir()).toBe(evil);
+      expect(catalogue().map((m) => m.id)).toEqual([ID]);
+
+      // Packaged: an ambient env var cannot repoint the store or spoof the catalogue — the real
+      // configHome()/modules store and the shipped (empty) catalogue win (finding, 2026-08-31).
+      dirs.packaged = true;
+      expect(moduleDir()).toBe(join(configHome(), 'modules'));
+      expect(moduleDir()).not.toBe(evil);
+      expect(catalogue()).toEqual([]);
+
+      // …unless the packaged E2E leg opts back in with TETRAVOX_E2E=1 (the csp.spec.ts seam).
+      process.env['TETRAVOX_E2E'] = '1';
+      expect(moduleDir()).toBe(evil);
+      expect(catalogue().map((m) => m.id)).toEqual([ID]);
+    } finally {
+      dirs.packaged = false;
+      delete process.env['TETRAVOX_E2E'];
+      delete process.env['TETRAVOX_EXT_INDEX'];
+      if (realModuleDir === undefined) delete process.env['TETRAVOX_MODULE_DIR'];
+      else process.env['TETRAVOX_MODULE_DIR'] = realModuleDir;
+    }
+  });
 });
 
 describe('compareVersions', () => {
@@ -313,6 +348,48 @@ describe('installing', () => {
       expect(consents()[ID]).toBeUndefined();
       expect(servedModuleKeys()).toEqual([]);
     });
+  });
+
+  it('an update over an enabled module tears the old version off the map, revoking its writes and consent', async () => {
+    const signal = (): AbortSignal => new AbortController().signal;
+    // Install and enable v1, and admit a write the way a Save sheet would.
+    const v1 = indexFor(
+      [
+        { name: 'manifest.json', text: manifestText({ version: '1.0.0' }) },
+        { name: 'index.js', text: ENTRY_JS },
+      ],
+      { version: '1.0.0' }
+    );
+    writeIndex(v1.index);
+    expect(
+      (await installModule(ID, '1.0.0', { fetchImpl: serveFrom(v1.bodies), signal: signal() })).ok
+    ).toBe(true);
+    expect(enableModule(ID).ok).toBe(true);
+    expect(servedModuleKeys()).toEqual([`${ID}/1.0.0/index.js`]);
+    expect(consents()[ID]?.version).toBe('1.0.0');
+    const target = join(dirs.home, 'notes.tsv');
+    admitModuleWrite(ID, target, []);
+    expect(isModuleWritable(ID, target)).toBe(true);
+
+    // The update: install v2. Cancelling the following consent sheet is the renderer's business;
+    // what is asserted here is main's own teardown, which runs regardless of the sheet.
+    const v2 = indexFor(
+      [
+        { name: 'manifest.json', text: manifestText({ version: '2.0.0' }) },
+        { name: 'index.js', text: ENTRY_JS },
+      ],
+      { version: '2.0.0' }
+    );
+    writeIndex(v2.index);
+    expect(
+      (await installModule(ID, '2.0.0', { fetchImpl: serveFrom(v2.bodies), signal: signal() })).ok
+    ).toBe(true);
+
+    // v1 is no longer served, its consent is gone, and its write admissions are revoked — the card's
+    // "Enable" is now honest: the declined-update module is genuinely inert (finding, 2026-08-31).
+    expect(servedModuleKeys()).toEqual([]);
+    expect(consents()[ID]).toBeUndefined();
+    expect(isModuleWritable(ID, target)).toBe(false);
   });
 
   it('refuses a file whose sha256 does not match, and leaves no .part behind', async () => {
@@ -709,6 +786,28 @@ describe('disabling and removing', () => {
   });
 });
 
+describe('a compiled-in id cannot be shadowed by an on-disk module', () => {
+  const SHADOW = 'tetravox.seeg'; // a real MANIFESTS id in this build
+
+  it('refuses it entirely — not installed, not served, no consent fabricated at boot', () => {
+    place(moduleDir(), {
+      id: SHADOW,
+      version: '9.9.9',
+      manifest: manifestText({ id: SHADOW, version: '9.9.9' }),
+    });
+    // An on-disk copy claiming a built-in id is not in the installed set at all — the same skip the
+    // renderer's eligibility check makes (finding, 2026-08-31).
+    expect(installedModule(SHADOW)).toBeNull();
+    expect(installedModules().some((m) => m.id === SHADOW)).toBe(false);
+    // The MANIFESTS short-circuit still answers `true` for genuinely compiled-in code…
+    expect(isModuleConsented(SHADOW)).toBe(true);
+    // …but boot neither serves the shadow's bytes nor writes a fabricated consent record for it.
+    bootstrapInstalledModules();
+    expect(servedModuleKeys().some((k) => k.startsWith(`${SHADOW}/`))).toBe(false);
+    expect(consents()[SHADOW]).toBeUndefined();
+  });
+});
+
 describe('the card states', () => {
   it('says installed, enabled, bundled and updatable, and derives the permission list', () => {
     const { index } = indexFor([{ name: 'index.js', text: ENTRY_JS }], { version: '1.4.0' });
@@ -726,6 +825,18 @@ describe('the card states', () => {
 
     expect(enableModule(ID).ok).toBe(true);
     expect(moduleStatuses().find((s) => s.id === ID)?.enabled).toBe(true);
+  });
+
+  it('derives `enabled` from the served map, not the consent record: a consented-but-unserved module is not "Enabled"', () => {
+    place(moduleDir(), { version: '1.0.0', manifest: manifestText({ version: '1.0.0' }) });
+    expect(enableModule(ID).ok).toBe(true);
+    expect(moduleStatuses().find((s) => s.id === ID)?.enabled).toBe(true);
+    // An enable that did not survive to the map — a boot-time verification failure, or an in-session
+    // update that unserved the old version — leaves the consent record but nothing served. The card
+    // must not claim "Enabled ✓" while its code is not actually reachable (finding, 2026-08-31).
+    clearServedModules();
+    expect(consents()[ID]?.version).toBe('1.0.0');
+    expect(moduleStatuses().find((s) => s.id === ID)?.enabled).toBe(false);
   });
 
   it('lists a catalogue module that is not installed, with nothing claimed about it', () => {
