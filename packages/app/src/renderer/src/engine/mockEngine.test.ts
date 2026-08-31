@@ -248,6 +248,46 @@ describe('NoGlEngine: the point tool (§13)', () => {
     expect(second.events.filter((e) => e.kind === 'cleared').length).toBeGreaterThan(0);
   });
 
+  /**
+   * §4.7's `PointToolEvent.reason` (2026-08-30), mirrored here because `?engine=mock` is what the
+   * app's E2E drives and a module reads the reason to decide whether to arm again.
+   */
+  it('says WHY it cleared, one reason per route', async () => {
+    const esc = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    esc.engine.setPointTool({ layerId: esc.layerId, mode: 'select' });
+    esc.engine.cancelPointTool();
+    expect(esc.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('esc');
+
+    const measure = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    measure.engine.setPointTool({ layerId: measure.layerId, mode: 'select' });
+    measure.engine.setMeasureMode(true);
+    expect(measure.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('measure');
+
+    const gone = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    gone.engine.setPointTool({ layerId: gone.layerId, mode: 'select' });
+    gone.engine.removeLayer(gone.layerId);
+    expect(gone.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('layer');
+
+    const loaded = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    loaded.engine.setPointTool({ layerId: loaded.layerId, mode: 'select' });
+    await loaded.engine.load(loaded.engine.serialize(), () => null);
+    expect(loaded.events.filter((e) => e.kind === 'cleared').at(0)?.reason).toBe('load');
+
+    const host = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    host.engine.setPointTool({ layerId: host.layerId, mode: 'select' });
+    host.engine.setPointTool(null);
+    expect(host.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('host');
+
+    // A selection that goes while the tool stays armed is a different event with a different
+    // answer — this is the one a host must NOT read as "the tool is no longer mine".
+    const sel = await harness([{ position: [0, 0, 0], id: 'c1' }]);
+    sel.engine.setPointTool({ layerId: sel.layerId, mode: 'select' });
+    sel.engine.setPointSelection({ layerId: sel.layerId, pointId: 'c1' });
+    sel.engine.setPointSelection(null);
+    expect(sel.events.filter((e) => e.kind === 'cleared').at(-1)?.reason).toBe('selection');
+    expect(sel.engine.pointTool()).not.toBeNull();
+  });
+
   it('returns copies, so a caller cannot edit the armed spec in place', async () => {
     const { engine, layerId } = await harness();
     engine.setPointTool({ layerId, mode: 'place', template: { group: 'A' } });

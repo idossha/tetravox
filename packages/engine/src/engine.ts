@@ -860,7 +860,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#derived.dropLayer(id);
     // §13: the tool's layer just went. Disarming here rather than leaving a tool pointed at
     // nothing is what keeps "armed" and "there is something to edit" the same statement.
-    if (this.#pointTool?.layerId === id) this.setPointTool(null);
+    if (this.#pointTool?.layerId === id) this.#disarmPointTool('layer');
     this.#emit('layers', [...this.#scene.layers]);
     this.#reconcilePointSelection();
     this.requestRender();
@@ -2497,7 +2497,7 @@ export class TetravoxEngine implements Engine, PointerHost {
   setMeasureMode(on: boolean): void {
     // §7.5's one-armed-mode invariant (2026-08-30): both modes take the left click away from the
     // cursor, so arming one disarms the other. A user cannot be told which mode a click went to.
-    if (on && this.#pointTool !== null) this.setPointTool(null);
+    if (on && this.#pointTool !== null) this.#disarmPointTool('measure');
     if (this.#measureMode === on) return;
     this.#measureMode = on;
     if (!on) this.#measureDraft = null;
@@ -2699,35 +2699,7 @@ export class TetravoxEngine implements Engine, PointerHost {
    */
   setPointTool(spec: PointToolSpec | null): void {
     if (spec === null) {
-      const tool = this.#pointTool;
-      if (tool === null) return;
-      // §13 (2026-08-30, review): a drag still in flight is **committed** on the way out, never
-      // dropped. `Esc` is not gated on "is a gesture running" — it cannot be, because it is the
-      // documented `place` → `select` → off key and a user presses it with a button down — so a
-      // disarm mid-drag used to discard `#pointDrag` and emit only `cleared`. Every intermediate
-      // position had already been written into the layer and adopted by the host, and the commit
-      // point never arrived: no undo entry, no dirty mark, an edit the user could neither see
-      // flagged nor revert. Committing (rather than reverting to the press-time position) makes
-      // `Esc` mid-drag mean exactly what `pointerup` means, which is the answer that leaves one
-      // undo step per drag however the drag ended.
-      //
-      // Skipped when the grabbed point no longer resolves: `removeLayer` disarms *after* the layer
-      // has gone and `Engine.load` replaces the scene, and there is nothing left to commit there.
-      if (
-        this.#pointDrag !== null &&
-        this.#indexOfPointId(this.#pointDrag.layerId, this.#pointDrag.pointId) !== null
-      ) {
-        this.endPointDrag();
-      }
-      this.#pointTool = null;
-      this.#pointDrag = null;
-      const layerId = this.#pointSelectionId?.layerId ?? tool.layerId;
-      this.#pointSelectionId = null;
-      this.setPointHighlight(null);
-      // `cleared` on every disarm, selection or not: it is the one event a module can hang
-      // "the tool is no longer mine" on, and `Esc` in `select` mode arrives here.
-      this.#emit('pointTool', { layerId, kind: 'cleared', pointId: null, index: -1 });
-      this.requestRender();
+      this.#disarmPointTool('host');
       return;
     }
     if (this.#measureMode) this.setMeasureMode(false);
@@ -2741,6 +2713,47 @@ export class TetravoxEngine implements Engine, PointerHost {
     if (this.#pointSelectionId !== null && this.#pointSelectionId.layerId !== next.layerId) {
       this.setPointSelection(null);
     }
+    this.requestRender();
+  }
+
+  /**
+   * The disarm half of {@link Engine.setPointTool}, told **why** (§4.7's `PointToolEvent.reason`,
+   * 2026-08-30).
+   *
+   * Private, and the public member is the `'host'` case, because the reason is not something a
+   * caller supplies: it is which of the engine's own six routes ran. A host that re-arms has to
+   * tell `Esc` (put it back) from measure mode (do not) from a scene load (wait for the layer),
+   * and before this it could only guess from the layer list one event later.
+   */
+  #disarmPointTool(reason: 'esc' | 'measure' | 'load' | 'layer' | 'host'): void {
+    const tool = this.#pointTool;
+    if (tool === null) return;
+    // §13 (2026-08-30, review): a drag still in flight is **committed** on the way out, never
+    // dropped. `Esc` is not gated on "is a gesture running" — it cannot be, because it is the
+    // documented `place` → `select` → off key and a user presses it with a button down — so a
+    // disarm mid-drag used to discard `#pointDrag` and emit only `cleared`. Every intermediate
+    // position had already been written into the layer and adopted by the host, and the commit
+    // point never arrived: no undo entry, no dirty mark, an edit the user could neither see
+    // flagged nor revert. Committing (rather than reverting to the press-time position) makes
+    // `Esc` mid-drag mean exactly what `pointerup` means, which is the answer that leaves one
+    // undo step per drag however the drag ended.
+    //
+    // Skipped when the grabbed point no longer resolves: `removeLayer` disarms *after* the layer
+    // has gone and `Engine.load` replaces the scene, and there is nothing left to commit there.
+    if (
+      this.#pointDrag !== null &&
+      this.#indexOfPointId(this.#pointDrag.layerId, this.#pointDrag.pointId) !== null
+    ) {
+      this.endPointDrag();
+    }
+    this.#pointTool = null;
+    this.#pointDrag = null;
+    const layerId = this.#pointSelectionId?.layerId ?? tool.layerId;
+    this.#pointSelectionId = null;
+    this.setPointHighlight(null);
+    // `cleared` on every disarm, selection or not: it is the one event a module can hang
+    // "the tool is no longer mine" on, and `Esc` in `select` mode arrives here.
+    this.#emit('pointTool', { layerId, kind: 'cleared', pointId: null, index: -1, reason });
     this.requestRender();
   }
 
@@ -2774,7 +2787,13 @@ export class TetravoxEngine implements Engine, PointerHost {
       this.#pointSelectionId = null;
       this.setPointHighlight({ selection: null, hot: null });
       if (prev === null) return;
-      this.#emit('pointTool', { layerId: prev.layerId, kind: 'cleared', pointId: null, index: -1 });
+      this.#emit('pointTool', {
+        layerId: prev.layerId,
+        kind: 'cleared',
+        pointId: null,
+        index: -1,
+        reason: 'selection',
+      });
       return;
     }
     const index = this.#indexOfPointId(sel.layerId, sel.pointId);
@@ -2931,7 +2950,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       this.setPointTool({ ...tool, mode: 'select' });
       return true;
     }
-    this.setPointTool(null);
+    this.#disarmPointTool('esc');
     return true;
   }
 
@@ -3104,7 +3123,13 @@ export class TetravoxEngine implements Engine, PointerHost {
       this.#pointSelectionId = null;
       this.#pointDrag = null;
       this.setPointHighlight(null);
-      this.#emit('pointTool', { layerId: sel.layerId, kind: 'cleared', pointId: null, index: -1 });
+      this.#emit('pointTool', {
+        layerId: sel.layerId,
+        kind: 'cleared',
+        pointId: null,
+        index: -1,
+        reason: 'selection',
+      });
       return;
     }
     this.setPointHighlight({ selection: { layerId: sel.layerId, index }, hot: null });
@@ -3187,9 +3212,9 @@ export class TetravoxEngine implements Engine, PointerHost {
   async load(input: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
     // §13: every layer in the scene is about to be replaced, ids included, so a tool armed on one
     // of the outgoing ones is pointed at nothing. Disarmed here rather than left to fail its next
-    // click — and it emits `cleared`, which is how a module knows to re-arm against the layer the
-    // load brought back.
-    this.setPointTool(null);
+    // click — and it emits `cleared` with `reason: 'load'`, which is how a module knows to re-arm
+    // against the layer the load brought back rather than to stay away.
+    this.#disarmPointTool('load');
     // One migration point, so a host that read the file itself and a host that did not both get a
     // spec at `SCENE_VERSION` (§4.6, directed task 13).
     const spec = migrateViewSpec(input);

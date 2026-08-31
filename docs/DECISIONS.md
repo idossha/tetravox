@@ -4363,3 +4363,36 @@ and not three call sites that agree today.
 cross-section, its 3D billboard, its label slab and its probe radius, and a second size for one of
 those five would be a knob that disagreed with the other four.
 
+## 2026-08-30 — `cleared` says why, and select mode is the sEEG module's resting state
+
+The owner clicked contacts on P077 and the electrode dropdown did not follow. The diagnosis is worth
+recording because the obvious answer was wrong: the point tool **is** armed in `select` after a table
+load and after a scene restore — measured, in both routes — and the click that misses is the one that
+lands on a **ghost**. §7.5's select rule is on-slice only (`|d| < r`, r = 1.5 mm here) while
+`offPlaneOpacity: 0.6` draws every contact of every shaft, so on a P077 slice eighty-two contacts are
+visible and one or two are hittable. That rule is not weakened here: a ghost is a projection of a
+contact on another slice, and grabbing one would drag it in a plane it is not in. It is written down
+as the open question it is.
+
+What *was* broken is that three ordinary things cleared the tool and nothing put it back — `Esc`,
+deleting the selected contact, and measure mode — and an unarmed left click is §7.5's R1 cursor-set,
+which never hit-tests: the dropdown, the ring and the crosshair all stop following the pointer, with
+nothing on screen to say why. The module could not tell those cases apart, because one `cleared`
+event served six different causes; it guessed from the layer list one event later, which can answer
+"did my layer survive" and can never answer "did the user pick measure mode instead".
+
+`PointToolEvent.reason` is that answer — `'esc' | 'measure' | 'load' | 'layer' | 'host' |
+'selection'`, `cleared` only, absent meaning `'host'`, which is what every clear meant before the
+field existed. The module's policy is then stated rather than inferred: `'selection'` leaves the tool
+alone (the tool never moved — this is every delete of the selected contact, and reading it as a
+disarm is what stopped later scene loads re-arming); `'measure'` stands down, because §7.5 arms one
+click-consuming mode at a time and re-arming would turn measure mode straight off again and make `m`
+do nothing while the panel is open; `'load'` and `'layer'` wait for the `layers` event and re-arm
+against whatever layer the module owns then; `'esc'` and `'host'` re-arm `select` at once, because
+the layer is untouched.
+
+So `Esc` keeps the step that matters — `place` → `select`, which is what a user who armed placing by
+mistake wants — and no longer leaves the module needing two presses of Add before a click means
+anything again. §13.3 says so in those words, and the module's layer-identity heuristic is deleted:
+the engine now states what the module used to deduce.
+

@@ -2553,6 +2553,13 @@ Input (Freeview-like):
     "one drag is one undo step" true however the drag ended. The scene has already moved by then — every
     intermediate position was written into the layer — so dropping the drag left an edit with no commit
     point: no undo entry, no dirty mark, nothing for the discard guard to ask about.
+  * **A `cleared` event says why** (`PointToolEvent.reason`, 2026-08-30): `'esc'`, `'measure'`, `'load'`,
+    `'layer'`, `'host'` (an explicit `setPointTool(null)`, and what absent means) or `'selection'` — the last
+    of which is not a disarm at all, only `setPointSelection(null)` or a `points` replacement that lost the
+    selected id. Six causes shared one event, and a host that re-arms has to tell them apart: re-arming after
+    `'measure'` would turn measure mode straight back off, because arming the point tool disarms it, so `m`
+    would do nothing at all while such a module was active. The reason is which of the engine's own routes
+    ran and not something a caller supplies, which is why `setPointTool(null)` stays a one-argument member.
   * **Hover** runs the same hit test per 2D move, **only while `select` is armed**, and sets
     `DrawInput.pointHot` and the canvas cursor (`grab` over a point, `crosshair` in `place` mode). A user who
     is not editing points pays one property read per move, so §8's 16 ms hover budget is untouched.
