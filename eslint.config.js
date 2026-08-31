@@ -58,6 +58,8 @@ export default tseslint.config(
         // timeout do it, so the failure names the artefact instead of the workflow.
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        // scripts/fetch-locked-modules.mjs downloads the release assets `modules.lock` pins.
+        fetch: 'readonly',
       },
     },
   },
