@@ -4760,3 +4760,53 @@ API it needs, rather than hidden: "needs a newer Tetravox" is an answer and an a
 not be left holding a host, so the controller empties the slot before it sends either message. Main
 then does the half the renderer is not asked about — the protocol map, the settings key and the write
 list — because withdrawing a capability cannot be a message main hopes to receive.
+
+## Extensions tier: closing seven consent/boundary findings (2026-08-31)
+
+Seven adversarially-verified findings against the downloadable-extensions tier, each a variant of one
+rule — *the consent sheet must equal what is granted, and a capability is withdrawn in main* — now have
+tests that were red on the code as filed.
+
+**The consent sheet may not deny what the manifest grants.** `derivePermissions` enumerated readers,
+writers, keys, operations and the scene block but had no branch for a manifest's top-level `siblings`
+block, which is a read/allow-list-widening capability in its own right (`host.files.siblings` admits and
+reads text files off disk). A siblings-only module therefore derived an empty list, which the dialog
+rendered as "nothing beyond drawing in its own panel" — an affirmative denial. The block gets its own
+line, and the empty-list sentence is reworded as what the manifest *declared* so it cannot outrun a
+capability the list forgot to enumerate.
+
+**A Save sheet's filters and sibling templates come from the manifest, never the renderer, for a module
+main carries.** `moduleSaveDialog` fell back to renderer-supplied `filters`/`siblings` whenever
+`writerId` resolved to no declared writer — a value a first-party module fully controls, letting it
+admit an undisclosed second write path (an executable `<stem>.command` beside the file the user named).
+For `manifestFor(id) !== null` only a resolved writer contributes filters and templates; an unresolved
+`writerId` admits the chosen path alone. The renderer fallback survives only for the harness case
+(`manifestFor === null`, a `--job` window told about a module this build's barrel does not carry).
+
+**A compiled-in id cannot be shadowed by an on-disk module.** `installedModules()` drops any on-disk
+module whose id is in `MANIFESTS`, exactly the skip the renderer's eligibility check makes, so a
+`~/.tetravox` shadow of `tetravox.seeg` is never served or consent-recorded at boot behind the
+`isModuleConsented` MANIFESTS short-circuit. (This is the refusal manifest-types/manifests.ts already
+described as "module-store.ts refuses an installed module whose id collides".)
+
+**An update leaves the superseded version inert.** `installModule` unserves, revokes writes and drops
+stale consent for a version it supersedes, so a declined update leaves the module in the same
+must-re-consent state the card advertises rather than keeping the old bytes served and writable.
+
+**`enabled` is the served map, not the consent record.** `moduleStatuses().enabled` is derived from
+`servedModuleVersion(id)`, so the card cannot show "Enabled ✓" for a consented-but-unserved module (an
+enable that failed at boot on a tampered file or an incompatible host API), nor hide Disable while an
+old version still runs after an in-session update.
+
+**The dev/E2E env seams close in a shipped build.** `TETRAVOX_MODULE_DIR` and `TETRAVOX_EXT_INDEX` are
+gated behind `!app.isPackaged || TETRAVOX_E2E === '1'`, mirroring the
+`shouldPromptOnClose`/`TETRAVOX_E2E_DISCARD` precedent, so an ambient env var cannot repoint the
+installed store or spoof the whole catalogue in a signed build. The packaged `csp.spec.ts` leg sets
+`TETRAVOX_E2E=1` to keep its fixture seam — this is a defense-in-depth/provenance-spoof hardening, not a
+consent bypass (a bundled id still wins a collision and the "Bundled" badge is not env-controlled).
+
+**The renderer cannot author `settings.extensions`.** `tetravox:set-settings` routes through
+`writeSettingsFromRenderer`, which strips the `extensions` key, so the consent map stays what
+`enableModule`/`disableModule` wrote through `grantConsent`/`dropConsent`. The invariant this section
+already stated — "the only persisted key is `AppSettings.extensions`, which main owns and the renderer
+never writes" — is now enforced at the channel rather than assumed.
