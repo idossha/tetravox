@@ -20,9 +20,10 @@
  * proves the seam.
  *
  * Three AGENTS rules shape it, as they shape `automation-realdata.spec.ts`: the launch is a plain
- * `spawn` and the window is never shown (rule 9); the data is `testdata/`, so it runs everywhere
- * rather than skipping (rule 2 does not apply — nothing here needs a subject); and every claim is a
- * value read back out of a file, never a picture (rule 1).
+ * `spawn` and the window is never shown (rule 9); the data is `testdata/`, so the fixture half runs
+ * everywhere rather than skipping (the sEEG half needs an extension to stage and is gated on
+ * `TETRAVOX_SEEG_FIXTURE`, rule 2's shape); and every claim is a value read back out of a file,
+ * never a picture (rule 1).
  */
 
 /* eslint-disable no-empty-pattern */

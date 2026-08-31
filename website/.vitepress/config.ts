@@ -122,7 +122,8 @@ export default defineConfig({
             items: [
               { text: 'Overview', link: '/extensions' },
               { text: 'sEEG contacts', link: '/extensions/seeg' },
-              { text: 'Build an extension', link: '/guide/extensions' },
+              { text: 'Using extensions', link: '/guide/extensions' },
+              { text: 'Build an extension', link: '/developers/contributing' },
             ],
           },
           { text: 'Gallery', link: '/gallery' },

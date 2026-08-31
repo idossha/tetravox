@@ -96,12 +96,12 @@ interface ExtensionsIndex {
 export const MAX_MODULE_FILE_BYTES = 32 * 1024 * 1024;
 
 /**
- * The install receipt written beside a module's files. Its name is part of the on-disk contract.
+ * The install receipt written beside an extension's files. Its name is part of the on-disk contract.
  *
- * Two writers, one shape: {@link installModule} after a download, and
- * `scripts/fetch-locked-modules.mjs` for a module `modules.lock` bundles into the packaged app.
- * That script's test reads {@link InstallReceipt} out of this file and compares the field lists, so
- * the two halves cannot drift apart unnoticed.
+ * One writer, {@link installModule}, recording the hashes the catalogue promised for the bytes it
+ * just wrote — so {@link verifyInstalled} checks every later launch against a number the download
+ * was verified against, not against the file itself. (There was a second writer until 2026-08-31,
+ * the bundling step; it went with the bundled tier.)
  */
 export const RECEIPT_NAME = 'tetravox-module.json';
 
@@ -655,6 +655,10 @@ export async function installModule(
     return { ok: false, error: `${id} ${version} ships no manifest.json` };
   }
 
+  // Read before anything is written: whether this id had *any* installed copy going in decides,
+  // below, whether a consent record found afterwards can possibly belong to these bytes.
+  const hadInstall = installedModule(id) !== null;
+
   const total = wanted.files.reduce((n, f) => n + f.bytes, 0);
   let before = 0;
   const report = (
@@ -723,7 +727,11 @@ export async function installModule(
   // (finding, 2026-08-31).
   const servedVersion = servedModuleVersion(id);
   const consentVersion = consents()[id]?.version;
+  // `hadInstall` is read BEFORE this install landed (above), so a **first** install of an id drops
+  // any consent record it finds even at the same version: such a record can only predate the files
+  // it claims to cover, and a download nobody has been asked about must not arrive pre-consented.
   if (
+    !hadInstall ||
     (servedVersion !== null && servedVersion !== version) ||
     (consentVersion !== undefined && consentVersion !== version)
   ) {
@@ -796,6 +804,17 @@ export function refreshInstalledManifests(): readonly InstalledManifest[] {
 export function bootstrapInstalledModules(): void {
   const installed = refreshInstalledManifests();
   const modules = installedModules();
+  // A consent record with no install behind it is a leftover, and the bundled tier left exactly
+  // those: every machine that ran a build before 2026-08-31 carries a seeded
+  // `tetravox.seeg` grant whose files went away with the tier. Left alone it is not inert — a later
+  // download of that same version would find its own consent already recorded and go live at the
+  // next launch without a sheet ever being answered. Pruned here, a re-download asks, as it must.
+  // Compiled-in ids are exempt: `isModuleConsented` answers for them from MANIFESTS, never a record.
+  const compiledIn = new Set<string>(MANIFESTS.map((m) => m.id));
+  const live = new Set<string>(modules.map((m) => m.id));
+  for (const id of Object.keys(consents())) {
+    if (!live.has(id) && !compiledIn.has(id)) dropConsent(id);
+  }
   for (const module of modules) {
     if (!isModuleConsented(module.id)) continue;
     const enabled = enableModule(module.id);

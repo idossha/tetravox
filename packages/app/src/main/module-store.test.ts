@@ -823,6 +823,88 @@ describe('the manifest registration', () => {
     expect(installedManifests().map((m) => m.id)).toEqual([ID]);
   });
 
+  it("prunes a consent record with no install behind it — the bundled tier's leftover grant", () => {
+    // Every machine that ran a pre-2026-08-31 build carries a seeded grant for the extension that
+    // used to ship inside the app. Its files left with the tier, so the record covers nothing.
+    writeSettings({
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
+    });
+    bootstrapInstalledModules();
+    expect(consents()[ID]).toBeUndefined();
+  });
+
+  it('so a later download of that same version still has to be consented to (finding, 2026-08-31)', async () => {
+    // The migration path end to end: the leftover grant, the boot that prunes it, then the user
+    // downloading exactly the version the grant named. Without the prune this install would find
+    // its own consent already on file and go live at the next launch with no sheet ever answered.
+    writeSettings({
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
+    });
+    bootstrapInstalledModules();
+    const { index, bodies } = indexFor([
+      { name: 'manifest.json', text: manifestText() },
+      { name: 'index.js', text: ENTRY_JS },
+    ]);
+    writeIndex(index);
+    expect(
+      (
+        await installModule(ID, '1.0.0', {
+          fetchImpl: serveFrom(bodies),
+          signal: new AbortController().signal,
+        })
+      ).ok
+    ).toBe(true);
+    expect(consents()[ID]).toBeUndefined();
+    expect(isModuleConsented(ID)).toBe(false);
+    // …and a second boot leaves it inert rather than serving it.
+    bootstrapInstalledModules();
+    expect(servedModuleKeys()).toEqual([]);
+  });
+
+  it('a FIRST install drops a same-version record it did not earn, even without a boot in between', async () => {
+    // Belt to the prune's braces: the rule is "a fresh install always asks", so the drop does not
+    // depend on a launch having happened between the leftover record and the download.
+    const { index, bodies } = indexFor([
+      { name: 'manifest.json', text: manifestText() },
+      { name: 'index.js', text: ENTRY_JS },
+    ]);
+    writeIndex(index);
+    writeSettings({
+      extensions: {
+        [ID]: {
+          version: '1.0.0',
+          hostApi: 1,
+          grantedAt: '2026-08-30T00:00:00.000Z',
+          permissions: [],
+        },
+      },
+    });
+    expect(
+      (
+        await installModule(ID, '1.0.0', {
+          fetchImpl: serveFrom(bodies),
+          signal: new AbortController().signal,
+        })
+      ).ok
+    ).toBe(true);
+    expect(consents()[ID]).toBeUndefined();
+    expect(servedModuleKeys()).toEqual([]);
+  });
+
   it('re-serves a previously consented install at startup, without asking again', () => {
     place(moduleDir());
     expect(enableModule(ID).ok).toBe(true);

@@ -53,7 +53,8 @@ through its `csc` column.
 Open **File ▸ Extensions…**, find _sEEG contacts_, **Download & enable**, and read the permission
 sheet — like every extension, it is downloaded, never shipped inside the application, and nothing runs
 until you have agreed to what its manifest declares. Its two files (`index.js` and `manifest.json`) are
-re-hashed against the catalogue at download and again at every enable, before a byte of it runs.
+checked against the catalogue's SHA-256 as they download, recorded in a receipt beside them, and
+re-hashed against that receipt at every enable — before a byte of it runs.
 
 ## Links
 

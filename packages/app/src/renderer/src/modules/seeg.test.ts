@@ -36,8 +36,8 @@ const SEEG = 'tetravox.seeg';
 
 /**
  * The `tetravox.seeg` extension, reached the way the running app reaches it (§13.8, 2026-08-31),
- * not compiled in any more. The fake bridge reports it exactly as main reports a pre-consented
- * installed extension, the controller's `refreshInstalledModules` registers it through the real
+ * not compiled in any more. The fake bridge reports it exactly as main reports an installed and
+ * enabled extension, the controller's `refreshInstalledModules` registers it through the real
  * eligibility gate, and the one step a `tetravox://module/` URL cannot take under vitest — `import()`
  * of the bundle — is the only thing mocked, and it resolves to the very bytes a release ships
  * (the directory `TETRAVOX_SEEG_FIXTURE` names — a downloaded `idossha/tetravox-seeg` release).

@@ -49,6 +49,9 @@ export interface SeegStage {
 export function stageSeeg(opts: { home?: string } = {}): SeegStage | null {
   const src = process.env['TETRAVOX_SEEG_FIXTURE'];
   if (src === undefined || src === '') return null;
+  // Every failure below answers `null`, never a throw: this runs at **spec collection** (module
+  // scope), where a throw is a suite-wide error rather than the skip a missing fixture deserves.
+  if (!existsSync(join(src, 'index.js')) || !existsSync(join(src, 'manifest.json'))) return null;
   let manifest: { id?: string; version?: string; hostApi?: number };
   try {
     manifest = JSON.parse(readFileSync(join(src, 'manifest.json'), 'utf8')) as typeof manifest;

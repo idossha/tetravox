@@ -634,7 +634,7 @@ describe('the module envelope', () => {
   it('validates a shipped module operation against its manifest, arguments and all', () => {
     // The default argument is `MANIFESTS`, so this is the operation as a real job file meets it —
     // §13.6's promise that a manifest entry is the schema, with no second declaration anywhere. The
-    // sEEG editor is a bundled extension now (§13.8), validated the same way once its manifest is
+    // sEEG editor is a downloaded extension (§13.8), validated the same way once its manifest is
     // registered (`module-store.test.ts`, `allManifests()` + consent); the compiled-in fixture is
     // the shipped example here.
     expect(

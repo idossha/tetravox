@@ -113,7 +113,8 @@ The seams, all of them environment variables, so nothing here touches a real `~/
 
 `e2e/fixtures/tetravox.fixture/` is a checked-in **emitted extension bundle**: zero imports, the SDK shim
 inlined, reading the host's React and the contacts kit off `globalThis.__tetravoxModuleSdk`. It is what a
-extension repository's `rollup -c` produces, checked in because no extension repository exists yet, and
+extension repository's `rollup -c` produces, checked in so the suite is hermetic — no network, no release
+asset, no dependency on a repository staying reachable — and
 `extensions.spec.ts` runs the same five-line "no imports at all" check on it that
 `scripts/module-sdk/README.md` tells an extension repository to run in its own CI.
 `e2e/fixtures/tetravox.future/` is a manifest alone, at `hostApi: 2`, for the greyed-card case.
@@ -402,7 +403,7 @@ The recipe:
 
 1. **Add a page.** `test/pages/<name>.html` with a single `<canvas id="gl">` sized to its backing store and
    no CSS scaling, plus `test/pages/<name>.ts` that draws and assigns `window.__tvxRender`.
-2. **Put the scene's numbers in a side-effect-free extension** — `test/pages/<name>-scene.ts` — imported by
+2. **Put the scene's numbers in a side-effect-free module** — `test/pages/<name>-scene.ts` — imported by
    *both* the page and the spec. A test that re-types its fixture's constants asserts a transcription.
 3. **Derive the expectation, don't remember it.** `triangle-scene.ts` exports `insideTriangle(x, y)`, a
    half-plane test over the same clip-space vertices the page draws. For a volume, compute the expected RGBA

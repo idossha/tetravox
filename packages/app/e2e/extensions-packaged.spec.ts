@@ -4,17 +4,11 @@
  *
  * `extensions.spec.ts` runs the whole install→consent→enable→activate→disable→remove round trip, but
  * only on the **dev** target, because the CSP claim it rests on is the packaged build's and
- * `csp.spec.ts` owns that leg. This spec is the two things that are only true in a *packaged* build
- * and cannot be seen anywhere else:
+ * `csp.spec.ts` owns that leg. This spec is the one thing that is only true in a *packaged* build
+ * and cannot be seen anywhere else (the bundled-card test that used to sit beside it went with the
+ * bundled tier itself, 2026-08-31 — a packaged build now carries no extension at all):
  *
- *  1. **The bundled sEEG card, from the SHIPPED catalogue.** A packaged `.dmg` carries
- *     `tetravox.seeg` under `Contents/Resources/modules/` (`scripts/fetch-locked-modules.mjs`,
- *     `electron-builder.yml`'s `extraResources`), and `src/shared/extensions-index.json` — the copy
- *     the build ships — lists it. So with a **clean** `TETRAVOX_HOME` and no network, the dialog
- *     draws a real card that is `Bundled`, pre-consented and `Enabled ✓`, with no Remove button
- *     (a bundled module is not the user's to delete). This is the offline-correct catalogue.
- *
- *  2. **The download path, in the shipped build.** A packaged build ignores the `TETRAVOX_MODULE_DIR`
+ *  1. **The download path, in the shipped build.** A packaged build ignores the `TETRAVOX_MODULE_DIR`
  *     / `TETRAVOX_EXT_INDEX` seams unless `TETRAVOX_E2E=1` opts back in (`module-store.ts`
  *     `envSeamsAllowed`, the `csp.spec.ts` seam). With it, a second, non-bundled fixture module is
  *     served from a `file://` release store and a fixture index, and the whole gesture — Download &

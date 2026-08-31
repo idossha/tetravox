@@ -39,8 +39,12 @@ Rust is pinned by `rust-toolchain.toml`; Node ≥ 22 and pnpm (`packageManager` 
 
 ## Adding an extension
 
-A **extension** is a first-party tool that ships with the app — its own panel, keys and files, one active
-at a time in the right column. `docs/ARCHITECTURE.md` §13 is the contract; this is the short version.
+An **extension** is a first-party tool with its own panel, keys and files, one active at a time in the
+right column. It does **not** ship with the app: it lives in its own repository, is built against
+`@tetravox/module-sdk`, and users download it from File ▸ Extensions… (the "…and an extension that ships
+separately" section below is therefore the normal path; the in-repo steps that follow exist for the
+`tetravox.hello` test fixture and for prototyping). `docs/ARCHITECTURE.md` §13 is the contract; this is
+the short version.
 
 The rule the whole design rests on: **an extension is a directory and one line in a registry.** If you find
 yourself editing `Shell.tsx`, `Toolbar.tsx`, `keymap.ts`, `StatusBar.tsx` or `controller.ts` to make

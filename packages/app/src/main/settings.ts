@@ -98,12 +98,13 @@ export interface AppSettings {
   /** Persisted §4.7 screenshot defaults, applied to `screenshotOptions` on startup. */
   screenshotDefaults: ScreenshotDefaults;
   /**
-   * Which installed extensions the user has consented to run, by module id (2026-08-30).
+   * Which installed extensions the user has consented to run, by extension id (2026-08-30).
    *
    * The one key here whose absence is a **security** property rather than a preference: an id that
-   * is not in this record is a module main never puts on the `tetravox://module` map, never hands to
-   * a job, and never lists as enabled. Bundled modules are seeded on first run without a sheet —
-   * they shipped inside the signed application, so installing the app *was* the consent.
+   * is not in this record is an extension main never puts on the `tetravox://module` map, never
+   * hands to a job, and never lists as enabled. Nothing is ever seeded into it: since the bundled
+   * tier was removed (2026-08-31) every record is written by `enableModule`, behind the consent
+   * sheet the user answered, and `bootstrapInstalledModules` prunes any record whose files are gone.
    */
   extensions: Record<string, ModuleConsent>;
   /**

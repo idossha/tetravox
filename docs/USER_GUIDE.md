@@ -381,14 +381,11 @@ table back — reversibly, with a backup and a provenance sidecar. It reproduces
 Contact Editor* workflow (`seegprep`'s `slicer/SEEGContactEditor`) in Tetravox's own panes, and reads
 and writes the same files, so the two can be used on the same subject interchangeably.
 
-It **ships as a bundled extension** (`tetravox.seeg`): it is part of the signed application —
-pre-consented and enabled the moment you install Tetravox, with nothing to download — and you can see
-it, and turn it off, in **File ▸ Extensions…** alongside anything you have installed yourself. Its own
-source, and the deeper reference for what it does, live at
+It is an extension like any other (`tetravox.seeg`): nothing ships inside Tetravox, so you download
+it once from **File ▸ Extensions…**, read the permission sheet, and enable it — after which it is in
+the toolbar's switcher (`▾`, right of the panes), and opening one of its files is enough to bring it
+up. Its own source, and the deeper reference for what it does, live at
 [github.com/idossha/tetravox-seeg](https://github.com/idossha/tetravox-seeg).
-
-Download it once from **File ▸ Extensions…**, then open it from the toolbar's switcher (`▾`, right
-of the panes) — or just open one of the files.
 
 ### Opening a subject
 

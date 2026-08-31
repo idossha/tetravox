@@ -2,7 +2,7 @@
  * **The sEEG editor against the owner's real P077 subject, in the packaged app** (ARCHITECTURE.md
  * §13.3, §13.4; the Plan A ghost-click amendment, §7.5, 2026-08-30).
  *
- * `module-seeg.spec.ts` drives the bundled module against a synthetic phantom under `?engine=mock`.
+ * `module-seeg.spec.ts` drives the same extension against a synthetic phantom under `?engine=mock`.
  * This spec is the other end of the ladder: the **real** engine (WebGL on the host GPU), the **real**
  * P077 scene — a T1, a bone CT and an 82-contact / 15-electrode BIDS `electrodes.tsv` — opened in the
  * **packaged** `.app` by argument, exactly as the interactive relaunch and `<binary> scene.tetravox.json`
@@ -20,7 +20,7 @@
  * scene's directory first (§4.6), so a scene beside the copied tree loads the copy.
  *
  * Gated three ways, and skips (never fails) on any: the packaged target must be built
- * (`packagedUnavailable`), it must carry the bundled sEEG (the cheap CI leg packages without it), and
+ * (`packagedUnavailable`), `TETRAVOX_SEEG_FIXTURE` must name a built sEEG to stage (§13.8), and
  * the owner's `~/Desktop/example` must be present (it is real-subject data, not a committed fixture —
  * the `TETRAVOX_TESTDATA` discipline of AGENTS.md rule 2).
  */

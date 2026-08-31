@@ -19,8 +19,8 @@ export const helloManifest: ModuleManifest = {
   title: 'Hello',
   version: '1.0.0',
   hostApi: 1,
-  // The `## Modules` section of docs/USER_GUIDE.md — the fixture documents the *surface*, since it
-  // has no domain of its own. The docs-guard job checks the heading exists and is in GUIDE_PAGES.
+  // The `## Extensions` section of docs/USER_GUIDE.md — the fixture documents the *surface*, since
+  // it has no domain of its own. The docs-guard job checks the heading exists and is in GUIDE_PAGES.
   docs: 'Extensions',
   activation: ['onToggle'],
   commands: [
