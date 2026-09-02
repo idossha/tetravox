@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.4] - 2026-09-02
+
 ### Changed
 
 - **The 2-D panes zoom five times deeper.** R2's floor was 0.05 mm/px — about 25 mm across a 512 px

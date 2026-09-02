@@ -11,7 +11,7 @@ members = [
 # The frozen dependency set (ARCHITECTURE.md §12.3). Phase-1 agents may not add a dependency
 # without coordinating through the integrator, and any new one needs a line in docs/DECISIONS.md.
 [workspace.package]
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 rust-version = "1.93"
 license = "MIT"
