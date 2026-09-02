@@ -16,7 +16,7 @@ contract is amended in the same commit.
 ## R2 — Zooming in/out of panes
 * Per-pane zoom: `⌘/Ctrl + wheel` (and trackpad pinch) zooms **about the pointer position**; `+` / `-` zoom about
   the pane centre; `r` (or double-click on the pane background with a modifier) resets to fit. Zoom is per pane
-  (`SliceView.camera.mmPerPx`), persists in the ViewSpec, and is clamped to [0.05, 20] mm/px.
+  (`SliceView.camera.mmPerPx`), persists in the ViewSpec, and is clamped to [0.01, 20] mm/px.
 * Gate test: after one zoom-in step at pointer P, `mmPerPx` shrank by the configured factor and the world point
   under P is unchanged (±0.1 mm); `r` restores the fit.
 

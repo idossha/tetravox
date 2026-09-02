@@ -15,8 +15,8 @@ import type { Camera3D, quat, Scale, vec2, vec3 } from '../scene/types';
 // 2D pan and zoom
 // -------------------------------------------------------------------------------------------
 
-/** R2: "clamped to [0.05, 20] mm/px". */
-export const MIN_MM_PER_PX = 0.05;
+/** R2: "clamped to [0.01, 20] mm/px". */
+export const MIN_MM_PER_PX = 0.01;
 export const MAX_MM_PER_PX = 20;
 
 /**

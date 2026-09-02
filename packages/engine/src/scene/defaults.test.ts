@@ -192,7 +192,9 @@ describe('fitMmPerPx (§7.5 `r`, and R2’s corner readout)', () => {
   });
 
   it('never returns a value R2’s clamp would refuse', () => {
-    // An 8 mm fixture in a 384 px pane wants 0.022 mm/px; [0.05, 20] is the clamp.
+    // An 8 mm fixture in a 384 px pane wants 0.022 mm/px; the fit's own floor is 0.05 — kept clear
+    // of R2's deeper [0.01, 20] clamp on purpose, so `r` frames a small volume instead of filling
+    // the pane with it (`fitMmPerPx`'s docstring).
     expect(fitMmPerPx(bounds(4), 384)).toBe(0.05);
     expect(fitMmPerPx({ min: [0, 0, 0], max: [0, 0, 0] }, 512)).toBe(0.05);
   });

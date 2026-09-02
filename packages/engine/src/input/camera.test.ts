@@ -49,7 +49,7 @@ describe('zoomAbout (R2)', () => {
     }
   });
 
-  it('scales mmPerPx by the factor and clamps it to R2’s [0.05, 20]', () => {
+  it('scales mmPerPx by the factor and clamps it to R2’s [0.01, 20]', () => {
     expect(zoomAbout(cam, 0, 0, 1 / ZOOM_STEP).mmPerPx).toBeCloseTo(0.5 / ZOOM_STEP, 12);
     expect(zoomAbout(cam, 100, 100, 1e-9).mmPerPx).toBe(MIN_MM_PER_PX);
     expect(zoomAbout(cam, 100, 100, 1e9).mmPerPx).toBe(MAX_MM_PER_PX);
