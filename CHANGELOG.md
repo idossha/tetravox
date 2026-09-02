@@ -8,7 +8,22 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The 2-D panes zoom five times deeper.** R2's floor was 0.05 mm/px — about 25 mm across a 512 px
+  pane, too coarse to work at the scale of a single object. It is now 0.01 mm/px, roughly 5 mm across
+  the same pane, which is past the scale of one sEEG contact without letting a single CT voxel fill
+  the view. The 20 mm/px ceiling is unchanged, and so is the **fit**: `r` still frames a volume at
+  0.05 mm/px rather than filling the pane with a small one, because how a volume is framed by default
+  is a separate question from how far it can then be zoomed into.
+
+### Added
+
+- **The sEEG extension offers 0.1.4 and 0.1.5.** 0.1.5 draws a guide while a contact is dragged — the
+  electrode's fitted shaft axis as one unbroken line, with the 3-D centre-to-centre distance to each
+  immediate neighbour beside it, so a contact can be aimed back onto the line it left. Its contact
+  list now shows true 3-D neighbour spacing in place of the old plane-relative offset. 0.1.4 fits the
+  pop-out window to the panel.
 
 ## [0.3.3] - 2026-08-31
 
