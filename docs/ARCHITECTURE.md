@@ -2510,7 +2510,7 @@ Input (Freeview-like):
 * **Zoom is per pane, about the pointer** (R2): `⌘/Ctrl+wheel` — and a trackpad pinch, which Chromium
   delivers as a `wheel` with `ctrlKey: true` — hold the world point under the pointer fixed; `+` / `-` do the
   same about the pane centre; `r`, and `Alt`+double-click on a 2D pane, reset to fit. `mmPerPx` is clamped to
-  **[0.05, 20]**, one notch is a factor of 1.2, and the keys act on the pane **under the pointer**.
+  **[0.01, 20]**, one notch is a factor of 1.2, and the keys act on the pane **under the pointer**.
 * The pane a drag belongs to is **latched at `pointerdown`** and held by a pointer capture, so a drag that
   leaves the pane — or the window — keeps driving the pane it started in.
 * **Measure mode** (`m`, and §8's toolbar button). While it is on, a left-click **places a measurement

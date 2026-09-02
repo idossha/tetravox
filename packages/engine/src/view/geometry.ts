@@ -523,7 +523,7 @@ export function rotatePlane(
  *
  * `0.62` of the bounding-box **diagonal** rather than of an axis: a slice plane can cut a volume at
  * any angle, so the widest thing a pane may have to show is the diagonal, and fitting to an axis
- * leaves an oblique cut clipped. The `0.05` floor is R2's clamp, applied here so a fit is never a
+ * leaves an oblique cut clipped. The `0.01` floor is R2's clamp, applied here so a fit is never a
  * value the zoom would refuse.
  *
  * Shared by `resetView`, the auto-fit on the first dataset, and §8's corner `ZOOM` readout — three
@@ -536,7 +536,7 @@ export function fitMmPerPx(bounds: Aabb, px: number): number {
     bounds.max[1] - bounds.min[1],
     bounds.max[2] - bounds.min[2]
   );
-  return Math.max(0.05, (diag * 0.62) / Math.max(1, px));
+  return Math.max(0.01, (diag * 0.62) / Math.max(1, px));
 }
 
 /**

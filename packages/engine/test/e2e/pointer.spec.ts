@@ -187,7 +187,7 @@ const settle = async (page: Page): Promise<void> => {
  *
  * Same race as {@link wheelNotch}, one input away: `page.keyboard.press` resolves once the event has
  * been *dispatched*, so a tight loop of 80 presses can outrun the handler and land one step short of
- * the clamp — 0.06 instead of 0.05, seen on the headed ANGLE project and never on SwiftShader.
+ * the clamp — 0.012 instead of 0.01, seen on the headed ANGLE project and never on SwiftShader.
  * Pressing until the value arrives is the only synchronisation that means anything; the limit is
  * generous, and the assertion after the call is what fails if the clamp is wrong.
  */
@@ -488,11 +488,12 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
   const fit = await cameraOf(page, 'axial');
   // `input/camera.ts`'s ZOOM_STEP, and `WHEEL_NOTCH = 100` — one notch is exactly one step.
   const ZOOM_STEP = 1.2;
-  // **Leave room under the [0.05, 20] clamp before measuring a zoom-in step.** The fit of the 8 mm
-  // synthetic fixture is `max(0.05, …)` — the 0.05 floor exactly — where one notch in is a no-op and
-  // the assertion below would be measuring the clamp instead of the zoom. (`TETRAVOX_TESTDATA` is
-  // unset in CI by design, so that is the path CI takes.) Three notches out, about the pane centre,
-  // so `camera.center` is still [0,0] and "about the pointer moved it" keeps its meaning.
+  // **Leave room under the [0.01, 20] clamp before measuring a zoom-in step.** The fit of the 8 mm
+  // synthetic fixture is `max(0.01, …)` ≈ 0.0112 mm/px — just above the 0.01 floor — so one notch in
+  // (÷1.2 ≈ 0.0093) would clamp to the floor and the assertion below would be measuring the clamp
+  // instead of the zoom. (`TETRAVOX_TESTDATA` is unset in CI by design, so that is the path CI takes.)
+  // Three notches out, about the pane centre, so `camera.center` is still [0,0] and "about the
+  // pointer moved it" keeps its meaning.
   await page.evaluate(async (factor) => {
     const engine = window.__tvxEngine!;
     (engine as unknown as { zoomView(id: string, f: number): void }).zoomView('axial', factor);
@@ -535,7 +536,7 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
 
   // `r` restores the fit — the pointer is over the pane, which is what scopes the key to it (R2).
   // Zooming **out** here rather than in, so the state `r` has to undo is off the clamp on either
-  // fixture: the synthetic one's fit is already at the floor.
+  // fixture: the synthetic one's fit is already close to the floor.
   await page.mouse.move(P.x, P.y);
   await page.keyboard.down('Control');
   await page.mouse.wheel(0, 300);
@@ -550,7 +551,7 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
   expect(errors).toEqual([]);
 });
 
-test('@angle R2: `+` and `-` zoom about the pane centre, and mmPerPx is clamped to [0.05, 20]', async ({
+test('@angle R2: `+` and `-` zoom about the pane centre, and mmPerPx is clamped to [0.01, 20]', async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -572,9 +573,9 @@ test('@angle R2: `+` and `-` zoom about the pane centre, and mmPerPx is clamped 
   await pressZoomUntil(page, '-', 20, 80);
   await settle(page);
   expect((await cameraOf(page, 'axial')).mmPerPx, 'clamped at the 20 mm/px ceiling').toBe(20);
-  await pressZoomUntil(page, '+', 0.05, 160);
+  await pressZoomUntil(page, '+', 0.01, 160);
   await settle(page);
-  expect((await cameraOf(page, 'axial')).mmPerPx, 'clamped at the 0.05 mm/px floor').toBe(0.05);
+  expect((await cameraOf(page, 'axial')).mmPerPx, 'clamped at the 0.01 mm/px floor').toBe(0.01);
   expect(errors).toEqual([]);
 });
 
