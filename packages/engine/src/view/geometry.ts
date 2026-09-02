@@ -523,8 +523,12 @@ export function rotatePlane(
  *
  * `0.62` of the bounding-box **diagonal** rather than of an axis: a slice plane can cut a volume at
  * any angle, so the widest thing a pane may have to show is the diagonal, and fitting to an axis
- * leaves an oblique cut clipped. The `0.01` floor is R2's clamp, applied here so a fit is never a
- * value the zoom would refuse.
+ * leaves an oblique cut clipped. The `0.05` floor keeps a fit clear of R2's clamp, which is
+ * **deeper** (0.01 mm/px). The floor's only job is that a fit is never a value the zoom would
+ * refuse, and every value at or above the clamp satisfies that -- so it is deliberately *not*
+ * lowered to track the clamp. Fitting to 0.01 would make `r` fill a pane edge to edge with an 8 mm
+ * volume rather than framing it, and how a volume is framed by default is a separate question from
+ * how far a user may then zoom into it.
  *
  * Shared by `resetView`, the auto-fit on the first dataset, and §8's corner `ZOOM` readout — three
  * places that each had (or would have grown) a copy, and where a disagreement means `r` produces a
@@ -536,7 +540,7 @@ export function fitMmPerPx(bounds: Aabb, px: number): number {
     bounds.max[1] - bounds.min[1],
     bounds.max[2] - bounds.min[2]
   );
-  return Math.max(0.01, (diag * 0.62) / Math.max(1, px));
+  return Math.max(0.05, (diag * 0.62) / Math.max(1, px));
 }
 
 /**

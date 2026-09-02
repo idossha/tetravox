@@ -488,12 +488,12 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
   const fit = await cameraOf(page, 'axial');
   // `input/camera.ts`'s ZOOM_STEP, and `WHEEL_NOTCH = 100` — one notch is exactly one step.
   const ZOOM_STEP = 1.2;
-  // **Leave room under the [0.01, 20] clamp before measuring a zoom-in step.** The fit of the 8 mm
-  // synthetic fixture is `max(0.01, …)` ≈ 0.0112 mm/px — just above the 0.01 floor — so one notch in
-  // (÷1.2 ≈ 0.0093) would clamp to the floor and the assertion below would be measuring the clamp
-  // instead of the zoom. (`TETRAVOX_TESTDATA` is unset in CI by design, so that is the path CI takes.)
-  // Three notches out, about the pane centre, so `camera.center` is still [0,0] and "about the
-  // pointer moved it" keeps its meaning.
+  // **Zoom out before measuring a zoom-in step**, so `camera.center` is still [0,0] and "about the
+  // pointer moved it" keeps its meaning. The 8 mm synthetic fixture fits to `fitMmPerPx`'s own 0.05
+  // floor, which sits well clear of R2's 0.01 clamp, so a notch in is a real step rather than the
+  // no-op it would be if the fit and the clamp were the same number — that they are deliberately
+  // different is `fitMmPerPx`'s docstring. (`TETRAVOX_TESTDATA` is unset in CI by design, so the
+  // synthetic fixture is the path CI takes.)
   await page.evaluate(async (factor) => {
     const engine = window.__tvxEngine!;
     (engine as unknown as { zoomView(id: string, f: number): void }).zoomView('axial', factor);
@@ -536,7 +536,7 @@ test('@angle R2: ⌘/Ctrl+wheel zooms about the pointer — mmPerPx shrinks by t
 
   // `r` restores the fit — the pointer is over the pane, which is what scopes the key to it (R2).
   // Zooming **out** here rather than in, so the state `r` has to undo is off the clamp on either
-  // fixture: the synthetic one's fit is already close to the floor.
+  // fixture: the synthetic one's fit is already at the fit floor.
   await page.mouse.move(P.x, P.y);
   await page.keyboard.down('Control');
   await page.mouse.wheel(0, 300);
