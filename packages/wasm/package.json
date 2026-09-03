@@ -1,6 +1,6 @@
 {
   "name": "@tetravox/wasm",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "type": "module",
   "description": "Hand-written wrapper around the wasm-pack output in ./pkg, plus the dataset compute worker and client (ARCHITECTURE.md §6.4, §6.5).",
