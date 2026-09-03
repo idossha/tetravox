@@ -19,6 +19,7 @@ operator's manual for it, the way `docs/TESTING.md` is the operator's manual for
 | Linux artefacts locally | `scripts/package-linux.sh` (Docker) |
 | Prove a packaged artefact works | `node scripts/smoke-artefact.mjs` |
 | Build the SDK a module repository pins | `node scripts/emit-module-sdk.mjs` (§9.3) |
+| Build the browser embed a host serves | `pnpm --filter @tetravox/embed build && … pack:embed` (§10) |
 
 ---
 
@@ -50,7 +51,13 @@ Tetravox-<v>-linux-x64.tar.gz
 Tetravox-<v>-win-x64.exe          (optional)
 latest-mac.yml                    latest-linux.yml
 latest.yml                        (optional, with the Windows leg)
+tetravox-module-sdk-<hostApi>-<v>.tgz
+tetravox-embed-<v>.tgz
 ```
+
+The last two are not installers and are not built by electron-builder: the module SDK an extension
+repository is built against (§9), and the browser embed a host application serves (§10). Both are
+**required** by `verify`.
 
 The three `latest*.yml` are the **in-app update feeds** (ARCHITECTURE §12.4): a running install asks
 `releases/latest/download/latest-<os>.yml` what the newest version is, so a release without them is
@@ -542,3 +549,50 @@ not run `--check`**: it is a network call to raw.githubusercontent.com, and a Gi
 redden pull requests that never touched extensions. Only the script's own rules run in `docs-guard`.
 Skipping this step does not break a release — the app still merges the live registry at runtime — it
 only leaves an offline user an older floor.
+---
+
+## 10. The browser embed
+
+`docs/EMBED.md` is the contract; this section is how the asset is made.
+
+`packages/embed` builds `packages/app`'s renderer as a plain browser bundle — the same shell, the
+same engine, no Electron — that a host mounts in an `<iframe>` and drives over `postMessage`. It is
+`base: './'`, so a host serves `dist/` from any route.
+
+```sh
+pnpm run wasm                              # `tvx_wasm_bg.wasm` rides in the bundle
+pnpm --filter @tetravox/embed build        # → packages/embed/dist/
+pnpm --filter @tetravox/embed pack:embed   # → packages/embed/dist-pkg/tetravox-embed-<v>.tgz
+```
+
+`pnpm wasm` first, always. A Vite build with no `packages/wasm/pkg` does not fail — it emits a page
+that resolves nothing, which is a working-looking bundle that loads no data.
+
+The tarball is one directory, the way npm and the SDK do it, so `tar xzf` lands one folder:
+
+```
+tetravox-embed-<v>/
+  manifest.json          { name, version, protocol: 1, sha }
+  LICENSE  EMBED.md  protocol.schema.json  viewspec.schema.json
+  dist/index.html  dist/assets/…
+```
+
+`manifest.json`'s `protocol` is the host-protocol version the bundle implements (`1`) and `sha` is
+the commit it was built from — `git rev-parse HEAD`, or `''` outside a checkout. It exists so a host
+serving a bundle can say *which* bundle, which is the first question when a viewer misbehaves inside
+an application nobody can reproduce locally. The version comes from `packages/embed/package.json`,
+which `scripts/release.sh` bumps with the other five.
+
+`release.yml`'s `embed` job builds and packs it on `ubuntu-24.04`, attaches it to the same draft
+Release, and `verify` requires it by the name that job reported — the same shape as the `sdk` job,
+for the same reason. **A release cannot be published documenting an embed contract and shipping no
+bundle to install.**
+
+### 10.1 What CI checks, and where
+
+| Check | Job | Cost |
+|---|---|---|
+| The protocol guards and the ViewSpec normaliser | `test` (vitest) | milliseconds |
+| The embed boots, loads real data, screenshots | `test` (`pnpm e2e`) | one headless Chromium |
+| The bundle builds and packs | `embed` (release.yml) | one Vite build |
+| The tarball is attached | `embed` → `verify` (release.yml) | — |

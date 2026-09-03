@@ -171,6 +171,7 @@ test.describe('scenes', () => {
       kind: string;
       colorMode?: string;
       field?: { name: string };
+      scale?: { kind: string; lo: number; hi: number };
     }[];
     const mesh = layers.find((l) => l.kind === 'mesh');
     expect(mesh?.colorMode).toBe('field');

@@ -8,7 +8,7 @@
   "scripts": {
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "e2e": "vite build && playwright test",
+    "e2e": "playwright test",
     "pack:embed": "node scripts/pack.mjs"
   },
   "dependencies": {

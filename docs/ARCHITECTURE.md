@@ -32,10 +32,22 @@ the number is the reason for a rule.
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
 
 **Non-goals:** WebGPU, Windows, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
-scope), remote/URL loading, **third-party runtime-loaded plugins** (first-party extensions, downloaded
+scope), **third-party runtime-loaded plugins** (first-party extensions, downloaded
 through File ▸ Extensions…, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
 and *unattended* download-and-install stays a non-goal.)
+
+**Remote/URL loading left this list on 2026-09-03**, with the embed (§2's `packages/embed`,
+`docs/EMBED.md`). It is not a new capability so much as an acknowledged one: the dataset worker has
+always fetched a URL — `tetravox://file/…` *is* one — and `datasets/source.ts`'s `fileUrl` has passed
+an absolute `http(s)://` straight through since Phase 1, which is how the §11 harness reads the
+reference dataset over `/@fs/`. What changed is that the path is now **supported and tested** rather
+than incidental: a `DatasetRef.path` may be an `http(s)` URL, the embed resolves a relative one
+against a host-supplied base, and the E2E loads real NIfTI and `.msh` files over HTTP on every run.
+Two things stay non-goals and are the reason this was ever on the list: **Range requests** (a dataset
+is streamed whole, and §5 rule 4's `DecompressionStream` pipe depends on that) and any **remote
+browsing** — there is no catalogue, no directory listing and no discovery. A host names files or
+nothing happens.
 
 ---
 
@@ -57,7 +69,9 @@ tetravox/
 │   ├── protocol/                 # @tetravox/protocol — worker envelope + every op args/result type (§6.5). FROZEN.
 │   ├── wasm/                     # @tetravox/wasm — HAND-WRITTEN package.json; imports ./pkg/tvx_wasm.js
 │   ├── engine/                   # @tetravox/engine — WebGL2 renderer, scene model, views, interaction, colormaps
-│   └── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
+│   ├── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
+│   └── embed/                    # @tetravox/embed — the app renderer as a BROWSER bundle, driven over
+│                                 #   postMessage from a host iframe. Ships as a release tarball (docs/EMBED.md)
 ├── python/                       # the automation client (docs/AUTOMATION.md)
 ├── testdata/                     # synthetic fixtures from scripts/gen-fixtures.py + manifest.json (committed)
 ├── scripts/                      # build-wasm.sh, gen-fixtures.py, bench.ts, refvalues/, reference/
@@ -1198,6 +1212,29 @@ Rules:
     invoke them — but the worst it can reach is a restart into the sha512-verified artefact of a release
     the pinned `idossha/tetravox` feed published, which is the app the user would have gotten anyway. The
     boot status is **pulled** (`updateStatus`), like `startupPaths` and for the same race.
+15. **There is a second host: a browser page with no main process at all** (`packages/embed`,
+    `docs/EMBED.md`, 2026-09-03). The renderer and the workers above are unchanged — same React shell,
+    same `ShellController`, same engine, same worker-per-dataset — and everything *left* of the
+    `contextBridge` line in the diagram is simply absent. `bridge()` falls through to `ABSENT`, the
+    null object the renderer already shipped for "vitest, or a plain browser tab", so every channel in
+    rules 9–14 answers "no preload bridge" and the chrome that would call them is hidden by
+    `?embed=1`. What replaces main is a **`postMessage` channel to the host page**, accepted only from
+    `window.parent` and only from the exact `hostOrigin` named in the embed's own URL.
+
+    Three consequences follow, and they are the whole difference:
+
+    * **`tetravox://` does not exist**, so rules 9 and 10's allow-lists have nothing to guard and
+      nothing to serve. A dataset is an ordinary `http(s)` URL the worker fetches with `fetch` — §1's
+      amended non-goal — and the *server's* CORS and the embed document's `connect-src` are what
+      decide whether it may be read. There is no arbitrary-file-read primitive here because there is
+      no filesystem to read.
+    * **Rule 3 still holds, and holds more easily.** Bytes never touch the UI thread: the worker
+      fetches the URL itself, exactly as it fetches `tetravox://file/…` in the desktop app. No byte
+      crosses the frame boundary in either direction — a `load` carries a `ViewSpec`, and a
+      `screenshot` reply carries a PNG the engine already rendered.
+    * **A host is not a user.** Every message the channel accepts ends in a `ShellController` call a
+      user can make with the mouse — the property `automation/run.ts` keeps for `--job`, for the same
+      reason — so the protocol grants a host no reach the UI does not already have.
 
 ---
 

@@ -159,6 +159,71 @@ jobs:
           files: dist/module-sdk/*.tgz
           fail_on_unmatched_files: true
 
+  embed:
+    name: Browser embed
+    needs: create-release
+    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      asset: ${{ steps.pack.outputs.asset }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Resolve the pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: pnpm store cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-ubuntu-24.04-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-ubuntu-24.04-
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile
+
+      # The bundle carries `tvx_wasm_bg.wasm`, so the crate has to be built first — `pnpm wasm` is a
+      # prerequisite of every build in this repository (§2), and a Vite build with no `pkg/` fails
+      # by emitting a page that resolves nothing rather than by stopping.
+      - name: Build the wasm
+        run: pnpm run wasm
+
+      - name: Build and pack the embed
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @tetravox/embed build
+          pnpm --filter @tetravox/embed pack:embed
+          asset="$(basename "$(ls packages/embed/dist-pkg/*.tgz)")"
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+          echo "packed $asset"
+
+      - name: Upload the workflow artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tetravox-embed
+          path: packages/embed/dist-pkg/*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach to the Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: true
+          files: packages/embed/dist-pkg/*.tgz
+          fail_on_unmatched_files: true
+
   # ------------------------------------------------------------------------------------------------
   # 2. One job per OS/arch: build, smoke-test, upload a workflow artefact, attach to the Release.
   # ------------------------------------------------------------------------------------------------
@@ -472,7 +537,7 @@ jobs:
   # ------------------------------------------------------------------------------------------------
   verify:
     name: Verify the Release assets
-    needs: [create-release, sdk, build]
+    needs: [create-release, sdk, embed, build]
     if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.create-release.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
@@ -484,6 +549,7 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
           TAG: ${{ github.ref_name }}
           SDK_ASSET: ${{ needs.sdk.outputs.asset }}
+          EMBED_ASSET: ${{ needs.embed.outputs.asset }}
         shell: bash
         run: |
           set -euo pipefail
@@ -519,10 +585,20 @@ jobs:
             echo "MISSING  the module SDK tarball (the sdk job produced no asset name)" >&2
             missing_sdk=1
           fi
+          # The browser embed, for the same reason and taken the same way: a release that documents
+          # an embed contract and ships no bundle is one no host can install. Its name carries the
+          # version (`packages/embed/scripts/pack.mjs`), so it comes from the job that packed it.
+          if [ -n "${EMBED_ASSET:-}" ]; then
+            required+=("$EMBED_ASSET")
+          else
+            echo "MISSING  the browser embed tarball (the embed job produced no asset name)" >&2
+            missing_embed=1
+          fi
           # OPTIONAL — Windows is a bonus leg. Absence is reported, not fatal.
           optional=("Tetravox-$VERSION-win-x64.exe" "latest.yml")
 
           missing="${missing_sdk:-0}"
+          if [ "${missing_embed:-0}" != "0" ]; then missing=1; fi
           for asset in "${required[@]}"; do
             if grep -qxF "$asset" /tmp/attached.txt; then
               echo "ok       $asset"

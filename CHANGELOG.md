@@ -63,6 +63,20 @@ Nothing yet.
   answer for a surface or a mesh actually arrives, rather than showing the previous point's reading.
   Both are additive: every existing extension keeps working unchanged, and none needs a new release.
 
+- **Tetravox embeds in a web application.** A new release asset, `tetravox-embed-<version>.tgz`,
+  contains a browser build of the viewer that a host serves from any route and mounts in an
+  `<iframe>`, then drives over `postMessage` — load a scene, move the cursor, patch a layer, probe a
+  point, take a screenshot, read the scene back. It is the same shell and the same WebGL2 engine the
+  desktop window runs, not a cut-down second viewer, so every message ends in something a user could
+  have done with the mouse. `docs/EMBED.md` is the contract: the URL, the message table, the headers
+  and CSP a host must send, three complete `ViewSpec` examples, and a working example page. The
+  protocol is versioned (`{ tvx: 1, … }`) and additive-only from here.
+- **Datasets can be loaded from URLs.** A scene may point at `https://…` files, and the dataset
+  worker streams them the way it has always streamed local ones. This was previously listed as a
+  non-goal; it is now a supported, tested path, exercised on every CI run against real NIfTI and
+  `.msh` data over HTTP. Remote _browsing_ is still out of scope — a host names files, and there is
+  no catalogue or directory listing.
+
 ## [0.3.8] - 2026-09-04
 
 ### Fixed

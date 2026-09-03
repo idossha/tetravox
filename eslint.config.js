@@ -47,7 +47,13 @@ export default tseslint.config(
   {
     // Node scripts: plain ESM, no TypeScript, so `no-undef` is live and the runtime's own globals
     // have to be declared. (`globals` is not a dependency and the lockfile is frozen — §12.3.)
-    files: ['scripts/**/*.{mjs,js}', 'website/scripts/**/*.{mjs,js}'],
+    files: [
+      'scripts/**/*.{mjs,js}',
+      'website/scripts/**/*.{mjs,js}',
+      // `packages/app/scripts/` is deliberately NOT here: `record-walkthrough.mjs` declares its
+      // own globals in a `/* global */` comment, and adding them again is a `no-redeclare` error.
+      'packages/embed/scripts/**/*.{mjs,js}',
+    ],
     languageOptions: {
       globals: {
         console: 'readonly',

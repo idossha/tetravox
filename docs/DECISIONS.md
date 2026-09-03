@@ -5116,6 +5116,54 @@ exists: `NewLayer` is `{ datasetId, kind: Layer['kind'] } & Partial<Layer>` and 
 `Layer` union, so `scene.addLayer` has taken one since §13.1 shipped. Recorded here because "add a
 points layer" is the kind of gap that gets re-proposed until the log says it was already closed.
 
+## 2026-09-03 — the embed: the app renderer as a browser bundle, and remote/URL loading becomes a supported path
+
+Tetravox ships a **browser build of the viewer** that a host application mounts in an `<iframe>` and drives
+over `postMessage` — `packages/embed`, `docs/EMBED.md`, protocol v1. It is a release tarball a host serves
+from a route of its own; no Tetravox source is copied into anybody's application.
+
+**It is the existing renderer, not a second one.** The alternative — a minimal chrome built directly on
+`@tetravox/engine` — was scoped and rejected after measuring what the app renderer actually depends on: the
+bridge is reached from eight files, all of them through `bridge()`, which has *always* fallen through to
+`ABSENT`, the null object shipped for "vitest, or a plain browser tab". A `vite build` of
+`packages/app/src/renderer` against a browser target produced a bundle that boots headless, reports
+`ANGLE (…SwiftShader…)`, and renders — with no console error and no change to `packages/app` at all. Building
+a second UI would have bought nothing and forked the layer panel, the coordinate bar and the property
+editors, which is precisely where two implementations diverge in ways a user notices and a test does not.
+
+The app needed four seams, and every one of them reproduces the previous behaviour when `?embed=1` is
+absent: `embed/mode.ts` (the flag, plus a single-slot `onShellReady` carrying the same
+`{ controller, engine, store }` triple `Shell` already hands `maybeRunJob`); the `Tetravox` menu and the
+Settings dialog's Paths/Startup tabs hidden, because all of them end in a bridge call and a control that
+silently does nothing is worse than no control; and `ShellController.loadSpecFromUrls`, which is `applyScene`
+with `scenePath: string | null` — null meaning "not a file on disk", so no scene slot, no Open Recent and no
+`sceneDir`.
+
+**Remote/URL loading leaves §1's non-goal list**, and ARCHITECTURE §1, §2 and §5 are amended in this commit
+(§12.3's rule). This is less a new capability than an admitted one: the dataset worker has always fetched a
+URL — `tetravox://file/…` *is* one — and `fileUrl` has passed an absolute `http(s)://` through since Phase 1,
+which is how the §11 harness reads the reference dataset over `/@fs/`. What is new is that the path is
+supported and tested. Range requests and remote *browsing* stay non-goals, and they were the substance of the
+original one: a dataset is streamed whole (§5 rule 4's `DecompressionStream` pipe depends on it), and there is
+no catalogue, listing or discovery — a host names files or nothing happens.
+
+**Two defaults the embed supplies, because a host cannot.** A `ViewSpec` requires nine view fields that
+`applyViewSpec` assigns unconditionally, which is right for a saved scene and impossible for a host writing
+one by hand; they are filled from `Engine.serialize()` on the empty scene, so the defaults are the engine's
+own rather than a second copy in this package. And a mesh layer carrying a `field` but no `scale` is windowed
+by the app's own `selectField`, the call the property editor makes when a user picks a field — without it the
+engine's placeholder `0..1` renders a `TI_max` field living in `0.002..0.13` as one flat colour, and the host
+cannot compute the range because `MeshFieldInfo.stats` is derived in the worker from bytes it has never seen.
+
+**The trust boundary is a pure function.** `acceptMessage` takes `{ source, origin, data }` and the two
+expectations, and returns the message or null; the embed's listener is three lines around it. That is what
+makes every branch — a sibling frame on the right origin, a near-miss origin, a missing `hostOrigin`, an
+unknown type — a vitest case rather than something an end-to-end test serving both pages from one origin
+could never exercise.
+
+**New dependencies: none.** `packages/embed` is a new workspace member and its `devDependencies` are the set
+`packages/app` already pins (vite, `@vitejs/plugin-react`, `@tailwindcss/vite`, playwright, vitest), so
+`pnpm-lock.yaml` gains an importer entry and no package. AGENTS.md rule 4 is satisfied by this paragraph.
 
 ## 2026-09-04 — Resolve surface depth before transparency blending (§7.2)
 
