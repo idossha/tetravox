@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.5] - 2026-09-03
+
 ### Added
 
 - **Extensions can export QC figures and BIDS derivatives.** An extension can now sample a volume along
