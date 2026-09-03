@@ -1,7 +1,7 @@
 {
-  "$comment": "The extensions catalogue: what File \u25b8 Extensions\u2026 offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed \u2014 `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses \u2014 and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
+  "$comment": "The extensions catalogue: what File ▸ Extensions… offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed — `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses — and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
   "schema": 1,
-  "generated": "2026-09-02T22:40:00Z",
+  "generated": "2026-09-03T04:17:20Z",
   "modules": [
     {
       "id": "tetravox.seeg",
@@ -177,6 +177,36 @@
               "bytes": 4388,
               "sha256": "1a37015beedc26d432643d680240afac1cecfd12c10c11398676664215f1c2e5",
               "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.5/1a37015beedc26d432643d680240afac1cecfd12c10c11398676664215f1c2e5"
+            }
+          ],
+          "permissions": [
+            "Read .csv, .fcsv, .tsv files you choose",
+            "Discover and read files named near a file you open",
+            "Write .tsv files you name in a Save sheet",
+            "Write {name}.{stamp}.bak beside the file you save",
+            "Write {stem}_editlog.json beside the file you save",
+            "Bind the keys Delete, Shift+s, Shift+z, a, d, f, g, n, p, s, t, z while it is active",
+            "Run from a job file: delete, flip-tip, ghost, load, refit, renumber, revert, save, size, snap, stats, wire",
+            "Store its own data inside a saved scene"
+          ]
+        },
+        {
+          "version": "0.1.6",
+          "tag": "v0.1.6",
+          "hostApi": 1,
+          "published": "2026-09-03",
+          "files": [
+            {
+              "name": "index.js",
+              "bytes": 127964,
+              "sha256": "74dfd7735ecf9ac254bae02be89a824e530bdb1b56aa6d8db7b805e70402874c",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.6/74dfd7735ecf9ac254bae02be89a824e530bdb1b56aa6d8db7b805e70402874c"
+            },
+            {
+              "name": "manifest.json",
+              "bytes": 4388,
+              "sha256": "af078e39f5f3bf82d02aa57b28a9794601889bd49ab359e409e95b377e243819",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.1.6/af078e39f5f3bf82d02aa57b28a9794601889bd49ab359e409e95b377e243819"
             }
           ],
           "permissions": [
