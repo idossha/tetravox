@@ -202,12 +202,9 @@ export interface TetravoxBridge {
     opts: { backup: boolean }
   ): Promise<ModuleWriteResult>;
   /**
-   * Write **PNG bytes** to a path this module's Save sheet admitted — `.png` only, ≤ 32 MiB.
-   *
-   * The one place bytes legitimately cross this bridge outward (2026-09-03). §5 rule 3's "paths,
-   * never bytes" is about *file* bytes coming **in** — a volume the renderer would then have to
-   * parse — and `jobWrite` has written a PNG out over this same bridge since Phase 2. This is that
-   * door, narrowed to one extension and given a module id so the write list still decides.
+   * Write **PNG bytes** to a path this module's Save sheet admitted — `.png` only, ≤ 32 MiB
+   * (2026-09-03). §5 rule 3's "paths, never bytes" is about file bytes coming **in**; `jobWrite` has
+   * written a PNG out over this same bridge since Phase 2, and this is that door for a module.
    */
   moduleWriteBinary(
     moduleId: string,

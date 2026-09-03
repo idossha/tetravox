@@ -49,12 +49,7 @@ export interface ModuleHostDeps {
   files?: ModuleHost['files'];
   /** The engine's `peakCentroid`, bound to a dataset lookup. Absent: it throws. */
   peakCentroid?: ModuleHost['scene']['peakCentroid'];
-  /**
-   * §4.3's point sampler over the dataset the module names (2026-09-03). Absent: it rejects.
-   *
-   * Injected like the three above, and for the same reason: `hostImpl.ts` stays testable without an
-   * engine, and a build that does not wire it says so rather than answering an array of zeros.
-   */
+  /** §4.3's point sampler over the dataset the module names (2026-09-03). Absent: it rejects. */
   sampleVolume?: ModuleHost['scene']['sampleVolume'];
   /** The engine's §4.7 screenshot, gated on the module being live. Absent: it rejects. */
   capture?: ModuleHost['capture'];
@@ -232,8 +227,7 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
         deps.peakCentroid ??
         ((): vec3 | null => unavailable('the peak-centroid helper (`scene.peakCentroid`)')),
       // Appended 2026-09-03 with `host.ts`'s `scene.sampleVolume` (§13.1, §4.3). A **rejecting**
-      // stub rather than a throwing one, because the member is a promise and a module that
-      // `await`s it must see the refusal the same way it sees every other failure.
+      // stub, since the member is a promise and `await` must see the refusal like any other failure.
       sampleVolume:
         deps.sampleVolume ??
         ((): Promise<Float32Array> =>

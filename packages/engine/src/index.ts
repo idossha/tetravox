@@ -130,8 +130,7 @@ export type { VoxelBox } from './derived/voxel-box';
  * The `1..6` camera preset rotations (§7.5).
  *
  * Exported for the reason `peakCentroid` is: the app's `NoGlEngine` has to give the **same** camera
- * as the real engine, and a stand-in with a table of its own is a stand-in that disagrees — which it
- * did, until `host.capture.setView` made an extension able to see the difference (2026-09-03).
+ * as the real engine, not a table of its own (2026-09-03).
  */
 export { presetRotation } from './view/geometry';
 export { MAX_SAMPLE_POINTS, SampleVolumeError, sampleVolumeAt } from './derived/volume-sample';

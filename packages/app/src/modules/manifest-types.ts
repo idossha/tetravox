@@ -174,22 +174,16 @@ export interface ModuleWriter {
   title: string;
   filters: { name: string; extensions: string[] }[];
   /**
-   * Companions the Save sheet admits alongside the chosen path, as templates over it.
+   * Companions the Save sheet admits alongside the chosen path, as templates over it. Two shapes: a
+   * **same-directory** name — `'{name}.{stamp}.bak'`, `'{stem}_editlog.json'` — and a **derivatives
+   * target** (2026-09-03) — `'{derivatives}/tetravox/sub-{id}/ieeg/figures/…'`, resolved against
+   * the BIDS `derivatives/` directory found above the chosen file, dropped rather than errored when
+   * none is found.
    *
-   * Two shapes, and they are admitted on different evidence:
-   *
-   *  * a **same-directory** name — `'{name}.{stamp}.bak'`, `'{stem}_editlog.json'` — which needs no
-   *    filesystem at all, because it lives beside the file the user chose;
-   *  * a **derivatives target** (2026-09-03) — `'{derivatives}/tetravox/sub-{id}/ieeg/figures/…'` —
-   *    resolved against the BIDS `derivatives/` directory found by walking up from the chosen file,
-   *    or `<bidsroot>/derivatives` where an ancestor holds `dataset_description.json`. Dropped, not
-   *    an error, when neither is found: an extension's figures belong in a real derivative tree or
-   *    in none.
-   *
-   * The tokens are `{name}` (the full basename), `{stem}` ({@link stemOf} of it), `{stamp}`
-   * (`YYYYMMDD-HHMMSS`), and the anchor's own BIDS entities — `{sub}` is `sub-P076`, `{id}` its
-   * label `P076`, `{space}` the `space-` label. A template naming a token the anchor does not carry
-   * is dropped, so a subject-less name never becomes a path with `sub-` and nothing after it.
+   * Tokens: `{name}` (the full basename), `{stem}` ({@link stemOf} of it), `{stamp}`
+   * (`YYYYMMDD-HHMMSS`), and the anchor's own BIDS entities (`{sub}` is `sub-P076`, `{id}` its label
+   * `P076`, `{space}` the `space-` label). A template naming a token the anchor does not carry is
+   * dropped.
    */
   siblings: string[];
   backup?: 'timestamped';

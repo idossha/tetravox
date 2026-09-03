@@ -125,11 +125,8 @@ const CANONICAL_SLICES: readonly { id: ViewId; mode: SliceView['mode']; normal: 
 /**
  * `CameraPreset` → the `1..6` index `presetRotation` takes.
  *
- * The rotations themselves are the **engine's** (`view/geometry.ts#presetRotation`, exported for
- * this): this file used to carry a table of its own, and it was the pre-2026-08-28 one — `S` in it
- * put the eye *anterior*, so a stand-in run reported a superior view the real engine would have
- * drawn from the front. Nothing pictured the camera here, so nothing caught it until
- * `host.capture.setView` (2026-09-03) let an extension ask.
+ * The rotations themselves are the **engine's** (`view/geometry.ts#presetRotation`), so this
+ * stand-in cannot drift from a table of its own.
  */
 const PRESET_INDEX: Record<string, number> = { A: 1, P: 2, L: 3, R: 4, S: 5, I: 6 };
 

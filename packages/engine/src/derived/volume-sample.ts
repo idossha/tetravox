@@ -31,10 +31,9 @@ import type { VolumeDataset } from '../scene/types';
  * The most points one call may sample — the bound that makes this a *bounded* read (§4.3).
  *
  * 2,000,000 rather than a millisecond budget because the bound has to be checkable before any work
- * happens. It is ~24 MB of `xyz` in and 8 MB out, and it is far more than the shapes this exists
- * for: an oblique reslice at 0.2 mm over 200 × 200 mm is 1,000,000 points, a 500-contact profile at
- * 0.1 mm over 20 mm is 100,000. A caller wanting a whole volume resampled is asking for a §6.5 op
- * in the dataset's worker, not for this.
+ * happens: ~24 MB of `xyz` in, 8 MB out, and far more than an oblique reslice at 0.2 mm over
+ * 200 × 200 mm needs (1,000,000 points). A caller wanting a whole volume resampled wants a §6.5 op
+ * in the dataset's worker, not this.
  */
 export const MAX_SAMPLE_POINTS = 2_000_000;
 

@@ -149,29 +149,16 @@ export interface ModuleHost {
      * The dataset's scalar values at arbitrary world points (appended 2026-09-03, additively).
      *
      * `worldPoints` is `xyz` triples in world millimetres — `[x0, y0, z0, x1, y1, z1, …]`, the
-     * layout a `PointsLayer`'s positions already have, so a caller hands them over unrepacked.
-     * `order: 1` (the default) is trilinear, `order: 0` nearest; the answer is one value per point
-     * and **`NaN` outside the volume**, never a clamp, because a clamp reports the face voxel's
-     * intensity for a contact 40 mm outside the head and a `NaN` is a gap every plot already knows
-     * how to draw.
+     * layout a `PointsLayer`'s positions already have. `order: 1` (default) is trilinear, `order: 0`
+     * nearest; the result is one value per point and **`NaN` outside the volume**, never a clamp.
      *
-     * **Bounded, at 2,000,000 points** (`MAX_SAMPLE_POINTS`), and a larger request rejects with a
-     * {@link ModuleHostError} rather than being truncated: this is §4.3's third read shape beside
-     * the probe and the bounded box, and the cap is what keeps it from being a door to a
-     * full-volume resampling loop. A caller who wants more wants a §6.5 op in the dataset's worker.
+     * **Bounded at 2,000,000 points** (`MAX_SAMPLE_POINTS`) — a larger request rejects with a
+     * {@link ModuleHostError} rather than being truncated.
      *
-     * **Where it runs.** In the renderer, in slices with a macrotask between them — *not* in a
-     * worker, and the promise is what makes the yielding possible rather than a process hop. It
-     * does not **block** the UI thread (a slice is ~1 ms), which is what §5 rule 6 asks for; it is
-     * not off-thread either, because the only worker that already holds the volume is the §6.5
-     * wasm one and every one of its ops is a frozen §6 Rust signature — a second TS worker would
-     * need a second copy of a 200 MB volume, which is a worse trade than a yielding loop. Moving it
-     * into such an op is the follow-up in `docs/ROADMAP.md`; nothing about this signature changes
-     * when that happens, which is why it is a promise today.
-     *
-     * Rejects for a dataset id that is not a volume in this scene. Resolves to all-`NaN` for a
-     * volume with no scalar to give (`rgb24` / `rgba32`, or samples that are not on this thread) —
-     * a caller plotting three datasets wants the empty one to be a gap, not an exception.
+     * Runs in the renderer in slices with a macrotask between them, so it does not block the UI
+     * thread (§5 rule 6) though it is not off-thread either. Rejects for a dataset id that is not a
+     * volume in this scene. Resolves to all-`NaN` for a volume with no scalar to give (`rgb24` /
+     * `rgba32`, or samples not on this thread).
      */
     sampleVolume(
       datasetId: DatasetId,
@@ -233,15 +220,12 @@ export interface ModuleHost {
     /**
      * The same write, for **PNG bytes** (appended 2026-09-03, additively).
      *
-     * `.png` only and ≤ 32 MiB, and both halves are the point. The extension filter is what keeps
-     * this from being a general byte channel — a module that could write any extension to a path a
-     * Save sheet admitted could write a `.command` beside the table the user named — and the cap is
-     * the line §5 draws between "a figure" and "a data channel": a 4096 × 4096 RGBA PNG of a 3-D
-     * implant is ~6 MB, and 32 MiB is four of those.
+     * `.png` only, ≤ 32 MiB — the extension filter and size cap keep this a figure channel, not a
+     * general byte channel.
      *
-     * Everything else is {@link writeText}'s, unchanged and deliberately the same code path: the
-     * same module-scoped write list, the same `.part` + rename, the same main-side `.bak` copy for
-     * a writer that declared one, and the same allow-listing of the written path for reading back.
+     * Everything else is {@link writeText}'s, unchanged: the same module-scoped write list, the
+     * same `.part` + rename, the same main-side `.bak` copy, and the same allow-listing of the
+     * written path for reading back.
      */
     writeBinary(
       path: string,
@@ -254,23 +238,19 @@ export interface ModuleHost {
    * **PNG bytes of what is on screen** (appended 2026-09-03, additively; absent, a module simply
    * could not ask).
    *
-   * The engine's own §4.7 `screenshot` — the one File ▸ Save Screenshot and every `--job` capture
-   * go through — narrowed to the four options a figure needs, so a module gets the app's picture
-   * rather than one of its own. `target: 'grid'` is the whole view grid; `'view'` is one pane, and
-   * `viewId` names it (omitted: the active one).
+   * The engine's own §4.7 `screenshot`, narrowed to the four options a figure needs. `target:
+   * 'grid'` is the whole view grid; `'view'` is one pane, and `viewId` names it (omitted: the
+   * active one).
    *
-   * **Limits, and why each one is here.**
+   * **Limits.**
    *
-   * * It runs **only while the module is active** (`ui.isActive()`, or showing in its own window).
-   *   A capture is a read of whatever the user has on screen, including datasets and layers this
-   *   module never loaded, and a background module taking one is a screen read nobody asked for.
-   * * The scene must have a view to capture. A module called before the grid exists gets a
-   *   `ModuleHostError`, not a 1×1 PNG.
-   * * `width`/`height` are clamped by the engine to what the drawing buffer can supersample to;
-   *   omit both for the pane's own size.
+   * * Runs **only while the module is active** (`ui.isActive()`, or showing in its own window).
+   * * The scene must have a view to capture; called too early it rejects with a `ModuleHostError`,
+   *   not a 1×1 PNG.
+   * * `width`/`height` are clamped to what the drawing buffer can supersample to; omit both for the
+   *   pane's own size.
    * * `background: 'transparent'` is the engine's transparent capture; `'theme'` is the scene's own
-   *   background, which is what a figure that will sit in a report on white paper does **not**
-   *   want by default and is therefore named rather than defaulted to.
+   *   background — not the default, since a figure headed for a report usually wants transparent.
    *
    * The bytes are a complete PNG file, ready for {@link ModuleHost.files}`.writeBinary`.
    */
@@ -281,23 +261,15 @@ export interface ModuleHost {
      *
      * The presets are §7.5's `1..6` under their anatomical names, in **RAS** — `x` is right, `y`
      * anterior, `z` superior — so `'superior'` looks straight down (`−z`) with anterior up, and
-     * `'left'` puts the eye on `−x` with the nose to screen-left. They are the engine's own
-     * rotations rather than a matrix an extension composes, for the reason §8 gives for every other
-     * camera fact: a rotation an extension built would not be the picture the app's own `1..6` keys
-     * and orientation cube produce, and a figure that disagrees with the app is worse than no
-     * figure. `fit: true` refits the scene bounds first (§7.5's `r`), which is what a picture of a
-     * whole implant wants and what a picture of the region the user is already looking at does not.
+     * `'left'` puts the eye on `−x` with the nose to screen-left. `fit: true` refits the scene
+     * bounds first (§7.5's `r`).
      *
-     * **It resolves after `whenSettled()`**, so a `capture.screenshot` on the next line photographs
-     * the view that was asked for rather than the one that was on screen when the call was made.
-     * That is the entire reason it is a promise.
+     * **Resolves after `whenSettled()`**, so a `capture.screenshot` on the next line photographs the
+     * view that was just asked for rather than whatever was on screen when the call was made.
      *
-     * **Nothing is restored.** There is no saved camera and no automatic undo: an extension that
-     * wants four standard views calls this before each screenshot, and the user's 3-D view is left
-     * at the **last preset asked for**. Restoring would be a second, invisible camera move — the
-     * user would see the view snap back from a place they never asked it to go — and an extension
-     * that wants the old camera back can take it by asking for a preset of its own choosing before
-     * it finishes. `viewId` defaults to the 3-D view; a 2-D pane has no camera to preset and is
+     * **Nothing is restored.** There is no saved camera and no automatic undo: the user's 3-D view
+     * is left at the **last preset asked for**; an extension that wants the old camera back must ask
+     * for it explicitly. `viewId` defaults to the 3-D view; a 2-D pane has no camera to preset and is
      * refused rather than silently ignored.
      */
     setView(

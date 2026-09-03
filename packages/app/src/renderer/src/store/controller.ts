@@ -52,20 +52,14 @@ import type { CoordSpace, DialogKind, RelocateRow, SettingsTab, UiStore } from '
 /**
  * How many points `host.scene.sampleVolume` does between yields (2026-09-03).
  *
- * 65,536 trilinear samples is ~1 ms — under a 60 Hz frame's whole budget, so a slice can never be
- * the reason a frame is dropped — and 2,000,000 points is 31 slices. Larger and the yield stops
- * being a yield; smaller and the `setTimeout` clamp (4 ms after five nested timers) dominates the
- * wall clock for no benefit.
+ * 65,536 trilinear samples is ~1 ms, so 2,000,000 points is ~31 slices — under a frame budget each,
+ * never the reason one drops.
  */
 const MODULE_SAMPLE_CHUNK = 65_536;
 
 /**
- * `host.capture.setView`'s anatomical names → §7.5's own preset letters (2026-09-03).
- *
- * The names are the extension surface's because `1..6` is a keyboard fact and `'superior'` is what
- * a figure caption says; the letters are the engine's, and this table is the only place the two
- * meet. It is written out rather than derived from the first letter: `'posterior'` and
- * `'anterior'` would both be `A`.
+ * `host.capture.setView`'s anatomical names → §7.5's own preset letters (2026-09-03). Written out
+ * rather than derived from the first letter: `'posterior'` and `'anterior'` would both be `A`.
  */
 const MODULE_VIEW_PRESETS: Record<string, CameraPreset> = {
   anterior: 'A',
@@ -2818,15 +2812,9 @@ export class ShellController {
    *
    * **Chunked and yielding, not off-thread.** The loop hands back to the event loop every
    * {@link MODULE_SAMPLE_CHUNK} points, so a 2,000,000-point request is ~30 slices of about a
-   * millisecond each rather than one 50 ms stall: §5 rule 6 forbids *blocking* the UI thread, and
-   * this does not. It is not in a worker because the only worker that already holds the volume is
-   * the §6.5 wasm one, whose ops are frozen §6 Rust signatures; a second TS worker would need a
-   * second copy of a 200 MB volume, which is the worse trade. `docs/ROADMAP.md` carries the §6.5 op
-   * as the follow-up, and this signature does not change when it lands.
+   * millisecond each rather than one 50 ms stall (§5 rule 6 forbids *blocking* the UI thread).
    *
-   * Rejects for an id that is not a volume in this scene — a module asking for the CT it just
-   * loaded and getting an array of zeros because the id was a mesh's is a wrong figure, not a
-   * missing one.
+   * Rejects for an id that is not a volume in this scene, rather than answering an array of zeros.
    */
   private async moduleSampleVolume(
     datasetId: DatasetId,
@@ -2863,17 +2851,11 @@ export class ShellController {
    * `host.capture.setView` — §7.5's `1..6` camera presets under their anatomical names.
    *
    * The mapping is the engine's own table (`view/geometry.ts#presetRotation`), reached through the
-   * frozen `Engine.cameraPreset`, so an extension's figure is the picture the app's own preset keys
-   * and orientation cube produce. In RAS — `x` right, `y` anterior, `z` superior — `'superior'`
-   * looks down `−z` with anterior up.
+   * frozen `Engine.cameraPreset`. `fit` runs `resetView` **first**, because refitting after the
+   * rotation would frame the bounds of a camera the caller has not seen yet.
    *
-   * `fit` runs `resetView` **first**, because refitting after the rotation would frame the bounds
-   * of a camera the caller has not seen yet, and §7.5's `r` is defined as a refit of the view as it
-   * then is.
-   *
-   * It awaits `whenSettled()` so that a `capture.screenshot` on the next line photographs the view
-   * that was asked for. Nothing is restored: see `host.ts` for why an automatic undo would be a
-   * second camera move the user never asked for.
+   * Awaits `whenSettled()` so a `capture.screenshot` on the next line photographs the view that was
+   * asked for. Nothing is restored — see `host.ts`.
    */
   private async moduleSetView(
     moduleId: string,

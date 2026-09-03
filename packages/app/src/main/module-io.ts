@@ -62,17 +62,10 @@ export const MAX_MODULE_WRITE_BYTES = 8 * 1024 * 1024;
 /**
  * What `module-write-text` will write (2026-09-03).
  *
- * The read list plus `.svg` and `.html` — the two shapes a QC figure takes when it is *text*: an
- * SVG histogram a reviewer can open in a browser and reflow in Illustrator, and a small HTML report
- * that links the figures beside it. They are not on {@link MODULE_READ_EXTENSIONS}, because reading
- * markup back in is a different question from writing it out and this list is the narrower one to
- * widen.
- *
- * **This channel had no extension filter at all before**, which is the defect the list fixes rather
- * than a feature it adds: a path admitted by a Save sheet could be written with any suffix the
- * module chose, so an extension that named `report.tsv` in the sheet could write `report.command`
- * beside it through the `{name}`-derived sibling it had already been granted. The set is a superset
- * of everything any extension in this tree writes, so no existing save changes behaviour.
+ * The read list plus `.svg` and `.html` — the two shapes a QC figure takes when it is *text*. Not
+ * on {@link MODULE_READ_EXTENSIONS}, because reading markup back in is a different question from
+ * writing it out. Superset of everything any extension in this tree writes, so no existing save
+ * changes behaviour.
  */
 export const MODULE_WRITE_TEXT_EXTENSIONS: readonly string[] = [
   ...MODULE_READ_EXTENSIONS,
@@ -83,13 +76,7 @@ export const MODULE_WRITE_TEXT_EXTENSIONS: readonly string[] = [
 /** What `module-write-binary` will write. One extension, on purpose — see {@link moduleWriteBinary}. */
 export const MODULE_WRITE_BINARY_EXTENSIONS: readonly string[] = ['.png'];
 
-/**
- * 32 MiB for a PNG (2026-09-03).
- *
- * Four times the text cap because a picture is four times the thing a table is: a 4096 × 4096 RGBA
- * screenshot of a 3-D implant is ~6 MB compressed, and a supersampled figure sheet is a few of
- * those. It is still a **cap**, and it is still the line between "a figure" and "a data channel".
- */
+/** 32 MiB for a PNG (2026-09-03) — four times the text cap; the line between "a figure" and "a data channel". */
 export const MAX_MODULE_WRITE_BINARY_BYTES = 32 * 1024 * 1024;
 
 /**
@@ -105,15 +92,12 @@ export const SIBLING_NAME = /^[A-Za-z0-9_.-]{1,96}$/;
 /**
  * A **derivatives** template (2026-09-03): `{derivatives}` and then 1–8 path segments.
  *
- * `{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.svg`. It is a *separate*
- * class from {@link SIBLING_TEMPLATE} rather than a loosening of it, because the two are admitted on
- * different evidence: a plain sibling is a name in the chosen file's own directory and needs no
- * filesystem at all, while this one is resolved against a `derivatives/` directory that has to be
- * *found*. Keeping them apart is what stops a `/` from becoming legal in a plain sibling name.
+ * `{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.svg`. A *separate* class
+ * from {@link SIBLING_TEMPLATE} — a plain sibling is a name in the chosen file's own directory, this
+ * one resolves against a `derivatives/` directory that must be found.
  *
- * The leading token is fixed. There is no `{derivatives}` in the middle of a path, no second one,
- * and no template that starts anywhere else — a writer either writes beside the file the user named
- * or under the dataset's own derivatives tree.
+ * The leading token is fixed: no `{derivatives}` mid-path, no second one, no other start — a writer
+ * either writes beside the file the user named or under the dataset's own derivatives tree.
  */
 export const DERIVATIVE_TEMPLATE =
   /^\{derivatives\}(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9_.{}-]{1,96}){1,8}$/;
@@ -297,9 +281,8 @@ interface WriteList {
   /**
    * The `{derivatives}` roots this module's saves resolved (2026-09-03).
    *
-   * A write **creates directories** only under one of these. Everything else is written into a
-   * directory that already exists, which is what it was before this list existed: a plain sibling
-   * lives beside the file the user chose, so its directory is the one they chose it in.
+   * A write **creates directories** only under one of these; everything else goes into a directory
+   * that already exists.
    */
   derivativeRoots: string[];
 }
@@ -323,9 +306,7 @@ function normalise(candidate: string): string | null {
  *     subdirectory is the answer whether or not it exists yet.
  *
  * Null when neither is found, and the templates that named the token are then dropped exactly as an
- * unresolvable `{sub}` is. A default of "beside the anchor" would be worse than nothing: an
- * extension writing `tetravox/sub-01/…` into whatever directory a user happened to save into is a
- * derivative tree in the wrong place, and BIDS's own tools would then find two.
+ * unresolvable `{sub}` is — there is no "beside the anchor" fallback.
  *
  * `exists` is injected so the rule is testable without a filesystem; main passes `existsSync`.
  */
@@ -708,21 +689,11 @@ export function moduleWriteText(
  * `tetravox:module-write-binary` — **PNG bytes** to a path this module's Save sheet admitted, ≤ 32
  * MiB (2026-09-03).
  *
- * The twin of {@link moduleWriteText}, and everything that makes that one safe is the same here:
- * the module-scoped write list decides the path, the `.part` + rename makes the replacement atomic,
- * the optional `.bak` is copied **in main** from the file about to be replaced, and the written path
- * is allow-listed for reading back.
- *
- * The two differences are the whole reason it is a second channel rather than a `writeText` that
- * takes bytes: **`.png` only**, and a larger cap. Main decides which set applies from the channel it
- * was called on, so a module cannot pick the looser rule by changing the shape of an argument, and
- * "which extensions may an extension write" stays a question with two answers rather than a
- * negotiation. A caller that wants a `.svg` figure writes text — SVG *is* text — which is why the
- * binary list has exactly one member and no plans for a second.
+ * The twin of {@link moduleWriteText} — same module-scoped write list, `.part` + rename, main-side
+ * `.bak`, and allow-listing on success. The two differences: **`.png` only**, and a larger cap.
  *
  * `bytes` arrives as a `Uint8Array` over the structured clone; `ArrayBuffer.isView` is the check,
- * because a renderer may legitimately send a view over a larger buffer and `Buffer.from(view)` on
- * one that is not a view would silently write the wrong thing.
+ * because a renderer may send a view over a larger buffer.
  */
 export function moduleWriteBinary(
   moduleId: unknown,
@@ -757,18 +728,12 @@ export function moduleWriteBinary(
 }
 
 /**
- * The bytes-to-disk half both write channels share: `.bak`, `<path>.part`, rename, allow-list.
+ * The bytes-to-disk half both write channels share: `.bak`, `<path>.part`, rename, allow-list
+ * (2026-09-03) — extracted so §5 rule 11's backup-in-main and the temp-then-rename are stated once.
  *
- * Extracted rather than duplicated (2026-09-03) because every line of it is a rule stated somewhere
- * else — §5 rule 11's backup-in-main, `sample-data.ts`'s temp-then-rename, `writeSceneFile`'s
- * allow-listing of what it wrote — and two copies of a rule is one copy that will be fixed.
- *
- * `mkdirSync(dirname(path), { recursive: true })` is unchanged from `moduleWriteText`: it has been
- * there since a `--job` `out` name legally contained a separator, and it cannot widen anything,
- * because `path` is already on this module's write list. A `{derivatives}` target is what makes it
- * matter for an interactive save too — `derivatives/tetravox/sub-01/ieeg/figures/` is four
- * directories that will not exist the first time — and those are the only directories one creates,
- * because they are the only admitted paths outside the directory the user chose.
+ * `mkdirSync(dirname(path), { recursive: true })` cannot widen anything, since `path` is already on
+ * this module's write list; a `{derivatives}` target is the case where those directories do not
+ * exist yet.
  */
 function writeAdmitted(
   moduleId: string,
