@@ -3262,7 +3262,7 @@ been frozen around stubs. All three were wired on 2026-08-30 and the surface was
 commit — one governance round, not four. From here it changes additively, with the `ARCHITECTURE.md` edit and
 the `DECISIONS.md` entry in the same commit, and absent must reproduce the previous behaviour.
 
-**Four capabilities appended 2026-09-03**, all additive at `hostApi: 1` and all absent-reproduces-the-old
+**Five capabilities appended 2026-09-03**, all additive at `hostApi: 1` and all absent-reproduces-the-old
 -behaviour by construction, because absent they were not askable. They exist for one shape of work — an
 extension that checks an implant and writes a BIDS QC derivative — and each is bounded where the surface it
 extends is bounded.
@@ -3280,6 +3280,14 @@ extends is bounded.
   `module-write-binary` channel, ≤ 32 MiB, same write list, same `.part` + rename, same main-side `.bak`.
 * **`{derivatives}` writer templates** — §5 rule 11's second sibling class, so a writer can declare
   `{derivatives}/tetravox/sub-{id}/ieeg/figures/…` and the shell resolves the dataset's own derivatives tree.
+* **`capture.setView(preset, opts?)`** — §7.5's `1..6` camera presets under their anatomical names
+  (`'superior'`, `'left'`, …), in RAS, optionally refitting the scene bounds first, resolving after
+  `whenSettled()` so a `capture.screenshot` on the next line photographs the view that was asked for. The
+  rotations are the engine's own (`view/geometry.ts#presetRotation`, now exported so `NoGlEngine` uses the
+  same table — it carried a stale copy in which `S` put the eye anterior, which nothing had pictured until an
+  extension could ask). **Nothing is restored**: an extension taking the four standard views calls this before
+  each screenshot, and the user's 3-D view is left at the last preset asked for, because an automatic undo
+  would be a second camera move the user never asked for. A 2-D pane has no camera and is refused.
 * **`capture.screenshot(opts)`** — §4.7's screenshot, narrowed to target, view, size and background, and
   gated on `moduleSessions.has(id)` rather than `activeModule === id`: since §13.10 an extension in its own
   window is live and answers `false` to `ui.isActive()`. The gate is about who is on screen rather than about

@@ -11,8 +11,9 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **Extensions can export QC figures and BIDS derivatives.** An extension can now sample a volume along
-  arbitrary paths (an oblique reslice, an intensity profile down a shaft), take a PNG of a pane or of the whole
-  view grid, write `.png` and `.svg` files, and declare where its output belongs with a `{derivatives}` target
+  arbitrary paths (an oblique reslice, an intensity profile down a shaft), point the 3-D view at any anatomical
+  preset (superior, left, anterior, …), take a PNG of a pane or of the whole view grid, write `.png` and `.svg`
+  files, and declare where its output belongs with a `{derivatives}` target
   — so a report lands in `derivatives/<pipeline>/sub-<id>/…` beside the data it describes, with the folders
   created for it, rather than in whatever directory the Save sheet happened to open in. Nothing changes for an
   extension that does not use them, and the extensions you already have keep behaving exactly as they did.
@@ -23,6 +24,9 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   sheet had admitted, but nothing checked the _suffix_, so an extension holding a companion-file permission
   could put an executable next to the table you actually named. Text writes are now limited to
   `.tsv .csv .json .txt .fcsv .svg .html`, and pictures to `.png`.
+- **The developer stand-in renderer pointed the camera the wrong way.** Windows launched with `?engine=mock`
+  used a stale table for the six camera presets, so "superior" showed the view from the front. It now uses the
+  same rotations the real renderer does. No shipped window was affected.
 
 ## [0.3.4] - 2026-09-02
 

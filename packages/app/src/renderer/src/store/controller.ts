@@ -58,6 +58,23 @@ import type { CoordSpace, DialogKind, RelocateRow, SettingsTab, UiStore } from '
  * wall clock for no benefit.
  */
 const MODULE_SAMPLE_CHUNK = 65_536;
+
+/**
+ * `host.capture.setView`'s anatomical names → §7.5's own preset letters (2026-09-03).
+ *
+ * The names are the extension surface's because `1..6` is a keyboard fact and `'superior'` is what
+ * a figure caption says; the letters are the engine's, and this table is the only place the two
+ * meet. It is written out rather than derived from the first letter: `'posterior'` and
+ * `'anterior'` would both be `A`.
+ */
+const MODULE_VIEW_PRESETS: Record<string, CameraPreset> = {
+  anterior: 'A',
+  posterior: 'P',
+  left: 'L',
+  right: 'R',
+  superior: 'S',
+  inferior: 'I',
+};
 import type { ScreenshotDefaults } from '../../../preload/index';
 import {
   activeLayer,
@@ -2447,6 +2464,7 @@ export class ShellController {
           sampleVolume: (datasetId, worldPoints, opts) =>
             this.moduleSampleVolume(datasetId, worldPoints, opts),
           capture: {
+            setView: (preset, opts) => this.moduleSetView(registration.manifest.id, preset, opts),
             screenshot: (opts) => this.moduleScreenshot(registration.manifest.id, opts),
           },
         },
@@ -2839,6 +2857,51 @@ export class ShellController {
       if (to < count) await new Promise<void>((done) => setTimeout(done, 0));
     }
     return out;
+  }
+
+  /**
+   * `host.capture.setView` — §7.5's `1..6` camera presets under their anatomical names.
+   *
+   * The mapping is the engine's own table (`view/geometry.ts#presetRotation`), reached through the
+   * frozen `Engine.cameraPreset`, so an extension's figure is the picture the app's own preset keys
+   * and orientation cube produce. In RAS — `x` right, `y` anterior, `z` superior — `'superior'`
+   * looks down `−z` with anterior up.
+   *
+   * `fit` runs `resetView` **first**, because refitting after the rotation would frame the bounds
+   * of a camera the caller has not seen yet, and §7.5's `r` is defined as a refit of the view as it
+   * then is.
+   *
+   * It awaits `whenSettled()` so that a `capture.screenshot` on the next line photographs the view
+   * that was asked for. Nothing is restored: see `host.ts` for why an automatic undo would be a
+   * second camera move the user never asked for.
+   */
+  private async moduleSetView(
+    moduleId: string,
+    preset: 'superior' | 'inferior' | 'left' | 'right' | 'anterior' | 'posterior',
+    opts?: { viewId?: string; fit?: boolean }
+  ): Promise<void> {
+    if (!this.moduleSessions.has(moduleId)) {
+      throw new ModuleHostError(`${moduleId} is not active; a camera move needs a live extension`);
+    }
+    const letter = MODULE_VIEW_PRESETS[preset];
+    if (letter === undefined) {
+      throw new ModuleHostError(
+        `${String(preset)} is not one of ${Object.keys(MODULE_VIEW_PRESETS).join(', ')}`
+      );
+    }
+    // `View` is `SliceView | View3D` and only the slice half has a `mode`, which is the engine's
+    // own discriminant — the 3-D view is the one without one.
+    const view3d = this.engine.views.find((v) => !('mode' in v)) ?? null;
+    const viewId = (opts?.viewId ?? view3d?.id) as ViewId | undefined;
+    if (viewId === undefined) throw new ModuleHostError('there is no 3-D view to point');
+    if (view3d === null || viewId !== view3d.id) {
+      // A slice pane has a `mmPerPx` and a centre, not a camera. Refusing is the §13.1 rule that a
+      // member a build cannot honour says so rather than doing nothing and resolving.
+      throw new ModuleHostError(`${String(viewId)} is not the 3-D view`);
+    }
+    if (opts?.fit === true) this.engine.resetView(viewId);
+    this.engine.cameraPreset(viewId, letter);
+    await this.engine.whenSettled();
   }
 
   /**

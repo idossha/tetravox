@@ -99,9 +99,11 @@ function stubFiles(): ModuleHost['files'] {
 
 /** The `capture` surface before an engine is wired: it **rejects**, it does not answer an empty PNG. */
 function stubCapture(): ModuleHost['capture'] {
+  const no = (what: string): Promise<never> =>
+    Promise.reject(new ModuleHostError(`${what} is not available in this build`));
   return {
-    screenshot: () =>
-      Promise.reject(new ModuleHostError('screenshots are not available in this build')),
+    setView: () => no('the camera presets'),
+    screenshot: () => no('screenshots'),
   };
 }
 

@@ -5011,5 +5011,25 @@ Every §4.7 annotation is off except the convention badge, which §8 says is not
 figure draws its own marks, and the app's crosshair through the middle of one is the app's cursor rather than
 the extension's finding.
 
+**`capture.setView(preset, opts?)`** is the fifth, and it exists because the four standard views of an implant
+are four *camera* positions and an extension had no camera at all — it could photograph only whatever the user
+happened to be looking at. It is §7.5's `1..6` under anatomical names, reached through the frozen
+`Engine.cameraPreset`, so an extension's figure is the picture the app's own preset keys and orientation cube
+produce rather than a rotation an extension composed. It **resolves after `whenSettled()`**, which is the whole
+reason it is a promise: a `capture.screenshot` on the next line has to photograph the view that was asked for.
+
+**Nothing is restored, deliberately.** There is no saved camera and no automatic undo. A restore would be a
+second, invisible camera move — the user would watch the view snap back from a place they never sent it — and
+"the view is left at the last preset" is a rule an extension author can hold in their head, where "it is put
+back unless you …" is not. An extension that wants the previous camera asks for a preset of its own before it
+finishes.
+
+Wiring it exposed a real disagreement: `NoGlEngine` carried its **own** preset-rotation table, and it was the
+pre-2026-08-28 one in which `S` put the eye anterior. Nothing had ever pictured the camera in a stand-in run,
+so nothing caught it. `presetRotation` is now exported from the engine and the stand-in uses it — the same
+"there is only one implementation" rule `peakCentroid` is exported under, and the reason the analytic test
+below is worth anything: it rotates `(0, 0, 1)` by the quaternion the engine stored, with three lines of
+quaternion arithmetic of its own, and asserts that `'superior'` looks down `−z`.
+
 `MODULE_HOST_VERSION` stays **1**. Nothing here is breaking, and an extension written against the older
 surface neither sees these members nor behaves differently for their existence.

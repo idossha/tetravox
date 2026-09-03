@@ -275,6 +275,35 @@ export interface ModuleHost {
    * The bytes are a complete PNG file, ready for {@link ModuleHost.files}`.writeBinary`.
    */
   capture: {
+    /**
+     * Point the 3-D camera at an anatomical preset, and resolve once the engine has settled
+     * (appended 2026-09-03, additively).
+     *
+     * The presets are §7.5's `1..6` under their anatomical names, in **RAS** — `x` is right, `y`
+     * anterior, `z` superior — so `'superior'` looks straight down (`−z`) with anterior up, and
+     * `'left'` puts the eye on `−x` with the nose to screen-left. They are the engine's own
+     * rotations rather than a matrix an extension composes, for the reason §8 gives for every other
+     * camera fact: a rotation an extension built would not be the picture the app's own `1..6` keys
+     * and orientation cube produce, and a figure that disagrees with the app is worse than no
+     * figure. `fit: true` refits the scene bounds first (§7.5's `r`), which is what a picture of a
+     * whole implant wants and what a picture of the region the user is already looking at does not.
+     *
+     * **It resolves after `whenSettled()`**, so a `capture.screenshot` on the next line photographs
+     * the view that was asked for rather than the one that was on screen when the call was made.
+     * That is the entire reason it is a promise.
+     *
+     * **Nothing is restored.** There is no saved camera and no automatic undo: an extension that
+     * wants four standard views calls this before each screenshot, and the user's 3-D view is left
+     * at the **last preset asked for**. Restoring would be a second, invisible camera move — the
+     * user would see the view snap back from a place they never asked it to go — and an extension
+     * that wants the old camera back can take it by asking for a preset of its own choosing before
+     * it finishes. `viewId` defaults to the 3-D view; a 2-D pane has no camera to preset and is
+     * refused rather than silently ignored.
+     */
+    setView(
+      preset: 'superior' | 'inferior' | 'left' | 'right' | 'anterior' | 'posterior',
+      opts?: { viewId?: string; fit?: boolean }
+    ): Promise<void>;
     screenshot(opts: {
       target: 'view' | 'grid';
       viewId?: string;

@@ -865,6 +865,84 @@ describe('the wired host (§13.1)', () => {
   });
 
   /**
+   * `host.capture.setView`, as the **direction the camera looks** (§11 rule 0).
+   *
+   * `Camera3D.rotation` is read column-wise: column 2 is the axis from the target toward the eye,
+   * so the view direction is its negation. The test rotates `(0, 0, 1)` by the quaternion the
+   * engine actually stored — an independent three-line quaternion sandwich, not the engine's own
+   * matrix code — and asserts the RAS vector each anatomical name promises: superior looks down
+   * `−z`, left looks along `+x` from the eye on `−x`, and so on. A preset table that was rolled,
+   * transposed, or (as this stand-in's own table was until today) simply the anterior view under
+   * six names, fails here.
+   */
+  it('points the 3-D camera at each anatomical preset, in RAS', async () => {
+    const { engine, controller } = harness();
+    await controller.activateModule(HELLO);
+    const h = controller.moduleHost() as ModuleHost;
+
+    /** `q · (0,0,1) · q⁻¹` — the camera's **back** axis, column 2 of the rotation. */
+    const backAxis = (q: readonly number[]): [number, number, number] => {
+      const [x, y, z, w] = [q[0] as number, q[1] as number, q[2] as number, q[3] as number];
+      // v = (0, 0, 1): t = 2 q_xyz × v, out = v + w t + q_xyz × t.
+      const tx = 2 * (y * 1 - z * 0);
+      const ty = 2 * (z * 0 - x * 1);
+      const tz = 2 * (x * 0 - y * 0);
+      return [
+        0 + w * tx + (y * tz - z * ty),
+        0 + w * ty + (z * tx - x * tz),
+        1 + w * tz + (x * ty - y * tx),
+      ];
+    };
+    const direction = (): [number, number, number] => {
+      const back = backAxis(engine.scene.view3d.camera.rotation);
+      return [-back[0], -back[1], -back[2]];
+    };
+    const close = (got: readonly number[], want: readonly number[]): void => {
+      for (const [i, w] of want.entries()) expect(got[i] as number).toBeCloseTo(w, 5);
+    };
+
+    await h.capture.setView('superior');
+    close(direction(), [0, 0, -1]); // eye above, looking down
+    await h.capture.setView('inferior');
+    close(direction(), [0, 0, 1]);
+    await h.capture.setView('anterior');
+    close(direction(), [0, -1, 0]); // eye in front of the face, looking posteriorly
+    await h.capture.setView('posterior');
+    close(direction(), [0, 1, 0]);
+    await h.capture.setView('left');
+    close(direction(), [1, 0, 0]); // eye on −x, looking toward +x
+    await h.capture.setView('right');
+    close(direction(), [-1, 0, 0]);
+
+    // `fit` refits before rotating, and still leaves the camera at the preset asked for.
+    await h.capture.setView('superior', { fit: true });
+    close(direction(), [0, 0, -1]);
+
+    // Nothing is restored: the view is left at the LAST preset, which is the documented contract
+    // and the thing an extension taking four pictures depends on.
+    await h.capture.setView('left');
+    close(direction(), [1, 0, 0]);
+
+    // A name that is not a preset, and a pane that has no camera, are refusals rather than no-ops.
+    await expect(
+      h.capture.setView('oblique' as Parameters<ModuleHost['capture']['setView']>[0])
+    ).rejects.toThrow(ModuleHostError);
+    const slice = engine.views.find((v) => 'mode' in v);
+    await expect(h.capture.setView('superior', { viewId: slice?.id })).rejects.toThrow(
+      ModuleHostError
+    );
+  });
+
+  it('refuses a camera move for an extension that is no longer live', async () => {
+    const { controller } = harness();
+    await controller.activateModule(HELLO);
+    const h = controller.moduleHost() as ModuleHost;
+    await expect(h.capture.setView('superior')).resolves.toBeUndefined();
+    controller.deactivateModule(HELLO);
+    await expect(h.capture.setView('superior')).rejects.toThrow(ModuleHostError);
+  });
+
+  /**
    * `host.capture.screenshot`, decoded (§11 rule 0 — numbers, not a picture).
    *
    * `NoGlEngine.screenshot` fills the buffer with the background and encodes a real PNG, so the
