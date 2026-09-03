@@ -196,6 +196,9 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     // every GPU-less CI runner.
     if (forcedWebgl2Null() || (impl === 'real' && !webgl2Available())) {
       store.setState({ status: 'webgl2-null', impl });
+      // There is no engine and no controller to hand over, and that is exactly what an embed host
+      // has to be told — otherwise it waits forever for a `ready` that cannot come (`embed/mode.ts`).
+      emitShellReady({ controller: null, engine: null, store });
       return;
     }
     let created: Engine;

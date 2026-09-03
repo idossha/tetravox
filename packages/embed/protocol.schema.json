@@ -1,0 +1,754 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://tetravox.dev/schema/embed-protocol-v1.json",
+  "title": "Tetravox embed host protocol v1",
+  "description": "Every message between a host page and an embedded Tetravox. See docs/EMBED.md. The protocol is ADDITIVE-ONLY after v1: types and optional fields may be added; nothing may be removed, renamed, made required, or given a new meaning.",
+  "type": "object",
+  "properties": {
+    "tvx": {
+      "const": 1,
+      "description": "The envelope discriminator and the protocol version."
+    },
+    "type": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "description": "Correlation token. A reply carries the id of its request."
+    }
+  },
+  "required": ["tvx", "type"],
+  "oneOf": [
+    {
+      "$ref": "#/definitions/HostMessage"
+    },
+    {
+      "$ref": "#/definitions/EmbedMessage"
+    }
+  ],
+  "definitions": {
+    "HostMessage": {
+      "description": "Host -> embed.",
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "hello",
+          "description": "Ask for `ready`. The embed also posts `ready` unprompted on boot.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "hello"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["tvx", "type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "load",
+          "description": "Replace the scene. Replies `loaded` or `error` with this message's id.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "load"
+            },
+            "id": {
+              "type": "string"
+            },
+            "scene": {
+              "$ref": "#/definitions/EmbedViewSpec"
+            },
+            "baseUrl": {
+              "type": "string",
+              "description": "Base for a relative DatasetRef.path. Defaults to the embed document's own baseURI."
+            }
+          },
+          "required": ["tvx", "type", "scene"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setTheme",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setTheme"
+            },
+            "id": {
+              "type": "string"
+            },
+            "theme": {
+              "enum": ["light", "dark"]
+            }
+          },
+          "required": ["tvx", "type", "theme"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setLayout",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setLayout"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": ["2x2", "1+3", "3d+1", "3d", "axial", "coronal", "sagittal"]
+            }
+          },
+          "required": ["tvx", "type", "kind"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setCursor",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setCursor"
+            },
+            "id": {
+              "type": "string"
+            },
+            "world": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3,
+              "description": "World RAS millimetres."
+            }
+          },
+          "required": ["tvx", "type", "world"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setLayerVisible",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setLayerVisible"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": "string"
+            },
+            "visible": {
+              "type": "boolean"
+            }
+          },
+          "required": ["tvx", "type", "layerId", "visible"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setLayerOpacity",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setLayerOpacity"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": "string"
+            },
+            "opacity": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": ["tvx", "type", "layerId", "opacity"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "updateLayer",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "updateLayer"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": "string"
+            },
+            "patch": {
+              "type": "object",
+              "description": "Any subset of the layer's fields (ARCHITECTURE.md 4.4)."
+            }
+          },
+          "required": ["tvx", "type", "layerId", "patch"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setActiveLayer",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setActiveLayer"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["tvx", "type", "layerId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "screenshot",
+          "description": "Capture a PNG. `id` is required: the reply carries megabytes of base64.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "screenshot"
+            },
+            "id": {
+              "type": "string"
+            },
+            "target": {
+              "enum": ["view", "grid"],
+              "default": "grid"
+            },
+            "viewId": {
+              "type": "string",
+              "description": "Required when target is 'view'."
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": ["tvx", "type", "id"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "serialize",
+          "description": "Ask for the live scene as a ViewSpec. Replies `scene`.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "serialize"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["tvx", "type", "id"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "probe",
+          "description": "Probe every layer at a world point without moving the cursor.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "probe"
+            },
+            "id": {
+              "type": "string"
+            },
+            "world": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "required": ["tvx", "type", "id", "world"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "focus",
+          "description": "Give the viewer keyboard focus; the key map is dead in an unfocused iframe.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "focus"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["tvx", "type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "reset",
+          "description": "Unload everything and terminate every dataset worker.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "reset"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["tvx", "type"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "EmbedMessage": {
+      "description": "Embed -> host.",
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "ready",
+          "description": "Posted on boot and in reply to `hello`. Branch on caps.webgl2.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "ready"
+            },
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "const": 1
+            },
+            "caps": {
+              "type": "object",
+              "properties": {
+                "webgl2": {
+                  "type": "boolean"
+                },
+                "renderer": {
+                  "type": "string"
+                },
+                "norm16": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["webgl2"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["tvx", "type", "version", "caps"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "status",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "status"
+            },
+            "id": {
+              "type": "string"
+            },
+            "phase": {
+              "enum": ["idle", "loading", "ready", "error", "no-webgl2"]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": ["tvx", "type", "phase"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "progress",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "progress"
+            },
+            "id": {
+              "type": "string"
+            },
+            "datasetId": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "done": {
+              "type": "number"
+            },
+            "total": {
+              "type": "number",
+              "description": "0 when the phase cannot say."
+            }
+          },
+          "required": ["tvx", "type", "datasetId", "name", "phase", "done", "total"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "loaded",
+          "description": "The ids here are the LIVE ones, not the ids the host sent: Engine.load re-adds every dataset.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "loaded"
+            },
+            "id": {
+              "type": "string"
+            },
+            "datasets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": ["volume", "mesh"]
+                  },
+                  "bytes": {
+                    "type": "number"
+                  }
+                },
+                "required": ["id", "name", "kind"],
+                "additionalProperties": false
+              }
+            },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "An engine Layer (ARCHITECTURE.md 4.4), verbatim."
+              }
+            }
+          },
+          "required": ["tvx", "type", "datasets", "layers"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "layers",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "layers"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "An engine Layer (ARCHITECTURE.md 4.4), verbatim."
+              }
+            }
+          },
+          "required": ["tvx", "type", "layers"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "cursor",
+          "description": "Throttled to 30 Hz.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "cursor"
+            },
+            "id": {
+              "type": "string"
+            },
+            "world": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "mni": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "tkr": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "space": {
+              "type": "string",
+              "description": "Stable key of the coordinate bar's current space."
+            }
+          },
+          "required": ["tvx", "type", "world", "space"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "probe",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "probe"
+            },
+            "id": {
+              "type": "string"
+            },
+            "result": {
+              "type": "object",
+              "description": "An engine ProbeResult: world, optional mni/tkr, and rows."
+            }
+          },
+          "required": ["tvx", "type", "id", "result"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "screenshot",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "screenshot"
+            },
+            "id": {
+              "type": "string"
+            },
+            "dataUrl": {
+              "type": "string",
+              "pattern": "^data:image/png;base64,"
+            }
+          },
+          "required": ["tvx", "type", "id", "dataUrl"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "scene",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "scene"
+            },
+            "id": {
+              "type": "string"
+            },
+            "spec": {
+              "type": "object",
+              "description": "A complete ViewSpec v2 (ARCHITECTURE.md 4.6)."
+            }
+          },
+          "required": ["tvx", "type", "id", "spec"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "error",
+          "description": "",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "error"
+            },
+            "id": {
+              "type": "string"
+            },
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": ["tvx", "type", "message"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "EmbedDatasetRef": {
+      "type": "object",
+      "description": "A DatasetRef as a host can write one. `fingerprint` and `absPath` of the full ARCHITECTURE.md 4.6 form are omitted: both are computed from bytes or a filesystem an embed does not have.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": ["volume", "mesh"]
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute http(s) URL, used as-is; or relative/root-relative, resolved against LoadMessage.baseUrl (default: the embed document's baseURI)."
+        },
+        "fingerprint": {
+          "type": "string",
+          "description": "Optional; '' is exact for an embed."
+        },
+        "sidecars": {
+          "type": "object",
+          "description": "Resolved against the DATASET's own URL, per ARCHITECTURE.md 4.6.",
+          "properties": {
+            "lut": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": ["path"]
+            },
+            "opt": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": ["path"]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["id", "kind", "name", "path"],
+      "additionalProperties": false
+    },
+    "EmbedViewSpec": {
+      "type": "object",
+      "description": "A ViewSpec v2 as a host can write one. Only `datasets` and `layers` are required; slices, view3d, layout, cursor, radiological, background, lighting, annotations and transparency are filled from the engine's own empty scene when absent. Any other ViewSpec v2 field may be sent and is passed through.",
+      "properties": {
+        "version": {
+          "enum": [1, 2]
+        },
+        "datasets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EmbedDatasetRef"
+          }
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "A SerializableLayer. Minimum: id, datasetId, kind. Every other field falls back to the engine's per-dataset default.",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "datasetId": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": ["volume", "mesh"]
+              }
+            },
+            "required": ["id", "datasetId", "kind"]
+          }
+        },
+        "activeLayerId": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["datasets", "layers"]
+    }
+  }
+}

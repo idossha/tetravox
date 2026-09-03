@@ -55,9 +55,16 @@ export default defineConfig({
   // `new URL('tvx_wasm_bg.wasm', import.meta.url)` out of Vite's asset graph.
   optimizeDeps: { exclude: ['@tetravox/wasm'] },
   worker: { format: 'es' },
+  // The dev server is also the E2E harness (`playwright.config.ts`), which is deliberate: the suite
+  // then drives the same entry, the same config and the same documented example page a developer
+  // does, rather than a second wiring that can rot in private.
   server: {
+    host: '127.0.0.1',
+    port: Number(process.env.TETRAVOX_TEST_PORT ?? 5299),
+    strictPort: true,
     // The renderer source lives in a sibling package and `$TETRAVOX_TESTDATA` outside the repo
-    // entirely, so `pnpm --filter @tetravox/embed dev` has to be allowed to reach both.
+    // entirely, so the server has to be allowed to reach both. `strict` stays on: everything else
+    // is refused, and the reference dataset is admitted by name rather than by opening the disk.
     fs: {
       strict: true,
       allow: [

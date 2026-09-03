@@ -29,10 +29,19 @@ import type { Engine } from '@tetravox/engine';
 import type { ShellController } from '../store/controller';
 import type { UiStore } from '../store/store';
 
-/** What `Shell` hands whoever asked to be told the viewer is live. */
+/**
+ * What `Shell` hands whoever asked to be told the viewer has settled.
+ *
+ * `controller` and `engine` are **null when there is no WebGL2 context** (§1: Chromium M137 removed
+ * the automatic SwiftShader fallback, so a blocklisted driver gives `getContext('webgl2') === null`
+ * and `Shell` shows the §8 error screen instead of building either). That case is emitted too, and
+ * on purpose: a host mounting an iframe has no other way to find out that the viewer it just
+ * embedded can never draw anything, and an embed that stayed silent would leave it waiting forever
+ * for a `ready` that is not coming. The store is always present — it is what carries the status.
+ */
 export interface ShellReady {
-  controller: ShellController;
-  engine: Engine;
+  controller: ShellController | null;
+  engine: Engine | null;
   store: UiStore;
 }
 

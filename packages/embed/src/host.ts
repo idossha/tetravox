@@ -25,11 +25,13 @@ import type {
 import type { ShellController } from '../../app/src/renderer/src/store/controller';
 import type { UiStore } from '../../app/src/renderer/src/store/store';
 import { spaceKey } from '../../app/src/renderer/src/store/store';
+import { fieldKey, selectField } from '../../app/src/renderer/src/panels/layers/mesh/state';
 import {
   PROTOCOL_VERSION,
   acceptMessage,
   withId,
   type EmbedMessage,
+  type EmbedViewSpec,
   type HostMessage,
   type LoadedDataset,
 } from './protocol';
@@ -39,8 +41,9 @@ import { normalizeScene } from './normalize';
 export const CURSOR_THROTTLE_MS = 1000 / 30;
 
 export interface EmbedHostOptions {
-  controller: ShellController;
-  engine: Engine;
+  /** Null when there is no WebGL2 context — see `ShellReady`. */
+  controller: ShellController | null;
+  engine: Engine | null;
   store: UiStore;
   /** The origin the host must post from; `'*'` accepts any. `''` accepts none. */
   hostOrigin: string;
@@ -75,9 +78,18 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * What every message except `hello` is answered with when there is no context.
+ *
+ * A host that ignored `ready.caps.webgl2` and sent a `load` anyway gets a reason rather than
+ * silence — silence here would be indistinguishable from a dropped message, and would send it
+ * looking for a bug in its own origin check.
+ */
+const NO_ENGINE = 'no WebGL2 context: this embed cannot render (see ready.caps.webgl2)';
+
 export class EmbedHost {
-  readonly #controller: ShellController;
-  readonly #engine: Engine;
+  readonly #controller: ShellController | null;
+  readonly #engine: Engine | null;
   readonly #store: UiStore;
   readonly #hostOrigin: string;
   readonly #post: (message: EmbedMessage, targetOrigin: string) => void;
@@ -93,7 +105,7 @@ export class EmbedHost {
    * `load` sending no `view3d` would silently inherit the previous scene's view instead of the
    * fitted one the engine would have chosen.
    */
-  readonly #template: ViewSpec;
+  readonly #template: ViewSpec | null;
 
   #offs: (() => void)[] = [];
   #lastCursorAt = 0;
@@ -114,7 +126,7 @@ export class EmbedHost {
       ((message, targetOrigin) => {
         (globalThis.parent as Window | undefined)?.postMessage(message, targetOrigin);
       });
-    this.#template = opts.engine.serialize();
+    this.#template = opts.engine?.serialize() ?? null;
   }
 
   // ---- lifecycle --------------------------------------------------------------------------------
@@ -133,25 +145,28 @@ export class EmbedHost {
     globalThis.addEventListener('message', onMessage as EventListener);
     this.#offs.push(() => globalThis.removeEventListener('message', onMessage as EventListener));
 
-    this.#offs.push(
-      this.#engine.on('progress', (p) => {
-        const ds = this.#engine.scene.datasets.get(p.datasetId);
-        this.send({
-          tvx: PROTOCOL_VERSION,
-          type: 'progress',
-          datasetId: p.datasetId,
-          name: ds?.name ?? '',
-          phase: p.phase,
-          done: p.done,
-          total: p.total,
-        });
-      })
-    );
-    this.#offs.push(
-      this.#engine.on('error', (e) => {
-        this.send({ tvx: PROTOCOL_VERSION, type: 'error', code: e.code, message: e.message });
-      })
-    );
+    const engine = this.#engine;
+    if (engine !== null) {
+      this.#offs.push(
+        engine.on('progress', (p) => {
+          const ds = engine.scene.datasets.get(p.datasetId);
+          this.send({
+            tvx: PROTOCOL_VERSION,
+            type: 'progress',
+            datasetId: p.datasetId,
+            name: ds?.name ?? '',
+            phase: p.phase,
+            done: p.done,
+            total: p.total,
+          });
+        })
+      );
+      this.#offs.push(
+        engine.on('error', (e) => {
+          this.send({ tvx: PROTOCOL_VERSION, type: 'error', code: e.code, message: e.message });
+        })
+      );
+    }
 
     // The store rather than the engine for these two: `Engine.load` writes cursor and layout
     // straight into the scene without emitting an event per field, and `ShellController` is what
@@ -184,7 +199,8 @@ export class EmbedHost {
 
   private emitReady(request?: { id?: string }): void {
     const caps = this.#store.getState().caps;
-    const ok = this.#store.getState().status !== 'webgl2-null' && caps !== null;
+    const ok =
+      this.#engine !== null && this.#store.getState().status !== 'webgl2-null' && caps !== null;
     const message: EmbedMessage = {
       tvx: PROTOCOL_VERSION,
       type: 'ready',
@@ -259,16 +275,37 @@ export class EmbedHost {
     );
   }
 
+  /**
+   * The three things that exist only with a context, after `handle`'s guard has established that
+   * they do. TypeScript cannot carry that narrowing across a method call, and the alternative — a
+   * non-null assertion at each of the five uses — would be five places that stop being checked.
+   */
+  #live(): { controller: ShellController; engine: Engine; template: ViewSpec } {
+    if (this.#controller === null || this.#engine === null || this.#template === null) {
+      throw new Error(NO_ENGINE);
+    }
+    return { controller: this.#controller, engine: this.#engine, template: this.#template };
+  }
+
   // ---- inbound ----------------------------------------------------------------------------------
 
   /** Exhaustive over `HostMessage`. Public so the e2e can drive it without a second window. */
   async handle(message: HostMessage): Promise<void> {
     try {
+      // `hello` is the one message a context-less embed can still answer, and it is the one that
+      // matters most there: its `ready` is how the host learns why nothing else will work.
+      if (message.type === 'hello') {
+        this.emitReady(message);
+        this.emitStatus();
+        return;
+      }
+      const controller = this.#controller;
+      const engine = this.#engine;
+      if (controller === null || engine === null) {
+        this.send(withId({ tvx: PROTOCOL_VERSION, type: 'error', message: NO_ENGINE }, message));
+        return;
+      }
       switch (message.type) {
-        case 'hello':
-          this.emitReady(message);
-          this.emitStatus();
-          return;
         case 'load':
           await this.load(message.scene, message.baseUrl, message);
           return;
@@ -276,29 +313,29 @@ export class EmbedHost {
           // `persist: false`: there is no `settings.json` behind an embed, and the host owns the
           // preference anyway — it sent it. Persisting would write through a null bridge and change
           // nothing, which is a slower way of doing the same thing less honestly.
-          this.#controller.setThemeChoice(message.theme, { persist: false });
+          controller.setThemeChoice(message.theme, { persist: false });
           return;
         case 'setLayout':
-          this.#controller.setLayout(message.kind as LayoutKind);
+          controller.setLayout(message.kind as LayoutKind);
           return;
         case 'setCursor':
-          this.#controller.setCursorWorld([...message.world] as vec3);
+          controller.setCursorWorld([...message.world] as vec3);
           return;
         case 'setLayerVisible':
-          this.#controller.patchLayer(message.layerId as LayerId, { visible: message.visible });
+          controller.patchLayer(message.layerId as LayerId, { visible: message.visible });
           return;
         case 'setLayerOpacity':
-          this.#controller.setOpacity(message.layerId as LayerId, message.opacity);
+          controller.setOpacity(message.layerId as LayerId, message.opacity);
           return;
         case 'updateLayer':
-          this.#controller.patchLayer(message.layerId as LayerId, message.patch as Partial<Layer>);
+          controller.patchLayer(message.layerId as LayerId, message.patch as Partial<Layer>);
           // A clip plane that follows the cursor needs its subscription armed, exactly as the
           // property editor's own checkbox does (`ClipPlanes.tsx`). Without this a host can set
           // `followCursor: true` and watch the plane never move.
-          this.#controller.applyClipFollowsCursor(message.layerId as LayerId);
+          controller.applyClipFollowsCursor(message.layerId as LayerId);
           return;
         case 'setActiveLayer':
-          this.#controller.setActiveLayer(message.layerId as LayerId | null);
+          controller.setActiveLayer(message.layerId as LayerId | null);
           return;
         case 'screenshot':
           await this.screenshot(message);
@@ -310,14 +347,14 @@ export class EmbedHost {
                 tvx: PROTOCOL_VERSION,
                 type: 'scene',
                 id: message.id,
-                spec: this.#engine.serialize(),
+                spec: engine.serialize(),
               },
               message
             )
           );
           return;
         case 'probe': {
-          const result: ProbeResult = this.#controller.probeWorld([...message.world] as vec3);
+          const result: ProbeResult = controller.probeWorld([...message.world] as vec3);
           this.send(
             withId({ tvx: PROTOCOL_VERSION, type: 'probe', id: message.id, result }, message)
           );
@@ -332,7 +369,7 @@ export class EmbedHost {
         case 'reset':
           // §5 rule 1: `newScene` closes every dataset, and closing a dataset is
           // `worker.terminate()`, which is the only way its wasm heap comes back.
-          this.#controller.newScene();
+          controller.newScene();
           this.emitLayers(this.#store.getState().layers);
           this.emitStatus();
           return;
@@ -343,14 +380,15 @@ export class EmbedHost {
   }
 
   private async load(
-    scene: Parameters<typeof normalizeScene>[0],
+    scene: EmbedViewSpec,
     baseUrl: string | undefined,
     request: HostMessage
   ): Promise<void> {
+    const { controller, template } = this.#live();
     this.send({ tvx: PROTOCOL_VERSION, type: 'status', phase: 'loading' });
     let normalized;
     try {
-      normalized = normalizeScene(scene, this.#template, baseUrl ?? this.#defaultBaseUrl);
+      normalized = normalizeScene(scene, template, baseUrl ?? this.#defaultBaseUrl);
     } catch (error: unknown) {
       // A bad `baseUrl` or an unresolvable ref throws in `new URL`. Reported as the host's own
       // error, with the message naming the URL it could not make sense of.
@@ -359,13 +397,15 @@ export class EmbedHost {
       return;
     }
 
-    const ok = await this.#controller.loadSpecFromUrls(normalized.spec, normalized.resolved);
+    const ok = await controller.loadSpecFromUrls(normalized.spec, normalized.resolved);
     if (!ok) {
       const message = this.#store.getState().sceneError ?? 'the scene could not be loaded';
       this.send({ tvx: PROTOCOL_VERSION, type: 'status', phase: 'error', message });
       this.send(withId({ tvx: PROTOCOL_VERSION, type: 'error', message }, request));
       return;
     }
+
+    this.seedMeshFieldWindows(scene, controller);
 
     const state = this.#store.getState();
     const datasets: LoadedDataset[] = state.datasets.map((ds) => {
@@ -387,15 +427,53 @@ export class EmbedHost {
     this.emitStatus();
   }
 
+  /**
+   * Window a mesh field layer the host selected a field for but could not scale.
+   *
+   * `scene/defaults.ts` gives a mesh layer `scale: { kind: 'linear', lo: 0, hi: 1 }`, because a
+   * layer has no field until something picks one. In the desktop app the *property editor* picks
+   * it, and `selectField` re-seeds the scale and the threshold from that field's own `Stats` — the
+   * comment there says why: "a viridis ramp still pinned to the previous field's range is the same
+   * bug as an unset window". A host sending a `ViewSpec` never goes through that editor, and it
+   * cannot compute the range itself: `MeshFieldInfo.stats` is derived by the parser, in the
+   * worker, from bytes the host has never seen. Left alone, a `TI_max` field whose values live in
+   * 0.002..0.13 renders as one flat colour at the bottom of the ramp — which is exactly what this
+   * looked like before the seeding was added.
+   *
+   * So the embed makes the call the editor would have made, and **only** where the host said
+   * nothing: a spec that carries its own `scale` — every scene saved by the app does — is left
+   * exactly as it was written. `selectField` is the app's own function, not a copy of it, so the
+   * window a host gets is the window a user gets.
+   *
+   * The live layer is found positionally. `Engine.load` adds one layer per restorable spec layer,
+   * in order, which is the same correspondence `applyScene` uses to restore `activeLayerId`.
+   */
+  private seedMeshFieldWindows(scene: EmbedViewSpec, controller: ShellController): void {
+    const live = this.#store.getState().layers;
+    scene.layers.forEach((specLayer, index) => {
+      if (specLayer['kind'] !== 'mesh') return;
+      if (specLayer['scale'] !== undefined) return;
+      const field = specLayer['field'] as { source: 'node' | 'elm'; name: string } | undefined;
+      if (field === undefined) return;
+      const layer = live[index];
+      if (layer === undefined || layer.kind !== 'mesh') return;
+      const dataset = this.#engine?.scene.datasets.get(layer.datasetId);
+      if (dataset === undefined || dataset.kind !== 'mesh') return;
+      const patch = selectField(dataset, layer, fieldKey(field));
+      if (Object.keys(patch).length > 0) controller.patchLayer(layer.id, patch);
+    });
+  }
+
   private async screenshot(message: Extract<HostMessage, { type: 'screenshot' }>): Promise<void> {
+    const { controller } = this.#live();
     const options = {
-      ...this.#controller.snapshotOptions(),
+      ...controller.snapshotOptions(),
       target: message.target ?? 'grid',
       ...(message.viewId === undefined ? {} : { viewId: message.viewId }),
       ...(message.width === undefined ? {} : { width: message.width }),
       ...(message.height === undefined ? {} : { height: message.height }),
     };
-    const blob = await this.#controller.captureScreenshot(options as never);
+    const blob = await controller.captureScreenshot(options as never);
     const dataUrl = await blobToDataUrl(blob);
     this.send(
       withId({ tvx: PROTOCOL_VERSION, type: 'screenshot', id: message.id, dataUrl }, message)
