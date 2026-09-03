@@ -174,9 +174,16 @@ export interface ModuleWriter {
   title: string;
   filters: { name: string; extensions: string[] }[];
   /**
-   * Same-directory companions the Save sheet admits alongside the chosen path, as templates over it:
-   * `'{name}.{stamp}.bak'`, `'{stem}_editlog.json'`. `{name}` is the full basename, `{stem}` is
-   * {@link stemOf} of it, `{stamp}` is `YYYYMMDD-HHMMSS`.
+   * Companions the Save sheet admits alongside the chosen path, as templates over it. Two shapes: a
+   * **same-directory** name — `'{name}.{stamp}.bak'`, `'{stem}_editlog.json'` — and a **derivatives
+   * target** (2026-09-03) — `'{derivatives}/tetravox/sub-{id}/ieeg/figures/…'`, resolved against
+   * the BIDS `derivatives/` directory found above the chosen file, dropped rather than errored when
+   * none is found.
+   *
+   * Tokens: `{name}` (the full basename), `{stem}` ({@link stemOf} of it), `{stamp}`
+   * (`YYYYMMDD-HHMMSS`), and the anchor's own BIDS entities (`{sub}` is `sub-P076`, `{id}` its label
+   * `P076`, `{space}` the `space-` label). A template naming a token the anchor does not carry is
+   * dropped.
    */
   siblings: string[];
   backup?: 'timestamped';

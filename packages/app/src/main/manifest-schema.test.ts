@@ -32,13 +32,17 @@ import {
   CONTRIBUTED_ID,
   MANIFEST_ID,
   SEMVER,
+  DERIVATIVE_TEMPLATE,
   SIBLING_TEMPLATE,
   derivePermissions,
   validateManifest,
 } from '../modules/manifest-schema';
 import { MANIFESTS } from '../modules/manifests';
 import { MODULE_HOST_VERSION, MODULE_KEY_POOL } from '../modules/manifest-types';
-import { SIBLING_TEMPLATE as MAIN_SIBLING_TEMPLATE } from './module-io';
+import {
+  DERIVATIVE_TEMPLATE as MAIN_DERIVATIVE_TEMPLATE,
+  SIBLING_TEMPLATE as MAIN_SIBLING_TEMPLATE,
+} from './module-io';
 
 /** The smallest manifest that passes, so each case below changes exactly one thing. */
 function base(): Record<string, unknown> {
@@ -72,6 +76,26 @@ describe('the two carriers agree', () => {
   it('uses the same sibling-template rule main admits against', () => {
     expect(SIBLING_TEMPLATE.source).toBe(MAIN_SIBLING_TEMPLATE.source);
     expect(SIBLING_TEMPLATE.flags).toBe(MAIN_SIBLING_TEMPLATE.flags);
+  });
+
+  // The same obligation for the second template class (2026-09-03): a manifest that declares a
+  // `{derivatives}` target this validator accepts and main refuses is an extension whose save is
+  // rejected by the very list that exists to permit it.
+  it('uses the same derivatives-template rule main admits against', () => {
+    expect(DERIVATIVE_TEMPLATE.source).toBe(MAIN_DERIVATIVE_TEMPLATE.source);
+    expect(DERIVATIVE_TEMPLATE.flags).toBe(MAIN_DERIVATIVE_TEMPLATE.flags);
+  });
+
+  it('accepts a {derivatives} target in a writer’s siblings, and still refuses an ascent', () => {
+    const writer = (siblings: string[]) => ({
+      writers: [
+        { id: 'save', title: 'Save', filters: [{ name: 'TSV', extensions: ['tsv'] }], siblings },
+      ],
+    });
+    expect(
+      errorsFor(writer(['{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-qc.svg']))
+    ).toEqual([]);
+    expect(errorsFor(writer(['{derivatives}/../etc/passwd'])).length).toBe(1);
   });
 
   it('names every key in the live pool and every live ArgType', () => {

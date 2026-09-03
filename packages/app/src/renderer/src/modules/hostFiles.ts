@@ -122,5 +122,9 @@ export function createHostFiles(
     async writeText(path, text, opts) {
       return bridge().moduleWriteText(id, path, text, { backup: opts?.backup === true });
     },
+
+    async writeBinary(path, bytes, opts) {
+      return bridge().moduleWriteBinary(id, path, bytes, { backup: opts?.backup === true });
+    },
   };
 }

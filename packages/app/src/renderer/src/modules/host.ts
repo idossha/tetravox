@@ -145,6 +145,26 @@ export interface ModuleHost {
      * volume, for a query outside it, and for a box with nothing in it to weigh.
      */
     peakCentroid(datasetId: DatasetId, world: vec3, radiusMm: number): vec3 | null;
+    /**
+     * The dataset's scalar values at arbitrary world points (appended 2026-09-03, additively).
+     *
+     * `worldPoints` is `xyz` triples in world millimetres — `[x0, y0, z0, x1, y1, z1, …]`, the
+     * layout a `PointsLayer`'s positions already have. `order: 1` (default) is trilinear, `order: 0`
+     * nearest; the result is one value per point and **`NaN` outside the volume**, never a clamp.
+     *
+     * **Bounded at 2,000,000 points** (`MAX_SAMPLE_POINTS`) — a larger request rejects with a
+     * {@link ModuleHostError} rather than being truncated.
+     *
+     * Runs in the renderer in slices with a macrotask between them, so it does not block the UI
+     * thread (§5 rule 6) though it is not off-thread either. Rejects for a dataset id that is not a
+     * volume in this scene. Resolves to all-`NaN` for a volume with no scalar to give (`rgb24` /
+     * `rgba32`, or samples not on this thread).
+     */
+    sampleVolume(
+      datasetId: DatasetId,
+      worldPoints: Float32Array,
+      opts?: { order?: 0 | 1; volumeIndex?: number }
+    ): Promise<Float32Array>;
     /** This module's scene block (§13.2), or null. `≤ 256 KiB` of JSON. */
     block<T>(): T | null;
     setBlock<T>(data: T | null): void;
@@ -197,6 +217,72 @@ export interface ModuleHost {
       text: string,
       opts?: { backup?: boolean }
     ): Promise<{ ok: true; backupPath: string | null } | { ok: false; error: string }>;
+    /**
+     * The same write, for **PNG bytes** (appended 2026-09-03, additively).
+     *
+     * `.png` only, ≤ 32 MiB — the extension filter and size cap keep this a figure channel, not a
+     * general byte channel.
+     *
+     * Everything else is {@link writeText}'s, unchanged: the same module-scoped write list, the
+     * same `.part` + rename, the same main-side `.bak` copy, and the same allow-listing of the
+     * written path for reading back.
+     */
+    writeBinary(
+      path: string,
+      bytes: Uint8Array,
+      opts?: { backup?: boolean }
+    ): Promise<{ ok: true; backupPath: string | null } | { ok: false; error: string }>;
+  };
+
+  /**
+   * **PNG bytes of what is on screen** (appended 2026-09-03, additively; absent, a module simply
+   * could not ask).
+   *
+   * The engine's own §4.7 `screenshot`, narrowed to the four options a figure needs. `target:
+   * 'grid'` is the whole view grid; `'view'` is one pane, and `viewId` names it (omitted: the
+   * active one).
+   *
+   * **Limits.**
+   *
+   * * Runs **only while the module is active** (`ui.isActive()`, or showing in its own window).
+   * * The scene must have a view to capture; called too early it rejects with a `ModuleHostError`,
+   *   not a 1×1 PNG.
+   * * `width`/`height` are clamped to what the drawing buffer can supersample to; omit both for the
+   *   pane's own size.
+   * * `background: 'transparent'` is the engine's transparent capture; `'theme'` is the scene's own
+   *   background — not the default, since a figure headed for a report usually wants transparent.
+   *
+   * The bytes are a complete PNG file, ready for {@link ModuleHost.files}`.writeBinary`.
+   */
+  capture: {
+    /**
+     * Point the 3-D camera at an anatomical preset, and resolve once the engine has settled
+     * (appended 2026-09-03, additively).
+     *
+     * The presets are §7.5's `1..6` under their anatomical names, in **RAS** — `x` is right, `y`
+     * anterior, `z` superior — so `'superior'` looks straight down (`−z`) with anterior up, and
+     * `'left'` puts the eye on `−x` with the nose to screen-left. `fit: true` refits the scene
+     * bounds first (§7.5's `r`).
+     *
+     * **Resolves after `whenSettled()`**, so a `capture.screenshot` on the next line photographs the
+     * view that was just asked for rather than whatever was on screen when the call was made.
+     *
+     * **Nothing is restored.** There is no saved camera and no automatic undo: the user's 3-D view
+     * is left at the **last preset asked for**; an extension that wants the old camera back must ask
+     * for it explicitly. `viewId` defaults to the 3-D view; a 2-D pane has no camera to preset and is
+     * refused rather than silently ignored.
+     */
+    setView(
+      preset: 'superior' | 'inferior' | 'left' | 'right' | 'anterior' | 'posterior',
+      opts?: { viewId?: string; fit?: boolean }
+    ): Promise<void>;
+    screenshot(opts: {
+      target: 'view' | 'grid';
+      viewId?: string;
+      width?: number;
+      height?: number;
+      background?: 'transparent' | 'theme';
+    }): Promise<Uint8Array>;
   };
 
   ui: {

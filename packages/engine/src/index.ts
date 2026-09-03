@@ -126,6 +126,15 @@ export {
  */
 export { MAX_BOX_VOXELS, peakCentroid, sampleVoxelBox } from './derived/voxel-box';
 export type { VoxelBox } from './derived/voxel-box';
+/**
+ * The `1..6` camera preset rotations (§7.5).
+ *
+ * Exported for the reason `peakCentroid` is: the app's `NoGlEngine` has to give the **same** camera
+ * as the real engine, not a table of its own (2026-09-03).
+ */
+export { presetRotation } from './view/geometry';
+export { MAX_SAMPLE_POINTS, SampleVolumeError, sampleVolumeAt } from './derived/volume-sample';
+export type { SampleOrder, SampleVolumeOptions } from './derived/volume-sample';
 
 /**
  * §13's point tool (2026-08-30): the pure hit test the tool selects with, and the `p<index>` id

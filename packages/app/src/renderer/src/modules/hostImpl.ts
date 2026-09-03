@@ -49,6 +49,10 @@ export interface ModuleHostDeps {
   files?: ModuleHost['files'];
   /** The engine's `peakCentroid`, bound to a dataset lookup. Absent: it throws. */
   peakCentroid?: ModuleHost['scene']['peakCentroid'];
+  /** §4.3's point sampler over the dataset the module names (2026-09-03). Absent: it rejects. */
+  sampleVolume?: ModuleHost['scene']['sampleVolume'];
+  /** The engine's §4.7 screenshot, gated on the module being live. Absent: it rejects. */
+  capture?: ModuleHost['capture'];
 }
 
 /** §13.2's cap. A block is a *record*, not a copy of the data — 256 KiB is generous for one. */
@@ -84,6 +88,17 @@ function stubFiles(): ModuleHost['files'] {
     openDialog: () => no('the open dialog'),
     saveDialog: () => no('the save dialog'),
     writeText: () => no('writing files'),
+    writeBinary: () => no('writing files'),
+  };
+}
+
+/** The `capture` surface before an engine is wired: it **rejects**, it does not answer an empty PNG. */
+function stubCapture(): ModuleHost['capture'] {
+  const no = (what: string): Promise<never> =>
+    Promise.reject(new ModuleHostError(`${what} is not available in this build`));
+  return {
+    setView: () => no('the camera presets'),
+    screenshot: () => no('screenshots'),
   };
 }
 
@@ -211,6 +226,16 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
       peakCentroid:
         deps.peakCentroid ??
         ((): vec3 | null => unavailable('the peak-centroid helper (`scene.peakCentroid`)')),
+      // Appended 2026-09-03 with `host.ts`'s `scene.sampleVolume` (§13.1, §4.3). A **rejecting**
+      // stub, since the member is a promise and `await` must see the refusal like any other failure.
+      sampleVolume:
+        deps.sampleVolume ??
+        ((): Promise<Float32Array> =>
+          Promise.reject(
+            new ModuleHostError(
+              'the volume sampler (`scene.sampleVolume`) is not available in this build'
+            )
+          )),
 
       block: <T>(): T | null => {
         const block = controller.moduleBlock(id);
@@ -249,6 +274,7 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
 
     tool: deps.tool ?? stubTool(),
     files: deps.files ?? stubFiles(),
+    capture: deps.capture ?? stubCapture(),
 
     ui: {
       setDirty: (dirty: boolean): void => controller.setModuleDirty(id, dirty),

@@ -84,15 +84,28 @@ import {
   moduleOpenDialog,
   moduleReadText,
   moduleSaveDialog,
+  MAX_MODULE_WRITE_BINARY_BYTES,
+  MODULE_WRITE_TEXT_EXTENSIONS,
+  anchorTokens,
+  isDerivativeTemplate,
+  moduleWriteBinary,
   moduleWriteText,
   registerModuleIpc,
+  resolveDerivativesRoot,
   revokeAllModuleWrites,
   revokeModuleWrites,
   shouldPromptOnClose,
   stampNow,
   stemOf,
+  substituteDerivative,
   substituteSibling,
 } from './module-io';
+
+/** The 67-byte 1×1 opaque-black PNG every binary-write assertion below writes. */
+const PNG_1x1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64'
+);
 
 const SEEG = 'tetravox.seeg';
 const OTHER = 'tetravox.other';
@@ -703,5 +716,217 @@ describe('giving a write admission back', () => {
     admitModuleWrite(SEEG, path, []);
     handlerFor()(null, SEEG);
     expect(isModuleWritable(SEEG, path)).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// PNG bytes, the text extension list, and `{derivatives}` (2026-09-03)
+// ------------------------------------------------------------------------------------------------
+
+describe('module-write-binary', () => {
+  it('writes PNG bytes through a .part file, byte for byte', () => {
+    const path = join(dir, 'figure.png');
+    admitModuleWrite(SEEG, path, []);
+    writeFileSync(`${path}.part`, 'left over from a crash\n', 'utf8');
+    expect(moduleWriteBinary(SEEG, path, PNG_1x1, {})).toEqual({ ok: true, backupPath: null });
+    // Byte-for-byte, not "a file exists": a text-mode write would mangle the 0x0D 0x0A in the PNG
+    // signature, which is exactly the failure the signature is designed to expose.
+    expect(readFileSync(path).equals(PNG_1x1)).toBe(true);
+    expect(existsSync(`${path}.part`)).toBe(false);
+  });
+
+  it('honours a byteOffset — a view over a larger buffer writes only its own window', () => {
+    const path = join(dir, 'view.png');
+    admitModuleWrite(SEEG, path, []);
+    const backing = new Uint8Array(PNG_1x1.byteLength + 8);
+    backing.set(PNG_1x1, 4);
+    expect(moduleWriteBinary(SEEG, path, backing.subarray(4, 4 + PNG_1x1.byteLength), {}).ok).toBe(
+      true
+    );
+    expect(readFileSync(path).equals(PNG_1x1)).toBe(true);
+  });
+
+  it('refuses a path the module’s Save sheet never admitted', () => {
+    const path = join(dir, 'unadmitted.png');
+    expect(moduleWriteBinary(SEEG, path, PNG_1x1, {})).toEqual({
+      ok: false,
+      error: 'not on the extension write list',
+    });
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('refuses every extension but .png, even on an admitted path', () => {
+    // The interesting case, and the reason the filter exists: `{name}`-derived siblings mean an
+    // extension can hold an admission for a name it did not type into the sheet.
+    const path = join(dir, 'not-a-picture.command');
+    admitModuleWrite(SEEG, path, []);
+    const result = moduleWriteBinary(SEEG, path, PNG_1x1, {});
+    expect(result.ok).toBe(false);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('refuses more than the 32 MiB cap without writing anything', () => {
+    const path = join(dir, 'huge.png');
+    admitModuleWrite(SEEG, path, []);
+    const big = new Uint8Array(MAX_MODULE_WRITE_BINARY_BYTES + 1);
+    const result = moduleWriteBinary(SEEG, path, big, {});
+    expect(result.ok).toBe(false);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('makes the .bak the writer declared, then replaces the file', () => {
+    const path = join(dir, 'sub-01_qc.png');
+    const admitted = admitModuleWrite(SEEG, path, [BAK]);
+    expect(admitted).not.toBeNull();
+    writeFileSync(path, Buffer.from([1, 2, 3]));
+    const result = moduleWriteBinary(SEEG, path, PNG_1x1, { backup: true });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.backupPath).toMatch(/sub-01_qc\.png\.\d{8}-\d{6}\.bak$/);
+    expect(readFileSync(result.backupPath as string).equals(Buffer.from([1, 2, 3]))).toBe(true);
+    expect(readFileSync(path).equals(PNG_1x1)).toBe(true);
+  });
+});
+
+describe('the module-write-text extension list', () => {
+  it('carries .svg and .html beside the five text extensions', () => {
+    expect(MODULE_WRITE_TEXT_EXTENSIONS).toEqual([...MODULE_READ_EXTENSIONS, '.svg', '.html']);
+  });
+
+  it('writes an SVG figure', () => {
+    const path = join(dir, 'sub-01_desc-spacing_qc.svg');
+    admitModuleWrite(SEEG, path, []);
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>';
+    expect(moduleWriteText(SEEG, path, svg, {})).toEqual({ ok: true, backupPath: null });
+    expect(readFileSync(path, 'utf8')).toBe(svg);
+  });
+
+  it('refuses an extension that is on neither list, on an admitted path', () => {
+    const path = join(dir, 'payload.command');
+    admitModuleWrite(SEEG, path, []);
+    expect(moduleWriteText(SEEG, path, '#!/bin/sh\n', {}).ok).toBe(false);
+    expect(existsSync(path)).toBe(false);
+  });
+});
+
+describe('the anchor’s BIDS entities as writer tokens', () => {
+  it('reads {sub}, {id} and {space} out of a BIDS basename', () => {
+    expect(anchorTokens('sub-P076_space-T1w_electrodes.tsv')).toMatchObject({
+      name: 'sub-P076_space-T1w_electrodes.tsv',
+      stem: 'sub-P076_space-T1w_electrodes',
+      sub: 'sub-P076',
+      id: 'P076',
+      space: 'T1w',
+    });
+  });
+
+  it('leaves a token the anchor does not carry ABSENT, so the template is dropped', () => {
+    const tokens = anchorTokens('electrodes.tsv');
+    expect(tokens['sub']).toBeUndefined();
+    expect(tokens['space']).toBeUndefined();
+    // Dropped, not substituted with '': a `sub-` directory with nothing after it is a derivative
+    // tree in a place BIDS tooling would then have to explain.
+    expect(substituteSibling('{stem}_{sub}.json', 'electrodes.tsv', stampNow())).toBeNull();
+  });
+});
+
+describe('{derivatives} writer targets', () => {
+  /** `<root>/dataset_description.json` and a subject's `ieeg/` under it. */
+  function bidsTree(name: string): { root: string; anchor: string } {
+    const root = join(dir, name);
+    const ieeg = join(root, 'sub-P076', 'ieeg');
+    mkdirSync(ieeg, { recursive: true });
+    writeFileSync(join(root, 'dataset_description.json'), '{"Name":"x","BIDSVersion":"1.9.0"}');
+    return { root, anchor: join(ieeg, 'sub-P076_space-T1w_electrodes.tsv') };
+  }
+
+  it('is a template class of its own — a plain sibling never holds a separator', () => {
+    expect(isDerivativeTemplate('{derivatives}/tetravox/dataset_description.json')).toBe(true);
+    expect(isSiblingTemplate('{derivatives}/tetravox/dataset_description.json')).toBe(false);
+    expect(isDerivativeTemplate('{name}.{stamp}.bak')).toBe(false);
+    // No ascent, no second token, no leading segment before it.
+    expect(isDerivativeTemplate('{derivatives}/../etc/passwd')).toBe(false);
+    expect(isDerivativeTemplate('x/{derivatives}/a.tsv')).toBe(false);
+    expect(isDerivativeTemplate('{derivatives}')).toBe(false);
+  });
+
+  it('resolves <bidsroot>/derivatives by the dataset_description.json above the anchor', () => {
+    const { root, anchor } = bidsTree('ds-desc');
+    expect(resolveDerivativesRoot(join(anchor, '..'))).toBe(join(root, 'derivatives'));
+  });
+
+  it('prefers an ancestor already NAMED derivatives — a derivative’s figures stay in its tree', () => {
+    const root = join(dir, 'ds-nested', 'derivatives');
+    const inside = join(root, 'seegprep', 'sub-P076', 'ieeg');
+    mkdirSync(inside, { recursive: true });
+    writeFileSync(join(dir, 'ds-nested', 'dataset_description.json'), '{}');
+    expect(resolveDerivativesRoot(inside)).toBe(root);
+  });
+
+  it('answers null where there is no BIDS dataset, and the template is then dropped', () => {
+    const loose = join(dir, 'loose');
+    mkdirSync(loose, { recursive: true });
+    expect(resolveDerivativesRoot(loose)).toBeNull();
+    const admitted = admitModuleWrite(
+      SEEG,
+      join(loose, 'sub-P076_electrodes.tsv'),
+      ['{derivatives}/tetravox/sub-{id}/ieeg/x.tsv'],
+      () => false
+    );
+    expect(admitted?.siblings).toEqual({});
+  });
+
+  it('substitutes per segment and admits the resolved absolute path', () => {
+    const { root, anchor } = bidsTree('ds-admit');
+    const templates = [
+      '{derivatives}/tetravox/dataset_description.json',
+      '{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.svg',
+      '{derivatives}/tetravox/sub-{id}/ieeg/sub-{id}_space-{space}_electrodes_corrected.tsv',
+    ];
+    const admitted = admitModuleWrite(SEEG, anchor, templates);
+    expect(admitted).not.toBeNull();
+    const derivatives = join(root, 'derivatives', 'tetravox');
+    expect(admitted?.siblings).toEqual({
+      [templates[0] as string]: join(derivatives, 'dataset_description.json'),
+      [templates[1] as string]: join(
+        derivatives,
+        'sub-P076',
+        'ieeg',
+        'figures',
+        'sub-P076_desc-spacing_qc.svg'
+      ),
+      [templates[2] as string]: join(
+        derivatives,
+        'sub-P076',
+        'ieeg',
+        'sub-P076_space-T1w_electrodes_corrected.tsv'
+      ),
+    });
+    for (const target of Object.values(admitted?.siblings ?? {})) {
+      expect(isModuleWritable(SEEG, target)).toBe(true);
+      expect(isModuleWritable(OTHER, target)).toBe(false);
+    }
+  });
+
+  it('creates the whole derivatives path on write — four directories that did not exist', () => {
+    const { root, anchor } = bidsTree('ds-write');
+    const template = '{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.svg';
+    const admitted = admitModuleWrite(SEEG, anchor, [template]);
+    const target = admitted?.siblings[template] as string;
+    expect(existsSync(join(root, 'derivatives'))).toBe(false);
+    expect(moduleWriteText(SEEG, target, '<svg/>', {})).toEqual({ ok: true, backupPath: null });
+    expect(readFileSync(target, 'utf8')).toBe('<svg/>');
+  });
+
+  it('cannot climb out of the resolved subtree, whatever the anchor is called', () => {
+    const { root } = bidsTree('ds-escape');
+    // A `..` cannot appear in a template at all, and a substituted value that produces one is
+    // refused rather than normalised — both ends, like every other template rule here.
+    expect(
+      substituteDerivative('{derivatives}/{stem}/x.tsv', root, '.._.._etc.tsv', stampNow())
+    ).toBeNull();
+    expect(substituteDerivative('{derivatives}/{id}/x.tsv', root, 'sub-..tsv', stampNow())).toBe(
+      null
+    );
   });
 });

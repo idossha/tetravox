@@ -4949,3 +4949,87 @@ one, and it is now a whitelist — the `tetravox-module-<id>` popup (no preload;
 portal and talks to main only through the opener's bridge), `http(s)` out to `shell.openExternal`, everything
 else denied and logged, and every popup denied outright outside `'normal'` window mode so a `--job` run can
 never raise a window on an unattended machine.
+
+## 2026-09-03 — four additive `ModuleHost` capabilities, so an extension can export a BIDS QC derivative (§13.1)
+
+An extension that checks an sEEG implant has to be able to *show its work*: an oblique reslice through each
+shaft, a spacing histogram, a 3-D picture of the implant, and a corrected electrodes table, written where the
+next tool looks for them — `derivatives/<pipeline>/sub-<id>/…`. The frozen host could produce none of those.
+It could read one voxel and one 32³ box, and it could write a same-directory text file. So four members are
+appended at `hostApi: 1`, each additive under §12.3 and each absent-reproduces-the-previous-behaviour by
+construction, because absent they were not askable at all.
+
+**`scene.sampleVolume(datasetId, worldPoints, opts?)`** is §4.3's third read shape: trilinear (`order: 1`,
+the default) or nearest (`order: 0`) values at arbitrary world points, `NaN` outside the volume. It is capped
+at **2,000,000 points**, which is the number rather than a note — the cap is what keeps "read `data` for a set
+of points" from being a door to the full-volume resampling loop §4.3's other two bounds exist to forbid. It is
+**not clamped** at the boundary: a clamp reports the face voxel's intensity for a contact 40 mm outside the
+head, and a `NaN` is a gap every plot already knows how to draw.
+
+It runs **in the renderer, chunked at 65,536 points with a macrotask between slices**, and that is the one
+place this change does not do the obvious thing. §5 rule 6 forbids *blocking* the UI thread, and a ~1 ms slice
+does not; but it is not off-thread either. The reason is that the only worker which already holds the volume
+is the §6.5 wasm one, and every op it answers is a frozen §6 Rust signature — so a genuinely off-thread
+sampler is a new Rust op, and the alternative available in TypeScript, a second worker holding a second copy
+of a 200 MB volume, is the worse trade by a wide margin. The member is a **promise** precisely so that the
+§6.5 op can replace the loop later without touching the signature; `docs/ROADMAP.md` carries it.
+
+**`files.writeBinary(path, bytes, opts?)`** is `writeText`'s twin for `.png`, ≤ 32 MiB, over the same
+module-scoped write list, the same `.part` + rename and the same main-side `.bak`. It is a second channel
+rather than a `writeText` that accepts bytes so that main decides which extension list applies from the
+channel it was called on, and a module cannot pick the looser rule by changing the shape of an argument.
+`.svg` and `.html` join the **write** text list at the same time — SVG is text, and a histogram that is text
+is a figure a reviewer can reflow.
+
+That write list is also where a defect was found and closed: `module-write-text` had **no extension filter at
+all**. A path admitted by a Save sheet could be written with any suffix, so an extension holding a
+`{name}`-derived sibling admission could write an executable beside the table the user actually named.
+`MODULE_WRITE_TEXT_EXTENSIONS` is a superset of everything any extension in this tree writes, so no existing
+save changes behaviour — the narrowing is real and the compatibility is not a claim, it is a list.
+
+**`{derivatives}` writer templates.** A writer's `siblings` gains a second class: a template beginning
+`{derivatives}/` is resolved against the BIDS derivatives directory — an ancestor **named** `derivatives`
+first (an extension already inside a derivative keeps its figures in that tree), otherwise
+`<bidsroot>/derivatives` where an ancestor holds `dataset_description.json`. Neither found means the template
+is **dropped**, not defaulted: an extension writing `tetravox/sub-01/…` into whatever directory a user
+happened to save into is a derivative tree in the wrong place, and BIDS tooling would then find two. The
+anchor's own BIDS entities become tokens beside `{name}` / `{stem}` / `{stamp}` — `{sub}` is `sub-P076`,
+`{id}` its label, `{space}` the `space-` label — so a manifest writes `sub-{id}` once and both halves of the
+name agree. A token the anchor does not carry drops the template rather than substituting an empty string,
+because `sub-` with nothing after it is a directory somebody would later have to explain. A derivatives target
+is an **exact** admitted path, never a stamped shape, and the per-segment re-validation after substitution is
+what keeps a hostile anchor name from climbing back out of the subtree. The consent sheet says "in the
+dataset's derivatives folder" for these, because "beside the file you save" would understate what the manifest
+grants — the same failure the `siblings` consent line was fixed for on 2026-08-31.
+
+**`capture.screenshot(opts)`** is §4.7's own screenshot, narrowed to target, view, size and background, gated
+on the extension still being live (`moduleSessions.has(id)`, not `activeModule === id` — since §13.10 an
+extension in its own window is live and answers `false` to `ui.isActive()`). The gate is not about the
+picture, it is about *who is on screen*: a capture reads whatever the user has open, including datasets and
+layers this extension never loaded, and a deactivated extension taking one is a screen read nobody asked for.
+Every §4.7 annotation is off except the convention badge, which §8 says is not optional: an extension's QC
+figure draws its own marks, and the app's crosshair through the middle of one is the app's cursor rather than
+the extension's finding.
+
+**`capture.setView(preset, opts?)`** is the fifth, and it exists because the four standard views of an implant
+are four *camera* positions and an extension had no camera at all — it could photograph only whatever the user
+happened to be looking at. It is §7.5's `1..6` under anatomical names, reached through the frozen
+`Engine.cameraPreset`, so an extension's figure is the picture the app's own preset keys and orientation cube
+produce rather than a rotation an extension composed. It **resolves after `whenSettled()`**, which is the whole
+reason it is a promise: a `capture.screenshot` on the next line has to photograph the view that was asked for.
+
+**Nothing is restored, deliberately.** There is no saved camera and no automatic undo. A restore would be a
+second, invisible camera move — the user would watch the view snap back from a place they never sent it — and
+"the view is left at the last preset" is a rule an extension author can hold in their head, where "it is put
+back unless you …" is not. An extension that wants the previous camera asks for a preset of its own before it
+finishes.
+
+Wiring it exposed a real disagreement: `NoGlEngine` carried its **own** preset-rotation table, and it was the
+pre-2026-08-28 one in which `S` put the eye anterior. Nothing had ever pictured the camera in a stand-in run,
+so nothing caught it. `presetRotation` is now exported from the engine and the stand-in uses it — the same
+"there is only one implementation" rule `peakCentroid` is exported under, and the reason the analytic test
+below is worth anything: it rotates `(0, 0, 1)` by the quaternion the engine stored, with three lines of
+quaternion arithmetic of its own, and asserts that `'superior'` looks down `−z`.
+
+`MODULE_HOST_VERSION` stays **1**. Nothing here is breaking, and an extension written against the older
+surface neither sees these members nor behaves differently for their existence.

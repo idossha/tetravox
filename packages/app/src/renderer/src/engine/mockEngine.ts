@@ -77,6 +77,9 @@ import {
   // the real engine cannot disagree about which contact a click grabbed.
   pointAtPane,
   pointIdAt,
+  // The `1..6` rotations, so this stand-in and the real engine cannot disagree about where the
+  // camera is pointing (2026-09-03).
+  presetRotation,
   probeSpaces,
   toSpace as toCoordSpace,
 } from '@tetravox/engine';
@@ -119,14 +122,13 @@ const CANONICAL_SLICES: readonly { id: ViewId; mode: SliceView['mode']; normal: 
     { id: 'axial', mode: 'axial', normal: [0, 0, 1], up: [0, 1, 0] },
   ];
 
-const PRESET_ROTATION: Record<CameraPreset, [number, number, number, number]> = {
-  A: [0, 0, 0, 1],
-  P: [0, 1, 0, 0],
-  L: [0, 0.7071068, 0, 0.7071068],
-  R: [0, -0.7071068, 0, 0.7071068],
-  S: [-0.7071068, 0, 0, 0.7071068],
-  I: [0.7071068, 0, 0, 0.7071068],
-};
+/**
+ * `CameraPreset` → the `1..6` index `presetRotation` takes.
+ *
+ * The rotations themselves are the **engine's** (`view/geometry.ts#presetRotation`), so this
+ * stand-in cannot drift from a table of its own.
+ */
+const PRESET_INDEX: Record<string, number> = { A: 1, P: 2, L: 3, R: 4, S: 5, I: 6 };
 
 const FULL_QUALITY: QualityLevel = {
   name: 'full',
@@ -543,7 +545,12 @@ export class NoGlEngine implements Engine {
     if (viewId !== this.state.view3d.id) return;
     this.state.view3d = {
       ...this.state.view3d,
-      camera: { ...this.state.view3d.camera, rotation: PRESET_ROTATION[preset] },
+      camera: {
+        ...this.state.view3d.camera,
+        rotation: presetRotation(
+          typeof preset === 'number' ? preset : (PRESET_INDEX[preset.toUpperCase()] ?? 1)
+        ),
+      },
     };
     this.requestRender(viewId);
   }
