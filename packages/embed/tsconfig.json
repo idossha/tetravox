@@ -1,0 +1,20 @@
+{
+  // The embed build. It compiles this package's own sources plus, transitively, the app renderer
+  // they import — so `../app/src/renderer/src/env.d.ts` has to be included by hand: it carries the
+  // `Window.tetravox` / `Window.__tetravox` globals the shell's files declare, and without it every
+  // one of those reads is an error here while passing in `packages/app`'s own typecheck.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"],
+    // `node` is here for `vite.config.ts` and `scripts/`, which are the only files that may use it.
+    "types": ["vite/client", "node"]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.ts",
+    "vite.config.ts",
+    "../app/src/renderer/src/env.d.ts"
+  ]
+}

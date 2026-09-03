@@ -29,6 +29,7 @@ import { isScenePath } from '../lib/scene';
 import type { OpenRequest } from '../open/sources';
 import { bridge } from '../bridge';
 import { maybeRunJob } from '../automation/run';
+import { emitShellReady } from '../embed/mode';
 import { ShellContext } from './context';
 import { CoordinateBar } from '../panels/coordinate/CoordinateBar';
 import { HeaderPanel } from '../panels/info/HeaderPanel';
@@ -307,6 +308,18 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     if (startedJobRef.current) return;
     startedJobRef.current = true;
     void maybeRunJob({ controller, engine, store });
+  }, [controller, engine, store]);
+
+  // ---- the embed host (`embed/mode.ts`, `docs/EMBED.md`) ----------------------------------------
+  // The same triple `maybeRunJob` gets, handed to whoever registered `onShellReady` — which in a
+  // normal window is nobody, so this is one optional call and no behaviour change. `packages/embed`'s
+  // entry registers before `createRoot`, so the host channel is wired before the engine's first
+  // event can fire. Its own effect rather than a line in the job effect above: a job *runs* and
+  // finishes, a host *listens* for the life of the page, and the cleanup below is what makes a
+  // remount hand over cleanly instead of leaving a channel pointed at a destroyed engine.
+  useEffect(() => {
+    if (controller === null || engine === null) return;
+    emitShellReady({ controller, engine, store });
   }, [controller, engine, store]);
 
   // ---- scene commands from the File menu (§4.6, §8) ---------------------------------------------

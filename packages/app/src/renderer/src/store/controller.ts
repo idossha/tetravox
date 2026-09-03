@@ -2203,9 +2203,26 @@ export class ShellController {
    * `spec.layers` today (audit P2-07, E-SCENE's), so the shell asks for the layers that are missing.
    * When P2-07 lands, `layersToRestore` finds counterparts and returns nothing.
    */
+  /**
+   * Apply a `ViewSpec` whose datasets have **already** resolved to URLs — the embed host's route
+   * (`embed/mode.ts`, `docs/EMBED.md`).
+   *
+   * `Engine.load`'s resolver returns whatever string the loader should fetch, and
+   * `datasets/source.ts`'s `fileUrl` passes an absolute `http(s)://` through unchanged, so an
+   * absolute URL is a resolved path in exactly the sense `openScenePath` means one. This is the
+   * same `applyScene` File ▸ Open Scene… ends in — the dataset-id remap, the layer reconcile, the
+   * positional `activeLayerId`, the §13.2 blocks and `resyncFromEngine` all happen identically —
+   * with `scenePath: null`, because a scene that arrived over a message port is not a file on disk:
+   * there is nothing to name in the toolbar's scene slot, nothing to push onto Open Recent, and no
+   * directory for `setSceneDir` to make future relative paths mean something.
+   */
+  async loadSpecFromUrls(spec: ViewSpec, resolved: Record<string, string>): Promise<boolean> {
+    return this.applyScene(spec, null, resolved);
+  }
+
   private async applyScene(
     spec: ViewSpec,
-    scenePath: string,
+    scenePath: string | null,
     resolved: Record<string, string>
   ): Promise<boolean> {
     this.newScene();
@@ -2230,7 +2247,7 @@ export class ShellController {
     } catch (error: unknown) {
       const message = errorMessage(error);
       this.store.setState({ sceneError: message });
-      this.toast(errorCode(error), baseName(scenePath), message);
+      this.toast(errorCode(error), scenePath === null ? 'scene' : baseName(scenePath), message);
       return false;
     }
 
@@ -2273,18 +2290,19 @@ export class ShellController {
     // scene never silently overrides a preference it said nothing about (directed task 13).
     if (spec.theme !== undefined) this.setThemeChoice(spec.theme);
 
-    this.engine.setSceneDir?.(dirName(scenePath));
+    this.engine.setSceneDir?.(scenePath === null ? null : dirName(scenePath));
     this.engine.requestRender();
     this.resyncFromEngine();
     this.store.setState({
-      sceneFile: { path: scenePath, name: baseName(scenePath), savedAt: null },
+      sceneFile:
+        scenePath === null ? null : { path: scenePath, name: baseName(scenePath), savedAt: null },
       sceneError: null,
       // A scene that has just been loaded is exactly the file on disk. The loads above emit
       // `datasets` and `layers`, which mark it dirty, so this must come **after** them.
       sceneDirty: false,
     });
     this.syncTitle();
-    void this.rememberRecent(scenePath);
+    if (scenePath !== null) void this.rememberRecent(scenePath);
     return true;
   }
 
