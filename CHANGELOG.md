@@ -18,6 +18,11 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   created for it, rather than in whatever directory the Save sheet happened to open in. Nothing changes for an
   extension that does not use them, and the extensions you already have keep behaving exactly as they did.
 
+- **The sEEG contact editor 0.2.0 is in the catalogue.** File ▸ Extensions… now offers tetravox-seeg 0.2.0: snapping
+  that keeps every contact on the electrode's shaft, an electrode-model section with per-gap residuals, and QC figure
+  exports (spacing histogram, per-electrode reslice, 3-D implant) written to `derivatives/tetravox/`. It needs this
+  version of Tetravox or newer.
+
 ### Fixed
 
 - **An extension could write a file with an extension you never agreed to.** Writing text went to a path a Save
