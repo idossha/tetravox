@@ -126,6 +126,8 @@ export {
  */
 export { MAX_BOX_VOXELS, peakCentroid, sampleVoxelBox } from './derived/voxel-box';
 export type { VoxelBox } from './derived/voxel-box';
+export { MAX_SAMPLE_POINTS, SampleVolumeError, sampleVolumeAt } from './derived/volume-sample';
+export type { SampleOrder, SampleVolumeOptions } from './derived/volume-sample';
 
 /**
  * §13's point tool (2026-08-30): the pure hit test the tool selects with, and the `p<index>` id

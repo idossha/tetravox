@@ -23,6 +23,7 @@ import type { ModuleHost } from './host';
 import { ModuleHostError } from './host';
 import { blockBytes, createHistory, createModuleHost, MAX_BLOCK_BYTES } from './hostImpl';
 import { readerClaim } from './readers';
+import { decodePng } from '../../../main/png';
 import { setInstalledModules } from './registry';
 import { helloManifest } from '../../../modules/hello/manifest';
 import type { ModuleManifest } from '../../../modules/manifest-types';
@@ -489,6 +490,7 @@ describe('the host’s unwired members', () => {
           openDialog: async () => null,
           saveDialog: async () => null,
           writeText: async () => ({ ok: true as const, backupPath: null }),
+          writeBinary: async () => ({ ok: true as const, backupPath: null }),
         },
       },
       helloManifest
@@ -674,6 +676,39 @@ function brightVoxelVolume(id: string, at: [number, number, number]): Dataset {
   } as unknown as Dataset;
 }
 
+/**
+ * An 8³ volume holding `f(i, j, k) = 2i + 3j + 5k + 7`, with the identity affine.
+ *
+ * The identity is what makes world millimetres voxel indices, so the ramp is checkable on the page
+ * — the same property {@link brightVoxelVolume} relies on and the same fixture
+ * `derived/volume-sample.test.ts` asserts the pure function against.
+ */
+function rampVolume(id: string): Dataset {
+  const dims: [number, number, number] = [8, 8, 8];
+  const values = new Float32Array(dims[0] * dims[1] * dims[2]);
+  for (let k = 0; k < 8; k += 1) {
+    for (let j = 0; j < 8; j += 1) {
+      for (let i = 0; i < 8; i += 1) values[(k * 8 + j) * 8 + i] = 2 * i + 3 * j + 5 * k + 7;
+    }
+  }
+  const identity = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  return {
+    kind: 'volume',
+    id,
+    name: 'ramp.nii.gz',
+    dims,
+    nvols: 1,
+    spacing: [1, 1, 1],
+    affine: identity,
+    inverseAffine: identity,
+    data: values,
+    sclSlope: 1,
+    sclInter: 0,
+    dtype: 'f32',
+    isLabel: false,
+  } as unknown as Dataset;
+}
+
 describe('the wired host (§13.1)', () => {
   it('arms the engine’s point tool through `host.tool` and hears the event back', async () => {
     const { engine, controller } = harness();
@@ -763,6 +798,114 @@ describe('the wired host (§13.1)', () => {
     expect(h.scene.peakCentroid('ds-nope', [2, 2, 2], 1.5)).toBeNull();
     const mesh = await engine.addDataset({ kind: 'path', path: '/tmp/head.msh' });
     expect(h.scene.peakCentroid(mesh.id, [2, 2, 2], 1.5)).toBeNull();
+  });
+
+  /**
+   * §4.3's third read shape through the wired host (2026-09-03).
+   *
+   * The volume is a **linear ramp** for the same reason `volume-sample.test.ts`'s is: trilinear
+   * interpolation reproduces a linear function exactly, so every expected number is arithmetic on
+   * the page rather than a value this code produced. What this test adds over that one is the
+   * *wiring* — the dataset lookup, the cap, the chunked loop, and the promise.
+   */
+  it('samples a volume at arbitrary world points, and refuses what it cannot answer', async () => {
+    const { engine, controller } = harness();
+    await controller.activateModule(HELLO);
+    const h = controller.moduleHost() as ModuleHost;
+
+    engine.scene.datasets.set('ds-ramp', rampVolume('ds-ramp'));
+    // f(i, j, k) = 2i + 3j + 5k + 7, and world mm are voxel indices here.
+    const got = await h.scene.sampleVolume(
+      'ds-ramp',
+      Float32Array.from([0, 0, 0, 1, 2, 3, 0.5, 0, 0, 1.5, 2.5, 3.5])
+    );
+    expect([...got].map((v) => Math.round(v * 1000) / 1000)).toEqual([7, 30, 8, 35]);
+
+    // Nearest is the grid value of the half-up nearest voxel.
+    const nearest = await h.scene.sampleVolume('ds-ramp', Float32Array.from([1.5, 2.5, 3.5]), {
+      order: 0,
+    });
+    expect(nearest[0]).toBe(40);
+
+    // Outside is a gap, never the face voxel clamped inward.
+    const outside = await h.scene.sampleVolume(
+      'ds-ramp',
+      Float32Array.from([-1, 0, 0, 40, 40, 40])
+    );
+    expect([...outside].every((v) => Number.isNaN(v))).toBe(true);
+
+    // More than one chunk (65,536 points) so the yielding loop is actually exercised, and every
+    // answer still equals the ramp: a chunk boundary that dropped or misplaced a value shows up as
+    // an index that disagrees.
+    const many = 70_000;
+    const points = new Float32Array(many * 3);
+    for (let n = 0; n < many; n += 1) points[n * 3] = (n % 800) / 100; // x in [0, 8)
+    const bulk = await h.scene.sampleVolume('ds-ramp', points);
+    expect(bulk.length).toBe(many);
+    for (const n of [0, 65_535, 65_536, many - 1]) {
+      const x = (n % 800) / 100;
+      if (x <= 7) expect(bulk[n] as number).toBeCloseTo(2 * x + 7, 3);
+      else expect(Number.isNaN(bulk[n] as number)).toBe(true);
+    }
+
+    // A refusal is a rejection, not a plausible array: a mesh id, a bad length, and the cap.
+    const mesh = await engine.addDataset({ kind: 'path', path: '/tmp/head.msh' });
+    await expect(h.scene.sampleVolume(mesh.id, Float32Array.from([0, 0, 0]))).rejects.toThrow(
+      ModuleHostError
+    );
+    await expect(h.scene.sampleVolume('ds-nope', Float32Array.from([0, 0, 0]))).rejects.toThrow(
+      ModuleHostError
+    );
+    await expect(h.scene.sampleVolume('ds-ramp', Float32Array.from([0, 0]))).rejects.toThrow(
+      /triples/
+    );
+    await expect(
+      h.scene.sampleVolume('ds-ramp', { length: 6_000_003 } as unknown as Float32Array)
+    ).rejects.toThrow(/exceeds the 2000000-point cap/);
+  });
+
+  /**
+   * `host.capture.screenshot`, decoded (§11 rule 0 — numbers, not a picture).
+   *
+   * `NoGlEngine.screenshot` fills the buffer with the background and encodes a real PNG, so the
+   * assertion is the one an analytic pixel test makes: the file's IHDR says the size that was
+   * asked for, and **every** pixel is the RGBA the background implies. A capture that came back
+   * the wrong size, half-transparent, or with the app's crosshair drawn through it fails here.
+   */
+  it('captures a decodable PNG whose every pixel is the background asked for', async () => {
+    const { engine, controller } = harness();
+    await controller.activateModule(HELLO);
+    const h = controller.moduleHost() as ModuleHost;
+
+    const transparent = await h.capture.screenshot({ target: 'view', width: 8, height: 4 });
+    const png = decodePng(Buffer.from(transparent));
+    expect([png.width, png.height]).toEqual([8, 4]);
+    expect(png.pixels.length).toBe(8 * 4 * 4);
+    for (let i = 0; i < png.pixels.length; i += 1) expect(png.pixels[i]).toBe(0);
+
+    // `'theme'` is the scene's own background — `Scene.background` in 0..1, × 255 and rounded.
+    const themed = decodePng(
+      Buffer.from(
+        await h.capture.screenshot({ target: 'grid', width: 4, height: 2, background: 'theme' })
+      )
+    );
+    expect([themed.width, themed.height]).toEqual([4, 2]);
+    const want = [...engine.scene.background].map((c: number) => Math.round(c * 255));
+    for (let px = 0; px < 4 * 2; px += 1) {
+      expect([...themed.pixels.slice(px * 4, px * 4 + 4)]).toEqual(want);
+    }
+  });
+
+  it('refuses a screenshot for an extension that is no longer live', async () => {
+    const { controller } = harness();
+    await controller.activateModule(HELLO);
+    const h = controller.moduleHost() as ModuleHost;
+    await expect(h.capture.screenshot({ target: 'grid' })).resolves.toBeInstanceOf(Uint8Array);
+    // A capture reads whatever is on screen, including layers this extension never loaded, so a
+    // deactivated one may not take it — and the host it still holds must say so rather than
+    // answering with the picture.
+    controller.deactivateModule(HELLO);
+    await expect(h.capture.screenshot({ target: 'grid' })).rejects.toThrow(ModuleHostError);
   });
 
   it('gives the module a real files surface, over the module channels', async () => {

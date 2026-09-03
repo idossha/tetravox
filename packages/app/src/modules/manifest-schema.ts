@@ -47,6 +47,17 @@ export const SEMVER =
  */
 export const SIBLING_TEMPLATE = /^[A-Za-z0-9_.{}-]{1,96}$/;
 
+/**
+ * A writer's **derivatives** template before substitution (2026-09-03).
+ *
+ * `{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.svg`. The copy of
+ * `main/module-io.ts#DERIVATIVE_TEMPLATE`, kept in step by the same cross-check that keeps
+ * {@link SIBLING_TEMPLATE} in step, and a **second class** rather than a loosening of it: a plain
+ * sibling never contains a separator, and a derivatives target always starts with the token.
+ */
+export const DERIVATIVE_TEMPLATE =
+  /^\{derivatives\}(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9_.{}-]{1,96}){1,8}$/;
+
 /** The four activation routes (§13.1). */
 export const ACTIVATION_ROUTES: readonly string[] = [
   'onToggle',
@@ -288,10 +299,16 @@ function validateWriters(raw: unknown, errors: Errors): void {
     const siblings = entry['siblings'];
     if (errors.array(`${path}.siblings`, siblings)) {
       for (const [j, template] of siblings.entries()) {
-        if (typeof template !== 'string' || !SIBLING_TEMPLATE.test(template)) {
+        if (
+          typeof template !== 'string' ||
+          !(SIBLING_TEMPLATE.test(template) || DERIVATIVE_TEMPLATE.test(template))
+        ) {
           errors.push(
             `${path}.siblings[${j}]`,
-            'must be a same-directory template main will admit: ' + String(SIBLING_TEMPLATE)
+            'must be a same-directory template main will admit: ' +
+              String(SIBLING_TEMPLATE) +
+              ', or a derivatives target: ' +
+              String(DERIVATIVE_TEMPLATE)
           );
         }
       }
@@ -477,7 +494,16 @@ export function derivePermissions(manifest: InstalledManifest): string[] {
     ].sort();
     out.push(`Write ${filters.map((e) => `.${e}`).join(', ')} files you name in a Save sheet`);
   }
-  for (const template of writes) out.push(`Write ${template} beside the file you save`);
+  // A `{derivatives}` target is **not** beside the file you save, and saying so would understate
+  // what the manifest grants — the same failure the `siblings` line above exists to prevent. It is
+  // written into the dataset's own `derivatives/` tree, which is what the sentence has to say.
+  for (const template of writes) {
+    out.push(
+      DERIVATIVE_TEMPLATE.test(template)
+        ? `Write ${template.replace('{derivatives}', 'derivatives')} in the dataset's derivatives folder`
+        : `Write ${template} beside the file you save`
+    );
+  }
   const keys = (manifest.commands ?? [])
     .filter((c) => c.key !== undefined)
     .map((c) => `${c.shift === true ? 'Shift+' : ''}${String(c.key)}`)

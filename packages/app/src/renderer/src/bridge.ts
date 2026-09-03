@@ -123,6 +123,7 @@ const ABSENT: TetravoxBridge = {
   moduleOpenDialog: async () => [],
   moduleSaveDialog: async () => null,
   moduleWriteText: async () => ({ ok: false, error: 'no preload bridge' }),
+  moduleWriteBinary: async () => ({ ok: false, error: 'no preload bridge' }),
   // No window to mark, and no window to guard: a context with no bridge cannot be closed by a user.
   setDocumentEdited: () => {},
   // Extensions (§13.8, 2026-08-30). No bridge means no disk, no network and no consent record, so

@@ -1,5 +1,5 @@
 /**
- * File IO for §13 modules (§5 rule 11): four channels, registered from here the way
+ * File IO for §13 modules (§5 rule 11): five channels, registered from here the way
  * `registerJobIpc()` registers the `--job` group, plus §5 rule 12's unsaved-edits close guard.
  *
  * The shape is the one A-SHELL's decision 1 (DECISIONS 2026-08-27) laid down for scene IO, applied
@@ -60,6 +60,39 @@ export const MAX_MODULE_READ_BYTES = 1024 * 1024;
 export const MAX_MODULE_WRITE_BYTES = 8 * 1024 * 1024;
 
 /**
+ * What `module-write-text` will write (2026-09-03).
+ *
+ * The read list plus `.svg` and `.html` — the two shapes a QC figure takes when it is *text*: an
+ * SVG histogram a reviewer can open in a browser and reflow in Illustrator, and a small HTML report
+ * that links the figures beside it. They are not on {@link MODULE_READ_EXTENSIONS}, because reading
+ * markup back in is a different question from writing it out and this list is the narrower one to
+ * widen.
+ *
+ * **This channel had no extension filter at all before**, which is the defect the list fixes rather
+ * than a feature it adds: a path admitted by a Save sheet could be written with any suffix the
+ * module chose, so an extension that named `report.tsv` in the sheet could write `report.command`
+ * beside it through the `{name}`-derived sibling it had already been granted. The set is a superset
+ * of everything any extension in this tree writes, so no existing save changes behaviour.
+ */
+export const MODULE_WRITE_TEXT_EXTENSIONS: readonly string[] = [
+  ...MODULE_READ_EXTENSIONS,
+  '.svg',
+  '.html',
+];
+
+/** What `module-write-binary` will write. One extension, on purpose — see {@link moduleWriteBinary}. */
+export const MODULE_WRITE_BINARY_EXTENSIONS: readonly string[] = ['.png'];
+
+/**
+ * 32 MiB for a PNG (2026-09-03).
+ *
+ * Four times the text cap because a picture is four times the thing a table is: a 4096 × 4096 RGBA
+ * screenshot of a 3-D implant is ~6 MB compressed, and a supersampled figure sheet is a few of
+ * those. It is still a **cap**, and it is still the line between "a figure" and "a data channel".
+ */
+export const MAX_MODULE_WRITE_BINARY_BYTES = 32 * 1024 * 1024;
+
+/**
  * A sibling **template** before substitution: `{name}.{stamp}.bak`, `{stem}_editlog.json`. The
  * braces are in the class because this is the un-substituted form; `SIBLING_NAME` is what the
  * result must match.
@@ -68,6 +101,25 @@ export const SIBLING_TEMPLATE = /^[A-Za-z0-9_.{}-]{1,96}$/;
 
 /** A sibling **name** after substitution: no separator, no brace left over, and `..` refused below. */
 export const SIBLING_NAME = /^[A-Za-z0-9_.-]{1,96}$/;
+
+/**
+ * A **derivatives** template (2026-09-03): `{derivatives}` and then 1–8 path segments.
+ *
+ * `{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.svg`. It is a *separate*
+ * class from {@link SIBLING_TEMPLATE} rather than a loosening of it, because the two are admitted on
+ * different evidence: a plain sibling is a name in the chosen file's own directory and needs no
+ * filesystem at all, while this one is resolved against a `derivatives/` directory that has to be
+ * *found*. Keeping them apart is what stops a `/` from becoming legal in a plain sibling name.
+ *
+ * The leading token is fixed. There is no `{derivatives}` in the middle of a path, no second one,
+ * and no template that starts anywhere else — a writer either writes beside the file the user named
+ * or under the dataset's own derivatives tree.
+ */
+export const DERIVATIVE_TEMPLATE =
+  /^\{derivatives\}(?:\/(?!\.{1,2}(?:\/|$))[A-Za-z0-9_.{}-]{1,96}){1,8}$/;
+
+/** The most directories a `{derivatives}` search climbs. A BIDS anchor is 2–4 below its root. */
+export const MAX_DERIVATIVES_ASCENT = 8;
 
 export type ModuleReadResult = { ok: true; text: string } | { ok: false; error: string };
 export type ModuleWriteResult =
@@ -148,14 +200,64 @@ export function substituteSibling(
   stamp: string
 ): string | null {
   if (!isSiblingTemplate(template)) return null;
-  // One pass, so a token that appears *inside* a substituted value is not substituted again, and an
-  // unknown token (`{sub}`, a typo) survives to be caught by the brace check below.
-  const name = template.replace(/\{(name|stem|stamp)\}/g, (_match, token: string) =>
-    token === 'name' ? anchorName : token === 'stem' ? stemOf(anchorName) : stamp
-  );
-  if (name.includes('{') || name.includes('}')) return null;
+  const name = substituteTokens(template, anchorName, stamp);
+  if (name === null) return null;
   if (name.includes('..') || name === '.') return null;
   return SIBLING_NAME.test(name) ? name : null;
+}
+
+/**
+ * The BIDS entities of an anchor's basename that a template may name (2026-09-03).
+ *
+ * `sub-P076_space-T1w_electrodes.tsv` gives `{sub}` = `sub-P076`, `{id}` = `P076` and `{space}` =
+ * `T1w`. Entities are `<key>-<label>` segments separated by `_`, which is the BIDS filename rule
+ * read literally and the same shape `renderer/src/modules/siblings.ts` captures with a manifest's
+ * named groups on the *read* side — the difference being that a writer has no regexp to write, so
+ * the entities are parsed rather than declared.
+ *
+ * A token the anchor does not carry is simply absent, and a template naming it is then **dropped**
+ * — the rule every other bad template already follows. A subject-less anchor must not silently
+ * become a path with `sub-` and nothing after it.
+ */
+export function anchorTokens(anchorName: string): Record<string, string> {
+  const tokens: Record<string, string> = { name: anchorName, stem: stemOf(anchorName) };
+  for (const part of stemOf(anchorName).split('_')) {
+    const dash = part.indexOf('-');
+    if (dash <= 0 || dash === part.length - 1) continue;
+    const key = part.slice(0, dash);
+    const label = part.slice(dash + 1);
+    if (!/^[A-Za-z0-9]{1,32}$/.test(key) || !/^[A-Za-z0-9.]{1,64}$/.test(label)) continue;
+    // First occurrence wins: BIDS entities are unique in a name, and a repeat is a malformed name
+    // whose *second* value is the one nobody meant.
+    if (tokens[key] === undefined) tokens[key] = label;
+    if (key === 'sub' && tokens['id'] === undefined) tokens['id'] = label;
+  }
+  // `{sub}` is the whole entity, `{id}` its label — both, because a path says `sub-{id}` in one
+  // place and a filename says `{sub}_...` in another, and making an author write `sub-{sub}` or
+  // strip a prefix by hand is how the two halves of one name drift apart.
+  if (tokens['sub'] !== undefined) tokens['sub'] = `sub-${tokens['sub']}`;
+  return tokens;
+}
+
+/**
+ * One substitution pass over a template, or null when a token was not available.
+ *
+ * One pass, so a token that appears *inside* a substituted value is not substituted again; an
+ * unknown token survives as a brace and is refused here rather than reaching the filesystem.
+ */
+function substituteTokens(template: string, anchorName: string, stamp: string): string | null {
+  const tokens: Record<string, string> = { ...anchorTokens(anchorName), stamp };
+  let missing = false;
+  const out = template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (_match, token: string) => {
+    const value = tokens[token];
+    if (value === undefined) {
+      missing = true;
+      return '';
+    }
+    return value;
+  });
+  if (missing) return null;
+  return out.includes('{') || out.includes('}') ? null : out;
 }
 
 /**
@@ -172,17 +274,15 @@ function siblingMatcher(template: string, anchorName: string): RegExp | null {
   if (probe === null) return null;
   // Split on `{stamp}` **first**, so a `{stamp}` that arrived inside the anchor's own name is a
   // literal to escape rather than a second wildcard.
-  const source = template
-    .split('{stamp}')
-    .map((part) =>
-      escapeRegExp(
-        part.replace(/\{(name|stem)\}/g, (_match, token: string) =>
-          token === 'name' ? anchorName : stemOf(anchorName)
-        )
-      )
-    )
-    .join(STAMP_SOURCE);
-  return new RegExp(`^${source}$`);
+  const parts: string[] = [];
+  for (const part of template.split('{stamp}')) {
+    // `'{stamp}'` is not a token here — it has already been split out — so any stamp the *anchor's
+    // own name* contributed is a literal, which is what `escapeRegExp` below is for.
+    const substituted = substituteTokens(part, anchorName, '');
+    if (substituted === null) return null;
+    parts.push(escapeRegExp(substituted));
+  }
+  return new RegExp(`^${parts.join(STAMP_SOURCE)}$`);
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -194,6 +294,14 @@ interface WriteList {
   paths: Set<string>;
   /** Stamp-bearing siblings, as a directory and a name matcher. */
   stamped: { dir: string; name: RegExp }[];
+  /**
+   * The `{derivatives}` roots this module's saves resolved (2026-09-03).
+   *
+   * A write **creates directories** only under one of these. Everything else is written into a
+   * directory that already exists, which is what it was before this list existed: a plain sibling
+   * lives beside the file the user chose, so its directory is the one they chose it in.
+   */
+  derivativeRoots: string[];
 }
 
 const writeLists = new Map<string, WriteList>();
@@ -202,6 +310,71 @@ const writeLists = new Map<string, WriteList>();
 function normalise(candidate: string): string | null {
   if (!candidate || !isAbsolute(candidate)) return null;
   return resolve(candidate);
+}
+
+/**
+ * The BIDS `derivatives/` directory for `anchorDir`, or null (2026-09-03).
+ *
+ * Two rules, tried in order, and both climb at most {@link MAX_DERIVATIVES_ASCENT} directories:
+ *
+ *  1. an ancestor **named** `derivatives` — the anchor is already inside a derivative, so its
+ *     figures belong in the same tree rather than in a second one;
+ *  2. an ancestor holding `dataset_description.json` — the BIDS root — whose `derivatives`
+ *     subdirectory is the answer whether or not it exists yet.
+ *
+ * Null when neither is found, and the templates that named the token are then dropped exactly as an
+ * unresolvable `{sub}` is. A default of "beside the anchor" would be worse than nothing: an
+ * extension writing `tetravox/sub-01/…` into whatever directory a user happened to save into is a
+ * derivative tree in the wrong place, and BIDS's own tools would then find two.
+ *
+ * `exists` is injected so the rule is testable without a filesystem; main passes `existsSync`.
+ */
+export function resolveDerivativesRoot(
+  anchorDir: string,
+  exists: (path: string) => boolean = existsSync
+): string | null {
+  let dir = resolve(anchorDir);
+  for (let climbed = 0; climbed <= MAX_DERIVATIVES_ASCENT; climbed += 1) {
+    if (basename(dir) === 'derivatives') return dir;
+    if (exists(join(dir, 'dataset_description.json'))) return join(dir, 'derivatives');
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+/** Is this a `{derivatives}` template at all? Checked before any substitution, like its sibling. */
+export function isDerivativeTemplate(template: unknown): template is string {
+  return typeof template === 'string' && DERIVATIVE_TEMPLATE.test(template);
+}
+
+/**
+ * A `{derivatives}` template as an absolute path under `root`, or null.
+ *
+ * Every segment is substituted and then re-validated against {@link SIBLING_NAME}, which is the
+ * same both-ends check {@link substituteSibling} does and for the same reason: the template guards
+ * what an extension may *declare*, the per-segment check guards what an anchor's name can turn it
+ * into. A segment that is `.`, `..` or empty after substitution is refused rather than normalised,
+ * so nothing can climb back out of the derivatives tree.
+ */
+export function substituteDerivative(
+  template: string,
+  root: string,
+  anchorName: string,
+  stamp: string
+): string | null {
+  if (!isDerivativeTemplate(template)) return null;
+  const segments = template.split('/').slice(1);
+  const out: string[] = [];
+  for (const segment of segments) {
+    const value = substituteTokens(segment, anchorName, stamp);
+    if (value === null || value === '.' || value.includes('..') || !SIBLING_NAME.test(value)) {
+      return null;
+    }
+    out.push(value);
+  }
+  return join(root, ...out);
 }
 
 /**
@@ -215,7 +388,8 @@ function normalise(candidate: string): string | null {
 export function admitModuleWrite(
   moduleId: string,
   target: string,
-  templates: readonly string[]
+  templates: readonly string[],
+  exists: (path: string) => boolean = existsSync
 ): ModuleSaveTarget | null {
   const path = normalise(target);
   if (path === null) return null;
@@ -223,12 +397,35 @@ export function admitModuleWrite(
   const anchor = basename(path);
   const stamp = stampNow();
 
-  const list = writeLists.get(moduleId) ?? { paths: new Set<string>(), stamped: [] };
+  const list = writeLists.get(moduleId) ?? {
+    paths: new Set<string>(),
+    stamped: [],
+    derivativeRoots: [],
+  };
   writeLists.set(moduleId, list);
   list.paths.add(path);
 
+  // Resolved once per save, not once per template: the walk touches the filesystem and every
+  // `{derivatives}` template of one writer resolves against the same anchor.
+  const derivativesRoot = templates.some(isDerivativeTemplate)
+    ? resolveDerivativesRoot(dir, exists)
+    : null;
+  if (derivativesRoot !== null && !list.derivativeRoots.includes(derivativesRoot)) {
+    list.derivativeRoots.push(derivativesRoot);
+  }
+
   const siblings: Record<string, string> = {};
   for (const template of templates) {
+    if (isDerivativeTemplate(template)) {
+      if (derivativesRoot === null) continue;
+      const derived = substituteDerivative(template, derivativesRoot, anchor, stamp);
+      if (derived === null) continue;
+      // A derivative target is always an exact path, never a stamped *shape*: it is named by the
+      // manifest rather than minted beside a file, so there is no later moment to widen for.
+      siblings[template] = derived;
+      list.paths.add(derived);
+      continue;
+    }
     if (!isSiblingTemplate(template)) continue;
     const name = substituteSibling(template, anchor, stamp);
     if (name === null) continue;
@@ -238,6 +435,19 @@ export function admitModuleWrite(
     else list.stamped.push({ dir, name: matcher });
   }
   return { path, siblings };
+}
+
+/**
+ * This module's resolved `{derivatives}` roots — the only *new* place a write may create
+ * directories (2026-09-03).
+ *
+ * It is a read-back rather than a guard because the guard already exists and is stronger: a write
+ * creates `dirname(path)` only for a `path` that is on the write list, and the only admitted paths
+ * with a directory that may not exist yet are the `{derivatives}` targets below and a `--job`
+ * envelope's `out` names. Exported so a test can state that subtree by name.
+ */
+export function derivativeRootsOf(moduleId: string): readonly string[] {
+  return writeLists.get(moduleId)?.derivativeRoots ?? [];
 }
 
 /** May this module write here? Exact admission, or a stamped sibling's shape in its own directory. */
@@ -281,7 +491,7 @@ export function clearModuleWriteLists(): void {
 }
 
 // ------------------------------------------------------------------------------------------------
-// The four channels
+// The five channels
 // ------------------------------------------------------------------------------------------------
 
 /** The last suffix of a basename, lowercased and including the dot; `''` when there is none. */
@@ -480,11 +690,92 @@ export function moduleWriteText(
   if (path === null || !isModuleWritable(moduleId, path)) {
     return { ok: false, error: 'not on the extension write list' };
   }
+  const extension = extensionOf(basename(path));
+  if (!MODULE_WRITE_TEXT_EXTENSIONS.includes(extension)) {
+    return {
+      ok: false,
+      error: `${basename(path)} is not one of ${MODULE_WRITE_TEXT_EXTENSIONS.join(' ')}`,
+    };
+  }
   const bytes = Buffer.byteLength(text, 'utf8');
   if (bytes > MAX_MODULE_WRITE_BYTES) {
     return { ok: false, error: `${bytes} bytes exceeds the ${MAX_MODULE_WRITE_BYTES}-byte cap` };
   }
-  const wantsBackup = ((raw ?? {}) as { backup?: unknown }).backup === true;
+  return writeAdmitted(moduleId, path, text, ((raw ?? {}) as { backup?: unknown }).backup === true);
+}
+
+/**
+ * `tetravox:module-write-binary` — **PNG bytes** to a path this module's Save sheet admitted, ≤ 32
+ * MiB (2026-09-03).
+ *
+ * The twin of {@link moduleWriteText}, and everything that makes that one safe is the same here:
+ * the module-scoped write list decides the path, the `.part` + rename makes the replacement atomic,
+ * the optional `.bak` is copied **in main** from the file about to be replaced, and the written path
+ * is allow-listed for reading back.
+ *
+ * The two differences are the whole reason it is a second channel rather than a `writeText` that
+ * takes bytes: **`.png` only**, and a larger cap. Main decides which set applies from the channel it
+ * was called on, so a module cannot pick the looser rule by changing the shape of an argument, and
+ * "which extensions may an extension write" stays a question with two answers rather than a
+ * negotiation. A caller that wants a `.svg` figure writes text — SVG *is* text — which is why the
+ * binary list has exactly one member and no plans for a second.
+ *
+ * `bytes` arrives as a `Uint8Array` over the structured clone; `ArrayBuffer.isView` is the check,
+ * because a renderer may legitimately send a view over a larger buffer and `Buffer.from(view)` on
+ * one that is not a view would silently write the wrong thing.
+ */
+export function moduleWriteBinary(
+  moduleId: unknown,
+  candidate: unknown,
+  bytes: unknown,
+  raw: unknown
+): ModuleWriteResult {
+  if (typeof moduleId !== 'string' || moduleId === '')
+    return { ok: false, error: 'not an extension' };
+  if (typeof candidate !== 'string' || !ArrayBuffer.isView(bytes)) {
+    return { ok: false, error: 'not a path and bytes' };
+  }
+  const path = normalise(candidate);
+  if (path === null || !isModuleWritable(moduleId, path)) {
+    return { ok: false, error: 'not on the extension write list' };
+  }
+  const extension = extensionOf(basename(path));
+  if (!MODULE_WRITE_BINARY_EXTENSIONS.includes(extension)) {
+    return {
+      ok: false,
+      error: `${basename(path)} is not one of ${MODULE_WRITE_BINARY_EXTENSIONS.join(' ')}`,
+    };
+  }
+  const view = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.byteLength > MAX_MODULE_WRITE_BINARY_BYTES) {
+    return {
+      ok: false,
+      error: `${view.byteLength} bytes exceeds the ${MAX_MODULE_WRITE_BINARY_BYTES}-byte cap`,
+    };
+  }
+  return writeAdmitted(moduleId, path, view, ((raw ?? {}) as { backup?: unknown }).backup === true);
+}
+
+/**
+ * The bytes-to-disk half both write channels share: `.bak`, `<path>.part`, rename, allow-list.
+ *
+ * Extracted rather than duplicated (2026-09-03) because every line of it is a rule stated somewhere
+ * else — §5 rule 11's backup-in-main, `sample-data.ts`'s temp-then-rename, `writeSceneFile`'s
+ * allow-listing of what it wrote — and two copies of a rule is one copy that will be fixed.
+ *
+ * `mkdirSync(dirname(path), { recursive: true })` is unchanged from `moduleWriteText`: it has been
+ * there since a `--job` `out` name legally contained a separator, and it cannot widen anything,
+ * because `path` is already on this module's write list. A `{derivatives}` target is what makes it
+ * matter for an interactive save too — `derivatives/tetravox/sub-01/ieeg/figures/` is four
+ * directories that will not exist the first time — and those are the only directories one creates,
+ * because they are the only admitted paths outside the directory the user chose.
+ */
+function writeAdmitted(
+  moduleId: string,
+  path: string,
+  contents: string | Uint8Array,
+  wantsBackup: boolean
+): ModuleWriteResult {
   const part = `${path}.part`;
   try {
     let backupPath: string | null = null;
@@ -496,16 +787,14 @@ export function moduleWriteText(
       }
     }
     try {
-      // The `.part` and its target share a directory, so one `mkdir -p` covers the rename too.
       mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(part, text, 'utf8');
+      if (typeof contents === 'string') writeFileSync(part, contents, 'utf8');
+      else writeFileSync(part, contents);
       renameSync(part, path);
     } catch (error: unknown) {
       rmSync(part, { force: true });
       throw error;
     }
-    // Writing is also how the file becomes readable: the module just named this path through a Save
-    // sheet, so reading its own output back must not need a second gesture.
     allowPath(path);
     return { ok: true, backupPath };
   } catch (error: unknown) {
@@ -675,6 +964,11 @@ export function registerModuleIpc(opts: { isJob?: boolean } = {}): void {
     'tetravox:module-write-text',
     (_event, moduleId: unknown, path: unknown, text: unknown, opts: unknown) =>
       moduleWriteText(moduleId, path, text, opts)
+  );
+  ipcMain.handle(
+    'tetravox:module-write-binary',
+    (_event, moduleId: unknown, path: unknown, bytes: unknown, opts: unknown) =>
+      moduleWriteBinary(moduleId, path, bytes, opts)
   );
   ipcMain.on('tetravox:set-document-edited', (event, edited: unknown) =>
     setDocumentEdited(windowOf(event), edited)

@@ -202,6 +202,20 @@ export interface TetravoxBridge {
     opts: { backup: boolean }
   ): Promise<ModuleWriteResult>;
   /**
+   * Write **PNG bytes** to a path this module's Save sheet admitted — `.png` only, ≤ 32 MiB.
+   *
+   * The one place bytes legitimately cross this bridge outward (2026-09-03). §5 rule 3's "paths,
+   * never bytes" is about *file* bytes coming **in** — a volume the renderer would then have to
+   * parse — and `jobWrite` has written a PNG out over this same bridge since Phase 2. This is that
+   * door, narrowed to one extension and given a module id so the write list still decides.
+   */
+  moduleWriteBinary(
+    moduleId: string,
+    path: string,
+    bytes: Uint8Array,
+    opts: { backup: boolean }
+  ): Promise<ModuleWriteResult>;
+  /**
    * Tell main this window has (or no longer has) unsaved module edits.
    *
    * Main calls `win.setDocumentEdited` with it and keeps the flag for §5 rule 12's `close` guard.
@@ -592,6 +606,8 @@ const bridge: TetravoxBridge = {
     ipcRenderer.invoke('tetravox:module-save-dialog', moduleId, opts),
   moduleWriteText: (moduleId, path, text, opts) =>
     ipcRenderer.invoke('tetravox:module-write-text', moduleId, path, text, opts),
+  moduleWriteBinary: (moduleId, path, bytes, opts) =>
+    ipcRenderer.invoke('tetravox:module-write-binary', moduleId, path, bytes, opts),
   setDocumentEdited: (edited) => ipcRenderer.send('tetravox:set-document-edited', edited),
   moduleClearWrites: (moduleId) => ipcRenderer.send('tetravox:module-clear-writes', moduleId),
   // Extensions (§13, 2026-08-30). Ids and card states only — never a path, never a byte.

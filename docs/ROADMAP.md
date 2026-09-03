@@ -119,6 +119,10 @@ macOS, with the packaging matrix carried in the workflow.
 - A **resizable right aside**. The column is 320 px and the slot lives in it; there is no splitter primitive
   in the shell, and an extension with a long list wants one. A `wide` manifest hint was considered and dropped —
   widening the aside shrinks the toolbar's centre column below what its controls need, which wraps the row.
+- **`host.scene.sampleVolume` as a §6.5 op** (2026-09-03). It is bounded at 2,000,000 points and chunked so it
+  never blocks the UI thread, but it still reads `VolumeDataset.data` on that thread; the volume is already in
+  the dataset's wasm worker, so the honest home for it is a Rust op beside `labelCentroids`. The host member is
+  a promise precisely so that move changes nothing an extension can see.
 - **Stage 3, the sandboxed tier** (§13.9): an extension in a Worker with no DOM, a JSON-only host bridge,
   permissions with *enforcement* rather than only disclosure, a Restricted Mode for a scene naming an unknown
   extension, and a security review. 8–9 days and a different threat model; the import wall exists so that day is

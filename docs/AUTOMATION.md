@@ -339,6 +339,12 @@ and two that name files:
   A job never writes over the file it read: an `out` is under `--out` and nowhere else, which is
   also why a save there produces no `.bak` — there is nothing yet to back up.
 
+  A writer that declares a `{derivatives}` target (§5 rule 11, 2026-09-03) resolves it the same way in a
+  batch run as in the app: by walking up from the `out` path for a directory named `derivatives`, or for
+  the `dataset_description.json` that marks a BIDS root. Under a plain `--out` directory there is
+  usually neither, and the target is then **dropped** rather than invented — so a job that wants an
+  extension's derivative output points `--out` inside the dataset it belongs to.
+
 What the operation returned comes back in the result file, so a job can *ask* as well as render:
 
 ```json

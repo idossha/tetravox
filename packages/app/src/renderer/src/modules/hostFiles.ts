@@ -122,5 +122,13 @@ export function createHostFiles(
     async writeText(path, text, opts) {
       return bridge().moduleWriteText(id, path, text, { backup: opts?.backup === true });
     },
+
+    // The PNG twin (2026-09-03). One line, like the four above, and deliberately a **separate**
+    // channel rather than a `writeText` that accepts bytes: the extension allow-list and the size
+    // cap differ (`.png` and 32 MiB against five text extensions and 8 MiB), and main decides which
+    // set applies from the channel it was called on rather than from the shape of an argument.
+    async writeBinary(path, bytes, opts) {
+      return bridge().moduleWriteBinary(id, path, bytes, { backup: opts?.backup === true });
+    },
   };
 }

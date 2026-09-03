@@ -8,7 +8,21 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Extensions can export QC figures and BIDS derivatives.** An extension can now sample a volume along
+  arbitrary paths (an oblique reslice, an intensity profile down a shaft), take a PNG of a pane or of the whole
+  view grid, write `.png` and `.svg` files, and declare where its output belongs with a `{derivatives}` target
+  — so a report lands in `derivatives/<pipeline>/sub-<id>/…` beside the data it describes, with the folders
+  created for it, rather than in whatever directory the Save sheet happened to open in. Nothing changes for an
+  extension that does not use them, and the extensions you already have keep behaving exactly as they did.
+
+### Fixed
+
+- **An extension could write a file with an extension you never agreed to.** Writing text went to a path a Save
+  sheet had admitted, but nothing checked the _suffix_, so an extension holding a companion-file permission
+  could put an executable next to the table you actually named. Text writes are now limited to
+  `.tsv .csv .json .txt .fcsv .svg .html`, and pictures to `.png`.
 
 ## [0.3.4] - 2026-09-02
 

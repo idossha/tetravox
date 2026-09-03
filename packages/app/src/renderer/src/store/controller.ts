@@ -41,10 +41,23 @@ import {
   parseTextAffine,
   // Modules (2026-08-30, §13.1): the §4.3 bounded local read `host.scene.peakCentroid` is.
   peakCentroid,
+  // §4.3's third read shape, appended 2026-09-03 with `host.scene.sampleVolume`.
+  MAX_SAMPLE_POINTS,
+  sampleVolumeAt,
   sidecarPathsFor,
   subjectToMniAffine,
 } from '@tetravox/engine';
 import type { CoordSpace, DialogKind, RelocateRow, SettingsTab, UiStore } from './store';
+
+/**
+ * How many points `host.scene.sampleVolume` does between yields (2026-09-03).
+ *
+ * 65,536 trilinear samples is ~1 ms — under a 60 Hz frame's whole budget, so a slice can never be
+ * the reason a frame is dropped — and 2,000,000 points is 31 slices. Larger and the yield stops
+ * being a yield; smaller and the `setTimeout` clamp (4 ms after five nested timers) dominates the
+ * wall clock for no benefit.
+ */
+const MODULE_SAMPLE_CHUNK = 65_536;
 import type { ScreenshotDefaults } from '../../../preload/index';
 import {
   activeLayer,
@@ -111,6 +124,7 @@ import { registrationsFor } from '../modules/installed';
 import { loadInstalledManifests } from '../modules/installedBoot';
 import type { ModuleRegistration } from '../modules/registry';
 import { createModuleHost, disposeModuleHost } from '../modules/hostImpl';
+import { ModuleHostError } from '../modules/host';
 import type {
   ExtensionBlock,
   ModuleHost,
@@ -2428,6 +2442,13 @@ export class ShellController {
           files: createHostFiles(registration.manifest, (path) => bridge().allowPath(path)),
           peakCentroid: (datasetId, world, radiusMm) =>
             this.modulePeakCentroid(datasetId, world, radiusMm),
+          // §4.3's third read shape and §4.7's screenshot, both bound to the module's id so the
+          // gate below can ask "is this extension still live" (2026-09-03).
+          sampleVolume: (datasetId, worldPoints, opts) =>
+            this.moduleSampleVolume(datasetId, worldPoints, opts),
+          capture: {
+            screenshot: (opts) => this.moduleScreenshot(registration.manifest.id, opts),
+          },
         },
         registration.manifest
       );
@@ -2772,6 +2793,107 @@ export class ShellController {
     const dataset = this.engine.scene.datasets.get(datasetId);
     if (dataset === undefined || dataset.kind !== 'volume') return null;
     return peakCentroid(dataset, world, radiusMm);
+  }
+
+  /**
+   * `host.scene.sampleVolume` — §4.3's point sampler over the dataset the module names.
+   *
+   * **Chunked and yielding, not off-thread.** The loop hands back to the event loop every
+   * {@link MODULE_SAMPLE_CHUNK} points, so a 2,000,000-point request is ~30 slices of about a
+   * millisecond each rather than one 50 ms stall: §5 rule 6 forbids *blocking* the UI thread, and
+   * this does not. It is not in a worker because the only worker that already holds the volume is
+   * the §6.5 wasm one, whose ops are frozen §6 Rust signatures; a second TS worker would need a
+   * second copy of a 200 MB volume, which is the worse trade. `docs/ROADMAP.md` carries the §6.5 op
+   * as the follow-up, and this signature does not change when it lands.
+   *
+   * Rejects for an id that is not a volume in this scene — a module asking for the CT it just
+   * loaded and getting an array of zeros because the id was a mesh's is a wrong figure, not a
+   * missing one.
+   */
+  private async moduleSampleVolume(
+    datasetId: DatasetId,
+    worldPoints: Float32Array,
+    opts?: { order?: 0 | 1; volumeIndex?: number }
+  ): Promise<Float32Array> {
+    const dataset = this.engine.scene.datasets.get(datasetId);
+    if (dataset === undefined || dataset.kind !== 'volume') {
+      throw new ModuleHostError(`${datasetId} is not a volume in this scene`);
+    }
+    if (worldPoints.length % 3 !== 0) {
+      throw new ModuleHostError(
+        `${worldPoints.length} floats is not a whole number of xyz triples`
+      );
+    }
+    const count = worldPoints.length / 3;
+    if (count > MAX_SAMPLE_POINTS) {
+      throw new ModuleHostError(
+        `${count} points exceeds the ${MAX_SAMPLE_POINTS}-point cap (§4.3)`
+      );
+    }
+    const out = new Float32Array(count);
+    for (let from = 0; from < count; from += MODULE_SAMPLE_CHUNK) {
+      const to = Math.min(count, from + MODULE_SAMPLE_CHUNK);
+      out.set(sampleVolumeAt(dataset, worldPoints.subarray(from * 3, to * 3), opts ?? {}), from);
+      // A macrotask, not a microtask: `await Promise.resolve()` would drain in the same task and
+      // yield nothing at all, which is the mistake this comment exists to stop someone repeating.
+      if (to < count) await new Promise<void>((done) => setTimeout(done, 0));
+    }
+    return out;
+  }
+
+  /**
+   * `host.capture.screenshot` — §4.7's screenshot, gated on the extension still being live.
+   *
+   * The gate is `moduleSessions.has(id)`, not `activeModule === id`: since §13.10 an extension may
+   * be showing in its own window, which is live and answers `false` to `ui.isActive()`. What the
+   * gate is *for* is the other case — a capture is a read of whatever the user has on screen,
+   * including datasets and layers this extension never loaded, and an extension that has been
+   * deactivated taking one is a screen read nobody asked for.
+   *
+   * `background: 'theme'` is the scene's own; the default is `'transparent'`, because a figure
+   * headed for a report on white paper wants no ground of its own. Everything in the §4.7
+   * `include` map is **off** except the convention badge, which §8 says is not optional: an
+   * extension's QC figure draws its own annotations, and the app's crosshair in the middle of one
+   * is the app's cursor, not the extension's finding.
+   */
+  private async moduleScreenshot(
+    moduleId: string,
+    opts: {
+      target: 'view' | 'grid';
+      viewId?: string;
+      width?: number;
+      height?: number;
+      background?: 'transparent' | 'theme';
+    }
+  ): Promise<Uint8Array> {
+    if (!this.moduleSessions.has(moduleId)) {
+      throw new ModuleHostError(`${moduleId} is not active; a screenshot needs a live extension`);
+    }
+    const views = this.engine.views;
+    if (views.length === 0) {
+      throw new ModuleHostError('there is no view to capture');
+    }
+    const viewId = (opts.viewId ?? views[0]?.id) as ViewId;
+    if (opts.target === 'view' && !views.some((v) => v.id === viewId)) {
+      throw new ModuleHostError(`${String(opts.viewId)} is not a view in this scene`);
+    }
+    const blob = await this.engine.screenshot({
+      target: opts.target,
+      ...(opts.target === 'view' ? { viewId } : {}),
+      ...(opts.width === undefined ? {} : { width: opts.width }),
+      ...(opts.height === undefined ? {} : { height: opts.height }),
+      background: opts.background === 'theme' ? 'scene' : 'transparent',
+      include: {
+        colorbar: false,
+        orientationLabels: false,
+        crosshair: false,
+        cornerInfo: false,
+        scaleBar: false,
+        orientationCube: false,
+      },
+      autoTrim: false,
+    });
+    return new Uint8Array(await blob.arrayBuffer());
   }
 
   // ---- activation routes other than the switcher ------------------------------------------------

@@ -325,6 +325,17 @@ is the one consumer the engine ships: the intensity-weighted centroid of that bo
 own range** (`clip(v − (max − ½(max − min)), 0)`), computed in voxel indices and mapped through the affine, so
 it is sub-voxel and needs no absolute threshold. It is `null` on a flat box, where there is no peak to report.
 
+**A third read shape: sampling at arbitrary points** (2026-09-03). A probe is one voxel and a bounded box is a
+neighbourhood; neither answers "what is the intensity along this 120 mm oblique line at 0.1 mm steps", which is
+the question a reslice or a QC profile asks. `derived/volume-sample.ts` is that permission and carries its bound
+the same way: `sampleVolumeAt(ds, worldPoints, opts)` returns one value per `xyz` triple — trilinear at
+`order: 1`, nearest at `order: 0`, `raw * sclSlope + sclInter` applied once — capped at `MAX_SAMPLE_POINTS` =
+**2,000,000 points** per call, and refusing a length that is not whole triples rather than dropping the tail.
+Outside the volume is **`NaN`**, not a clamp, for the same reason `sampleVoxelBox` refuses: a clamp reports the
+face voxel for a point 40 mm outside the head, and `NaN` is a gap every consumer already handles. A caller that
+wants more than the cap wants a §6.5 op in the dataset's worker. `host.scene.sampleVolume` (§13.1) is the one
+consumer the app ships, and it slices the call so the loop yields rather than blocking (§5 rule 6).
+
 **That half-extent is a parity rule, not a numerical preference** (2026-08-30): it is
 `SEEGContactEditor.snapToMetal`'s `rad_vox = np.maximum((radius_mm / spacing).astype(int), 1)`, character for
 character — truncation, floor of one voxel. §13's sEEG extension tells users it reproduces the 3D Slicer editor's
@@ -1059,7 +1070,7 @@ Rules:
     script cannot manufacture one. `readSceneFile` admits **nothing** (2026-08-30): `tetravox:allow-path`
     takes any existing absolute path with no gesture, so a write derived from a read was a write the renderer
     could mint for any scene file on the disk — read it, then overwrite it, with no dialog anywhere.
-11. **Extension file IO is four channels, and a module-scoped write list** (`main/module-io.ts`, registered from
+11. **Extension file IO is five channels, and a module-scoped write list** (`main/module-io.ts`, registered from
     main like `registerJobIpc()`; §13). Small text only, paths in both directions, and each one narrower than
     a door that is already open:
 
@@ -1068,7 +1079,8 @@ Rules:
     | `tetravox:module-read-text` | UTF-8 text of a path **already on the read allow-list**, ≤ 1 MiB, extensions `.tsv .csv .json .txt .fcsv`. It admits nothing and has no write twin — a policy restatement of what `readSceneFile` (8 MiB, any allow-listed path, no content check) and `tetravox:subject-spaces` already return. |
     | `tetravox:module-open-dialog` | An Open sheet with the reader's title and filters; the result is allow-listed exactly like File ▸ Open's. |
     | `tetravox:module-save-dialog` | A Save sheet whose result admits the chosen path **and** the writer's declared same-directory siblings for writing. |
-    | `tetravox:module-write-text` | UTF-8 text, ≤ 8 MiB, to a path on **that extension's** list, `.part` + rename, with an optional main-side `.bak` copy first. |
+    | `tetravox:module-write-text` | UTF-8 text, ≤ 8 MiB, to a path on **that extension's** list, `.part` + rename, with an optional main-side `.bak` copy first. Extensions `.tsv .csv .json .txt .fcsv .svg .html` (2026-09-03) — the channel had **no** filter before, so an extension holding a `{name}`-derived sibling admission could write an executable beside the table the user named. |
+    | `tetravox:module-write-binary` | **PNG bytes**, ≤ 32 MiB, to a path on that extension's list (2026-09-03). Everything else is `module-write-text`'s, unchanged and the same code path; the two differ only in the extension list and the cap, and main picks which from the channel it was called on rather than from the shape of an argument. |
 
     The write list is `Map<moduleId, …>`, separate from `scene-io.ts`'s `writable`: an extension cannot write over
     a scene, the scene channel cannot write an extension's files, and one extension's Save sheet admits nothing for
@@ -1077,6 +1089,22 @@ Rules:
     (it without its extension chain) and `{stamp}` (`YYYYMMDD-HHMMSS`) must still be a plain name — no
     separator, no `..`, no brace left over — so a sibling is always in the chosen file's own directory. A
     stamped template is admitted as a *shape*, because the backup a later save mints carries its own moment.
+
+    **A `{derivatives}` template is the second sibling class** (2026-09-03), and it is the one that is not
+    beside anything: `{derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.svg`. The token
+    resolves to an ancestor of the chosen file **named** `derivatives` — an extension already inside a
+    derivative keeps its figures in that tree — or else to `<bidsroot>/derivatives`, where an ancestor holds
+    `dataset_description.json`; at most eight ascents, and **dropped** when neither is found, because an
+    extension writing `tetravox/sub-01/…` into whatever directory a user happened to save into is a
+    derivative tree in the wrong place. Beside `{name}`, `{stem}` and `{stamp}`, a template may name the
+    anchor's own BIDS entities — `{sub}` is `sub-P076`, `{id}` its label, `{space}` the `space-` label — and a
+    token the anchor does not carry drops the template rather than substituting an empty string. Every
+    segment is re-validated against the plain-name rule **after** substitution, so a hostile anchor name
+    cannot climb back out of the subtree; a derivatives target is admitted as an exact path and never as a
+    stamped shape; and the write creates the directories under it (`mkdir -p`, the line a `--job` `out` name
+    already needed), which it may do because they are the only admitted paths outside the directory the user
+    chose. The consent sheet says "in the dataset's derivatives folder" for one of these rather than "beside
+    the file you save", which would understate what the manifest grants.
     The `.bak` is copied **in main**, from the file about to be replaced, so backup bytes never cross IPC; the
     write goes to `<path>.part` and is renamed, the `sample-data.ts` precedent, so an interrupted save leaves
     the previous table rather than half the new one; and the written path is allow-listed for reading, as
@@ -1087,7 +1115,7 @@ Rules:
     precedent, where `allowPath` returning null *is* the existence check. A main-side resolver would add no
     admission-policy gain over that status quo, and no listing or glob IPC exists or is wanted.
 
-    **An admission belongs to the editing session that earned it, not to the process** (2026-08-30). A fifth
+    **An admission belongs to the editing session that earned it, not to the process** (2026-08-30). A sixth
     channel, `tetravox:module-clear-writes`, drops one extension's whole list; the renderer sends it from
     `deactivateModule`, which is also where the extension's own `savePath` dies, so the next save shows a sheet
     anyway. Main drops **every** extension's list where it replaces the document itself — `sendOpenScene` and
@@ -3233,6 +3261,30 @@ engine's point tool, `files` the main-process channels, and a surface frozen bef
 been frozen around stubs. All three were wired on 2026-08-30 and the surface was declared frozen in that
 commit — one governance round, not four. From here it changes additively, with the `ARCHITECTURE.md` edit and
 the `DECISIONS.md` entry in the same commit, and absent must reproduce the previous behaviour.
+
+**Four capabilities appended 2026-09-03**, all additive at `hostApi: 1` and all absent-reproduces-the-old
+-behaviour by construction, because absent they were not askable. They exist for one shape of work — an
+extension that checks an implant and writes a BIDS QC derivative — and each is bounded where the surface it
+extends is bounded.
+
+* **`scene.sampleVolume(datasetId, worldPoints, opts?)`** — §4.3's third read shape beside the probe and the
+  bounded box: trilinear (`order: 1`, the default) or nearest (`order: 0`) scalar values at arbitrary world
+  points, `NaN` outside the volume and never clamped to the face. Capped at **2,000,000 points**, which is
+  what keeps it from being a door to the full-volume loop the other two bounds exist to forbid. It runs in
+  the renderer, chunked at 65,536 points with a macrotask between slices: §5 rule 6 forbids *blocking* the UI
+  thread and a ~1 ms slice does not, but this is not off-thread. The only worker that already holds the
+  volume is the §6.5 wasm one and its ops are frozen §6 Rust signatures, so a truly off-thread sampler is a
+  new op; the member is a **promise** so that op can replace the loop without touching the signature
+  (`docs/ROADMAP.md`).
+* **`files.writeBinary(path, bytes, opts?)`** — `writeText`'s `.png` twin over §5 rule 11's new
+  `module-write-binary` channel, ≤ 32 MiB, same write list, same `.part` + rename, same main-side `.bak`.
+* **`{derivatives}` writer templates** — §5 rule 11's second sibling class, so a writer can declare
+  `{derivatives}/tetravox/sub-{id}/ieeg/figures/…` and the shell resolves the dataset's own derivatives tree.
+* **`capture.screenshot(opts)`** — §4.7's screenshot, narrowed to target, view, size and background, and
+  gated on `moduleSessions.has(id)` rather than `activeModule === id`: since §13.10 an extension in its own
+  window is live and answers `false` to `ui.isActive()`. The gate is about who is on screen rather than about
+  the picture — a capture reads whatever the user has open, including datasets this extension never loaded.
+  Every §4.7 annotation is off except the convention badge, which §8 says is not optional.
 
 **`scene.activePlane()` is the one view fact an extension is given** (appended 2026-08-30). It answers
 `{ normal, point }` for the active 2-D pane — the view's normal through the cursor, which is §7.5's own
