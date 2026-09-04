@@ -5115,3 +5115,26 @@ cursor and hover, while an extension asked for the probe itself.
 exists: `NewLayer` is `{ datasetId, kind: Layer['kind'] } & Partial<Layer>` and `'points'` is in the
 `Layer` union, so `scene.addLayer` has taken one since §13.1 shipped. Recorded here because "add a
 points layer" is the kind of gap that gets re-proposed until the log says it was already closed.
+
+
+## 2026-09-04 — Resolve surface depth before transparency blending (§7.2)
+
+The opacity slider exposed triangles on folded brain surfaces for two reasons: overlapping triangles
+within each facing group blended in buffer order, and open surfaces have no reliable outward winding.
+Each translucent tag now resolves its visible sheets before blending. Closed shells keep the facing
+split; open/two-sided meshes and isosurfaces select their nearest two distinct depth layers and blend
+the second before the nearest. This guarantees that nearly opaque surfaces approach the opaque image
+without changing geometry, smooth normals, the opaque path, or explicit edge controls.
+
+Rejected enabling depth writes during blending: already accumulated colour remains order-dependent.
+Rejected facing-only depth selection for open surfaces: the real grey-matter convergence test differed
+at 71,571 of 79,660 covered pixels [measured, ANGLE/Metal], even at opacity 0.999. Depth-selected sheets
+reduced that to zero pixels above the 3-byte threshold, with maximum channel error 2 [same test].
+Full scene-wide depth peeling or OIT would expand this correction into a renderer rewrite. This bounded
+two-sheet approximation omits deeper folds and retains object sorting across tags; it is not exact
+multilayer compositing. Two reusable canvas-sized depth24 textures per active surface pass are the
+storage cost. No dependencies or CPU geometry work were added.
+
+Evidence: `surface-opacity.spec.ts` exercises three overlapping sheets, opacity 0.2/0.5/0.99,
+antialiasing on/off and explicit edges; `surface-opacity-real.spec.ts` checks opaque convergence on
+real grey matter. The golden shows a continuous faded surface without buried triangle edges.

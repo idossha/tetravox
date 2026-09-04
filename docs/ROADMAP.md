@@ -26,7 +26,7 @@ one per visible region for a label volume.
 **Meshes.** Tagged tissue surfaces, boundary extraction for tri-less tet meshes, node and element field
 colouring with component selection, up to six clip planes with exact per-element caps and a drag gizmo,
 element isolation (tags / field range / sphere / box / label volume), masked-barycentric element edges,
-vector glyphs with four scaling modes, two-phase transparency, and mesh cross-sections in the 2D panes —
+vector glyphs with four scaling modes, two-phase transparency with depth-resolved sheets (§7.2), and mesh cross-sections in the 2D panes —
 filled polygons and tissue-boundary contours that sweep with the slice, with or without a volume loaded.
 Surfaces draw their intersection with each 2D plane as a Freeview-style contour by default.
 

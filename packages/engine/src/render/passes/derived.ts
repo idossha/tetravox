@@ -19,6 +19,7 @@
  * the request lifecycle, which is `derived/cut-source.ts`'s.
  */
 
+import { SurfaceDepth } from '../surface-depth';
 import { VertexArray, Buffer } from '../../gl/buffer';
 import { Program, ProgramVariants } from '../../gl/program';
 import { GL_STATE } from '../../gl/state';
@@ -71,6 +72,9 @@ export class DerivedPass implements FramePass {
   /** `TVX_GLYPH_VOLUME` ∈ {0,1} — `GlyphSpec.origins`, a compile-time branch like every other. */
   readonly #glyph: ProgramVariants;
   readonly #iso: Program;
+  readonly #isoDepth: Program;
+  readonly #isoPeel: Program;
+  readonly #surfaceDepth: SurfaceDepth;
 
   /**
    * The arrow templates, keyed by `shape` and `headProportion`.
@@ -93,6 +97,9 @@ export class DerivedPass implements FramePass {
     // An isosurface is a `SurfacePayload`, so it draws through the §7.4 mesh program unchanged —
     // same attribute layout, same headlight, same two-sided lighting.
     this.#iso = new Program(gl, MESH_VS, MESH_FS);
+    this.#isoDepth = new Program(gl, MESH_VS, MESH_FS, { TVX_SURFACE_DEPTH: true });
+    this.#isoPeel = new Program(gl, MESH_VS, MESH_FS, { TVX_SURFACE_PEEL: true });
+    this.#surfaceDepth = new SurfaceDepth(gl, state);
   }
 
   /** The template for one `(shape, headProportion)`, built on first use and kept. */
@@ -440,20 +447,31 @@ export class DerivedPass implements FramePass {
 
     // Isosurfaces, through the mesh program. Opaque ones are §7.2 pass 1; a translucent one
     // (`opacity < 1` — the layer slider, `iso3d.opacity` or a region slider) takes the same
-    // two-phase blended pass a translucent mesh takes (`passes/mesh.ts`): back faces then front
+    // nearest-sheet two-phase blended pass a translucent mesh takes (`passes/mesh.ts`): back faces then front
     // faces, depth test on, depth writes off, so the slider is a real gradient rather than the
     // all-or-nothing an opaque-state draw made of it (2026-08-30). A surface payload carries no
     // bounds, so translucent surfaces are not sorted against each other — for the per-region
     // surfaces of one label volume, which share a bounding box, no sort would help anyway.
     const isos = items.filter((d): d is IsoDrawItem => d.kind === 'iso');
     if (isos.length > 0) {
-      const prog = this.#iso;
-      prog.use();
-      prog.mat4('uViewProj', viewProj);
-      prog.vec3('uEye', eye);
-      prog.float('uAmbient', input.scene.lighting.ambient);
-      prog.mat4('uModel', IDENTITY);
-      const drawIso = (d: IsoDrawItem): void => {
+      const drawIso = (d: IsoDrawItem, depth?: WebGLTexture, peel?: WebGLTexture): void => {
+        const prog =
+          peel !== undefined ? this.#isoPeel : depth === undefined ? this.#iso : this.#isoDepth;
+        prog.use();
+        prog.mat4('uViewProj', viewProj);
+        prog.vec3('uEye', eye);
+        prog.float('uAmbient', input.scene.lighting.ambient);
+        prog.mat4('uModel', IDENTITY);
+        if (depth !== undefined) {
+          gl.activeTexture(gl.TEXTURE5);
+          gl.bindTexture(gl.TEXTURE_2D, depth);
+          prog.int('uSurfaceDepth', 5);
+        }
+        if (peel !== undefined) {
+          gl.activeTexture(gl.TEXTURE6);
+          gl.bindTexture(gl.TEXTURE_2D, peel);
+          prog.int('uSurfacePeel', 6);
+        }
         prog.vec4('uColor', d.layer.color);
         prog.float('uOpacity', d.layer.opacity);
         d.geom.vao.bind();
@@ -472,12 +490,24 @@ export class DerivedPass implements FramePass {
       }
       this.#state.cull('none');
       if (translucent.length > 0) {
-        // 2a — back faces of every translucent surface, then 2b — front faces. A `cull` surface
-        // has no back sheet to show, so it joins only 2b.
+        // Two-sided isosurfaces use depth order, independent of winding. Cull-only surfaces
+        // retain a single front-facing sheet (§7.2).
         this.#state.apply(GL_STATE.transparentBack);
-        for (const d of translucent) if (d.layer.faceMode === 'both') drawIso(d);
+        for (const d of translucent)
+          if (d.layer.faceMode === 'both') {
+            this.#surfaceDepth.draw(
+              { ...GL_STATE.transparentBack, cull: 'none' },
+              (depth, peel) => drawIso(d, depth, peel),
+              true
+            );
+          }
         this.#state.apply(GL_STATE.transparentFront);
-        for (const d of translucent) drawIso(d);
+        for (const d of translucent) {
+          this.#surfaceDepth.draw(
+            { ...GL_STATE.transparentFront, cull: d.layer.faceMode === 'both' ? 'none' : 'back' },
+            (depth) => drawIso(d, depth)
+          );
+        }
         // Depth writes back on (`gl.clear(DEPTH_BUFFER_BIT)` is masked by `depthMask`) before the
         // glyphs and points below, which are pass-1 draws.
         this.#state.apply(GL_STATE.opaque3d);
@@ -661,6 +691,9 @@ export class DerivedPass implements FramePass {
     this.#points.dispose();
     this.#glyph.dispose();
     this.#iso.dispose();
+    this.#isoDepth.dispose();
+    this.#isoPeel.dispose();
+    this.#surfaceDepth.dispose();
     for (const a of this.#arrows.values()) {
       a.vao.dispose();
       for (const b of a.buffers) b.dispose();

@@ -384,6 +384,12 @@ uniform vec3 uEye;
 uniform vec4 uColor;
 uniform float uAmbient;
 uniform float uOpacity;
+#ifdef TVX_SURFACE_DEPTH
+uniform highp sampler2D uSurfaceDepth;
+#endif
+#ifdef TVX_SURFACE_PEEL
+uniform highp sampler2D uSurfacePeel;
+#endif
 out vec4 fragColor;
 void main() {
 ${CLIP_DISCARD}
@@ -468,5 +474,14 @@ ${CLIP_DISCARD}
   alpha = max(alpha, emph * uEdgeColor.a);
 #endif
   if (alpha <= 0.0) discard;
+#ifdef TVX_SURFACE_DEPTH
+  // §7.2: one sheet per facing group. Allow one depth24 quantisation step.
+  float sheetDepth = texelFetch(uSurfaceDepth, ivec2(gl_FragCoord.xy), 0).r;
+  if (abs(gl_FragCoord.z - sheetDepth) > 1.0 / 16777215.0) discard;
+#endif
+#ifdef TVX_SURFACE_PEEL
+  float firstDepth = texelFetch(uSurfacePeel, ivec2(gl_FragCoord.xy), 0).r;
+  if (gl_FragCoord.z <= firstDepth + 1.0 / 16777215.0) discard;
+#endif
   fragColor = vec4(rgb, alpha);
 }`;

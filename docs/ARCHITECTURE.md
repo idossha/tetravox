@@ -2178,17 +2178,27 @@ Rules:
    * **2b — front faces:** `cullFace(BACK)`, depth test on, depth write off; objects sorted back-to-front by
      the depth of their **near** extent.
    * Translucent **isosurfaces** (`passes/derived.ts`, which runs after the mesh pass) take 2a then 2b as
-     well, unsorted among themselves — a `SurfacePayload` carries no bounds, and the per-region surfaces of
+     well (two-sided surfaces use the depth selection below), unsorted among themselves — a `SurfacePayload` carries no bounds, and the per-region surfaces of
      one label volume share a box anyway. A `cull` surface has no back sheet and joins 2b only.
 
-   Unified rule: *in each phase, objects are sorted back-to-front by the depth of the sheet that phase
-   draws.* Exact for nested, individually near-convex shells (scalp, skull, CSF, blood — median 2 crossings);
-   a partial improvement for GM/WM (median 4–6). Layers with `faceMode:'both'` are excluded from the split
-   and drawn last in 2b. Per-tag sub-draws mean per-tag opacity sorts naturally.
+   **Resolve sheets before blending** (2026-09-04). Closed outward-oriented shells retain the
+   facing split above, but only the nearest sheet within each facing group contributes. Open or
+   `faceMode:'both'` surfaces cannot rely on outward winding: they instead resolve the nearest two
+   depth layers per tag (or isosurface) with culling disabled, blend the second in 2a and the nearest
+   in 2b, after the closed-shell split. Far/near tag-bound sorting remains as above.
+
+   A reusable depth24 texture holds the nearest sheet; a second holds the next distinct depth for
+   two-sided surfaces. The same shader performs each prepass and colour draw, including clipping
+   and zero-alpha discard. Colour fragments must match the resolved depth within one depth24 step.
+   Separate attachments preserve scene depth and canvas antialiasing. Opaque rendering, smooth
+   normals and explicit edge controls are unchanged; no CPU geometry or triangle sorting is added.
+   This remains a bounded two-sheet approximation: deeper folds are omitted, and intersecting tags
+   still use object sorting. Full scene-wide multilayer transparency remains future work.
+
    Cut caps are drawn **in the same pass as their owning layer, with that layer's opacity**; in the
    transparent pass a cap is a single sheet — `CULL_FACE` disabled, sorted by the clip plane's depth at the
-   object centre. *Invariant:* a cap must exist wherever the clip discards geometry, or the phase split shows
-   the shell interior through the cut.
+   object centre. *Invariant:* a cap must exist wherever the clip discards geometry.
+
 3. **Overlay** — crosshair, cut-plane gizmo, contours on slices, glyph labels, a points layer's 3D text
    labels, measurements, annotations, orientation letters, corner info, RAD/NEU badge, colour bars, scale
    bar, orientation cube. **All clip distances disabled** in this pass, or the gizmo gets clipped by the
