@@ -80,6 +80,10 @@ dialog, and an optional reopen-on-launch.
 `sweep` / `orbit` / `tween` actions into PNGs, GIFs and MP4s. A stdlib-only Python client wraps it.
 See `docs/AUTOMATION.md`.
 
+**Embedded viewport.** `embed=1&presentation=viewport` lets a host supply the surrounding controls
+while retaining the same canvas, gestures and protocol (`docs/EMBED.md` §2; requirements
+`2026-09-04-ti-toolbox-viewport.md` R1). The full embed is still the default.
+
 **Verification.** 235 Rust tests, 1,128 vitest tests, 66 Playwright specs and 40 goldens; analytic pixel
 assertions on synthetic fixtures plus a pure-Python reference renderer for pane-scale slice diffs; real-data
 tests against `sub-ernie` gated on `TETRAVOX_TESTDATA`. CI on `ubuntu-24.04` (the golden authority) and

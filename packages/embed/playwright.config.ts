@@ -1,5 +1,5 @@
 /**
- * The embed E2E: one headless Chromium, one Vite, the documented example host page.
+ * The embed E2E: headless Chromium, one Vite, the documented example host page.
  *
  * **Windowless, and it stays that way** (AGENTS.md rule 8, `docs/TESTING.md` §2.1). There is no
  * headed project here and none may be added. `--enable-unsafe-swiftshader` is §11's flag: Chromium
@@ -21,7 +21,7 @@
  * and the same ratios as `packages/engine`'s harness, because it is the same rule.
  */
 
-import { defineConfig } from '@playwright/test';
+import { defineConfig, type PlaywrightTestProject } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import { GOLDEN_THRESHOLD, goldenMaxDiffPixelRatio } from '../engine/test/helpers/pixels';
 
@@ -38,6 +38,31 @@ export function checkoutPort(base: number, override: string | undefined): number
 
 const PORT = checkoutPort(5299, process.env.TETRAVOX_TEST_PORT);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+const DETERMINISM_ARGS = [
+  '--force-device-scale-factor=1',
+  '--disable-lcd-text',
+  '--font-render-hinting=none',
+  '--hide-scrollbars',
+];
+
+// §11: viewport layout changes exercise the platform GPU too. Like the engine suite, Linux needs
+// an explicit hardware opt-in; a software-only runner cannot prove this leg. Only viewport specs
+// run here, so the existing protocol goldens retain their single SwiftShader authority.
+const viewportGpuProjects: PlaywrightTestProject[] =
+  process.platform !== 'linux' || Boolean(process.env.TETRAVOX_ANGLE_LEG)
+    ? [
+        {
+          name: 'chromium-angle',
+          testMatch: '**/embed-viewport.spec.ts',
+          use: {
+            browserName: 'chromium',
+            channel: 'chromium',
+            headless: true,
+            launchOptions: { args: DETERMINISM_ARGS },
+          },
+        },
+      ]
+    : [];
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -77,14 +102,12 @@ export default defineConfig({
             '--enable-unsafe-swiftshader',
             // §11's determinism set, the same four `packages/engine`'s config passes: DPR 1, and no
             // platform-dependent subpixel text, so a golden is a function of the scene.
-            '--force-device-scale-factor=1',
-            '--disable-lcd-text',
-            '--font-render-hinting=none',
-            '--hide-scrollbars',
+            ...DETERMINISM_ARGS,
           ],
         },
       },
     },
+    ...viewportGpuProjects,
   ],
   webServer: {
     command: `pnpm exec vite --config ${fileURLToPath(new URL('./vite.config.ts', import.meta.url))}`,

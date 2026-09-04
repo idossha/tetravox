@@ -95,6 +95,7 @@ Range requests are **not** used: a dataset is streamed whole and gzip is inflate
 |---|---|
 | `embed=1` | Hides the chrome an embed cannot use — the `Tetravox` file menu, and the Settings dialog's Paths and Startup tabs. All of them end in a desktop-only call, and a control that silently does nothing is worse than no control. |
 | `hostOrigin` | The **only** origin the embed will accept a message from, compared as an exact string. Percent-encode it. Omit it and the embed renders but accepts nothing — which is the right default for a page that cannot authenticate anybody. `*` accepts any origin and exists for a host that cannot predict its own; it is an escape hatch, not a default. |
+| `presentation=viewport` | With `embed=1`, shows only the view grid: no toolbar, side panels or collapse rails, status bar, toasts, dialogs, or extension windows. The host owns the surrounding controls and receives the usual status/error events. Omit it, or supply an unknown value, to keep the full viewer. |
 
 ```js
 const url = new URL('/tetravox/index.html', location.href);
@@ -102,6 +103,18 @@ url.searchParams.set('embed', '1');
 url.searchParams.set('hostOrigin', location.origin);
 iframe.src = url.href;
 ```
+
+For a panel inside an application that supplies its own controls, also set
+`url.searchParams.set('presentation', 'viewport')`. This is a shell presentation option: it uses
+the same canvas, engine, workers and protocol. It does not choose the pane arrangement; send
+`setLayout` with `kind: '3d'` for a single 3D viewport. Layer changes, screenshots, camera commands
+and host events work as in the full viewer.
+
+The viewport retains the scene's orientation annotations and the engine's pointer gestures:
+orbit, pan, wheel dolly, picking, orientation-cube clicks, and pointer-scoped keyboard controls.
+Shell shortcuts and file drops are inactive, because the host owns loading and tools and an
+invisible measurement or layout control would leave the user with no way to inspect its state.
+Presentation is selected when the iframe is created and stays fixed for its lifetime.
 
 `?forceWebgl2Null=1` is also honoured, and is how you exercise your no-WebGL2 branch without a
 blocklisted driver.

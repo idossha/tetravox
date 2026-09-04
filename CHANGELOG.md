@@ -55,6 +55,11 @@ Nothing yet.
 
 ### Added
 
+- **An embedded panel can show only the visualization.** Add `presentation=viewport` beside `embed=1`
+  to give the entire frame to the view grid while your application supplies the controls. Orientation
+  annotations, 3D gestures and host messages remain available. The full viewer stays the default when
+  the option is omitted; `docs/EMBED.md` §2 documents the URL and the inactive shell shortcuts.
+
 - **An extension can read and restore the 3-D camera, and can hear what you clicked on.** Two
   additions to the extension API. `scene.camera()` / `scene.setCamera()` mean an extension that moves
   the 3-D view — a QC export taking the four anatomical shots, say — can put it back exactly where

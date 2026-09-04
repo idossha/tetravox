@@ -1236,6 +1236,12 @@ Rules:
       user can make with the mouse — the property `automation/run.ts` keeps for `--job`, for the same
       reason — so the protocol grants a host no reach the UI does not already have.
 
+    **The host may supply the surrounding controls** (2026-09-04, requirements
+    `2026-09-04-ti-toolbox-viewport.md` R1). With `embed=1`, `presentation=viewport` omits the shell
+    chrome described in §8 while preserving this renderer, canvas, worker and message-channel
+    lifecycle. Absent or unknown presentations reproduce the full embedded viewer. The URL option
+    changes no message type or version; pane layout and scene annotations remain host-controlled.
+
 ---
 
 ## 6. Rust crates — public API contract
@@ -2783,6 +2789,16 @@ Input (Freeview-like):
 ## 8. App (Electron) — UX contract
 
 **Everything the UI can do must be reachable from the `Engine` API alone. No logic in React.**
+
+**Embedded viewport profile.** A browser host may opt into `embed=1&presentation=viewport` (§5 rule 15)
+to display only `ViewGrid`, with no toolbar, sidebars or collapse rails, status bar, toasts, dialogs
+or extension windows. The same engine continues to draw the scene's orientation labels and cube and
+handle orbit, pan, dolly, picking and pointer-scoped keys. Shell keyboard commands and file drops are
+inactive: invisible tools and datasets loaded outside the host's selection would leave the host's
+controls inconsistent with its viewport. Layout and layer controls remain reachable through the
+host protocol, including `setLayout { kind: '3d' }` and `updateLayer`. The presentation is fixed at
+iframe creation; absent or unknown values retain the full viewer described below. This refines the
+regions rule for host-supplied controls only, per `docs/requirements/2026-09-04-ti-toolbox-viewport.md` R1.
 
 **Regions.** **Left**: layer panel (ordered list, per-row disclosure, eye, opacity slider, per-kind property
 editor, 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed +

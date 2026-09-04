@@ -7,12 +7,14 @@
  * with the mouse, which is the property `automation/run.ts` already keeps for `--job` and the reason
  * a picture the embed produces is a picture the product produces.
  *
- * This file is the whole seam, and it is two things:
+ * This file is the whole seam:
  *
  *  * {@link embedMode} — `?embed=1` on the page URL. **False everywhere else**, so every branch that
  *    reads it reproduces the previous behaviour when it is absent (§12.3's rule for additive change).
  *    It is read from `location.search` and not from a store field because the chrome it hides is
  *    decided before the first commit and never changes for the life of the page.
+ *  * {@link embedViewportMode} — the opt-in `presentation=viewport` profile (§5 rule 15, §8),
+ *    retaining the same canvas and engine while the host supplies the surrounding controls.
  *  * {@link onShellReady} / {@link emitShellReady} — a single-slot callback carrying the
  *    `{ controller, engine, store }` triple at the moment `Shell` has built them. `packages/embed`'s
  *    entry registers it *before* `createRoot`, so the postMessage channel is wired by the time the
@@ -48,6 +50,11 @@ export interface ShellReady {
 /** `?embed=1`. Anything else — including `?embed=0` — is a normal window. */
 export function embedMode(search = globalThis.location?.search ?? ''): boolean {
   return new URLSearchParams(search).get('embed') === '1';
+}
+
+/** §8: only an embed may omit the shell; absent or unknown presentations keep the full viewer. */
+export function embedViewportMode(search = globalThis.location?.search ?? ''): boolean {
+  return embedMode(search) && new URLSearchParams(search).get('presentation') === 'viewport';
 }
 
 let ready: ((r: ShellReady) => void) | null = null;

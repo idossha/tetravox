@@ -29,7 +29,7 @@ import { isScenePath } from '../lib/scene';
 import type { OpenRequest } from '../open/sources';
 import { bridge } from '../bridge';
 import { maybeRunJob } from '../automation/run';
-import { emitShellReady } from '../embed/mode';
+import { embedViewportMode, emitShellReady } from '../embed/mode';
 import { ShellContext } from './context';
 import { CoordinateBar } from '../panels/coordinate/CoordinateBar';
 import { HeaderPanel } from '../panels/info/HeaderPanel';
@@ -144,6 +144,9 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
   const status = useStore(store, (s) => s.status);
   // A `--job` window draws the view grid and nothing else: see `UiState.jobMode`.
   const jobMode = useStore(store, (s) => s.jobMode);
+  // §8: the embed host can own the controls without creating a second canvas or rendering path.
+  const [viewportMode] = useState(() => embedViewportMode());
+  const hideChrome = jobMode || viewportMode;
   const leftPanelCollapsed = useStore(store, (s) => s.leftPanelCollapsed);
   const rightPanelCollapsed = useStore(store, (s) => s.rightPanelCollapsed);
   // §13.3's narrow-mode rule. Below `NARROW_BREAKPOINT_PX` the right aside normally becomes a
@@ -340,7 +343,10 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
 
   // ---- §7.5 keyboard map -----------------------------------------------------------------------
   useEffect(() => {
-    if (controller === null) return;
+    // §8's viewport host owns the tools and layout. Shell shortcuts would otherwise arm invisible
+    // controls (for example measurement mode) or open a dialog that this profile cannot show.
+    // Engine-owned orbit/pan/dolly, orientation cube and pointer-scoped keys remain on the canvas.
+    if (controller === null || viewportMode) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       // `?` and F1 open the help sheet. They are handled *here* rather than in `keymap.ts`, which is
       // E-SCENE's file and is the §7.5 map — opening a shell panel is not a §7.5 binding. `resolveKey`
@@ -387,7 +393,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [controller]);
+  }, [controller, viewportMode]);
 
   // ---- the E2E handle --------------------------------------------------------------------------
   useEffect(() => {
@@ -406,7 +412,8 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
-    if (controller === null) return;
+    // A viewport's datasets belong to its host; a file drop must not bypass that host's selection.
+    if (controller === null || viewportMode) return;
     // `dataTransfer.files` does not survive the first `await`, so snapshot it synchronously.
     const files = Array.from(event.dataTransfer.files);
     void (async () => {
@@ -463,9 +470,9 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
           </div>
         ) : (
           <>
-            {jobMode ? null : <Toolbar />}
+            {hideChrome ? null : <Toolbar />}
             <div className="flex min-h-0 flex-1">
-              {jobMode ? null : (
+              {hideChrome ? null : (
                 <div className="relative flex" data-testid="left-panel-region">
                   {narrow || leftPanelCollapsed ? (
                     // The rail stays in flow even while the overlay sits open above it — the whole
@@ -497,7 +504,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                 </div>
               )}
               <ViewGrid canvas={canvas} dpr={dpr} />
-              {jobMode ? null : (
+              {hideChrome ? null : (
                 <div className="relative flex" data-testid="right-panel-region">
                   {(narrow && !moduleActive) || rightPanelCollapsed ? (
                     <PanelRail
@@ -528,14 +535,14 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                 </div>
               )}
             </div>
-            {jobMode ? null : <StatusBar />}
-            <Toasts />
-            <ShellDialogs />
+            {hideChrome ? null : <StatusBar />}
+            {viewportMode ? null : <Toasts />}
+            {viewportMode ? null : <ShellDialogs />}
             {/* §13.10: one popped-out window per module whose placement is `'window'`. It renders
               nothing at all when there is none — the DOM of a launch that never pops a module out is
               unchanged — and a `--job` window never renders it, because a batch render must not put
               a second window on anyone's screen. */}
-            {jobMode ? null : <ModuleWindows />}
+            {hideChrome ? null : <ModuleWindows />}
           </>
         )}
       </div>

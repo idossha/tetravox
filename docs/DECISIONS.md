@@ -5274,6 +5274,40 @@ rejected because it would conceal controls. `view-controls.spec.ts` checks mesh 
 against the sidebar bounds at 960 and 1400 px window widths, including the narrow overlay.
 
 
+## 2026-09-04 — an embed host can supply the controls around a viewport
+
+**Decision.** `embed=1&presentation=viewport` makes the existing §8 shell render its view grid without
+toolbar, sidebars or collapse rails, status bar, toasts, dialogs or extension windows. The host keeps
+the same §5 rule 15 message channel, including load status and errors. Absent or unknown presentation
+values retain the full viewer. This implements
+`docs/requirements/2026-09-04-ti-toolbox-viewport.md` R1 and amends §5 and §8 together.
+
+**Why.** TI-Toolbox's run pages already provide subject selection and scene controls; embedding the
+full viewer duplicated those controls and crowded the visualization. Shell commands and file drops
+are inactive in this profile so an invisible measurement tool or independently loaded dataset cannot
+put the viewer out of step with its host. Engine gestures and orientation annotations stay available.
+
+**Evidence.** `packages/embed/test/e2e/embed-viewport.spec.ts` exercises the real iframe, renderer,
+synthetic mesh and protocol: default and unknown presentation keep full controls, viewport fills the
+frame, orbit and opacity commands change the scene, shell shortcuts cannot arm omitted controls,
+and a missing WebGL2 context still reaches the host. Its analytic mesh/background pixels precede its
+orientation-bearing viewport golden under §11.
+
+**Alternatives rejected.** Host-injected CSS would couple an application to private shell markup and
+leave hidden keyboard tools active. A second rendering component would split canvas lifetime and
+scene behavior. Reusing `jobMode` would couple an interactive host to batch execution state. This
+option only controls presentation; it does not change layout, annotation defaults or protocol versions.
+
+**Scope.** No new dependency, no desktop default change, and no release action.
+
+**Verification (local macOS, Chromium/SwiftShader and ANGLE).** The embed viewport and protocol
+compatibility command passed 15 tests; `scripts/e2e-quiet-check.sh` observed 19 samples with `ghostty`
+frontmost before and after, no Electron/Chromium window on screen, and exit zero. The embed unit suite
+passed 56 tests. App and embed typechecks, the embed build, and targeted lint/format checks passed.
+The viewport golden is a local proposal under §11; the Linux software authority still decides its
+cross-platform tolerance. The platform GPU project runs these viewport cases without requesting a
+hardware golden, and asserts that its renderer class is not software.
+
 ## 2026-09-06 — Surface annotations attach to an open surface; they are not datasets (§4.7, §6.2, §6.5.2)
 
 The user asked to open SimNIBS's `segmentation/{lh,rh}.<subject>_{DK40,a2009s,HCP_MMP1}.annot` onto the
