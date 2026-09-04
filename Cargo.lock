@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "tvx-core"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "tvx-geom"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "criterion",
  "serde",
@@ -608,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "tvx-mesh-io"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "base64",
  "byteorder",
@@ -621,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "tvx-nifti"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "byteorder",
  "criterion",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "tvx-wasm"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "js-sys",
  "serde",
