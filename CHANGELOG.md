@@ -8,7 +8,14 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **File ▸ Extensions… now always shows at least what your copy of Tetravox shipped with.** When the
+  online catalogue was behind the application, it replaced the built-in one — so a machine with a
+  network connection could be offered an _older_ extension than one with none, or not be offered an
+  extension at all. The two lists are now merged: the online catalogue can only add newer versions
+  and new extensions, never take one away. New extension releases still appear without updating
+  Tetravox.
 
 ## [0.3.7] - 2026-09-04
 

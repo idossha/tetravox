@@ -523,3 +523,22 @@ build a module against.**
 | The SDK emitter's rules | `docs-guard` | node only, no install |
 | The SDK emits, all five gates | `test` | one `tsc` over a small staging tree |
 | The SDK tarball is attached | `sdk` → `verify` (release.yml) | — |
+
+### 9.3 Refresh the shipped catalogue — a release step, not a CI step
+
+`packages/app/src/shared/extensions-index.json` is the **floor** the app merges the live registry
+onto (ARCHITECTURE.md §13.8): a build with no network offers exactly what this file lists, and the
+fetched index can only add to it. So refresh it from the registry before cutting a release, while
+the diff is still readable:
+
+```sh
+node scripts/refresh-extensions-index.mjs            # rewrite it from idossha/tetravox-extensions
+node scripts/refresh-extensions-index.mjs --check    # is it current? (exit 1 if behind)
+node scripts/refresh-extensions-index.mjs --from index.json   # offline, from a local copy
+```
+
+It merges rather than overwrites, so a version this build already offers is never dropped. **CI does
+not run `--check`**: it is a network call to raw.githubusercontent.com, and a GitHub outage would
+redden pull requests that never touched extensions. Only the script's own rules run in `docs-guard`.
+Skipping this step does not break a release — the app still merges the live registry at runtime — it
+only leaves an offline user an older floor.
