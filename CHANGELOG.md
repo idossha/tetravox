@@ -10,6 +10,8 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The sEEG contact editor 0.2.1 is in the catalogue.** Its QC figures are now PDFs, export failures say why,
+  and the pop-out window opens sized for its contents. It needs this version of Tetravox or newer.
 - **Extensions can write PDF figures.** An extension's figure channel accepted `.png` only, so a QC report
   that is naturally several pages — one electrode per page, say — had nowhere to go but a single tall
   raster. `.pdf` is now accepted alongside `.png`, under the same 32 MiB cap and the same rule about
