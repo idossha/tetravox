@@ -1,7 +1,7 @@
 {
   "$comment": "The extensions catalogue: what File ▸ Extensions… offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed — `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses — and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
   "schema": 1,
-  "generated": "2026-09-03T23:27:17Z",
+  "generated": "2026-09-04T00:47:21Z",
   "modules": [
     {
       "id": "tetravox.seeg",
@@ -249,6 +249,39 @@
             "Write {stem}_editlog.json beside the file you save",
             "Bind the keys Delete, Shift+s, Shift+z, a, d, f, g, n, p, s, t, z while it is active",
             "Run from a job file: delete, extend, flip-tip, ghost, load, refit, renumber, revert, save, size, snap, stats, wire",
+            "Store its own data inside a saved scene"
+          ]
+        },
+        {
+          "version": "0.2.1",
+          "tag": "v0.2.1",
+          "hostApi": 1,
+          "published": "2026-09-04",
+          "files": [
+            {
+              "name": "index.js",
+              "bytes": 260156,
+              "sha256": "c1f6c6fb2e3538a6834e2b4868a13e07469e74d7dfbb760a14a010a8fc222bb0",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.1/c1f6c6fb2e3538a6834e2b4868a13e07469e74d7dfbb760a14a010a8fc222bb0"
+            },
+            {
+              "name": "manifest.json",
+              "bytes": 5937,
+              "sha256": "1290dc538ab20c7f4ca540e99a23723086391e460c32173839e13ecaf4d73abc",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.1/1290dc538ab20c7f4ca540e99a23723086391e460c32173839e13ecaf4d73abc"
+            }
+          ],
+          "permissions": [
+            "Read .csv, .fcsv, .tsv files you choose",
+            "Discover and read files named near a file you open",
+            "Write .pdf, .tsv files you name in a Save sheet",
+            "Write sub-{id}_desc-implant3d_qc.pdf beside the file you save",
+            "Write derivatives/tetravox/dataset_description.json in the dataset's derivatives folder",
+            "Write {name}.{stamp}.bak beside the file you save",
+            "Write {stem}-implant3d.pdf beside the file you save",
+            "Write {stem}_editlog.json beside the file you save",
+            "Bind the keys Delete, Shift+s, Shift+z, a, d, g, n, p, s, t, z while it is active",
+            "Run from a job file: delete, export-qc, extend, flip-tip, ghost, load, renumber, revert, save, size, snap, stats, wire",
             "Store its own data inside a saved scene"
           ]
         }
