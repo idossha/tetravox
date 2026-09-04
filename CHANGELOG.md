@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.10] - 2026-09-04
+
 ### Fixed
 
 - **Changing surface opacity no longer exposes buried triangle seams.** Mesh and volume-derived
