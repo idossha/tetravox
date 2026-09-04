@@ -1,6 +1,6 @@
 {
   "name": "@tetravox/app",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "type": "module",
   "description": "Electron main/preload/renderer (React UI) and packaging config (ARCHITECTURE.md §5, §7.1, §8).",

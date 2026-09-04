@@ -2,8 +2,8 @@ cff-version: 1.2.0
 title: 'Tetravox'
 message: 'If you use this software, please cite it as below.'
 type: software
-version: 0.3.5
-date-released: '2026-09-03'
+version: 0.3.6
+date-released: '2026-09-04'
 url: 'https://idossha.github.io/tetravox/'
 repository-code: 'https://github.com/idossha/tetravox'
 license: MIT
