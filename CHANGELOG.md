@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.9] - 2026-09-04
+
 ### Added
 
 - **An extension can read and restore the 3-D camera, and can hear what you clicked on.** Two
