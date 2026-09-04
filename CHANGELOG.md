@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.8] - 2026-09-04
+
 ### Fixed
 
 - **File ▸ Extensions… now always shows at least what your copy of Tetravox shipped with.** When the
