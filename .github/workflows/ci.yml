@@ -440,6 +440,12 @@ jobs:
       - name: Self-test the module SDK emitter
         run: node --test scripts/emit-module-sdk.test.mjs
 
+      # §13.8's shipped-catalogue refresher. Only its **rules** run here: `--check` itself fetches
+      # raw.githubusercontent.com, and a third-party outage must not redden a pull request that
+      # never touched extensions. Running it is a release step (docs/RELEASING.md).
+      - name: Self-test the shipped-catalogue refresher
+        run: node --test scripts/refresh-extensions-index.test.mjs
+
       # §13.8's loader guard, self-tested here and *run* in `test` (it needs a build). Its fixtures are
       # the three ways the loader can stop working, driven red — one of which is silent in every other
       # test the repository has.

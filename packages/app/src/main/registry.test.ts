@@ -30,7 +30,7 @@ vi.mock('electron', () => ({
   BrowserWindow: class {},
 }));
 
-import { catalogue } from './module-store';
+import { catalogue, mergeCatalogue, newestCompatible } from './module-store';
 import {
   MAX_INDEX_BYTES,
   cachePath,
@@ -204,30 +204,138 @@ describe('cachedIndex', () => {
   });
 });
 
-describe('what the catalogue answers with', () => {
-  it('prefers a refreshed copy over the shipped one — this is the whole feature', async () => {
-    // The shipped copy is the floor…
-    expect(catalogue().some((m) => m.id === 'tetravox.seeg')).toBe(true);
-    expect(catalogue().some((m) => m.id === 'vendor.thing')).toBe(false);
-    // …and a refresh raises it without a core release.
+describe('what the catalogue answers with — the union (§13.8)', () => {
+  /** The shipped floor, read through the same door the dialog uses. */
+  function shippedSeeg(): { versions: { version: string }[] } {
+    const found = catalogue().find((m) => m.id === 'tetravox.seeg');
+    if (found === undefined) throw new Error('the build ships no tetravox.seeg');
+    return found;
+  }
+
+  it('adds a live-only id without disturbing the shipped ones — an extension release, no core release', async () => {
+    const before = shippedSeeg().versions.map((v) => v.version);
     expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) })).toBe(
       true
     );
     expect(catalogue().some((m) => m.id === 'vendor.thing')).toBe(true);
+    // …and the shipped id is untouched: a live index is a floor-raiser, never a replacement.
+    expect(shippedSeeg().versions.map((v) => v.version)).toEqual(before);
+  });
+
+  it('does not hide a shipped id the live index has never heard of', async () => {
+    expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) })).toBe(
+      true
+    );
+    expect(catalogue().some((m) => m.id === 'tetravox.seeg')).toBe(true);
+  });
+
+  it('adds a newer live version to an id both know, and it becomes the newest', async () => {
+    const live = entry({ id: 'tetravox.seeg', version: '9.9.9' });
+    expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(live))) })).toBe(true);
+    const seeg = catalogue().find((m) => m.id === 'tetravox.seeg');
+    if (seeg === undefined) throw new Error('merged away');
+    expect(seeg.versions.map((v) => v.version)).toContain('9.9.9');
+    expect(newestCompatible(seeg)?.version).toBe('9.9.9');
+  });
+
+  it('lets the live index re-release a version the build ships — one entry, the live bytes', async () => {
+    const shippedNewest = shippedSeeg().versions.at(-1);
+    if (shippedNewest === undefined) throw new Error('no shipped version');
+    // A re-tag after a bad build is the operation this must not break (tetravox.seeg 0.2.2): the
+    // registry is already trusted to publish new versions, so pinning the shipped bytes would buy
+    // no security and would strand every user of this build on the broken ones.
+    const live = entry({
+      id: 'tetravox.seeg',
+      version: shippedNewest.version,
+      sha256: 'b'.repeat(64),
+    });
+    expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(live))) })).toBe(true);
+    const seeg = catalogue().find((m) => m.id === 'tetravox.seeg');
+    const collided = seeg?.versions.filter((v) => v.version === shippedNewest.version);
+    // Exactly one copy of that version, not two…
+    expect(collided?.length).toBe(1);
+    // …and it is the live one.
+    expect(collided?.[0]?.files[0]?.sha256).toBe('b'.repeat(64));
   });
 
   it('falls back to the shipped copy when the cache is bad, never to nothing', () => {
     writeFileSync(cachePath(), '{ not json');
     expect(catalogue().some((m) => m.id === 'tetravox.seeg')).toBe(true);
+    expect(catalogue().some((m) => m.id === 'vendor.thing')).toBe(false);
   });
 
-  it('lets the dev/E2E seam win over a refreshed copy, so a fixture run is not raced by the network', async () => {
+  it('lets the dev/E2E seam win over both, so a fixture run is not raced by the network', async () => {
     expect(await refreshCatalogue({ fetchImpl: serve(JSON.stringify(indexOf(entry()))) })).toBe(
       true
     );
     const fixture = join(dirs.appPath, 'fixture-index.json');
     writeFileSync(fixture, JSON.stringify(indexOf(entry({ id: 'fixture.only' }))));
     process.env['TETRAVOX_EXT_INDEX'] = fixture;
+    // Unchanged by the union: the seam is the *whole* catalogue, not a third thing to merge.
     expect(catalogue().map((m) => m.id)).toEqual(['fixture.only']);
+  });
+});
+
+describe('mergeCatalogue', () => {
+  const v = (
+    version: string,
+    sha: string
+  ): { version: string; hostApi: number; files: object[] } => ({
+    version,
+    hostApi: 1,
+    files: [{ name: 'index.js', bytes: 1, sha256: sha, url: 'https://github.com/x/y' }],
+  });
+  const mod = (id: string, title: string, versions: object[]): object => ({
+    id,
+    title,
+    summary: `${title} summary`,
+    versions,
+  });
+
+  it('orders versions ascending by semver whichever side they came from', () => {
+    const merged = mergeCatalogue(
+      [mod('a.b', 'A', [v('0.2.0', 'a'), v('0.1.0', 'a')])] as never,
+      [mod('a.b', 'A', [v('0.10.0', 'a'), v('0.3.0', 'a')])] as never
+    );
+    expect(merged[0]?.versions.map((x) => x.version)).toEqual([
+      '0.1.0',
+      '0.2.0',
+      '0.3.0',
+      '0.10.0',
+    ]);
+  });
+
+  it('takes presentation from the live entry — cosmetic fields are not a trust input', () => {
+    const merged = mergeCatalogue(
+      [mod('a.b', 'Old title', [v('1.0.0', 'a')])] as never,
+      [mod('a.b', 'New title', [v('1.0.0', 'b')])] as never
+    );
+    expect(merged[0]?.title).toBe('New title');
+    expect(merged[0]?.summary).toBe('New title summary');
+  });
+
+  it('logs a re-pointed version rather than resolving it silently', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mergeCatalogue(
+      [mod('a.b', 'A', [v('1.0.0', 'a'.repeat(64))])] as never,
+      [mod('a.b', 'A', [v('1.0.0', 'b'.repeat(64))])] as never
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('a.b 1.0.0'));
+    warn.mockRestore();
+  });
+
+  it('says nothing when the two agree about a version', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mergeCatalogue(
+      [mod('a.b', 'A', [v('1.0.0', 'a'.repeat(64))])] as never,
+      [mod('a.b', 'A', [v('1.0.0', 'a'.repeat(64))])] as never
+    );
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('answers the shipped catalogue unchanged for an empty live index', () => {
+    const shipped = [mod('a.b', 'A', [v('1.0.0', 'a')])] as never;
+    expect(mergeCatalogue(shipped, [])).toEqual(shipped);
   });
 });

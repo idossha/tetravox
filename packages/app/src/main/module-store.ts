@@ -141,11 +141,35 @@ function envSeamsAllowed(): boolean {
 }
 
 /**
- * The catalogue the dialog shows.
+ * The shipped copy and the live one, merged — never one *replacing* the other (§13.8, 2026-09-04).
  *
- * The **shipped** copy by default — `sample-data.ts`'s precedent exactly, and the reason the dialog
- * is correct with no network at all. `TETRAVOX_EXT_INDEX` names a JSON file instead, which is how
- * the E2E and the unit tests offer a fixture module without a registry existing — honoured only when
+ * "Live wins wholesale" made the live index a **ceiling**: a registry that had fallen behind the
+ * build (0.1.4 published while the build shipped 0.2.2) silently downgraded what a networked user
+ * was offered, and an id the registry had never heard of vanished from the dialog. A union makes
+ * the shipped copy a **floor** that a fetch can only raise.
+ *
+ * The rules, and why each is the way round it is:
+ *
+ *  * **Ids** union by `id`; each appears once. The shipped copy supplies every id the live index
+ *    does not list, so a stale or partial registry can no longer hide what the build ships.
+ *  * **Versions** union by version string — a version only the registry knows is *added*, which is
+ *    the whole point: an extension release needs no core release.
+ *  * A version in **both** takes the **live** entry's `files`, hashes and `hostApi`, and the
+ *    divergence is logged. Shipped-wins was considered and rejected: the registry is already
+ *    trusted to introduce *new* versions, so an attacker holding it publishes a higher version
+ *    with malicious bytes and is offered as newest regardless — shipped-wins buys almost no
+ *    security while breaking a legitimate and needed operation, re-releasing a published version
+ *    after a bad build (tetravox.seeg 0.2.2, 2026-09-04), which under shipped-wins would pin every
+ *    user of that build to the broken bytes forever. The real boundary is unchanged and is
+ *    elsewhere: `registry.ts#validateIndex` (https on a GitHub host), the consent sheet, and
+ *    re-hashing at install and at enable.
+ *  * Entry-level **presentation** (title, summary, description, docs, repo, author, licence,
+ *    screenshots) comes from the live entry when the id is in both: cosmetic, never a trust input,
+ *    and how a typo in a summary gets fixed without a core release.
+ *  * Versions come out **ascending by semver**, as `newestCompatible` and the dialog expect.
+ *
+ * `TETRAVOX_EXT_INDEX` is unchanged and still overrides *both*: a fixture run asks for that
+ * catalogue exactly, not for a merge with whatever the build ships. It is honoured only when
  * {@link envSeamsAllowed}, so a shipped build cannot be pointed at a spoofed catalogue.
  */
 export function catalogue(): readonly ExtensionEntry[] {
@@ -154,12 +178,68 @@ export function catalogue(): readonly ExtensionEntry[] {
     const loaded = readIndexFile(override);
     if (loaded !== null) return loaded.modules;
   }
-  // The curated index, when a refresh has cached one (§13.8, `registry.ts`). It is re-validated on
-  // every read, so a cache that is absent, stale-shaped or hand-edited simply falls through to the
-  // copy the build ships — which is why the dialog is still right with no network, ever.
+  // The curated index, when a refresh has cached one (`registry.ts`). It is re-validated on every
+  // read, so a cache that is absent, stale-shaped or hand-edited merges nothing and the shipped
+  // copy stands alone — which is why the dialog is still right with no network, ever.
   const live = cachedIndex();
-  if (live !== null) return live.modules as ExtensionEntry[];
-  return SHIPPED_INDEX.modules;
+  if (live === null) return SHIPPED_INDEX.modules;
+  return mergeCatalogue(SHIPPED_INDEX.modules, live.modules as ExtensionEntry[]);
+}
+
+/**
+ * The union of the shipped catalogue and a live one. Exported for its tests; see {@link catalogue}
+ * for which half wins what, and why the live bytes win a version they both name.
+ */
+export function mergeCatalogue(
+  shipped: readonly ExtensionEntry[],
+  live: readonly ExtensionEntry[]
+): ExtensionEntry[] {
+  const byId = new Map<string, ExtensionEntry>();
+  // Sorted on the way in too, so the ascending order holds for a shipped-only id as well.
+  for (const entry of shipped) {
+    byId.set(entry.id, { ...entry, versions: sortVersions([...entry.versions]) });
+  }
+  for (const liveEntry of live) {
+    if (liveEntry === null || typeof liveEntry !== 'object') continue;
+    const base = byId.get(liveEntry.id);
+    const liveVersions = liveEntry.versions ?? [];
+    if (base === undefined) {
+      // Live-only id: take it as published, ordered.
+      byId.set(liveEntry.id, { ...liveEntry, versions: sortVersions([...liveVersions]) });
+      continue;
+    }
+    const merged = new Map<string, ExtensionVersion>();
+    for (const v of base.versions) merged.set(v.version, v);
+    for (const v of liveVersions) {
+      const collided = merged.get(v.version);
+      // A published version whose bytes changed is a re-release; it is allowed, but a silent one
+      // would make a surprising divergence invisible, so it is named in the log.
+      if (collided !== undefined && shortHashes(collided) !== shortHashes(v)) {
+        console.warn(
+          `[catalogue] ${liveEntry.id} ${v.version}: the registry re-points this version — ` +
+            `shipped ${shortHashes(collided)}, live ${shortHashes(v)}; the live entry wins.`
+        );
+      }
+      merged.set(v.version, v);
+    }
+    // Presentation from the live entry, identity from the shipped one, versions from the merge.
+    byId.set(base.id, {
+      ...base,
+      ...liveEntry,
+      id: base.id,
+      versions: sortVersions([...merged.values()]),
+    });
+  }
+  return [...byId.values()];
+}
+
+/** A version's file hashes, short, for one log line. */
+function shortHashes(version: ExtensionVersion): string {
+  return (version.files ?? []).map((f) => (f.sha256 ?? '').slice(0, 12)).join('+');
+}
+
+function sortVersions(versions: ExtensionVersion[]): ExtensionVersion[] {
+  return versions.sort((a, b) => compareVersions(a.version, b.version));
 }
 
 export function catalogueEntry(id: string): ExtensionEntry | null {

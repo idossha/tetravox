@@ -5033,3 +5033,42 @@ quaternion arithmetic of its own, and asserts that `'superior'` looks down `−z
 
 `MODULE_HOST_VERSION` stays **1**. Nothing here is breaking, and an extension written against the older
 surface neither sees these members nor behaves differently for their existence.
+
+## 2026-09-04 — the shipped and live catalogues are a **union**, and the live entry wins a version they share
+
+`module-store.ts#catalogue()` returned the cached live index's `modules` **wholesale** when one was
+present. That made the registry a ceiling rather than a floor-raiser, and it was not hypothetical:
+the registry topped out at `tetravox.seeg` 0.1.4 while the shipped copy had 0.2.2, so every user with
+a network connection was quietly offered an **older** extension than the one their build came with,
+and any id the registry had not listed vanished from File ▸ Extensions… entirely. A stale registry
+could hide what a signed build ships — the failure this entry closes.
+
+`catalogue()` now merges. `TETRAVOX_EXT_INDEX` is untouched and still wins outright (a fixture run
+asks for that catalogue, not for a merge). Otherwise: union ids by `id`; union versions by version
+string; sort versions ascending by semver, which is the order `newestCompatible` and the dialog
+already assume.
+
+**On a collision the live entry's files, hashes and `hostApi` win**, and `mergeCatalogue` logs one
+line naming the id, the version and both short hashes so a surprising divergence is at least visible.
+The opposite rule — shipped-wins, on the grounds that the shipped copy was reviewed in a pull request
+and rides inside the signed app — was written first and then rejected on two counts. It buys almost
+no security: the registry is *already* trusted to introduce new versions, so anyone who controls it
+publishes 9.9.9 with whatever bytes they like and is offered as newest, collision rule or not. And it
+breaks a legitimate, immediately needed operation: re-releasing an already-published version after a
+bad build. `tetravox.seeg` 0.2.2 is being re-tagged with different bytes to fix a blank-background
+defect; under shipped-wins every 0.3.7 user would be pinned to the broken bytes for the life of that
+build. Entry-level presentation (title, summary, description, docs) likewise comes from the live
+entry — cosmetic, never a trust input, and the way a wrong summary gets fixed without a core release.
+
+Nothing downstream is relaxed. `registry.ts#validateIndex` still shape-checks every id, version, byte
+count and hash and still requires each `url` to be https on a GitHub host; the consent sheet still
+shows the *installed* manifest's derived permissions; every file is still re-hashed at install and
+again at enable. Those, not the collision rule, are where the boundary actually is.
+
+`scripts/refresh-extensions-index.mjs` rewrites the shipped floor from the registry (`--check` to
+assert it is current, `--from <path>` for offline), merging in the same direction so a refresh never
+*drops* a version the build already offers. Its `--check` is **not** wired into CI — it is a network
+call to raw.githubusercontent.com on every pull request, i.e. a third-party outage rendered as a red
+build on changes that have nothing to do with extensions. Only its rules self-test in `docs-guard`;
+running it is a release step in `docs/RELEASING.md`, where a human reads the diff.
+

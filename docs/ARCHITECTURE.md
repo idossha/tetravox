@@ -3605,9 +3605,25 @@ that boundary.
 catalogue was the copy the build shipped, so an extension release was invisible until a *core* release
 carried a refreshed copy — publishing a one-line extension fix meant cutting a Tetravox. A launch
 refresh (gated by the same `checkForUpdates` preference §12.4 uses) and an Extensions…-open refresh
-fetch the curated index and cache it under `userData`; `catalogue()` then prefers dev seam → cache →
-shipped copy, and any failure leaves the previous answer standing, so the dialog is still correct with
-no network. The fetched copy is trusted less than the shipped one and bounded accordingly:
+fetch the curated index and cache it under `userData`; any failure leaves the previous answer
+standing, so the dialog is still correct with no network.
+
+**The two catalogues are a union, not a precedence** (2026-09-04). "Live replaces shipped" made the
+registry a *ceiling*: while it sat at `tetravox.seeg` 0.1.4 and the build shipped 0.2.2, a networked
+user was silently **downgraded**, and an id the registry had never listed disappeared from the dialog
+altogether. `catalogue()` now answers the dev seam (`TETRAVOX_EXT_INDEX`, the whole catalogue, still
+first and unchanged) or else `mergeCatalogue(shipped, cached)`: ids union by `id`, versions union by
+version string, and versions come out **ascending by semver** as `newestCompatible` and the dialog
+expect. On a version both name the **live** entry's files, hashes and `hostApi` win, and the
+divergence is logged with both short hashes. Shipped-wins was weighed and rejected: the registry is
+already trusted to introduce *new* versions, so whoever holds it can publish a higher one and be
+offered as newest regardless — pinning the shipped bytes buys almost no security and breaks
+re-releasing a published version after a bad build, which would strand every user of that build on
+the broken bytes. Entry-level presentation (title, summary, description, docs) also comes from the
+live entry: cosmetic, never a trust input. The shipped copy is therefore a pure **floor** — it
+supplies the ids and versions the live index does not list — and `scripts/refresh-extensions-index.mjs`
+raises that floor from the registry in one command at release time (`--check`, `--from <path>`;
+deliberately *not* in CI, where it would be a third-party outage turned into a red pull request). The fetched copy is trusted less than the shipped one and bounded accordingly:
 `registry.ts#validateIndex` shape-checks every id, version, byte count and hash and requires each
 `url` to be **https on a GitHub host**, so an index that arrived over the wire cannot point the
 downloader at another server; the body is capped and timed out; the cache is re-validated on every
