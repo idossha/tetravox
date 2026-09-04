@@ -157,3 +157,55 @@ describe('resolveUrl', () => {
     expect(resolveUrl('../up.nii', 'http://b.example/y/z/')).toBe('http://b.example/y/up.nii');
   });
 });
+
+describe('a points layer (protocol 2)', () => {
+  const points = {
+    id: 'l2',
+    datasetId: 'd1',
+    kind: 'points',
+    name: 'GSN-HydroCel-185',
+    points: [
+      { id: 'E1', position: [10, 20, 30], name: 'Fp1' },
+      { id: 'E2', position: [-10, 20, 30], name: 'Fp2', state: 'selected' },
+    ],
+    labelMode: 'names',
+    radiusMm: 5,
+  };
+
+  it("spends the host's vocabulary before the engine sees the layer", () => {
+    const { spec } = normalizeScene(
+      { ...scene('/T1.nii.gz'), layers: [scene('/T1.nii.gz').layers[0]!, points] },
+      TEMPLATE,
+      BASE
+    );
+    const layer = spec.layers[1] as unknown as Record<string, unknown>;
+    expect(layer['labelMode']).toBeUndefined();
+    expect(layer['showLabels']).toBe(true);
+    expect(layer['labelSource']).toBe('names');
+    expect((layer['points'] as { color?: number[] }[])[1]?.color).toEqual([1, 0.8, 0.2, 1]);
+    // Nothing else moved: the carrier, the radius and the ids are the host's.
+    expect(layer['datasetId']).toBe('d1');
+    expect(layer['radiusMm']).toBe(5);
+    expect((layer['points'] as { id: string }[]).map((p) => p.id)).toEqual(['E1', 'E2']);
+  });
+
+  it('needs no dataset of its own — the coordinates came with the layer', () => {
+    // The compatibility-shaped half of the same claim: a points layer adds no `DatasetRef`, so the
+    // resolver map is exactly what a protocol-1 scene with the same volume would have produced.
+    const { resolved } = normalizeScene(
+      { ...scene('/T1.nii.gz'), layers: [scene('/T1.nii.gz').layers[0]!, points] },
+      TEMPLATE,
+      BASE
+    );
+    expect(Object.keys(resolved)).toEqual(['d1']);
+  });
+
+  it('leaves a protocol-1 scene byte-identical', () => {
+    // The guarantee, asserted on the object the engine is handed: a scene with no points layer is
+    // the same spec it was before protocol 2 existed, layer objects included (identity, not just
+    // equality — a copy here would be a place a future field could be dropped).
+    const layers = [{ id: 'l1', datasetId: 'd1', kind: 'volume', colormap: 'gray' }];
+    const { spec } = normalizeScene({ ...scene('/T1.nii.gz'), layers }, TEMPLATE, BASE);
+    expect(spec.layers[0]).toBe(layers[0]);
+  });
+});

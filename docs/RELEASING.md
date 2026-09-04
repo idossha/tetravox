@@ -572,16 +572,31 @@ The tarball is one directory, the way npm and the SDK do it, so `tar xzf` lands 
 
 ```
 tetravox-embed-<v>/
-  manifest.json          { name, version, protocol: 1, sha }
+  manifest.json          { name, version, protocol, sha }
   LICENSE  EMBED.md  protocol.schema.json  viewspec.schema.json
   dist/index.html  dist/assets/…
 ```
 
-`manifest.json`'s `protocol` is the host-protocol version the bundle implements (`1`) and `sha` is
-the commit it was built from — `git rev-parse HEAD`, or `''` outside a checkout. It exists so a host
-serving a bundle can say *which* bundle, which is the first question when a viewer misbehaves inside
-an application nobody can reproduce locally. The version comes from `packages/embed/package.json`,
-which `scripts/release.sh` bumps with the other five.
+`manifest.json`'s `protocol` is the host-protocol version the bundle implements (`2` since 0.4.0)
+and `sha` is the commit it was built from — `git rev-parse HEAD`, or `''` outside a checkout. It
+exists so a host serving a bundle can say *which* bundle, which is the first question when a viewer
+misbehaves inside an application nobody can reproduce locally. `pack.mjs` reads the protocol number
+out of `packages/embed/src/protocol.ts` rather than carrying its own copy: a manifest that disagreed
+with the build it describes would be worse than no manifest, because a host gates a feature on it.
+The version comes from `packages/embed/package.json`, which `scripts/release.sh` bumps with the
+other five.
+
+> **`packages/embed/package.json` currently reads `0.4.0` while the tree reads 0.3.8**, because
+> protocol 2 landed on its own branch and the tarball a host installs is named by that file. The six
+> versions are meant to move together, so the next cut should be `scripts/release.sh 0.4.0`, which
+> re-aligns them; cutting `0.3.9` instead would quietly walk the embed *back* to 0.3.9 and ship a
+> protocol-2 bundle under a version a host may have already seen.
+
+**The protocol number and the version are independent, and only one of them is the contract.** The
+protocol moves when `docs/EMBED.md`'s tables gain something (1 → 2 on 2026-09-04); the version moves
+with every release, protocol change or not. A host pins a protocol *range* and the features it
+needs, never a version — which is what lets an additive Tetravox release reach an application with no
+change on its side.
 
 `release.yml`'s `embed` job builds and packs it on `ubuntu-24.04`, attaches it to the same draft
 Release, and `verify` requires it by the name that job reported — the same shape as the `sdk` job,
@@ -592,7 +607,9 @@ bundle to install.**
 
 | Check | Job | Cost |
 |---|---|---|
-| The protocol guards and the ViewSpec normaliser | `test` (vitest) | milliseconds |
+| The protocol guards, the ViewSpec normaliser, the points and layout resolvers | `test` (vitest) | milliseconds |
 | The embed boots, loads real data, screenshots | `test` (`pnpm e2e`) | one headless Chromium |
+| A protocol-1 host still works, and hears nothing new | `test` (`pnpm e2e`, `embed-compat.spec.ts`) | committed fixtures only |
+| The points layer's colours, analytically and as a golden | `test` (`pnpm e2e`, `embed-points.spec.ts`) | committed fixtures only |
 | The bundle builds and packs | `embed` (release.yml) | one Vite build |
 | The tarball is attached | `embed` → `verify` (release.yml) | — |

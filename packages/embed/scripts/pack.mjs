@@ -6,7 +6,7 @@
  *
  * ```
  * tetravox-embed-<version>/
- *   manifest.json          { name, version, protocol, sha }
+ *   manifest.json          { name, version, protocol, sha }   protocol is read from src/protocol.ts
  *   LICENSE
  *   EMBED.md               docs/EMBED.md
  *   protocol.schema.json
@@ -39,6 +39,25 @@ const pkg = JSON.parse(readFileSync(path.join(here, 'package.json'), 'utf8'));
 const { version } = pkg;
 const name = `tetravox-embed-${version}`;
 
+/**
+ * The protocol number, read out of `src/protocol.ts` rather than written here.
+ *
+ * It is the one number a host branches on (`docs/EMBED.md` §1), and a manifest that disagreed with
+ * the build it describes would be worse than no manifest at all — a host would gate a feature on a
+ * bundle that does not have it. A regex over the source rather than an import because this script is
+ * plain node with no TypeScript in front of it, and rather than a second constant in a `.mjs`
+ * because two constants is exactly the drift being prevented. It throws if the declaration moves.
+ */
+function protocolVersion() {
+  const src = readFileSync(path.join(here, 'src/protocol.ts'), 'utf8');
+  const match = /^export const PROTOCOL_VERSION = (\d+);$/m.exec(src);
+  if (match === null) {
+    console.error('could not read PROTOCOL_VERSION out of src/protocol.ts');
+    process.exit(1);
+  }
+  return Number(match[1]);
+}
+
 const dist = path.join(here, 'dist');
 if (!existsSync(path.join(dist, 'index.html'))) {
   console.error('no dist/index.html — run `pnpm --filter @tetravox/embed build` first');
@@ -66,7 +85,11 @@ cpSync(path.join(here, 'viewspec.schema.json'), path.join(staging, 'viewspec.sch
 
 writeFileSync(
   path.join(staging, 'manifest.json'),
-  `${JSON.stringify({ name: '@tetravox/embed', version, protocol: 1, sha: gitSha() }, null, 2)}\n`
+  `${JSON.stringify(
+    { name: '@tetravox/embed', version, protocol: protocolVersion(), sha: gitSha() },
+    null,
+    2
+  )}\n`
 );
 
 const tarball = path.join(out, `${name}.tgz`);

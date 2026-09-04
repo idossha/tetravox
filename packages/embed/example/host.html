@@ -79,6 +79,7 @@
         <option value="a">(a) T1 + heat field + LUT labels</option>
         <option value="b">(b) T1 + .msh TI_max, clip + contours</option>
         <option value="c">(c) GIfTI surface + scalar</option>
+        <option value="d">(d) T1 + an electrode net (points)</option>
       </select>
       <button id="load">load</button>
       <button id="probe">probe at cursor</button>
@@ -86,6 +87,14 @@
       <button id="serialize">serialize</button>
       <button id="theme">toggle theme</button>
       <button id="reset">reset</button>
+      <!-- Protocol 2. Every one of these is a no-op against a protocol-1 build, which ignores a
+           type it does not know — which is the compatibility rule from the other side. -->
+      <button id="armSelect">arm select</button>
+      <button id="armPlace">arm place</button>
+      <button id="disarm">disarm</button>
+      <button id="picks">pick events: off</button>
+      <button id="camGet">get camera</button>
+      <button id="camLeft">camera: left</button>
       <span id="status">…</span>
     </header>
     <main>
@@ -100,6 +109,10 @@
         <pre id="cursor">—</pre>
         <h2>probe</h2>
         <pre id="probeOut">—</pre>
+        <h2>pick</h2>
+        <pre id="pickOut">—</pre>
+        <h2>camera</h2>
+        <pre id="cameraOut">—</pre>
         <h2>layers</h2>
         <pre id="layers">—</pre>
         <h2>log</h2>
@@ -191,6 +204,26 @@
             $('probeOut').textContent = m.result.rows
               .map((r) => `${r.layerName}: ${JSON.stringify(r.value ?? r.labelName ?? r.fields)}`)
               .join('\n');
+            break;
+          // ---- protocol 2 --------------------------------------------------------------
+          case 'pick':
+            // `pointId` when a point was hit, `label`/`tag` for the region under the click, and
+            // the whole ProbeResult beside them. One message per left press.
+            $('pickOut').textContent =
+              `${m.kind}${m.pointId ? ` ${m.pointId}` : ''}\n` +
+              `RAS ${m.world.map((v) => v.toFixed(1)).join(' ')}\n` +
+              (m.label ? `label ${m.label.id} ${m.label.name ?? ''}\n` : '') +
+              (m.tag ? `tag ${m.tag.id} ${m.tag.name ?? ''}\n` : '') +
+              (m.modifiers.shift ? 'shift\n' : '');
+            break;
+          case 'pointTool':
+            // `dragEnd` after a plain click is zero-length — compare positions before recording an
+            // edit. `cleared` says why in `reason`, which is how a host knows whether to re-arm.
+            log(`pointTool ${m.event.kind} ${m.event.pointId ?? ''} ${m.event.reason ?? ''}`);
+            if (m.event.kind === 'cleared' && m.event.reason === 'measure') armed = null;
+            break;
+          case 'camera':
+            $('cameraOut').textContent = JSON.stringify(m.camera, null, 1);
             break;
           case 'error':
             log(`error ${m.code ?? ''} ${m.message}`);
@@ -333,6 +366,46 @@
           ],
           activeLayerId: 'l1',
         },
+
+        // (d) A T1 with an electrode net drawn on top — protocol 2. The points are INLINE: there is
+        //     no points file to name, and `datasetId` is the volume they sit over. `state` says what
+        //     each electrode currently is and the embed resolves it to a colour, so the host never
+        //     restates what "selected" looks like.
+        d: {
+          version: 2,
+          datasets: [
+            { id: 'd1', kind: 'volume', name: 'T1.nii.gz', path: `${DATA}/m2m_ernie/T1.nii.gz` },
+          ],
+          layers: [
+            {
+              id: 'l1',
+              datasetId: 'd1',
+              kind: 'volume',
+              name: 'T1',
+              visible: true,
+              colormap: 'gray',
+            },
+            {
+              id: 'l2',
+              datasetId: 'd1',
+              kind: 'points',
+              name: 'EEG net',
+              points: [
+                { id: 'E1', name: 'Fp1', position: [-25, 78, 15] },
+                { id: 'E2', name: 'Fp2', position: [25, 78, 15], state: 'selected' },
+                { id: 'E3', name: 'Cz', position: [0, 6, 100] },
+                { id: 'E4', name: 'T7', position: [-73, 6, 30], state: 'disabled' },
+              ],
+              color: [0.2, 0.6, 1, 1],
+              radiusMm: 5,
+              labelMode: 'names',
+              // A scalp net is a sphere of electrodes and no axial slice holds two of them, so the
+              // off-slice ones are ghosted rather than culled.
+              offPlaneOpacity: 0.5,
+            },
+          ],
+          activeLayerId: 'l2',
+        },
       };
 
       $('load').onclick = async () => {
@@ -360,6 +433,42 @@
       };
       $('reset').onclick = () => send({ type: 'reset' });
 
+      // ---------------------------------------------------------------------------------------
+      // Protocol 2. `armed` is the layer the point tool is on, as the host believes it — the
+      // ENGINE owns the truth, and `pointTool: 'cleared'` above is what tells this page it was
+      // taken away (by Esc, by a load, or by the user picking measure mode instead).
+      // ---------------------------------------------------------------------------------------
+      let armed = null;
+      let pickEvents = false;
+
+      const pointsLayerId = () => {
+        const line = $('layers')
+          .textContent.split('\n')
+          .find((l) => l.includes(' points '));
+        return line ? line.split(/\s+/)[1] : null;
+      };
+
+      const arm = (mode) => {
+        const layerId = pointsLayerId();
+        if (layerId === null) return log('no points layer loaded');
+        armed = layerId;
+        send({ type: 'setPointTool', layerId, mode });
+      };
+      $('armSelect').onclick = () => arm('select');
+      $('armPlace').onclick = () => arm('place');
+      $('disarm').onclick = () => {
+        armed = null;
+        send({ type: 'setPointTool', layerId: null });
+      };
+      $('picks').onclick = () => {
+        pickEvents = !pickEvents;
+        $('picks').textContent = `pick events: ${pickEvents ? 'on' : 'off'}`;
+        send({ type: 'setPickEvents', enabled: pickEvents });
+      };
+      $('camGet').onclick = () => send({ type: 'getCamera' }, true);
+      // A preset, not a hand-built pose: 'L' is the same left view the `3` key gives.
+      $('camLeft').onclick = () => send({ type: 'setCamera', preset: 'L' }, true);
+
       // A host that attaches its listener after the frame has already booted asks instead of
       // waiting: `hello` is answered with the same `ready` the boot posted.
       iframe.addEventListener('load', () => send({ type: 'hello' }));
@@ -373,7 +482,7 @@
       window.addEventListener('message', (event) => {
         if (event.source === iframe.contentWindow && event.data?.tvx === 1) events.push(event.data);
       });
-      window.__host = { send, events, SCENES, DATA, EMBED_ORIGIN };
+      window.__host = { send, events, SCENES, DATA, EMBED_ORIGIN, pointsLayerId };
     </script>
   </body>
 </html>

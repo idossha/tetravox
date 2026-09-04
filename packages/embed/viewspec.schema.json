@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "$id": "https://tetravox.dev/schema/embed-viewspec-v2.json",
   "title": "Tetravox ViewSpec v2 \u2014 the host-facing subset",
-  "description": "THE HOST-FACING SUBSET of ARCHITECTURE.md 4.6's ViewSpec, hand-maintained. It covers what a host writes by hand and validates it strictly enough to catch a typo; it is NOT the full spec. Two differences from a *.tetravox.json on disk. (1) `datasets[].path` is a URL, not a path relative to a scene file \u2014 absolute http(s) is used as-is, anything else is resolved against LoadMessage.baseUrl. (2) Only `datasets` and `layers` are required: the nine view fields the engine requires (slices, view3d, layout, cursor, radiological, background, lighting, annotations, transparency) are filled from the engine's own empty scene when a host omits them, and a layer needs only id, datasetId and kind \u2014 every other field falls back to the engine's per-dataset default. Fields not listed here are still accepted and passed through unchanged; see ARCHITECTURE.md 4.4 for the complete layer model.",
+  "description": "THE HOST-FACING SUBSET of ARCHITECTURE.md 4.6's ViewSpec, hand-maintained. It covers what a host writes by hand and validates it strictly enough to catch a typo; it is NOT the full spec. Two differences from a *.tetravox.json on disk. (1) `datasets[].path` is a URL, not a path relative to a scene file \u2014 absolute http(s) is used as-is, anything else is resolved against LoadMessage.baseUrl. (2) Only `datasets` and `layers` are required: the nine view fields the engine requires (slices, view3d, layout, cursor, radiological, background, lighting, annotations, transparency) are filled from the engine's own empty scene when a host omits them, and a layer needs only id, datasetId and kind \u2014 every other field falls back to the engine's per-dataset default. A third layer kind, `points`, arrived with protocol 2 and is written inline \u2014 there is no points file to name. Fields not listed here are still accepted and passed through unchanged; see ARCHITECTURE.md 4.4 for the complete layer model.",
   "type": "object",
   "properties": {
     "version": {
@@ -24,6 +24,9 @@
           },
           {
             "$ref": "#/definitions/MeshLayer"
+          },
+          {
+            "$ref": "#/definitions/PointsLayer"
           }
         ]
       }
@@ -537,6 +540,155 @@
         }
       },
       "required": ["id", "datasetId", "kind"]
+    },
+    "PointsLayer": {
+      "type": "object",
+      "title": "PointsLayer",
+      "description": "A points layer written INLINE (protocol 2). There is no points file an embed could serve, so the coordinates arrive with the layer: `datasetId` names a dataset already in this spec \u2014 the volume the points sit over \u2014 exactly as the sEEG contact editor hangs its contacts off the CT they were localised on. `state` and `labelMode` are this protocol's own vocabulary and are resolved before the engine sees the layer; everything else is ARCHITECTURE.md 4.4's PointsLayer verbatim.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "datasetId": {
+          "type": "string",
+          "description": "A dataset in THIS spec. Points need no file, but a layer needs a carrier (4.4)."
+        },
+        "kind": {
+          "const": "points"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pickable": {
+          "type": "boolean",
+          "description": "Whether 7.2.3's id pass answers for this layer. The point tool hit-tests regardless."
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Point"
+          }
+        },
+        "shape": {
+          "enum": ["sphere", "dot"],
+          "description": "'sphere' (default) is radiusMm in world mm; 'dot' is a constant screen size."
+        },
+        "radiusMm": {
+          "type": "number",
+          "description": "Default 4 mm, about an EEG electrode."
+        },
+        "color": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "0..1 RGBA \u2014 every point with neither its own colour nor a resolved state."
+        },
+        "labelMode": {
+          "enum": ["none", "names", "labels"],
+          "description": "Default 'none'. 'names' draws each point's own name at its own position; 'labels' draws the layer's free-standing labels[] anchors, which only a parsed Gmsh view has. There is no 'hover': the engine draws no hover text, and a mode that silently did nothing would be worse than its absence."
+        },
+        "stateColors": {
+          "type": "object",
+          "description": "What each points[].state paints. Absent states keep the default: idle -> the layer colour, selected -> [1, 0.8, 0.2, 1] (rgb 255,204,51), disabled -> [0.6, 0.6, 0.6, 1] (rgb 153,153,153).",
+          "properties": {
+            "idle": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "selected": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "disabled": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "additionalProperties": false
+        },
+        "offPlaneOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How visible a point is in a 2-D pane it is not on. 0 or absent is 7.2's hard cull \u2014 right for a scalp net, wrong for a depth electrode, whose shaft no single slice contains."
+        },
+        "dotRadiusPx": {
+          "type": "number",
+          "description": "shape 'dot' only: the screen radius in CSS pixels. Absent is 4."
+        }
+      },
+      "required": ["id", "datasetId", "kind", "points"]
+    },
+    "Point": {
+      "type": "object",
+      "title": "Point",
+      "description": "One point. Unlisted fields are accepted and passed through \u2014 4.4 is the complete model.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The point's identity, and what a `pick` event and `setPointSelection` name it by. Optional \u2014 the engine mints `p<index>` for a point with none, and an index moves when a point is deleted, so send your own if you want to recognise your electrode."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "World-RAS millimetres."
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "enum": ["idle", "selected", "disabled"],
+          "description": "Resolved to a colour from stateColors above. An explicit `color` on the same point wins. Not the tool selection: any number of points may be selected here, exactly one can be the selection."
+        },
+        "color": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "radiusMm": {
+          "type": "number"
+        },
+        "group": {
+          "type": "string"
+        },
+        "ordinal": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "required": ["position"]
     }
   }
 }

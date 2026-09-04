@@ -2,7 +2,8 @@
  * A host's partial `ViewSpec` → the complete §4.6 one `Engine.load` needs, plus the URL each
  * `DatasetRef` resolved to.
  *
- * Two gaps between what a host can write and what the engine requires, and this file is both:
+ * Three gaps between what a host can write and what the engine requires, and this file is all of
+ * them:
  *
  *  1. **Nine mandatory view fields a host cannot know.** `applyViewSpec` assigns `slices`, `view3d`,
  *     `layout`, `cursor`, `radiological`, `background`, `lighting`, `annotations` and
@@ -26,6 +27,11 @@
  *     network error naming a scheme the host never mentioned. Absolutising every ref before it
  *     reaches the engine is what makes both spellings work.
  *
+ *  3. **A points layer's host vocabulary.** Protocol 2 lets a host write `points[].state` and one
+ *     `labelMode` instead of §4.4's colour-per-point and `showLabels`/`labelSource` pair; `points.ts`
+ *     spends both here, before the engine sees the layer. Every other layer kind passes through
+ *     untouched.
+ *
  * Sidecars get the same treatment against a different base: §4.6 anchors `SidecarRef.path` to **the
  * dataset's own directory**, because a sidecar travels with the file it describes. `new URL(path,
  * datasetUrl)` is exactly that rule, so the resolved sidecar is written into `absPath` with `path`
@@ -36,6 +42,7 @@
 
 import type { DatasetRef, ViewSpec } from '@tetravox/engine';
 import type { EmbedDatasetRef, EmbedViewSpec } from './protocol';
+import { isPointsLayer, resolvePointsLayer } from './points';
 
 /** What {@link normalizeScene} produced: the spec to load, and `Engine.load`'s resolver input. */
 export interface NormalizedScene {
@@ -120,7 +127,12 @@ export function normalizeScene(
     if (value !== undefined) spec[key] = value;
   }
   spec['datasets'] = datasets;
-  spec['layers'] = scene.layers ?? [];
+  // Protocol 2: a points layer's `state` and `labelMode` are this protocol's vocabulary, spent here
+  // so the engine only ever sees §4.4's. Every other layer kind rides through untouched, which is
+  // what keeps a protocol-1 scene byte-identical on its way to `Engine.load`.
+  spec['layers'] = (scene.layers ?? []).map((layer) =>
+    isPointsLayer(layer) ? resolvePointsLayer(layer) : layer
+  );
   spec['activeLayerId'] = scene.activeLayerId ?? null;
   spec['version'] = scene.version ?? template.version;
   for (const field of VIEW_FIELDS) {

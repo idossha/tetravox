@@ -68,10 +68,21 @@ packages/engine/test/pages/*          the pages those specs drive (HTML + a smal
 packages/engine/test/helpers/*        expectPixel / expectGolden
 packages/engine/test/golden/<class>/  the goldens, one directory per renderer class
 packages/app/e2e/*.spec.ts            Playwright-Electron
+packages/embed/test/e2e/*.spec.ts     Playwright — the host protocol, driven through example/host.html
+packages/embed/test/golden/<class>/   the embed's goldens, same policy and same helpers
 scripts/reference/                    the Python reference renderer and its 117 self-tests
 ```
 
 `*.test.ts` is vitest; `*.spec.ts` is Playwright. Nothing collects both.
+
+**The embed's suite imports `packages/engine/test/helpers/pixels.ts` rather than copying it.** §11 is one
+rule, not one per package, so `expectGolden` and its `TETRAVOX_UPDATE_GOLDENS` lock are the same function in
+both places, and `packages/embed/playwright.config.ts` repeats the engine config's `snapshotDir`,
+`snapshotPathTemplate`, `updateSnapshots: 'none'` and ratios. What it cannot reuse is `expectPixel`: that
+reads the drawing buffer through the test page's `window.__tvxRender()`, and the app renderer has no such
+hook — its context is `preserveDrawingBuffer: false`, so a `readPixels` after compositing sees undefined
+content. The embed's analytic assertions therefore go through the documented `screenshot` message and decode
+the PNG in the page. Lossless RGBA8, and the pixels are the ones the product hands a host.
 
 ### Testing something that persists
 
@@ -322,6 +333,8 @@ cover the primary format path. That coverage comes from analytic `expectPixel` t
 ```sh
 TETRAVOX_UPDATE_GOLDENS=1 pnpm --filter @tetravox/engine run e2e
 # or: pnpm --filter @tetravox/engine run e2e:update-goldens
+# the embed's, which live under packages/embed/test/golden/<class>/:
+TETRAVOX_UPDATE_GOLDENS=1 pnpm --filter @tetravox/embed exec playwright test --update-snapshots
 ```
 
 Two locks, both deliberate: `updateSnapshots: 'none'` unless that variable is set, so a **missing** golden is

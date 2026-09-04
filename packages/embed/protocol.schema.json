@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "$id": "https://tetravox.dev/schema/embed-protocol-v1.json",
-  "title": "Tetravox embed host protocol v1",
-  "description": "Every message between a host page and an embedded Tetravox. See docs/EMBED.md. The protocol is ADDITIVE-ONLY after v1: types and optional fields may be added; nothing may be removed, renamed, made required, or given a new meaning.",
+  "title": "Tetravox embed host protocol (envelope tvx 1, protocol 2)",
+  "description": "Every message between a host page and an embedded Tetravox. See docs/EMBED.md. TWO NUMBERS: `tvx` is the envelope discriminator and stays 1 (it moves only for a BREAKING change); `ready.version`, and the tarball manifest's `protocol`, are the feature level and are 2 as of embed 0.4.0. The protocol is ADDITIVE-ONLY: types and optional fields may be added; nothing may be removed, renamed, made required, or given a new meaning. Ignore a `type` you do not know.",
   "type": "object",
   "properties": {
     "tvx": {
       "const": 1,
-      "description": "The envelope discriminator and the protocol version."
+      "description": "The envelope discriminator. Always 1. NOT the protocol version \u2014 see `ready.version`."
     },
     "type": {
       "type": "string"
@@ -97,7 +97,7 @@
         {
           "type": "object",
           "title": "setLayout",
-          "description": "",
+          "description": "Choose the pane arrangement. `kind` is one of ARCHITECTURE.md 4.5's seven LayoutKinds, or one of four names that name a view rather than a grid: '3d' (the 3-D pane alone) and 'axial'/'coronal'/'sagittal' (that slice pane alone). A kind this build does not know is answered with an `error`, never acted on.",
           "properties": {
             "tvx": {
               "const": 1
@@ -109,7 +109,19 @@
               "type": "string"
             },
             "kind": {
-              "enum": ["2x2", "1+3", "3d+1", "3d", "axial", "coronal", "sagittal"]
+              "enum": [
+                "1x1",
+                "1x3",
+                "1x3-horizontal",
+                "2x2",
+                "3d-only",
+                "1+3",
+                "3d+1",
+                "3d",
+                "axial",
+                "coronal",
+                "sagittal"
+              ]
             }
           },
           "required": ["tvx", "type", "kind"],
@@ -351,6 +363,175 @@
           },
           "required": ["tvx", "type"],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setPointTool",
+          "description": "Arm section 7.5's point tool on one points layer, or disarm with layerId: null. Arming materialises `p<index>` ids on points that carry none (a `layers` event follows) and turns measure mode off.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setPointTool"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": ["string", "null"],
+              "description": "A LIVE layer id, from loaded.layers. null disarms."
+            },
+            "mode": {
+              "enum": ["select", "place"],
+              "description": "Default 'select'. In 'place' EVERY click appends a point, with no hit test."
+            },
+            "template": {
+              "type": "object",
+              "description": "What a placed point starts as; position and id are the engine's.",
+              "properties": {
+                "color": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "radiusMm": {
+                  "type": "number"
+                },
+                "group": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": ["tvx", "type", "layerId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setPointSelection",
+          "description": "Select a point by id, or clear with pointId: null. An id that is not in the live points[] clears the selection with a pointTool event whose reason is 'selection'. NOT the same as points[].state.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setPointSelection"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": "string"
+            },
+            "pointId": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["tvx", "type", "layerId", "pointId"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setPoints",
+          "description": "Replace a points layer's points[] wholesale. This is the update that runs the state -> colour resolution; an `updateLayer` with a points patch does not.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setPoints"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": "string"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/EmbedPoint"
+              }
+            }
+          },
+          "required": ["tvx", "type", "layerId", "points"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setPickEvents",
+          "description": "Turn the `pick` event on or off. OFF by default: with it off, the message stream a host receives from a protocol-2 build is the one a protocol-1 build sends.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setPickEvents"
+            },
+            "id": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": ["tvx", "type", "enabled"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "getCamera",
+          "description": "Ask for the 3-D camera. Replies `camera` with this message's id.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "getCamera"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": ["tvx", "type", "id"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setCamera",
+          "description": "Move the 3-D camera: an anatomical preset, a patch, or both (preset first, then patch). A PATCH, not a whole Camera3D: near/far are derived from the fit radius and writing all seven fields carries a stale clip range back with a restored pose. With an id, replies `camera`.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setCamera"
+            },
+            "id": {
+              "type": "string"
+            },
+            "preset": {
+              "oneOf": [
+                {
+                  "enum": [1, 2, 3, 4, 5, 6]
+                },
+                {
+                  "enum": ["A", "P", "L", "R", "S", "I"]
+                }
+              ],
+              "description": "Section 7.5's six: anterior, posterior, left, right, superior, inferior."
+            },
+            "patch": {
+              "$ref": "#/definitions/Camera3D"
+            }
+          },
+          "required": ["tvx", "type"],
+          "additionalProperties": false
         }
       ]
     },
@@ -372,7 +553,8 @@
               "type": "string"
             },
             "version": {
-              "const": 1
+              "const": 2,
+              "description": "The protocol feature level this build implements. NOT the envelope `tvx`."
             },
             "caps": {
               "type": "object",
@@ -659,6 +841,179 @@
           },
           "required": ["tvx", "type", "message"],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "pick",
+          "description": "What a click landed on \u2014 one per left press, and only while setPickEvents has enabled it. Branch on `kind`. The mesh rows of `probe` are at most one round trip stale (ARCHITECTURE.md 4.7); the volume rows, `label` among them, are exact.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "pick"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": ["point", "tri", "tet", "slice", "cursor"]
+            },
+            "world": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "viewId": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": "string",
+              "description": "The layer that owned the pixel; absent for 'cursor'."
+            },
+            "pointId": {
+              "type": "string",
+              "description": "Present for kind 'point' only."
+            },
+            "elementId": {
+              "type": "number",
+              "description": "Gmsh element number, or the plane index for a slice quad."
+            },
+            "label": {
+              "type": "object",
+              "description": "The label volume value under the click.",
+              "properties": {
+                "id": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "layerId": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "layerId"],
+              "additionalProperties": false
+            },
+            "tag": {
+              "type": "object",
+              "description": "A mesh's tissue tag under the click.",
+              "properties": {
+                "id": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "layerId": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "layerId"],
+              "additionalProperties": false
+            },
+            "modifiers": {
+              "type": "object",
+              "properties": {
+                "shift": {
+                  "type": "boolean"
+                },
+                "ctrl": {
+                  "type": "boolean"
+                },
+                "alt": {
+                  "type": "boolean"
+                },
+                "meta": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["shift", "ctrl", "alt", "meta"],
+              "additionalProperties": false
+            },
+            "probe": {
+              "type": "object",
+              "description": "ProbeResult at `world` \u2014 ARCHITECTURE.md 4.7."
+            }
+          },
+          "required": ["tvx", "type", "kind", "world", "modifiers", "probe"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "pointTool",
+          "description": "Section 7.5's point tool did something \u2014 the engine's PointToolEvent, forwarded unchanged. Only fires while a tool is armed. A plain select-mode click emits `selected` AND a zero-length `dragEnd`: compare positions before recording an edit.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "pointTool"
+            },
+            "id": {
+              "type": "string"
+            },
+            "event": {
+              "type": "object",
+              "properties": {
+                "layerId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": ["placed", "selected", "dragEnd", "cleared"]
+                },
+                "pointId": {
+                  "type": ["string", "null"]
+                },
+                "index": {
+                  "type": "number"
+                },
+                "world": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "viewId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "enum": ["esc", "measure", "load", "layer", "host", "selection"],
+                  "description": "`cleared` only. 'selection' means only the selection went and the tool is still armed."
+                }
+              },
+              "required": ["layerId", "kind", "pointId", "index"]
+            }
+          },
+          "required": ["tvx", "type", "event"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "camera",
+          "description": "The 3-D camera \u2014 the reply to getCamera, and to a setCamera that carried an id. Never posted unprompted: an orbit would be a message per frame.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "camera"
+            },
+            "id": {
+              "type": "string"
+            },
+            "camera": {
+              "$ref": "#/definitions/Camera3D"
+            }
+          },
+          "required": ["tvx", "type", "camera"],
+          "additionalProperties": false
         }
       ]
     },
@@ -749,6 +1104,93 @@
         }
       },
       "required": ["datasets", "layers"]
+    },
+    "Camera3D": {
+      "type": "object",
+      "description": "ARCHITECTURE.md 4.5. `rotation` is a quaternion [x, y, z, w]. `near`/`far` are derived from the fit radius (7.2) \u2014 send them only if you mean to override the engine.",
+      "properties": {
+        "target": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "distance": {
+          "type": "number"
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "fovYDeg": {
+          "type": "number"
+        },
+        "orthographic": {
+          "type": "boolean"
+        },
+        "near": {
+          "type": "number"
+        },
+        "far": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "EmbedPoint": {
+      "type": "object",
+      "description": "One point of a points layer. The field names are ARCHITECTURE.md 4.4's own; `state` is the one addition, and it resolves to a colour before the engine sees the layer. Unlisted fields pass through.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The point's identity \u2014 what pick and setPointSelection name it by. Optional; the engine mints `p<index>` for a point with none, and an index moves when a point is deleted."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "World-RAS millimetres."
+        },
+        "name": {
+          "type": "string",
+          "description": "Drawn by labelMode 'names'; names the probe row."
+        },
+        "state": {
+          "enum": ["idle", "selected", "disabled"],
+          "description": "Resolved to a colour from the layer stateColors, or the defaults. An explicit `color` wins. NOT the tool selection: any number of points may be selected here."
+        },
+        "color": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "radiusMm": {
+          "type": "number"
+        },
+        "group": {
+          "type": "string",
+          "description": "Which set the point belongs to \u2014 an electrode, a montage, a parcel. Uninterpreted."
+        },
+        "ordinal": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "required": ["position"]
     }
   }
 }

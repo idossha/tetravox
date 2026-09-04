@@ -1,6 +1,6 @@
 {
   "name": "@tetravox/embed",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Browser build of the viewer, mounted in an iframe and driven over postMessage (ARCHITECTURE.md \u00a72, docs/EMBED.md).",

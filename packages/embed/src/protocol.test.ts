@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EMBED_MESSAGE_TYPES,
+  ENVELOPE_VERSION,
   HOST_MESSAGE_TYPES,
   PROTOCOL_VERSION,
   acceptMessage,
@@ -115,7 +116,7 @@ describe('acceptMessage', () => {
 
   it('accepts every documented host message type', () => {
     for (const type of HOST_MESSAGE_TYPES) {
-      const data = { tvx: PROTOCOL_VERSION, type, id: 'x' };
+      const data = { tvx: ENVELOPE_VERSION, type, id: 'x' };
       expect(acceptMessage({ source: PARENT, origin: 'https://host.example', data }, OPTS)).toEqual(
         data
       );
@@ -186,7 +187,81 @@ describe('protocol.schema.json', () => {
     expect(types.sort()).toEqual([...EMBED_MESSAGE_TYPES].sort());
   });
 
-  it('pins the protocol version', () => {
-    expect(schema.properties.tvx.const).toBe(PROTOCOL_VERSION);
+  it('pins the envelope version, which is not the protocol version', () => {
+    // The whole compatibility promise in one assertion: `tvx` is 1 and the feature level is 2.
+    // Bumping `tvx` would strand every protocol-1 host, which filters on `tvx !== 1` and posts
+    // `tvx: 1` — so an additive release would have been unreachable by exactly the hosts the
+    // additive promise was made to.
+    expect(schema.properties.tvx.const).toBe(ENVELOPE_VERSION);
+    expect(ENVELOPE_VERSION).toBe(1);
+    expect(PROTOCOL_VERSION).toBe(2);
+  });
+
+  it('pins the feature level on `ready.version`, which is what a host reads', () => {
+    const ready = schema.definitions.EmbedMessage.oneOf.find(
+      (m: { title: string }) => m.title === 'ready'
+    ) as { properties: { version: { const: number } } };
+    expect(ready.properties.version.const).toBe(PROTOCOL_VERSION);
+  });
+});
+
+describe('protocol 2 is additive', () => {
+  // The compatibility guarantee, asserted rather than assumed: protocol 1's fourteen host types and
+  // ten embed types are all still there, in the same order, before anything protocol 2 appended.
+  // A reordering is as breaking as a removal for a host that diffs these lists.
+  const V1_HOST = [
+    'hello',
+    'load',
+    'setTheme',
+    'setLayout',
+    'setCursor',
+    'setLayerVisible',
+    'setLayerOpacity',
+    'updateLayer',
+    'setActiveLayer',
+    'screenshot',
+    'serialize',
+    'probe',
+    'focus',
+    'reset',
+  ] as const;
+  const V1_EMBED = [
+    'ready',
+    'status',
+    'progress',
+    'loaded',
+    'layers',
+    'cursor',
+    'probe',
+    'screenshot',
+    'scene',
+    'error',
+  ] as const;
+
+  it('keeps every protocol-1 type, in order, and only appends', () => {
+    expect(HOST_MESSAGE_TYPES.slice(0, V1_HOST.length)).toEqual([...V1_HOST]);
+    expect(EMBED_MESSAGE_TYPES.slice(0, V1_EMBED.length)).toEqual([...V1_EMBED]);
+  });
+
+  it('added exactly what protocol 2 documents', () => {
+    expect(HOST_MESSAGE_TYPES.slice(V1_HOST.length)).toEqual([
+      'setPointTool',
+      'setPointSelection',
+      'setPoints',
+      'setPickEvents',
+      'getCamera',
+      'setCamera',
+    ]);
+    expect(EMBED_MESSAGE_TYPES.slice(V1_EMBED.length)).toEqual(['pick', 'pointTool', 'camera']);
+  });
+
+  it('still accepts every protocol-1 message on the unchanged envelope', () => {
+    // A protocol-1 host posts `{ tvx: 1, … }` and this build must take it, unchanged, for ever.
+    for (const type of V1_HOST) {
+      const data = { tvx: 1, type };
+      expect(acceptMessage({ source: PARENT, origin: 'https://host.example', data }, OPTS)).toEqual(
+        data
+      );
+    }
   });
 });

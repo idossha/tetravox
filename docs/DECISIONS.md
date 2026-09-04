@@ -5165,6 +5165,71 @@ could never exercise.
 `packages/app` already pins (vite, `@vitejs/plugin-react`, `@tailwindcss/vite`, playwright, vitest), so
 `pnpm-lock.yaml` gains an importer entry and no package. AGENTS.md rule 4 is satisfied by this paragraph.
 
+## 2026-09-04 — embed protocol 2: points, the point tool, `pick` and the camera; and two numbers instead of one
+
+`packages/embed` gains a **points layer in the `ViewSpec`, the point tool, a `pick` event and camera get/set**
+(`docs/EMBED.md` §6, embed 0.4.0). None of it is new rendering: §4.4 has had a points layer since Phase 2,
+§7.5's point tool and §4.7's `PointSelection` landed on 2026-08-30 for the sEEG editor, and
+`scene.camera()` / `setCamera()` landed on 2026-09-04 for extensions. What was missing was a way to reach any
+of it from **outside the application**, which is what an embedded host is. So this is exposure, and every
+message ends in the call a panel button already makes — `Engine.setPointTool`, `Engine.setPointSelection`,
+`controller.cameraPreset`, `controller.setModuleCamera` — which keeps §5's "there is no embed-only path into
+the scene" true.
+
+**The envelope and the feature level are now two numbers, and that is the whole compatibility story.**
+`tvx` was doing both jobs: it was the discriminator a host filters on *and* the thing `ready.version` and the
+tarball manifest reported. Bumping it to 2 would have been the one change that breaks every existing host —
+a protocol-1 host drops anything whose `tvx` is not 1 and posts `tvx: 1`, so an *additive* release would have
+been unreachable by exactly the hosts the additive promise was made to. So `ENVELOPE_VERSION` stays 1 for as
+long as the contract stays additive, and `PROTOCOL_VERSION` — `ready.version` and `manifest.protocol` — is 2.
+A host pins a range and the features it needs, never a version.
+
+**`pick` is opt-in, and that is what makes the guarantee structural rather than polite.** "A host ignores a
+type it does not know" is true and not enough: a `pick` carries a whole `ProbeResult` and fires on every left
+press, and a protocol-1 host would pay for a message it cannot read. With `setPickEvents` defaulting to off,
+and `pointTool` only firing while a tool is armed (which a protocol-1 host cannot do), and `camera` only ever
+being a reply, a protocol-1 host receives **exactly** protocol 1's ten types. `embed-compat.spec.ts` asserts
+that as a set-membership test over a whole session, not as a claim.
+
+**Two fields are the host's vocabulary and are resolved before the engine sees the layer** (`points.ts`).
+`points[].state` (`idle`/`selected`/`disabled`) becomes a per-point `color`, so a host says what an electrode
+*is* rather than restating what selected looks like at four call sites; and `labelMode` becomes §4.4's
+`showLabels` + `labelSource` pair. The asymmetry between them is deliberate: `labelMode` is *spent*, because
+it has a §4.4 twin and two spellings of one rule on one object would eventually disagree, while `state` and
+`stateColors` are *kept*, because they have no twin — they resolve into a different field — and the layer is
+the only place a later `setPoints` can read the host's palette back from. The default state colours are
+byte-exact (`[1, 0.8, 0.2, 1]` = `rgb(255, 204, 51)`, `[0.6, 0.6, 0.6, 1]` = `rgb(153, 153, 153)`) so §11's
+analytic pixel assertion is `round(c · 255)` and not a question about the rasteriser's rounding.
+
+**A points layer still hangs off a dataset.** §4.4 gives every layer a carrier and this one is no exception:
+`datasetId` names a volume or mesh already in the spec — the T1 the electrodes sit over — which is exactly
+what the sEEG editor does with the CT its contacts were localised on. Inventing a synthetic "points dataset"
+was rejected: it would have been a second dataset kind for the engine, a worker with nothing to parse, and a
+`DatasetRef` with no URL behind it, all to avoid naming a file the host has already loaded.
+
+**A repair, found by writing the tests.** `docs/EMBED.md`'s `setLayout` row has documented
+`'3d' | 'axial' | 'coronal' | 'sagittal'` since protocol 1, and none of the four is a §4.5 `LayoutKind`.
+TypeScript never caught it — the declared type is `LayoutKind` and the value is JSON — so one of them reached
+`Engine.setLayout` with `cells: undefined` (from `layoutCells`'s exhaustive switch falling off the end) and
+the **next frame** threw inside `viewports()`, in the render loop, with nothing said to the host and no
+recovery short of reloading the frame. A documented message that killed the viewer, and the one
+`dev/notes/v3-3d-panes-plan.md` opens with (`setLayout {kind:'3d'}`). `embed/src/layout.ts` makes the four
+names mean what the table always said and refuses everything else with an `error` reply. Not a behaviour
+regression under §12.3: what it replaces is a crash.
+
+**§11 in this package.** The embed imports `packages/engine/test/helpers/pixels.ts` rather than copying the
+golden policy, and its `playwright.config.ts` repeats the same `snapshotDir`, `updateSnapshots: 'none'` and
+ratios. It cannot reuse `expectPixel`, because that reads the drawing buffer through the engine test pages'
+`window.__tvxRender()` and the app renderer has none — its context is `preserveDrawingBuffer: false`, so a
+`readPixels` after compositing reads undefined content. The analytic assertions therefore go through the
+documented `screenshot` message and decode the PNG in the page: lossless RGBA8, and the pixels are the ones
+the product actually hands a host. The fixture is `testdata/mesh_v2_binary.msh`, whose ±10 mm bbox in
+`testdata/manifest.json` is what makes `center: [0, 0]` at `mmPerPx: 0.05` an exact 20 px/mm ruler around the
+world origin.
+
+**New dependencies: none.** `packages/embed` gains `src/points.ts`, `src/layout.ts` and two spec files; the
+lockfiles do not move.
+
 ## 2026-09-04 — Resolve surface depth before transparency blending (§7.2)
 
 The opacity slider exposed triangles on folded brain surfaces for two reasons: overlapping triangles

@@ -24,9 +24,9 @@ Download `tetravox-embed-<version>.tgz` from the [release
 page](https://github.com/idossha/tetravox/releases) and unpack it:
 
 ```sh
-tar xzf tetravox-embed-0.3.3.tgz
-# tetravox-embed-0.3.3/
-#   manifest.json          {"name":"@tetravox/embed","version":"0.3.3","protocol":1,"sha":"…"}
+tar xzf tetravox-embed-0.4.0.tgz
+# tetravox-embed-0.4.0/
+#   manifest.json          {"name":"@tetravox/embed","version":"0.4.0","protocol":2,"sha":"…"}
 #   LICENSE  EMBED.md  protocol.schema.json  viewspec.schema.json
 #   dist/index.html
 #   dist/assets/…          the JS chunks, the CSS, two module workers, tvx_wasm_bg-*.wasm
@@ -36,7 +36,12 @@ Serve `dist/` under **any** path — `/tetravox/`, `/viewer/`, a versioned CDN p
 `base: './'`, so every URL it emits is relative to `index.html` and nothing assumes a root.
 
 `manifest.json` says which build you are serving: `protocol` is the contract version implemented
-(`1`), and `sha` is the commit it was built from. Quote both in a bug report.
+(`2` since 0.4.0), and `sha` is the commit it was built from. Quote both in a bug report.
+
+**`protocol` is the number to gate a feature on, and it is not the `tvx` on the wire.** Pin a
+*range* and the features you need, never a version: everything protocol 2 added is optional, so a
+host that needs none of it works against `protocol: 1` and `protocol: 2` alike, and a host that
+wants the points layer checks `protocol >= 2` and falls back rather than refusing to start.
 
 ### Headers the host must send
 
@@ -121,6 +126,28 @@ removed, renamed, made required, or given a new meaning. A host written against 
 against every later build. Ignore a `type` you do not know — that is forward compatibility, and the
 embed does the same with yours.
 
+### Two numbers, and only one of them moves
+
+`tvx` is the **envelope** and it is `1`. It changes only for a breaking change, which the additive
+promise above says will not happen; a host filters on it and posts it, and if it ever moved every
+existing host would stop talking to the viewer on the same day. It has not moved for protocol 2 and
+it will not move for protocol 3.
+
+`ready.version` — the same number as `manifest.json`'s `protocol` — is the **feature level**: which
+edition of the tables below this build implements. It is `2` as of embed 0.4.0. Read it to decide
+whether a feature is there; never to decide whether to talk at all.
+
+**Protocol 2 (embed 0.4.0) added**, all of it optional and none of it on by default:
+
+* a **points layer** in the `ViewSpec`, written inline — §5(d) and §6;
+* `setPointTool`, `setPointSelection`, `setPoints` — the point tool a user drives with the mouse;
+* `setPickEvents` and the `pick` event — what a click landed on, **off until you ask**;
+* `getCamera` / `setCamera` and the `camera` reply.
+
+A protocol-1 host is unaffected in both directions: it sends none of those messages, and with `pick`
+off and no tool armed the embed posts it exactly the ten types protocol 1 defined. That is a test
+(`packages/embed/test/e2e/embed-compat.spec.ts`), not a promise.
+
 `protocol.schema.json` is this contract as JSON Schema, and `packages/embed/src/protocol.ts` is the
 TypeScript. Both are in the tarball.
 
@@ -150,7 +177,7 @@ Both, not either. The origin check alone passes a sibling iframe served from the
 | `hello` | — | `ready` |
 | `load` | `scene: ViewSpec`, `baseUrl?: string` | `loaded` \| `error` |
 | `setTheme` | `theme: 'light' \| 'dark'` | — |
-| `setLayout` | `kind: '2x2' \| '1+3' \| '3d+1' \| '3d' \| 'axial' \| 'coronal' \| 'sagittal'` | — |
+| `setLayout` | `kind` — see below | — |
 | `setCursor` | `world: [x, y, z]` world-RAS mm | `cursor` event |
 | `setLayerVisible` | `layerId`, `visible` | `layers` event |
 | `setLayerOpacity` | `layerId`, `opacity` (0..1) | `layers` event |
@@ -161,6 +188,22 @@ Both, not either. The origin check alone passes a sibling iframe served from the
 | `probe` | `id` **(required)**, `world` | `probe` |
 | `focus` | — | — |
 | `reset` | — | `status`, `layers` |
+| `setPointTool` **(2)** | `layerId: string \| null` (null disarms), `mode?: 'select' \| 'place'`, `template?` | `pointTool`, `layers` |
+| `setPointSelection` **(2)** | `layerId`, `pointId: string \| null` | `pointTool` |
+| `setPoints` **(2)** | `layerId`, `points: Point[]` | `layers` |
+| `setPickEvents` **(2)** | `enabled: boolean` (default `false`) | — |
+| `getCamera` **(2)** | `id` **(required)** | `camera` |
+| `setCamera` **(2)** | `preset?`, `patch?: Partial<Camera3D>` | `camera` (with an `id`) |
+
+`setLayout`'s `kind` is one of the seven arrangements — `'1x1'`, `'1x3'`, `'1x3-horizontal'`,
+`'2x2'`, `'3d-only'`, `'1+3'`, `'3d+1'` — **or** one of four names that pick a single pane by what is
+in it: `'3d'`, `'axial'`, `'coronal'`, `'sagittal'`. Anything else is answered with an `error`.
+
+> Those four names have been in this table since protocol 1 and did not work: they are not
+> `LayoutKind` values, and one of them reaching the engine left the layout with no cells and threw
+> inside the render loop on the next frame — a dead viewer, with nothing said to the host. Fixed in
+> 0.4.0, in both directions: the four names now mean what this table always said they meant, and an
+> unknown kind is an `error` reply rather than a crash.
 
 `focus` matters more than it looks: an iframe gets no key events until something inside it is
 focused, and a host cannot focus across the boundary — the whole §7.5 keyboard map is dead without
@@ -171,7 +214,7 @@ heap comes back (§5 rule 1).
 
 | `type` | Payload |
 |---|---|
-| `ready` | `version: 1`, `caps: { webgl2, renderer?, norm16? }` — posted **unprompted on boot**, and again for every `hello` |
+| `ready` | `version: 2` (the **protocol**, not the envelope), `caps: { webgl2, renderer?, norm16? }` — posted **unprompted on boot**, and again for every `hello` |
 | `status` | `phase: 'idle' \| 'loading' \| 'ready' \| 'error' \| 'no-webgl2'`, `message?` |
 | `progress` | `datasetId`, `name`, `phase`, `done`, `total` (`0` when the phase cannot say) |
 | `loaded` | `datasets: [{ id, name, kind, bytes? }]`, `layers: Layer[]` |
@@ -181,6 +224,9 @@ heap comes back (§5 rule 1).
 | `screenshot` | `id`, `dataUrl: 'data:image/png;base64,…'` |
 | `scene` | `id`, `spec: ViewSpec` |
 | `error` | `code?`, `message` |
+| `pick` **(2)** | `kind`, `world`, `viewId?`, `layerId?`, `pointId?`, `elementId?`, `label?`, `tag?`, `modifiers`, `probe` — one per left press, **only while `setPickEvents` is on** |
+| `pointTool` **(2)** | `event: PointToolEvent` — only while a tool is armed |
+| `camera` **(2)** | `camera: Camera3D` — a reply, never unprompted |
 
 **Two things a host gets wrong if it does not read them.**
 
@@ -249,7 +295,7 @@ bytes it cannot see:
 
 ---
 
-## 5. Three scenes, verbatim
+## 5. Four scenes, verbatim
 
 Absolute URLs throughout, and only the keys a host has to send.
 
@@ -349,12 +395,176 @@ element (`"elm"`). A GIfTI with no data array carries no field: drop the `field`
 `"colorMode": "solid"` with a `solidColor`. A surface is triangles only, so it renders as an outline
 in the slice panes and a shell in 3D; `contoursIn2D` is what puts the outline there.
 
-`viewspec.schema.json` in the tarball validates this subset. Fields it does not list are still
-accepted and passed through — §4.4 is the complete layer model.
+### (d) A T1 and an electrode net — a points layer, written inline
+
+```json
+{
+  "version": 2,
+  "datasets": [
+    { "id": "d1", "kind": "volume", "name": "T1.nii.gz",
+      "path": "https://data.example/sub-ernie/m2m_ernie/T1.nii.gz" }
+  ],
+  "layers": [
+    { "id": "l1", "datasetId": "d1", "kind": "volume", "name": "T1",
+      "visible": true, "colormap": "gray" },
+    { "id": "l2", "datasetId": "d1", "kind": "points", "name": "EEG net",
+      "points": [
+        { "id": "E1", "name": "Fp1", "position": [-25, 78, 15] },
+        { "id": "E2", "name": "Fp2", "position": [25, 78, 15], "state": "selected" },
+        { "id": "E3", "name": "Cz",  "position": [0, 6, 100] },
+        { "id": "E4", "name": "T7",  "position": [-73, 6, 30], "state": "disabled" }
+      ],
+      "color": [0.2, 0.6, 1, 1],
+      "radiusMm": 5,
+      "labelMode": "names",
+      "offPlaneOpacity": 0.5 }
+  ],
+  "activeLayerId": "l2"
+}
+```
+
+`datasetId` names the **volume the points sit over**: §4.4 hangs every layer off a carrier dataset,
+and there is no points file for an embed to fetch — the coordinates arrived with the layer. It is the
+same arrangement the desktop sEEG contact editor uses, where the contacts hang off the CT they were
+localised on.
+
+`offPlaneOpacity` is what makes a net usable in the slice panes. A scalp net is a sphere of
+electrodes and no axial slice holds two of them, so without it the panes show one electrode at a
+time; above 0 the off-slice ones are drawn as ghosts at their full radius. Leave it out for a layer
+whose points really do lie in a plane.
+
+`viewspec.schema.json` in the tarball validates this subset — the points layer included, since
+0.4.0. Fields it does not list are still accepted and passed through; §4.4 is the complete layer
+model.
 
 ---
 
-## 6. A minimal host
+## 6. Points, picking and the camera (protocol 2)
+
+Everything in this section is optional. A host that sends none of it gets the viewer protocol 1
+described, byte for byte.
+
+### 6.1 A point
+
+| Field | Meaning |
+|---|---|
+| `position` | **Required.** World-RAS millimetres (§3). |
+| `id` | The point's identity — what a `pick` names it by and what `setPointSelection` selects. Optional, and you want it: the engine mints `p<index>` for a point with none, and an index moves the moment a point is deleted. |
+| `name` | The point's own text: what `labelMode: 'names'` draws, and what the probe row calls it. |
+| `state` | `'idle'` \| `'selected'` \| `'disabled'` — **resolved to a colour before the engine sees the layer**. |
+| `color`, `radiusMm` | This point's own, overriding the layer's — and `color` overrides whatever `state` would have painted. |
+| `group`, `ordinal` | Which set the point belongs to (an electrode, a montage pair, a parcel) and its 1-based place in it. Uninterpreted by the engine; they exist so one layer can hold twelve shafts instead of twelve layers. |
+
+`state` is the one field §4.4 has no word for, and it is there so a host says *what an electrode is*
+rather than restating what selected looks like at four call sites. The defaults are byte-exact:
+
+| `state` | Colour | Wire |
+|---|---|---|
+| `idle` (or absent) | the layer's own `color` | — |
+| `selected` | `[1, 0.8, 0.2, 1]` | `rgb(255, 204, 51)` |
+| `disabled` | `[0.6, 0.6, 0.6, 1]` | `rgb(153, 153, 153)` |
+
+Override them per layer with `stateColors: { idle?, selected?, disabled? }`. The layer keeps that
+map, so a later `setPoints` paints the same palette the `load` did.
+
+**`state` is not the selection.** Any number of points may be `'selected'`; exactly one point per
+layer can be *the* selection, which is what draws §7.2's ring and what the point tool is holding.
+
+### 6.2 The layer
+
+`shape` (`'sphere'` — `radiusMm` in world millimetres — or `'dot'`, a constant screen size),
+`radiusMm`, `color`, `opacity`, `visible`, `offPlaneOpacity`, `dotRadiusPx` are §4.4's, unchanged.
+`labelMode` is this protocol's one addition:
+
+| `labelMode` | Draws |
+|---|---|
+| `'none'` (default) | nothing |
+| `'names'` | each point's own `name`, at its own position |
+| `'labels'` | the layer's free-standing `labels[]` anchors — which only a parsed Gmsh view has, so an inline layer draws nothing |
+
+There is no `'hover'`: the engine draws no hover text, and a mode that silently did nothing would be
+worse than its absence. Draw your own tooltip from the `pick` event.
+
+### 6.3 The point tool
+
+```js
+send({ type: 'setPointTool', layerId, mode: 'select' });   // or 'place'
+send({ type: 'setPointTool', layerId: null });             // disarm
+```
+
+`'select'` — a click grabs the point under it and drags it; a click on nothing does nothing.
+`'place'` — **every** click appends a point, with no hit test first, because the click that matters
+most is the one filling the gap *between* two points that are already there.
+
+Three things follow from the engine and will surprise a host that has not read them:
+
+* **Arming materialises ids.** A layer whose points carry none gets `p<index>` on all of them, and a
+  `layers` event fires. Send your own ids.
+* **A plain click emits a zero-length `dragEnd`.** A `select` click *grabs*, and a grab is a drag
+  that ended without moving, so clicking down a list gives `selected`, `dragEnd`, `selected`,
+  `dragEnd`, … Compare positions against the snapshot you took at `selected` before recording an
+  edit. (The exception: a click on a point drawn *off* its slice selects it and starts no gesture, so
+  it emits `selected` alone.)
+* **`cleared` says why**, in `reason`: `'esc'`, `'measure'` (the user chose measure mode — do not
+  re-arm), `'load'`, `'layer'`, `'host'`, and `'selection'` — which means only the selection went and
+  the tool is still armed.
+
+`setPointSelection { layerId, pointId }` selects by id and `pointId: null` clears it. An id that is
+not in the live `points[]` clears rather than pointing at the neighbour.
+
+`setPoints { layerId, points }` replaces the array — which is also how a point is deleted. Use it
+rather than `updateLayer` with a `points` patch: `setPoints` is what runs the `state` → colour
+resolution, and the patch route would leave a `state` unpainted.
+
+### 6.4 `pick`
+
+```js
+send({ type: 'setPickEvents', enabled: true });
+```
+
+Off by default, and deliberately: a `pick` carries a whole `ProbeResult` and fires on every left
+press, and a host that never asked for one must not pay for it.
+
+One message per press, whatever it resolved to. `kind` is the field to branch on:
+
+| `kind` | What it was | Carries |
+|---|---|---|
+| `'point'` | a point of a points layer, hit or placed | `layerId`, `pointId` |
+| `'tri'` / `'tet'` / `'slice'` | §7.2.3's id pass answered | `layerId`, `elementId` (the Gmsh element number, or the plane index) |
+| `'cursor'` | the click moved the crosshair and nothing owned the pixel | `world` |
+
+Every one carries `world`, `modifiers: { shift, ctrl, alt, meta }` and `probe` — `ProbeResult` at
+that point, so the region under a click arrives *with* the click. `label` (`{ id, name?, layerId }`)
+and `tag` are the two rows lifted out of it: a label volume's value, which is what "click a region"
+means, and a mesh's tissue tag.
+
+**The mesh rows of `probe` are at most one round trip stale.** That is §4.7's standing rule and not a
+property of this message — `probe` is synchronous while the point-in-tetrahedron search is a worker
+call. The volume rows, `label` among them, are exact. If you need the settled mesh answer, send a
+`probe` with the `world` the event carried.
+
+### 6.5 The camera
+
+```js
+const { camera } = await send({ type: 'getCamera' }, true);
+// …later
+send({ type: 'setCamera', patch: { target: camera.target, distance: camera.distance,
+                                   rotation: camera.rotation } });
+send({ type: 'setCamera', preset: 'L' });     // 'A' 'P' 'L' 'R' 'S' 'I', or 1..6
+```
+
+A **patch**, not a whole `Camera3D`: `near` and `far` are derived from the fit radius (§7.2), so
+restoring a saved pose by writing all seven fields carries a stale clip range back with it and can
+clip the head away. Write `target`, `distance` and `rotation`; leave the rest to the engine. A
+`setCamera` carrying both applies the preset first and then the patch, which is how "left, but pulled
+back" is said.
+
+The `camera` message is only ever a reply. Nothing announces a camera change: an orbit is a change
+per frame, and a message per frame is a storm.
+
+---
+
+## 7. A minimal host
 
 ```html
 <iframe id="v"></iframe>
@@ -388,11 +598,12 @@ accepted and passed through — §4.4 is the complete layer model.
 ```
 
 `packages/embed/example/host.html` in the repository is the fuller version — a layer list, a probe
-readout, a screenshot button — and it is what the E2E suite drives, so it cannot rot.
+readout, a screenshot button, and §6's tool/pick/camera controls — and it is what the E2E suite
+drives, so it cannot rot.
 
 ---
 
-## 7. What an embed does not have
+## 8. What an embed does not have
 
 No file dialogs, no drag-and-drop from the desktop, no `tetravox://`, no menus, no auto-update, no
 extensions catalogue, no sample-data downloader, and no settings that survive a reload. All of them

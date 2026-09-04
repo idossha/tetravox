@@ -15,6 +15,11 @@
     "src/**/*.tsx",
     "test/**/*.ts",
     "vite.config.ts",
-    "../app/src/renderer/src/env.d.ts"
+    "../app/src/renderer/src/env.d.ts",
+    // The E2E uses `packages/engine`'s §11 helpers rather than a second copy of the golden policy
+    // (AGENTS.md rule 1 is one rule, not one per package), and those read `window.__tvxRender` —
+    // declared for the engine's own test pages here. Included by hand for the same reason the app's
+    // `env.d.ts` above is: a global declared in a file nothing in this package imports.
+    "../engine/test/pages/types.ts"
   ]
 }

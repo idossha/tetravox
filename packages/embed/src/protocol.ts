@@ -21,6 +21,33 @@
  * break, it breaks by bumping `tvx` to `2` and serving both — which is why `tvx` is a number and
  * not a boolean flag.
  *
+ * ## Two numbers, and only one of them moves
+ *
+ * {@link ENVELOPE_VERSION} is the `tvx` field. It is the wire discriminator and it changes **only**
+ * for a breaking change — never for a feature. It is `1` and, as long as this contract stays
+ * additive, it stays `1` forever.
+ *
+ * {@link PROTOCOL_VERSION} is the *feature level*: which edition of the tables in `docs/EMBED.md`
+ * this build implements. It is what `ready.version` announces and what the tarball's
+ * `manifest.json.protocol` records, and it is `2` as of embed 0.4.0. A host reads it to decide
+ * whether a feature is there — never to decide whether to talk at all, which is what `tvx` is for.
+ *
+ * Conflating the two would have been the one change that breaks every existing host: a protocol-1
+ * host filters on `tvx !== 1` and posts `tvx: 1`, so bumping the envelope would have made an
+ * additive release unreachable by exactly the hosts the additive promise was made to.
+ *
+ * ## What protocol 2 added (2026-09-04), all of it optional
+ *
+ *  * a **points layer** in the `ViewSpec` — inline coordinates and ids, per-point state, colour and
+ *    radius, and a label mode ({@link EmbedPointsLayer});
+ *  * {@link SetPointToolMessage} / {@link SetPointSelectionMessage} / {@link SetPointsMessage} —
+ *    arm the point tool on a layer, set its selection, replace its points;
+ *  * {@link SetPickEventsMessage} and the {@link PickMessage} / {@link PointToolMessage} events —
+ *    what a click landed on, **off by default**, so a protocol-1 host's message stream is byte for
+ *    byte the one it gets today;
+ *  * {@link GetCameraMessage} / {@link SetCameraMessage} / {@link CameraMessage} — read and restore
+ *    the 3-D camera.
+ *
  * ## Trust
  *
  * The embed accepts a message only when **both** hold:
@@ -50,10 +77,31 @@
  * lists exactly the types these unions do, so the two cannot drift.
  */
 
-import type { Layer, LayoutKind, ProbeResult, ViewSpec, vec3 } from '@tetravox/engine';
+import type {
+  Camera3D,
+  CameraPreset,
+  Layer,
+  LayoutKind,
+  PointToolEvent,
+  ProbeResult,
+  ViewSpec,
+  vec3,
+  vec4,
+} from '@tetravox/engine';
 
-/** The value of the `tvx` envelope field. Bumped only by a breaking change (see above). */
-export const PROTOCOL_VERSION = 1;
+/**
+ * The value of the `tvx` envelope field. Bumped only by a **breaking** change (see above).
+ *
+ * Not the same number as {@link PROTOCOL_VERSION}, and it has not moved: a protocol-2 build still
+ * speaks `tvx: 1`, which is what makes protocol 2 additive rather than a second protocol.
+ */
+export const ENVELOPE_VERSION = 1;
+
+/**
+ * The **feature level** this build implements — `ready.version` and the tarball manifest's
+ * `protocol` (see above). `1` in embed 0.3.x; `2` from 0.4.0.
+ */
+export const PROTOCOL_VERSION = 2;
 
 /** The query parameter that puts the renderer in embed mode, and the one that names the host. */
 export const EMBED_PARAM = 'embed';
@@ -61,7 +109,7 @@ export const HOST_ORIGIN_PARAM = 'hostOrigin';
 
 /** Every message carries these. `id` is present on a request that wants a reply, and on its reply. */
 export interface Envelope {
-  tvx: typeof PROTOCOL_VERSION;
+  tvx: typeof ENVELOPE_VERSION;
   type: string;
   id?: string;
 }
@@ -109,9 +157,19 @@ export interface SetThemeMessage extends Envelope {
   theme: 'light' | 'dark';
 }
 
+/**
+ * Choose the pane arrangement.
+ *
+ * `kind` is one of §4.5's seven `LayoutKind`s, **or** one of four names that name a view rather than
+ * a grid: `'3d'` (the 3-D pane alone) and `'axial'` / `'coronal'` / `'sagittal'` (that slice pane
+ * alone). `docs/EMBED.md` has documented those four since protocol 1; `layout.ts` is where they
+ * became real, and what it says about the crash they used to cause is worth reading.
+ *
+ * A `kind` this build does not know is answered with an `error`, never acted on.
+ */
 export interface SetLayoutMessage extends Envelope {
   type: 'setLayout';
-  kind: LayoutKind;
+  kind: LayoutKind | '3d' | 'axial' | 'coronal' | 'sagittal';
 }
 
 /** Move the crosshair to a world-RAS millimetre triple (§3). Emits {@link CursorMessage}. */
@@ -205,6 +263,110 @@ export interface ResetMessage extends Envelope {
   type: 'reset';
 }
 
+// ------------------------------------------------------------------------------------------------
+// Protocol 2 (2026-09-04) — the point tool, pick events and the camera. Appended, all optional:
+// absent, every one of them is off and the embed behaves exactly as protocol 1 did.
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * Arm §7.5's point tool on one points layer, or disarm it with `layerId: null`.
+ *
+ * This is the same call the sEEG contact editor's **Add** button makes (`Engine.setPointTool`), so
+ * everything below is something a user can do with the mouse: in `'place'` mode every left click
+ * appends a point; in `'select'` mode a click grabs the point under it and drags it, and a click on
+ * nothing does nothing.
+ *
+ * Two consequences a host must know, both of them the engine's and neither invented here:
+ *
+ *  * **Arming materialises ids.** A layer whose `points[]` carry no `id` gets `p<index>` on every
+ *    one of them, which fires a `layers` event. Send your own ids if you want to recognise them.
+ *  * **Arming turns measure mode off**, and only one click-consuming mode can be armed (§7.5).
+ *
+ * The tool is disarmed by a `load` and by the layer being removed; the {@link PointToolMessage}
+ * event says which, in `reason`, so a host knows whether to arm again.
+ */
+export interface SetPointToolMessage extends Envelope {
+  type: 'setPointTool';
+  /** The points layer to arm on — a **live** id, from `loaded.layers`. `null` disarms. */
+  layerId: string | null;
+  /** Default `'select'`. Ignored when `layerId` is `null`. */
+  mode?: 'select' | 'place';
+  /** What a placed point starts as. `position` and `id` are the engine's. */
+  template?: { color?: vec4; radiusMm?: number; group?: string };
+}
+
+/**
+ * Select a point by **id**, or clear the selection with `pointId: null`.
+ *
+ * By id and not by index because the index is a frame's key and not an identity: deleting the
+ * second of twelve contacts renumbers ten of them (§4.4). The selection is re-resolved against the
+ * live `points[]`, so an id that is not there clears it — with a `pointTool` event whose `reason`
+ * is `'selection'` — rather than silently pointing at the neighbour.
+ *
+ * The selection is what draws §7.2's ring. It is **not** `points[].state`: `state` paints the
+ * marker (any number of points may carry it), the selection is the one point the tool is holding.
+ */
+export interface SetPointSelectionMessage extends Envelope {
+  type: 'setPointSelection';
+  layerId: string;
+  pointId: string | null;
+}
+
+/**
+ * Replace a points layer's `points[]` wholesale.
+ *
+ * `updateLayer` with a `points` patch reaches the engine unchanged and is still there; this message
+ * exists because it is the one that runs {@link EmbedPoint}'s `state` → colour resolution, the same
+ * one `load` runs. A host that sends `state` through `updateLayer` gets points with no colour, which
+ * is a silent difference between two spellings of the same thing.
+ *
+ * Replacing the array is also how a point is deleted, and the engine re-resolves the selection
+ * against the new one (see {@link SetPointSelectionMessage}).
+ */
+export interface SetPointsMessage extends Envelope {
+  type: 'setPoints';
+  layerId: string;
+  points: EmbedPoint[];
+}
+
+/**
+ * Turn {@link PickMessage} on or off. **Off is the default, and that is the point.**
+ *
+ * A `pick` carries a whole `ProbeResult` and fires on every click. A protocol-1 host never asked for
+ * one and cannot read one, so it must not be made to pay for it: with pick events off, the stream a
+ * host receives from a protocol-2 build is byte for byte the stream a protocol-1 build sends. The
+ * guarantee is therefore structural rather than "they will ignore what they do not know".
+ */
+export interface SetPickEventsMessage extends Envelope {
+  type: 'setPickEvents';
+  enabled: boolean;
+}
+
+/** Ask for the 3-D camera. The reply is {@link CameraMessage}. */
+export interface GetCameraMessage extends Envelope {
+  type: 'getCamera';
+  id: string;
+}
+
+/**
+ * Move the 3-D camera: an anatomical `preset`, a `patch`, or both (preset first, then patch).
+ *
+ * A **patch** and not a whole `Camera3D` for the reason the extension API gives (§13.1): `near` and
+ * `far` are derived from the fit radius (§7.2), so restoring a saved pose by writing all seven
+ * fields carries a stale clip range back with it. Write `target`, `distance` and `rotation`; leave
+ * the rest to the engine.
+ *
+ * `preset` is §7.5's `1..6` — `'A'`/`'P'`/`'L'`/`'R'`/`'S'`/`'I'`, anterior through inferior — the
+ * same six the keyboard offers, which is what a "front / left / top" button in a host should send.
+ *
+ * With an `id`, the reply is {@link CameraMessage} carrying the camera that resulted.
+ */
+export interface SetCameraMessage extends Envelope {
+  type: 'setCamera';
+  preset?: CameraPreset;
+  patch?: Partial<Camera3D>;
+}
+
 export type HostMessage =
   | HelloMessage
   | LoadMessage
@@ -219,7 +381,14 @@ export type HostMessage =
   | SerializeMessage
   | ProbeMessage
   | FocusMessage
-  | ResetMessage;
+  | ResetMessage
+  // Protocol 2 (2026-09-04), appended.
+  | SetPointToolMessage
+  | SetPointSelectionMessage
+  | SetPointsMessage
+  | SetPickEventsMessage
+  | GetCameraMessage
+  | SetCameraMessage;
 
 /** Every `type` a host may send. The runtime half of the {@link HostMessage} union. */
 export const HOST_MESSAGE_TYPES = [
@@ -237,6 +406,14 @@ export const HOST_MESSAGE_TYPES = [
   'probe',
   'focus',
   'reset',
+  // Protocol 2 (2026-09-04). Appended, never reordered: a host may compare this list against its
+  // own to decide what a build supports, and the order it is written in is part of the diff.
+  'setPointTool',
+  'setPointSelection',
+  'setPoints',
+  'setPickEvents',
+  'getCamera',
+  'setCamera',
 ] as const satisfies readonly HostMessage['type'][];
 
 // ------------------------------------------------------------------------------------------------
@@ -369,6 +546,88 @@ export interface ErrorMessage extends Envelope {
   message: string;
 }
 
+// ------------------------------------------------------------------------------------------------
+// Protocol 2 (2026-09-04) — the events. `pick` is opt-in ({@link SetPickEventsMessage}); the other
+// two only ever fire in reply to something a protocol-2 host asked for.
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * What a click landed on. Emitted only while {@link SetPickEventsMessage} has enabled it.
+ *
+ * **One per press.** A left press on a pane produces exactly one `pick`, whatever it resolved to:
+ * a point the tool hit or placed, a surface the id pass returned, or the plain cursor set §7.5's
+ * R1 does when a click lands on nothing in particular. A drag that follows it emits no more.
+ *
+ * `kind` says which of those it was, and it is the field to branch on:
+ *
+ *  * `'point'` — a point of a points layer. `layerId` is that layer and `pointId` the point; this
+ *    is the only kind that carries one.
+ *  * `'tri'` / `'tet'` / `'slice'` — §7.2.3's id pass answered: a surface triangle, a tetrahedron,
+ *    or a slice quad. `layerId` and `elementId` are the layer and the Gmsh element number.
+ *  * `'cursor'` — the click moved the crosshair and nothing owned the pixel. `world` is where.
+ *
+ * `probe` is `ProbeResult` at `world`, so the label under a click, a tissue tag and a field value
+ * arrive **with** the click rather than a round trip later. `label` and `tag` are the two rows a
+ * host reaches for, lifted out of it — a label volume's value and name (which is what "click a
+ * region" means), and a mesh's tissue tag and name.
+ *
+ * **The mesh rows are at most one round trip stale**, which is §4.7's standing rule and not a
+ * property of this message: `probe` is synchronous while `locate` is a worker call. The volume
+ * rows — the label one included — are exact, because §4.3 keeps a volume's voxels on the UI thread
+ * for exactly this. A host that needs the settled mesh answer sends a `probe` with this event's own
+ * `world`.
+ */
+export interface PickMessage extends Envelope {
+  type: 'pick';
+  kind: 'point' | 'tri' | 'tet' | 'slice' | 'cursor';
+  world: vec3;
+  /** The pane the click was in. */
+  viewId?: string;
+  /** The layer that owned the pixel — absent for `'cursor'`. */
+  layerId?: string;
+  /** Present for `kind: 'point'` only. */
+  pointId?: string;
+  /** Gmsh element number (§6.2), or the plane index for a slice quad. */
+  elementId?: number;
+  /** The label volume's value under the click, and its LUT name where there is one. */
+  label?: { id: number; name?: string; layerId: string };
+  /** A mesh's tissue tag under the click, and its `.msh.opt` name where there is one. */
+  tag?: { id: number; name?: string; layerId: string };
+  /** Which modifiers were held on the press, so a host can offer "add to selection". */
+  modifiers: { shift: boolean; ctrl: boolean; alt: boolean; meta: boolean };
+  probe: ProbeResult;
+}
+
+/**
+ * §7.5's point tool did something — the engine's own `PointToolEvent`, forwarded unchanged.
+ *
+ * Only fires while a tool is armed, so a protocol-1 host, which cannot arm one, never sees it.
+ *
+ * `kind` is `'placed'`, `'selected'`, `'dragEnd'` or `'cleared'`, and two of them have grammar a
+ * host gets wrong exactly once:
+ *
+ *  * **A plain click emits a zero-length `dragEnd`.** A `select`-mode click grabs the point under
+ *    it, and a grab is a drag that ended without moving — so clicking down a list of contacts gives
+ *    `selected`, `dragEnd`, `selected`, `dragEnd`, … Compare positions against the snapshot taken
+ *    at `selected` before recording an edit. (The one exception: a click on a point the layer draws
+ *    *off* its slice selects it and starts no gesture, so it emits `selected` and no `dragEnd`.)
+ *  * **`cleared` says why, in `reason`.** `'esc'`, `'measure'`, `'load'`, `'layer'`, `'host'` — and
+ *    `'selection'`, which means only the selection went and the tool is still armed.
+ *
+ * The scene has already changed when this arrives: a drag writes every intermediate position, so
+ * `dragEnd` is the commit point and the new coordinates are in the `layers` event beside it.
+ */
+export interface PointToolMessage extends Envelope {
+  type: 'pointTool';
+  event: PointToolEvent;
+}
+
+/** The reply to {@link GetCameraMessage}, and to a {@link SetCameraMessage} that carried an `id`. */
+export interface CameraMessage extends Envelope {
+  type: 'camera';
+  camera: Camera3D;
+}
+
 export type EmbedMessage =
   | ReadyMessage
   | StatusMessage
@@ -379,7 +638,11 @@ export type EmbedMessage =
   | ProbeReplyMessage
   | ScreenshotReplyMessage
   | SceneMessage
-  | ErrorMessage;
+  | ErrorMessage
+  // Protocol 2 (2026-09-04), appended.
+  | PickMessage
+  | PointToolMessage
+  | CameraMessage;
 
 /** Every `type` an embed may send. The runtime half of the {@link EmbedMessage} union. */
 export const EMBED_MESSAGE_TYPES = [
@@ -393,6 +656,10 @@ export const EMBED_MESSAGE_TYPES = [
   'screenshot',
   'scene',
   'error',
+  // Protocol 2 (2026-09-04). Appended, never reordered — see HOST_MESSAGE_TYPES.
+  'pick',
+  'pointTool',
+  'camera',
 ] as const satisfies readonly EmbedMessage['type'][];
 
 // ------------------------------------------------------------------------------------------------
@@ -424,6 +691,112 @@ export interface EmbedDatasetRef {
     lut?: { path: string };
     opt?: { path: string };
   };
+}
+
+// ------------------------------------------------------------------------------------------------
+// Protocol 2: a points layer a host can write inline (2026-09-04).
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * One point of an {@link EmbedPointsLayer} — §4.4's `PointsLayer['points'][number]`, plus `state`.
+ *
+ * The field names are the engine's own (`position`, `name`, `id`, `group`), deliberately: this is
+ * §4.4 written by a host, not a second vocabulary for the same thing. Whatever a host sends that is
+ * not listed here rides through to the engine unchanged, as every other layer's fields do.
+ *
+ * There is **no points file** an embed could serve — a `.geo` net is a Gmsh parsed view and a
+ * contacts table is a TSV neither the engine nor this protocol reads — so the coordinates are
+ * inline. That is also what makes the layer host-owned: the ids are the host's, the positions are
+ * the host's, and `setPoints` replaces them.
+ */
+export interface EmbedPoint {
+  /**
+   * The point's identity, and what a {@link PickMessage} and a {@link SetPointSelectionMessage}
+   * name it by. Unique within the layer.
+   *
+   * Optional because the engine mints `p<index>` for a point that has none — but a host that wants
+   * to recognise its own electrode in a `pick` sends its own, because `p<index>` is an index and an
+   * index moves when a point is deleted.
+   */
+  id?: string;
+  /** World-RAS millimetres (§3). */
+  position: vec3;
+  /** The point's own text — what `labelMode: 'names'` draws and what a probe row calls it. */
+  name?: string;
+  /**
+   * What this point currently *is*, in the host's own terms — and the one field here the engine has
+   * no concept of.
+   *
+   * It is resolved to a colour before the engine sees the layer, from
+   * {@link EmbedPointsLayer.stateColors} or the documented defaults, so a host says "this electrode
+   * is selected" rather than restating what selected looks like at four call sites. An explicit
+   * `color` on the same point **wins** — the state is a shorthand, never an override.
+   *
+   * Not the same thing as the tool's selection (see {@link SetPointSelectionMessage}): any number of
+   * points may be `'selected'` here; exactly one point per layer can be the selection.
+   */
+  state?: 'idle' | 'selected' | 'disabled';
+  /** 0..1 RGBA. Overrides whatever {@link state} would have painted. */
+  color?: vec4;
+  /** This point's own radius, overriding the layer's. */
+  radiusMm?: number;
+  /** Which set the point belongs to — an electrode, a montage, a parcel. Uninterpreted (§4.4). */
+  group?: string;
+  /** 1-based position within {@link group}. */
+  ordinal?: number;
+  /** The point's scalar, for `valueMode: 'value'`. */
+  value?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * A points layer as a host writes one.
+ *
+ * `datasetId` names a dataset **already in this spec** — the T1 the points sit over, say. §4.4 hangs
+ * every layer off a carrier dataset and a points layer is no exception; it is the same arrangement
+ * the sEEG contact editor uses in the desktop app, where the contacts hang off the CT they were
+ * localised on. There is nothing to fetch: the coordinates arrived with the layer.
+ *
+ * Everything except `id`, `datasetId`, `kind` and `points` is optional and falls back to §4.4's
+ * defaults — 4 mm spheres, no labels, and the engine's default colour.
+ */
+export interface EmbedPointsLayer {
+  id: string;
+  datasetId: string;
+  kind: 'points';
+  name?: string;
+  visible?: boolean;
+  opacity?: number;
+  /** Whether §7.2.3's id pass answers for this layer. Points are hit-tested by the tool regardless. */
+  pickable?: boolean;
+  points: EmbedPoint[];
+  /** `'sphere'` (the default) is `radiusMm` in world millimetres; `'dot'` is a constant screen size. */
+  shape?: 'sphere' | 'dot';
+  radiusMm?: number;
+  /** 0..1 RGBA — the colour of every point that has neither a `color` nor a resolved `state`. */
+  color?: vec4;
+  /**
+   * Where the in-pane text comes from, as one field rather than §4.4's `showLabels` +
+   * `labelSource` pair:
+   *
+   *  * `'none'` — no text. The default, and what §4.4 does with `showLabels: false`.
+   *  * `'names'` — each point's own `name`, drawn at its own position.
+   *  * `'labels'` — the layer's free-standing `labels[]` anchors, which only a parsed Gmsh view has;
+   *    an inline layer has none, so this draws nothing unless the host also sent `labels`.
+   *
+   * There is no `'hover'`: the engine draws no hover text, and a mode that silently did nothing
+   * would be worse than the absence of one. A host that wants a tooltip draws it itself, from the
+   * `pick` event.
+   */
+  labelMode?: 'none' | 'names' | 'labels';
+  /**
+   * What each {@link EmbedPoint.state} paints. Absent states keep the documented default:
+   * `idle` → the layer's `color`, `selected` → `[1, 0.8, 0.2, 1]`, `disabled` → `[0.6, 0.6, 0.6, 1]`.
+   */
+  stateColors?: { idle?: vec4; selected?: vec4; disabled?: vec4 };
+  /** 0..1. How visible a point is in a 2-D pane it is not on — absent is §7.2's hard cull. */
+  offPlaneOpacity?: number;
+  [key: string]: unknown;
 }
 
 /**
@@ -466,7 +839,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  */
 export function isHostMessage(v: unknown): v is HostMessage {
   if (!isRecord(v)) return false;
-  if (v['tvx'] !== PROTOCOL_VERSION) return false;
+  if (v['tvx'] !== ENVELOPE_VERSION) return false;
   const type = v['type'];
   return typeof type === 'string' && (HOST_MESSAGE_TYPES as readonly string[]).includes(type);
 }
@@ -474,7 +847,7 @@ export function isHostMessage(v: unknown): v is HostMessage {
 /** The mirror of {@link isHostMessage}, for a host validating what it receives. */
 export function isEmbedMessage(v: unknown): v is EmbedMessage {
   if (!isRecord(v)) return false;
-  if (v['tvx'] !== PROTOCOL_VERSION) return false;
+  if (v['tvx'] !== ENVELOPE_VERSION) return false;
   const type = v['type'];
   return typeof type === 'string' && (EMBED_MESSAGE_TYPES as readonly string[]).includes(type);
 }

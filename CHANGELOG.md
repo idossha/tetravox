@@ -77,6 +77,30 @@ Nothing yet.
   `.msh` data over HTTP. Remote _browsing_ is still out of scope — a host names files, and there is
   no catalogue or directory listing.
 
+- **An embedded Tetravox can show electrodes, answer clicks, and remember where the camera was.**
+  The browser build speaks **protocol 2** (embed 0.4.0), and everything it adds is optional. A host
+  can put a **points layer** straight into the scene — the coordinates inline, its own ids, and each
+  point marked `selected`, `disabled` or neither, so an application says _what an electrode is_
+  rather than working out what selected should look like. It can arm the same point tool the sEEG
+  contact editor uses, so a user places and drags points with the mouse and the host hears about it;
+  it can ask to be told **what a click landed on** — the point, the region, the tissue tag and the
+  world position, in one message; and it can read the 3-D camera and put it back. `docs/EMBED.md` §6
+  is the contract.
+
+  **A host written against protocol 1 needs no change at all.** The message envelope is still
+  `tvx: 1`; only the feature level a host reads out of `ready.version` (and the tarball's
+  `manifest.json`) moved to 2. The new events are off until asked for, so an older host receives
+  exactly the messages it received before — which is a test, not a promise.
+
+### Fixed
+
+- **`setLayout` could kill an embedded viewer.** Four of the pane arrangements `docs/EMBED.md` has
+  documented since the first release — `3d`, `axial`, `coronal`, `sagittal` — were not arrangements
+  the renderer had, and asking for one left the layout with no panes and stopped the viewer on the
+  next frame, silently, with no way back but reloading the page. They now do what the documentation
+  always said, and a name the viewer does not know is answered with an error instead of a blank
+  window.
+
 ## [0.3.8] - 2026-09-04
 
 ### Fixed

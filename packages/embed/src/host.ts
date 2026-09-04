@@ -14,11 +14,13 @@
  */
 
 import type {
+  Camera3D,
   Engine,
   Layer,
   LayerId,
-  LayoutKind,
+  PointsLayer,
   ProbeResult,
+  ProbeRow,
   ViewSpec,
   vec3,
 } from '@tetravox/engine';
@@ -27,6 +29,7 @@ import type { UiStore } from '../../app/src/renderer/src/store/store';
 import { spaceKey } from '../../app/src/renderer/src/store/store';
 import { fieldKey, selectField } from '../../app/src/renderer/src/panels/layers/mesh/state';
 import {
+  ENVELOPE_VERSION,
   PROTOCOL_VERSION,
   acceptMessage,
   withId,
@@ -36,6 +39,8 @@ import {
   type LoadedDataset,
 } from './protocol';
 import { normalizeScene } from './normalize';
+import { resolvePoint, stateColorsOf } from './points';
+import { resolveLayout } from './layout';
 
 /** How often at most a `cursor` event may leave the frame. 30 Hz — see `CursorMessage`. */
 export const CURSOR_THROTTLE_MS = 1000 / 30;
@@ -78,6 +83,58 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/** Which modifiers were held on the press that produced a {@link PickMessage}. */
+export interface PickModifiers {
+  shift: boolean;
+  ctrl: boolean;
+  alt: boolean;
+  meta: boolean;
+}
+
+/**
+ * One thing a press resolved to, before the best of them is chosen.
+ *
+ * `rank` is how *specific* the answer is, and the ordering is the whole reason this type exists:
+ * a point the user actually hit (2) says more than the triangle behind it (1), which says more than
+ * "the crosshair moved" (0). Highest rank wins; ties go to the first, because the first is the one
+ * the engine resolved rather than a consequence of it.
+ */
+interface PickCandidate {
+  rank: 0 | 1 | 2;
+  kind: 'point' | 'tri' | 'tet' | 'slice' | 'cursor';
+  world: vec3;
+  viewId?: string;
+  layerId?: string;
+  pointId?: string;
+  elementId?: number;
+}
+
+/** The label row a `pick` lifts out of its `ProbeResult` — the "which region did I click" answer. */
+function labelOf(result: ProbeResult): { id: number; name?: string; layerId: string } | undefined {
+  const row: ProbeRow | undefined = result.rows.find(
+    (r) => r.kind === 'volume' && r.labelId !== undefined
+  );
+  if (row?.labelId === undefined) return undefined;
+  return {
+    id: row.labelId,
+    ...(row.labelName === undefined ? {} : { name: row.labelName }),
+    layerId: row.layerId,
+  };
+}
+
+/** The tissue-tag row, the mesh twin of {@link labelOf}. */
+function tagOf(result: ProbeResult): { id: number; name?: string; layerId: string } | undefined {
+  const row: ProbeRow | undefined = result.rows.find(
+    (r) => r.kind === 'mesh' && r.tag !== undefined
+  );
+  if (row?.tag === undefined) return undefined;
+  return {
+    id: row.tag,
+    ...(row.tagName === undefined ? {} : { name: row.tagName }),
+    layerId: row.layerId,
+  };
+}
+
 /**
  * What every message except `hello` is answered with when there is no context.
  *
@@ -110,6 +167,26 @@ export class EmbedHost {
   #offs: (() => void)[] = [];
   #lastCursorAt = 0;
   #lastLayers: readonly Layer[] | null = null;
+
+  // -- protocol 2: pick events (2026-09-04) ------------------------------------------------------
+  /**
+   * Whether `pick` is being emitted at all — `setPickEvents`, and **off** until a host asks.
+   *
+   * The whole compatibility claim rests on this being false by default: a protocol-1 host receives
+   * exactly the messages a protocol-1 build would have sent it.
+   */
+  #pickEvents = false;
+  /**
+   * The press in flight, and the best thing it has resolved to so far.
+   *
+   * One press is one `pick`, and the signals do not arrive in order of usefulness: placing a point
+   * in the 3-D pane runs §7.2.3's id pass *first* (`#placePoint` picks to find a world point) and
+   * emits `pointTool: 'placed'` after it. So the candidates are ranked and the best one is sent
+   * once the whole event dispatch is over — `setTimeout(0)` rather than a microtask, because a
+   * microtask checkpoint runs *between* two listeners of the same event and would fire while the
+   * engine's own handler had not run yet.
+   */
+  #press: { modifiers: PickModifiers; best: PickCandidate | null; timer: number } | null = null;
 
   constructor(opts: EmbedHostOptions) {
     this.#controller = opts.controller;
@@ -151,7 +228,7 @@ export class EmbedHost {
         engine.on('progress', (p) => {
           const ds = engine.scene.datasets.get(p.datasetId);
           this.send({
-            tvx: PROTOCOL_VERSION,
+            tvx: ENVELOPE_VERSION,
             type: 'progress',
             datasetId: p.datasetId,
             name: ds?.name ?? '',
@@ -163,7 +240,7 @@ export class EmbedHost {
       );
       this.#offs.push(
         engine.on('error', (e) => {
-          this.send({ tvx: PROTOCOL_VERSION, type: 'error', code: e.code, message: e.message });
+          this.send({ tvx: ENVELOPE_VERSION, type: 'error', code: e.code, message: e.message });
         })
       );
     }
@@ -175,8 +252,76 @@ export class EmbedHost {
     this.#offs.push(
       this.#store.subscribe((state, prev) => {
         if (state.layers !== prev.layers) this.emitLayers(state.layers);
-        if (state.cursor !== prev.cursor) this.emitCursor(state.cursor);
+        if (state.cursor !== prev.cursor) {
+          // Offered **before** the 30 Hz throttle: a cursor event a host does not need every frame
+          // is still a click a host must not lose. `notePick` is a no-op unless a press is in
+          // flight, so the host's own `setCursor` and the arrow keys produce no `pick`.
+          this.notePick({ rank: 0, kind: 'cursor', world: [...state.cursor] as vec3 });
+          this.emitCursor(state.cursor);
+        }
       })
+    );
+
+    // -- protocol 2 -----------------------------------------------------------------------------
+    if (engine !== null) {
+      // §7.2.3's id pass answered. In 3-D this is the double-click that sets the cursor and the
+      // world point `place` mode lands on; in 2-D nothing calls it, which is why `pick` also
+      // listens to the cursor above.
+      this.#offs.push(
+        engine.on('pick', (hit) => {
+          if (hit === null) return;
+          this.notePick({
+            rank: 1,
+            kind: hit.elementKind,
+            world: [...hit.world] as vec3,
+            layerId: hit.layerId,
+            elementId: hit.elementId,
+          });
+        })
+      );
+      // §7.5's point tool. Forwarded whole — a host editing points needs `dragEnd` and `cleared`'s
+      // `reason`, not a summary — and `placed`/`selected` are also the most specific thing a press
+      // can resolve to, so they outrank everything above.
+      this.#offs.push(
+        engine.on('pointTool', (event) => {
+          this.send({ tvx: ENVELOPE_VERSION, type: 'pointTool', event });
+          if (event.kind !== 'placed' && event.kind !== 'selected') return;
+          const world = event.world ?? this.pointPosition(event.layerId, event.pointId);
+          if (world === null) return;
+          this.notePick({
+            rank: 2,
+            kind: 'point',
+            world,
+            layerId: event.layerId,
+            ...(event.pointId === null ? {} : { pointId: event.pointId }),
+            ...(event.viewId === undefined ? {} : { viewId: event.viewId }),
+          });
+        })
+      );
+    }
+
+    // The press itself. On `document` and in the **capture** phase so it is recorded before the
+    // engine's own canvas handler runs the gesture that produces the candidates above; filtered to
+    // the engine canvas so a click on the layer panel is not a pick.
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (
+        !(target instanceof Element) ||
+        target.closest('[data-testid="engine-canvas"]') === null
+      ) {
+        return;
+      }
+      this.beginPress({
+        shift: event.shiftKey,
+        ctrl: event.ctrlKey,
+        alt: event.altKey,
+        meta: event.metaKey,
+      });
+    };
+    globalThis.document?.addEventListener('pointerdown', onPointerDown as EventListener, true);
+    this.#offs.push(() =>
+      globalThis.document?.removeEventListener('pointerdown', onPointerDown as EventListener, true)
     );
 
     this.emitReady();
@@ -187,6 +332,8 @@ export class EmbedHost {
   stop(): void {
     for (const off of this.#offs) off();
     this.#offs = [];
+    if (this.#press !== null) clearTimeout(this.#press.timer);
+    this.#press = null;
   }
 
   // ---- outbound ---------------------------------------------------------------------------------
@@ -202,7 +349,7 @@ export class EmbedHost {
     const ok =
       this.#engine !== null && this.#store.getState().status !== 'webgl2-null' && caps !== null;
     const message: EmbedMessage = {
-      tvx: PROTOCOL_VERSION,
+      tvx: ENVELOPE_VERSION,
       type: 'ready',
       version: PROTOCOL_VERSION,
       caps: ok
@@ -223,7 +370,7 @@ export class EmbedHost {
             ? 'ready'
             : 'idle';
     this.send({
-      tvx: PROTOCOL_VERSION,
+      tvx: ENVELOPE_VERSION,
       type: 'status',
       phase,
       ...(message === undefined ? {} : { message }),
@@ -233,7 +380,7 @@ export class EmbedHost {
   private emitLayers(layers: readonly Layer[]): void {
     if (layers === this.#lastLayers) return;
     this.#lastLayers = layers;
-    this.send({ tvx: PROTOCOL_VERSION, type: 'layers', layers: [...layers] });
+    this.send({ tvx: ENVELOPE_VERSION, type: 'layers', layers: [...layers] });
   }
 
   /**
@@ -251,7 +398,7 @@ export class EmbedHost {
     const state = this.#store.getState();
     const probe = state.cursorProbe;
     this.send({
-      tvx: PROTOCOL_VERSION,
+      tvx: ENVELOPE_VERSION,
       type: 'cursor',
       world: [...world] as vec3,
       ...(probe?.mni === undefined ? {} : { mni: [...probe.mni] as vec3 }),
@@ -260,12 +407,82 @@ export class EmbedHost {
     });
   }
 
+  // ---- protocol 2: pick ---------------------------------------------------------------------------
+
+  /**
+   * A left press landed on a pane. Open a window for the candidates it will produce.
+   *
+   * A press that is already open is replaced rather than extended — two presses is two picks, and
+   * the second one's modifiers are the ones the user is holding now.
+   */
+  private beginPress(modifiers: PickModifiers): void {
+    if (!this.#pickEvents) return;
+    if (this.#press !== null) clearTimeout(this.#press.timer);
+    const timer = setTimeout(() => this.flushPick(), 0) as unknown as number;
+    this.#press = { modifiers, best: null, timer };
+  }
+
+  /** Offer one answer for the press in flight. Higher {@link PickCandidate.rank} wins; ties keep the first. */
+  private notePick(candidate: PickCandidate): void {
+    const press = this.#press;
+    if (press === null) return;
+    if (press.best === null || candidate.rank > press.best.rank) press.best = candidate;
+  }
+
+  /**
+   * Send the best answer this press produced, with the probe at the point it landed on.
+   *
+   * `probeWorld` is the controller's own — the call §8's info panel makes — so what a host reads out
+   * of `pick.probe` is what a user reads under the crosshair. Its mesh rows are at most one round
+   * trip stale (§4.7); the volume rows, `label` among them, are exact.
+   */
+  private flushPick(): void {
+    const press = this.#press;
+    this.#press = null;
+    if (press === null || press.best === null || !this.#pickEvents) return;
+    const controller = this.#controller;
+    if (controller === null) return;
+    const best = press.best;
+    const probe = controller.probeWorld([...best.world] as vec3);
+    const label = labelOf(probe);
+    const tag = tagOf(probe);
+    this.send({
+      tvx: ENVELOPE_VERSION,
+      type: 'pick',
+      kind: best.kind,
+      world: [...best.world] as vec3,
+      ...(best.viewId === undefined ? {} : { viewId: best.viewId }),
+      ...(best.layerId === undefined ? {} : { layerId: best.layerId }),
+      ...(best.pointId === undefined ? {} : { pointId: best.pointId }),
+      ...(best.elementId === undefined ? {} : { elementId: best.elementId }),
+      ...(label === undefined ? {} : { label }),
+      ...(tag === undefined ? {} : { tag }),
+      modifiers: press.modifiers,
+      probe,
+    });
+  }
+
+  /**
+   * Where a point is, for a `pointTool` event that carried no `world`.
+   *
+   * `selected` from `Engine.setPointSelection` — the host's own `setPointSelection`, or a
+   * `points` replacement re-resolving the selection — has no click behind it and therefore no
+   * world point. The layer still knows where the point is.
+   */
+  private pointPosition(layerId: string, pointId: string | null): vec3 | null {
+    if (pointId === null) return null;
+    const layer = this.#engine?.scene.layers.find((l) => l.id === layerId);
+    if (layer === undefined || layer.kind !== 'points') return null;
+    const point = (layer as PointsLayer).points.find((p) => p.id === pointId);
+    return point === undefined ? null : ([...point.position] as vec3);
+  }
+
   private fail(request: HostMessage, error: unknown): void {
     const code = errorCodeOf(error);
     this.send(
       withId(
         {
-          tvx: PROTOCOL_VERSION,
+          tvx: ENVELOPE_VERSION,
           type: 'error',
           ...(code === undefined ? {} : { code }),
           message: errorMessageOf(error),
@@ -302,7 +519,7 @@ export class EmbedHost {
       const controller = this.#controller;
       const engine = this.#engine;
       if (controller === null || engine === null) {
-        this.send(withId({ tvx: PROTOCOL_VERSION, type: 'error', message: NO_ENGINE }, message));
+        this.send(withId({ tvx: ENVELOPE_VERSION, type: 'error', message: NO_ENGINE }, message));
         return;
       }
       switch (message.type) {
@@ -315,9 +532,31 @@ export class EmbedHost {
           // nothing, which is a slower way of doing the same thing less honestly.
           controller.setThemeChoice(message.theme, { persist: false });
           return;
-        case 'setLayout':
-          controller.setLayout(message.kind as LayoutKind);
+        case 'setLayout': {
+          // `layout.ts` says why this is a lookup and not a cast: four of the seven kinds
+          // `docs/EMBED.md` documents are not §4.5 `LayoutKind`s, and one of those reaching
+          // `Engine.setLayout` stored `cells: undefined` and threw in the *render loop* on the next
+          // frame — a documented message that killed the viewer with no reply to the host.
+          const layout = resolveLayout(message.kind);
+          if (layout === null) {
+            this.send(
+              withId(
+                {
+                  tvx: ENVELOPE_VERSION,
+                  type: 'error',
+                  message: `unknown layout kind '${String(message.kind)}'`,
+                },
+                message
+              )
+            );
+            return;
+          }
+          // The active view first: `layoutCells('1x1', …, preferred)` is the only thing that decides
+          // *which* pane a single-pane layout shows.
+          if (layout.viewId !== undefined) controller.setActiveView(layout.viewId);
+          controller.setLayout(layout.kind);
           return;
+        }
         case 'setCursor':
           controller.setCursorWorld([...message.world] as vec3);
           return;
@@ -344,7 +583,7 @@ export class EmbedHost {
           this.send(
             withId(
               {
-                tvx: PROTOCOL_VERSION,
+                tvx: ENVELOPE_VERSION,
                 type: 'scene',
                 id: message.id,
                 spec: engine.serialize(),
@@ -356,7 +595,7 @@ export class EmbedHost {
         case 'probe': {
           const result: ProbeResult = controller.probeWorld([...message.world] as vec3);
           this.send(
-            withId({ tvx: PROTOCOL_VERSION, type: 'probe', id: message.id, result }, message)
+            withId({ tvx: ENVELOPE_VERSION, type: 'probe', id: message.id, result }, message)
           );
           return;
         }
@@ -373,6 +612,72 @@ export class EmbedHost {
           this.emitLayers(this.#store.getState().layers);
           this.emitStatus();
           return;
+
+        // -- protocol 2 (2026-09-04) ------------------------------------------------------------
+        case 'setPickEvents':
+          this.#pickEvents = message.enabled;
+          if (!message.enabled && this.#press !== null) {
+            clearTimeout(this.#press.timer);
+            this.#press = null;
+          }
+          return;
+        case 'setPointTool':
+          // The same call the sEEG editor's Add button makes. `null` disarms and emits one
+          // `pointTool: 'cleared'` with `reason: 'host'`; arming materialises `p<index>` ids on a
+          // layer whose points carry none, which is why a `layers` event follows.
+          engine.setPointTool(
+            message.layerId === null
+              ? null
+              : {
+                  layerId: message.layerId as LayerId,
+                  mode: message.mode ?? 'select',
+                  ...(message.template === undefined ? {} : { template: message.template }),
+                }
+          );
+          return;
+        case 'setPointSelection':
+          engine.setPointSelection(
+            message.pointId === null
+              ? null
+              : { layerId: message.layerId as LayerId, pointId: message.pointId }
+          );
+          return;
+        case 'setPoints': {
+          // Through `patchLayer` like every other edit, so the store, the property editor and the
+          // scene's dirty flag all see it. The palette comes off the live layer: `stateColors` is
+          // kept there by `resolvePointsLayer` for exactly this call.
+          const live = engine.scene.layers.find((l) => l.id === message.layerId);
+          const points = message.points.map((p) => resolvePoint(p, stateColorsOf(live)));
+          controller.patchLayer(message.layerId as LayerId, { points } as Partial<Layer>);
+          return;
+        }
+        case 'getCamera':
+          this.send(
+            withId(
+              { tvx: ENVELOPE_VERSION, type: 'camera', camera: controller.moduleCamera() },
+              message
+            )
+          );
+          return;
+        case 'setCamera': {
+          // The preset first, then the patch: a host asking for "left, but pulled back" means the
+          // preset's rotation with its own distance, and the other order would throw the distance
+          // away. `cameraPreset` and `setModuleCamera` are the controller's own calls — the keyboard's
+          // `1..6` and §13.1's `scene.setCamera` — so nothing here is an embed-only path into the view.
+          if (message.preset !== undefined) controller.cameraPreset(message.preset);
+          if (message.patch !== undefined) {
+            controller.setModuleCamera(message.patch as Partial<Camera3D>);
+          }
+          if (message.id !== undefined) {
+            this.send(
+              withId(
+                { tvx: ENVELOPE_VERSION, type: 'camera', camera: controller.moduleCamera() },
+                message
+              )
+            );
+          }
+          return;
+        }
       }
     } catch (error: unknown) {
       this.fail(message, error);
@@ -385,14 +690,14 @@ export class EmbedHost {
     request: HostMessage
   ): Promise<void> {
     const { controller, template } = this.#live();
-    this.send({ tvx: PROTOCOL_VERSION, type: 'status', phase: 'loading' });
+    this.send({ tvx: ENVELOPE_VERSION, type: 'status', phase: 'loading' });
     let normalized;
     try {
       normalized = normalizeScene(scene, template, baseUrl ?? this.#defaultBaseUrl);
     } catch (error: unknown) {
       // A bad `baseUrl` or an unresolvable ref throws in `new URL`. Reported as the host's own
       // error, with the message naming the URL it could not make sense of.
-      this.send({ tvx: PROTOCOL_VERSION, type: 'status', phase: 'error' });
+      this.send({ tvx: ENVELOPE_VERSION, type: 'status', phase: 'error' });
       this.fail(request, error);
       return;
     }
@@ -400,8 +705,8 @@ export class EmbedHost {
     const ok = await controller.loadSpecFromUrls(normalized.spec, normalized.resolved);
     if (!ok) {
       const message = this.#store.getState().sceneError ?? 'the scene could not be loaded';
-      this.send({ tvx: PROTOCOL_VERSION, type: 'status', phase: 'error', message });
-      this.send(withId({ tvx: PROTOCOL_VERSION, type: 'error', message }, request));
+      this.send({ tvx: ENVELOPE_VERSION, type: 'status', phase: 'error', message });
+      this.send(withId({ tvx: ENVELOPE_VERSION, type: 'error', message }, request));
       return;
     }
 
@@ -420,7 +725,7 @@ export class EmbedHost {
     this.#lastLayers = state.layers;
     this.send(
       withId(
-        { tvx: PROTOCOL_VERSION, type: 'loaded', datasets, layers: [...state.layers] },
+        { tvx: ENVELOPE_VERSION, type: 'loaded', datasets, layers: [...state.layers] },
         request
       )
     );
@@ -476,7 +781,7 @@ export class EmbedHost {
     const blob = await controller.captureScreenshot(options as never);
     const dataUrl = await blobToDataUrl(blob);
     this.send(
-      withId({ tvx: PROTOCOL_VERSION, type: 'screenshot', id: message.id, dataUrl }, message)
+      withId({ tvx: ENVELOPE_VERSION, type: 'screenshot', id: message.id, dataUrl }, message)
     );
   }
 }
