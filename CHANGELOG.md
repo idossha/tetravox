@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.6] - 2026-09-04
+
 ### Added
 
 - **The sEEG contact editor 0.2.1 is in the catalogue.** Its QC figures are now PDFs, export failures say why,
