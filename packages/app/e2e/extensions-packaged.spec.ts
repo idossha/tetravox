@@ -35,7 +35,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import { APP_ROOT, launchApp, packagedUnavailable, SHOTS_DIR } from './fixtures';
 
 const FIXTURES = resolve(APP_ROOT, 'e2e', 'fixtures');
@@ -105,10 +105,14 @@ function writeIndex(files: readonly StoredFile[]): string {
   return path;
 }
 
-/** Open the dialog the way a user does: the switcher's one non-module row (File ▸ Extensions…). */
-async function openExtensionsDialog(page: Page): Promise<void> {
-  await page.click('[data-testid="module-switcher"]');
-  await page.click('[data-testid="module-switcher-manage"]');
+/** File ▸ Extensions is available before installation; the switcher needs an enabled module. */
+async function openExtensionsDialog(app: ElectronApplication, page: Page): Promise<void> {
+  await app.evaluate(({ Menu }) => {
+    const file = Menu.getApplicationMenu()?.items.find((item) => item.label === 'File');
+    const extensions = file?.submenu?.items.find((item) => item.label === 'Extensions…');
+    if (extensions === undefined) throw new Error('File ▸ Extensions… is missing');
+    (extensions.click as unknown as () => void)();
+  });
   await expect(page.locator('[data-testid="extensions-dialog"]')).toBeVisible();
 }
 
@@ -148,7 +152,7 @@ test.describe('the Extensions dialog, packaged', () => {
     const page = await app.firstWindow();
     await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 30_000 });
 
-    await openExtensionsDialog(page);
+    await openExtensionsDialog(app, page);
     const card = page.locator(`[data-testid="extension-card-${FIXTURE_ID}"]`);
     await expect(card).toBeVisible();
     await expect(card).toHaveAttribute('data-state', 'available');
