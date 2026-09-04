@@ -877,13 +877,9 @@ test.describe('visualisation scenario catalogue', () => {
         await engine.whenSettled();
         return hasGizmo;
       });
-      // Directed task 3, 2026-08-28: `1x1` left the catalogue, because it had no 3D pane. `3d+1` is
-      // its replacement — the same zoomed oblique slice, with the 3D pane beside it.
-      await page.click('[data-testid="layout-3d+1"]');
-      await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute(
-        'data-layout',
-        '3d+1'
-      );
+      // The direct axial button shows that pane alone, retaining its oblique orientation.
+      await page.click('[data-testid="view-axial"]');
+      await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '1x1');
       await settle(page);
       await shoot(page, '14-oblique-slice.png');
       // The gizmo is drawn in the **3D** pane and manipulates the named 2D pane's plane. The 2×2

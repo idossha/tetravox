@@ -652,6 +652,24 @@ export class ShellController {
     engine.requestRender();
   }
 
+  isSliceShown(mode: 'sagittal' | 'coronal' | 'axial'): boolean {
+    const { layout, slices } = this.engine.scene;
+    return (
+      layout.kind === '1x1' &&
+      slices.some(
+        (slice) => (slice.mode === mode || slice.id === mode) && layout.cells[0] === slice.id
+      )
+    );
+  }
+
+  /** §7.5: show one anatomical slice while retaining every view's camera and plane state. */
+  showSlice(mode: 'sagittal' | 'coronal' | 'axial'): void {
+    const slice = this.engine.scene.slices.find((view) => view.mode === mode || view.id === mode);
+    if (slice === undefined) return;
+    this.setActiveView(slice.id);
+    this.setLayout('1x1');
+  }
+
   cycleLayout(): void {
     this.setLayout(nextLayout(this.store.getState().layoutKind));
   }
@@ -1513,7 +1531,7 @@ export class ShellController {
     }
   }
 
-  /** The four layouts the §8 toolbar offers. */
+  /** The combined layouts the §8 toolbar offers. */
   get layouts(): readonly LayoutKind[] {
     return LAYOUT_CYCLE;
   }

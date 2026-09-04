@@ -123,7 +123,7 @@ export function NumberField({
     <input
       type="number"
       data-testid={testId}
-      className={`tvx-input ${width} px-1 py-0.5 font-mono text-[10px]`}
+      className={`tvx-input min-w-0 ${width} px-1 py-0.5 font-mono text-[10px]`}
       value={Number.isFinite(value) ? value : 0}
       step={step}
       {...(min === undefined ? {} : { min })}

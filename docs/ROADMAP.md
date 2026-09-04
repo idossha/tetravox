@@ -149,3 +149,16 @@ macOS, with the packaging matrix carried in the workflow.
 - The §12.1 `package` legs green end to end: `.dmg` arm64 + x64, `.AppImage`, `.deb`, each opening
   `ernie.msh` and passing the artefact smoke test.
 - macOS signing is live in `release.yml`; in-app updates (ARCHITECTURE §12.4) ride on it since 2026-08-31.
+
+
+### 2026-09-04 — View controls and screenshot layout (§7.5, §8)
+
+- Direct anatomical slice buttons; 3D+1 retired from the UI with legacy-scene migration to 1+3.
+- Compact capture dialog checked by `packages/app/e2e/view-controls.spec.ts` at the minimum window size.
+- Reset / Home checked against the real engine's shared cursor as well as the coordinate readout.
+
+Verification: `pnpm exec vitest run` — 1849 passed, 83 skipped; app build, lint and app typechecks
+passed. `TETRAVOX_TESTDATA=… pnpm --filter @tetravox/app exec playwright test
+ e2e/view-controls.spec.ts e2e/shell.spec.ts e2e/shell-phase2.spec.ts e2e/reset-all.spec.ts --project=dev`
+— 37 passed, including the Ernie T1 case. The quiet audit could not certify screen ownership because
+pre-existing Tetravox windows were visible and the user changed focus; test launches remained offscreen.

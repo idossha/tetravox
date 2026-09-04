@@ -117,13 +117,15 @@ describe('layoutCells', () => {
     for (const kind of LAYOUT_CYCLE) {
       expect(layoutCells(kind, SLICES, VIEW3D)).toContain('view3d');
     }
-    expect(isOfferedLayout('1x1')).toBe(false);
+    expect(isOfferedLayout('1x1')).toBe(true);
+    expect(isOfferedLayout('3d+1')).toBe(false);
     expect(isOfferedLayout('1x3')).toBe(false);
     expect(isOfferedLayout('1x3-horizontal')).toBe(false);
   });
 
   it('migrates a removed layout to its nearest 3D-bearing neighbour', () => {
-    expect(migrateLayoutKind('1x1')).toBe('3d+1');
+    expect(migrateLayoutKind('1x1')).toBe('1x1');
+    expect(migrateLayoutKind('3d+1')).toBe('1+3');
     expect(migrateLayoutKind('1x3')).toBe('1+3');
     expect(migrateLayoutKind('1x3-horizontal')).toBe('1+3');
     // Everything already offered is left exactly as it is.

@@ -10,6 +10,22 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [0.3.11] - 2026-09-04
+
+### Changed
+
+- **Direct anatomical views** — Sagittal, Coronal and Axial buttons display a single slice. The 3D+1
+  option is removed; older scenes using it open in 1+3 with their view settings preserved.
+
+### Fixed
+
+- **Layer controls stay inside the sidebar** — opacity sliders and mesh numeric fields shrink to
+  fit, keeping adjacent buttons visible without horizontal scrolling.
+
+- **Screenshot options fit the window** — size, background and annotations sit beside the preview,
+  with figure controls grouped below it. All export options remain available without scrolling at
+  the minimum supported window size.
+
 ## [0.3.10] - 2026-09-04
 
 ### Fixed

@@ -645,7 +645,12 @@ test.describe('the screenshot dialog writes the PNG it promised (§4.7, §11)', 
         .poll(() => readdirSync(downloads).filter((f) => f.endsWith('.png')), { timeout: 15_000 })
         .toHaveLength(1);
 
+      // A download's directory entry can precede its bytes; wait for the app's completed capture.
+      await expect(page.locator('[data-testid="status-screenshot-dpi"]')).toContainText('600 dpi');
       const file = join(downloads, readdirSync(downloads)[0] as string);
+      const expectedBytes = (await ui(page)).lastScreenshot?.bytes;
+      expect(expectedBytes).toBeGreaterThan(8);
+      await expect.poll(() => readFileSync(file).length).toBe(expectedBytes);
       const bytes = readFileSync(file);
       const png = decodePng(bytes);
       expect(png.width).toBe(120);

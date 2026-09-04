@@ -9,21 +9,8 @@
 
 import type { LayoutKind, SliceMode, SliceView, View3D, ViewId, ViewSpec } from '@tetravox/engine';
 
-/**
- * **The catalogue: every layout the app offers contains the 3D pane** (directed task 3, 2026-08-28).
- *
- * The maintainer's ask was "the 3D viewer is always on — the only option is whether to render the
- * isosurface". A `1x1` of a slice and a `1x3` of three slices are the two layouts that *cannot*
- * satisfy it, so they leave the toolbar and the `x` cycle. `'1+3'` (3D large, three slices down a
- * narrow column) replaces `1x3` as the reading layout and `'3d+1'` replaces `1x1` as the zoomed one;
- * `2x2` already had a 3D cell and `3d-only` is all 3D.
- *
- * The kinds themselves are **not** removed from `LayoutKind`: §11's single-pane pixel harnesses set
- * `{kind:'1x1', cells:['axial']}` in some thirty specs, and an analytic assertion on one pane is
- * exactly what a viewer catalogue has no business breaking. This is a catalogue, not a model change
- * — which is why {@link migrateLayoutKind}, and not a parser error, is what a saved scene meets.
- */
-export const LAYOUT_CYCLE: readonly LayoutKind[] = ['2x2', '1+3', '3d+1', '3d-only'] as const;
+/** §7.5: combined layouts cycle separately from the direct single-slice buttons. */
+export const LAYOUT_CYCLE: readonly LayoutKind[] = ['2x2', '1+3', '3d-only'] as const;
 
 export const LAYOUT_LABEL: Record<LayoutKind, string> = {
   '1x1': '1×1',
@@ -35,19 +22,11 @@ export const LAYOUT_LABEL: Record<LayoutKind, string> = {
   '3d+1': '3D+1',
 };
 
-/**
- * What a saved scene's layout becomes on load: itself, or the nearest catalogue entry.
- *
- * "Nearest" is by **pane count and shape**, not by name: a `1x1` was one big pane, so it becomes
- * `3d+1` — the smallest catalogue layout, which keeps the zoomed feel and adds the 3D pane the
- * catalogue now guarantees; a `1x3` or `1x3-horizontal` was three slices, so it becomes `1+3`, which
- * is those same three slices with the 3D pane beside them. Nothing is dropped and no view is
- * rebuilt: `Scene.slices` is independent of the layout (§4.5), so the migration is one string.
- */
+/** Keep single-view scenes; retire the two-pane layout without losing slice state. */
 export function migrateLayoutKind(kind: LayoutKind): LayoutKind {
   switch (kind) {
-    case '1x1':
-      return '3d+1';
+    case '3d+1':
+      return '1+3';
     case '1x3':
     case '1x3-horizontal':
       return '1+3';
@@ -56,9 +35,9 @@ export function migrateLayoutKind(kind: LayoutKind): LayoutKind {
   }
 }
 
-/** True for a layout the toolbar and the `x` cycle offer — i.e. one that contains the 3D pane. */
+/** True for a combined layout or a directly selected single slice. */
 export function isOfferedLayout(kind: LayoutKind): boolean {
-  return LAYOUT_CYCLE.includes(kind);
+  return kind === '1x1' || LAYOUT_CYCLE.includes(kind);
 }
 
 export function nextLayout(kind: LayoutKind): LayoutKind {
