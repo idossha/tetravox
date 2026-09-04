@@ -32,7 +32,7 @@ import {
   type FigureOptions,
 } from '../lib/figure';
 import { readPngInfo } from '../lib/png';
-import { DialogFrame, Field } from './dialog';
+import { DialogFrame } from './dialog';
 
 /** The dialog's own target: §4.7's two, plus the app-level multi-panel figure (`lib/figure.ts`). */
 type Target = ScreenshotOptions['target'] | 'figure';
@@ -91,6 +91,29 @@ function numberOrUndefined(text: string): number | undefined {
   if (text.trim() === '') return undefined;
   const value = Number(text);
   return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** Compact, wrapping fields keep capture controls inside the smallest app window (§8). */
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const wide = ['Target', 'Preset', 'Width (mm)', 'Panels'].includes(label);
+  return (
+    <label className={`flex min-w-0 flex-col gap-1 text-[11px] ${wide ? 'col-span-2' : ''}`}>
+      <span className="text-tvx-dim" title={hint}>
+        {label}
+      </span>
+      <span className="flex min-w-0 flex-wrap items-center gap-1 [&_select]:max-w-full">
+        {children}
+      </span>
+    </label>
+  );
 }
 
 export function ScreenshotDialog({
@@ -212,8 +235,8 @@ export function ScreenshotDialog({
     <DialogFrame
       testId="screenshot-dialog"
       title="Screenshot"
-      subtitle="PNG export — presets, physical size, dpi (PNG pHYs), background, chrome, or a labelled multi-panel figure"
-      width="42rem"
+      subtitle="Choose views, image size and annotations, then preview or save."
+      width="56rem"
       onCancel={onCancel}
       footer={
         <>
@@ -259,8 +282,8 @@ export function ScreenshotDialog({
         </>
       }
     >
-      <div className="grid grid-cols-[1fr_14rem] gap-4">
-        <div>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,16rem)] items-start gap-4">
+        <div className="grid min-w-0 grid-cols-2 items-start gap-x-3 gap-y-2">
           <Field label="Target">
             <select
               data-testid="screenshot-target"
@@ -421,10 +444,72 @@ export function ScreenshotDialog({
             />
           </Field>
 
+          <fieldset className="col-span-2 min-w-0 border-t border-tvx-line pt-2">
+            <legend className="px-1 text-[10px] uppercase tracking-wider text-tvx-dim">
+              Include
+            </legend>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+              {INCLUDES.map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-1.5 text-[11px]">
+                  <input
+                    type="checkbox"
+                    data-testid={`screenshot-include-${key}`}
+                    checked={opts.include[key]}
+                    onChange={(e) =>
+                      patch({ include: { ...opts.include, [key]: e.currentTarget.checked } })
+                    }
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+
+        <aside data-testid="screenshot-preview-pane" className="flex min-w-0 flex-col gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-tvx-dim">Preview</span>
+          <div
+            style={{
+              height: target === 'figure' ? 'clamp(6rem,16vh,9rem)' : 'clamp(7rem,22vh,12rem)',
+            }}
+            className="grid min-w-0 grid-rows-[minmax(0,1fr)] place-items-center overflow-hidden rounded border border-tvx-line bg-[repeating-conic-gradient(var(--color-tvx-panel)_0_25%,var(--color-tvx-bg)_0_50%)] bg-[length:12px_12px]"
+          >
+            {preview === null ? (
+              <span
+                data-testid="screenshot-preview-empty"
+                className="px-2 text-center text-[10px] text-tvx-dim"
+              >
+                Press Preview to render one with these options.
+              </span>
+            ) : (
+              <img
+                data-testid="screenshot-preview-image"
+                src={preview.url}
+                alt="Screenshot preview"
+                className="h-full min-h-0 w-full min-w-0 object-contain"
+              />
+            )}
+          </div>
+          {preview !== null && (
+            <dl className="font-mono text-[10px] text-tvx-dim">
+              <div data-testid="screenshot-preview-size">
+                {preview.width} × {preview.height} px
+              </div>
+              <div data-testid="screenshot-preview-bytes">{preview.bytes} B</div>
+              {dpiVerdict !== null && (
+                <div
+                  data-testid="screenshot-preview-dpi"
+                  className={preview.dpi === requestedDpi ? '' : 'text-tvx-warn'}
+                >
+                  {dpiVerdict}
+                </div>
+              )}
+            </dl>
+          )}
           {target === 'figure' && (
             <fieldset
               data-testid="screenshot-figure"
-              className="mt-2 border-t border-tvx-line pt-2"
+              className="grid min-w-0 grid-cols-2 gap-2 border-t border-tvx-line pt-2"
             >
               <legend className="px-1 text-[10px] uppercase tracking-wider text-tvx-dim">
                 Figure
@@ -529,64 +614,6 @@ export function ScreenshotDialog({
                 </select>
               </Field>
             </fieldset>
-          )}
-
-          <fieldset className="mt-2 border-t border-tvx-line pt-2">
-            <legend className="px-1 text-[10px] uppercase tracking-wider text-tvx-dim">
-              Include
-            </legend>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-              {INCLUDES.map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-1.5 text-[11px]">
-                  <input
-                    type="checkbox"
-                    data-testid={`screenshot-include-${key}`}
-                    checked={opts.include[key]}
-                    onChange={(e) =>
-                      patch({ include: { ...opts.include, [key]: e.currentTarget.checked } })
-                    }
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-        </div>
-
-        <aside data-testid="screenshot-preview-pane" className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wider text-tvx-dim">Preview</span>
-          <div className="grid aspect-square place-items-center overflow-hidden rounded border border-tvx-line bg-[repeating-conic-gradient(var(--color-tvx-panel)_0_25%,var(--color-tvx-bg)_0_50%)] bg-[length:12px_12px]">
-            {preview === null ? (
-              <span
-                data-testid="screenshot-preview-empty"
-                className="px-2 text-center text-[10px] text-tvx-dim"
-              >
-                Press Preview to render one with these options.
-              </span>
-            ) : (
-              <img
-                data-testid="screenshot-preview-image"
-                src={preview.url}
-                alt="Screenshot preview"
-                className="max-h-full max-w-full object-contain"
-              />
-            )}
-          </div>
-          {preview !== null && (
-            <dl className="font-mono text-[10px] text-tvx-dim">
-              <div data-testid="screenshot-preview-size">
-                {preview.width} × {preview.height} px
-              </div>
-              <div data-testid="screenshot-preview-bytes">{preview.bytes} B</div>
-              {dpiVerdict !== null && (
-                <div
-                  data-testid="screenshot-preview-dpi"
-                  className={preview.dpi === requestedDpi ? '' : 'text-tvx-warn'}
-                >
-                  {dpiVerdict}
-                </div>
-              )}
-            </dl>
           )}
         </aside>
       </div>

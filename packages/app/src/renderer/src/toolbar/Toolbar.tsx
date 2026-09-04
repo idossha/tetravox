@@ -33,6 +33,7 @@ import type { AppMenuAction } from './AppMenu';
 
 export function Toolbar(): React.JSX.Element {
   const controller = useController();
+  useUi((s) => s.cells);
   const layoutKind = useUi((s) => s.layoutKind);
   const radiological = useUi((s) => s.radiological);
   const crosshair = useUi((s) => s.crosshair);
@@ -146,6 +147,27 @@ export function Toolbar(): React.JSX.Element {
               {LAYOUT_LABEL[kind]}
             </button>
           ))}
+        </div>
+
+        <div className="flex items-center gap-0.5" role="group" aria-label="Slice views">
+          {(['sagittal', 'coronal', 'axial'] as const).map((mode) => {
+            const selected = controller.isSliceShown(mode);
+            return (
+              <button
+                key={mode}
+                type="button"
+                data-testid={`view-${mode}`}
+                aria-label={`${mode[0]?.toUpperCase()}${mode.slice(1)} view`}
+                aria-pressed={selected}
+                title={`Show ${mode} view`}
+                className={selected ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+                onClick={() => controller.showSlice(mode)}
+              >
+                {mode[0]?.toUpperCase()}
+                {mode.slice(1)}
+              </button>
+            );
+          })}
         </div>
 
         <button

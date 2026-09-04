@@ -2503,13 +2503,13 @@ shaders declare `invariant gl_Position;`.
 
 Layouts: `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`, `1+3`, `3d+1`; `mosaic` is out of scope.
 
-**The app's catalogue is a subset: every layout it offers contains the 3D pane.** The toolbar and the `x`
-cycle offer `2x2`, `1+3`, `3d+1` and `3d-only`, in that order, and a scene naming a removed layout is
-**migrated on load**: `1x1 → 3d+1`, `1x3` / `1x3-horizontal` → `1+3`. The cells are recomputed, never
-carried, and the 3D pane leads in both new layouts. The kinds themselves stay in `LayoutKind` deliberately:
-§11's single-pane pixel harnesses set `{kind:'1x1', cells:['axial']}` in some thirty specs, and an analytic
-assertion on one pane is not something a viewer catalogue has any business breaking. This is a **catalogue**
-change, not a view-model one — which is why a saved scene meets `migrateLayoutKind` rather than a parse error.
+**The app offers combined layouts and direct anatomical views.** The toolbar and `x` cycle offer
+`2x2`, `1+3` and `3d-only`, in that order. Separate Sagittal, Coronal and Axial buttons show the named
+slice alone (`1x1`), retaining all slice/camera state and the cursor. The selected button is pressed only
+while its pane is displayed alone. This supersedes the always-visible 3D catalogue rule (2026-09-04):
+explicit single-slice inspection now takes precedence. `3d+1` is no longer offered; saved scenes using it
+migrate to `1+3`, as do `1x3` / `1x3-horizontal`. Existing `1x1` scenes retain their selected pane.
+The engine's layout kinds remain accepted for automation and backward compatibility.
 
 Every view has its own camera. 2D cameras are orthographic, pan/zoom only — **orientation comes from the
 view's `{normal, up}`**, and in-plane rotation is `up` rotated about `normal` (there is no separate roll:
@@ -2814,6 +2814,13 @@ through `host.ui.confirm`, since the shell never sees that gesture. It is keyed 
 by any cursor click and is deliberately conservative, so it cannot mean "this work is unsaved". The window
 title's `•` is the OR of the two. `⌘S` saves the *scene*; while an extension has unsaved work it also says so,
 because an extension writes its own files from its own panel.
+
+**Capture dialog layout (§8, 2026-09-04):** compact fields group target/presets, dimensions, background
+and annotations beside a bounded preview; figure settings sit below the preview. All three targets,
+including their rendered preview, fit without horizontal or vertical scrolling at the app's minimum
+960×600 content size. `view-controls.spec.ts` asserts DOM scroll extents and full footer visibility.
+Reset / Home sets the actual shared world cursor to exactly `[0, 0, 0]`, refits every view and retains
+layers. Coordinate readouts in other spaces continue to show their conversion of that world point.
 
 **Screenshot**: `screenshot(opts: ScreenshotOptions)` (§4.7) → PNG with the DPI written into the pHYs chunk.
 The same path is exposed headlessly by the **automation surface** (`docs/AUTOMATION.md`):

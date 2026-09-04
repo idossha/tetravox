@@ -291,7 +291,7 @@ test.describe('the §8 shell', () => {
     const ids = await buttons.evaluateAll((els) =>
       els.map((el) => el.getAttribute('data-testid')?.slice('layout-'.length) ?? '')
     );
-    expect(ids).toEqual(['2x2', '1+3', '3d+1', '3d-only']);
+    expect(ids).toEqual(['2x2', '1+3', '3d-only']);
     expect(ids).not.toContain('1x1');
     expect(ids).not.toContain('1x3');
 
@@ -310,19 +310,11 @@ test.describe('the §8 shell', () => {
     await page.locator('[data-testid="view-grid"]').click();
 
     // `x` cycles the layout.
-    // Directed task 3, 2026-08-28: the cycle is `2x2 → 1+3 → 3d+1 → 3d-only`, and every one of them
-    // has the 3D pane. `1x1` and `1x3` left the catalogue with the 3D-less layouts.
-    await page.keyboard.press('x');
-    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '1+3');
-    await page.keyboard.press('x');
-    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '3d+1');
-    await page.keyboard.press('x');
-    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute(
-      'data-layout',
-      '3d-only'
-    );
-    await page.keyboard.press('x');
-    await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', '2x2');
+    // Combined layouts cycle independently of the direct anatomical view buttons.
+    for (const kind of ['1+3', '3d-only', '2x2']) {
+      await page.keyboard.press('x');
+      await expect(page.locator('[data-testid="view-grid"]')).toHaveAttribute('data-layout', kind);
+    }
 
     // `[` / `]` cycle the active layer.
     const layers = (await ui(page)).layers;

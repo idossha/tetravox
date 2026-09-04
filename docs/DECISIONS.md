@@ -5138,3 +5138,16 @@ storage cost. No dependencies or CPU geometry work were added.
 Evidence: `surface-opacity.spec.ts` exercises three overlapping sheets, opacity 0.2/0.5/0.99,
 antialiasing on/off and explicit edges; `surface-opacity-real.spec.ts` checks opaque convergence on
 real grey matter. The golden shows a continuous faded surface without buried triangle edges.
+
+
+## 2026-09-04 — Direct slice views and a compact screenshot dialog (§7.5, §8)
+
+The user's request removes the 3D+1 UI option and adds Freeview-style anatomical view buttons.
+This supersedes the 2026-08-28 always-visible-3D catalogue decision: a direct slice button now shows
+one retained pane, while combined layouts remain available. Legacy 3D+1 scenes migrate to 1+3;
+removing engine layout support was rejected because existing automation and saved data still use it.
+Capture fields use wrapping, bounded columns and a height-limited preview to avoid the reported
+horizontal scrollbar. The minimum 960×600 content size comes from the existing BrowserWindow limits;
+`view-controls.spec.ts` checks all targets with previews at that size and at 1400×900.
+Reset's existing world-origin implementation is exercised against the real engine, not only the mock:
+the shared scene cursor, UI cursor and coordinate input must all return to zero after Reset / Home.
