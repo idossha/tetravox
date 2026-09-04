@@ -10,12 +10,22 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
-## [0.3.6] - 2026-09-04
+## [0.3.7] - 2026-09-04
 
 ### Added
 
 - **The sEEG contact editor 0.2.2 is in the catalogue.** Its QC figures now look exactly like seegprep's, with
   each electrode's colour and the 3-D distance between contacts on the reslice and a glass-brain implant view.
+
+### Fixed
+
+- **macOS release builds failed on the macos-26 runner image.** electron-builder's temporary signing keychain
+  rejected its own passphrase on Darwin 25.6; the release leg is pinned to macos-15.
+
+## [0.3.6] - 2026-09-04
+
+### Added
+
 - **The sEEG contact editor 0.2.1 is in the catalogue.** Its QC figures are now PDFs, export failures say why,
   and the pop-out window opens sized for its contents. It needs this version of Tetravox or newer.
 - **Extensions can write PDF figures.** An extension's figure channel accepted `.png` only, so a QC report
