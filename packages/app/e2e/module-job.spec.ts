@@ -460,6 +460,91 @@ test.describe('a module that writes, from a job', () => {
     expect(readdirSync(outcome.outDir).sort()).toEqual(['job-result.json', 'tables']);
   });
 
+  /**
+   * **The QC export, end to end** — the regression for the defect an owner reported against the
+   * released tetravox.seeg 0.2.0: the export sheet answered `spacing: error, reslice: error,
+   * implant3d: error` and could say nothing more.
+   *
+   * The cause was on the extension's side and is fixed there, but the seam it broke on is this
+   * repository's: an extension may write only where its own Save sheet (or, here, a job's `out`)
+   * admitted, and 0.2.0 wrote to `{derivatives}` paths that `files.siblings` had merely *found*.
+   * This is the launch that proves the admitted path works — including the **second** figure, whose
+   * admission comes from `job.ts#moduleOutTargets` handing every writer's siblings to
+   * `admitModuleWrite` beside the `out` itself, with no sheet anywhere.
+   *
+   * It is also the first `.pdf` written over `module-write-binary`, which until this branch took
+   * `.png` alone. Every claim is read out of the produced bytes (rule 1): the header, the page
+   * count, and a complete JPEG inside each `/DCTDecode` stream.
+   */
+  test('exports both QC figures as PDFs, from a job, with no Save sheet', async () => {
+    const tree = subjectTree();
+    const out = 'sub-P076_desc-reslice_qc.pdf';
+    const outcome = await runJob(
+      {
+        scene: { files: [tree.ct], preset: 'plain' },
+        window: { width: 900, height: 700 },
+        actions: [
+          {
+            type: 'module',
+            module: 'tetravox.seeg',
+            op: 'load',
+            args: { ct: tree.ct, tsv: tree.tsv },
+          },
+          { type: 'module', module: 'tetravox.seeg', op: 'export-qc', args: { out } },
+        ],
+      },
+      'seeg-qc-pdf',
+      SEEG_STAGE!.env
+    );
+
+    // A fixture older than the operation cannot answer this; skip rather than fail, the same shape
+    // as an unset `TETRAVOX_SEEG_FIXTURE` (the staged build is whichever release a developer has).
+    test.skip(
+      outcome.result.errors.some((e) => e.includes('export-qc')),
+      'the staged tetravox.seeg has no export-qc operation'
+    );
+    expect(outcome.result.errors).toEqual([]);
+    expect(outcome.result.ok).toBe(true);
+
+    const reslice = join(outcome.outDir, out);
+    const implant = join(outcome.outDir, 'sub-P076_desc-implant3d_qc.pdf');
+    // The operation says what it wrote, per figure, as a reason rather than a status word — which
+    // is the other half of the fix: a refused write now arrives as the host's own error text.
+    const result = outcome.result.outputs[1]?.result as {
+      reslice: { ok: boolean; detail: string };
+      implant3d: { ok: boolean; detail: string };
+    };
+    expect(result.reslice.ok, result.reslice.detail).toBe(true);
+    expect(result.implant3d.ok, result.implant3d.detail).toBe(true);
+    // Three electrodes in the fixture, one page each.
+    expect(result.reslice.detail).toContain('3 pages');
+
+    for (const path of [reslice, implant]) {
+      const bytes = readFileSync(path);
+      expect(bytes.subarray(0, 8).toString('latin1')).toBe('%PDF-1.4');
+      expect(bytes.subarray(bytes.length - 6).toString('latin1')).toBe('%%EOF\n');
+      const text = bytes.toString('latin1');
+      // Every stream that declared itself a JPEG really holds one, SOI to EOI, at the declared
+      // length — this is the byte channel's `.pdf` admission doing its job, not a file that merely
+      // has the right name.
+      const streams = [...text.matchAll(/\/DCTDecode \/Length (\d+) >>\nstream\n/g)];
+      expect(streams.length).toBeGreaterThan(0);
+      for (const match of streams) {
+        const at = match.index + match[0].length;
+        const length = Number(match[1]);
+        expect(bytes.subarray(at, at + 2).toString('hex')).toBe('ffd8');
+        expect(bytes.subarray(at + length - 2, at + length).toString('hex')).toBe('ffd9');
+      }
+    }
+    // The 3-D figure was never named by the job: its admission came from the writer's siblings.
+    expect(outcome.result.outputs[1]?.files).toEqual([out]);
+    expect(readdirSync(outcome.outDir).sort()).toEqual([
+      'job-result.json',
+      'sub-P076_desc-implant3d_qc.pdf',
+      'sub-P076_desc-reslice_qc.pdf',
+    ]);
+  });
+
   test('refuses an `out` that would climb out of --out, before a window exists', async () => {
     const tree = subjectTree();
     const outcome = await runJob(
