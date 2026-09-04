@@ -5072,3 +5072,46 @@ call to raw.githubusercontent.com on every pull request, i.e. a third-party outa
 build on changes that have nothing to do with extensions. Only its rules self-test in `docs-guard`;
 running it is a release step in `docs/RELEASING.md`, where a human reads the diff.
 
+## 2026-09-04 — the module host gains the 3-D camera and the probe edge
+
+**Decision.** `ModuleHost['scene']` gains `camera(): Camera3D` and `setCamera(patch: Partial<Camera3D>)`
+over the 3-D pane, and `ModuleEvents` gains `probe: { world, result }`, forwarded from the engine.
+`host.ts` is frozen (§12.3 item 6), so ARCHITECTURE §13.1 changes in this commit with it.
+`MODULE_HOST_VERSION` does not move: both are additive, and absent, neither was askable.
+
+**The camera reverses a stated non-goal, and says so.** The 2026-08-30 entry above ruled that
+`activePlane` was the *only* view fact an extension gets, and named a view's camera among what it
+would not be given. That ruling is narrowed here, not overturned: the 2-D `{ center, mmPerPx }` and
+per-view layer visibility stay unoffered. What the ruling was blocking is one use it did not
+anticipate — an extension cannot record the view a finding was seen from, nor put the camera back on
+it, and `activePlane` answers that question for a slice pane and had no answer at all for the 3-D
+one. A saved view is the shape of half the reasons a reader opens a scene again.
+
+The 2026-09-03 entry above sharpened the same point without being able to act on it: `capture.setView`
+leaves the user's 3-D view at the last preset it was asked for, and says an extension wanting the old
+camera back "must ask for it explicitly" — which nothing in the host could do. A QC export that takes
+four anatomical shots and leaves the view where it found it is now three calls.
+
+**Why a copy and a patch.** `Engine.scene` is `Readonly` to the type system and a plain object at
+runtime, so handing out `view3d.camera` itself would let an extension orbit the view by assigning a
+field — and would make "read it now, restore it later" an alias of whatever the camera became in
+between. The setter is a patch rather than a whole `Camera3D` because `near`/`far` are derived from
+the fit radius (§7.2): a whole-object setter makes restoring a pose and restoring a stale clip range
+the same call, and the failure is a scene that renders empty for a reason nothing on screen explains.
+
+**Why the probe event is the engine's, forwarded.** The alternative was a narrower `pick` —
+`{ world, layerId, elementId }` modelled on `PickResult`. Rejected on both counts it was proposed
+for: `ProbeResult` already carries all of that plus the value and the label, so the narrow shape is
+strictly poorer, and it would be a second declaration of "what a hit is" to keep in step with a
+frozen `api.ts`. The event is needed at all — rather than `on('cursor')` followed by
+`scene.probe(world)` — for the reason the engine grew it in the first place (directed task 8): a mesh
+row is resolved asynchronously, so the probe available on the `cursor` edge is the one from *before*
+the click, and for a surface, whose only row is the vertex, there is no row at all. It rides the
+existing subscription in `attach()` rather than a second one, so an extension and the info panel see
+one probe in one order, and it is emitted unconditionally: the store writes there are about the app's
+cursor and hover, while an extension asked for the probe itself.
+
+**What did not need doing.** The same round proposed a points *layer* for extensions. It already
+exists: `NewLayer` is `{ datasetId, kind: Layer['kind'] } & Partial<Layer>` and `'points'` is in the
+`Layer` union, so `scene.addLayer` has taken one since §13.1 shipped. Recorded here because "add a
+points layer" is the kind of gap that gets re-proposed until the log says it was already closed.

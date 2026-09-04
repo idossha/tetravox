@@ -18,7 +18,7 @@ import { ShellController } from '../store/controller';
 import { anyModuleDirty, createUiStore, dirtyModuleIds } from '../store/store';
 import type { UiStore } from '../store/store';
 import { parseScene, sceneExtensions } from '../lib/scene';
-import type { Dataset, PointToolEvent } from '@tetravox/engine';
+import type { Dataset, PointToolEvent, ProbeResult, vec3 } from '@tetravox/engine';
 import type { ModuleHost } from './host';
 import { ModuleHostError } from './host';
 import { blockBytes, createHistory, createModuleHost, MAX_BLOCK_BYTES } from './hostImpl';
@@ -564,6 +564,61 @@ describe('the host’s scene surface', () => {
     expect(store.getState().moduleBlocks[HELLO]).toBeDefined();
     h.scene.setBlock(null);
     expect(store.getState().moduleBlocks[HELLO]).toBeUndefined();
+  });
+});
+
+describe('the 3-D camera and the probe edge (§13.1, 2026-09-04)', () => {
+  it('reads a camera copy a module cannot orbit the view by writing', () => {
+    const { engine, store, controller } = harness();
+    const h = createModuleHost({ controller, store }, helloManifest);
+
+    const camera = h.scene.camera();
+    expect(camera).toEqual(engine.scene.view3d.camera);
+    camera.distance = 1;
+    expect(engine.scene.view3d.camera.distance).not.toBe(1);
+    // …and a second read is a fresh snapshot, not the object handed out before.
+    expect(h.scene.camera()).not.toBe(camera);
+  });
+
+  it('patches the camera through the engine and leaves the fields it did not name', async () => {
+    const { engine, store, controller } = harness();
+    const h = createModuleHost({ controller, store }, helloManifest);
+    // An empty scene is never dirty (`markDirty`), so the dirt assertion below needs something open.
+    await engine.addDataset({ kind: 'path', path: '/tmp/t1.nii.gz' });
+    const before = h.scene.camera();
+
+    h.scene.setCamera({ distance: 250, orthographic: !before.orthographic });
+    const after = engine.scene.view3d.camera;
+    expect(after.distance).toBe(250);
+    expect(after.orthographic).toBe(!before.orthographic);
+    // The clip range is §7.2's, derived from the fit radius — a patch must not disturb it.
+    expect(after.near).toBe(before.near);
+    expect(after.far).toBe(before.far);
+    expect(after.target).toEqual(before.target);
+    // A camera move is a scene change, exactly as an orbit is (directed task 13).
+    expect(store.getState().sceneDirty).toBe(true);
+  });
+
+  it('forwards the engine’s probe, including one the cursor has already moved past', () => {
+    const { engine, store, controller } = harness();
+    const h = createModuleHost({ controller, store }, helloManifest);
+
+    const seen: { world: vec3; result: ProbeResult }[] = [];
+    const off = h.scene.on('probe', (event) => seen.push(event));
+
+    const atCursor: ProbeResult = { world: [1, 2, 3], rows: [] };
+    engine.emit('probe', { world: [1, 2, 3], result: atCursor });
+    // The late mesh row §8's info panel waited for: `world` is no longer the cursor, so the store's
+    // `cursorProbe` is untouched — and the module still hears it, which is the whole point.
+    const late: ProbeResult = { world: [9, 9, 9], rows: [] };
+    engine.emit('probe', { world: [9, 9, 9], result: late });
+
+    expect(seen.map((e) => e.result)).toEqual([atCursor, late]);
+    expect(store.getState().cursorProbe).not.toBe(late);
+
+    off();
+    engine.emit('probe', { world: [4, 4, 4], result: { world: [4, 4, 4], rows: [] } });
+    expect(seen).toHaveLength(2);
   });
 });
 

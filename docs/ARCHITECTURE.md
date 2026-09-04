@@ -3304,6 +3304,24 @@ would not follow a rotation. Nothing else about a view is offered — not its ca
 per-view layer visibility — because the one thing a panel *beside* the panes has to be able to say is
 how far the thing in its list is from the slice the user is looking at.
 
+**`scene.camera()` / `scene.setCamera(patch)` — the 3-D pane's camera, and only that** (appended
+2026-09-04; the sentence above is narrowed by exactly this much). `camera()` answers a **copy** of
+`Camera3D`, so an extension holding one holds a snapshot rather than an alias of a camera the user is
+still orbiting; `setCamera` takes a **patch**, because `near`/`far` are §7.2's, derived from the fit
+radius, and an extension restoring a saved pose by writing all seven fields would carry a stale clip
+range back with it. It marks the scene dirty, for the reason an orbit does (directed task 13). Both
+are always wired, like `activePlane`. A 2-D pane's `{ center, mmPerPx }` and every view's layer
+visibility remain unoffered. This is what `capture.setView`'s "nothing is restored" leaves an
+extension to do: read the camera, take the four preset shots, put it back.
+
+**`ModuleEvents.probe` — the engine's `probe` event, forwarded** (appended 2026-09-04). `{ world,
+result }`, the same payload §8's info panel consumes, whose `ProbeRow`s already carry `layerId`,
+`elementId`, `value` and `labelId`. It is the engine's event and not a narrower `pick` of the host's
+own, because a second declaration of what a hit *is* would be a second thing to keep in step with
+`api.ts` and would carry strictly less. It is **not** replaceable by `on('cursor')` then
+`scene.probe(world)`: a mesh row resolves asynchronously, so the probe read on the `cursor` edge is
+the one from before the click — the gap this event exists to close.
+
 A member a build does not wire **throws `ModuleHostError`** rather than returning a plausible `null`: "this
 build has no point tool" and "nothing is selected" must not be the same answer. Every member is wired in the
 shipping build — `ShellController.activateModule` passes the engine's tool, `createHostFiles(manifest,

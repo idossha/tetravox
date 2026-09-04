@@ -15,7 +15,15 @@
  * distinction is what a harness and a future host version are built on.
  */
 
-import type { Layer, LayerId, NewLayer, ProbeResult, CoordSpaceRef, vec3 } from '@tetravox/engine';
+import type {
+  Camera3D,
+  CoordSpaceRef,
+  Layer,
+  LayerId,
+  NewLayer,
+  ProbeResult,
+  vec3,
+} from '@tetravox/engine';
 import type { ModuleManifest } from '../../../modules/manifest-types';
 import type { ShellController } from '../store/controller';
 import type { UiStore } from '../store/store';
@@ -195,6 +203,11 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
         return controller.onSceneEvent((e: ModuleSceneEvent) => {
           if (e.kind === 'cleared') emit(undefined);
         });
+      case 'probe':
+        // The engine's own event, forwarded by `controller.attach()` exactly as `pointTool` is —
+        // and for the same reason it is not a store projection: the store's `cursorProbe` is only
+        // written when the probe matches the *cursor*, and a module asked for every probe.
+        return controller.onProbe(emit);
       case 'pointTool':
         // The engine's own event, forwarded by `controller.attach()` the way `layers` and
         // `measurements` are — not a store projection, because a `dragEnd` is an edge and the store
@@ -270,6 +283,13 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
       // controller and the store are required dependencies — there is no build in which the shell
       // exists and the active pane does not.
       activePlane: (): { normal: vec3; point: vec3 } | null => controller.activePlane(),
+
+      // Appended 2026-09-04 (§13.1, `docs/DECISIONS.md`): the 3-D camera. Always wired, like
+      // `activePlane` and for the same reason — the controller is a required dependency and there is
+      // no build in which the shell exists and the 3-D pane does not (`Scene.view3d` is not
+      // optional).
+      camera: (): Camera3D => controller.moduleCamera(),
+      setCamera: (patch: Partial<Camera3D>): void => controller.setModuleCamera(patch),
     },
 
     tool: deps.tool ?? stubTool(),

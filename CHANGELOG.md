@@ -8,7 +8,15 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **An extension can read and restore the 3-D camera, and can hear what you clicked on.** Two
+  additions to the extension API. `scene.camera()` / `scene.setCamera()` mean an extension that moves
+  the 3-D view — a QC export taking the four anatomical shots, say — can put it back exactly where
+  you had it, instead of leaving you on whichever preset it used last. And an extension can now
+  subscribe to the probe itself, so a panel showing "what is under the crosshair" updates when the
+  answer for a surface or a mesh actually arrives, rather than showing the previous point's reading.
+  Both are additive: every existing extension keeps working unchanged, and none needs a new release.
 
 ## [0.3.8] - 2026-09-04
 

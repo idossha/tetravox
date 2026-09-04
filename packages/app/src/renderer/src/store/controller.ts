@@ -14,6 +14,7 @@
  */
 
 import type {
+  Camera3D,
   CameraPreset,
   Dataset,
   DatasetId,
@@ -292,6 +293,11 @@ export class ShellController {
           store.setState({ hoverProbe: result });
         }
         if (dist3(state.cursor, world) < 1e-6) store.setState({ cursorProbe: result });
+        // Modules (§13.1): the same edge, fanned out to whoever subscribed. It rides the existing
+        // subscription rather than a second one so a module and the info panel see one probe in one
+        // order, and it is emitted unconditionally — the two `setState`s above are about the app's
+        // *cursor* and *hover*, while a module asked for the probe itself.
+        this.emitProbe({ world, result });
       }),
       engine.on('hover', (world: vec3 | null) => {
         store.setState({
@@ -2335,6 +2341,11 @@ export class ShellController {
   /** Listeners on the engine's `pointTool` event (`ModuleEvents.pointTool`). */
   private readonly pointToolListeners = new Set<(event: PointToolEvent) => void>();
 
+  /** Listeners on the engine's `probe` event (`ModuleEvents.probe`). */
+  private readonly probeListeners = new Set<
+    (event: { world: vec3; result: ProbeResult }) => void
+  >();
+
   /** The confirm question in flight, paired with its `ConfirmRequest.id`. */
   private pendingConfirm: { id: number; resolve: (choice: 0 | 1 | 2) => void } | null = null;
   private confirmSeq = 0;
@@ -2777,6 +2788,22 @@ export class ShellController {
   }
 
   /**
+   * `ModuleEvents.probe` — the engine's event, subscribed to once in {@link attach}.
+   *
+   * Its own event and not "subscribe to `cursor`, then call `scene.probe`": a mesh row is resolved
+   * asynchronously (`locate`, `nearestVertex`), so the probe a module read on the `cursor` edge is
+   * the one from *before* the click. This is the edge that says the real one arrived.
+   */
+  onProbe(listener: (event: { world: vec3; result: ProbeResult }) => void): () => void {
+    this.probeListeners.add(listener);
+    return () => this.probeListeners.delete(listener);
+  }
+
+  private emitProbe(event: { world: vec3; result: ProbeResult }): void {
+    for (const listener of [...this.probeListeners]) listener(event);
+  }
+
+  /**
    * `host.tool` — §4.7's five members as the four calls §13.1 publishes.
    *
    * Every one is on the frozen facade, so this is a rename and not a translation; `select` is the
@@ -3109,6 +3136,33 @@ export class ShellController {
       normal: [n[0] / length, n[1] / length, n[2] / length],
       point: [...this.engine.scene.cursor] as vec3,
     };
+  }
+
+  /**
+   * `host.scene.camera` — the 3-D pane's camera (§13.1, 2026-09-04).
+   *
+   * A **copy**, not `scene.view3d.camera` itself: `Engine.scene` is `Readonly` to the type system
+   * and a plain object at runtime, and a module handed the live one could orbit the view by writing
+   * a field. The copy is also what makes "read it now, put it back later" a snapshot rather than an
+   * alias of whatever the camera became in between.
+   */
+  moduleCamera(): Camera3D {
+    return { ...this.engine.scene.view3d.camera };
+  }
+
+  /**
+   * `host.scene.setCamera` — a patch over that camera.
+   *
+   * A patch and not a whole `Camera3D` because `near`/`far` are the engine's (§7.2 derives them from
+   * the fit radius) and a module that restored a saved pose by writing all seven fields would carry
+   * a stale clip range back with it. `markDirty` for the reason an orbit marks the scene dirty
+   * (directed task 13): the camera is scene state that a save writes out.
+   */
+  setModuleCamera(patch: Partial<Camera3D>): void {
+    const view3d = this.engine.scene.view3d;
+    this.engine.setView(view3d.id, { camera: { ...view3d.camera, ...patch } });
+    this.markDirty();
+    this.engine.requestRender();
   }
 
   /**
