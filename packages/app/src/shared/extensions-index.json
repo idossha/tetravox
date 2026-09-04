@@ -1,13 +1,13 @@
 {
   "$comment": "The extensions catalogue: what File ▸ Extensions… offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed — `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses — and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
   "schema": 1,
-  "generated": "2026-09-04T04:31:42Z",
+  "generated": "2026-09-04T05:16:03.383Z",
   "modules": [
     {
       "id": "tetravox.seeg",
       "title": "sEEG contacts",
-      "summary": "Localise and edit stereo-EEG contacts on a registered CT, and write the BIDS electrodes table back.",
-      "description": "A contact editor for stereo-EEG depth electrodes. Open a registered CT and the BIDS electrodes.tsv localised on it, snap contacts onto the metal, re-fit and renumber shafts, and save the table back with a timestamped backup and a seegprep-compatible editlog. Reproduces the 3D Slicer SEEG Contact Editor workflow in Tetravox's own panes, and every panel action is also a job-file operation.",
+      "summary": "Localise and edit stereo-EEG contacts on a registered CT, snap them onto shaft axes with electrode-model awareness, and write the BIDS electrodes table back.",
+      "description": "A contact editor for stereo-EEG depth electrodes. Open a registered CT and the BIDS electrodes.tsv localised on it, snap contacts onto the shaft axis (electrode-model aware), re-fit and renumber shafts, extend to a model's full contact count, and save the table back with a timestamped backup and a seegprep-compatible editlog. Exports spacing and reslice/implant QC figures (SVG/PNG, and PDF from 0.2.1) alongside the BIDS derivatives tree. Reproduces the 3D Slicer SEEG Contact Editor workflow in Tetravox's own panes, and every panel action is also a job-file operation. Versions 0.2.0+ need Tetravox 0.3.5+.",
       "repo": "https://github.com/idossha/tetravox-seeg",
       "author": "idossha",
       "licence": "MIT",
@@ -243,8 +243,8 @@
             "Read .csv, .fcsv, .tsv files you choose",
             "Discover and read files named near a file you open",
             "Write .png, .svg, .tsv files you name in a Save sheet",
-            "Write derivatives/tetravox/dataset_description.json in the dataset's derivatives folder",
-            "Write derivatives/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.tsv in the dataset's derivatives folder",
+            "Write {derivatives}/tetravox/dataset_description.json beside the file you save",
+            "Write {derivatives}/tetravox/sub-{id}/ieeg/figures/sub-{id}_desc-spacing_qc.tsv beside the file you save",
             "Write {name}.{stamp}.bak beside the file you save",
             "Write {stem}_editlog.json beside the file you save",
             "Bind the keys Delete, Shift+s, Shift+z, a, d, f, g, n, p, s, t, z while it is active",
@@ -276,7 +276,7 @@
             "Discover and read files named near a file you open",
             "Write .pdf, .tsv files you name in a Save sheet",
             "Write sub-{id}_desc-implant3d_qc.pdf beside the file you save",
-            "Write derivatives/tetravox/dataset_description.json in the dataset's derivatives folder",
+            "Write {derivatives}/tetravox/dataset_description.json beside the file you save",
             "Write {name}.{stamp}.bak beside the file you save",
             "Write {stem}-implant3d.pdf beside the file you save",
             "Write {stem}_editlog.json beside the file you save",
@@ -293,15 +293,15 @@
           "files": [
             {
               "name": "index.js",
-              "bytes": 322778,
-              "sha256": "782936fb66a1150bafd55dd63d3cfed3bdf924f664c5f1a7c9883531acbb3e0d",
-              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.2/782936fb66a1150bafd55dd63d3cfed3bdf924f664c5f1a7c9883531acbb3e0d"
+              "bytes": 338033,
+              "sha256": "f027d2c4c496b0b6a5cc244ce4722ece4ab59138fae91e9e802af41659679914",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.2/f027d2c4c496b0b6a5cc244ce4722ece4ab59138fae91e9e802af41659679914"
             },
             {
               "name": "manifest.json",
-              "bytes": 6079,
-              "sha256": "43920920d0d443ca7e3a6f1437c81e79f3dc6a8e008f1f6b920b044d5bdd44f2",
-              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.2/43920920d0d443ca7e3a6f1437c81e79f3dc6a8e008f1f6b920b044d5bdd44f2"
+              "bytes": 6132,
+              "sha256": "ffe42237a4e5bcf959d61233c96d8343e0163718764fd6982ce83baa5fb22a1e",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.2/ffe42237a4e5bcf959d61233c96d8343e0163718764fd6982ce83baa5fb22a1e"
             }
           ],
           "permissions": [
