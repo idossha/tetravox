@@ -1,6 +1,6 @@
 {
   "name": "@tetravox/engine",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": true,
   "type": "module",
   "description": "WebGL2 renderer, scene model, views, interaction, colormaps. Framework-free (ARCHITECTURE.md §4, §7).",
