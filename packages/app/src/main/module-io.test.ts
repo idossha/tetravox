@@ -755,14 +755,30 @@ describe('module-write-binary', () => {
     expect(existsSync(path)).toBe(false);
   });
 
-  it('refuses every extension but .png, even on an admitted path', () => {
+  it('refuses every extension but .png and .pdf, even on an admitted path', () => {
     // The interesting case, and the reason the filter exists: `{name}`-derived siblings mean an
     // extension can hold an admission for a name it did not type into the sheet.
     const path = join(dir, 'not-a-picture.command');
     admitModuleWrite(SEEG, path, []);
     const result = moduleWriteBinary(SEEG, path, PNG_1x1, {});
     expect(result.ok).toBe(false);
+    expect(result.ok ? '' : result.error).toContain('.png .pdf');
     expect(existsSync(path)).toBe(false);
+  });
+
+  // `.pdf` (2026-09-03): a QC report that is several pages is a document, not a tall raster. The
+  // bytes are checked back byte for byte for `moduleWriteBinary`'s own reason — a text-mode write
+  // mangles the CR/LF pair every PDF header carries in its binary comment line.
+  it('writes PDF bytes on the same admitted path rule', () => {
+    const path = join(dir, 'sub-01_desc-reslice_qc.pdf');
+    const pdf = Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\r\n1 0 obj\n', 'binary');
+    expect(moduleWriteBinary(SEEG, path, pdf, {})).toEqual({
+      ok: false,
+      error: 'not on the extension write list',
+    });
+    admitModuleWrite(SEEG, path, []);
+    expect(moduleWriteBinary(SEEG, path, pdf, {})).toEqual({ ok: true, backupPath: null });
+    expect(readFileSync(path).equals(pdf)).toBe(true);
   });
 
   it('refuses more than the 32 MiB cap without writing anything', () => {

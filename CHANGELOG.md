@@ -8,7 +8,13 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Extensions can write PDF figures.** An extension's figure channel accepted `.png` only, so a QC report
+  that is naturally several pages — one electrode per page, say — had nowhere to go but a single tall
+  raster. `.pdf` is now accepted alongside `.png`, under the same 32 MiB cap and the same rule about
+  _where_ an extension may write: only paths its own Save sheet admitted. Nothing changes for an extension
+  that writes PNGs.
 
 ## [0.3.5] - 2026-09-03
 

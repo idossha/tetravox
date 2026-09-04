@@ -73,8 +73,15 @@ export const MODULE_WRITE_TEXT_EXTENSIONS: readonly string[] = [
   '.html',
 ];
 
-/** What `module-write-binary` will write. One extension, on purpose — see {@link moduleWriteBinary}. */
-export const MODULE_WRITE_BINARY_EXTENSIONS: readonly string[] = ['.png'];
+/**
+ * What `module-write-binary` will write (`.pdf` appended 2026-09-03).
+ *
+ * Two extensions, both of them *a figure* — see {@link moduleWriteBinary}. `.pdf` because a QC
+ * figure that a clinician prints is a multi-page document, and rasterising it into one tall PNG is
+ * not the same artefact; the bytes still go through the same write list, the same cap and the same
+ * `.part` + rename, so admitting it widens the **file type**, never the path.
+ */
+export const MODULE_WRITE_BINARY_EXTENSIONS: readonly string[] = ['.png', '.pdf'];
 
 /** 32 MiB for a PNG (2026-09-03) — four times the text cap; the line between "a figure" and "a data channel". */
 export const MAX_MODULE_WRITE_BINARY_BYTES = 32 * 1024 * 1024;
@@ -686,11 +693,12 @@ export function moduleWriteText(
 }
 
 /**
- * `tetravox:module-write-binary` — **PNG bytes** to a path this module's Save sheet admitted, ≤ 32
- * MiB (2026-09-03).
+ * `tetravox:module-write-binary` — **figure bytes** to a path this module's Save sheet admitted,
+ * ≤ 32 MiB (2026-09-03).
  *
  * The twin of {@link moduleWriteText} — same module-scoped write list, `.part` + rename, main-side
- * `.bak`, and allow-listing on success. The two differences: **`.png` only**, and a larger cap.
+ * `.bak`, and allow-listing on success. The two differences: **`.png` or `.pdf` only**, and a
+ * larger cap.
  *
  * `bytes` arrives as a `Uint8Array` over the structured clone; `ArrayBuffer.isView` is the check,
  * because a renderer may send a view over a larger buffer.
