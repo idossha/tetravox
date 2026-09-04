@@ -5151,3 +5151,11 @@ horizontal scrollbar. The minimum 960×600 content size comes from the existing 
 `view-controls.spec.ts` checks all targets with previews at that size and at 1400×900.
 Reset's existing world-origin implementation is exercised against the real engine, not only the mock:
 the shared scene cursor, UI cursor and coordinate input must all return to zero after Reset / Home.
+
+
+## 2026-09-04 — Keep layer controls inside the sidebar (§8)
+
+The user reported clipped sidebar controls during manual review. Range inputs and mesh number fields
+now permit shrinking below their intrinsic browser minimum width. Hiding horizontal overflow was
+rejected because it would conceal controls. `view-controls.spec.ts` checks mesh and volume controls
+against the sidebar bounds at 960 and 1400 px window widths, including the narrow overlay.

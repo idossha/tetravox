@@ -2819,6 +2819,8 @@ because an extension writes its own files from its own panel.
 and annotations beside a bounded preview; figure settings sit below the preview. All three targets,
 including their rendered preview, fit without horizontal or vertical scrolling at the app's minimum
 960×600 content size. `view-controls.spec.ts` asserts DOM scroll extents and full footer visibility.
+Layer opacity sliders and mesh numeric fields shrink within the sidebar; neighboring controls must
+remain inside its horizontal bounds, including the narrow-window overlay.
 Reset / Home sets the actual shared world cursor to exactly `[0, 0, 0]`, refits every view and retains
 layers. Coordinate readouts in other spaces continue to show their conversion of that world point.
 

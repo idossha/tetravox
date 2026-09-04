@@ -132,3 +132,41 @@ test('all screenshot targets fit the minimum window without scrolling (§8)', as
     await app.close();
   }
 });
+
+test('layer controls fit the left sidebar without horizontal scrolling (§8)', async () => {
+  const app = await launchApp('dev', {
+    search: 'engine=real',
+    args: [
+      resolve(APP_ROOT, '../../testdata/vol_u8.nii.gz'),
+      resolve(APP_ROOT, '../../testdata/mesh_v2_binary.msh'),
+    ],
+  });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForFunction(() => (window.__tetravox?.store.getState().layers.length ?? 0) >= 2);
+    for (const width of [960, 1400]) {
+      await app.evaluate(
+        ({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0]!.setContentSize(width, 900),
+        width
+      );
+      if (width === 960) await page.getByTestId('left-panel-expand').click();
+      const list = page.getByTestId('layer-list');
+      expect(await list.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      const outside = await list.evaluate((el) => {
+        const bounds = el.getBoundingClientRect();
+        return Array.from(el.querySelectorAll('input,select,button'))
+          .filter((control) => {
+            const r = control.getBoundingClientRect();
+            return (
+              r.width > 0 &&
+              (r.right > bounds.left + el.clientWidth + 1 || r.left < bounds.left - 1)
+            );
+          })
+          .map((control) => control.getAttribute('data-testid'));
+      });
+      expect(outside).toEqual([]);
+    }
+  } finally {
+    await app.close();
+  }
+});

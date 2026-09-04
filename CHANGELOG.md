@@ -15,6 +15,9 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Layer controls stay inside the sidebar** — opacity sliders and mesh numeric fields shrink to
+  fit, keeping adjacent buttons visible without horizontal scrolling.
+
 - **Screenshot options fit the window** — size, background and annotations sit beside the preview,
   with figure controls grouped below it. All export options remain available without scrolling at
   the minimum supported window size.

@@ -118,7 +118,7 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
           value={layer.opacity}
           onPointerDown={(e) => e.stopPropagation()}
           onChange={(e) => controller.setOpacity(layer.id, Number(e.currentTarget.value))}
-          className="h-1 flex-1 accent-tvx-accent"
+          className="h-1 min-w-0 flex-1 accent-tvx-accent"
         />
         <span className="w-8 shrink-0 text-right font-mono text-[10px] text-tvx-dim">
           {Math.round(layer.opacity * 100)}%
