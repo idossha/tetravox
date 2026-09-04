@@ -10,6 +10,14 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 Nothing yet.
 
+## [0.3.10] - 2026-09-04
+
+### Fixed
+
+- **Changing surface opacity no longer exposes buried triangle seams.** Mesh and volume-derived
+  surfaces retain smooth shading while you adjust transparency in the 3D viewer. Explicit boundary
+  lines remain controlled by the surface-edge setting; fully opaque rendering is unchanged.
+
 ## [0.3.9] - 2026-09-04
 
 ### Added

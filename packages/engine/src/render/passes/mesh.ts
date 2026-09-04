@@ -1,37 +1,13 @@
 /**
- * §7.2's mesh passes — pass 1 (opaque) and pass 2 (transparent, two phases).
- *
- * The unit of work is a **sub-draw**: one tag range of one layer's surface (`SurfacePayload.perTag`)
- * with its own colour, its own opacity and its own world AABB. §7.2 says so in one line — "per-tag
- * sub-draws mean per-tag opacity sorts naturally" — and everything below follows from taking it
- * literally.
- *
- * The two-phase split, verbatim from §7.2:
- *
- * * **2a — back faces:** `cullFace(FRONT)`, depth test on, depth write off; objects sorted
- *   back-to-front by the depth of their **far** extent.
- * * **2b — front faces:** `cullFace(BACK)`, depth test on, depth write off; objects sorted
- *   back-to-front by the depth of their **near** extent.
- *
- * Unified rule: *in each phase, objects are sorted back-to-front by the depth of the sheet that phase
- * draws.* Exact for nested, individually near-convex shells (scalp, skull, CSF, blood — median 2
- * crossings `[M2Max]`); a partial improvement for GM/WM (median 4–6, p90 8–10).
- *
- * **`faceMode:'both'`, and the one place this file reads §7.2 rather than quoting it.** §7.2 excludes
- * those layers "from the split" and draws them "last in 2b". They *are* excluded from the scene-wide
- * sort and drawn after every split sub-draw — but each one is still issued as back faces **then**
- * front faces rather than as a single `CULL_FACE`-disabled draw. Every triangle is front- or
- * back-facing, so the two orderings rasterise **exactly the same fragments**; only the order differs,
- * and the two-draw order is the one §7.2's own unified rule implies. This is not a nicety:
- * `orient_surface` marks all ten of ernie's tissue tags open (§7.4's reference expectation), so §7.4
- * forces `faceMode:'both'` on every tissue layer, and a `cull none` draw would blend a shell's near
- * and far sheets in triangle-buffer order — the artefact §11's *Transparency (i)* names.
- *
- * Sorting needs a **per-tag** extent, not a per-layer one: every tag of a nested tissue complex
- * shares the dataset bbox to within its own thickness. `render/gpu.ts` measures a per-tag AABB once
- * at upload for that reason, and this file turns it into the near/far distances each phase sorts on.
+ * §7.2 mesh passes: opaque, then two-sheet transparency per tag.
+ * Closed, outward-oriented shells retain the back/front split. Open/two-sided surfaces
+ * instead select the nearest two sheets by depth: their winding does not identify the
+ * front of the object. Both paths resolve depth before blending, so buried triangles
+ * cannot accumulate in submission order. Opaque depth remains authoritative throughout.
+ * Per-tag bounds retain the existing far/near object ordering across each phase.
  */
 
+import { SurfaceDepth } from '../surface-depth';
 import { ProgramVariants } from '../../gl/program';
 import type { Program, ShaderDefines } from '../../gl/program';
 import { GL_STATE } from '../../gl/state';
@@ -487,7 +463,10 @@ export class MeshPass implements FramePass {
   /** One layer's active planes, resolved once per frame rather than once per sub-draw. */
   readonly #planes = new Map<string, readonly Plane[]>();
 
+  readonly #surfaceDepth: SurfaceDepth;
+
   constructor(gl: WebGL2RenderingContext, state: GlState) {
+    this.#surfaceDepth = new SurfaceDepth(gl, state);
     this.#gl = gl;
     this.#state = state;
     this.#programs = new ProgramVariants(gl, MESH_VS, MESH_FS);
@@ -549,18 +528,31 @@ export class MeshPass implements FramePass {
         [...xs].sort((a, b) => nearExtent(b.bounds, eye) - nearExtent(a.bounds, eye));
 
       state.apply(GL_STATE.transparentBack); // 2a — back faces
-      for (const d of byFar(split)) this.#draw(d);
+      for (const d of byFar(split)) {
+        this.#surfaceDepth.draw(GL_STATE.transparentBack, (depth) => this.#draw(d, depth));
+      }
       state.apply(GL_STATE.transparentFront); // 2b — front faces
-      for (const d of byNear(split)) this.#draw(d);
+      for (const d of byNear(split)) {
+        this.#surfaceDepth.draw(GL_STATE.transparentFront, (depth) => this.#draw(d, depth));
+      }
 
-      // Excluded from the scene-wide split and drawn last in 2b (§7.2) — but still back sheet before
-      // front sheet, which rasterises the same fragments as a `CULL_FACE`-disabled draw in the order
-      // §7.2's own rule implies. See this file's header.
+      // Open/two-sided surfaces have no reliable outward winding. Peel their nearest two
+      // sheets by depth, then blend the second before the nearest (§7.2).
       if (both.length > 0) {
         state.apply(GL_STATE.transparentBack);
-        for (const d of byFar(both)) this.#draw(d);
+        for (const d of byFar(both)) {
+          this.#surfaceDepth.draw(
+            { ...GL_STATE.transparentBack, cull: 'none' },
+            (depth, peel) => this.#draw(d, depth, peel),
+            true
+          );
+        }
         state.apply(GL_STATE.transparentFront);
-        for (const d of byNear(both)) this.#draw(d);
+        for (const d of byNear(both)) {
+          this.#surfaceDepth.draw({ ...GL_STATE.transparentFront, cull: 'none' }, (depth) =>
+            this.#draw(d, depth)
+          );
+        }
       }
     }
     if (capsTranslucent.length > 0) {
@@ -625,13 +617,17 @@ export class MeshPass implements FramePass {
    * `tag` attribute, because 1,048,599 of ernie's 1,177,213 interface faces are shared between two
    * tissue tags `[DATA]` and a per-vertex tag is ill-defined on a shared node.
    */
-  #draw(d: SubDraw): void {
+  #draw(d: SubDraw, depth?: WebGLTexture, peel?: WebGLTexture): void {
     const gl = this.#gl;
     const frame = this.#frame;
     if (frame === null) return;
     const { layer, ds, geom, style } = d.item;
     const variant = variantOf(d, frame);
-    const prog = this.#programs.get(variant as unknown as ShaderDefines);
+    const prog = this.#programs.get({
+      ...variant,
+      TVX_SURFACE_DEPTH: depth !== undefined,
+      TVX_SURFACE_PEEL: peel !== undefined,
+    } as unknown as ShaderDefines);
 
     if (prog !== this.#bound) {
       prog.use();
@@ -641,6 +637,16 @@ export class MeshPass implements FramePass {
       this.#bound = prog;
     }
 
+    if (depth !== undefined) {
+      gl.activeTexture(gl.TEXTURE5);
+      gl.bindTexture(gl.TEXTURE_2D, depth);
+      prog.int('uSurfaceDepth', 5);
+    }
+    if (peel !== undefined) {
+      gl.activeTexture(gl.TEXTURE6);
+      gl.bindTexture(gl.TEXTURE_2D, peel);
+      prog.int('uSurfacePeel', 6);
+    }
     const source = variant.TVX_COLOR_SOURCE;
     if (source === MESH_COLOR_SOURCE.nodeField || source === MESH_COLOR_SOURCE.elmField) {
       // §7.6's baked LUT: `kind:'heat'` "costs nothing extra in the shader — it is a different bake".
@@ -793,6 +799,7 @@ export class MeshPass implements FramePass {
   }
 
   dispose(): void {
+    this.#surfaceDepth.dispose();
     this.#programs.dispose();
   }
 }
