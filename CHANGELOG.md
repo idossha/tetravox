@@ -14,6 +14,8 @@ Nothing yet.
 
 ### Added
 
+- **The sEEG contact editor 0.2.2 is in the catalogue.** Its QC figures now look exactly like seegprep's, with
+  each electrode's colour and the 3-D distance between contacts on the reslice and a glass-brain implant view.
 - **The sEEG contact editor 0.2.1 is in the catalogue.** Its QC figures are now PDFs, export failures say why,
   and the pop-out window opens sized for its contents. It needs this version of Tetravox or newer.
 - **Extensions can write PDF figures.** An extension's figure channel accepted `.png` only, so a QC report
