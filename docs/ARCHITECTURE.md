@@ -1080,7 +1080,7 @@ Rules:
     | `tetravox:module-open-dialog` | An Open sheet with the reader's title and filters; the result is allow-listed exactly like File ▸ Open's. |
     | `tetravox:module-save-dialog` | A Save sheet whose result admits the chosen path **and** the writer's declared same-directory siblings for writing. |
     | `tetravox:module-write-text` | UTF-8 text, ≤ 8 MiB, to a path on **that extension's** list, `.part` + rename, with an optional main-side `.bak` copy first. Extensions `.tsv .csv .json .txt .fcsv .svg .html` (2026-09-03) — the channel had **no** filter before, so an extension holding a `{name}`-derived sibling admission could write an executable beside the table the user named. |
-    | `tetravox:module-write-binary` | **PNG bytes**, ≤ 32 MiB, to a path on that extension's list (2026-09-03). Everything else is `module-write-text`'s, unchanged and the same code path; the two differ only in the extension list and the cap, and main picks which from the channel it was called on rather than from the shape of an argument. |
+    | `tetravox:module-write-binary` | **Figure bytes** — `.png` or `.pdf` (`.pdf` appended 2026-09-03) — ≤ 32 MiB, to a path on that extension's list. Everything else is `module-write-text`'s, unchanged and the same code path; the two differ only in the extension list and the cap, and main picks which from the channel it was called on rather than from the shape of an argument. A multi-page QC figure is a PDF and not a tall raster, which is what the second extension buys; the path admission is untouched. |
 
     The write list is `Map<moduleId, …>`, separate from `scene-io.ts`'s `writable`: an extension cannot write over
     a scene, the scene channel cannot write an extension's files, and one extension's Save sheet admits nothing for
@@ -3276,8 +3276,9 @@ extends is bounded.
   volume is the §6.5 wasm one and its ops are frozen §6 Rust signatures, so a truly off-thread sampler is a
   new op; the member is a **promise** so that op can replace the loop without touching the signature
   (`docs/ROADMAP.md`).
-* **`files.writeBinary(path, bytes, opts?)`** — `writeText`'s `.png` twin over §5 rule 11's new
-  `module-write-binary` channel, ≤ 32 MiB, same write list, same `.part` + rename, same main-side `.bak`.
+* **`files.writeBinary(path, bytes, opts?)`** — `writeText`'s figure twin over §5 rule 11's new
+  `module-write-binary` channel: `.png` or `.pdf` (2026-09-03), ≤ 32 MiB, same write list, same `.part` +
+  rename, same main-side `.bak`.
 * **`{derivatives}` writer templates** — §5 rule 11's second sibling class, so a writer can declare
   `{derivatives}/tetravox/sub-{id}/ieeg/figures/…` and the shell resolves the dataset's own derivatives tree.
 * **`capture.setView(preset, opts?)`** — §7.5's `1..6` camera presets under their anatomical names

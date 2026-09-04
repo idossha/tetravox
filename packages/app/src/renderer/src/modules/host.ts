@@ -218,10 +218,11 @@ export interface ModuleHost {
       opts?: { backup?: boolean }
     ): Promise<{ ok: true; backupPath: string | null } | { ok: false; error: string }>;
     /**
-     * The same write, for **PNG bytes** (appended 2026-09-03, additively).
+     * The same write, for **figure bytes** (appended 2026-09-03, additively).
      *
-     * `.png` only, ≤ 32 MiB — the extension filter and size cap keep this a figure channel, not a
-     * general byte channel.
+     * `.png` or `.pdf` only, ≤ 32 MiB — the extension filter and size cap keep this a figure
+     * channel, not a general byte channel. `.pdf` is for a multi-page QC figure, which is a
+     * different artefact from one tall raster and not one an extension can express as a `.png`.
      *
      * Everything else is {@link writeText}'s, unchanged: the same module-scoped write list, the
      * same `.part` + rename, the same main-side `.bak` copy, and the same allow-listing of the
