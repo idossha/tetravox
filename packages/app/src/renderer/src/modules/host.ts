@@ -24,6 +24,7 @@
 
 import type { ComponentType } from 'react';
 import type {
+  Camera3D,
   CoordSpaceRef,
   Dataset,
   DatasetId,
@@ -80,6 +81,21 @@ export interface ModuleEvents {
   cursor: vec3;
   /** The engine's own `pointTool` event (§4.7), forwarded to the module in the slot. */
   pointTool: PointToolEvent;
+  /**
+   * A probe landed — the engine's own `probe` event (§4.7), forwarded (appended 2026-09-04).
+   *
+   * `world` is where the click or the crosshair move put the point; `result` is §4.3's probe over
+   * every layer under it, whose rows already carry `layerId`, `elementId`, `value` and `labelId`.
+   * That is why this is the engine's event forwarded rather than a narrower `pick` shape of the
+   * host's own: a second declaration of what a hit *is* would be a second thing to keep in step with
+   * a frozen file, and it would carry strictly less.
+   *
+   * **Not the same as `on('cursor')` followed by `scene.probe(world)`.** A mesh row is resolved
+   * asynchronously, so the probe read on the `cursor` edge is the one from before the click — the
+   * gap §8's info panel hit, and the reason the engine grew this event. A module that wants "what
+   * did the user just click on" wants this one.
+   */
+  probe: { world: vec3; result: ProbeResult };
   sceneLoaded: { blocks: Record<string, ExtensionBlock> };
   sceneCleared: void;
 }
@@ -181,11 +197,32 @@ export interface ModuleHost {
      * would be wrong on an oblique view and would not follow a rotation.
      *
      * What it is *for*: a contact editor lists each contact's distance from the plane the user is
-     * looking at, which is the number that says "this one is on the slice you are on". Everything
-     * else about a view — its camera, its zoom, its layer visibility — is deliberately still not
-     * offered: this is the one fact a panel beside the panes has to know.
+     * looking at, which is the number that says "this one is on the slice you are on".
+     *
+     * A 2-D pane's own camera — its `{ center, mmPerPx }` — and every view's layer visibility are
+     * still not offered; only the 3-D camera is, through {@link camera} below.
      */
     activePlane(): { normal: vec3; point: vec3 } | null;
+
+    /**
+     * The **3-D pane's** camera (appended 2026-09-04, additively — see `docs/DECISIONS.md`).
+     *
+     * This reverses a stated non-goal, and the reason is one use it was blocking: a module cannot
+     * record the view a finding was seen from, nor put the camera back on it. `activePlane` above
+     * answers that question for a slice pane and had no answer for the 3-D one.
+     *
+     * A **copy** of `Camera3D`, so holding the return value is a snapshot rather than an alias of a
+     * camera the user is still orbiting.
+     */
+    camera(): Camera3D;
+    /**
+     * Move it. A **patch**, so a module writes the fields it means and the rest stay the engine's —
+     * which matters most for `near`/`far`, derived from the fit radius (§7.2): restoring a saved
+     * pose by writing all seven fields would carry a stale clip range back with it.
+     *
+     * Marks the scene dirty, because an orbit does (directed task 13) and this is the same change.
+     */
+    setCamera(patch: Partial<Camera3D>): void;
   };
 
   /**
