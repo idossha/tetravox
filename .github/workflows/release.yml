@@ -189,7 +189,10 @@ jobs:
           # the smoke job on an M2 (against 3 s native), which is nothing next to a leg that cannot
           # render at all. `--all` is what runs both.
           - name: macOS arm64 + x64 (dmg + zip)
-            os: macos-latest
+            # Pinned: on the macos-26 image at Darwin 25.6 (2026-09-04) electron-builder's temporary
+            # signing keychain rejects its own passphrase (`SecKeychainUnlock`), so `--mac` fails
+            # before building. macos-15 keeps Metal for the smoke job.
+            os: macos-15
             builder: --mac
             smoke: --all
             required: 'yes'
