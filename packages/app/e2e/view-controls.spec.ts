@@ -1,7 +1,15 @@
 /** §7.5 / §8: direct slice selection, origin reset, and capture controls without scrolling. */
 import { resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { APP_ROOT, launchApp } from './fixtures';
+import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import type { LaunchOptions, LaunchTarget } from './fixtures';
+
+function launchViewer(options: LaunchOptions) {
+  const target = test.info().project.name as LaunchTarget;
+  const unavailable = target === 'packaged' ? packagedUnavailable() : null;
+  test.skip(unavailable !== null, unavailable ?? '');
+  return launchApp(target, options);
+}
 
 const realData = process.env['TETRAVOX_TESTDATA'];
 for (const [name, volume] of [
@@ -10,7 +18,7 @@ for (const [name, volume] of [
 ] as const) {
   test(`direct views preserve the cursor; Reset reaches world origin (${name}, real engine)`, async () => {
     test.skip(volume === undefined, 'Set TETRAVOX_TESTDATA to exercise the subject T1.');
-    const app = await launchApp('dev', {
+    const app = await launchViewer({
       search: 'engine=real',
       args: [volume!],
     });
@@ -74,7 +82,7 @@ for (const [name, volume] of [
 }
 
 test('all screenshot targets fit the minimum window without scrolling (§8)', async () => {
-  const app = await launchApp('dev', { search: 'engine=mock' });
+  const app = await launchViewer({ search: 'engine=mock' });
   try {
     const page = await app.firstWindow();
     await page.waitForSelector('[data-testid="shell"][data-ready="true"]');
@@ -134,7 +142,7 @@ test('all screenshot targets fit the minimum window without scrolling (§8)', as
 });
 
 test('layer controls fit the left sidebar without horizontal scrolling (§8)', async () => {
-  const app = await launchApp('dev', {
+  const app = await launchViewer({
     search: 'engine=real',
     args: [
       resolve(APP_ROOT, '../../testdata/vol_u8.nii.gz'),
