@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.11] - 2026-09-04
+
 ### Changed
 
 - **Direct anatomical views** — Sagittal, Coronal and Axial buttons display a single slice. The 3D+1
