@@ -78,7 +78,7 @@ const P = {
 // ------------------------------------------------------------------------------------------------
 
 interface LayerRecord {
-  kind: 'volume' | 'mesh' | 'iso' | 'points';
+  kind: 'volume' | 'mesh' | 'iso' | 'points' | 'surface';
   name: string;
   settings: Record<string, unknown>;
 }
@@ -1617,7 +1617,8 @@ test.describe('visualisation scenario catalogue', () => {
       await page.click(`[data-testid="layer-eye-${t1}"]`);
       await page.click('[data-testid="layout-2x2"]');
       await openFiles(app, page, [P.pial]);
-      const pial = await layerIdOf(page, 'mesh', 1);
+      // 2026-09-06, R1: a `.gii` is a **surface** layer, with its own editor.
+      const pial = await layerIdOf(page, 'surface');
       const labelModes = await page.evaluate((id: string) => {
         const state = window.__tetravox?.store.getState();
         const layer = state?.layers.find((l) => l.id === id);
@@ -1634,7 +1635,7 @@ test.describe('visualisation scenario catalogue', () => {
       await activate(page, electrodes.id);
       await page.click(`[data-testid="layer-eye-${electrodes.id}"]`);
       await activate(page, pial);
-      await reveal(page, `mesh-properties-${pial}`);
+      await reveal(page, `surface-properties-${pial}`);
       await frame3d(page);
       await shoot(page, '13-cortical-surface.png');
       await dolly3d(page, -260);
@@ -1657,13 +1658,13 @@ test.describe('visualisation scenario catalogue', () => {
         ],
         layers: [
           {
-            kind: 'mesh',
+            kind: 'surface',
             name: 'lh.pial.gii',
             settings: {
-              colorMode: 'tag',
+              colorMode: 'solid',
               contoursIn2D: true,
-              fillIn2D: true,
-              'label.table': labelModes.hasLabelTable ? 'present' : 'absent',
+              contourWidthPx: 1.5,
+              annotation: labelModes.hasLabelTable ? 'present' : 'absent',
             },
           },
           { kind: 'volume', name: 'T1.nii.gz', settings: { colormap: 'gray' } },
@@ -1672,20 +1673,15 @@ test.describe('visualisation scenario catalogue', () => {
           'Open… → lh.pial.gii.',
           'The layer row’s eye hides the head mesh and the electrode net, so the surface is what ' +
             'the 3D pane shows.',
-          '2D cross-section section → fill and contours are both on by default; a surface has no ' +
-            'volume elements to fill, so what a 2D pane gets from it is the contour.',
+          '2D outline section → on by default at 1.5 px in the surface’s own colour; a surface has no ' +
+            'volume elements to fill, so its whole 2D presence is the outline.',
         ],
         notes: [
-          'LIMITATION — the DK40 annotation could not be attached. A .annot carries a colortable ' +
-            'and one label per vertex, and the mesh reader in the Rust crate parses that format; ' +
-            'but the loader entry point the app calls takes only a mesh file, a .msh.opt and a ' +
-            'LUT, and it fills a surface’s label table from a .label.gii’s own <LabelTable> only. ' +
-            'There is no path — dialog, sidecar or engine call — that hands lh.ernie_DK40.annot ' +
-            'to lh.pial.gii, so “colour by label” has no table to use here and the surface is ' +
-            'drawn in its tag colour instead. The colour-by-label mode itself works: it is proved ' +
-            'on a .label.gii in the engine’s own golden tests.',
-          'Consequently there is no outline-mode close-up for the annotation either; outline mode ' +
-            'is a label-colouring option and needs the table.',
+          'The surface opens in a single colour (Freeview yellow for the first surface). The DK40 ' +
+            'annotation is deliberately not attached in this shot; since 2026-09-06 it can be — ' +
+            'Open… or drag it onto the window, or the Colour section’s Attach file… — and it ' +
+            'becomes the surface’s colour source with the atlas listed under Regions ' +
+            '(annot-realdata.spec.ts proves that on this file).',
         ],
       });
     } finally {

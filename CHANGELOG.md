@@ -10,6 +10,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Surfaces are their own layer kind** — a `.gii`, FreeSurfer, STL/PLY/OBJ shell opens as a `surface`
+  layer with a simpler editor of its own: one colour source (solid, overlay, annotation) with **Attach
+  file…**, the atlas's regions when one is shown, appearance, the 2D outline, and clip planes. No tissue
+  table, isolation, glyphs or caps on a surface. The layer row says `surface` and leads with the
+  hemisphere. Tet meshes are unchanged. Scenes saved before this that held a surface as a mesh layer
+  still open, as a mesh layer.
 - **Surface annotations and overlays** — open a FreeSurfer `.annot` (SimNIBS's
   `segmentation/lh.<subject>_DK40.annot`, `a2009s`, `HCP_MMP1`), a morph file (`curv`, `sulc`, `thickness`) or
   a data-only `.func`/`.shape`/`.label.gii` onto a surface that is already open: through Open / drag-and-drop,

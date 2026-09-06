@@ -5179,3 +5179,21 @@ an overlay recolours the surface's layers by it (the app's choice, not the engin
 carries a table still does not, as before. Fields are named after the file (`lh.ernie_DK40.annot`), never the
 reader's `annot`, so two atlases on one hemisphere coexist and the region panel says which is which.
 
+
+## 2026-09-06 — Surfaces are their own layer kind; the renderer still draws them as triangles (§4.4, §7.4, §8)
+
+The user's ask (`docs/requirements/2026-09-06-idohaber-surfaces.md`): "TetraVox needs to distinguish
+between a mesh and a surface … treat surfaces as first class citizens … the menu that comes with them needs
+to be simpler or at least unique", with "a logical modular separation that would make sense for
+neuroscientists and 3D developers", and no backward compatibility owed. The engine already knew the
+difference (`isSurfaceMesh`, the contour palette) but the model did not: a `.gii` was a `MeshLayer` and got
+the tissue table, isolation, glyphs and caps of a tet mesh. `SurfaceLayer` is the model — one colour source,
+solid / overlay / annotation — with its own defaults, serialisation, editor and runtime module, and
+`scene/surface.ts` projects it onto `MeshLayer` so §7.4's passes are untouched.
+Rejected: a second render path for surfaces (the same triangles through the same shaders; a second shader
+set is the renderer rewrite the contract refuses); hiding the mesh editor's sections by `nTets === 0` (the
+model would still say "tissue tag" and every scene, preset and probe would keep the wrong vocabulary);
+migrating pre-existing scenes' `mesh` layers over tet-less datasets (not owed, and the stored kind still
+opens as before). The R5 import wall is a source-reading vitest, so the separation is a test rather than a
+convention. New golden `surface-default` [surface.spec.ts]: the FreeSurfer patch in Freeview yellow.
+

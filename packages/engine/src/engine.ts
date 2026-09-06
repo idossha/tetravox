@@ -64,6 +64,8 @@ import type { Image } from './render/screenshot';
 import type { DrawInput } from './render/renderer';
 import { CutManager, CUT_KEY_3D_CLIP } from './compute/cut-manager';
 import { MeshLayerRuntime } from './layers/mesh';
+import { SurfaceLayerRuntime } from './layers/surface';
+import { meshView } from './scene/surface';
 import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
 import { createIso3dRuntime, derivedIsoLayers } from './layers/iso3d';
@@ -824,7 +826,13 @@ export class TetravoxEngine implements Engine, PointerHost {
     const seeded =
       base.kind === 'mesh' && base.contourColor !== undefined && !('contourColor' in spec)
         ? { ...base, contourColor: surfaceContourColor(this.#surfaceLayerCount()) }
-        : base;
+        : base.kind === 'surface' && !('contourColor' in spec) && !('solidColor' in spec)
+          ? {
+              ...base,
+              solidColor: surfaceContourColor(this.#surfaceLayerCount()),
+              contourColor: surfaceContourColor(this.#surfaceLayerCount()),
+            }
+          : base;
     const layer = { ...seeded, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
     // §4.6 does not serialise a `LabelTable`, so a `label` that arrives from a scene file carries
     // the user's `mode` / `outlineWidthPx` / `visibleLabels` and **no table**. The table is the one
@@ -841,6 +849,20 @@ export class TetravoxEngine implements Engine, PointerHost {
       if (named !== undefined) layer.label = { ...layer.label, table: named };
       else if (seeded === undefined) delete (layer as { label?: unknown }).label;
       else layer.label = { ...layer.label, table: seeded.table };
+    }
+    // The same for a surface's `annotation` (2026-09-06): by name, else the seeded table, else none.
+    if (
+      layer.kind === 'surface' &&
+      layer.annotation !== undefined &&
+      layer.annotation.table === undefined
+    ) {
+      const named = (ds as MeshDataset).labelTables?.[layer.annotation.name];
+      const seeded = base.kind === 'surface' ? base.annotation : undefined;
+      if (named !== undefined) layer.annotation = { ...layer.annotation, table: named };
+      else if (seeded === undefined) {
+        delete (layer as { annotation?: unknown }).annotation;
+        if (layer.colorMode === 'annotation') layer.colorMode = 'solid';
+      } else layer.annotation = { ...layer.annotation, table: seeded.table };
     }
     this.#store.addLayer(layer);
     // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
@@ -860,8 +882,9 @@ export class TetravoxEngine implements Engine, PointerHost {
    * defeat the point.
    */
   #surfaceLayerCount(): number {
-    return this.#scene.layers.filter((l) => l.kind === 'mesh' && l.contourColor !== undefined)
-      .length;
+    return this.#scene.layers.filter(
+      (l) => l.kind === 'surface' || (l.kind === 'mesh' && l.contourColor !== undefined)
+    ).length;
   }
 
   removeLayer(id: LayerId): void {
@@ -912,14 +935,24 @@ export class TetravoxEngine implements Engine, PointerHost {
    * the only way to set one.
    */
   setMeshEmphasis(layerId: LayerId, emphasis: MeshEmphasis): void {
+    this.#meshRuntime(layerId)?.setEmphasis(emphasis);
+  }
+
+  /**
+   * The mesh runtime behind a layer id: a mesh layer's own, or the one a surface layer wraps
+   * (`layers/surface.ts`, 2026-09-06). Every mesh-side accessor below resolves through here, so a
+   * surface answers the colour bar, the loading state and the clip cut exactly as a mesh does.
+   */
+  #meshRuntime(layerId: LayerId): MeshLayerRuntime | null {
     const rt = this.#layers.get(layerId);
-    if (rt instanceof MeshLayerRuntime) rt.setEmphasis(emphasis);
+    if (rt instanceof MeshLayerRuntime) return rt;
+    if (rt instanceof SurfaceLayerRuntime) return rt.mesh;
+    return null;
   }
 
   /** What that mesh layer's §8 colour bar is made of, or `null` when it is not scalar-coloured. */
   meshColorbarScale(layerId: LayerId): MeshScaleInfo | null {
-    const rt = this.#layers.get(layerId);
-    return rt instanceof MeshLayerRuntime ? rt.colorbarScale() : null;
+    return this.#meshRuntime(layerId)?.colorbarScale() ?? null;
   }
 
   /**
@@ -927,8 +960,7 @@ export class TetravoxEngine implements Engine, PointerHost {
    * variant or the field/label table this layer needs has been asked for and has not landed.
    */
   meshLayerLoading(layerId: LayerId): boolean {
-    const rt = this.#layers.get(layerId);
-    return rt instanceof MeshLayerRuntime ? rt.loading : false;
+    return this.#meshRuntime(layerId)?.loading ?? false;
   }
 
   /**
@@ -954,8 +986,8 @@ export class TetravoxEngine implements Engine, PointerHost {
     edgeMask: Uint8Array;
     capBytes: number;
   } | null {
-    const rt = this.#layers.get(layerId);
-    if (!(rt instanceof MeshLayerRuntime)) return null;
+    const rt = this.#meshRuntime(layerId);
+    if (rt === null) return null;
     const snap = this.#cuts.getCut(rt.datasetId, CUT_KEY_3D_CLIP);
     if (snap === null) return null;
     return {
@@ -988,8 +1020,8 @@ export class TetravoxEngine implements Engine, PointerHost {
   meshIsolation(
     layerId: LayerId
   ): { maskId: number; visibleTets: number; generation: number } | null {
-    const rt = this.#layers.get(layerId);
-    if (!(rt instanceof MeshLayerRuntime)) return null;
+    const rt = this.#meshRuntime(layerId);
+    if (rt === null) return null;
     const state = rt.isolation;
     return state === null
       ? null
@@ -1012,8 +1044,9 @@ export class TetravoxEngine implements Engine, PointerHost {
    * cap.
    */
   meshClipPlanes(layerId: LayerId): { index: number; plane: { normal: vec3; offset: number } }[] {
-    const layer = this.#scene.layers.find((l) => l.id === layerId);
-    if (layer === undefined || layer.kind !== 'mesh') return [];
+    const found = this.#scene.layers.find((l) => l.id === layerId);
+    const layer = found === undefined ? null : meshView(found);
+    if (layer === null) return [];
     const out: { index: number; plane: { normal: vec3; offset: number } }[] = [];
     for (const [index, cp] of layer.clip.planes.entries()) {
       if (!cp.enabled) continue;
@@ -1493,8 +1526,9 @@ export class TetravoxEngine implements Engine, PointerHost {
     // read the same number, from the same expression, or a HiDPI line would be hit-tested at CSS width.
     const scale = Math.max(1, Math.round(dpr));
     let best: { id: LayerId; d2: number } | null = null;
-    for (const layer of this.#scene.layers) {
-      if (layer.kind !== 'mesh' || !layer.contoursIn2D || !layer.visible) continue;
+    for (const scene of this.#scene.layers) {
+      const layer = meshView(scene);
+      if (layer === null || !layer.contoursIn2D || !layer.visible) continue;
       if (!layer.pickable) continue;
       const ds = this.#scene.datasets.get(layer.datasetId);
       if (ds === undefined || ds.kind !== 'mesh') continue;
@@ -2270,11 +2304,13 @@ export class TetravoxEngine implements Engine, PointerHost {
 
   #windowLevelTarget(): { id: LayerId; scale: Scale } | null {
     const active = this.#scene.layers.find((l) => l.id === this.#scene.activeLayerId);
-    if (active !== undefined && (active.kind === 'volume' || active.kind === 'mesh')) {
+    if (
+      active !== undefined &&
+      (active.kind === 'volume' || active.kind === 'mesh' || active.kind === 'surface')
+    ) {
       const ds = this.#scene.datasets.get(active.datasetId);
       const isLabelVolume = active.kind === 'volume' && ds?.kind === 'volume' && ds.isLabel;
-      if (!isLabelVolume)
-        return { id: active.id, scale: (active as VolumeLayer | MeshLayer).scale };
+      if (!isLabelVolume) return { id: active.id, scale: active.scale };
     }
     for (let i = this.#scene.layers.length - 1; i >= 0; i -= 1) {
       const l = this.#scene.layers[i];

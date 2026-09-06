@@ -842,7 +842,54 @@ export interface GeoData {
   bounds: Aabb;
 }
 
-export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
+/**
+ * A **surface** (2026-09-06, `docs/requirements/2026-09-06-idohaber-surfaces.md` R1): a triangle
+ * sheet with no tetrahedra — a hemisphere from GIfTI or FreeSurfer, an STL/PLY/OBJ/OFF shell, a
+ * `.vtp`. It is what a neuroscientist means by "the pial surface", and it is deliberately **not** a
+ * `MeshLayer` with the tet controls greyed out: no tissue tags, no isolation, no glyphs, no 2D fill,
+ * no caps. What it has is one colour source at a time — a solid colour, a per-vertex **overlay**
+ * (curvature, thickness, a `.func.gii`) or an **annotation** (a `.annot` / `.label.gii` atlas) — its
+ * look, its 2D outline and clip planes.
+ *
+ * The renderer does not know the difference: `scene/surface.ts` projects a `SurfaceLayer` onto the
+ * `MeshLayer` shape the triangle passes draw (§7.4), so a surface and a tet mesh's boundary share one
+ * shader set. The separation is in the model and the editor, which is where the two are different.
+ */
+export interface SurfaceLayer extends LayerBase {
+  kind: 'surface';
+  colorMode: 'solid' | 'overlay' | 'annotation';
+  /** 0..1 (§4.1). Seeded from the surface palette in load order (§7.4). */
+  solidColor: vec4;
+  /** A node field of the dataset (`MeshDataset.fields`, `source: 'node'`). */
+  overlay?: { name: string; component: 'mag' | 0 | 1 | 2 };
+  /** A label table of the dataset (`MeshDataset.labelTables[name]`), drawn as §7.3's fill/outline. */
+  annotation?: {
+    name: string;
+    table: LabelTable;
+    mode: 'fill' | 'outline' | 'both';
+    outlineWidthPx: number;
+    visibleLabels?: Uint32Array;
+  };
+  colormap: ColormapName | string;
+  colormapNegative?: ColormapName | string;
+  scale: Scale;
+  threshold: Threshold;
+  flatShading: boolean;
+  /** `'both'` forced when `orient.openComponents > 0`, as for a mesh. */
+  faceMode: 'cull' | 'both';
+  edges: boolean;
+  /** 0..1 */
+  edgeColor: vec4;
+  edgeWidthPx: number;
+  /** Planes only: a sheet has no interior to cap. */
+  clip: { planes: ClipPlane[] /* max 6 */ };
+  /** The 2D presence of a surface is its outline (§7.4). */
+  contoursIn2D: boolean;
+  contourWidthPx: number;
+  contourColor: vec4;
+}
+
+export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer | SurfaceLayer;
 
 // Layers are ordered bottom→top and appear in every view unless `SliceView.layerVisibility` /
 // `View3D.layerVisibility` says otherwise.
@@ -1097,6 +1144,13 @@ export interface DatasetRef {
 export type SerializableLayer = Omit<Layer, 'visibleLabels'> & {
   visibleLabels?: number[];
   label?: {
+    name: string;
+    mode: string;
+    outlineWidthPx: number;
+    visibleLabels?: number[];
+  };
+  /** `SurfaceLayer.annotation` without its table, which is re-derived from the dataset on load. */
+  annotation?: {
     name: string;
     mode: string;
     outlineWidthPx: number;

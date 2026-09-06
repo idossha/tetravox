@@ -59,6 +59,7 @@ async function shutdown(): Promise<void> {
 }
 
 interface Facts {
+  kind: string;
   fields: string[];
   tables: Record<string, number>;
   colorMode: string;
@@ -72,20 +73,22 @@ async function facts(): Promise<Facts> {
   return page.evaluate(() => {
     const state = window.__tetravox!.store.getState();
     const layer = state.layers[0] as {
+      kind: string;
       colorMode: string;
       datasetId: string;
-      label?: { name: string; table: { entries: unknown[] } };
+      annotation?: { name: string; table: { entries: unknown[] } };
     };
     const ds = state.datasets.find((d) => d.id === layer.datasetId);
     if (ds === undefined || ds.kind !== 'mesh') throw new Error('no mesh dataset');
     const tables: Record<string, number> = {};
     for (const [k, t] of Object.entries(ds.labelTables ?? {})) tables[k] = t.entries.length;
     return {
+      kind: layer.kind,
       fields: ds.fields.map((f) => f.name),
       tables,
       colorMode: layer.colorMode,
-      labelName: layer.label?.name ?? null,
-      labelEntries: layer.label?.table.entries.length ?? 0,
+      labelName: layer.annotation?.name ?? null,
+      labelEntries: layer.annotation?.table.entries.length ?? 0,
       toasts: state.toasts.map((t) => t.detail),
       nNodes: ds.nNodes,
     };
@@ -104,11 +107,13 @@ test.describe('lh.ernie_DK40.annot onto lh.pial.gii', () => {
       await page.waitForFunction(
         () =>
           (window.__tetravox?.store.getState().layers[0] as { colorMode?: string } | undefined)
-            ?.colorMode === 'label',
+            ?.colorMode === 'annotation',
         undefined,
         { timeout: 120_000 }
       );
       const got = await facts();
+      // R1 (2026-09-06): `lh.pial.gii` is a surface layer, and the row says which hemisphere.
+      expect(got.kind).toBe('surface');
       expect(got.nNodes).toBe(REF.surfaces['m2m_ernie/surfaces/lh.pial.gii']!.nNodes);
       expect(got.fields).toContain('lh.ernie_DK40.annot');
       expect(got.tables['lh.ernie_DK40.annot']).toBe(DK40.nEntries);
@@ -137,7 +142,7 @@ test.describe('lh.ernie_DK40.annot onto lh.pial.gii', () => {
       const got = await facts();
       expect(got.toasts[0]).toContain('other hemisphere');
       expect(got.fields).not.toContain('rh.ernie_DK40.annot');
-      expect(got.colorMode).not.toBe('label');
+      expect(got.colorMode).not.toBe('annotation');
     } finally {
       await shutdown();
     }

@@ -20,10 +20,11 @@ import type {
   MeshFieldInfo,
   MeshLayer,
   Scale,
+  SurfaceLayer,
   Threshold,
-  VolumeDataset,
   vec3,
   vec4,
+  VolumeDataset,
 } from '@tetravox/engine';
 import { DEFAULT_GLYPH_LENGTH_MM, glyphScaling } from '@tetravox/engine';
 
@@ -330,11 +331,22 @@ export function offsetThrough(normal: vec3, point: vec3): number {
   return -dot3(normal, point);
 }
 
-function withPlanes(layer: MeshLayer, planes: ClipPlane[]): Partial<MeshLayer> {
-  return { clip: { ...layer.clip, planes } };
+/**
+ * A layer that carries clip planes: a mesh (planes + caps) or a surface (planes only, 2026-09-06).
+ * The plane helpers below are written over this union so one clip editor serves both; the two
+ * cap helpers stay mesh-only, a sheet having no interior to cap.
+ */
+export type ClipLayer = MeshLayer | SurfaceLayer;
+
+function withPlanes<L extends ClipLayer>(layer: L, planes: ClipPlane[]): Partial<L> {
+  return { clip: { ...layer.clip, planes } } as Partial<L>;
 }
 
-export function addClipPlane(layer: MeshLayer, normal: vec3, offset: number): Partial<MeshLayer> {
+export function addClipPlane<L extends ClipLayer>(
+  layer: L,
+  normal: vec3,
+  offset: number
+): Partial<L> {
   if (layer.clip.planes.length >= MAX_CLIP_PLANES) return {};
   const unit = normalize3(normal) ?? [0, 0, 1];
   return withPlanes(layer, [
@@ -343,7 +355,7 @@ export function addClipPlane(layer: MeshLayer, normal: vec3, offset: number): Pa
   ]);
 }
 
-export function removeClipPlane(layer: MeshLayer, index: number): Partial<MeshLayer> {
+export function removeClipPlane<L extends ClipLayer>(layer: L, index: number): Partial<L> {
   if (layer.clip.planes[index] === undefined) return {};
   return withPlanes(
     layer,
@@ -351,11 +363,11 @@ export function removeClipPlane(layer: MeshLayer, index: number): Partial<MeshLa
   );
 }
 
-function patchPlane(
-  layer: MeshLayer,
+function patchPlane<L extends ClipLayer>(
+  layer: L,
   index: number,
   edit: (p: ClipPlane) => ClipPlane
-): Partial<MeshLayer> {
+): Partial<L> {
   const current = layer.clip.planes[index];
   if (current === undefined) return {};
   return withPlanes(
@@ -364,11 +376,11 @@ function patchPlane(
   );
 }
 
-export function setClipEnabled(
-  layer: MeshLayer,
+export function setClipEnabled<L extends ClipLayer>(
+  layer: L,
   index: number,
   enabled: boolean
-): Partial<MeshLayer> {
+): Partial<L> {
   return patchPlane(layer, index, (p) => ({ ...p, enabled }));
 }
 
@@ -380,11 +392,11 @@ export function setClipEnabled(
  * following is a scene that did not persist. `false` is written as `undefined` so a plane that never
  * followed serialises exactly as Phase 1's did.
  */
-export function setClipFollowsCursor(
-  layer: MeshLayer,
+export function setClipFollowsCursor<L extends ClipLayer>(
+  layer: L,
   index: number,
   on: boolean
-): Partial<MeshLayer> {
+): Partial<L> {
   return patchPlane(layer, index, (p) => {
     const next = { ...p };
     if (on) next.followCursor = true;
@@ -393,13 +405,21 @@ export function setClipFollowsCursor(
   });
 }
 
-export function setClipNormal(layer: MeshLayer, index: number, normal: vec3): Partial<MeshLayer> {
+export function setClipNormal<L extends ClipLayer>(
+  layer: L,
+  index: number,
+  normal: vec3
+): Partial<L> {
   const unit = normalize3(normal);
   if (unit === null) return {};
   return patchPlane(layer, index, (p) => ({ ...p, plane: { ...p.plane, normal: unit } }));
 }
 
-export function setClipOffset(layer: MeshLayer, index: number, offset: number): Partial<MeshLayer> {
+export function setClipOffset<L extends ClipLayer>(
+  layer: L,
+  index: number,
+  offset: number
+): Partial<L> {
   return patchPlane(layer, index, (p) => ({ ...p, plane: { ...p.plane, offset } }));
 }
 
@@ -409,7 +429,7 @@ export function setClipOffset(layer: MeshLayer, index: number, offset: number): 
  * would translate the plane to `dot(n, x) = d`, which is the mirror plane through the origin — a
  * bug that looks like "flip works, but the cut jumps" and is invisible at `offset == 0`.
  */
-export function flipClipPlane(layer: MeshLayer, index: number): Partial<MeshLayer> {
+export function flipClipPlane<L extends ClipLayer>(layer: L, index: number): Partial<L> {
   return patchPlane(layer, index, (p) => ({
     ...p,
     plane: {
@@ -436,7 +456,7 @@ export function setCapColorMode(
  * Returns `{}` when nothing follows or nothing moved, so the controller can skip the call rather
  * than emit an `updateLayer` per cursor event.
  */
-export function planesThroughCursor(layer: MeshLayer, cursor: vec3): Partial<MeshLayer> {
+export function planesThroughCursor<L extends ClipLayer>(layer: L, cursor: vec3): Partial<L> {
   let changed = false;
   const planes = layer.clip.planes.map((p) => {
     if (p.followCursor !== true) return p;
@@ -449,7 +469,7 @@ export function planesThroughCursor(layer: MeshLayer, cursor: vec3): Partial<Mes
 }
 
 /** Whether any plane of this layer follows the cursor — the controller's cheap early-out. */
-export function anyPlaneFollowsCursor(layer: MeshLayer): boolean {
+export function anyPlaneFollowsCursor(layer: ClipLayer): boolean {
   return layer.clip.planes.some((p) => p.followCursor === true);
 }
 

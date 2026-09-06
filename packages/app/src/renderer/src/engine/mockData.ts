@@ -440,6 +440,9 @@ export function makeMesh(
   options: { opt?: boolean } = {}
 ): MeshDataset {
   const hasTris = !/tetonly|grey_/i.test(name);
+  // A surface file has no tets (2026-09-06, R1): the stand-in reports 0 so the app opens it as a
+  // surface layer, exactly as the real loader's `nTets` makes it do.
+  const isSurface = /\.gii$|\.(stl|ply|obj|off|vtp)$|(^|\/)(lh|rh)\.[a-z]+$/i.test(name);
   const tags: MeshTag[] = MESH_TAGS.filter((t) => hasTris || t.kind === 'tet').map((t, i) => ({
     ...t,
     color: TAG_COLORS[i % TAG_COLORS.length] as [number, number, number, number],
@@ -455,9 +458,9 @@ export function makeMesh(
       min: [-84.436612, -92.398125, -128.860523],
       max: [83.3978, 136.15704, 99.951712],
     },
-    nNodes: 847_165,
-    nTris: hasTris ? 1_177_213 : 0,
-    nTets: 4_722_625,
+    nNodes: isSurface ? 245_762 : 847_165,
+    nTris: hasTris ? (isSurface ? 491_520 : 1_177_213) : 0,
+    nTets: isSurface ? 0 : 4_722_625,
     hasTris,
     fields: [
       {
@@ -519,6 +522,27 @@ export function defaultLayer(dataset: Dataset, layerId: LayerId): Layer {
       outlineWidthPx: 1,
       showIn3D: false,
       precision: 'auto',
+    };
+  }
+  if (dataset.nTets === 0 && dataset.hasTris) {
+    return {
+      ...base,
+      showColorbar: false,
+      kind: 'surface',
+      colorMode: 'solid',
+      solidColor: [1, 0.92, 0.23, 1],
+      colormap: 'viridis',
+      scale: { kind: 'linear', lo: 0, hi: 1 },
+      threshold: { lo: 0, hi: 1, symmetric: false, mode: 'hide', softEdge: 0 },
+      flatShading: false,
+      faceMode: dataset.orient.openComponents > 0 ? 'both' : 'cull',
+      edges: false,
+      edgeColor: [0, 0, 0, 1],
+      edgeWidthPx: 1,
+      clip: { planes: [] },
+      contoursIn2D: true,
+      contourWidthPx: 1.5,
+      contourColor: [1, 0.92, 0.23, 1],
     };
   }
   const tagStyle: Record<number, { visible: boolean; opacity: number }> = {};

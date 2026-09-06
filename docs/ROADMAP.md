@@ -23,6 +23,10 @@ user-defined ones, label fill/outline/both over a dense-index palette, per-regio
 4D frame stepping, and `showIn3D` slice planes in the 3D pane. A volume layer carries its own 3D isosurfaces,
 one per visible region for a label volume.
 
+**Surfaces.** A triangle-only file (GIfTI, FreeSurfer, STL/PLY/OBJ/OFF, `.vtp`) is a `surface` layer with its
+own model and editor: one colour source — solid, a per-vertex overlay, an atlas annotation — attached from a
+`.annot`, morph file or data-only GIfTI; the 2D outline; clip planes. Drawn by the mesh passes.
+
 **Meshes.** Tagged tissue surfaces, boundary extraction for tri-less tet meshes, node and element field
 colouring with component selection, up to six clip planes with exact per-element caps and a drag gizmo,
 element isolation (tags / field range / sphere / box / label volume), masked-barycentric element edges,

@@ -34,10 +34,11 @@ import type {
   MeshLayer,
   MeshTag,
   ProbeResult,
-  VolumeDataset,
-  VolumeLayer,
+  SurfaceLayer,
   vec3,
   vec4,
+  VolumeDataset,
+  VolumeLayer,
 } from '@tetravox/engine';
 
 export type RegionKind = 'labelVolume' | 'meshTag' | 'annot';
@@ -246,8 +247,10 @@ export function rowForTag(rows: readonly RegionRow[], tag: number): RegionRow | 
   return rows.find((r) => r.tags.includes(tag)) ?? null;
 }
 
-function annotRows(layer: MeshLayer, stats: readonly RegionStat[] | undefined): RegionRow[] {
-  const label = layer.label;
+function annotRows(
+  label: MeshLayer['label'] | SurfaceLayer['annotation'],
+  stats: readonly RegionStat[] | undefined
+): RegionRow[] {
   if (label === undefined) return [];
   const byId = statsById(stats);
   return label.table.entries.map((entry) => {
@@ -289,13 +292,26 @@ export function regionSourceFor(
       hasCounts: stats !== undefined && stats.length > 0,
     };
   }
+  // A surface (2026-09-06) has regions exactly when it shows an annotation.
+  if (layer.kind === 'surface' && dataset.kind === 'mesh') {
+    if (layer.colorMode !== 'annotation' || layer.annotation === undefined) return null;
+    return {
+      kind: 'annot',
+      layerId: layer.id,
+      title: layer.annotation.name,
+      rows: annotRows(layer.annotation, stats),
+      recolorable: true,
+      adjustableOpacity: false,
+      hasCounts: stats !== undefined && stats.length > 0,
+    };
+  }
   if (layer.kind === 'mesh' && dataset.kind === 'mesh') {
     if (layer.label !== undefined) {
       return {
         kind: 'annot',
         layerId: layer.id,
         title: layer.label.name,
-        rows: annotRows(layer, stats),
+        rows: annotRows(layer.label, stats),
         recolorable: true,
         adjustableOpacity: false,
         hasCounts: stats !== undefined && stats.length > 0,
@@ -451,6 +467,12 @@ export function visibilityPatch(
     else label.visibleLabels = sorted;
     return { label };
   }
+  if (source.kind === 'annot' && layer.kind === 'surface' && layer.annotation !== undefined) {
+    const annotation = { ...layer.annotation };
+    if (all) delete annotation.visibleLabels;
+    else annotation.visibleLabels = sorted;
+    return { annotation };
+  }
   if (source.kind === 'meshTag' && layer.kind === 'mesh') {
     // A row is a tissue and a tissue is one or two tags: showing Scalp shows tet 5 **and** tri 1005.
     const visible = new Set(visibleIds);
@@ -604,6 +626,11 @@ export function colorPatch(
     const entries = layer.label.table.entries.map((e) => (e.id === id ? { ...e, color } : e));
     const table = { entries, byId: new Map(entries.map((e) => [e.id, e])) };
     return { label: { ...layer.label, table } };
+  }
+  if (source.kind === 'annot' && layer.kind === 'surface' && layer.annotation !== undefined) {
+    const entries = layer.annotation.table.entries.map((e) => (e.id === id ? { ...e, color } : e));
+    const table = { entries, byId: new Map(entries.map((e) => [e.id, e])) };
+    return { annotation: { ...layer.annotation, table } };
   }
   return null;
 }

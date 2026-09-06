@@ -23,6 +23,14 @@ export { probeCapabilities } from './gl/caps';
 export { isColormapName, sampleColormap, scalePosition } from './color/colormaps';
 /** The deterministic colour §7.6 gives a label no LUT names — so a swatch matches the pane. */
 export { fallbackLabelColor } from './layers/volume';
+// 2026-09-06, R1/R5: the surface layer's own module.
+export {
+  annotationTable,
+  hemisphereOfName,
+  isSurfaceLayer,
+  meshView,
+  toMeshLayer,
+} from './scene/surface';
 
 /**
  * §4.4's `VolumeLayer.iso3d` (directed task 2, 2026-08-28): the defaults the **3D surface** switch

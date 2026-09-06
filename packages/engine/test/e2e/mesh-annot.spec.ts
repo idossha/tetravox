@@ -354,6 +354,87 @@ test('an attached annotation survives serialize() and load(): the table is found
   expect(errors).toEqual([]);
 });
 
+test('on a surface layer, an attached annotation is the `annotation` colour source (R3)', async ({
+  page,
+}) => {
+  const errors = await openSurface(page);
+  await attach(page, LABEL_GII);
+  // Replace the explicit mesh layer with the dataset's own default kind (R1), then colour by the
+  // attached atlas exactly as the app does after an attach.
+  const before = await page.evaluate(() => {
+    const engine = window.__tvxEngine!;
+    const ds = [...engine.scene.datasets.values()][0]!;
+    engine.removeLayer(window.__tvxGateLayer!);
+    const layer = engine.addLayer({ datasetId: ds.id } as never) as unknown as Record<
+      string,
+      unknown
+    >;
+    window.__tvxGateLayer = layer.id as string;
+    const table = ds.kind === 'mesh' ? ds.labelTables!['surf_regions.label.gii']! : null;
+    engine.updateLayer(
+      layer.id as string,
+      {
+        colorMode: 'annotation',
+        annotation: { name: 'surf_regions.label.gii', table, mode: 'fill', outlineWidthPx: 1 },
+      } as never
+    );
+    return { kind: layer.kind, hadLabel: 'label' in layer };
+  });
+  expect(before).toEqual({ kind: 'surface', hadLabel: false });
+  await patchAndSettle(page, {});
+  const tris = patchTriangles();
+  const keys = patchVertexKeys();
+  const step = 24;
+  const probes: [number, number][] = [];
+  for (let y = step; y < PANE; y += step)
+    for (let x = step; x < PANE; x += step) probes.push([x, y]);
+  const picked = await page.evaluate(async (ps) => {
+    const engine = window.__tvxEngine!;
+    let ready = null as ReturnType<typeof engine.pick>;
+    for (let i = 0; i < 60 && ready === null; i += 1) {
+      ready = engine.pick('view3d', 384, 384);
+      if (ready === null) {
+        await engine.whenSettled();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
+    const at = (x: number, y: number): number | null => {
+      const hit = engine.pick('view3d', x, y);
+      return hit === null || hit.elementKind !== 'tri' ? null : hit.elementId;
+    };
+    return (ps as [number, number][]).map((p) => {
+      const id = at(p[0], p[1]);
+      if (id === null) return null;
+      for (const [dx, dy] of [
+        [-6, 0],
+        [6, 0],
+        [0, -6],
+        [0, 6],
+      ]) {
+        if (at(p[0] + dx!, p[1] + dy!) !== id) return null;
+      }
+      return id;
+    });
+  }, probes);
+  const pixels = await readCanvasPixels(page, probes);
+  const seen = new Set<number>();
+  for (const [i, id] of picked.entries()) {
+    if (id === null) continue;
+    if (isBackground(pixels[i]!)) continue;
+    const tri = tris[id - 1];
+    if (tri === undefined) continue;
+    const [a, b, c] = tri;
+    if (keys[a] !== keys[b] || keys[b] !== keys[c]) continue;
+    const key = keys[a]!;
+    expect(solveShading(GIFTI_LABEL_COLORS[key]!, pixels[i]!).feasible, `triangle ${id}`).toBe(
+      true
+    );
+    seen.add(key);
+  }
+  expect([...seen].sort((x, y) => x - y)).toEqual([3, 7, 11]);
+  expect(errors).toEqual([]);
+});
+
 test('golden: mesh-annot-attached', async ({ page }) => {
   const errors = await openSurface(page);
   await attach(page, ANNOT);

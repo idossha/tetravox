@@ -335,6 +335,15 @@ export function serializableLayer(layer: Layer): SerializableLayer {
     // beside them, and a serialised one would restore as `{"0":…}` garbage.
     delete out.lineColors;
   }
+  if (layer.kind === 'surface' && layer.annotation !== undefined) {
+    const { name, mode, outlineWidthPx, visibleLabels } = layer.annotation;
+    out.annotation = {
+      name,
+      mode,
+      outlineWidthPx,
+      ...(visibleLabels === undefined ? {} : { visibleLabels: [...visibleLabels] }),
+    };
+  }
   if (layer.kind === 'mesh' && layer.label !== undefined) {
     const { name, mode, outlineWidthPx, visibleLabels } = layer.label;
     out.label = {
@@ -373,6 +382,20 @@ export function remapLayer(
   const threshold = runtimeThreshold(out['threshold']);
   if (threshold !== undefined) out.threshold = threshold;
 
+  if (layer.kind === 'surface') {
+    // As for `label` below: the annotation's table is re-derived by `Engine.addLayer`; its `mode`,
+    // width and hidden regions are the user's and travel.
+    const annotation = (layer as { annotation?: { visibleLabels?: number[] } }).annotation;
+    if (annotation === undefined) delete out.annotation;
+    else {
+      out.annotation = {
+        ...annotation,
+        ...(annotation.visibleLabels !== undefined
+          ? { visibleLabels: Uint32Array.from(annotation.visibleLabels) }
+          : {}),
+      };
+    }
+  }
   if (layer.kind === 'mesh') {
     // §4.6 does not serialise the `LabelTable`, so the spec's `label` has no `table` and cannot be
     // handed to `addLayer` as a `MeshLayer['label']`. It **is** carried, though: `mode`,
@@ -456,7 +479,13 @@ export function remapViews(
  * §4.6 exists to prevent.
  */
 export function isRestorableKind(kind: Layer['kind']): boolean {
-  return kind === 'volume' || kind === 'mesh' || kind === 'iso' || kind === 'points';
+  return (
+    kind === 'volume' ||
+    kind === 'mesh' ||
+    kind === 'iso' ||
+    kind === 'points' ||
+    kind === 'surface'
+  );
 }
 
 // ---------------------------------------------------------------------------------------------

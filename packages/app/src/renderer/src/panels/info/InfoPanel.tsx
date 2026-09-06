@@ -58,7 +58,7 @@ function Row({ row }: { row: ProbeRow }): React.JSX.Element {
   // the row's height is the same before and after an async mesh answer lands, and the same for a
   // point inside the mesh as for one outside it. That is what stops the panel jittering as the
   // cursor is dragged: every move used to paint a short row, then a taller one a frame later.
-  const isMesh = row.kind === 'mesh' || row.kind === 'iso';
+  const isMesh = row.kind === 'mesh' || row.kind === 'iso' || row.kind === 'surface';
   const isVolume = row.kind === 'volume';
   return (
     <div

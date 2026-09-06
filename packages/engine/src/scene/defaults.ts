@@ -23,6 +23,7 @@ import type {
   Scene,
   SliceMode,
   SliceView,
+  SurfaceLayer,
   Threshold,
   vec4,
   View3D,
@@ -255,6 +256,46 @@ export function defaultMeshLayer(id: string, ds: MeshDataset): MeshLayer {
 }
 
 /**
+ * §4.4's `SurfaceLayer` defaults (2026-09-06, R2): a single colour from the surface palette in load
+ * order, its 2D outline on at the brief's 1.5 px in the same colour, and `faceMode` from the
+ * orientation report as for a mesh. A surface that arrived with a table (a `.label.gii` with
+ * geometry) has it seeded as `annotation` but still opens `'solid'` — which colouring to look at is
+ * the user's choice, exactly as `defaultMeshLayer` leaves `colorMode` at `'tag'`.
+ *
+ * `index` is the palette position the engine assigns (`#surfaceLayerCount`), so a pure function of
+ * the dataset can still give the second hemisphere its own colour.
+ */
+export function defaultSurfaceLayer(id: string, ds: MeshDataset, index = 0): SurfaceLayer {
+  const color = surfaceContourColor(index);
+  const seeded = defaultMeshLabel(ds).label;
+  return {
+    id,
+    datasetId: ds.id,
+    name: ds.name,
+    visible: true,
+    opacity: 1,
+    pickable: true,
+    showColorbar: false,
+    kind: 'surface',
+    colorMode: 'solid',
+    solidColor: color,
+    ...(seeded === undefined ? {} : { annotation: seeded }),
+    colormap: 'viridis',
+    scale: { kind: 'linear', lo: 0, hi: 1 },
+    threshold: NO_THRESHOLD,
+    flatShading: false,
+    faceMode: ds.orient.openComponents > 0 ? 'both' : 'cull',
+    edges: false,
+    edgeColor: [0, 0, 0, 1],
+    edgeWidthPx: 1,
+    clip: { planes: [] },
+    contoursIn2D: true,
+    contourWidthPx: DEFAULT_SURFACE_CONTOUR_WIDTH_PX,
+    contourColor: color,
+  };
+}
+
+/**
  * The `MeshLayer.label` block for a mesh that came with a `<LabelTable>` (`.label.gii`) or a
  * colortable (`.annot`), or `{}` for one that did not.
  *
@@ -407,14 +448,24 @@ export function defaultLayerFor(
 ): Layer {
   // A parsed view with no triangles (every SimNIBS electrode net) is points, not a mesh: its
   // default mesh layer would be an empty surface and the file would look like it failed to open.
+  // R1 (2026-09-06): a triangle sheet with no tets is a **surface**, its own kind; a tet mesh is
+  // a mesh. `isSurfaceMesh` is the same test §7.4 and `derived/store.ts` already branch on.
   const own =
-    ds.kind === 'volume' ? 'volume' : ds.geo !== undefined && !ds.hasTris ? 'points' : 'mesh';
+    ds.kind === 'volume'
+      ? 'volume'
+      : ds.geo !== undefined && !ds.hasTris
+        ? 'points'
+        : isSurfaceMesh(ds) && ds.hasTris
+          ? 'surface'
+          : 'mesh';
   const want = kind ?? own;
   switch (want) {
     case 'volume':
       return ds.kind === 'volume' ? defaultVolumeLayer(id, ds) : seededMeshLayer(id, ds);
     case 'mesh':
       return ds.kind === 'mesh' ? seededMeshLayer(id, ds) : defaultVolumeLayer(id, ds);
+    case 'surface':
+      return ds.kind === 'mesh' ? defaultSurfaceLayer(id, ds) : defaultVolumeLayer(id, ds);
     case 'iso':
       return defaultIsoLayer(id, ds);
     case 'points':

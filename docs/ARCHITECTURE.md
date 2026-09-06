@@ -485,7 +485,28 @@ export interface PointsLayer extends LayerBase {
   dotRadiusPx?: number;                          // `shape:'dot'` screen radius, CSS px; absent = 4
 }
 
-export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer;
+// 2026-09-06 (`docs/requirements/2026-09-06-idohaber-surfaces.md` R1–R5): a triangle sheet with no tets
+// — a hemisphere, an STL shell — is a **surface**, its own kind, not a mesh with the tet controls hidden.
+// One colour source at a time; no tagStyle, isolate, glyphs, fillIn2D or caps. `scene/surface.ts`
+// projects it onto `MeshLayer` for §7.4's shared triangle passes; `layers/surface.ts` wraps the mesh
+// runtime around that projection. Not backward compatible: a scene saved before this date that held a
+// `mesh` layer over a tet-less dataset opens it as a mesh layer still (the kind is stored), not migrated.
+export interface SurfaceLayer extends LayerBase {
+  kind: 'surface';
+  colorMode: 'solid' | 'overlay' | 'annotation';
+  solidColor: vec4;                                     // seeded from SURFACE_CONTOUR_PALETTE in load order
+  overlay?: { name: string; component: 'mag' | 0 | 1 | 2 };   // a node field of the dataset
+  annotation?: { name: string; table: LabelTable; mode: 'fill' | 'outline' | 'both';
+                 outlineWidthPx: number; visibleLabels?: Uint32Array };   // a dataset label table
+  colormap: ColormapName | string; colormapNegative?: ColormapName | string;
+  scale: Scale; threshold: Threshold;
+  flatShading: boolean; faceMode: 'cull' | 'both';
+  edges: boolean; edgeColor: vec4; edgeWidthPx: number;
+  clip: { planes: ClipPlane[] /* max 6 */ };            // planes only: a sheet has no interior to cap
+  contoursIn2D: boolean; contourWidthPx: number; contourColor: vec4;   // its whole 2D presence
+}
+
+export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer | SurfaceLayer;
 ```
 
 Layers are ordered bottom→top and appear in every view unless a view's `layerVisibility` says otherwise.
@@ -687,7 +708,9 @@ export interface DatasetRef {
 }
 export type SerializableLayer =
   Omit<Layer, 'visibleLabels'> & { visibleLabels?: number[]; label?: { name: string; mode: string;
-                                   outlineWidthPx: number; visibleLabels?: number[] } };
+                                   outlineWidthPx: number; visibleLabels?: number[] };
+                                   annotation?: { name: string; mode: string;          // 2026-09-06: a
+                                   outlineWidthPx: number; visibleLabels?: number[] } };  // surface's, sans table
 
 export interface ViewSpec {
   version: 1 | 2;                   // `migrateViewSpec` upgrades a 1; a version ABOVE the current one is refused
@@ -2492,9 +2515,12 @@ shaders declare `invariant gl_Position;`.
 * **Surfaces on 2D slices:** `contours` line segments drawn in the overlay pass as instanced screen-space
   quads; tet cut polygons drawn in the opaque pass with tag/field colour when `fillIn2D`.
   A **surface** layer — a triangle-only mesh, `nTets === 0`: GIfTI, FreeSurfer, STL/PLY/OBJ, OFF, `.vtp`, `.geo`
-  triangles — opens with `contoursIn2D: true`, `fillIn2D: false` and `contourWidthPx: 1.5`, and takes its own
+  triangles — is `kind: 'surface'` (2026-09-06, R1/R2) and opens `colorMode: 'solid'` with `solidColor` **and**
   `contourColor` from `SURFACE_CONTOUR_PALETTE` (`scene/defaults.ts`) in load order, first entry Freeview
-  yellow. A tet mesh's defaults do not move: `fillIn2D: true`, width 1, no `contourColor`. Clicking within
+  yellow, `contoursIn2D: true` and `contourWidthPx: 1.5`. It is drawn by these same passes through
+  `scene/surface.ts`'s `meshView` projection (`solid`→`solid`, `overlay`→`field` on a node field,
+  `annotation`→`label`, never `fillIn2D`, never caps). A tet mesh's defaults do not move: `fillIn2D: true`,
+  width 1, no `contourColor`. Clicking within
   `CONTOUR_PICK_PX` of a drawn contour in a 2D pane makes that layer active (`Engine.contourAtScreen`, a CPU
   nearest-segment test over the same segments the frame drew — the pick pass draws no lines).
 * **Winding:** any triangle set rendered with `faceMode:'cull'` or in the transparency phase split passes
@@ -2786,6 +2812,13 @@ scale endpoints and at `mid` for heat, the threshold cut drawn as a notch, the f
 **Histogram widget** in the volume and mesh-field property editors: log-y toggle, draggable window and
 threshold handles, the current colormap painted along the x axis, and presets `min–max`, `2–98 %`,
 `p50–p99.9`, `symmetric ±p99`.
+
+**Surface editor** (2026-09-06, R4): a `surface` layer's property editor is its own — **Colour** (one source:
+solid / overlay / annotation, with the picker for the chosen one and *Attach file…*), **Regions** (only while an
+annotation is shown), **Appearance** (opacity, flat, back faces, edges), **2D outline** (on, width, colour) and
+**Clip planes** (planes only). No tissue table, no Isolation, no Glyphs, no cross-section fill, no caps. The
+layer row reads `surface` and its summary `<lh|rh> · <n> vertices · <m> triangles`. An attached annotation
+becomes the surface's colour source; an attached scalar becomes its overlay with a re-seeded range.
 
 **Region panel** for label volumes, mesh tissue tags and `.annot` layers: search-as-you-type over the
 `LabelTable`, per-row eye + colour swatch + count, `Alt+click` to solo, double-click to jump the cursor to
