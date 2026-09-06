@@ -532,6 +532,27 @@
           },
           "required": ["tvx", "type"],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "setHoverEvents",
+          "description": "Turn `pointHover` on or off. OFF by default, like setPickEvents: on, the embed runs one point hit test per pointer move. Replies `ack` when the request carried an id.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "setHoverEvents"
+            },
+            "id": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": ["tvx", "type", "enabled"],
+          "additionalProperties": false
         }
       ]
     },
@@ -1051,12 +1072,37 @@
                 "setPoints",
                 "setPickEvents",
                 "getCamera",
-                "setCamera"
+                "setCamera",
+                "setHoverEvents"
               ],
               "description": "The `type` of the request this answers, so a host with several in flight need keep no table of its own."
             }
           },
           "required": ["tvx", "type", "id", "of"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "pointHover",
+          "description": "The point under the pointer changed, and only while setHoverEvents is on. One event per EDGE, not per move: when the answer changes and at no other time. Both fields are null when the pointer is on no point. There is no hover colour in the engine — the host owns colour; what it cannot compute is which point the mouse is on.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "pointHover"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layerId": {
+              "type": ["string", "null"]
+            },
+            "pointId": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["tvx", "type", "layerId", "pointId"],
           "additionalProperties": false
         }
       ]

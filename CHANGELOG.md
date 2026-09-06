@@ -51,7 +51,25 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   `manifest.json`) moved to 2. The new events are off until asked for, so an older host receives
   exactly the messages it received before — which is a test, not a promise.
 
+- **An embedded host can be told which point the pointer is on.** `setHoverEvents` turns on a
+  `pointHover` message naming the point under the mouse, and naming nothing when it leaves one — so
+  an application can light up the electrode you are about to click. It reports the same point a
+  click would select, and it fires when the answer changes rather than on every mouse move.
+
 ### Fixed
+
+- **Dot-shaped points are dot-shaped in the 3D view too.** `shape: 'dot'` asks for a marker of a
+  fixed size on screen, and it worked only in the slice views: a 3D view drew a millimetre sphere
+  whatever the setting said, so an electrode net looked right when scrolling through slices and
+  wrong the moment you rotated the head — and asking for a bigger or smaller dot changed nothing at
+  all there. A 3D dot is now the size you asked for at any camera distance, flat rather than shaded
+  so its colour reads as one value, still hidden behind the scalp when it is behind the scalp, and
+  clickable across the whole marker.
+
+- **An idle electrode can be given its own colour.** A points layer's `stateColors.idle` was
+  accepted, documented and ignored — a host that asked for "grey when this electrode is in no
+  channel" silently got the layer's colour instead and had to paint every idle point by hand. It is
+  now applied, and a layer that does not set it behaves exactly as before.
 
 - **An embedded viewer now answers when you tell it to change its points.** `setPointTool`,
   `setPointSelection` and `setPoints` did the work and said nothing back, so a host application that

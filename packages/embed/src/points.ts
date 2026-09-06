@@ -28,9 +28,10 @@ import type { EmbedPoint, EmbedPointsLayer } from './protocol';
 /**
  * What each state paints when the layer names no `stateColors`.
  *
- * `idle` is deliberately **absent** rather than a colour: an idle point is the layer's own `color`,
- * whatever the host set it to, and baking a grey here would override a host that coloured its whole
- * net blue. `selected` is an amber that reads against both themes; `disabled` is a mid grey that is
+ * `idle` is deliberately **absent** rather than a colour: a point whose state is `idle` and whose
+ * layer named no `stateColors.idle` is the layer's own `color`, whatever the host set it to, and
+ * baking a grey here would override a host that coloured its whole net blue. (A host that *does*
+ * name `stateColors.idle` gets it — that was broken until 2026-09-05, see {@link resolvePoint}.) `selected` is an amber that reads against both themes; `disabled` is a mid grey that is
  * legible without claiming attention.
  *
  * Both are **byte-exact**: every channel is a whole multiple of `1/255`, so `round(c · 255)` is the
@@ -68,9 +69,22 @@ export function resolvePoint(
   stateColors: EmbedPointsLayer['stateColors']
 ): EmbedPoint {
   const state = point.state;
-  if (state === undefined || state === 'idle') return point;
+  if (state === undefined) return point;
   // An explicit colour is the host being specific, and specific beats shorthand.
   if (point.color !== undefined) return point;
+  if (state === 'idle') {
+    // `stateColors.idle` was unreachable until 2026-09-05: this branch returned before consulting
+    // it, so a host that named an idle colour got the layer's `color` and no complaint — a field
+    // that silently did nothing. Reported by the TI-Toolbox electrode pane, which had to write an
+    // explicit `color` on every idle point to work around it.
+    //
+    // Falling through to the layer's own `color` when the host named no `idle` is the OLD
+    // behaviour exactly, which is what keeps this additive: `DEFAULT_STATE_COLORS` still has no
+    // `idle` entry, deliberately — baking a grey here would override a host that coloured its whole
+    // net blue and never said `stateColors`.
+    const idle = stateColors?.idle;
+    return idle === undefined ? point : { ...point, color: idle };
+  }
   const color = stateColors?.[state] ?? DEFAULT_STATE_COLORS[state];
   return { ...point, color };
 }

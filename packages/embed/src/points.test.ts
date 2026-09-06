@@ -36,15 +36,33 @@ describe('resolvePoint', () => {
     expect(resolvePoint(point, undefined)).toBe(point);
   });
 
-  it("treats 'idle' as no state at all", () => {
+  it("leaves 'idle' to the layer colour when the host named no idle colour", () => {
     // An idle point is the layer's own colour, whatever the host set it to. Painting one here would
-    // override a host that coloured its whole net blue.
+    // override a host that coloured its whole net blue. `toBe`, not `toEqual`: the SAME object, so
+    // the fall-through is provably a no-op rather than a copy that happens to match.
     const point = {
       id: 'E4',
       position: [0, 0, 0] as [number, number, number],
       state: 'idle' as const,
     };
     expect(resolvePoint(point, undefined)).toBe(point);
+    expect(resolvePoint(point, { selected: [0, 1, 0, 1] })).toBe(point);
+  });
+
+  it('paints stateColors.idle when the host DID name one (2026-09-05)', () => {
+    // The defect: this branch returned before consulting `stateColors.idle`, so the field was
+    // documented, accepted, schema'd — and silently did nothing. A host wanting "grey when the
+    // electrode is in no channel" had to write an explicit `color` on every idle point instead.
+    const point = {
+      id: 'E4',
+      position: [0, 0, 0] as [number, number, number],
+      state: 'idle' as const,
+    };
+    expect(resolvePoint(point, { idle: [0.2, 0.2, 0.2, 1] }).color).toEqual([0.2, 0.2, 0.2, 1]);
+    // And it is still shorthand: an explicit colour on the point wins, exactly as for the other two.
+    expect(
+      resolvePoint({ ...point, color: [1, 0, 0, 1] }, { idle: [0.2, 0.2, 0.2, 1] }).color
+    ).toEqual([1, 0, 0, 1]);
   });
 
   it('paints the documented default for selected and disabled', () => {

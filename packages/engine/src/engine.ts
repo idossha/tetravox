@@ -76,7 +76,13 @@ import { readGlyphInstances } from './derived/glyph-readback';
 import type { GlyphInstance } from './derived/glyph-readback';
 import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
 // §13's point tool (2026-08-30): the pure hit tests, and the `p<index>` id fallback.
-import { pointAtPane, pointAtPane3D, pointIdAt } from './layers/points';
+import {
+  POINT_HIT_3D_PX,
+  dotRadiusPxOf,
+  pointAtPane,
+  pointAtPane3D,
+  pointIdAt,
+} from './layers/points';
 import type { PointPaneHit } from './layers/points';
 
 import { visibleIn } from './layers/runtime';
@@ -3130,7 +3136,16 @@ export class TetravoxEngine implements Engine, PointerHost {
       const viewProj = this.#lastViewProj.get(viewId);
       if (viewProj === undefined) return null;
       for (const layer of layers) {
-        const hit = pointAtPane3D(layer, viewProj, rect, x, y);
+        // The disc IS the target, in 3D as in 2D (2026-09-05). Since the 3D pane draws a `dot`
+        // layer at `dotRadiusPx · uiScale` device pixels, a grab radius fixed at
+        // `POINT_HIT_3D_PX` would be *smaller* than a marker a host asked to make big — a click
+        // inside the disc that misses the point it is plainly on. `Math.max` keeps the floor: a
+        // 2 px dot is still grabbable at the 14 px this pane has always used.
+        const hitPx =
+          layer.shape === 'dot'
+            ? Math.max(POINT_HIT_3D_PX, dotRadiusPxOf(layer) * uiScale)
+            : POINT_HIT_3D_PX;
+        const hit = pointAtPane3D(layer, viewProj, rect, x, y, hitPx);
         if (hit !== null && beats(hit)) best = { layer, hit };
       }
     }

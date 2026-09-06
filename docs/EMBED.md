@@ -156,6 +156,7 @@ whether a feature is there; never to decide whether to talk at all.
 * a **points layer** in the `ViewSpec`, written inline — §5(d) and §6;
 * `setPointTool`, `setPointSelection`, `setPoints` — the point tool a user drives with the mouse,
   each answering `ack` when the request carried an `id` (§6.6);
+* `setHoverEvents` / `pointHover` — which point the pointer is on, off by default (§6.7);
 * `setPickEvents` and the `pick` event — what a click landed on, **off until you ask**;
 * `getCamera` / `setCamera` and the `camera` reply.
 
@@ -207,6 +208,7 @@ Both, not either. The origin check alone passes a sibling iframe served from the
 | `setPointSelection` **(2)** | `layerId`, `pointId: string \| null` | `ack` (with an `id`); `pointTool` event |
 | `setPoints` **(2)** | `layerId`, `points: Point[]` | `ack` (with an `id`); `layers` event |
 | `setPickEvents` **(2)** | `enabled: boolean` (default `false`) | — |
+| `setHoverEvents` **(2)** | `enabled: boolean` (default `false`) | `ack` (with an `id`); `pointHover` events |
 | `getCamera` **(2)** | `id` **(required)** | `camera` |
 | `setCamera` **(2)** | `preset?`, `patch?: Partial<Camera3D>` | `camera` (with an `id`) |
 
@@ -242,6 +244,7 @@ heap comes back (§5 rule 1).
 | `pick` **(2)** | `kind`, `world`, `viewId?`, `layerId?`, `pointId?`, `elementId?`, `label?`, `tag?`, `modifiers`, `probe` — one per left press, **only while `setPickEvents` is on** |
 | `pointTool` **(2)** | `event: PointToolEvent` — only while a tool is armed |
 | `camera` **(2)** | `camera: Camera3D` — a reply, never unprompted |
+| `pointHover` **(2)** | `layerId`, `pointId` — which point the pointer is on, `null`/`null` for none. One event per **edge**, **only while `setHoverEvents` is on**; see §6.7 |
 | `ack` **(2)** | `id`, `of` — "done", for the three point messages that change something and return no value. Sent **only** when the request carried an `id`; see §6.6 |
 
 **Two things a host gets wrong if it does not read them.**
@@ -476,20 +479,35 @@ rather than restating what selected looks like at four call sites. The defaults 
 
 | `state` | Colour | Wire |
 |---|---|---|
-| `idle` (or absent) | the layer's own `color` | — |
+| `idle` (or absent) | `stateColors.idle`, or the layer's own `color` | — |
 | `selected` | `[1, 0.8, 0.2, 1]` | `rgb(255, 204, 51)` |
 | `disabled` | `[0.6, 0.6, 0.6, 1]` | `rgb(153, 153, 153)` |
 
 Override them per layer with `stateColors: { idle?, selected?, disabled? }`. The layer keeps that
 map, so a later `setPoints` paints the same palette the `load` did.
 
+> **`stateColors.idle` did nothing before Tetravox 0.3.12.** The resolver returned early for an idle
+> point without consulting it, so a host that named an idle colour silently got the layer's `color`
+> instead and had to write an explicit `color` on every idle point to work around it. From 0.3.12 an
+> idle point with no `color` of its own takes `stateColors.idle`; a layer that names none behaves
+> exactly as it always did, which is what keeps the fix additive.
+
 **`state` is not the selection.** Any number of points may be `'selected'`; exactly one point per
 layer can be *the* selection, which is what draws §7.2's ring and what the point tool is holding.
 
 ### 6.2 The layer
 
-`shape` (`'sphere'` — `radiusMm` in world millimetres — or `'dot'`, a constant screen size),
-`radiusMm`, `color`, `opacity`, `visible`, `offPlaneOpacity`, `dotRadiusPx` are §4.4's, unchanged.
+`shape` (`'sphere'` — `radiusMm` in world millimetres — or `'dot'`, a constant screen size of
+`dotRadiusPx` CSS pixels, default 4), `radiusMm`, `color`, `opacity`, `visible`, `offPlaneOpacity`,
+`dotRadiusPx` are §4.4's, unchanged.
+
+> **`'dot'` reached the 3-D pane in Tetravox 0.3.12.** Before it, the screen-space branch existed
+> only in the 2-D slice panes: a `3d-only` layout drew millimetre spheres whatever `shape` said, and
+> `dotRadiusPx` was inert there — measurably so, `5` and `15` producing the same marker. From 0.3.12
+> a 3-D dot is a billboarded disc of `dotRadiusPx · devicePixelRatio` pixels at every camera
+> distance, **flat** rather than shaded (a shaded rim is a gradient across a colour that is meant to
+> be read as one state), depth-tested at its own centre so an electrode behind the scalp is still
+> hidden by it, and grabbable across the whole disc.
 `labelMode` is this protocol's one addition:
 
 | `labelMode` | Draws |
@@ -499,7 +517,7 @@ layer can be *the* selection, which is what draws §7.2's ring and what the poin
 | `'labels'` | the layer's free-standing `labels[]` anchors — which only a parsed Gmsh view has, so an inline layer draws nothing |
 
 There is no `'hover'`: the engine draws no hover text, and a mode that silently did nothing would be
-worse than its absence. Draw your own tooltip from the `pick` event.
+worse than its absence. Draw your own tooltip from the `pick` event, or from `pointHover` (§6.7).
 
 ### 6.3 The point tool
 
@@ -603,6 +621,24 @@ subscribed to. Fire-and-forget still works exactly as it did.
 
 **Do not correlate on `layers` instead.** `layers` also fires when the *user* drags a point or
 toggles a layer, so a host treating the next one as its reply will act on somebody else's edit.
+
+### 6.7 `pointHover`
+
+```js
+send({ type: 'setHoverEvents', enabled: true });
+// { tvx: 1, type: 'pointHover', layerId: 'l3', pointId: 'Cz' }   … pointer arrived on Cz
+// { tvx: 1, type: 'pointHover', layerId: null, pointId: null }   … pointer left it
+```
+
+Off by default, like `setPickEvents`, and one event per **edge** rather than per move: the pointer
+fires dozens of moves a second and the answer is the same for nearly all of them, so a host may
+repaint on every event it receives.
+
+The id is the one a **click** would select — the same engine hit test — so a host never highlights
+one electrode and selects another. That is also the whole of what this carries: there is no
+`stateColors.hover` and no hover state on a point, because the host owns colour ("lighter than this
+electrode's channel hue" is not something the engine could compute), and what the host cannot work
+out for itself is which point the pointer is on.
 
 ---
 

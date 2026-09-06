@@ -553,6 +553,76 @@ test.describe('the point tool over postMessage', () => {
     expect((await events(page)).filter((e) => e['type'] === 'ack')).toHaveLength(before);
   });
 
+  test('pointHover names the point under the pointer, on the edge only', async ({ page }) => {
+    await openHost(page);
+    const { layerId } = await loadPointsScene(page);
+    const size = await capture(page);
+    const box = await canvas(page).boundingBox();
+    expect(box).not.toBeNull();
+
+    const hovers = async (): Promise<Record<string, unknown>[]> =>
+      (await events(page)).filter((e) => e['type'] === 'pointHover');
+
+    // Off by default: moving across a point says nothing at all, which is the guarantee a
+    // protocol-1 host's message stream depends on.
+    await page.mouse.move(box!.x + at(size, 5, 5)[0], box!.y + at(size, 5, 5)[1]);
+    await page.waitForTimeout(200);
+    expect(await hovers()).toEqual([]);
+
+    await send(page, { type: 'setHoverEvents', enabled: true }, true);
+
+    // Onto a point: one event naming it, and the layer it is in.
+    await page.mouse.move(box!.x + at(size, -5, 5)[0], box!.y + at(size, -5, 5)[1]);
+    await page.waitForFunction(
+      () =>
+        (window as unknown as HostWindow).__host.events.some(
+          (e) => e['type'] === 'pointHover' && e['pointId'] === 'IDLE'
+        ),
+      undefined,
+      { timeout: 10_000 }
+    );
+    const onPoint = (await hovers()).at(-1)!;
+    expect(onPoint['layerId']).toBe(layerId);
+
+    // The EDGE, not the move: several more moves within the same disc add nothing. Without this a
+    // host repainting on every event would repaint a 185-electrode net at pointer rate.
+    const before = (await hovers()).length;
+    for (const dx of [1, -1, 2]) {
+      await page.mouse.move(box!.x + at(size, -5, 5)[0] + dx, box!.y + at(size, -5, 5)[1]);
+    }
+    await page.waitForTimeout(200);
+    expect(await hovers()).toHaveLength(before);
+
+    // Off every point: one event with both fields null, which is what paints a hover off.
+    await page.mouse.move(box!.x + at(size, 0, 8)[0], box!.y + at(size, 0, 8)[1]);
+    await page.waitForFunction(
+      () =>
+        (window as unknown as HostWindow).__host.events.some(
+          (e) => e['type'] === 'pointHover' && e['pointId'] === null
+        ),
+      undefined,
+      { timeout: 10_000 }
+    );
+    const off = (await hovers()).at(-1)!;
+    expect(off['layerId']).toBeNull();
+
+    // And the id it reports is the id a CLICK would select — the same engine hit test, so a host
+    // never highlights one electrode and selects another.
+    await send(page, { type: 'setPointTool', layerId, mode: 'select' }, true);
+    await send(page, { type: 'setPickEvents', enabled: true }, false);
+    await page.mouse.click(box!.x + at(size, -5, 5)[0], box!.y + at(size, -5, 5)[1]);
+    await page.waitForFunction(
+      () =>
+        (window as unknown as HostWindow).__host.events.some(
+          (e) => e['type'] === 'pick' && e['kind'] === 'point'
+        ),
+      undefined,
+      { timeout: 10_000 }
+    );
+    const pick = (await events(page)).filter((e) => e['type'] === 'pick').at(-1)!;
+    expect(pick['pointId']).toBe(onPoint['pointId']);
+  });
+
   test('place mode appends a point at the click, with no hit test', async ({ page }) => {
     await openHost(page);
     const { layerId } = await loadPointsScene(page);
@@ -737,5 +807,296 @@ test.describe("shape: 'dot' — a screen-space marker, and no ring around it", (
 
     // The disc underneath is untouched by the ring — the marker is still its own colour.
     await expectPixels(page, [[centre, SELECTED, 'the dot under the ring']]);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// The 3-D pane (2026-09-05)
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * Find the one green marker in the captured image: how many pixels it covers, its bounding box, and
+ * the colour at that box's centre.
+ *
+ * A 3-D pane has no ruler to predict a pixel position with — `mmPerPx` is a slice camera's field and
+ * the 3-D projection is a matrix the host never sees — so the marker is *found* rather than located,
+ * and every assertion below is about its measured extent. That is still analytic: the expected
+ * extent is `2 · dotRadiusPx · devicePixelRatio`, computed from what the host asked for, and the
+ * expected centre colour is the one the host sent. Nothing is read off a picture and blessed.
+ *
+ * **Green-dominant, not "not the background".** The `screenshot` message renders with the app's own
+ * capture settings (§8's `DEFAULT_SCREENSHOT_OPTIONS` include the crosshair) rather than with the
+ * scene annotations, so the 3-D crosshair is drawn whatever the scene says — three achromatic lines
+ * spanning the pane, which would make "not the background" span it too. The marker is the only green
+ * thing, and the test scene gives it `[0, 1, 0, 1]` for exactly that reason. The threshold admits a
+ * SHADED green as well as a flat one, because the `sphere` control below is shaded: its rim is
+ * `green · ambient`, still green-dominant and still well above the floor.
+ */
+async function marker(
+  page: Page
+): Promise<{ count: number; w: number; h: number; centre: Rgba; cx: number; cy: number }> {
+  return page.evaluate(() => {
+    const shot = (window as unknown as HostWindow).__shot;
+    if (shot === undefined) throw new Error('nothing captured');
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let count = 0;
+    for (let y = 0; y < shot.h; y += 1) {
+      for (let x = 0; x < shot.w; x += 1) {
+        const i = (y * shot.w + x) * 4;
+        const r = shot.data[i] ?? 0;
+        const g = shot.data[i + 1] ?? 0;
+        const b = shot.data[i + 2] ?? 0;
+        if (!(g > 40 && g > r + 20 && g > b + 20)) continue;
+        count += 1;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (count === 0) return { count: 0, w: 0, h: 0, centre: [0, 0, 0, 0], cx: 0, cy: 0 };
+    const cx = Math.round((minX + maxX) / 2);
+    const cy = Math.round((minY + maxY) / 2);
+    const j = (cy * shot.w + cx) * 4;
+    return {
+      count,
+      w: maxX - minX + 1,
+      h: maxY - minY + 1,
+      centre: [
+        shot.data[j] ?? 0,
+        shot.data[j + 1] ?? 0,
+        shot.data[j + 2] ?? 0,
+        shot.data[j + 3] ?? 0,
+      ],
+      cx,
+      cy,
+    };
+  }) as Promise<{ count: number; w: number; h: number; centre: Rgba; cx: number; cy: number }>;
+}
+
+/** How many pixels within `r` of `(cx, cy)` are not the authored background. */
+async function nonBackgroundNear(page: Page, cx: number, cy: number, r: number): Promise<number> {
+  return page.evaluate(
+    ([x0, y0, radius, bg]) => {
+      const shot = (window as unknown as HostWindow).__shot;
+      if (shot === undefined) throw new Error('nothing captured');
+      const back = bg as number[];
+      let n = 0;
+      for (let y = Math.max(0, y0 - radius); y <= Math.min(shot.h - 1, y0 + radius); y += 1) {
+        for (let x = Math.max(0, x0 - radius); x <= Math.min(shot.w - 1, x0 + radius); x += 1) {
+          if ((x - x0) ** 2 + (y - y0) ** 2 > radius * radius) continue;
+          const i = (y * shot.w + x) * 4;
+          if ([0, 1, 2, 3].some((c) => Math.abs((shot.data[i + c] ?? 0) - (back[c] ?? 0)) > 1)) {
+            n += 1;
+          }
+        }
+      }
+      return n;
+    },
+    [cx, cy, Math.round(r), BG as unknown as number[]] as const
+  );
+}
+
+/** One point at the world origin, in a 3-D-only pane, with `shape` and its size as given. */
+async function loadOne3DPoint(
+  page: Page,
+  layer: Record<string, unknown>
+): Promise<{ layerId: string }> {
+  const template = (await send(page, { type: 'serialize' }))['spec'] as {
+    annotations: Record<string, unknown>;
+  };
+  const loaded = await page.evaluate(
+    async ([path, layerJson, annotationsJson]) => {
+      const host = (window as unknown as HostWindow).__host;
+      return host.send(
+        {
+          type: 'load',
+          scene: {
+            version: 2,
+            datasets: [{ id: 'd1', kind: 'mesh', name: 'lattice.msh', path }],
+            layers: [
+              {
+                id: 'l1',
+                datasetId: 'd1',
+                kind: 'points',
+                name: 'contacts',
+                // ONE point, at the world origin — which is the bounds centre of `testdata`'s
+                // ±10 mm lattice (`testdata/manifest.json`, read back by nibabel and Gmsh), and so
+                // the point every anatomical camera preset is aimed at.
+                points: [{ id: 'ONE', position: [0, 0, 0], color: [0, 1, 0, 1] }],
+                ...(JSON.parse(layerJson as string) as Record<string, unknown>),
+              },
+            ],
+            activeLayerId: 'l1',
+            // Away from the origin, so the 3-D crosshair the screenshot draws is not on the marker.
+            cursor: [9, 9, 9],
+            background: [0, 0, 0, 1],
+            annotations: {
+              ...(JSON.parse(annotationsJson as string) as Record<string, unknown>),
+              crosshair: false,
+              orientationLabels: false,
+              cornerInfo: false,
+              scaleBar: false,
+              colorbars: false,
+              orientationCube: false,
+            },
+          },
+        },
+        true
+      );
+    },
+    [LATTICE, JSON.stringify(layer), JSON.stringify(template.annotations)] as const
+  );
+  expect(loaded['type'], String(loaded['message'] ?? '')).toBe('loaded');
+  await send(page, { type: 'setLayout', kind: '3d' }, false);
+  // A known camera: superior, so the pane looks down -Z at the XY plane and the origin is centred.
+  await send(page, { type: 'setCamera', preset: 'S' }, true);
+  await page.waitForTimeout(300);
+  const layers = loaded['layers'] as { id: string; kind: string }[];
+  const points = layers.find((l) => l.kind === 'points');
+  expect(points, 'the load produced a points layer').toBeDefined();
+  return { layerId: points!.id };
+}
+
+test.describe("shape: 'dot' in the 3-D pane", () => {
+  test('the disc is dotRadiusPx on screen, and its centre is the point colour', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await openHost(page);
+    const { layerId } = await loadOne3DPoint(page, { shape: 'dot', dotRadiusPx: 20, radiusMm: 4 });
+    const scale = await uiScale(page);
+    await capture(page);
+    const got = await marker(page);
+
+    // The assertion the whole change exists for. `dotRadiusPxOf` clamps to 0.5..64 and 20 is inside
+    // it, so the drawn diameter is `2 · 20 · uiScale` device pixels, ±2 for the antialiased rim.
+    //
+    // 20 and not 10, deliberately: at this camera a `radiusMm: 4` SPHERE measures about 18 px, so a
+    // 10 px dot would have been indistinguishable from the bug — which is precisely how the defect
+    // survived (`209 px` for `dotRadiusPx` 5, 15 and `radiusMm: 4` alike, TI-Toolbox's measurement).
+    // The sphere's own width is measured below rather than assumed, so the separation is a number.
+    const diameter = 2 * 20 * scale;
+    expect(got.count, 'nothing was drawn at all').toBeGreaterThan(0);
+    expect(Math.abs(got.w - diameter), `width ${got.w}, expected ${diameter}`).toBeLessThanOrEqual(
+      2
+    );
+    expect(Math.abs(got.h - diameter), `height ${got.h}, expected ${diameter}`).toBeLessThanOrEqual(
+      2
+    );
+    // Flat, not a shaded hemisphere: the centre pixel is the colour the host sent, exactly.
+    expect(got.centre).toEqual(EXPLICIT);
+
+    // The same layer as a `sphere`, at the same camera, is a visibly different size — so the number
+    // above is `dotRadiusPx` and not a coincidence of this scene's scale.
+    await send(page, { type: 'updateLayer', layerId, patch: { shape: 'sphere' } }, false);
+    await page.waitForTimeout(300);
+    await capture(page);
+    const asSphere = await marker(page);
+    expect(
+      Math.abs(asSphere.w - got.w),
+      `dot ${got.w} px, sphere ${asSphere.w} px`
+    ).toBeGreaterThan(10);
+    expect(errors).toEqual([]);
+  });
+
+  test('dotRadiusPx drives the size — the defect this fixes, inverted', async ({ page }) => {
+    // The TI-Toolbox electrode pane measured 5 and 15 producing a BYTE-IDENTICAL 209-pixel marker
+    // in a `3d-only` pane, equal to what `radiusMm: 4` drew, because the 3-D pass set `uDotPx` to 0
+    // and drew a millimetre sphere whatever `shape` said. This is that measurement, now separating.
+    await openHost(page);
+    // The LIVE id, not the `l1` the scene was written with: `Engine.load` reassigns every id, which
+    // is what `loaded.layers` is for — an `updateLayer` naming the sent id is answered and does
+    // nothing, and a test that used it would measure an unchanged layer twice and pass.
+    const { layerId } = await loadOne3DPoint(page, { shape: 'dot', dotRadiusPx: 5, radiusMm: 4 });
+    const scale = await uiScale(page);
+    await capture(page);
+    const small = await marker(page);
+
+    await send(page, { type: 'updateLayer', layerId, patch: { dotRadiusPx: 15 } }, false);
+    await page.waitForTimeout(300);
+    await capture(page);
+    const large = await marker(page);
+
+    expect(Math.abs(small.w - 2 * 5 * scale)).toBeLessThanOrEqual(2);
+    expect(Math.abs(large.w - 2 * 15 * scale)).toBeLessThanOrEqual(2);
+    // Three times the radius is nine times the area, and neither number came from a previous run.
+    expect(large.count / small.count).toBeGreaterThan(6);
+  });
+
+  test("the radius does not change with camera distance, and a sphere's does", async ({ page }) => {
+    await openHost(page);
+    const { layerId } = await loadOne3DPoint(page, { shape: 'dot', dotRadiusPx: 20, radiusMm: 4 });
+    await capture(page);
+    const near = await marker(page);
+
+    const camera = (await send(page, { type: 'getCamera' }))['camera'] as { distance: number };
+    await send(page, { type: 'setCamera', patch: { distance: camera.distance * 2 } }, true);
+    await page.waitForTimeout(300);
+    await capture(page);
+    const far = await marker(page);
+
+    // A screen-space marker is the same size at any depth. This is the assertion that would fail if
+    // the disc were expanded in world units and merely looked right at one distance.
+    expect(Math.abs(far.w - near.w), `${near.w} px near, ${far.w} px far`).toBeLessThanOrEqual(1);
+
+    // The control: the same layer as a sphere halves when the camera doubles its distance. Without
+    // it, a `dot` test that measured the same number twice could be measuring a marker that ignores
+    // the camera because it ignores everything.
+    await send(page, { type: 'updateLayer', layerId, patch: { shape: 'sphere' } }, false);
+    await send(page, { type: 'setCamera', patch: { distance: camera.distance } }, true);
+    await page.waitForTimeout(300);
+    await capture(page);
+    const sphereNear = await marker(page);
+    await send(page, { type: 'setCamera', patch: { distance: camera.distance * 2 } }, true);
+    await page.waitForTimeout(300);
+    await capture(page);
+    const sphereFar = await marker(page);
+    expect(sphereFar.w, `sphere: ${sphereNear.w} px near, ${sphereFar.w} px far`).toBeLessThan(
+      sphereNear.w - 1
+    );
+  });
+
+  test('no ring is drawn around a 3-D dot while no tool is armed', async ({ page }) => {
+    await openHost(page);
+    await loadOne3DPoint(page, { shape: 'dot', dotRadiusPx: 20, radiusMm: 4 });
+    const scale = await uiScale(page);
+    await capture(page);
+    const got = await marker(page);
+
+    // The marker is the ONLY green thing drawn: `count` is the disc's own area and nothing else. A ring
+    // would add an annulus outside it, so its absence is the bounding box being the disc's.
+    const radius = 20 * scale;
+    const area = Math.PI * radius * radius;
+    expect(
+      got.count / area,
+      `${got.count} px drawn for a disc of area ${Math.round(area)}`
+    ).toBeLessThan(1.1);
+    expect(got.count / area).toBeGreaterThan(0.9);
+
+    // And explicitly, against the analytic area rather than against the previous count: inside a
+    // neighbourhood three ring-widths wider than the disc, the pixels that are not the background
+    // are the disc's own π·r². `ringRadiusPx` puts a ring at `disc + 2 · uiScale` with a 2 px
+    // stroke, so a ring would add about `2π · 22 · 2` ≈ 280 px — 22 % on top of 1256, which this
+    // 10 % bound cannot absorb. The slack that IS allowed is the antialiased rim, one pixel deep
+    // around a 126 px circumference.
+    const near = await nonBackgroundNear(page, got.cx, got.cy, radius + 6 * scale);
+    expect(
+      near / area,
+      `${near} px are not the background near a disc of area ${Math.round(area)}`
+    ).toBeLessThan(1.1);
+  });
+
+  test('golden: a flat screen-space dot in a 3-D pane', async ({ page }) => {
+    await openHost(page);
+    await loadOne3DPoint(page, { shape: 'dot', dotRadiusPx: 20, radiusMm: 4 });
+    // §11 (2), regression only. Every number this picture contains is asserted above — the diameter,
+    // the centre colour, the absence of a ring; what the golden adds is that nothing *else* moved,
+    // and in particular that the disc is flat where the sphere it replaced was shaded.
+    await expectGolden(canvas(page), 'embed-points-3d-dot', CANVAS);
   });
 });

@@ -176,6 +176,9 @@ export class EmbedHost {
    * exactly the messages a protocol-1 build would have sent it.
    */
   #pickEvents = false;
+  /** §6.7's `setHoverEvents`, and the last point reported — `null` is "nothing under the pointer". */
+  #hoverEvents = false;
+  #hovered: { layerId: string; pointId: string } | null = null;
   /**
    * The press in flight, and the best thing it has resolved to so far.
    *
@@ -324,6 +327,28 @@ export class EmbedHost {
       globalThis.document?.removeEventListener('pointerdown', onPointerDown as EventListener, true)
     );
 
+    // §6.7's hover (2026-09-05). Off by default and, when on, a hit test per move — which is why it
+    // is opt-in: §8 gives hover a 16 ms budget and a host that does not paint a hover must not pay
+    // for one. `pointermove` on the canvas, not on `document`, because a move over the layer panel
+    // is not over a pane and the engine's own hit test would have to be asked to say so.
+    const onPointerMove = (event: PointerEvent): void => {
+      if (!this.#hoverEvents) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const canvas = target.closest('[data-testid="engine-canvas"]');
+      if (!(canvas instanceof HTMLCanvasElement)) return;
+      this.noteHover(canvas, event.clientX, event.clientY);
+    };
+    const onPointerLeave = (): void => {
+      if (this.#hoverEvents) this.emitHover(null);
+    };
+    globalThis.document?.addEventListener('pointermove', onPointerMove as EventListener, true);
+    globalThis.document?.addEventListener('pointerleave', onPointerLeave as EventListener, true);
+    this.#offs.push(() => {
+      globalThis.document?.removeEventListener('pointermove', onPointerMove as EventListener, true);
+      globalThis.document?.removeEventListener('pointerleave', onPointerLeave as EventListener, true);
+    });
+
     this.emitReady();
     this.emitStatus();
     return () => this.stop();
@@ -422,6 +447,53 @@ export class EmbedHost {
   }
 
   // ---- protocol 2: pick ---------------------------------------------------------------------------
+
+  /**
+   * Which point is under the pointer, if any — §6.7's `pointHover`.
+   *
+   * Two engine calls and no new engine API: `paneAt` says which pane a canvas point is in and hands
+   * back **pane-local device** pixels, and `pointAtScreen` is the same hit test the point tool's own
+   * grab uses, in **CSS** pixels — so the conversion between them is the one `/ dpr` below, and a
+   * host's hover and a user's click can never disagree about which electrode they are on. Doing it
+   * per pane rather than assuming the active one is what makes this correct in a 2x2 layout.
+   *
+   * The engine's own hover (`hoverAtScreen`) is a *world point*, not an identity, which is why this
+   * exists at all: a host painting "the electrode under the mouse" needs the id it sent, and a
+   * coordinate would make it re-solve a hit test the engine has already run.
+   */
+  private noteHover(canvas: HTMLCanvasElement, clientX: number, clientY: number): void {
+    const engine = this.#engine;
+    if (engine === null) return;
+    const box = canvas.getBoundingClientRect();
+    const dpr = canvas.width / Math.max(1, box.width);
+    const pane = engine.paneAt((clientX - box.left) * dpr, (clientY - box.top) * dpr);
+    if (pane === null) {
+      this.emitHover(null);
+      return;
+    }
+    const hit = engine.pointAtScreen(pane.viewId, pane.x / dpr, pane.y / dpr);
+    this.emitHover(hit === null ? null : { layerId: hit.layerId, pointId: hit.pointId });
+  }
+
+  /**
+   * Post a `pointHover` — but only when the answer **changed**.
+   *
+   * A move is many events per second and the answer is the same for all but two of them; a host
+   * that repainted on each would be repainting a net of 185 electrodes at pointer rate to say
+   * nothing. The edge is the event: one message when the pointer arrives on a point, one when it
+   * leaves it (`pointId: null`), and nothing in between.
+   */
+  private emitHover(next: { layerId: string; pointId: string } | null): void {
+    const was = this.#hovered;
+    if (was?.pointId === next?.pointId && was?.layerId === next?.layerId) return;
+    this.#hovered = next;
+    this.send({
+      tvx: ENVELOPE_VERSION,
+      type: 'pointHover',
+      layerId: next?.layerId ?? null,
+      pointId: next?.pointId ?? null,
+    });
+  }
 
   /**
    * A left press landed on a pane. Open a window for the candidates it will produce.
@@ -634,6 +706,13 @@ export class EmbedHost {
             clearTimeout(this.#press.timer);
             this.#press = null;
           }
+          return;
+        case 'setHoverEvents':
+          this.#hoverEvents = message.enabled;
+          // Turning it off forgets what was under the pointer, so turning it back on re-announces
+          // rather than staying silent because the answer "has not changed" since last time.
+          if (!message.enabled) this.#hovered = null;
+          this.ack(message);
           return;
         case 'setPointTool':
           // The same call the sEEG editor's Add button makes. `null` disarms and emits one

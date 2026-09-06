@@ -48,7 +48,9 @@
  *  * {@link GetCameraMessage} / {@link SetCameraMessage} / {@link CameraMessage} — read and restore
  *    the 3-D camera;
  *  * {@link AckMessage} — the reply the three point-layer messages send to a request that carried an
- *    `id`, so a host can `await` them (2026-09-05).
+ *    `id`, so a host can `await` them (2026-09-05);
+ *  * {@link SetHoverEventsMessage} / {@link PointHoverMessage} — which point the pointer is on, off
+ *    by default (2026-09-05).
  *
  * ## Trust
  *
@@ -358,6 +360,22 @@ export interface SetPickEventsMessage extends Envelope {
   enabled: boolean;
 }
 
+/**
+ * Turn {@link PointHoverMessage} on or off. **Off is the default**, like {@link SetPickEventsMessage}
+ * and for the same reason: a protocol-1 host's message stream must stay byte for byte the one it has.
+ *
+ * On, the embed runs one point hit test per pointer move — the same one the point tool's grab uses,
+ * so the id a host paints as "hovered" is the id a click would select. §8 gives hover a 16 ms budget
+ * and a host that draws no hover state must not spend it, which is why this is a switch and not a
+ * standing event.
+ *
+ * With an `id`, the reply is {@link AckMessage}.
+ */
+export interface SetHoverEventsMessage extends Envelope {
+  type: 'setHoverEvents';
+  enabled: boolean;
+}
+
 /** Ask for the 3-D camera. The reply is {@link CameraMessage}. */
 export interface GetCameraMessage extends Envelope {
   type: 'getCamera';
@@ -404,7 +422,9 @@ export type HostMessage =
   | SetPointsMessage
   | SetPickEventsMessage
   | GetCameraMessage
-  | SetCameraMessage;
+  | SetCameraMessage
+  // 2026-09-05, appended.
+  | SetHoverEventsMessage;
 
 /** Every `type` a host may send. The runtime half of the {@link HostMessage} union. */
 export const HOST_MESSAGE_TYPES = [
@@ -430,6 +450,8 @@ export const HOST_MESSAGE_TYPES = [
   'setPickEvents',
   'getCamera',
   'setCamera',
+  // 2026-09-05. Appended, never reordered — see the note above.
+  'setHoverEvents',
 ] as const satisfies readonly HostMessage['type'][];
 
 // ------------------------------------------------------------------------------------------------
@@ -663,6 +685,30 @@ export interface AckMessage extends Envelope {
   of: HostMessage['type'];
 }
 
+/**
+ * The point under the pointer changed — §6.7, and **only while {@link SetHoverEventsMessage} is on**.
+ *
+ * `pointId` is `null` when the pointer left every point, which is the message a host paints a hover
+ * *off* with. Both fields are null together.
+ *
+ * **One event per edge, not per move.** The pointer produces dozens of moves a second and the answer
+ * is the same for nearly all of them; this fires when the answer changes and at no other time, so a
+ * host may repaint on every one it receives.
+ *
+ * There is no `stateColors.hover` and no hover state on a point, deliberately: the host owns colour
+ * (that is what {@link EmbedPoint.color} and `stateColors` are for), and an engine-side hover colour
+ * could not know that "lighter than this electrode's channel hue" is what the host wanted. What the
+ * host cannot compute for itself is *which point the mouse is on* — the hit test is the engine's —
+ * so that, and only that, is what this carries.
+ */
+export interface PointHoverMessage extends Envelope {
+  type: 'pointHover';
+  /** The layer the hovered point belongs to, or `null` when nothing is hovered. */
+  layerId: string | null;
+  /** The point's `id` (§4.4's minted `p<index>` for a layer that sent none), or `null`. */
+  pointId: string | null;
+}
+
 /** The reply to {@link GetCameraMessage}, and to a {@link SetCameraMessage} that carried an `id`. */
 export interface CameraMessage extends Envelope {
   type: 'camera';
@@ -684,7 +730,8 @@ export type EmbedMessage =
   | PickMessage
   | PointToolMessage
   | CameraMessage
-  | AckMessage;
+  | AckMessage
+  | PointHoverMessage;
 
 /** Every `type` an embed may send. The runtime half of the {@link EmbedMessage} union. */
 export const EMBED_MESSAGE_TYPES = [
@@ -702,8 +749,9 @@ export const EMBED_MESSAGE_TYPES = [
   'pick',
   'pointTool',
   'camera',
-  // 2026-09-05. Appended: the reply the three point-layer messages had been missing.
+  // 2026-09-05. Appended: the reply the three point-layer messages had been missing, and the hover.
   'ack',
+  'pointHover',
 ] as const satisfies readonly EmbedMessage['type'][];
 
 // ------------------------------------------------------------------------------------------------

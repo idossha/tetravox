@@ -576,7 +576,10 @@ the constant it replaces (`DOT_RADIUS_PX` = 4) is authored in; clamped to 0.5…
 editable text and `NaN` deletes the quad rather than resizing it. `overlay/point-ring.ts#dotRadiusPxOf` is
 the single function the shader uniform (`uDotPx = dotRadiusPxOf(layer) · uiScale`), the selection ring and
 `pointAtPane`'s grab radius all read, so a bigger marker is a bigger target: a 12 px disc with an 8 px grab
-would put the hit boundary a third of the way inside the thing the user is aiming at. `shape: 'sphere'` does
+would put the hit boundary a third of the way inside the thing the user is aiming at. **`dot` covers the 3D
+pane too from 2026-09-05**, and the same three-way agreement holds there: `pointAtPane3D`'s grab radius is
+`max(POINT_HIT_3D_PX, dotRadiusPxOf(layer) · uiScale)`, so the 14 px floor stays for a small dot and a large
+one is grabbable across its whole face. `shape: 'sphere'` does
 not read it — a sphere's size is `radiusMm`, which is also its cross-section, its billboard, its label slab
 and its probe radius, and a second size for one of those five would disagree with the other four.
 
@@ -968,6 +971,7 @@ export interface Engine {
                                                 //   materialises `p<index>` ids, and null clears + emits 'cleared'
   pointTool(): PointToolSpec | null;
   pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null;   // CSS px, like pick()
+  paneAt(x: number, y: number): PaneHit | null;                                  // canvas DEVICE px, top-left
   setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void;     // by ID, never by index
   pointSelection(): PointSelection | null;      // re-resolved against the current points[]
 
@@ -1014,7 +1018,12 @@ took that index; **arming materialises ids**, giving a layer whose points carry 
 tool, the selection and the saved scene name the same contact by the same string; and **a ghost is never
 hit**, because a ghost is the projection of a point on another slice and dragging one would move a contact in
 a plane it is not in. `pointAtScreen` is the hit rule on its own, for a host that wants to ask without
-selecting. The rings the tool shows are `DrawInput.pointSelection`/`pointHot` (§7.2), which are *not* on this
+selecting — and **`paneAt` (2026-09-05) is what makes it usable by one**: every hit test on this facade is
+*per pane* and takes pane-local coordinates, while a host that owns the pointer has a canvas coordinate and
+no way to turn one into the other. It is the pointer layer's own existing question made public (canvas device
+pixels in, `{ viewId, is3D, x, y, width, height }` pane-local device pixels out, `null` in a layout's gaps),
+not a second implementation of §4.5's viewport arithmetic. Without it an embedded host must guess the active
+pane, which is wrong in every layout with more than one. The rings the tool shows are `DrawInput.pointSelection`/`pointHot` (§7.2), which are *not* on this
 facade: a ring is not something the UI does.
 
 `attachFsaverage` composes three §6.5 ops — `vertices` on the fsaverage sphere, `sphereMap` on the subject's,
@@ -2274,6 +2283,16 @@ Rules:
      per-layer uniforms there, and the value is clamped to 0…1 because a scene file is editable text. At 0,
      which is what absent means, the shader takes the cull branch verbatim and the pixels are the ones every
      §11 golden was captured with.
+   * **Points in a 3D pane are a view-aligned billboard**, shaded as a hemisphere so a `sphere` reads as a
+     ball. **`shape: 'dot'` is a screen-space disc there as well (2026-09-05)**, and it has to be arrived at
+     differently: a slice pane has a constant `mmPerPx` and can convert pixels to millimetres, while a 3D
+     pane under perspective has no such number, so the dot's quad is expanded **in clip space** —
+     `clip.xy += aCorner · (uDotPx · 2 / uViewportPx) · clip.w` — which is exactly `uDotPx` device pixels of
+     radius at every depth and, with `w = 1`, under an orthographic projection too. `clip.z` is untouched, so
+     the disc is depth-tested at its own centre and an electrode behind the scalp is still hidden by it. A 3D
+     dot is **flat**: the hemisphere's shading darkens the marker's own colour towards its rim, and a layer
+     whose colour *is* its state (an EEG net where a hue means a channel) must not have a gradient across it.
+     `uDotPx` is 0 for a `sphere`, which is the branch every existing golden was captured with.
 2. **Transparent, scene-wide, two phases:**
    * **2a — back faces:** `cullFace(FRONT)`, depth test on, depth write off; objects sorted back-to-front by
      the depth of their **far** extent.

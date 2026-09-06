@@ -280,9 +280,11 @@ describe('protocol 2 is additive', () => {
       'setPickEvents',
       'getCamera',
       'setCamera',
+      // 2026-09-05, appended after the first pass — still protocol 2, still before it shipped.
+      'setHoverEvents',
     ]);
-    // `ack` is protocol 2's too — it landed a day later (2026-09-05), before 2 was ever released,
-    // and it is appended after the three the first pass added. Appending is the whole rule: a host
+    // `ack` and `pointHover` are protocol 2's too — they landed a day later (2026-09-05), before 2
+    // was ever released, and they are appended after the three the first pass added. Appending is the whole rule: a host
     // may compare this list against its own, so the ORDER is part of the contract and a type added
     // in the middle would silently renumber somebody's index.
     expect(EMBED_MESSAGE_TYPES.slice(V1_EMBED.length)).toEqual([
@@ -290,6 +292,7 @@ describe('protocol 2 is additive', () => {
       'pointTool',
       'camera',
       'ack',
+      'pointHover',
     ]);
   });
 

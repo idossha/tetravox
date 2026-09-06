@@ -5380,3 +5380,74 @@ opens as before). The R5 import wall is a source-reading vitest, so the separati
 convention. New golden `surface-default` [surface.spec.ts]: the FreeSurfer patch in Freeview yellow.
 
 
+## 2026-09-05 — `shape: 'dot'` is a screen-space disc in the 3-D pane too, and the host is told what the pointer is on
+
+**The defect, measured before it was fixed.** TI-Toolbox's electrode pane sends `shape: 'dot'` with
+`dotRadiusPx: 5` and renders in a `3d-only` layout. It measured `dotRadiusPx` 5 and 15 producing a
+**byte-identical 209-pixel marker**, equal to what `radiusMm: 4` drew, while `radiusMm: 12` gave
+1835 px — so the 3-D pass was drawing millimetre spheres and `dotRadiusPx` was inert there.
+`uDotPx` was set in the `POINTS_2D` branch and hard-coded to 0 in the other one.
+
+**Clip space, not world space.** The 2-D branch turns pixels into millimetres with the slice camera's
+`mmPerPx`; a 3-D pane under perspective has no such constant, and a world radius chosen to look right
+at the front of a head is wrong at the back of it. So the 3-D dot expands its quad after projection:
+`clip.xy += aCorner · (uDotPx · 2 / uViewportPx) · clip.w`. Multiplying by `w` survives the
+perspective divide, `2 / viewport` is the pixel-to-NDC conversion, and with `w = 1` the same
+expression is the orthographic case — one branch for both projections. `clip.z` is left alone, so the
+disc is depth-tested at its centre and an occluded electrode is still occluded, which was the one
+property of the sphere that had to be kept.
+
+Rejected: sizing the world radius per point from the camera distance on the CPU. It would have been a
+per-frame walk over every point, wrong the moment the camera moved between the walk and the draw, and
+it would have put a second answer beside `dotRadiusPxOf` — the function the 2-D shader, the ring and
+the hit test already share.
+
+**A 3-D dot is flat.** The hemisphere shading is what makes a `sphere` read as a ball; on a marker
+whose *colour is its state* it is a gradient across the one thing being read, and the rim of a
+channel-coloured electrode stops being that channel's hue. `uDotPx > 0` takes the flat branch in the
+fragment shader; a sphere's pixels are unchanged, which is why every existing golden still passes.
+
+**The disc is the target in 3-D as in 2-D.** `pointAtPane3D`'s grab radius becomes
+`max(POINT_HIT_3D_PX, dotRadiusPxOf(layer) · uiScale)`. A fixed 14 px would have been *smaller* than a
+marker a host asked to make large — a click plainly inside the disc that misses.
+
+**Evidence.** Five embed e2e tests in `embed-points.spec.ts`, all analytic (§11 rule 1): the measured
+diameter is `2 · dotRadiusPx · devicePixelRatio`; the centre pixel is the colour the host sent; 5 and
+15 separate (the TI-Toolbox measurement, inverted); the width is unchanged when the camera distance
+doubles **while the same layer as a `sphere` shrinks**, which is the control that stops the test from
+passing on a marker that ignores the camera because it ignores everything; and the non-background
+pixels around the disc are its own π·r², which a ring's ~280 extra pixels could not hide inside. All
+five fail against the previous behaviour (verified by forcing `uDotPx` to 0). One new golden,
+`embed-points-3d-dot.png`. The test scene deliberately uses `dotRadiusPx: 20` against a `radiusMm: 4`
+sphere that measures ~18 px at that camera: 10 would have been indistinguishable from the bug, which
+is how the bug survived.
+
+**`stateColors.idle` was unreachable, and is now reachable.** `resolvePoint` returned early for an
+idle point without consulting the palette, so the field was accepted, documented, schema'd and did
+nothing; the host worked around it by writing an explicit `color` on every idle point. A layer that
+names no `idle` still falls through to the layer's own `color` — the old behaviour exactly, and the
+reason `DEFAULT_STATE_COLORS` still has no `idle` entry: a baked grey would override a host that
+coloured its whole net blue.
+
+**`pointHover`, and the `paneAt` it needed.** The ask was "a per-point hover state, or a
+`stateColors.hover`". The colour half is refused: the host owns colour, and the engine cannot know
+that "lighter than this electrode's channel hue" is what was wanted. What a host genuinely cannot
+compute is *which point the pointer is on* — the hit test is the engine's — so `setHoverEvents`
+(off by default, like `setPickEvents`) turns on a `pointHover { layerId, pointId }` that fires **on
+the edge**, not per move: the pointer produces dozens of moves a second and the answer changes twice.
+It reports what `pointAtScreen` reports, so a host cannot highlight one electrode and select another.
+
+That required one additive member on the frozen `api.ts`: **`paneAt(x, y)`**. Every hit test on that
+facade is per pane and takes pane-local coordinates, while a host that owns the pointer has a canvas
+coordinate; without it the embed would have had to assume the active pane (wrong in every multi-pane
+layout) or re-derive §4.5's viewport arithmetic. It is the pointer layer's own existing question made
+public rather than a second implementation, and `MockEngine` and the app's `NoGlEngine` implement it —
+the latter with the one pane it models, so `paneAt` → `pointAtScreen` composes there as it does for
+real. `ARCHITECTURE.md` §4.7 and §7.2 are amended in the same commit (§12.3's rule).
+
+Not done, and named rather than smuggled in: **a per-point `radiusPx`**. The host sends one and it is
+inert. It needs a second per-instance vertex attribute — `aRadius` carries millimetres and the 2-D
+branch culls by them before the dot branch overrides the radius, so overloading it would break the
+off-slice cull — which is a change to the instance buffer layout and its tests, not a line in a
+shader. It is the next ask, not this one.
+

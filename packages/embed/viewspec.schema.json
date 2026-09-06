@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "$id": "https://tetravox.dev/schema/embed-viewspec-v2.json",
-  "title": "Tetravox ViewSpec v2 \u2014 the host-facing subset",
-  "description": "THE HOST-FACING SUBSET of ARCHITECTURE.md 4.6's ViewSpec, hand-maintained. It covers what a host writes by hand and validates it strictly enough to catch a typo; it is NOT the full spec. Two differences from a *.tetravox.json on disk. (1) `datasets[].path` is a URL, not a path relative to a scene file \u2014 absolute http(s) is used as-is, anything else is resolved against LoadMessage.baseUrl. (2) Only `datasets` and `layers` are required: the nine view fields the engine requires (slices, view3d, layout, cursor, radiological, background, lighting, annotations, transparency) are filled from the engine's own empty scene when a host omits them, and a layer needs only id, datasetId and kind \u2014 every other field falls back to the engine's per-dataset default. A third layer kind, `points`, arrived with protocol 2 and is written inline \u2014 there is no points file to name. Fields not listed here are still accepted and passed through unchanged; see ARCHITECTURE.md 4.4 for the complete layer model.",
+  "title": "Tetravox ViewSpec v2 — the host-facing subset",
+  "description": "THE HOST-FACING SUBSET of ARCHITECTURE.md 4.6's ViewSpec, hand-maintained. It covers what a host writes by hand and validates it strictly enough to catch a typo; it is NOT the full spec. Two differences from a *.tetravox.json on disk. (1) `datasets[].path` is a URL, not a path relative to a scene file — absolute http(s) is used as-is, anything else is resolved against LoadMessage.baseUrl. (2) Only `datasets` and `layers` are required: the nine view fields the engine requires (slices, view3d, layout, cursor, radiological, background, lighting, annotations, transparency) are filled from the engine's own empty scene when a host omits them, and a layer needs only id, datasetId and kind — every other field falls back to the engine's per-dataset default. A third layer kind, `points`, arrived with protocol 2 and is written inline — there is no points file to name. Fields not listed here are still accepted and passed through unchanged; see ARCHITECTURE.md 4.4 for the complete layer model.",
   "type": "object",
   "properties": {
     "version": {
@@ -99,7 +99,7 @@
         },
         "sidecars": {
           "type": "object",
-          "description": "Resolved against the DATASET's own URL, not the page: a sidecar travels with the file it describes (ARCHITECTURE.md 4.6). Reading one is best-effort \u2014 a missing sidecar is a missing table, never a failed load.",
+          "description": "Resolved against the DATASET's own URL, not the page: a sidecar travels with the file it describes (ARCHITECTURE.md 4.6). Reading one is best-effort — a missing sidecar is a missing table, never a failed load.",
           "properties": {
             "lut": {
               "type": "object",
@@ -119,7 +119,7 @@
                 }
               },
               "required": ["path"],
-              "description": "A Gmsh .msh.opt \u2014 the only source of tissue names for a mesh with no $PhysicalNames."
+              "description": "A Gmsh .msh.opt — the only source of tissue names for a mesh with no $PhysicalNames."
             }
           },
           "additionalProperties": false
@@ -544,7 +544,7 @@
     "PointsLayer": {
       "type": "object",
       "title": "PointsLayer",
-      "description": "A points layer written INLINE (protocol 2). There is no points file an embed could serve, so the coordinates arrive with the layer: `datasetId` names a dataset already in this spec \u2014 the volume the points sit over \u2014 exactly as the sEEG contact editor hangs its contacts off the CT they were localised on. `state` and `labelMode` are this protocol's own vocabulary and are resolved before the engine sees the layer; everything else is ARCHITECTURE.md 4.4's PointsLayer verbatim.",
+      "description": "A points layer written INLINE (protocol 2). There is no points file an embed could serve, so the coordinates arrive with the layer: `datasetId` names a dataset already in this spec — the volume the points sit over — exactly as the sEEG contact editor hangs its contacts off the CT they were localised on. `state` and `labelMode` are this protocol's own vocabulary and are resolved before the engine sees the layer; everything else is ARCHITECTURE.md 4.4's PointsLayer verbatim.",
       "properties": {
         "id": {
           "type": "string"
@@ -579,7 +579,7 @@
         },
         "shape": {
           "enum": ["sphere", "dot"],
-          "description": "'sphere' (default) is radiusMm in world mm; 'dot' is a constant screen size."
+          "description": "'sphere' (default) is radiusMm in world mm; 'dot' is a constant screen size in BOTH the 2-D slice panes and the 3-D pane (the 3-D half arrived in Tetravox 0.3.12; before it, a 3-D pane drew millimetre spheres whatever this said). A 3-D dot is flat, not shaded."
         },
         "radiusMm": {
           "type": "number",
@@ -592,7 +592,7 @@
           },
           "minItems": 4,
           "maxItems": 4,
-          "description": "0..1 RGBA \u2014 every point with neither its own colour nor a resolved state."
+          "description": "0..1 RGBA — every point with neither its own colour nor a resolved state."
         },
         "labelMode": {
           "enum": ["none", "names", "labels"],
@@ -600,7 +600,7 @@
         },
         "stateColors": {
           "type": "object",
-          "description": "What each points[].state paints. Absent states keep the default: idle -> the layer colour, selected -> [1, 0.8, 0.2, 1] (rgb 255,204,51), disabled -> [0.6, 0.6, 0.6, 1] (rgb 153,153,153).",
+          "description": "What each points[].state paints, when that point carries no explicit color. Absent states keep the default: idle -> the layer colour, selected -> [1, 0.8, 0.2, 1] (rgb 255,204,51), disabled -> [0.6, 0.6, 0.6, 1] (rgb 153,153,153). `idle` was accepted and ignored before Tetravox 0.3.12; from 0.3.12 an idle point with no color of its own takes it.",
           "properties": {
             "idle": {
               "type": "array",
@@ -633,7 +633,7 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "How visible a point is in a 2-D pane it is not on. 0 or absent is 7.2's hard cull \u2014 right for a scalp net, wrong for a depth electrode, whose shaft no single slice contains."
+          "description": "How visible a point is in a 2-D pane it is not on. 0 or absent is 7.2's hard cull — right for a scalp net, wrong for a depth electrode, whose shaft no single slice contains."
         },
         "dotRadiusPx": {
           "type": "number",
@@ -645,11 +645,11 @@
     "Point": {
       "type": "object",
       "title": "Point",
-      "description": "One point. Unlisted fields are accepted and passed through \u2014 4.4 is the complete model.",
+      "description": "One point. Unlisted fields are accepted and passed through — 4.4 is the complete model.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "The point's identity, and what a `pick` event and `setPointSelection` name it by. Optional \u2014 the engine mints `p<index>` for a point with none, and an index moves when a point is deleted, so send your own if you want to recognise your electrode."
+          "description": "The point's identity, and what a `pick` event and `setPointSelection` name it by. Optional — the engine mints `p<index>` for a point with none, and an index moves when a point is deleted, so send your own if you want to recognise your electrode."
         },
         "position": {
           "type": "array",
@@ -665,7 +665,7 @@
         },
         "state": {
           "enum": ["idle", "selected", "disabled"],
-          "description": "Resolved to a colour from stateColors above. An explicit `color` on the same point wins. Not the tool selection: any number of points may be selected here, exactly one can be the selection."
+          "description": "Resolved to a colour from stateColors above, including 'idle' (from Tetravox 0.3.12; before that 'idle' was never state-coloured). An explicit `color` on the same point wins. Not the tool selection: any number of points may be selected here, exactly one can be the selection."
         },
         "color": {
           "type": "array",
