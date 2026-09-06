@@ -246,6 +246,39 @@ const at = (size: { w: number; h: number }, x: number, z: number): [number, numb
   size.h / 2 - z / MM_PER_PX,
 ];
 
+/**
+ * Load the same scene with `shape: 'dot'` — a screen-space disc — and the given `dotRadiusPx`.
+ *
+ * Everything else is `loadPointsScene`'s: the same four points at the same world positions, the
+ * same colours, the same 20 px/mm coronal ruler. What changes is the branch `point-ring.ts` takes,
+ * which is the point of the comparison — the sphere test above reads the disc at `radiusMm / mmPerPx`
+ * = 40 px, and a dot at `dotRadiusPx · uiScale` is a different number at the same camera.
+ */
+async function loadDotScene(page: Page, dotRadiusPx: number): Promise<{ layerId: string }> {
+  const loaded = await loadPointsScene(page);
+  await send(
+    page,
+    { type: 'updateLayer', layerId: loaded.layerId, patch: { shape: 'dot', dotRadiusPx } },
+    false
+  );
+  await page.waitForTimeout(300);
+  return loaded;
+}
+
+/** The pane's CSS-pixel scale — `derived.ts` sends `uDotPx = dotRadiusPx · uiScale`. */
+const uiScale = (page: Page): Promise<number> =>
+  page
+    .frameLocator('#viewer')
+    .locator(CANVAS)
+    .evaluate(() => window.devicePixelRatio);
+
+/** Every pixel on a circle of radius `r` around a centre, as pane coordinates. */
+const circle = ([cx, cy]: readonly [number, number], r: number, n = 24): [number, number][] =>
+  Array.from({ length: n }, (_, i) => {
+    const a = (2 * Math.PI * i) / n;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)] as [number, number];
+  });
+
 test.describe('a points layer written inline', () => {
   test('every state is its own colour, exactly, on the ruler the scene declared', async ({
     page,
@@ -623,5 +656,86 @@ test.describe('the camera', () => {
     // An orbit is a camera change per frame; a `camera` event per frame is a message storm. The
     // camera is answered, never announced.
     expect((await events(page)).filter((e) => e['type'] === 'camera')).toHaveLength(0);
+  });
+});
+
+test.describe("shape: 'dot' — a screen-space marker, and no ring around it", () => {
+  const DOT_PX = 10;
+
+  test('the disc is dotRadiusPx on screen, and its centre is the point colour', async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await openHost(page);
+    await loadDotScene(page, DOT_PX);
+    const scale = await uiScale(page);
+    // `dotRadiusPxOf` clamps to 0.5..64 and 10 is inside that, so the drawn radius is exactly this.
+    const radius = DOT_PX * scale;
+    const size = await capture(page);
+
+    const centre = at(size, -5, 5);
+    await expectPixels(page, [
+      // The assertion the whole branch exists for: the sampled centre pixel IS the point's colour.
+      // Unshaded 2-D cross-section, alpha 1, layer opacity 1 — `src·1 + dst·0` is the source.
+      [centre, IDLE, "the dot's centre is the point colour"],
+      [at(size, 5, 5), SELECTED, "state 'selected', as a dot"],
+      [at(size, -5, -5), DISABLED, "state 'disabled', as a dot"],
+      [at(size, 5, -5), EXPLICIT, 'an explicit colour, as a dot'],
+      // Inside and outside the SCREEN radius, which is where a dot differs from a sphere. 2 px of
+      // slack at each edge for the shader's antialiased rim; the two samples are 5 px apart.
+      [[centre[0] + radius - 2, centre[1]], IDLE, `${radius - 2} px out, inside the disc`],
+      [[centre[0] + radius + 3, centre[1]], BG, `${radius + 3} px out, past it`],
+      // And it really is screen-space: the sphere branch draws `radiusMm / mmPerPx` = 2 / 0.05 =
+      // 40 px at this camera, and the test above reads the layer colour 30 px out. Here 30 px out is
+      // the background, because `dotRadiusPx · uiScale` replaced that radius entirely.
+      [[centre[0] + 1.5 / MM_PER_PX, centre[1]], BG, '30 px out — the sphere radius, not the dot'],
+    ]);
+    expect(errors).toEqual([]);
+  });
+
+  test('no ring is drawn while no tool is armed — and one is, the moment it is', async ({
+    page,
+  }) => {
+    await openHost(page);
+    const { layerId } = await loadDotScene(page, DOT_PX);
+    const scale = await uiScale(page);
+    const size = await capture(page);
+    const centre = at(size, 5, 5);
+
+    // `ringRadiusPx(disc, scale) = max(4·scale, disc + 2·scale)` at `POINT_RING_WIDTH_PX = 2`, so a
+    // ring for this disc lives between `disc + scale` and `disc + 3·scale` pixels out. Sampling that
+    // band on 24 spokes at 1 px steps crosses it wherever it is.
+    const band: [number, number][] = [];
+    for (let r = DOT_PX * scale + scale; r <= DOT_PX * scale + 3 * scale; r += 1) {
+      band.push(...circle(centre, r));
+    }
+
+    const isBackground = (px: Rgba): boolean => px.every((v, c) => Math.abs(v - (BG[c] ?? 0)) <= 1);
+
+    // No `setPointTool` has been sent, so nothing is armed and nothing may be drawn around the disc.
+    // This is the assertion B2 asks for: the absence of a ring is measured, not assumed.
+    const quiet = await samples(page, band);
+    const drawn = quiet.filter((px) => !isBackground(px));
+    expect(
+      drawn,
+      `${drawn.length} non-background pixels in the ring band with no tool armed`
+    ).toEqual([]);
+
+    // …and the check is not vacuous: arm the tool, select that very point, and the same band fills.
+    // A test that only ever asserted "background" would pass just as well if the band were in the
+    // wrong place, or if the layer had not rendered at all.
+    await send(page, { type: 'setPointTool', layerId, mode: 'select' }, true);
+    await send(page, { type: 'setPointSelection', layerId, pointId: 'SEL' }, true);
+    await page.waitForTimeout(300);
+    await capture(page);
+    const ringed = await samples(page, band);
+    expect(
+      ringed.filter((px) => !isBackground(px)).length,
+      'the same band, with the tool armed and that point selected'
+    ).toBeGreaterThan(0);
+
+    // The disc underneath is untouched by the ring — the marker is still its own colour.
+    await expectPixels(page, [[centre, SELECTED, 'the dot under the ring']]);
   });
 });
