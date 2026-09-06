@@ -474,6 +474,52 @@ test.describe('the point tool over postMessage', () => {
     );
   });
 
+  test('the three point messages answer, so a host can await them', async ({ page }) => {
+    // The bug: they acted and replied with nothing, and `postMessage` cannot tell silence from a
+    // dropped message — so `await send({type:'setPoints'}, true)` never settled. The host helper's
+    // `expectReply` resolves on the matching `id`, which is exactly the host shape that hung, so a
+    // test that finishes at all is the assertion. The 5 s cap makes a regression a failure rather
+    // than a 60 s timeout with no message.
+    test.setTimeout(60_000);
+    await openHost(page);
+    const { layerId } = await loadPointsScene(page);
+
+    const awaited = async (message: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const reply: Record<string, unknown> = await Promise.race([
+        send(page, message, true),
+        page.waitForTimeout(5000).then(() => ({ type: 'TIMED OUT' }) as Record<string, unknown>),
+      ]);
+      expect(reply['type'], `no reply to ${String(message['type'])} within 5 s`).toBe('ack');
+      expect(reply['of']).toBe(message['type']);
+      expect(typeof reply['id']).toBe('string');
+      return reply;
+    };
+
+    await awaited({ type: 'setPointTool', layerId, mode: 'select' });
+    await awaited({ type: 'setPointSelection', layerId, pointId: 'DIS' });
+    await awaited({
+      type: 'setPoints',
+      layerId,
+      points: [{ id: 'IDLE', name: 'a', position: [-5, 2.5, 5], state: 'selected' }],
+    });
+    await awaited({ type: 'setPointTool', layerId: null });
+
+    // The ack lands AFTER the work — the whole reason to await one. The scene has already been
+    // replaced by the time the third reply resolved, with no settling wait of any kind here.
+    const spec = (await send(page, { type: 'serialize' }))['spec'] as {
+      layers: { id: string; kind: string; points?: unknown[] }[];
+    };
+    const layer = spec.layers.find((l) => l.kind === 'points');
+    expect(layer?.points).toHaveLength(1);
+
+    // And an id-less send is still answered with nothing, which is `withId`'s rule everywhere else:
+    // a protocol-1-shaped host receives exactly the stream it received before.
+    const before = (await events(page)).filter((e) => e['type'] === 'ack').length;
+    await send(page, { type: 'setPointSelection', layerId, pointId: null }, false);
+    await page.waitForTimeout(300);
+    expect((await events(page)).filter((e) => e['type'] === 'ack')).toHaveLength(before);
+  });
+
   test('place mode appends a point at the click, with no hit test', async ({ page }) => {
     await openHost(page);
     const { layerId } = await loadPointsScene(page);

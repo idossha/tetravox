@@ -154,7 +154,8 @@ whether a feature is there; never to decide whether to talk at all.
 **Protocol 2 (Tetravox 0.3.11) added**, all of it optional and none of it on by default:
 
 * a **points layer** in the `ViewSpec`, written inline — §5(d) and §6;
-* `setPointTool`, `setPointSelection`, `setPoints` — the point tool a user drives with the mouse;
+* `setPointTool`, `setPointSelection`, `setPoints` — the point tool a user drives with the mouse,
+  each answering `ack` when the request carried an `id` (§6.6);
 * `setPickEvents` and the `pick` event — what a click landed on, **off until you ask**;
 * `getCamera` / `setCamera` and the `camera` reply.
 
@@ -202,9 +203,9 @@ Both, not either. The origin check alone passes a sibling iframe served from the
 | `probe` | `id` **(required)**, `world` | `probe` |
 | `focus` | — | — |
 | `reset` | — | `status`, `layers` |
-| `setPointTool` **(2)** | `layerId: string \| null` (null disarms), `mode?: 'select' \| 'place'`, `template?` | `pointTool`, `layers` |
-| `setPointSelection` **(2)** | `layerId`, `pointId: string \| null` | `pointTool` |
-| `setPoints` **(2)** | `layerId`, `points: Point[]` | `layers` |
+| `setPointTool` **(2)** | `layerId: string \| null` (null disarms), `mode?: 'select' \| 'place'`, `template?` | `ack` (with an `id`); `pointTool`, `layers` events |
+| `setPointSelection` **(2)** | `layerId`, `pointId: string \| null` | `ack` (with an `id`); `pointTool` event |
+| `setPoints` **(2)** | `layerId`, `points: Point[]` | `ack` (with an `id`); `layers` event |
 | `setPickEvents` **(2)** | `enabled: boolean` (default `false`) | — |
 | `getCamera` **(2)** | `id` **(required)** | `camera` |
 | `setCamera` **(2)** | `preset?`, `patch?: Partial<Camera3D>` | `camera` (with an `id`) |
@@ -241,6 +242,7 @@ heap comes back (§5 rule 1).
 | `pick` **(2)** | `kind`, `world`, `viewId?`, `layerId?`, `pointId?`, `elementId?`, `label?`, `tag?`, `modifiers`, `probe` — one per left press, **only while `setPickEvents` is on** |
 | `pointTool` **(2)** | `event: PointToolEvent` — only while a tool is armed |
 | `camera` **(2)** | `camera: Camera3D` — a reply, never unprompted |
+| `ack` **(2)** | `id`, `of` — "done", for the three point messages that change something and return no value. Sent **only** when the request carried an `id`; see §6.6 |
 
 **Two things a host gets wrong if it does not read them.**
 
@@ -575,6 +577,32 @@ back" is said.
 
 The `camera` message is only ever a reply. Nothing announces a camera change: an orbit is a change
 per frame, and a message per frame is a storm.
+
+### 6.6 The three point messages answer: `ack`
+
+`setPointTool`, `setPointSelection` and `setPoints` change the scene and have nothing to report
+back, so it would be easy to send them and move on. Give any of them an `id` and you get one back:
+
+```js
+const reply = await send({ type: 'setPoints', layerId, points }, /* expectReply */ true);
+// { tvx: 1, type: 'ack', id: 'h7', of: 'setPoints' }
+await send({ type: 'screenshot' }, true); // the points are already in the scene
+```
+
+`of` is the `type` of the request it answers, so a host with several in flight needs no table of its
+own. The `ack` is posted **after** the engine call returns and after the `layers` event that carries
+the result, which is what makes *replace the points, then capture* a sequence rather than a race.
+
+**Only a request with an `id` is answered.** That is the same rule as every other reply here — an
+`id` means "this answers *that*", and an `ack` with nothing to correlate would be an event nobody
+subscribed to. Fire-and-forget still works exactly as it did.
+
+> Before Tetravox 0.3.11 these three replied with nothing at all, so a host that awaited a reply —
+> the ordinary *select this electrode, then redraw* shape — hung. If you must work against an older
+> bundle, send them without an `id` and watch the `layers` / `pointTool` events instead.
+
+**Do not correlate on `layers` instead.** `layers` also fires when the *user* drags a point or
+toggles a layer, so a host treating the next one as its reply will act on somebody else's edit.
 
 ---
 

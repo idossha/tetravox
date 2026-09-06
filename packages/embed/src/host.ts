@@ -344,6 +344,20 @@ export class EmbedHost {
     this.#post(message, this.#hostOrigin);
   }
 
+  /**
+   * Answer a request that acts and returns nothing — `setPointTool`, `setPointSelection`,
+   * `setPoints`.
+   *
+   * **Only when the request carried an `id`.** That is `withId`'s rule for every other reply in this
+   * file, and here it is the whole message: an `ack` with nothing to correlate is an event no host
+   * subscribed to, and posting one to every protocol-1 host would break the guarantee that their
+   * message stream is byte for byte the one they get today.
+   */
+  private ack(request: HostMessage): void {
+    if (request.id === undefined) return;
+    this.send({ tvx: ENVELOPE_VERSION, type: 'ack', id: request.id, of: request.type });
+  }
+
   private emitReady(request?: { id?: string }): void {
     const caps = this.#store.getState().caps;
     const ok =
@@ -634,6 +648,7 @@ export class EmbedHost {
                   ...(message.template === undefined ? {} : { template: message.template }),
                 }
           );
+          this.ack(message);
           return;
         case 'setPointSelection':
           engine.setPointSelection(
@@ -641,6 +656,7 @@ export class EmbedHost {
               ? null
               : { layerId: message.layerId as LayerId, pointId: message.pointId }
           );
+          this.ack(message);
           return;
         case 'setPoints': {
           // Through `patchLayer` like every other edit, so the store, the property editor and the
@@ -649,6 +665,9 @@ export class EmbedHost {
           const live = engine.scene.layers.find((l) => l.id === message.layerId);
           const points = message.points.map((p) => resolvePoint(p, stateColorsOf(live)));
           controller.patchLayer(message.layerId as LayerId, { points } as Partial<Layer>);
+          // After the patch, so `await setPoints(...)` then `screenshot` is a sequence and not a
+          // race: the `layers` event carrying the new points has already gone out.
+          this.ack(message);
           return;
         }
         case 'getCamera':

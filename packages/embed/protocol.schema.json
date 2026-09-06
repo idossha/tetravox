@@ -7,7 +7,7 @@
   "properties": {
     "tvx": {
       "const": 1,
-      "description": "The envelope discriminator. Always 1. NOT the protocol version \u2014 see `ready.version`."
+      "description": "The envelope discriminator. Always 1. NOT the protocol version — see `ready.version`."
     },
     "type": {
       "type": "string"
@@ -845,7 +845,7 @@
         {
           "type": "object",
           "title": "pick",
-          "description": "What a click landed on \u2014 one per left press, and only while setPickEvents has enabled it. Branch on `kind`. The mesh rows of `probe` are at most one round trip stale (ARCHITECTURE.md 4.7); the volume rows, `label` among them, are exact.",
+          "description": "What a click landed on — one per left press, and only while setPickEvents has enabled it. Branch on `kind`. The mesh rows of `probe` are at most one round trip stale (ARCHITECTURE.md 4.7); the volume rows, `label` among them, are exact.",
           "properties": {
             "tvx": {
               "const": 1
@@ -937,7 +937,7 @@
             },
             "probe": {
               "type": "object",
-              "description": "ProbeResult at `world` \u2014 ARCHITECTURE.md 4.7."
+              "description": "ProbeResult at `world` — ARCHITECTURE.md 4.7."
             }
           },
           "required": ["tvx", "type", "kind", "world", "modifiers", "probe"],
@@ -946,7 +946,7 @@
         {
           "type": "object",
           "title": "pointTool",
-          "description": "Section 7.5's point tool did something \u2014 the engine's PointToolEvent, forwarded unchanged. Only fires while a tool is armed. A plain select-mode click emits `selected` AND a zero-length `dragEnd`: compare positions before recording an edit.",
+          "description": "Section 7.5's point tool did something — the engine's PointToolEvent, forwarded unchanged. Only fires while a tool is armed. A plain select-mode click emits `selected` AND a zero-length `dragEnd`: compare positions before recording an edit.",
           "properties": {
             "tvx": {
               "const": 1
@@ -997,7 +997,7 @@
         {
           "type": "object",
           "title": "camera",
-          "description": "The 3-D camera \u2014 the reply to getCamera, and to a setCamera that carried an id. Never posted unprompted: an orbit would be a message per frame.",
+          "description": "The 3-D camera — the reply to getCamera, and to a setCamera that carried an id. Never posted unprompted: an orbit would be a message per frame.",
           "properties": {
             "tvx": {
               "const": 1
@@ -1013,6 +1013,50 @@
             }
           },
           "required": ["tvx", "type", "camera"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "ack",
+          "description": "Done. The reply to a host message that changes something and returns no value — setPointTool, setPointSelection, setPoints. Sent ONLY when the request carried an id, because the id is the whole message. Not an echo of `layers`: `layers` also fires for a user's own click in the layer panel, and a host correlating on it would treat someone else's edit as its own reply.",
+          "properties": {
+            "tvx": {
+              "const": 1
+            },
+            "type": {
+              "const": "ack"
+            },
+            "id": {
+              "type": "string",
+              "description": "The id of the request this answers. Required."
+            },
+            "of": {
+              "enum": [
+                "hello",
+                "load",
+                "setTheme",
+                "setLayout",
+                "setCursor",
+                "setLayerVisible",
+                "setLayerOpacity",
+                "updateLayer",
+                "setActiveLayer",
+                "screenshot",
+                "serialize",
+                "probe",
+                "focus",
+                "reset",
+                "setPointTool",
+                "setPointSelection",
+                "setPoints",
+                "setPickEvents",
+                "getCamera",
+                "setCamera"
+              ],
+              "description": "The `type` of the request this answers, so a host with several in flight need keep no table of its own."
+            }
+          },
+          "required": ["tvx", "type", "id", "of"],
           "additionalProperties": false
         }
       ]
@@ -1107,7 +1151,7 @@
     },
     "Camera3D": {
       "type": "object",
-      "description": "ARCHITECTURE.md 4.5. `rotation` is a quaternion [x, y, z, w]. `near`/`far` are derived from the fit radius (7.2) \u2014 send them only if you mean to override the engine.",
+      "description": "ARCHITECTURE.md 4.5. `rotation` is a quaternion [x, y, z, w]. `near`/`far` are derived from the fit radius (7.2) — send them only if you mean to override the engine.",
       "properties": {
         "target": {
           "type": "array",
@@ -1149,7 +1193,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "The point's identity \u2014 what pick and setPointSelection name it by. Optional; the engine mints `p<index>` for a point with none, and an index moves when a point is deleted."
+          "description": "The point's identity — what pick and setPointSelection name it by. Optional; the engine mints `p<index>` for a point with none, and an index moves when a point is deleted."
         },
         "position": {
           "type": "array",
@@ -1181,7 +1225,7 @@
         },
         "group": {
           "type": "string",
-          "description": "Which set the point belongs to \u2014 an electrode, a montage, a parcel. Uninterpreted."
+          "description": "Which set the point belongs to — an electrode, a montage, a parcel. Uninterpreted."
         },
         "ordinal": {
           "type": "number"

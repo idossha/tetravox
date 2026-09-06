@@ -152,6 +152,35 @@ describe('withId', () => {
   });
 });
 
+describe('ack', () => {
+  // The bug this closes: `setPoints`, `setPointTool` and `setPointSelection` acted and replied with
+  // nothing, so a host awaiting a reply — the ordinary "select this electrode, then redraw" shape —
+  // waited forever. The end-to-end half is in `embed-points.spec.ts`; what is provable here is that
+  // the type exists in both directions' vocabularies and correlates the way every other reply does.
+  it('is an embed message and not a host one', () => {
+    expect(isEmbedMessage({ tvx: 1, type: 'ack', id: 'r1', of: 'setPoints' })).toBe(true);
+    expect(isHostMessage({ tvx: 1, type: 'ack', id: 'r1', of: 'setPoints' })).toBe(false);
+  });
+
+  it('carries the request id, like every other reply', () => {
+    const reply: EmbedMessage = { tvx: 1, type: 'ack', id: '', of: 'setPoints' };
+    expect(withId(reply, { id: 'req-9' })).toEqual({
+      tvx: 1,
+      type: 'ack',
+      id: 'req-9',
+      of: 'setPoints',
+    });
+  });
+
+  it('names a request type the host union actually has', () => {
+    // `of` is typed as `HostMessage['type']`; this is the runtime half, so the three senders below
+    // cannot drift out of the vocabulary a host switches on.
+    for (const of of ['setPoints', 'setPointTool', 'setPointSelection'] as const) {
+      expect(HOST_MESSAGE_TYPES).toContain(of);
+    }
+  });
+});
+
 describe('embedParams', () => {
   it('reads the two query parameters', () => {
     expect(embedParams('?embed=1&hostOrigin=https%3A%2F%2Fhost.example')).toEqual({
@@ -252,7 +281,16 @@ describe('protocol 2 is additive', () => {
       'getCamera',
       'setCamera',
     ]);
-    expect(EMBED_MESSAGE_TYPES.slice(V1_EMBED.length)).toEqual(['pick', 'pointTool', 'camera']);
+    // `ack` is protocol 2's too — it landed a day later (2026-09-05), before 2 was ever released,
+    // and it is appended after the three the first pass added. Appending is the whole rule: a host
+    // may compare this list against its own, so the ORDER is part of the contract and a type added
+    // in the middle would silently renumber somebody's index.
+    expect(EMBED_MESSAGE_TYPES.slice(V1_EMBED.length)).toEqual([
+      'pick',
+      'pointTool',
+      'camera',
+      'ack',
+    ]);
   });
 
   it('still accepts every protocol-1 message on the unchanged envelope', () => {

@@ -46,6 +46,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An embedded viewer now answers when you tell it to change its points.** `setPointTool`,
+  `setPointSelection` and `setPoints` did the work and said nothing back, so a host application that
+  waited for confirmation — the ordinary "select this electrode, then redraw" shape — waited for
+  ever. Each now replies once the change is in the scene. Sending them without asking for a reply
+  works exactly as before.
+
 - **`setLayout` could kill an embedded viewer.** Four of the pane arrangements `docs/EMBED.md` has
   documented since the first release — `3d`, `axial`, `coronal`, `sagittal` — were not arrangements
   the renderer had, and asking for one left the layout with no panes and stopped the viewer on the

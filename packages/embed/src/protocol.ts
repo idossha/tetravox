@@ -46,7 +46,9 @@
  *    what a click landed on, **off by default**, so a protocol-1 host's message stream is byte for
  *    byte the one it gets today;
  *  * {@link GetCameraMessage} / {@link SetCameraMessage} / {@link CameraMessage} — read and restore
- *    the 3-D camera.
+ *    the 3-D camera;
+ *  * {@link AckMessage} — the reply the three point-layer messages send to a request that carried an
+ *    `id`, so a host can `await` them (2026-09-05).
  *
  * ## Trust
  *
@@ -288,6 +290,9 @@ export interface ResetMessage extends Envelope {
  *
  * The tool is disarmed by a `load` and by the layer being removed; the {@link PointToolMessage}
  * event says which, in `reason`, so a host knows whether to arm again.
+ *
+ * With an `id`, the reply is {@link AckMessage} — sent after the engine call returns, so a host may
+ * `await` it and then send the next message knowing the tool is armed.
  */
 export interface SetPointToolMessage extends Envelope {
   type: 'setPointTool';
@@ -309,6 +314,9 @@ export interface SetPointToolMessage extends Envelope {
  *
  * The selection is what draws §7.2's ring. It is **not** `points[].state`: `state` paints the
  * marker (any number of points may carry it), the selection is the one point the tool is holding.
+ *
+ * With an `id`, the reply is {@link AckMessage}. A `pointTool` event may arrive before it — the
+ * engine emits that synchronously — so a host must not treat the `ack` as "nothing else happened".
  */
 export interface SetPointSelectionMessage extends Envelope {
   type: 'setPointSelection';
@@ -326,6 +334,10 @@ export interface SetPointSelectionMessage extends Envelope {
  *
  * Replacing the array is also how a point is deleted, and the engine re-resolves the selection
  * against the new one (see {@link SetPointSelectionMessage}).
+ *
+ * With an `id`, the reply is {@link AckMessage}, posted after the layer has been patched — which is
+ * what makes "replace the points, then screenshot" a sequence rather than a race. The `layers` event
+ * carrying the new points is posted first.
  */
 export interface SetPointsMessage extends Envelope {
   type: 'setPoints';
@@ -626,6 +638,31 @@ export interface PointToolMessage extends Envelope {
   event: PointToolEvent;
 }
 
+/**
+ * "Done." — the reply to a host message that changes something and has nothing to report back.
+ *
+ * `setPointTool`, `setPointSelection` and `setPoints` each act on the scene and produce no value, so
+ * before this they replied with silence. Silence is indistinguishable from a dropped message on a
+ * `postMessage` channel, and the ordinary host shape — *select this electrode, then redraw* — is an
+ * `await` on a reply that never came. So a request that carried an `id` gets one back.
+ *
+ * `id` is **required** here, because that is the whole message: an `ack` with nothing to correlate
+ * would be an event nobody subscribed to. A request with no `id` is still answered with nothing,
+ * which is {@link withId}'s rule everywhere else — "a reply to an id-less request carries no id".
+ *
+ * `of` names the request's type, so a host multiplexing several in flight can assert what it is
+ * looking at without keeping its own table.
+ *
+ * Not an echo of {@link LayersMessage}: `layers` also fires when a *user* clicks in the layer panel
+ * or drags a point, and a host correlating on it would treat someone else's edit as its own reply.
+ */
+export interface AckMessage extends Envelope {
+  type: 'ack';
+  id: string;
+  /** The `type` of the request this answers. */
+  of: HostMessage['type'];
+}
+
 /** The reply to {@link GetCameraMessage}, and to a {@link SetCameraMessage} that carried an `id`. */
 export interface CameraMessage extends Envelope {
   type: 'camera';
@@ -646,7 +683,8 @@ export type EmbedMessage =
   // Protocol 2 (2026-09-04), appended.
   | PickMessage
   | PointToolMessage
-  | CameraMessage;
+  | CameraMessage
+  | AckMessage;
 
 /** Every `type` an embed may send. The runtime half of the {@link EmbedMessage} union. */
 export const EMBED_MESSAGE_TYPES = [
@@ -664,6 +702,8 @@ export const EMBED_MESSAGE_TYPES = [
   'pick',
   'pointTool',
   'camera',
+  // 2026-09-05. Appended: the reply the three point-layer messages had been missing.
+  'ack',
 ] as const satisfies readonly EmbedMessage['type'][];
 
 // ------------------------------------------------------------------------------------------------

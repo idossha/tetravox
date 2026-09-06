@@ -1236,6 +1236,13 @@ Rules:
       user can make with the mouse — the property `automation/run.ts` keeps for `--job`, for the same
       reason — so the protocol grants a host no reach the UI does not already have.
 
+    **Every message that changes something answers** (2026-09-05). A host message carrying an `id`
+    gets a reply carrying that `id` — a value where there is one, and `ack { id, of }` for the three
+    protocol-2 messages that act and return nothing (`setPointTool`, `setPointSelection`,
+    `setPoints`). Without it a host awaiting a reply hangs, because `postMessage` cannot distinguish
+    silence from a dropped message. A request with **no** `id` is still answered with nothing, which
+    is what keeps a protocol-1 host's message stream byte for byte the one it had.
+
     **The host may supply the surrounding controls** (2026-09-04, requirements
     `2026-09-04-ti-toolbox-viewport.md` R1). With `embed=1`, `presentation=viewport` omits the shell
     chrome described in §8 while preserving this renderer, canvas, worker and message-channel
