@@ -8,7 +8,14 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Surface annotations and overlays** — open a FreeSurfer `.annot` (SimNIBS's
+  `segmentation/lh.<subject>_DK40.annot`, `a2009s`, `HCP_MMP1`), a morph file (`curv`, `sulc`, `thickness`) or
+  a data-only `.func`/`.shape`/`.label.gii` onto a surface that is already open: through Open / drag-and-drop,
+  which picks the matching hemisphere, or the layer panel's **Attach file…**, which names the surface. An
+  annotation colours the surface by its atlas and fills the Region panel; a scalar becomes a field with its own
+  colour bar. Attached files are saved with the scene and re-attached on load.
 
 ## [0.3.11] - 2026-09-04
 

@@ -89,6 +89,13 @@ export function load_mesh(bytes: Uint8Array, format: string, opt_bytes: Uint8Arr
 export function load_volume(bytes: Uint8Array, lut_bytes: Uint8Array | null | undefined, float_linear: boolean, norm16: boolean, max_3d: number, want_linear: boolean, on_progress: Function): any;
 
 /**
+ * Per-vertex data from a second file onto a loaded surface (§6.4, `attachField`): a `.annot`, a
+ * FreeSurfer morph file or a data-only GIfTI. `name` is the file's base name — the extension hint
+ * and the field's name. Returns `{ fields, labelTables? }`, the additions only.
+ */
+export function mesh_attach_field(handle: number, bytes: Uint8Array, name: string): any;
+
+/**
  * Always [`tvx_geom::extract_boundary`]; used after isolation/clip.
  */
 export function mesh_boundary(handle: number, mask_id: number | null | undefined, variant: string, on_progress: Function): any;
@@ -263,6 +270,7 @@ export interface InitOutput {
     readonly cutout_new: (a: any, b: any, c: any, d: any, e: any, f: any, g: any, h: any, i: any) => number;
     readonly load_mesh: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => [number, number, number];
     readonly load_volume: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: any) => [number, number, number];
+    readonly mesh_attach_field: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly mesh_boundary: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly mesh_build_topology: (a: number, b: any) => [number, number, number];
     readonly mesh_centroids: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];

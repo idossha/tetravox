@@ -1075,7 +1075,18 @@ export interface DatasetRef {
    * cursor readout that said `515 · Bone-Cortical` said `515 · —`. R5's "persists through scene
    * save/load" was true of the *edits* and false of the table they are edits against.
    */
-  sidecars?: { lut?: SidecarRef; opt?: SidecarRef };
+  sidecars?: {
+    lut?: SidecarRef;
+    opt?: SidecarRef;
+    /**
+     * Per-vertex files attached to this surface after it opened (`Engine.attachSurfaceData`,
+     * 2026-09-06): a `.annot`, a morph file, a data-only GIfTI. Anchored to the dataset like the
+     * other two roles — `segmentation/lh.ernie_DK40.annot` is `../segmentation/…` from
+     * `surfaces/lh.pial.gii` — and re-attached best-effort on load, in this order, so a layer whose
+     * `label.name` names one of them finds its table again. Absent for every scene saved before it.
+     */
+    fields?: SidecarRef[];
+  };
 }
 
 /**

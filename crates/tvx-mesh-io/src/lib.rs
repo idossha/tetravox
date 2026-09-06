@@ -223,6 +223,74 @@ pub fn read_fs_annot(bytes: &[u8]) -> Result<(Field, LabelTable)> {
     freesurfer::read_annot(bytes)
 }
 
+/// Per-vertex data for a surface that is **already loaded** (§6.2, 2026-09-06): a FreeSurfer
+/// `.annot`, a FreeSurfer morph file (`curv`, `sulc`, `thickness`, …) or a data-only GIfTI
+/// (`.func` / `.shape` / `.label.gii`). None of these carries geometry, so none is a dataset:
+/// the caller attaches the fields to the surface whose vertex count they match.
+#[derive(Clone, Debug, Default)]
+pub struct NodeData {
+    pub fields: Vec<Field>,
+    /// The `.annot` colortable or the `.label.gii` `<LabelTable>`, keyed to the field that holds
+    /// its **dense** indices. One table per file at most.
+    pub label_table: Option<(String, LabelTable)>,
+}
+
+/// Read per-vertex data by content, with `name` (the file's base name) as the extension hint and
+/// as the field name. A file that yields exactly one array is named after the file; a GIfTI with
+/// several arrays names each `<file>:<array>`, so two `.func.gii` overlays on one surface never
+/// collide on the reader's fallback `func`.
+pub fn read_node_data(bytes: &[u8], name: &str) -> Result<NodeData> {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let ext = base
+        .rsplit('.')
+        .next()
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if gifti::looks_like(bytes) {
+        let mesh = gifti::read(bytes, &mut tvx_core::NoProgress)?;
+        if mesh.node_fields.is_empty() {
+            return Err(tvx_core::Error::Unsupported(format!(
+                "{base} carries no per-vertex data array"
+            )));
+        }
+        let single = mesh.node_fields.len() == 1;
+        let mut fields = mesh.node_fields;
+        for f in &mut fields {
+            f.name = if single {
+                base.to_string()
+            } else {
+                format!("{base}:{}", f.name)
+            };
+        }
+        let label_table = mesh.label_table.and_then(|t| {
+            fields
+                .iter()
+                .find(|f| f.name == base || f.name.ends_with(":label"))
+                .map(|f| (f.name.clone(), t))
+        });
+        return Ok(NodeData {
+            fields,
+            label_table,
+        });
+    }
+    if ext == "annot" {
+        let (mut field, table) = freesurfer::read_annot(bytes)?;
+        field.name = base.to_string();
+        return Ok(NodeData {
+            label_table: Some((field.name.clone(), table)),
+            fields: vec![field],
+        });
+    }
+    // Everything else is a FreeSurfer morph file: the new format announces itself with
+    // `0xFFFFFF`, and the old one has no magic at all, so the extension is not consulted.
+    let mut field = freesurfer::read_curv(bytes)?;
+    field.name = base.to_string();
+    Ok(NodeData {
+        fields: vec![field],
+        label_table: None,
+    })
+}
+
 /// STL, ascii and binary. Emits `tri_edge_mask = None`.
 pub fn read_stl(bytes: Vec<u8>) -> Result<Mesh> {
     let mesh = surf::read_stl(&bytes);

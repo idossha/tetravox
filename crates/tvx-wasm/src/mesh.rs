@@ -412,6 +412,58 @@ pub fn load(
 }
 
 // ---------------------------------------------------------------------------------------------
+// attach_field
+// ---------------------------------------------------------------------------------------------
+
+/// `attachField`'s body (§6.4, 2026-09-06): per-vertex data read from a **second file** onto the
+/// surface this handle already holds — a `.annot`, a FreeSurfer morph file or a data-only GIfTI.
+///
+/// The vertex count is the only correspondence a `.annot` carries, so it is checked against the
+/// mesh before anything is kept: a mismatch is a parse error naming both counts, and the mesh is
+/// untouched. A field with the same name (the same file attached twice) is replaced, table and
+/// all. Returns `{ fields: MeshFieldMeta[]; labelTables?: Record<name, LabelEntryT[]> }` — the
+/// additions only, never the whole meta, so the caller merges rather than rebuilds.
+pub fn attach_field(handle: u32, bytes: Vec<u8>, name: &str) -> Result<JsValue> {
+    let data = tvx_mesh_io::read_node_data(&bytes, name)?;
+    drop(bytes);
+    handles::with_mesh_mut(handle, |st| {
+        let n_nodes = st.mesh.nodes.len();
+        for f in &data.fields {
+            let n = f.data.len() / f.ncomp.max(1);
+            if n != n_nodes {
+                return Err(Error::Parse(format!(
+                    "{name} has {n} vertices; the surface has {n_nodes}"
+                )));
+            }
+        }
+        let out = jsv::obj();
+        let fields = js_sys::Array::new();
+        for f in data.fields {
+            st.mesh.node_fields.retain(|g| g.name != f.name);
+            st.label_tables.retain(|(k, _)| *k != f.name);
+            let jf = field_meta(
+                &f.name,
+                "node",
+                f.ncomp,
+                f.data.len() / f.ncomp.max(1),
+                &f.stats,
+            );
+            jsv::set_bool(&jf, "partial", f.partial);
+            fields.push(&jf);
+            st.mesh.node_fields.push(f);
+        }
+        jsv::set(&out, "fields", &fields.into());
+        if let Some((key, table)) = data.label_table {
+            let t = jsv::obj();
+            jsv::set(&t, &key, &jsv::label_entries(&table).into());
+            jsv::set(&out, "labelTables", &t.into());
+            st.label_tables.push((key, table));
+        }
+        Ok(out.into())
+    })
+}
+
+// ---------------------------------------------------------------------------------------------
 // surface / boundary / topology
 // ---------------------------------------------------------------------------------------------
 

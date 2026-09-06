@@ -461,3 +461,109 @@ describe('the frozen facade is enough', () => {
     engine.destroy();
   });
 });
+
+describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)', () => {
+  /** The attach runs after the queue drains, so `settled` alone is too early. */
+  async function until(store: UiStore, pred: () => boolean): Promise<void> {
+    for (let i = 0; i < 500; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      if (pred()) return;
+    }
+    throw new Error('condition never met');
+  }
+
+  it('attaches a .annot opened with its surface to that surface, after it has loaded', async () => {
+    const { store, controller } = harness();
+    controller.open([
+      pathRequest('/m2m/surfaces/lh.pial.gii'),
+      pathRequest('/m2m/segmentation/lh.ernie_DK40.annot'),
+    ]);
+    // One load card: the annotation is not a dataset and never gets one.
+    expect(store.getState().loads.map((c) => c.name)).toEqual(['lh.pial.gii']);
+    await until(
+      store,
+      () =>
+        store.getState().layers[0]?.kind === 'mesh' &&
+        (store.getState().layers[0] as { colorMode?: string }).colorMode === 'label'
+    );
+    const state = store.getState();
+    expect(state.datasets).toHaveLength(1);
+    const ds = state.datasets[0];
+    expect(ds?.kind === 'mesh' ? ds.fields.map((f) => f.name) : null).toContain(
+      'lh.ernie_DK40.annot'
+    );
+    const layer = state.layers[0] as { colorMode: string; label?: { name: string; mode: string } };
+    expect(layer.label?.name).toBe('lh.ernie_DK40.annot');
+    expect(layer.label?.mode).toBe('fill');
+    expect(state.toasts).toEqual([]);
+  });
+
+  it('refuses the other hemisphere by name, and says so', async () => {
+    const { store, controller } = harness();
+    controller.open([pathRequest('/m2m/surfaces/lh.pial.gii')]);
+    await settled(store);
+    controller.open([pathRequest('/m2m/segmentation/rh.ernie_DK40.annot')]);
+    await until(store, () => store.getState().toasts.length > 0);
+    expect(store.getState().toasts[0]?.detail).toContain('other hemisphere');
+    const layer = store.getState().layers[0] as { colorMode: string };
+    expect(layer.colorMode).not.toBe('label');
+  });
+
+  it('prefers the active layer’s surface, then the matching hemisphere', async () => {
+    const { store, controller } = harness();
+    controller.open([
+      pathRequest('/m2m/surfaces/rh.pial.gii'),
+      pathRequest('/m2m/surfaces/lh.pial.gii'),
+      pathRequest('/m2m/surfaces/lh.central.gii'),
+    ]);
+    await settled(store);
+    const lhPial =
+      store
+        .getState()
+        .layers.find(
+          (l) => l.id === store.getState().datasets.find((d) => d.name === 'lh.pial.gii')?.id
+        ) ?? null;
+    void lhPial;
+    const byName = (name: string): string =>
+      store.getState().datasets.find((d) => d.name === name)?.id ?? '';
+    const pialLayer = store.getState().layers.find((l) => l.datasetId === byName('lh.pial.gii'));
+    controller.setActiveLayer(pialLayer!.id);
+    controller.open([pathRequest('/m2m/segmentation/lh.ernie_DK40.annot')]);
+    await until(store, () =>
+      store
+        .getState()
+        .datasets.some(
+          (d) => d.kind === 'mesh' && d.fields.some((f) => f.name === 'lh.ernie_DK40.annot')
+        )
+    );
+    const carrying = store
+      .getState()
+      .datasets.filter(
+        (d) => d.kind === 'mesh' && d.fields.some((f) => f.name === 'lh.ernie_DK40.annot')
+      )
+      .map((d) => d.name);
+    expect(carrying).toEqual(['lh.pial.gii']);
+  });
+
+  it('a scalar overlay becomes the layer’s field with its own scale', async () => {
+    const { store, controller } = harness();
+    controller.open([
+      pathRequest('/m2m/surfaces/lh.pial.gii'),
+      pathRequest('/m2m/surfaces/lh.thickness'),
+    ]);
+    await until(
+      store,
+      () => (store.getState().layers[0] as { colorMode?: string })?.colorMode === 'field'
+    );
+    const layer = store.getState().layers[0] as { field?: { source: string; name: string } };
+    expect(layer.field).toEqual({ source: 'node', name: 'lh.thickness', component: 'mag' });
+  });
+
+  it('with no surface open, says to open one first', async () => {
+    const { store, controller } = harness();
+    controller.open([pathRequest('/m2m/segmentation/lh.ernie_DK40.annot')]);
+    await until(store, () => store.getState().toasts.length > 0);
+    expect(store.getState().toasts[0]?.detail).toContain('open the surface');
+    expect(store.getState().loads).toEqual([]);
+  });
+});

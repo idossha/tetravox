@@ -124,6 +124,14 @@ pub fn load_mesh(
     mesh::load(bytes, format, opt_bytes, lut_bytes, &mut p).map_err(err::map)
 }
 
+/// Per-vertex data from a second file onto a loaded surface (§6.4, `attachField`): a `.annot`, a
+/// FreeSurfer morph file or a data-only GIfTI. `name` is the file's base name — the extension hint
+/// and the field's name. Returns `{ fields, labelTables? }`, the additions only.
+#[wasm_bindgen]
+pub fn mesh_attach_field(handle: u32, bytes: Vec<u8>, name: &str) -> Result<JsValue, JsValue> {
+    mesh::attach_field(handle, bytes, name).map_err(err::map)
+}
+
 /// The **only** way to display a 4D index ≠ 0 (§6.5.2). Returns `VolumeFrameT`.
 #[wasm_bindgen]
 pub fn volume_frame(

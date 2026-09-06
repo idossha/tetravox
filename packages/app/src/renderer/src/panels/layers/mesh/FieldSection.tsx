@@ -112,6 +112,22 @@ export function FieldSection({
           <Pending testId={`mesh-pending-label-${layer.id}`} label="label" />
         ) : null}
       </Row>
+      {/* Per-vertex data from a second file (§4.7's `attachSurfaceData`): a FreeSurfer `.annot`
+          such as SimNIBS's `segmentation/lh.<subject>_DK40.annot`, a morph file, a data-only GIfTI.
+          The worker checks the node count, so a tet mesh may take one too. */}
+      {dataset.nNodes > 0 ? (
+        <Row label="Overlay">
+          <button
+            type="button"
+            data-testid={`mesh-attach-data-${layer.id}`}
+            className="tvx-btn tvx-btn-sm"
+            title="Attach an annotation (.annot, .label.gii) or a per-vertex scalar (curv, thickness, .func.gii) to this surface"
+            onClick={() => void controller.chooseSurfaceData(layer.id)}
+          >
+            Attach file…
+          </button>
+        </Row>
+      ) : null}
       {overrides > 0 ? (
         <div
           data-testid={`mesh-paint-overrides-${layer.id}`}

@@ -156,6 +156,14 @@ async function runOp<K extends OpName>(
       (result.meta as MeshMeta).name = loaded.name;
       return result as OpResult[K];
     }
+    case 'attachField': {
+      // The file is fetched here for the same reason `loadMesh`'s is: its bytes stay in this worker
+      // (§5 rule 3). The base name is what the reader keys on — the extension hint for a morph
+      // file, and the field's name on the wire (§6.5.2).
+      const a = args as OpArgs['attachField'];
+      const loaded = await loadSource(a.source, read);
+      return call(a.handle, loaded.bytes, loaded.name) as OpResult[K];
+    }
     case 'volumeFrame': {
       const a = args as OpArgs['volumeFrame'];
       const [floatLinear, norm16, max3d] = capsOf(a.caps);

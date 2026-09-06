@@ -5159,3 +5159,23 @@ The user reported clipped sidebar controls during manual review. Range inputs an
 now permit shrinking below their intrinsic browser minimum width. Hiding horizontal overflow was
 rejected because it would conceal controls. `view-controls.spec.ts` checks mesh and volume controls
 against the sidebar bounds at 960 and 1400 px window widths, including the narrow overlay.
+
+
+## 2026-09-06 — Surface annotations attach to an open surface; they are not datasets (§4.7, §6.2, §6.5.2)
+
+The user asked to open SimNIBS's `segmentation/{lh,rh}.<subject>_{DK40,a2009s,HCP_MMP1}.annot` onto the
+hemisphere surfaces. `read_fs_annot`, `colorMode:'label'`, the label palette and the region panel all existed;
+nothing carried a `.annot` from disk into a loaded surface's worker, because a `.annot` has no geometry and
+names its surface only by vertex count. The route is one appended op, `attachField`, run on the **surface's
+own worker** (§5 rule 1 forbids a second wasm instance seeing the mesh; §5 rule 3 forbids the bytes reaching
+the UI thread), fed by `read_node_data`, which also covers the FreeSurfer morph files and data-only GIfTI —
+one reader for "per-vertex data for a surface". The result is the additions only, merged into the dataset in
+place, and the path is a third sidecar role `fields` so a scene brings its annotations back.
+Rejected: a `sidecars.annot` on `LoadSource` handed to `load_mesh` — it would change a frozen wasm signature
+and make the annotation a load-time input when it is a gesture after the fact; auto-associating
+`../segmentation/<hemi>.*.annot` beside a `.gii` — `allowPath` probes exact paths and the subject name is not
+derivable from `lh.pial.gii`, so the app cannot guess it without a directory listing it is not allowed. Opening
+an overlay recolours the surface's layers by it (the app's choice, not the engine's); opening a surface that
+carries a table still does not, as before. Fields are named after the file (`lh.ernie_DK40.annot`), never the
+reader's `annot`, so two atlases on one hemisphere coexist and the region panel says which is which.
+

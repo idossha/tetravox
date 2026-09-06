@@ -683,7 +683,7 @@ export interface DatasetRef {
   path: string;                     // relative to the scene file
   absPath?: string;
   fingerprint: string;              // `tvxfp1-<len:16hex>-<hash:16hex>` — see below
-  sidecars?: { lut?: SidecarRef; opt?: SidecarRef };
+  sidecars?: { lut?: SidecarRef; opt?: SidecarRef; fields?: SidecarRef[] };   // `fields` appended 2026-09-06
 }
 export type SerializableLayer =
   Omit<Layer, 'visibleLabels'> & { visibleLabels?: number[]; label?: { name: string; mode: string;
@@ -740,6 +740,14 @@ is relative to **the dataset**, not the scene file, because a sidecar travels wi
 `Engine.load` derives the paths from wherever each dataset resolved to (`sidecarPathsFor`, exported so a host
 that owns the filesystem can admit exactly the same paths). **Reading a sidecar is best-effort**: one that is
 not beside this copy of the file is a missing table, never a failed load.
+
+**`sidecars.fields` (2026-09-06) — the per-vertex files a surface had attached after it opened**, in the
+order they were attached: `Engine.attachSurfaceData`'s `.annot` / morph file / data-only GIfTI. The same
+dataset-relative anchor as the other two roles — SimNIBS writes `segmentation/lh.ernie_DK40.annot` a directory
+away from `surfaces/lh.pial.gii`, and `../segmentation/…` survives a move of `m2m_ernie` where a scene-relative
+path would not. `Engine.load` re-attaches them best-effort, in order, before the layers are restored, so a
+`MeshLayer.label.name` that names one of them finds its table again (`addLayer` looks the table up **by that
+name** first, and only then falls back to the seeded first table). Absent from every scene saved before it.
 
 **`fingerprint` — `tvxfp1`, normative.** The producer is `tvx_core::fingerprint` (§6.0), called by
 `load_volume` / `load_mesh` over the bytes the loader was handed and **before** the parser frees them (§5
@@ -908,6 +916,10 @@ export interface Engine {
   fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null;
   setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void;
   attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean>;
+  attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;   // 2026-09-06: §6.5.2's
+                                                //   `attachField` on that dataset's worker; grows `fields` /
+                                                //   `labelTables` in place, changes no layer, remembers the path
+                                                //   as `DatasetRef.sidecars.fields`
 
   setMeasureMode(on: boolean): void;            // while on, a left-click PLACES A POINT in any pane
   measureMode(): boolean;
@@ -1410,6 +1422,9 @@ pub fn read_gifti(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh>;
 pub fn read_fs_surface(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_fs_curv(bytes: &[u8]) -> Result<Field>;
 pub fn read_fs_annot(bytes: &[u8]) -> Result<(Field, LabelTable)>;   // Field = DENSE 0..N-1 indices
+pub struct NodeData { pub fields: Vec<Field>, pub label_table: Option<(String, LabelTable)> }   // 2026-09-06
+pub fn read_node_data(bytes: &[u8], name: &str) -> Result<NodeData>;   // .annot | morph file | data-only GIfTI,
+                                                                       //   by content; `name` = base name = field name
 pub fn read_stl(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_ply(bytes: Vec<u8>) -> Result<Mesh>;
 pub fn read_obj(bytes: Vec<u8>) -> Result<Mesh>;
@@ -1509,6 +1524,15 @@ is also read. `read_fs_curv` reads the new format (magic `0xFFFFFF`). `read_fs_a
 annotation values to **dense 0..N−1** through the embedded colortable at parse time and returns that
 colortable, with the original id preserved in `LabelEntry.id`. Unassigned vertices (`-1`) map to dense index
 0 with a transparent entry.
+
+**Per-vertex files are not datasets (2026-09-06).** A `.annot`, a morph file (`curv`, `sulc`, `thickness`, …)
+and a data-only `.func` / `.shape` / `.label.gii` carry no geometry and name their surface only by vertex count.
+`read_node_data` reads any of them by content — GIfTI by its XML, an `.annot` by the name's extension, anything
+else as a morph file, whose new format has a magic and whose old format has none — into `NodeData`: the fields
+**named after the file** (`lh.ernie_DK40.annot`, not the reader's `annot`, so two overlays never collide; a GIfTI
+with several arrays names each `<file>:<array>`), and the table keyed to the field that holds its dense indices.
+The wasm export that consumes it (`mesh_attach_field`, §6.4) checks every field's count against the loaded
+surface **before** keeping anything: a mismatch is `Error::Parse` naming both counts and the mesh is untouched.
 
 Loaders that triangulate n-gons (`read_fs_surface` quad file, `read_ply`, `read_obj`, `read_vtk`,
 `read_vtk_xml`, `read_off`) must emit a matching `tri_edge_mask`, and only when an n-gon really occurred.
@@ -1793,6 +1817,10 @@ is present wherever an op can exceed one frame, and is called at section boundar
 #[wasm_bindgen] pub fn mesh_nearest_vertex(handle: u32, x: f32, y: f32, z: f32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_vertices(handle: u32, indices: Option<Vec<u32>>) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn surface_sphere_map(handle: u32, target: &[f32]) -> Result<JsValue, JsValue>;
+// 2026-09-06: §6.2's `read_node_data` onto the surface `handle` holds. `name` is the file's base name — the
+// extension hint and the field name. A same-named field is replaced, table and all. Returns the ADDITIONS,
+// `{ fields: MeshFieldMeta[]; labelTables?: Record<name, LabelEntryT[]> }`, never the whole meta.
+#[wasm_bindgen] pub fn mesh_attach_field(handle: u32, bytes: Vec<u8>, name: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_marching_cubes(handle: u32, vol_index: u32, iso: f32, smooth: bool,
                                              on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_marching_cubes_label(handle: u32, vol_index: u32, label: f32, smooth: bool,
@@ -1885,8 +1913,8 @@ export interface WorkerError { code: ErrorCode; message: string }
 export type OpName =
   | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
   | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingCubesLabel' | 'marchingTets' | 'contours'
-  | 'labelCentroids' | 'meshCentroids' | 'nearestVertex' | 'vertices' | 'sphereMap'
-  | 'free' | 'freeMask';                                           // 22 ops
+  | 'labelCentroids' | 'meshCentroids' | 'nearestVertex' | 'vertices' | 'sphereMap' | 'attachField'
+  | 'free' | 'freeMask';                                           // 23 ops (`attachField` appended 2026-09-06)
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -2027,6 +2055,7 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `nearestVertex` | `{ handle; world }` | `{ vertex: number \| null; coord? }` | the mesh **node** nearest a world point. Not `locate`: that finds the containing tet, and a surface has none |
 | `vertices` | `{ handle; indices?: Uint32Array }` | `{ positions: Float32Array }` | `indices` omitted = **every** node in file order, which is how one surface's coordinates reach another dataset's worker. An index past the end is `Error::Parse`, never a zeroed coordinate |
 | `sphereMap` | `{ handle; target: Float32Array }` | `{ map: Uint32Array }` | subject `sphere.reg` vertex → nearest fsaverage `sphere` vertex. `handle` is the **subject's** sphere; `target` is the fsaverage sphere's flat xyz triples, read from its own worker with `vertices` — not two handles, because §5 rule 1 gives one worker one dataset. **Cloned, not transferred**: the caller keeps the directions for the other hemisphere |
+| `attachField` | `{ handle; source: LoadSource }` | `{ fields: MeshFieldMeta[]; labelTables? }` | (2026-09-06) per-vertex data from a **second file** onto the surface `handle` holds — a `.annot`, a morph file, a data-only GIfTI (§6.2 `read_node_data`). The worker fetches `source` itself, as for `loadMesh`; the vertex count is checked before anything is kept, a mismatch is `parse` naming both counts, and the reply is the **additions only**, keyed as §6.5.1 keys `labelTables`. `source.sidecars` is ignored |
 | `free` | `{ handle }` | `{}` | the client then calls `worker.terminate()` |
 | `freeMask` | `{ handle; maskId }` | `{}` | masks are also dropped when the mesh handle is freed |
 
