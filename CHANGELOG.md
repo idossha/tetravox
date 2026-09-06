@@ -15,6 +15,13 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   annotations, 3D gestures and host messages remain available. The full viewer stays the default when
   the option is omitted; `docs/EMBED.md` §2 documents the URL and the inactive shell shortcuts.
 
+- **The browser embed ships with a checksum and a manifest beside it.** Every release now carries
+  `tetravox-embed-<version>.tgz.sha256` (in `sha256sum` format, so `sha256sum -c` works on it) and
+  `tetravox-embed-<version>.manifest.json` — a copy of the manifest inside the tarball. An
+  application that installs the viewer automatically can read which protocol a release implements
+  before downloading it, and verify what it downloaded before unpacking it. The release workflow
+  refuses to publish unless all three are attached and the digest matches the tarball.
+
 - **Tetravox embeds in a web application.** A new release asset, `tetravox-embed-<version>.tgz`,
   contains a browser build of the viewer that a host serves from any route and mounts in an
   `<iframe>`, then drives over `postMessage` — load a scene, move the cursor, patch a layer, probe a

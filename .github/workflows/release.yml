@@ -203,15 +203,40 @@ jobs:
           set -euo pipefail
           pnpm --filter @tetravox/embed build
           pnpm --filter @tetravox/embed pack:embed
-          asset="$(basename "$(ls packages/embed/dist-pkg/*.tgz)")"
+          cd packages/embed/dist-pkg
+          asset="$(basename "$(ls ./*.tgz)")"
+
+          # THE TWO SIDECARS, for a host that installs the embed WITHOUT a human in the loop
+          # (TI-Toolbox's updater is the one this is for). Such a host has two questions before it
+          # spends 30 MB and unpacks anything into an application's serving root:
+          #
+          #   "is this bundle's protocol one I support?"  → the manifest, without downloading the tarball
+          #   "is what I downloaded what you built?"      → the digest, before unpacking it
+          #
+          # The manifest is EXTRACTED from the tarball rather than regenerated, so the answer the
+          # updater reads is the answer the bundle carries; regenerating it here would be a second
+          # `pack.mjs` that could disagree with the first. The member path carries the tarball's one
+          # directory prefix, which is the tarball's own name without `.tgz`.
+          tar xzf "$asset" -O "${asset%.tgz}/manifest.json" > "${asset%.tgz}.manifest.json"
+
+          # `sha256sum` FORMAT — `<64 hex>  <filename>`, two spaces — so a host can run
+          # `sha256sum -c tetravox-embed-<v>.tgz.sha256` on it unchanged, and so can a maintainer.
+          # A bare digest would need every consumer to reformat it.
+          sha256sum "$asset" > "$asset.sha256"
+
           echo "asset=$asset" >> "$GITHUB_OUTPUT"
           echo "packed $asset"
+          cat "$asset.sha256"
+          cat "${asset%.tgz}.manifest.json"
 
       - name: Upload the workflow artefact
         uses: actions/upload-artifact@v4
         with:
           name: tetravox-embed
-          path: packages/embed/dist-pkg/*.tgz
+          path: |
+            packages/embed/dist-pkg/*.tgz
+            packages/embed/dist-pkg/*.sha256
+            packages/embed/dist-pkg/*.manifest.json
           if-no-files-found: error
           retention-days: 14
 
@@ -221,7 +246,10 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           draft: true
-          files: packages/embed/dist-pkg/*.tgz
+          files: |
+            packages/embed/dist-pkg/*.tgz
+            packages/embed/dist-pkg/*.sha256
+            packages/embed/dist-pkg/*.manifest.json
           fail_on_unmatched_files: true
 
   # ------------------------------------------------------------------------------------------------
@@ -589,7 +617,11 @@ jobs:
           # an embed contract and ships no bundle is one no host can install. Its name carries the
           # version (`packages/embed/scripts/pack.mjs`), so it comes from the job that packed it.
           if [ -n "${EMBED_ASSET:-}" ]; then
-            required+=("$EMBED_ASSET")
+            # All THREE: a host that installs the embed automatically resolves the manifest to read
+            # the protocol, then the digest to check what it downloaded. A release carrying only the
+            # tarball would make that host either download 30 MB to answer a question the manifest
+            # answers, or unpack a bundle it never verified.
+            required+=("$EMBED_ASSET" "$EMBED_ASSET.sha256" "${EMBED_ASSET%.tgz}.manifest.json")
           else
             echo "MISSING  the browser embed tarball (the embed job produced no asset name)" >&2
             missing_embed=1
@@ -623,6 +655,39 @@ jobs:
           fi
           echo
           echo "All required assets are attached."
+
+      # Present is not the same as correct. The digest is the one asset whose VALUE can be wrong
+      # while its name is right — a re-run that re-packed the tarball and attached a stale `.sha256`
+      # beside it would publish a release every automatic installer refuses, and the failure would
+      # surface in somebody else's application rather than here. So both files are downloaded from
+      # the Release itself (not from the job that made them) and checked against each other.
+      - name: The embed's digest must match the tarball that was attached
+        if: ${{ needs.embed.outputs.asset != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          EMBED_ASSET: ${{ needs.embed.outputs.asset }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          gh release download "$TAG" --dir "$work" \
+            --pattern "$EMBED_ASSET" \
+            --pattern "$EMBED_ASSET.sha256" \
+            --pattern "${EMBED_ASSET%.tgz}.manifest.json"
+          cd "$work"
+          # `sha256sum -c` reads the sidecar's own `<digest>  <name>` line, which is the same command
+          # a host runs — so this checks the FORMAT as well as the value.
+          sha256sum -c "$EMBED_ASSET.sha256"
+          # And the manifest must describe this tarball: the version in its name, and the protocol
+          # the bundle inside actually reports. `pack.mjs` reads that out of `protocol.ts`, so a
+          # mismatch here means the two were built from different trees.
+          tar xzf "$EMBED_ASSET" -O "${EMBED_ASSET%.tgz}/manifest.json" > inside.json
+          if ! diff -u inside.json "${EMBED_ASSET%.tgz}.manifest.json"; then
+            echo "the attached manifest is not the one inside the tarball" >&2
+            exit 1
+          fi
+          echo "embed: digest and manifest both agree with $EMBED_ASSET"
 
       # The end of the draft window. Only reached when every required asset above is present, which
       # is exactly the check a maintainer used to perform by eye. `--latest` is explicit rather than

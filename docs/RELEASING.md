@@ -586,6 +586,27 @@ with the build it describes would be worse than no manifest, because a host gate
 The version comes from `packages/embed/package.json`, which `scripts/release.sh` bumps with the
 other five.
 
+**A release carries three embed assets, not one** (`release.yml`'s `embed` job):
+
+| Asset | What it is | Who reads it |
+|---|---|---|
+| `tetravox-embed-<v>.tgz` | the bundle | anyone installing the embed |
+| `tetravox-embed-<v>.tgz.sha256` | `sha256sum` format — `<64 hex>␣␣<name>` | an installer, **before** unpacking |
+| `tetravox-embed-<v>.manifest.json` | a byte-for-byte copy of the tarball's own `manifest.json` | an installer deciding whether to download at all |
+
+The two sidecars are for a host that installs the embed with no human in the loop — TI-Toolbox's
+updater is the one they were added for. It asks *is this bundle's protocol one I support?*, which the
+manifest answers without a 30 MB download, and *is what I downloaded what you built?*, which the
+digest answers before anything is unpacked into an application's serving root. The manifest is
+**extracted from the tarball**, never regenerated, so the answer an updater reads is the answer the
+bundle carries.
+
+`verify` requires all three by name and then downloads them back off the Release and runs
+`sha256sum -c` — a check of the format as well as the value — and diffs the attached manifest against
+the one inside the tarball. Present is not the same as correct: a re-run that re-packed the tarball
+and left a stale digest beside it would publish a release every automatic installer refuses, and that
+failure would otherwise surface in somebody else's application rather than in this workflow.
+
 **One version for the whole tree.** `packages/embed/package.json` carries the *repository* version,
 not a version of its own, and `scripts/release.sh` bumps it with the other five package.jsons,
 `Cargo.toml` and `CITATION.cff` — its post-bump sanity loop reads all six back and stops if any one
