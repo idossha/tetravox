@@ -5308,6 +5308,41 @@ The viewport golden is a local proposal under §11; the Linux software authority
 cross-platform tolerance. The platform GPU project runs these viewport cases without requesting a
 hardware golden, and asserts that its renderer class is not software.
 
+
+## 2026-09-05 — the embed has no version of its own, and its release assets carry their own checks
+
+**One version.** `packages/embed/package.json` reads the repository version and nothing else.
+The protocol-2 branch carried `0.4.0` against a `0.3.11` tree, which would have hung
+`tetravox-embed-0.4.0.tgz` under a Release named `v0.3.11` — a reconciliation every host resolving an
+asset by name would have had to perform, and one no Release page explains. `scripts/release.sh`
+already bumped all six package.jsons and read them back, so the fix was to stop opting out of it;
+`version.test.ts` fails when either file is edited by hand. The alternative — versioning the embed
+independently, the way `@tetravox/module-sdk` names itself after the host API — was rejected because
+the SDK's number *is* a contract (an API level a module compiles against) while the embed's contract
+is `PROTOCOL_VERSION`, which is already a separate, already-published number. Two numbers where one
+of them is the contract is one number too many.
+
+**Three assets, not one.** `release.yml`'s `embed` job now attaches `tetravox-embed-<v>.tgz.sha256`
+and `tetravox-embed-<v>.manifest.json` beside the tarball, and `verify` requires all three and
+re-computes the digest against the attached tarball before publishing the draft. The sidecars exist
+for a host that installs the embed *automatically*: TI-Toolbox's updater has to answer "is there a
+newer bundle, and does its protocol fall in the range I support?" before deciding to download 30 MB,
+and it has to verify what it downloaded before unpacking it into an application's serving root. The
+manifest is a byte-for-byte copy of the one inside the tarball (extracted from it, not re-generated),
+so the answer the updater reads is the answer the bundle carries. `.sha256` is `sha256sum` format —
+`<64 hex>  <filename>`, two spaces — so `sha256sum -c` works on it unchanged. Rejected: a
+`releases.json` index committed to `main`, which was the original design and which nothing writes;
+the GitHub Releases API already enumerates releases and their assets, and an index file is a second
+source of truth that goes stale exactly when a release fails halfway.
+
+**Every point-layer message answers.** `setPoints`, `setPointTool` and `setPointSelection` acted and
+said nothing, so a host that awaited a reply — the ordinary shape for "select this electrode, then
+redraw" — waited forever. They now reply `ack` with the request's `id`, and only when one was sent:
+`withId` already encodes "a reply to an id-less request carries no id", and an unsolicited `ack`
+would be an event nobody subscribed to. A new `ack` type rather than echoing `layers`, because
+`layers` also fires for reasons the host did not cause and correlating on it would make a host act on
+a user's own click. Additive: `tvx` stays 1, the type joins `EMBED_MESSAGE_TYPES`, and a host that
+ignores it sees what it saw before.
 ## 2026-09-06 — Surface annotations attach to an open surface; they are not datasets (§4.7, §6.2, §6.5.2)
 
 The user asked to open SimNIBS's `segmentation/{lh,rh}.<subject>_{DK40,a2009s,HCP_MMP1}.annot` onto the
@@ -5343,4 +5378,5 @@ model would still say "tissue tag" and every scene, preset and probe would keep 
 migrating pre-existing scenes' `mesh` layers over tet-less datasets (not owed, and the stored kind still
 opens as before). The R5 import wall is a source-reading vitest, so the separation is a test rather than a
 convention. New golden `surface-default` [surface.spec.ts]: the FreeSurfer patch in Freeview yellow.
+
 

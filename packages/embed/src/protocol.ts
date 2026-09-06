@@ -29,7 +29,7 @@
  *
  * {@link PROTOCOL_VERSION} is the *feature level*: which edition of the tables in `docs/EMBED.md`
  * this build implements. It is what `ready.version` announces and what the tarball's
- * `manifest.json.protocol` records, and it is `2` as of embed 0.4.0. A host reads it to decide
+ * `manifest.json.protocol` records, and it is `2`. A host reads it to decide
  * whether a feature is there — never to decide whether to talk at all, which is what `tvx` is for.
  *
  * Conflating the two would have been the one change that breaks every existing host: a protocol-1
@@ -99,7 +99,11 @@ export const ENVELOPE_VERSION = 1;
 
 /**
  * The **feature level** this build implements — `ready.version` and the tarball manifest's
- * `protocol` (see above). `1` in embed 0.3.x; `2` from 0.4.0.
+ * `protocol` (see above). `1` up to Tetravox 0.3.9; `2` from 0.3.11.
+ *
+ * It is **not** the tarball's version. The embed is versioned with the repository — one number for
+ * the whole tree, bumped by `scripts/release.sh` — so `tetravox-embed-0.3.11.tgz` is the embed built
+ * from Tetravox 0.3.11, and this constant says which edition of the contract that build implements.
  */
 export const PROTOCOL_VERSION = 2;
 

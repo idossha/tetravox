@@ -24,9 +24,9 @@ Download `tetravox-embed-<version>.tgz` from the [release
 page](https://github.com/idossha/tetravox/releases) and unpack it:
 
 ```sh
-tar xzf tetravox-embed-0.4.0.tgz
-# tetravox-embed-0.4.0/
-#   manifest.json          {"name":"@tetravox/embed","version":"0.4.0","protocol":2,"sha":"…"}
+tar xzf tetravox-embed-0.3.11.tgz
+# tetravox-embed-0.3.11/
+#   manifest.json          {"name":"@tetravox/embed","version":"0.3.11","protocol":2,"sha":"…"}
 #   LICENSE  EMBED.md  protocol.schema.json  viewspec.schema.json
 #   dist/index.html
 #   dist/assets/…          the JS chunks, the CSS, two module workers, tvx_wasm_bg-*.wasm
@@ -36,7 +36,8 @@ Serve `dist/` under **any** path — `/tetravox/`, `/viewer/`, a versioned CDN p
 `base: './'`, so every URL it emits is relative to `index.html` and nothing assumes a root.
 
 `manifest.json` says which build you are serving: `protocol` is the contract version implemented
-(`2` since 0.4.0), and `sha` is the commit it was built from. Quote both in a bug report.
+(`2` since 0.3.11), and `sha` is the commit it was built from. `version` is the **Tetravox release
+version** — the embed carries no version of its own. Quote both in a bug report.
 
 **`protocol` is the number to gate a feature on, and it is not the `tvx` on the wire.** Pin a
 *range* and the features you need, never a version: everything protocol 2 added is optional, so a
@@ -147,10 +148,10 @@ existing host would stop talking to the viewer on the same day. It has not moved
 it will not move for protocol 3.
 
 `ready.version` — the same number as `manifest.json`'s `protocol` — is the **feature level**: which
-edition of the tables below this build implements. It is `2` as of embed 0.4.0. Read it to decide
+edition of the tables below this build implements. It is `2` since Tetravox 0.3.11. Read it to decide
 whether a feature is there; never to decide whether to talk at all.
 
-**Protocol 2 (embed 0.4.0) added**, all of it optional and none of it on by default:
+**Protocol 2 (Tetravox 0.3.11) added**, all of it optional and none of it on by default:
 
 * a **points layer** in the `ViewSpec`, written inline — §5(d) and §6;
 * `setPointTool`, `setPointSelection`, `setPoints` — the point tool a user drives with the mouse;
@@ -215,7 +216,7 @@ in it: `'3d'`, `'axial'`, `'coronal'`, `'sagittal'`. Anything else is answered w
 > Those four names have been in this table since protocol 1 and did not work: they are not
 > `LayoutKind` values, and one of them reaching the engine left the layout with no cells and threw
 > inside the render loop on the next frame — a dead viewer, with nothing said to the host. Fixed in
-> 0.4.0, in both directions: the four names now mean what this table always said they meant, and an
+> 0.3.11, in both directions: the four names now mean what this table always said they meant, and an
 > unknown kind is an `error` reply rather than a crash.
 
 `focus` matters more than it looks: an iframe gets no key events until something inside it is
@@ -447,7 +448,7 @@ time; above 0 the off-slice ones are drawn as ghosts at their full radius. Leave
 whose points really do lie in a plane.
 
 `viewspec.schema.json` in the tarball validates this subset — the points layer included, since
-0.4.0. Fields it does not list are still accepted and passed through; §4.4 is the complete layer
+0.3.11. Fields it does not list are still accepted and passed through; §4.4 is the complete layer
 model.
 
 ---

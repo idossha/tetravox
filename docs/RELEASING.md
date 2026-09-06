@@ -577,7 +577,7 @@ tetravox-embed-<v>/
   dist/index.html  dist/assets/…
 ```
 
-`manifest.json`'s `protocol` is the host-protocol version the bundle implements (`2` since 0.4.0)
+`manifest.json`'s `protocol` is the host-protocol version the bundle implements (`2` since 0.3.11)
 and `sha` is the commit it was built from — `git rev-parse HEAD`, or `''` outside a checkout. It
 exists so a host serving a bundle can say *which* bundle, which is the first question when a viewer
 misbehaves inside an application nobody can reproduce locally. `pack.mjs` reads the protocol number
@@ -586,11 +586,12 @@ with the build it describes would be worse than no manifest, because a host gate
 The version comes from `packages/embed/package.json`, which `scripts/release.sh` bumps with the
 other five.
 
-> **`packages/embed/package.json` currently reads `0.4.0` while the tree reads 0.3.8**, because
-> protocol 2 landed on its own branch and the tarball a host installs is named by that file. The six
-> versions are meant to move together, so the next cut should be `scripts/release.sh 0.4.0`, which
-> re-aligns them; cutting `0.3.9` instead would quietly walk the embed *back* to 0.3.9 and ship a
-> protocol-2 bundle under a version a host may have already seen.
+**One version for the whole tree.** `packages/embed/package.json` carries the *repository* version,
+not a version of its own, and `scripts/release.sh` bumps it with the other five package.jsons,
+`Cargo.toml` and `CITATION.cff` — its post-bump sanity loop reads all six back and stops if any one
+of them did not take. So `tetravox-embed-<v>.tgz` is always the embed built from Tetravox `<v>`, and
+there is no second number for a host to reconcile against a release page. (It read `0.4.0` on the
+protocol-2 branch for a few days; that is now `0.3.11`, the tree's own.)
 
 **The protocol number and the version are independent, and only one of them is the contract.** The
 protocol moves when `docs/EMBED.md`'s tables gain something (1 → 2 on 2026-09-04); the version moves

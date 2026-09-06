@@ -8,7 +8,50 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **An embedded panel can show only the visualization.** Add `presentation=viewport` beside `embed=1`
+  to give the entire frame to the view grid while your application supplies the controls. Orientation
+  annotations, 3D gestures and host messages remain available. The full viewer stays the default when
+  the option is omitted; `docs/EMBED.md` §2 documents the URL and the inactive shell shortcuts.
+
+- **Tetravox embeds in a web application.** A new release asset, `tetravox-embed-<version>.tgz`,
+  contains a browser build of the viewer that a host serves from any route and mounts in an
+  `<iframe>`, then drives over `postMessage` — load a scene, move the cursor, patch a layer, probe a
+  point, take a screenshot, read the scene back. It is the same shell and the same WebGL2 engine the
+  desktop window runs, not a cut-down second viewer, so every message ends in something a user could
+  have done with the mouse. `docs/EMBED.md` is the contract: the URL, the message table, the headers
+  and CSP a host must send, three complete `ViewSpec` examples, and a working example page. The
+  protocol is versioned (`{ tvx: 1, … }`) and additive-only from here.
+- **Datasets can be loaded from URLs.** A scene may point at `https://…` files, and the dataset
+  worker streams them the way it has always streamed local ones. This was previously listed as a
+  non-goal; it is now a supported, tested path, exercised on every CI run against real NIfTI and
+  `.msh` data over HTTP. Remote _browsing_ is still out of scope — a host names files, and there is
+  no catalogue or directory listing.
+
+- **An embedded Tetravox can show electrodes, answer clicks, and remember where the camera was.**
+  The browser build speaks **protocol 2**, and everything it adds is optional. A host
+  can put a **points layer** straight into the scene — the coordinates inline, its own ids, and each
+  point marked `selected`, `disabled` or neither, so an application says _what an electrode is_
+  rather than working out what selected should look like. It can arm the same point tool the sEEG
+  contact editor uses, so a user places and drags points with the mouse and the host hears about it;
+  it can ask to be told **what a click landed on** — the point, the region, the tissue tag and the
+  world position, in one message; and it can read the 3-D camera and put it back. `docs/EMBED.md` §6
+  is the contract.
+
+  **A host written against protocol 1 needs no change at all.** The message envelope is still
+  `tvx: 1`; only the feature level a host reads out of `ready.version` (and the tarball's
+  `manifest.json`) moved to 2. The new events are off until asked for, so an older host receives
+  exactly the messages it received before — which is a test, not a promise.
+
+### Fixed
+
+- **`setLayout` could kill an embedded viewer.** Four of the pane arrangements `docs/EMBED.md` has
+  documented since the first release — `3d`, `axial`, `coronal`, `sagittal` — were not arrangements
+  the renderer had, and asking for one left the layout with no panes and stopped the viewer on the
+  next frame, silently, with no way back but reloading the page. They now do what the documentation
+  always said, and a name the viewer does not know is answered with an error instead of a blank
+  window.
 
 ## [0.4.0] - 2026-09-07
 
@@ -55,11 +98,6 @@ Nothing yet.
 
 ### Added
 
-- **An embedded panel can show only the visualization.** Add `presentation=viewport` beside `embed=1`
-  to give the entire frame to the view grid while your application supplies the controls. Orientation
-  annotations, 3D gestures and host messages remain available. The full viewer stays the default when
-  the option is omitted; `docs/EMBED.md` §2 documents the URL and the inactive shell shortcuts.
-
 - **An extension can read and restore the 3-D camera, and can hear what you clicked on.** Two
   additions to the extension API. `scene.camera()` / `scene.setCamera()` mean an extension that moves
   the 3-D view — a QC export taking the four anatomical shots, say — can put it back exactly where
@@ -67,44 +105,6 @@ Nothing yet.
   subscribe to the probe itself, so a panel showing "what is under the crosshair" updates when the
   answer for a surface or a mesh actually arrives, rather than showing the previous point's reading.
   Both are additive: every existing extension keeps working unchanged, and none needs a new release.
-
-- **Tetravox embeds in a web application.** A new release asset, `tetravox-embed-<version>.tgz`,
-  contains a browser build of the viewer that a host serves from any route and mounts in an
-  `<iframe>`, then drives over `postMessage` — load a scene, move the cursor, patch a layer, probe a
-  point, take a screenshot, read the scene back. It is the same shell and the same WebGL2 engine the
-  desktop window runs, not a cut-down second viewer, so every message ends in something a user could
-  have done with the mouse. `docs/EMBED.md` is the contract: the URL, the message table, the headers
-  and CSP a host must send, three complete `ViewSpec` examples, and a working example page. The
-  protocol is versioned (`{ tvx: 1, … }`) and additive-only from here.
-- **Datasets can be loaded from URLs.** A scene may point at `https://…` files, and the dataset
-  worker streams them the way it has always streamed local ones. This was previously listed as a
-  non-goal; it is now a supported, tested path, exercised on every CI run against real NIfTI and
-  `.msh` data over HTTP. Remote _browsing_ is still out of scope — a host names files, and there is
-  no catalogue or directory listing.
-
-- **An embedded Tetravox can show electrodes, answer clicks, and remember where the camera was.**
-  The browser build speaks **protocol 2** (embed 0.4.0), and everything it adds is optional. A host
-  can put a **points layer** straight into the scene — the coordinates inline, its own ids, and each
-  point marked `selected`, `disabled` or neither, so an application says _what an electrode is_
-  rather than working out what selected should look like. It can arm the same point tool the sEEG
-  contact editor uses, so a user places and drags points with the mouse and the host hears about it;
-  it can ask to be told **what a click landed on** — the point, the region, the tissue tag and the
-  world position, in one message; and it can read the 3-D camera and put it back. `docs/EMBED.md` §6
-  is the contract.
-
-  **A host written against protocol 1 needs no change at all.** The message envelope is still
-  `tvx: 1`; only the feature level a host reads out of `ready.version` (and the tarball's
-  `manifest.json`) moved to 2. The new events are off until asked for, so an older host receives
-  exactly the messages it received before — which is a test, not a promise.
-
-### Fixed
-
-- **`setLayout` could kill an embedded viewer.** Four of the pane arrangements `docs/EMBED.md` has
-  documented since the first release — `3d`, `axial`, `coronal`, `sagittal` — were not arrangements
-  the renderer had, and asking for one left the layout with no panes and stopped the viewer on the
-  next frame, silently, with no way back but reloading the page. They now do what the documentation
-  always said, and a name the viewer does not know is answered with an error instead of a blank
-  window.
 
 ## [0.3.8] - 2026-09-04
 
