@@ -20,7 +20,7 @@ import type { LaunchTarget } from './fixtures';
 
 const SURFACE = resolve(APP_ROOT, '..', '..', 'testdata', 'surf_ascii.surf.gii');
 
-let app: ElectronApplication;
+let app: ElectronApplication | undefined;
 let page: Page;
 let userDataDir: string | null = null;
 
@@ -44,8 +44,10 @@ test.describe('the surface editor', () => {
   });
 
   test.afterEach(async () => {
-    await app.close();
+    // The packaged project skips in `beforeEach` when no artefact is built; nothing to close then.
+    if (app !== undefined) await app.close();
     if (userDataDir !== null) rmSync(userDataDir, { recursive: true, force: true });
+    userDataDir = null;
   });
 
   test('a .gii opens as a surface layer with the five surface sections and no mesh-only one', async () => {
