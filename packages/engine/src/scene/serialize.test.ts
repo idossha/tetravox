@@ -209,6 +209,37 @@ describe('datasetRefs', () => {
     expect(refs[0]?.sidecars?.lut).toBeUndefined();
   });
 
+  it('records attached per-vertex files as `sidecars.fields`, in order, relative to the dataset', () => {
+    const refs = datasetRefs(scene(['/data/sub/m2m/surfaces/lh.pial.gii']), {
+      sceneDir: '/data/scenes',
+      sidecars: new Map([
+        [
+          'ds1',
+          {
+            fields: [
+              '/data/sub/m2m/segmentation/lh.ernie_DK40.annot',
+              '/data/sub/m2m/surfaces/lh.thickness',
+            ],
+          },
+        ],
+      ]),
+    });
+    expect(refs[0]?.sidecars?.fields).toEqual([
+      {
+        path: '../segmentation/lh.ernie_DK40.annot',
+        absPath: '/data/sub/m2m/segmentation/lh.ernie_DK40.annot',
+      },
+      { path: 'lh.thickness', absPath: '/data/sub/m2m/surfaces/lh.thickness' },
+    ]);
+    // …and come back against wherever the surface resolved to, absolute fallback included.
+    const ref = refs[0] as DatasetRef;
+    expect(sidecarPathsFor(ref, '/moved/m2m/surfaces/lh.pial.gii').fields).toEqual([
+      '/moved/m2m/segmentation/lh.ernie_DK40.annot',
+      '/moved/m2m/surfaces/lh.thickness',
+    ]);
+    expect(sidecarPathsFor({ ...ref, sidecars: {} }, '/moved/x.gii')).not.toHaveProperty('fields');
+  });
+
   it('omits `sidecars` entirely for a dataset opened without any', () => {
     const refs = datasetRefs(scene(['/d/a.nii']));
     expect(refs[0]).not.toHaveProperty('sidecars');

@@ -15,8 +15,8 @@
 use tvx_core::NoProgress;
 use tvx_mesh_io::{
     read_fs_annot, read_fs_curv, read_fs_surface, read_geo_view, read_gifti, read_medit, read_msh,
-    read_msh_opt, read_obj, read_off, read_ply, read_stl, read_vtk, read_vtk_xml, sniff, Format,
-    Mesh,
+    read_msh_opt, read_node_data, read_obj, read_off, read_ply, read_stl, read_vtk, read_vtk_xml,
+    sniff, Format, Mesh,
 };
 
 mod common;
@@ -717,6 +717,77 @@ fn freesurfer_surface_curv_and_annot() {
 // -------------------------------------------------------------------------------------
 // phase 1 — STL / PLY / OBJ
 // -------------------------------------------------------------------------------------
+
+/// `read_node_data` (§6.2, 2026-09-06): the same four files, read as data **for a surface** rather
+/// than as datasets. The field is named after the file, so two overlays on one surface never
+/// collide on the reader's own `curv` / `annot` / `label` names, and the table rides with the field
+/// that holds its dense indices.
+#[test]
+fn per_vertex_files_read_as_node_data_named_after_the_file() {
+    let annot = read_node_data(&fx::bytes("lh.fixture.annot"), "lh.fixture.annot").unwrap();
+    let (direct, direct_table) = read_fs_annot(&fx::bytes("lh.fixture.annot")).unwrap();
+    assert_eq!(annot.fields.len(), 1);
+    assert_eq!(annot.fields[0].name, "lh.fixture.annot");
+    assert_eq!(
+        annot.fields[0].data, direct.data,
+        "the same dense indices as read_fs_annot"
+    );
+    let (key, table) = annot
+        .label_table
+        .as_ref()
+        .expect("an annot carries its colortable");
+    assert_eq!(
+        key, "lh.fixture.annot",
+        "keyed to the field that holds the indices"
+    );
+    assert_eq!(
+        table.entries.iter().map(|e| e.id).collect::<Vec<_>>(),
+        direct_table
+            .entries
+            .iter()
+            .map(|e| e.id)
+            .collect::<Vec<_>>()
+    );
+
+    // A morph file: the name is the hint, and a path is reduced to its base name.
+    let curv = read_node_data(&fx::bytes("lh.fixture.curv"), "some/dir/lh.fixture.curv").unwrap();
+    assert_eq!(curv.fields.len(), 1);
+    assert_eq!(curv.fields[0].name, "lh.fixture.curv");
+    assert!(curv.label_table.is_none());
+    let crec = &fx::section("freesurfer")["lh.fixture.curv"];
+    assert_eq!(curv.fields[0].data.len(), fx::num(&crec["n"]) as usize);
+    fx::close(
+        "curv max",
+        curv.fields[0].stats.max as f64,
+        fx::num(&crec["stats"]["max"]),
+        1e-6,
+    );
+
+    // A data-only GIfTI is read by content, not by extension, and keeps its dense remap.
+    let label = read_node_data(&fx::bytes("surf.label.gii"), "surf.label.gii").unwrap();
+    assert_eq!(label.fields.len(), 1);
+    assert_eq!(label.fields[0].name, "surf.label.gii");
+    let (key, table) = label
+        .label_table
+        .as_ref()
+        .expect("a .label.gii carries its table");
+    assert_eq!(key, "surf.label.gii");
+    assert_eq!(
+        table.entries.iter().map(|e| e.id).collect::<Vec<_>>(),
+        vec![0, 3, 7, 11]
+    );
+    let dense: Vec<i32> = label.fields[0].data.iter().map(|v| *v as i32).collect();
+    assert_eq!(&dense[..8], &[0, 1, 2, 3, 0, 1, 2, 3]);
+
+    let func = read_node_data(&fx::bytes("surf.func.gii"), "surf.func.gii").unwrap();
+    assert_eq!(func.fields.len(), 1);
+    assert_eq!(func.fields[0].name, "surf.func.gii");
+    assert!(func.label_table.is_none());
+
+    // A surface is geometry, not per-vertex data: refused, never silently read as a morph file.
+    assert!(read_node_data(&fx::bytes("lh.fixture.surf"), "lh.fixture.surf").is_err());
+    assert!(read_node_data(&fx::bytes("surf_ascii.surf.gii"), "surf_ascii.surf.gii").is_err());
+}
 
 #[test]
 fn stl_ascii_and_binary_agree_on_triangles_and_bounds() {

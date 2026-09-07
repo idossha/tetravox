@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use tvx_core::{NoProgress, Phase, ProgressSink};
 use tvx_mesh_io::{
     read_fs_annot, read_fs_surface, read_geo_view, read_gifti, read_medit, read_msh, read_msh_opt,
-    read_vtk, read_vtk_xml, Mesh,
+    read_node_data, read_vtk, read_vtk_xml, Mesh,
 };
 
 /// `None` ⇒ the whole test skips (§11 rule 2 / TESTING.md).
@@ -461,6 +461,30 @@ fn the_two_gifti_surfaces_load_with_their_transforms_baked_in() {
         let maxv = m.tris.iter().flatten().copied().max().unwrap();
         assert_eq!(maxv as usize, m.nodes.len() - 1, "{rel}: indices are dense");
     }
+}
+
+/// The route the app takes for `segmentation/lh.ernie_DK40.annot` onto `surfaces/lh.pial.gii`:
+/// one field per file, named after it, with the same dense indices `read_fs_annot` produces and
+/// the vertex count of the hemisphere it belongs to.
+#[test]
+fn lh_ernie_dk40_annot_reads_as_node_data_for_the_left_hemisphere() {
+    let root = testdata!();
+    let raw = bytes(&root.join("m2m_ernie/segmentation/lh.ernie_DK40.annot"));
+    let data = read_node_data(&raw, "lh.ernie_DK40.annot").unwrap();
+    let (direct, direct_table) = read_fs_annot(&raw).unwrap();
+    assert_eq!(data.fields.len(), 1);
+    assert_eq!(data.fields[0].name, "lh.ernie_DK40.annot");
+    assert_eq!(data.fields[0].data, direct.data);
+    let (key, table) = data.label_table.as_ref().unwrap();
+    assert_eq!(key, "lh.ernie_DK40.annot");
+    assert_eq!(table.entries.len(), direct_table.entries.len());
+    // The count it must match: every left-hemisphere surface SimNIBS writes for ernie.
+    let pial = read_gifti(
+        bytes(&root.join("m2m_ernie/surfaces/lh.pial.gii")),
+        &mut NoProgress,
+    )
+    .unwrap();
+    assert_eq!(data.fields[0].data.len(), pial.nodes.len());
 }
 
 #[test]

@@ -44,7 +44,7 @@ import type {
 } from './types';
 
 /** The role-keyed sidecar paths a dataset was opened with, as `Engine.addDataset` took them. */
-export type SidecarPaths = { lut?: string; opt?: string };
+export type SidecarPaths = { lut?: string; opt?: string; fields?: string[] };
 
 /** The §4.6 fields {@link applyViewSpec} restores directly, without a remap. */
 export const ROUND_TRIP_FIELDS = [
@@ -215,6 +215,13 @@ export function sidecarPathsFor(ref: DatasetRef, datasetPath: string): SidecarPa
     const chosen = relative ?? s.absPath;
     if (chosen !== undefined && chosen !== '') out[role] = chosen;
   }
+  const fields = (ref.sidecars?.fields ?? [])
+    .map((s) => {
+      const relative = s.path === '' ? undefined : joinPath(directoryOf(datasetPath), s.path);
+      return relative ?? s.absPath ?? '';
+    })
+    .filter((p) => p !== '');
+  if (fields.length > 0) out.fields = fields;
   return out;
 }
 
@@ -237,6 +244,9 @@ export function datasetRefs(scene: Scene, opts: SerializeOptions = {}): DatasetR
       const sidecars: NonNullable<DatasetRef['sidecars']> = {};
       if (cars.lut !== undefined) sidecars.lut = sidecarRef(absPath, cars.lut);
       if (cars.opt !== undefined) sidecars.opt = sidecarRef(absPath, cars.opt);
+      if (cars.fields !== undefined && cars.fields.length > 0) {
+        sidecars.fields = cars.fields.map((f) => sidecarRef(absPath, f));
+      }
       if (Object.keys(sidecars).length > 0) ref.sidecars = sidecars;
     }
     return ref;

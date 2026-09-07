@@ -65,3 +65,29 @@ export function baseName(path: string): string {
   const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
   return slash === -1 ? path : path.slice(slash + 1);
 }
+
+/** The FreeSurfer morph files a `.gii`-less name can be, by their conventional extensions. */
+const MORPH_EXTENSIONS = ['.curv', '.sulc', '.thickness', '.area', '.volume', '.jacobian_white'];
+
+/**
+ * A file that is per-vertex **data for a surface**, not a dataset (§6.2, 2026-09-06): a `.annot`,
+ * a FreeSurfer morph file, or a GIfTI whose name says it carries no geometry. Such a file is
+ * attached to an open surface (`Engine.attachSurfaceData`) rather than opened on its own — opened
+ * on its own, a `.annot` is "unrecognised mesh format" and a `.func.gii` an empty mesh.
+ */
+export function isSurfaceDataName(path: string): boolean {
+  const lower = baseName(path).toLowerCase();
+  if (lower.endsWith('.annot')) return true;
+  if (lower.endsWith('.func.gii') || lower.endsWith('.shape.gii') || lower.endsWith('.label.gii')) {
+    return true;
+  }
+  return MORPH_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/** `lh` / `rh` from a FreeSurfer-style name (`lh.pial.gii`, `lh.ernie_DK40.annot`), else null. */
+export function hemisphereOf(path: string): 'lh' | 'rh' | null {
+  const lower = baseName(path).toLowerCase();
+  if (lower.startsWith('lh.')) return 'lh';
+  if (lower.startsWith('rh.')) return 'rh';
+  return null;
+}

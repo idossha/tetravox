@@ -983,6 +983,101 @@
      ]
     }
    ]
+  },
+  "surf_regions.label.gii": {
+   "arrays": [
+    {
+     "arrayIndexingOrder": "RowMajorOrder",
+     "dataSpace": "NIFTI_XFORM_UNKNOWN",
+     "datatype": "NIFTI_TYPE_INT32",
+     "datatypeCode": 8,
+     "dims": [
+      16
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "intent": "label",
+     "intentCode": 1002,
+     "stats": {
+      "max": 11.0,
+      "mean": 5.25,
+      "min": 3.0,
+      "n": 16,
+      "nFinite": 16,
+      "sum": 84.0
+     },
+     "transform": [
+      [
+       1.0,
+       0.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       1.0,
+       0.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.0
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ],
+     "transformedSpace": "NIFTI_XFORM_UNKNOWN"
+    }
+   ],
+   "bytes": 1177,
+   "labelTable": [
+    {
+     "key": 0,
+     "name": "Unknown",
+     "rgba255": [
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "key": 3,
+     "name": "Alpha",
+     "rgba255": [
+      255,
+      0,
+      0,
+      255
+     ]
+    },
+    {
+     "key": 7,
+     "name": "Beta",
+     "rgba255": [
+      0,
+      128,
+      0,
+      255
+     ]
+    },
+    {
+     "key": 11,
+     "name": "Gamma",
+     "rgba255": [
+      0,
+      0,
+      255,
+      255
+     ]
+    }
+   ]
   }
  },
  "meshFormats": {
@@ -5258,7 +5353,7 @@
    "reader": "gmsh 4.14.0 python api"
   }
  },
- "totalFixtureBytes": 140452,
+ "totalFixtureBytes": 141629,
  "version": 1,
  "volumes": {
   "ct_shafts.nii.gz": {

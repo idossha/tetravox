@@ -45,8 +45,11 @@ export type OpName =
   | 'nearestVertex'
   | 'vertices'
   | 'sphereMap'
+  // Appended 2026-09-06 for §8's surface annotations: a `.annot` / morph file / data-only GIfTI
+  // read onto a surface that is already loaded (`docs/DECISIONS.md`).
+  | 'attachField'
   | 'free'
-  | 'freeMask'; // 22 ops
+  | 'freeMask'; // 23 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -450,6 +453,15 @@ export interface OpArgs {
    * a second hemisphere or a second subject without re-reading the file.
    */
   sphereMap: { handle: number; target: Float32Array };
+  /**
+   * Per-vertex data from a **second file** onto the surface `handle` holds (§6.2): a FreeSurfer
+   * `.annot`, a morph file (`curv` / `sulc` / `thickness` …) or a data-only `.func` / `.shape` /
+   * `.label.gii`. The worker fetches `source` itself, exactly as it does for `loadMesh` — no byte
+   * crosses the UI thread (§5 rule 3) — and the vertex count is checked against the mesh before
+   * anything is kept: a mismatch is `Error::Parse` naming both counts, and the mesh is untouched.
+   * A field with the same name (the same file attached twice) is replaced, table and all.
+   */
+  attachField: { handle: number; source: LoadSource };
   marchingCubes: { handle: number; volumeIndex: number; iso: number; smooth: boolean };
   /**
    * One **region** of a label volume, isolated at the sample (§6.3's `marching_cubes_label`;
@@ -518,6 +530,12 @@ export interface OpResult {
   elmToNode: { name: string; values: Float32Array; stats: StatsT };
   locate: { hit: ProbeHitT | null };
   /**
+   * The **additions only**, never the whole `MeshMeta`: the caller appends `fields` to its
+   * `MeshMeta.fields` and merges `labelTables` (keyed by node-field name, as §6.5.1 keys them). A
+   * `.annot` and a `.label.gii` contribute one table; a morph file or a `.func.gii` contributes none.
+   */
+  attachField: { fields: MeshFieldMeta[]; labelTables?: Record<string, LabelEntryT[]> };
+  /**
    * `vertex` is the **internal 0-based node index** (the row in `Mesh::nodes`, the numbering
    * `SurfacePayload.nodeIndex` carries and the one a GIfTI/FreeSurfer surface's vertex ids are) —
    * **not** a Gmsh node number. `null` for a mesh with no nodes; a miss is not an error.
@@ -571,6 +589,7 @@ export const OP_NAMES = [
   'nearestVertex',
   'vertices',
   'sphereMap',
+  'attachField',
   'free',
   'freeMask',
 ] as const satisfies readonly OpName[];
@@ -600,6 +619,7 @@ export const OP_TO_EXPORT = {
   nearestVertex: 'mesh_nearest_vertex',
   vertices: 'mesh_vertices',
   sphereMap: 'surface_sphere_map',
+  attachField: 'mesh_attach_field',
   free: 'free',
   freeMask: 'free_mask',
 } as const satisfies Record<OpName, string>;

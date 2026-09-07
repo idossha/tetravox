@@ -47,6 +47,11 @@ export interface TetravoxBridge {
   /** File ▸ Open… / ⌘O. Returns paths, never bytes. */
   openDialog(): Promise<OpenedPath[]>;
   /**
+   * The layer panel's "Annotation…" button (2026-09-06): per-vertex files (`.annot`, morph files,
+   * data-only GIfTI) for one open surface. Paths, allow-listed, never bytes.
+   */
+  openSurfaceDataDialog(): Promise<OpenedPath[]>;
+  /**
    * The absolute path behind a dropped `File`, or `''` when it has none (§8 fallback).
    *
    * Also tells main *that a file was dropped*, which is the one drop signal main has (§5 rule 10,
@@ -525,6 +530,7 @@ export interface ModuleProgress {
 
 const bridge: TetravoxBridge = {
   openDialog: () => ipcRenderer.invoke('tetravox:open-dialog'),
+  openSurfaceDataDialog: () => ipcRenderer.invoke('tetravox:open-surface-data-dialog'),
   getDroppedFilePath: (file) => {
     const path = webUtils.getPathForFile(file);
     // The drop gesture, reported to main. Only preload can produce this path, so this send is the

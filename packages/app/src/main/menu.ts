@@ -5,7 +5,7 @@
  */
 
 import { Menu, dialog } from 'electron';
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, OpenDialogOptions } from 'electron';
 import { basename, dirname } from 'node:path';
 import { allowPath, allowPaths } from './paths';
 import { fileUrl } from './protocol';
@@ -16,6 +16,23 @@ import { readSettings, writeSettings } from './settings';
 // still being evaluated, so the order they initialise in cannot matter.
 import { allowOpenedScene } from './scene-io';
 import { revokeAllModuleWrites } from './module-io';
+
+/**
+ * Per-vertex files for an **open surface** (§6.2, 2026-09-06): a FreeSurfer `.annot`, the morph
+ * files, and the data-only GIfTI intents. The renderer routes them to `Engine.attachSurfaceData`
+ * by name (`lib/sidecars.ts`'s `isSurfaceDataName`); `gii` is here so the same dialog can pick a
+ * `.label.gii`.
+ */
+export const SURFACE_DATA_EXTENSIONS = [
+  'annot',
+  'curv',
+  'sulc',
+  'thickness',
+  'area',
+  'volume',
+  'jacobian_white',
+  'gii',
+];
 
 /** §12.3/§8: the formats the viewer opens. Kept in one place so the menu and the installer agree. */
 export const OPEN_FILTERS = [
@@ -44,6 +61,12 @@ export const OPEN_FILTERS = [
       'geo',
       'pos',
       'json',
+      // Per-vertex data for a surface that is already open (2026-09-06): attached to it, never a
+      // dataset of its own. Specific enough for the combined filter, unlike `.tsv` below.
+      'annot',
+      'curv',
+      'sulc',
+      'thickness',
     ],
   },
   { name: 'NIfTI volume', extensions: ['nii', 'nii.gz'] },
@@ -57,6 +80,7 @@ export const OPEN_FILTERS = [
   // Gmsh **parsed post-processing views** — SimNIBS's `eeg_positions/*.geo`, and the `.pos` a
   // Gmsh "Save As" writes. Not the geometry-script `.geo`, which the reader rejects by name.
   { name: 'Gmsh view (electrode positions)', extensions: ['geo', 'pos'] },
+  { name: 'Surface annotation / overlay', extensions: SURFACE_DATA_EXTENSIONS },
   // Contact tables a §13 module opens (2026-08-30): a BIDS-iEEG `*_electrodes.tsv`, the same table
   // as `.csv`, and a Slicer `.fcsv`. No dataset reader takes these — a module claims the path and
   // reads the text over `tetravox:module-read-text` (§5 rule 11) — so the entry is here to make the
@@ -108,6 +132,25 @@ export async function showOpenDialog(win: BrowserWindow | null): Promise<OpenedP
         properties: ['openFile', 'multiSelections'],
         filters: OPEN_FILTERS,
       });
+  if (result.canceled) return [];
+  return toOpened(result.filePaths);
+}
+
+/**
+ * The layer panel's "Annotation…" button: per-vertex files for one surface, allow-listed like
+ * anything the Open dialog returns. The renderer attaches them to the layer that asked.
+ */
+export async function showOpenSurfaceDataDialog(win: BrowserWindow | null): Promise<OpenedPath[]> {
+  const options: OpenDialogOptions = {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Surface annotation / overlay', extensions: SURFACE_DATA_EXTENSIONS },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options);
   if (result.canceled) return [];
   return toOpened(result.filePaths);
 }

@@ -133,7 +133,13 @@ import {
 } from './overlay';
 import type { CubeFace, GizmoHandle, GizmoSpec, OverlayTheme } from './overlay';
 import type { PaneHit, PointerHost } from './input';
-import { applyAffine, meshDatasetFromMeta, volumeDatasetFromMeta } from './scene/fromMeta';
+import {
+  applyAffine,
+  fieldFromWire,
+  labelTablesFromWire,
+  meshDatasetFromMeta,
+  volumeDatasetFromMeta,
+} from './scene/fromMeta';
 import {
   defaultLayerFor,
   seedMeshLayerFromOpt,
@@ -825,9 +831,15 @@ export class TetravoxEngine implements Engine, PointerHost {
     // part of it that is re-derived, so it is taken from the layer this dataset seeded — without
     // this, restoring an annotation's settings would replace the table with `undefined` and the
     // layer would render nothing (directed task 13, 2026-08-28).
+    //
+    // By **name** first (2026-09-06): a surface with two annotations attached carries two tables,
+    // and the seeded layer names only the first. The seed is the fallback for a scene saved
+    // before `label.name` could name anything but that first table.
     if (layer.kind === 'mesh' && layer.label !== undefined && layer.label.table === undefined) {
+      const named = (ds as MeshDataset).labelTables?.[layer.label.name];
       const seeded = base.kind === 'mesh' ? base.label : undefined;
-      if (seeded === undefined) delete (layer as { label?: unknown }).label;
+      if (named !== undefined) layer.label = { ...layer.label, table: named };
+      else if (seeded === undefined) delete (layer as { label?: unknown }).label;
       else layer.label = { ...layer.label, table: seeded.table };
     }
     this.#store.addLayer(layer);
@@ -1631,6 +1643,45 @@ export class TetravoxEngine implements Engine, PointerHost {
   }
 
   /** Every node coordinate of a mesh dataset, world mm, cached — `vertices` with no index list. */
+  /**
+   * §4.7's `attachSurfaceData` (2026-09-06): §6.5.2's `attachField` on the dataset's own worker,
+   * then the additions merged into the dataset **in place** — the same object every layer runtime
+   * and every `datasets` listener already holds, as `setTemplateSpace` mutates a volume. A field
+   * with the name of one already there (the same file attached twice) replaces it, as the worker
+   * did on its side.
+   */
+  async attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset> {
+    const ds = this.#scene.datasets.get(datasetId);
+    if (ds === undefined || ds.kind !== 'mesh')
+      throw new Error(`no such mesh dataset: ${datasetId}`);
+    const rt = this.#workers.get(datasetId);
+    if (rt === undefined) throw new Error('dataset worker is gone');
+    const name = sourceName(src);
+    const res = await this.#track(
+      rt.client.call(`attach:${datasetId}:${name}`, 'attachField', {
+        handle: ds.handle,
+        source: toLoadSource(src),
+      })
+    );
+    const added = res.fields.map(fieldFromWire);
+    const names = new Set(added.map((f) => f.name));
+    ds.fields = [...ds.fields.filter((f) => f.source !== 'node' || !names.has(f.name)), ...added];
+    const tables = labelTablesFromWire(res.labelTables);
+    if (tables !== undefined) ds.labelTables = { ...ds.labelTables, ...tables };
+    else if (ds.labelTables !== undefined) {
+      // A replaced field that used to carry a table and no longer does.
+      for (const n of names) delete ds.labelTables[n];
+      if (Object.keys(ds.labelTables).length === 0) delete ds.labelTables;
+    }
+    if (src.kind === 'path') {
+      const cars = this.#sidecars.get(datasetId) ?? {};
+      const fields = (cars.fields ?? []).filter((p) => p !== src.path);
+      this.#sidecars.set(datasetId, { ...cars, fields: [...fields, src.path] });
+    }
+    this.#emit('datasets', [...this.#scene.datasets.values()]);
+    return ds;
+  }
+
   async #verticesOf(id: DatasetId): Promise<Float32Array | null> {
     const cached = this.#allVertices.get(id);
     if (cached !== undefined) return cached;
@@ -3262,10 +3313,24 @@ export class TetravoxEngine implements Engine, PointerHost {
       // there any more is a missing table, never a failed load: `loadSource` reads them
       // best-effort (`packages/wasm/src/sources.ts`).
       const sidecars = sidecarPathsFor(ref, path);
+      const { fields, ...cars } = sidecars;
       const ds = await this.addDataset(
-        Object.keys(sidecars).length > 0 ? { kind: 'path', path, sidecars } : { kind: 'path', path }
+        Object.keys(cars).length > 0
+          ? { kind: 'path', path, sidecars: cars }
+          : { kind: 'path', path }
       );
       idMap.set(ref.id, ds.id);
+      // The attached per-vertex files, in the order they were attached — best-effort like the
+      // other two roles: one that is gone, or no longer matches, is a missing table, never a
+      // failed load. The layers below find their tables by `label.name` (`addLayer`).
+      for (const field of fields ?? []) {
+        if (ds.kind !== 'mesh') break;
+        try {
+          await this.attachSurfaceData(ds.id, { kind: 'path', path: field });
+        } catch {
+          // reported by the worker's `error` event; the scene still opens
+        }
+      }
     }
 
     const layerMap = new Map<LayerId, LayerId>();

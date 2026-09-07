@@ -16,26 +16,27 @@
 import type {
   Camera3D,
   CameraPreset,
-  Dataset,
-  DatasetId,
   CoordSpaceOption,
   CoordSpaceRef,
+  Dataset,
+  DatasetId,
   DatasetRef,
   Engine,
   Layer,
   LayerId,
   LayoutKind,
   LoadProgress,
+  MeshDataset,
   MeshLayer,
   NewLayer,
   PointToolEvent,
   ProbeResult,
   ScreenshotOptions,
-  ViewId,
   TemplateSpace,
+  vec3,
+  ViewId,
   ViewSpec,
   VolumeLayer,
-  vec3,
 } from '@tetravox/engine';
 import {
   measurementFocus,
@@ -91,7 +92,7 @@ import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
 import { formatTriple, parseTriple } from '../lib/coords';
 import { readPngInfo } from '../lib/png';
-import { baseName } from '../lib/sidecars';
+import { baseName, hemisphereOf, isSurfaceDataName } from '../lib/sidecars';
 import {
   defaultScenePath,
   dirName,
@@ -109,7 +110,9 @@ import { bridge } from '../bridge';
 // editor that offers it (§8 forbids logic in React, not a pure function the controller calls).
 import {
   anyPlaneFollowsCursor,
+  fieldKey,
   planesThroughCursor,
+  selectField,
   setClipFollowsCursor,
 } from '../panels/layers/mesh/state';
 import type { RegionStat, SelectionState } from '../panels/regions/regions';
@@ -197,6 +200,8 @@ interface ModuleSession {
 export class ShellController {
   private readonly unsubscribers: (() => void)[] = [];
   private queue: QueuedRequest[] = [];
+  /** Per-vertex files waiting for the surfaces queued ahead of them (`open`). */
+  private readonly deferredSurfaceData: OpenRequest[] = [];
   private draining = false;
   private inflight: { ticket: number; datasetId: DatasetId | null } | null = null;
   /** Directed task 8: what main found beside each volume, so the warps can be loaded on demand. */
@@ -408,7 +413,19 @@ export class ShellController {
 
   /** Queue one or more datasets. Cards appear immediately, in request order. */
   open(requests: readonly OpenRequest[]): void {
-    if (requests.length === 0) return;
+    // Per-vertex data for a surface (a `.annot`, a morph file, a data-only GIfTI) is not a dataset:
+    // it is attached to an open surface (§4.7's `attachSurfaceData`, 2026-09-06). Routed here so
+    // that ⌘O, a drop, argv and `open-file` all take one path — the same reason `sources.ts` gives.
+    //
+    // Deferred until the queue has drained, not attached at once: ⌘O with `lh.pial.gii` and
+    // `lh.ernie_DK40.annot` both selected — or both on argv — must attach the second to the first,
+    // which has not loaded yet when this runs.
+    this.deferredSurfaceData.push(...requests.filter((r) => isSurfaceDataName(r.name)));
+    requests = requests.filter((r) => !isSurfaceDataName(r.name));
+    if (requests.length === 0) {
+      void this.drain();
+      return;
+    }
     const now = this.now();
     const cards = requests.map((r) => loads.newCard(++this.ticketSeq, r.name, r.path, now));
     this.queue.push(
@@ -416,6 +433,118 @@ export class ShellController {
     );
     this.store.setState((s) => ({ loads: [...s.loads, ...cards] }));
     void this.drain();
+  }
+
+  /**
+   * The layer panel's "Attach file…": per-vertex files for **this** layer's surface. The dialog
+   * route exists because the ⌘O route has to guess the surface — by the active layer, then by
+   * hemisphere prefix, then by whichever open surface has the right vertex count — and a user
+   * with `lh.central` and `lh.pial` both open should not have to.
+   */
+  async chooseSurfaceData(layerId: LayerId): Promise<void> {
+    const layer = this.store.getState().layers.find((l) => l.id === layerId);
+    if (layer === undefined) return;
+    const opened = await bridge().openSurfaceDataDialog();
+    for (const item of opened) {
+      const request = await requestFromPath(item.path);
+      if (request !== null) await this.attachSurfaceData(request, layer.datasetId);
+    }
+  }
+
+  /**
+   * Attach one per-vertex file. With a `target`, that surface and no other; without one, the
+   * open surfaces in order of likelihood — the active layer's, then those sharing the file's
+   * `lh.`/`rh.` prefix, then the rest — and the worker's vertex-count check decides. Every failure
+   * message names both counts, so the toast after the last candidate says what did not fit.
+   *
+   * On success every mesh layer of that surface is recoloured by what arrived: `colorMode:'label'`
+   * with the new table for an annotation, the field with a re-seeded scale for a scalar. Opening
+   * an overlay *is* asking to see it; the open-time seeding leaves `colorMode` alone because there
+   * the user asked to see the surface, not its table.
+   */
+  private async attachSurfaceData(request: OpenRequest, target: DatasetId | null): Promise<void> {
+    const state = this.store.getState();
+    // Every mesh can take one — the worker checks the node count, and a tet mesh's node field is
+    // as drawable as a surface's — but a surface is the likely home, so surfaces rank first.
+    const surfaces = state.datasets
+      .filter((d): d is MeshDataset => d.kind === 'mesh' && d.nNodes > 0)
+      .sort((a, b) => Number(a.nTets > 0) - Number(b.nTets > 0));
+    let candidates: MeshDataset[];
+    if (target !== null) {
+      candidates = surfaces.filter((d) => d.id === target);
+    } else {
+      const active = activeLayer(state);
+      const hemi = hemisphereOf(request.name);
+      const rank = (d: MeshDataset): number =>
+        d.id === active?.datasetId
+          ? 0
+          : hemi !== null && hemisphereOf(d.name) === hemi
+            ? 1
+            : hemi !== null && hemisphereOf(d.name) !== null
+              ? 3
+              : 2;
+      candidates = [...surfaces].sort((a, b) => rank(a) - rank(b));
+    }
+    // A `.annot` names its surface only by vertex count, and ernie's two hemispheres have the same
+    // count `[DATA]` — so when both names declare a hemisphere, they must agree; the worker's check
+    // cannot tell `rh.ernie_DK40.annot` on `lh.pial.gii` from the right one.
+    const hemi = hemisphereOf(request.name);
+    const wrongHemisphere = (d: MeshDataset): boolean => {
+      const h = hemisphereOf(d.name);
+      return hemi !== null && h !== null && h !== hemi;
+    };
+    if (hemi !== null && candidates.length > 0 && candidates.every(wrongHemisphere)) {
+      this.toast('parse', request.name, `${hemi} data, and the surface is the other hemisphere`);
+      return;
+    }
+    candidates = candidates.filter((d) => !wrongHemisphere(d));
+    if (candidates.length === 0) {
+      this.toast('unsupported', request.name, 'open the surface it belongs to first');
+      return;
+    }
+    let lastError = '';
+    for (const ds of candidates) {
+      const before = new Set(ds.fields.map((f) => fieldKey(f)));
+      try {
+        const updated = await this.engine.attachSurfaceData(ds.id, request.source);
+        this.store.setState({ datasets: [...this.engine.scene.datasets.values()] });
+        await this.showAttached(updated, before);
+        return;
+      } catch (error: unknown) {
+        lastError = errorMessage(error);
+      }
+    }
+    this.toast('parse', request.name, lastError);
+  }
+
+  private async showAttached(ds: MeshDataset, before: ReadonlySet<string>): Promise<void> {
+    const added = ds.fields.filter((f) => f.source === 'node' && !before.has(fieldKey(f)));
+    const first = added[0];
+    if (first === undefined) return;
+    const table = ds.labelTables?.[first.name];
+    const layers = this.store
+      .getState()
+      .layers.filter((l): l is MeshLayer => l.kind === 'mesh' && l.datasetId === ds.id);
+    for (const layer of layers) {
+      if (table !== undefined) {
+        await this.patchLayerAsync<MeshLayer>(
+          layer.id,
+          {
+            colorMode: 'label',
+            label: {
+              name: first.name,
+              table,
+              mode: layer.label?.mode ?? 'fill',
+              outlineWidthPx: layer.label?.outlineWidthPx ?? 1,
+            },
+          },
+          'label'
+        );
+      } else {
+        this.patchLayer(layer.id, selectField(ds, layer, fieldKey(first)));
+      }
+    }
+    this.engine.requestRender();
   }
 
   async openDialog(): Promise<void> {
@@ -445,6 +574,10 @@ export class ShellController {
           continue;
         }
         await this.runOne(next, ticket);
+      }
+      while (this.deferredSurfaceData.length > 0) {
+        const request = this.deferredSurfaceData.shift() as OpenRequest;
+        await this.attachSurfaceData(request, null);
       }
     } finally {
       this.draining = false;
@@ -2052,7 +2185,7 @@ export class ShellController {
     for (const ref of spec.datasets) {
       const path = resolved[ref.id];
       if (path === undefined) continue;
-      for (const sidecar of Object.values(sidecarPathsFor(ref, path))) {
+      for (const sidecar of Object.values(sidecarPathsFor(ref, path)).flat()) {
         if (sidecar !== undefined) await bridge().allowPath(sidecar);
       }
     }

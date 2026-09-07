@@ -83,6 +83,7 @@ interior ones — §6.3's surface invariant at a size a human can check by hand.
 |---|---|
 | `surf_gzipb64.surf.gii`, `surf_b64.surf.gii`, `surf_ascii.surf.gii` | all three GIfTI encodings of one 16-vertex / 18-triangle patch. `GZipBase64Binary` is a **zlib** stream (§6.2). Each carries a non-identity `CoordinateSystemTransformMatrix` with `TransformedSpace = NIFTI_XFORM_SCANNER_ANAT`, so the loader must bake it in and report it in `appliedTransform`. |
 | `surf.func.gii`, `surf.label.gii` | node fields keyed by intent, and a `<LabelTable>` with sparse keys 0/3/7/11 |
+| `surf_regions.label.gii` | data-only like `surf.label.gii`, carrying `surf_labelled.surf.gii`'s region pattern — attached to `lh.fixture.surf` it makes the same four triangles monochrome, which the attach-and-paint assertion needs |
 | `lh.fixture.surf` | FreeSurfer binary triangle file, magic `0xFFFFFE`, big-endian f32 |
 | `lh.fixture.curv` | new-format curv, magic `0xFFFFFF` |
 | `lh.fixture.annot` | packed-RGB raw labels spanning 255..16,711,680 that **must** be remapped to dense 0..3 at parse time — a 256x1 LUT cannot address the raw values (§6.2) |

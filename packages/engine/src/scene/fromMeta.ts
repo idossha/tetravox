@@ -192,7 +192,7 @@ export function volumeDatasetFromMeta(
   };
 }
 
-function fieldFromWire(f: MeshMeta['fields'][number]): MeshFieldInfo {
+export function fieldFromWire(f: MeshMeta['fields'][number]): MeshFieldInfo {
   return {
     name: f.name,
     source: f.source,

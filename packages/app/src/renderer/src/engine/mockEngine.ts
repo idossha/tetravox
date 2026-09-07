@@ -27,29 +27,30 @@
  */
 
 import type {
-  CoordSpaceOption,
-  CoordSpaceRef,
-  FsaverageSpec,
-  TemplateSpace,
-  Iso3dStatus,
   Annotations,
   Camera3D,
   Capabilities,
+  CoordSpaceOption,
+  CoordSpaceRef,
   Dataset,
   DatasetId,
   DatasetRef,
   DatasetSource,
   Engine,
   EngineEvents,
+  FsaverageSpec,
+  Iso3dStatus,
   LabelCentroid,
   Layer,
   LayerId,
   Layout,
   Measurement,
+  MeshDataset,
   NewLayer,
   NewMeasurement,
-  PickResult,
+  OverlayTheme,
   PanePlacement,
+  PickResult,
   PointPaneHit,
   PointSelection,
   PointsLayer,
@@ -60,12 +61,13 @@ import type {
   Scene,
   ScreenshotOptions,
   SliceView,
+  TemplateSpace,
+  vec3,
+  vec4,
   View,
   View3D,
   ViewId,
   ViewSpec,
-  vec3,
-  OverlayTheme,
 } from '@tetravox/engine';
 import {
   DEFAULT_OVERLAY_THEME,
@@ -86,7 +88,7 @@ import {
 import type { CameraPreset } from '../keyboard/keymap';
 import { PHASES } from '../lib/loads';
 import { encodePng } from '../lib/png';
-import { defaultLayer, guessKind, makeMesh, makeVolume } from './mockData';
+import { defaultLayer, guessKind, makeMesh, makeStats, makeVolume } from './mockData';
 import { applyMat4 } from '../lib/coords';
 
 /** An `Error` carrying a protocol `ErrorCode` (§6.5), so the shell can toast it by code. */
@@ -1087,6 +1089,57 @@ export class NoGlEngine implements Engine {
   ): Promise<boolean> {
     void spec;
     return false;
+  }
+
+  /**
+   * §4.7's `attachSurfaceData`, with the real engine's observable shape and none of its parsing:
+   * a node field named after the file, plus a three-entry table when the name says annotation.
+   * The vertex-count refusal is modelled on the name too — a `rh.` file onto an `lh.` surface —
+   * so the controller's candidate walk has something to walk past.
+   */
+  async attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset> {
+    const ds = this.state.datasets.get(datasetId);
+    if (ds === undefined || ds.kind !== 'mesh') {
+      throw new EngineError('parse', `no such mesh dataset: ${datasetId}`);
+    }
+    const { name } = this.sourceName(src);
+    const hemi = (n: string): string | null => /^(lh|rh)\./i.exec(n)?.[1]?.toLowerCase() ?? null;
+    const want = hemi(name);
+    const have = hemi(ds.name);
+    if (want !== null && have !== null && want !== have) {
+      throw new EngineError(
+        'parse',
+        `${name} has ${want === 'lh' ? 245_762 : 244_931} vertices; the surface has ${ds.nNodes}`
+      );
+    }
+    await this.sleep(this.stepMs / 2);
+    const isLabel = /\.annot$|\.label\.gii$/i.test(name);
+    const field = {
+      name,
+      source: 'node' as const,
+      ncomp: 1 as const,
+      n: ds.nNodes,
+      partial: false,
+      stats: isLabel ? makeStats(0, 2) : makeStats(-1.25, 1.68),
+    };
+    ds.fields = [...ds.fields.filter((f) => f.source !== 'node' || f.name !== name), field];
+    if (isLabel) {
+      const entries = [
+        { id: 1_639_705, name: 'unknown', color: [25 / 255, 5 / 255, 25 / 255, 0] as vec4 },
+        { id: 2_647_065, name: 'bankssts', color: [25 / 255, 100 / 255, 40 / 255, 1] as vec4 },
+        {
+          id: 10_511_485,
+          name: 'caudalanteriorcingulate',
+          color: [125 / 255, 100 / 255, 160 / 255, 1] as vec4,
+        },
+      ];
+      ds.labelTables = {
+        ...ds.labelTables,
+        [name]: { entries, byId: new Map(entries.map((e) => [e.id, e])) },
+      };
+    }
+    this.emit('datasets', [...this.state.datasets.values()]);
+    return ds;
   }
 
   setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void {

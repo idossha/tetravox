@@ -17,6 +17,8 @@
  */
 
 import type {
+  // §13's point tool (2026-08-30): a placement template carries a colour.
+  vec4,
   Annotations,
   Dataset,
   DatasetId,
@@ -27,17 +29,16 @@ import type {
   LoadPhase,
   Measurement,
   MeasurementId,
+  MeshDataset,
   QualityLevel,
   Scene,
   SliceView,
   TemplateSpace,
+  vec3,
   View,
   View3D,
   ViewId,
   ViewSpec,
-  vec3,
-  // §13's point tool (2026-08-30): a placement template carries a colour.
-  vec4,
 } from './scene/types';
 import type { Capabilities } from './gl/caps';
 // Directed task 9 (2026-08-28): the pass-3 chrome palette `setTheme` carries.
@@ -596,6 +597,23 @@ export interface Engine {
   attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean>;
 
   /**
+   * Per-vertex data from a **second file** onto a surface that is already open (§6.2, §6.5.2's
+   * `attachField`; added 2026-09-06 — see `docs/DECISIONS.md`): a FreeSurfer `.annot`, a morph
+   * file (`curv` / `sulc` / `thickness` …) or a data-only `.func` / `.shape` / `.label.gii`.
+   *
+   * SimNIBS writes `segmentation/lh.ernie_DK40.annot` beside no surface at all, and a `.annot`
+   * names its surface only by vertex count — so this is a user gesture onto a chosen dataset, not
+   * a sidecar the app can derive. The file is read in **that dataset's worker** (§5 rule 1: the
+   * one wasm instance holding the mesh), its vertex count is checked there, and on success the
+   * dataset's `fields` grow by the file's arrays and `labelTables` by its table, keyed by the new
+   * field's name. Nothing about any layer changes: colouring by the new field is the host's
+   * `updateLayer`, exactly as for a field the file opened with. Rejects with the worker's error
+   * (a count mismatch names both counts) and leaves the dataset as it was. The path is remembered
+   * as a `DatasetRef.sidecars.fields` entry, so `serialize()` / `load()` bring it back.
+   */
+  attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;
+
+  /**
    * §8's region panel: every label of a label-volume layer, with its voxel count and world centroid
    * (§4.7 / §6.5.2's `labelCentroids`, added 2026-08-27 — see `docs/DECISIONS.md`).
    *
@@ -846,6 +864,11 @@ export class MockEngine implements Engine {
   }
   attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean> {
     void spec;
+    throw new Error('phase 1');
+  }
+  attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset> {
+    void datasetId;
+    void src;
     throw new Error('phase 1');
   }
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {

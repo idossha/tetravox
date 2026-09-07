@@ -1418,6 +1418,10 @@ def generate(out: Path) -> dict:
     patch_keys[[0, 1, 5]] = 7  # Beta
     patch_keys[[10, 14, 15]] = 11  # Gamma
     write_gifti_labelled_surface(out / "surf_labelled.surf.gii", verts, stris, patch_keys)
+    # The same regions as a data-only file (2026-09-06): what `attachField` puts onto
+    # `lh.fixture.surf` — the same patch, from a FreeSurfer file — so the monochrome-triangle
+    # assertions above hold for an annotation that arrived after the surface did.
+    write_gifti_label(out / "surf_regions.label.gii", patch_keys)
 
     # FreeSurfer
     nib.freesurfer.write_geometry(str(out / "lh.fixture.surf"), verts.astype(np.float64), stris.astype(np.int32))
