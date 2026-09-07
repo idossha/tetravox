@@ -480,10 +480,11 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
     ]);
     // One load card: the annotation is not a dataset and never gets one.
     expect(store.getState().loads.map((c) => c.name)).toEqual(['lh.pial.gii']);
+    // R1/R3 (2026-09-06): a `.gii` is a **surface** layer, and the atlas is its colour source.
     await until(
       () =>
-        store.getState().layers[0]?.kind === 'mesh' &&
-        (store.getState().layers[0] as { colorMode?: string }).colorMode === 'label'
+        store.getState().layers[0]?.kind === 'surface' &&
+        (store.getState().layers[0] as { colorMode?: string }).colorMode === 'annotation'
     );
     const state = store.getState();
     expect(state.datasets).toHaveLength(1);
@@ -491,9 +492,12 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
     expect(ds?.kind === 'mesh' ? ds.fields.map((f) => f.name) : null).toContain(
       'lh.ernie_DK40.annot'
     );
-    const layer = state.layers[0] as { colorMode: string; label?: { name: string; mode: string } };
-    expect(layer.label?.name).toBe('lh.ernie_DK40.annot');
-    expect(layer.label?.mode).toBe('fill');
+    const layer = state.layers[0] as {
+      colorMode: string;
+      annotation?: { name: string; mode: string };
+    };
+    expect(layer.annotation?.name).toBe('lh.ernie_DK40.annot');
+    expect(layer.annotation?.mode).toBe('fill');
     expect(state.toasts).toEqual([]);
   });
 
@@ -505,7 +509,7 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
     await until(() => store.getState().toasts.length > 0);
     expect(store.getState().toasts[0]?.detail).toContain('other hemisphere');
     const layer = store.getState().layers[0] as { colorMode: string };
-    expect(layer.colorMode).not.toBe('label');
+    expect(layer.colorMode).not.toBe('annotation');
   });
 
   it('prefers the active layer’s surface, then the matching hemisphere', async () => {
@@ -551,10 +555,10 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
       pathRequest('/m2m/surfaces/lh.thickness'),
     ]);
     await until(
-      () => (store.getState().layers[0] as { colorMode?: string })?.colorMode === 'field'
+      () => (store.getState().layers[0] as { colorMode?: string })?.colorMode === 'overlay'
     );
-    const layer = store.getState().layers[0] as { field?: { source: string; name: string } };
-    expect(layer.field).toEqual({ source: 'node', name: 'lh.thickness', component: 'mag' });
+    const layer = store.getState().layers[0] as { overlay?: { name: string } };
+    expect(layer.overlay).toEqual({ name: 'lh.thickness', component: 'mag' });
   });
 
   it('with no surface open, says to open one first', async () => {

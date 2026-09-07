@@ -105,7 +105,7 @@ export class Renderer {
       for (const layer of input.scene.layers) {
         if (layer.kind === 'volume') {
           for (const item of volumes) if (item.layer.id === layer.id) this.#slice.draw2D(ctx, item);
-        } else if (layer.kind === 'mesh') {
+        } else if (layer.kind === 'mesh' || layer.kind === 'surface') {
           this.#derived.drawFill2D(ctx, layer.id);
         }
       }

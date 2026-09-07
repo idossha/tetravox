@@ -15,6 +15,8 @@ import { IsoProperties, isoSummary } from './iso/IsoProperties';
 import { MeshProperties, meshSummary } from './mesh/MeshProperties';
 import { PointsProperties, pointsSummary } from './points/PointsProperties';
 import { VolumeProperties, volumeSummary } from './volume/VolumeProperties';
+// 2026-09-06, R4: the surface editor is its own module.
+import { SurfaceProperties, surfaceSummary } from './surface/SurfaceProperties';
 // Modules (2026-08-30, §13.3). Appended per the shared-file rule: one branch before the registry
 // lookup, and no new entry in either record.
 import { ModuleLayerSummary } from '../../modules/ModuleLayerSummary';
@@ -34,6 +36,7 @@ const SUMMARY: Record<Layer['kind'], Summary> = {
   mesh: meshSummary,
   iso: isoSummary,
   points: pointsSummary,
+  surface: surfaceSummary,
 };
 
 const EDITOR: Record<Layer['kind'], Editor> = {
@@ -41,6 +44,7 @@ const EDITOR: Record<Layer['kind'], Editor> = {
   mesh: MeshProperties,
   iso: IsoProperties,
   points: PointsProperties,
+  surface: SurfaceProperties,
 };
 
 /**

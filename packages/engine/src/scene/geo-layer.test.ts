@@ -116,12 +116,15 @@ describe('a parsed view becoming a points layer', () => {
   /** A net has no triangles, so its default layer must be points and not an empty surface. */
   it('is the default layer kind for a triangle-less parsed view', () => {
     expect(defaultLayerFor('l1', dataset(wire())).kind).toBe('points');
-    // A view that does carry `ST` triangles is a surface, like any other mesh.
+    // A view that does carry `ST` triangles is a **surface** (2026-09-06, R1): triangles, no tets.
     expect(
       defaultLayerFor('l1', dataset(wire(), { hasTris: true, nTris: 4, nNodes: 12 })).kind
-    ).toBe('mesh');
-    // And nothing about a plain mesh changed.
-    expect(defaultLayerFor('l1', dataset(undefined, { hasTris: true })).kind).toBe('mesh');
+    ).toBe('surface');
+    // And a plain mesh **with tets** is still a mesh; without them it is a surface too.
+    expect(defaultLayerFor('l1', dataset(undefined, { hasTris: true, nTets: 48 })).kind).toBe(
+      'mesh'
+    );
+    expect(defaultLayerFor('l1', dataset(undefined, { hasTris: true })).kind).toBe('surface');
   });
 
   it('leaves a points layer with no parsed view exactly as it was', () => {

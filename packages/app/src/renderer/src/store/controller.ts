@@ -32,6 +32,7 @@ import type {
   PointToolEvent,
   ProbeResult,
   ScreenshotOptions,
+  SurfaceLayer,
   TemplateSpace,
   vec3,
   ViewId,
@@ -522,6 +523,33 @@ export class ShellController {
     const first = added[0];
     if (first === undefined) return;
     const table = ds.labelTables?.[first.name];
+    // A surface (2026-09-06, R3): the attachment becomes its colour source.
+    for (const layer of this.store.getState().layers) {
+      if (layer.kind !== 'surface' || layer.datasetId !== ds.id) continue;
+      if (table !== undefined) {
+        await this.patchLayerAsync<SurfaceLayer>(
+          layer.id,
+          {
+            colorMode: 'annotation',
+            showColorbar: false,
+            annotation: {
+              name: first.name,
+              table,
+              mode: layer.annotation?.mode ?? 'fill',
+              outlineWidthPx: layer.annotation?.outlineWidthPx ?? 1,
+            },
+          },
+          'label'
+        );
+      } else {
+        this.patchLayer<SurfaceLayer>(layer.id, {
+          colorMode: 'overlay',
+          showColorbar: true,
+          overlay: { name: first.name, component: 'mag' },
+          scale: { kind: 'linear', lo: first.stats.min, hi: first.stats.max },
+        });
+      }
+    }
     const layers = this.store
       .getState()
       .layers.filter((l): l is MeshLayer => l.kind === 'mesh' && l.datasetId === ds.id);
@@ -1780,8 +1808,8 @@ export class ShellController {
    */
   setClipFollowsCursor(layerId: LayerId, index: number, on: boolean): void {
     const layer = this.store.getState().layers.find((l) => l.id === layerId);
-    if (layer === undefined || layer.kind !== 'mesh') return;
-    this.patchLayer<MeshLayer>(layerId, setClipFollowsCursor(layer, index, on));
+    if (layer === undefined || (layer.kind !== 'mesh' && layer.kind !== 'surface')) return;
+    this.patchLayer(layerId, setClipFollowsCursor(layer, index, on));
     if (!on) return;
     this.ensureClipCursorSubscription();
     this.applyClipFollowsCursor(layerId);
@@ -1793,9 +1821,9 @@ export class ShellController {
     const cursor = state.cursor;
     for (const layer of state.layers) {
       if (layerId !== undefined && layer.id !== layerId) continue;
-      if (layer.kind !== 'mesh') continue;
+      if (layer.kind !== 'mesh' && layer.kind !== 'surface') continue;
       const patch = planesThroughCursor(layer, cursor);
-      if (Object.keys(patch).length > 0) this.engine.updateLayer<MeshLayer>(layer.id, patch);
+      if (Object.keys(patch).length > 0) this.engine.updateLayer(layer.id, patch);
     }
     this.engine.requestRender();
   }
@@ -1816,7 +1844,12 @@ export class ShellController {
     this.unsubscribers.push(
       this.engine.on('cursor', () => {
         const layers = this.store.getState().layers;
-        if (!layers.some((l) => l.kind === 'mesh' && anyPlaneFollowsCursor(l))) return;
+        if (
+          !layers.some(
+            (l) => (l.kind === 'mesh' || l.kind === 'surface') && anyPlaneFollowsCursor(l)
+          )
+        )
+          return;
         this.applyClipFollowsCursor();
       })
     );
@@ -2221,7 +2254,7 @@ export class ShellController {
         ...(add.patch as Partial<Layer>),
         datasetId: add.datasetId,
         kind: add.kind,
-      });
+      } as NewLayer);
     }
 
     // `activeLayerId` cannot be assigned from the spec — those ids went with the old datasets — so
@@ -2265,7 +2298,11 @@ export class ShellController {
   private resyncFromEngine(): void {
     // A loaded scene can bring `followCursor` planes with it (§4.4), and nothing called
     // `setClipFollowsCursor` to arm the subscription for them.
-    if (this.engine.scene.layers.some((l) => l.kind === 'mesh' && anyPlaneFollowsCursor(l))) {
+    if (
+      this.engine.scene.layers.some(
+        (l) => (l.kind === 'mesh' || l.kind === 'surface') && anyPlaneFollowsCursor(l)
+      )
+    ) {
       this.ensureClipCursorSubscription();
     }
     const { engine, store } = this;
@@ -2378,6 +2415,11 @@ export class ShellController {
     if (layer.kind === 'volume' && dataset.kind === 'volume') {
       const table = dataset.labelTable;
       return table === undefined ? null : fromLabelEntries(table.entries);
+    }
+    if (layer.kind === 'surface' && dataset.kind === 'mesh') {
+      return layer.annotation === undefined
+        ? null
+        : fromLabelEntries(layer.annotation.table.entries);
     }
     if (layer.kind === 'mesh' && dataset.kind === 'mesh') {
       if (layer.label !== undefined) return fromLabelEntries(layer.label.table.entries);
@@ -3530,10 +3572,12 @@ function timestamp(): string {
  */
 export function layerKindsFor(dataset: Dataset): Layer['kind'][] {
   if (dataset.kind === 'volume') return ['volume'];
+  // R1 (2026-09-06): a triangle sheet with no tets is a surface, its own kind.
+  const own: Layer['kind'] = dataset.nTets === 0 && dataset.hasTris ? 'surface' : 'mesh';
   const geo = dataset.geo;
-  if (geo === undefined) return ['mesh'];
+  if (geo === undefined) return [own];
   const kinds: Layer['kind'][] = [];
-  if (dataset.hasTris) kinds.push('mesh');
+  if (dataset.hasTris) kinds.push(own);
   if (geo.points.length > 0 || geo.labels.length > 0 || geo.lineSegments.length > 0) {
     kinds.push('points');
   }

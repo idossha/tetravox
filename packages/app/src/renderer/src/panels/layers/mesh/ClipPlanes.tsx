@@ -15,14 +15,15 @@
  * event; the arithmetic is `planesThroughCursor` in `state.ts`, never in this file.
  */
 
-import type { MeshDataset, MeshLayer, vec3 } from '@tetravox/engine';
+import type { MeshDataset, vec3 } from '@tetravox/engine';
 import { useController, useUi } from '../../../ui/context';
 import { NumberField, Row, Section, Select, Slider, Toggle } from './controls';
+import type { ClipLayer } from './state';
 import {
-  CLIP_PRESETS,
-  MAX_CLIP_PLANES,
   addClipPlane,
+  CLIP_PRESETS,
   flipClipPlane,
+  MAX_CLIP_PLANES,
   offsetThrough,
   removeClipPlane,
   setCapColorMode,
@@ -53,24 +54,27 @@ function offsetRange(dataset: MeshDataset): number {
 export function ClipPlanes({
   dataset,
   layer,
+  prefix = 'mesh',
 }: {
   dataset: MeshDataset;
-  layer: MeshLayer;
+  layer: ClipLayer;
+  /** The `data-testid` prefix: `mesh` (default) or `surface`, so each editor's ids are its own. */
+  prefix?: string;
 }): React.JSX.Element {
   const controller = useController();
   const cursor = useUi((s) => s.cursor);
-  const patch = (p: Partial<MeshLayer>): void => controller.patchLayer(layer.id, p);
+  const patch = (p: Partial<ClipLayer>): void => controller.patchLayer(layer.id, p);
   const planes = layer.clip.planes;
   const limit = offsetRange(dataset);
 
   return (
     <Section
-      testId={`mesh-clip-${layer.id}`}
+      testId={`${prefix}-clip-${layer.id}`}
       title={`Clip planes (${planes.length}/${MAX_CLIP_PLANES})`}
       right={
         <button
           type="button"
-          data-testid={`mesh-clip-add-${layer.id}`}
+          data-testid={`${prefix}-clip-add-${layer.id}`}
           className="tvx-btn tvx-btn-sm"
           disabled={planes.length >= MAX_CLIP_PLANES}
           title="Add a plane through the cursor, normal +Z"
@@ -84,7 +88,7 @@ export function ClipPlanes({
       }
     >
       {planes.length === 0 ? (
-        <p data-testid={`mesh-clip-empty-${layer.id}`} className="text-[10px] text-tvx-dim">
+        <p data-testid={`${prefix}-clip-empty-${layer.id}`} className="text-[10px] text-tvx-dim">
           No clip plane. §7.4 allows up to six, each with exact caps.
         </p>
       ) : null}
@@ -101,14 +105,14 @@ export function ClipPlanes({
         return (
           <div
             key={index}
-            data-testid={`mesh-clip-plane-${layer.id}-${index}`}
+            data-testid={`${prefix}-clip-plane-${layer.id}-${index}`}
             data-enabled={clip.enabled}
             data-follows-cursor={follows}
             className="rounded border border-tvx-line/60 p-1"
           >
             <div className="flex items-center gap-1">
               <Toggle
-                testId={`mesh-clip-enabled-${layer.id}-${index}`}
+                testId={`${prefix}-clip-enabled-${layer.id}-${index}`}
                 label={`#${index + 1}`}
                 on={clip.enabled}
                 onChange={(v) => patch(setClipEnabled(layer, index, v))}
@@ -117,7 +121,7 @@ export function ClipPlanes({
                 <button
                   key={preset.name}
                   type="button"
-                  data-testid={`mesh-clip-preset-${layer.id}-${index}-${preset.name}`}
+                  data-testid={`${prefix}-clip-preset-${layer.id}-${index}-${preset.name}`}
                   className="tvx-btn tvx-btn-sm"
                   title={`Normal ${preset.normal.join(', ')}`}
                   onClick={(e) => {
@@ -130,7 +134,7 @@ export function ClipPlanes({
               ))}
               <button
                 type="button"
-                data-testid={`mesh-clip-flip-${layer.id}-${index}`}
+                data-testid={`${prefix}-clip-flip-${layer.id}-${index}`}
                 className="tvx-btn tvx-btn-sm"
                 title="Keep the other side (the plane does not move)"
                 onClick={(e) => {
@@ -142,7 +146,7 @@ export function ClipPlanes({
               </button>
               <button
                 type="button"
-                data-testid={`mesh-clip-remove-${layer.id}-${index}`}
+                data-testid={`${prefix}-clip-remove-${layer.id}-${index}`}
                 className="tvx-btn tvx-btn-sm ml-auto"
                 aria-label={`Remove clip plane ${index + 1}`}
                 onClick={(e) => {
@@ -160,7 +164,7 @@ export function ClipPlanes({
               {([0, 1, 2] as const).map((axis) => (
                 <NumberField
                   key={axis}
-                  testId={`mesh-clip-normal-${layer.id}-${index}-${axis}`}
+                  testId={`${prefix}-clip-normal-${layer.id}-${index}-${axis}`}
                   value={Number(n[axis].toFixed(3))}
                   step={0.05}
                   min={-1}
@@ -177,7 +181,7 @@ export function ClipPlanes({
 
             <Row label="Offset">
               <Slider
-                testId={`mesh-clip-offset-${layer.id}-${index}`}
+                testId={`${prefix}-clip-offset-${layer.id}-${index}`}
                 value={clip.plane.offset}
                 min={-limit}
                 max={limit}
@@ -189,7 +193,7 @@ export function ClipPlanes({
 
             <Row label="Follow">
               <Toggle
-                testId={`mesh-clip-follow-${layer.id}-${index}`}
+                testId={`${prefix}-clip-follow-${layer.id}-${index}`}
                 label="cursor"
                 on={follows}
                 title="Keep this plane through the cursor as it moves"
@@ -197,7 +201,7 @@ export function ClipPlanes({
               />
               <button
                 type="button"
-                data-testid={`mesh-clip-tocursor-${layer.id}-${index}`}
+                data-testid={`${prefix}-clip-tocursor-${layer.id}-${index}`}
                 className="tvx-btn tvx-btn-sm"
                 title="Move the plane through the cursor once"
                 onClick={(e) => {
@@ -212,24 +216,26 @@ export function ClipPlanes({
         );
       })}
 
-      <Row label="Caps">
-        <Toggle
-          testId={`mesh-clip-caps-${layer.id}`}
-          label={layer.clip.caps ? 'exact caps' : 'no caps'}
-          on={layer.clip.caps}
-          title="Exact per-element cap polygons from `plane_cut` (§7.4)"
-          onChange={(v) => patch(setClipCaps(layer, v))}
-        />
-        <Select
-          testId={`mesh-clip-capcolor-${layer.id}`}
-          value={layer.clip.capColorMode}
-          options={[
-            { value: 'inherit', label: 'inherit' },
-            { value: 'tag', label: 'by tag' },
-          ]}
-          onChange={(m) => patch(setCapColorMode(layer, m))}
-        />
-      </Row>
+      {layer.kind !== 'mesh' ? null : (
+        <Row label="Caps">
+          <Toggle
+            testId={`${prefix}-clip-caps-${layer.id}`}
+            label={layer.clip.caps ? 'exact caps' : 'no caps'}
+            on={layer.clip.caps}
+            title="Exact per-element cap polygons from `plane_cut` (§7.4)"
+            onChange={(v) => patch(setClipCaps(layer, v))}
+          />
+          <Select
+            testId={`${prefix}-clip-capcolor-${layer.id}`}
+            value={layer.clip.capColorMode}
+            options={[
+              { value: 'inherit', label: 'inherit' },
+              { value: 'tag', label: 'by tag' },
+            ]}
+            onChange={(m) => patch(setCapColorMode(layer, m))}
+          />
+        </Row>
+      )}
     </Section>
   );
 }

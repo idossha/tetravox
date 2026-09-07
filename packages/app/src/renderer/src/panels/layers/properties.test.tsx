@@ -15,8 +15,9 @@ import { IsoProperties } from './iso/IsoProperties';
 import { MeshProperties } from './mesh/MeshProperties';
 import { PointsProperties } from './points/PointsProperties';
 import { VolumeProperties } from './volume/VolumeProperties';
+import { SurfaceProperties } from './surface/SurfaceProperties';
 
-const KINDS = ['volume', 'mesh', 'iso', 'points'] as const;
+const KINDS = ['volume', 'mesh', 'iso', 'points', 'surface'] as const;
 
 function volume(over: Partial<VolumeDataset> = {}): Dataset {
   return {
@@ -74,6 +75,19 @@ describe('layerSummary', () => {
     );
   });
 
+  // R1 (2026-09-06): a surface leads with its hemisphere and counts vertices and triangles.
+  it('describes a surface by hemisphere, vertices and triangles', () => {
+    expect(
+      layerSummary(
+        mesh({ name: 'lh.pial.gii', nTets: 0, nNodes: 245_762, nTris: 491_520 }),
+        layer('surface')
+      )
+    ).toBe('lh · 245,762 vertices · 491,520 triangles');
+    expect(layerSummary(mesh({ name: 'patch.stl', nTets: 0 }), layer('surface'))).toBe(
+      '12 vertices · 20 triangles'
+    );
+  });
+
   it('falls back to the kind while the dataset has not landed', () => {
     expect(layerSummary(undefined, layer('volume'))).toBe('volume');
   });
@@ -113,6 +127,7 @@ describe('the editor registry', () => {
     mesh: MeshProperties,
     iso: IsoProperties,
     points: PointsProperties,
+    surface: SurfaceProperties,
   };
 
   it('routes every §4.4 kind to its own editor', () => {
@@ -139,10 +154,13 @@ describe('the editor registry', () => {
    * `packages/app/e2e/props-volume.spec.ts`, mounted.
    */
   it('the hook-free editors decline a layer of another kind', () => {
-    for (const kind of ['mesh', 'iso', 'points'] as const) {
+    for (const kind of ['mesh', 'iso', 'points', 'surface'] as const) {
       expect(EDITORS[kind]({ layer: layer('volume'), dataset: volume() }), kind).toBeNull();
     }
     expect(EDITORS.mesh({ layer: layer('mesh'), dataset: volume() })).toBeNull();
+    // R4 (2026-09-06): the surface editor is the surface's alone, and the mesh editor is not its.
+    expect(EDITORS.surface({ layer: layer('mesh'), dataset: mesh() })).toBeNull();
+    expect(EDITORS.mesh({ layer: layer('surface'), dataset: mesh() })).toBeNull();
   });
 
   it('renders nothing at all while the dataset is missing', () => {

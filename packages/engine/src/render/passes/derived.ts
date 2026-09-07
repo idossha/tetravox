@@ -19,6 +19,7 @@
  * the request lifecycle, which is `derived/cut-source.ts`'s.
  */
 
+import { meshView } from '../../scene/surface';
 import { SurfaceDepth } from '../surface-depth';
 import { VertexArray, Buffer } from '../../gl/buffer';
 import { Program, ProgramVariants } from '../../gl/program';
@@ -145,7 +146,7 @@ export class DerivedPass implements FramePass {
     // itself so mesh fills interleave with volume slices in layer order (2026-08-29).
     this.begin2D(ctx);
     for (const layer of ctx.input.scene.layers) {
-      if (layer.kind === 'mesh') this.drawFill2D(ctx, layer.id);
+      if (meshView(layer) !== null) this.drawFill2D(ctx, layer.id);
     }
     this.finish2D(ctx);
   }
@@ -181,8 +182,9 @@ export class DerivedPass implements FramePass {
     this.#state.apply(GL_STATE.blend2d);
     this.#state.clipDistances(0);
 
-    for (const layer of scene.layers) {
-      if (layer.kind !== 'mesh') continue;
+    for (const scene_ of scene.layers) {
+      const layer = meshView(scene_);
+      if (layer === null) continue;
       if (!visibleIn(layer, view)) continue;
       if (!layer.fillIn2D && !layer.contoursIn2D) continue;
       const ds = scene.datasets.get(layer.datasetId);

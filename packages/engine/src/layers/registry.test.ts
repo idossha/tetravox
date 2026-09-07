@@ -7,6 +7,8 @@
  * previous run — and it is the one piece of §8's "zero latency" probe path that needs no GL.
  */
 
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LAYER_KINDS, createLayerRuntime } from './registry';
 import { CutManager } from '../compute/cut-manager';
@@ -112,7 +114,8 @@ function volumeLayer(ds: VolumeDataset): Layer {
 
 describe('the layer registry', () => {
   it('covers every §4.4 layer kind, and each runtime reports its own', () => {
-    expect([...LAYER_KINDS].sort()).toEqual(['iso', 'mesh', 'points', 'volume']);
+    // R5 (2026-09-06): exactly these five, `surface` last.
+    expect([...LAYER_KINDS]).toEqual(['volume', 'mesh', 'iso', 'points', 'surface']);
 
     const ds = volumeDataset();
     const volume = createLayerRuntime(volumeLayer(ds), ds, EMPTY_CONTEXT);
@@ -211,5 +214,28 @@ describe('the shared visibility rules', () => {
     expect(pickableIn({ ...base, visible: false })).toBe(false);
     expect(pickableIn({ ...base, opacity: 0.25 })).toBe(true);
     expect(pickableIn({ ...base, opacity: 0.2499 })).toBe(false);
+  });
+});
+
+/**
+ * R5 (2026-09-06, `docs/requirements/2026-09-06-idohaber-surfaces.md`): the surface module is a
+ * separate module. The mesh runtime and the app's mesh editor import nothing from it, read off
+ * disk so a refactor that quietly threads a surface import through the mesh side fails here.
+ */
+describe('the surface module is separate (R5 import wall)', () => {
+  const here = fileURLToPath(new URL('.', import.meta.url));
+  const read = (rel: string): string => readFileSync(new URL(rel, `file://${here}`), 'utf8');
+
+  it('layers/mesh.ts imports no surface module', () => {
+    expect(read('./mesh.ts')).not.toMatch(/from '\.\.?\/[^']*surface'/);
+  });
+
+  it("the app's mesh editor imports no surface module", () => {
+    const dir = new URL('../../../app/src/renderer/src/panels/layers/mesh/', `file://${here}`);
+    for (const name of readdirSync(dir)) {
+      if (!/\.tsx?$/.test(name)) continue;
+      const text = readFileSync(new URL(name, dir), 'utf8');
+      expect(text, name).not.toMatch(/from '[^']*\/surface[^']*'/);
+    }
   });
 });

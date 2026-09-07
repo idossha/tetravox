@@ -84,8 +84,9 @@ test('a parsed view’s point lands on the pixel the projection names', async ({
   // The fixture's first view is 2 `SP` plus a `VP`; the second view adds one more.
   expect(opened.kind).toBe('points');
   expect(opened.n).toBe(4);
-  // …and because it also carries an `ST` and an `SQ`, its *default* layer is the surface.
-  expect(opened.defaultKind).toBe('mesh');
+  // …and because it also carries an `ST` and an `SQ`, its *default* layer is a **surface** —
+  // its own kind since 2026-09-06 (R1), triangles and no tets.
+  expect(opened.defaultKind).toBe('surface');
 
   // `SP(1, 2, 3){10}` with the cursor at (0, 0, 3): 1 mm right, 2 mm up at 0.1 mm/px.
   const px = CX + 1 / MM_PER_PX;

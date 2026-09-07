@@ -102,11 +102,14 @@ async function probeRow(world: [number, number, number]): Promise<{
     for (let i = 0; i < 50; i += 1) {
       await engine.whenSettled();
       await new Promise((r) => setTimeout(r, 40));
-      const row = engine.probe(w as [number, number, number]).rows.find((r) => r.kind === 'mesh');
+      const row = engine
+        .probe(w as [number, number, number])
+        .rows.find((r) => r.kind === 'mesh' || r.kind === 'surface');
       if (row?.vertex !== undefined) return row as never;
     }
-    return (engine.probe(w as [number, number, number]).rows.find((r) => r.kind === 'mesh') ??
-      null) as never;
+    return (engine
+      .probe(w as [number, number, number])
+      .rows.find((r) => r.kind === 'mesh' || r.kind === 'surface') ?? null) as never;
   }, world);
 }
 
