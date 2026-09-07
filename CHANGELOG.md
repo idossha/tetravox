@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-09-07
+
 ### Added
 
 - **Surfaces are their own layer kind** — a `.gii`, FreeSurfer, STL/PLY/OBJ shell opens as a `surface`
