@@ -464,7 +464,7 @@ describe('the frozen facade is enough', () => {
 
 describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)', () => {
   /** The attach runs after the queue drains, so `settled` alone is too early. */
-  async function until(store: UiStore, pred: () => boolean): Promise<void> {
+  async function until(pred: () => boolean): Promise<void> {
     for (let i = 0; i < 500; i++) {
       await new Promise((resolve) => setTimeout(resolve, 1));
       if (pred()) return;
@@ -481,7 +481,6 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
     // One load card: the annotation is not a dataset and never gets one.
     expect(store.getState().loads.map((c) => c.name)).toEqual(['lh.pial.gii']);
     await until(
-      store,
       () =>
         store.getState().layers[0]?.kind === 'mesh' &&
         (store.getState().layers[0] as { colorMode?: string }).colorMode === 'label'
@@ -503,7 +502,7 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
     controller.open([pathRequest('/m2m/surfaces/lh.pial.gii')]);
     await settled(store);
     controller.open([pathRequest('/m2m/segmentation/rh.ernie_DK40.annot')]);
-    await until(store, () => store.getState().toasts.length > 0);
+    await until(() => store.getState().toasts.length > 0);
     expect(store.getState().toasts[0]?.detail).toContain('other hemisphere');
     const layer = store.getState().layers[0] as { colorMode: string };
     expect(layer.colorMode).not.toBe('label');
@@ -529,7 +528,7 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
     const pialLayer = store.getState().layers.find((l) => l.datasetId === byName('lh.pial.gii'));
     controller.setActiveLayer(pialLayer!.id);
     controller.open([pathRequest('/m2m/segmentation/lh.ernie_DK40.annot')]);
-    await until(store, () =>
+    await until(() =>
       store
         .getState()
         .datasets.some(
@@ -552,7 +551,6 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
       pathRequest('/m2m/surfaces/lh.thickness'),
     ]);
     await until(
-      store,
       () => (store.getState().layers[0] as { colorMode?: string })?.colorMode === 'field'
     );
     const layer = store.getState().layers[0] as { field?: { source: string; name: string } };
@@ -562,7 +560,7 @@ describe('per-vertex files for a surface (§4.7 `attachSurfaceData`, 2026-09-06)
   it('with no surface open, says to open one first', async () => {
     const { store, controller } = harness();
     controller.open([pathRequest('/m2m/segmentation/lh.ernie_DK40.annot')]);
-    await until(store, () => store.getState().toasts.length > 0);
+    await until(() => store.getState().toasts.length > 0);
     expect(store.getState().toasts[0]?.detail).toContain('open the surface');
     expect(store.getState().loads).toEqual([]);
   });
