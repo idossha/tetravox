@@ -103,13 +103,26 @@ export const ENVELOPE_VERSION = 1;
 
 /**
  * The **feature level** this build implements — `ready.version` and the tarball manifest's
- * `protocol` (see above). `1` up to Tetravox 0.3.9; `2` from 0.3.11.
+ * `protocol` (see above). `1` up to Tetravox 0.3.9; `2` from 0.3.11; `3` from 0.4.0.
  *
  * It is **not** the tarball's version. The embed is versioned with the repository — one number for
- * the whole tree, bumped by `scripts/release.sh` — so `tetravox-embed-0.3.11.tgz` is the embed built
- * from Tetravox 0.3.11, and this constant says which edition of the contract that build implements.
+ * the whole tree, bumped by `scripts/release.sh` — so `tetravox-embed-0.4.0.tgz` is the embed built
+ * from Tetravox 0.4.0, and this constant says which edition of the contract that build implements.
+ *
+ * **Why 3 is not additive in the way 2 was.** Everything protocol 2 added was a message or a field
+ * a host could decline to send. Protocol 3 adds a `ViewSpec` layer *kind* — `'surface'` — and a
+ * kind is the one thing a spec cannot be partly understood: a protocol-2 build handed a
+ * `kind: 'surface'` layer dropped it in silence (`isRestorableKind` predates the kind, so the layer
+ * simply never became a layer) and reported a successful load of a scene with nothing in it. The
+ * number moves so a host can ask *before* sending one, which is the whole reason `ready.version`
+ * exists.
+ *
+ * The compatibility rule is therefore about the direction, not the number: a **protocol-2 host is
+ * unaffected**, because every spec it can write — `volume`, `mesh`, `points` — means exactly what it
+ * always did, and no reply or event changed shape. What a host must not do is send a `surface`
+ * layer to a build whose `ready.version` is below 3.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** The query parameter that puts the renderer in embed mode, and the one that names the host. */
 export const EMBED_PARAM = 'embed';
@@ -773,15 +786,57 @@ export const EMBED_MESSAGE_TYPES = [
  */
 export interface EmbedDatasetRef {
   id: string;
-  kind: 'volume' | 'mesh';
+  /**
+   * What kind of file this is — and, from protocol 3, **three** answers rather than two.
+   *
+   * §4.6's `DatasetRef` has only `'volume' | 'mesh'`, because the engine decides surface-ness from
+   * the bytes: a `MeshDataset` with `nTets === 0` *is* a surface (`isSurfaceMesh`), and there is no
+   * third dataset kind to add. `'surface'` here is therefore a **host-facing spelling of
+   * `'mesh'`**, mapped down in `normalize.ts` before the engine sees the ref.
+   *
+   * It exists because the alternative reads as a mistake. Without it a host writes
+   * `datasets: [{ kind: 'mesh', name: 'lh.pial.gii' }]` and `layers: [{ kind: 'surface' }]` in the
+   * same document and has to know that the disagreement is intended — which is exactly the
+   * volume/mesh/surface confusion protocol 3 exists to end. `'mesh'` on a surface file keeps
+   * working and always will; the two spellings load the same bytes the same way.
+   *
+   * It is **not** a format hint and it does not choose a parser. See `path`.
+   */
+  kind: 'volume' | 'mesh' | 'surface';
   name: string;
-  /** Absolute `http(s)://`, or relative/root-relative — resolved against `LoadMessage.baseUrl`. */
+  /**
+   * Absolute `http(s)://`, or relative/root-relative — resolved against `LoadMessage.baseUrl`.
+   *
+   * **The format is read from the bytes, not from this string.** `tvx_mesh_io::sniff` tries
+   * `$MeshFormat`, VTK, MEDIT, GIfTI's XML, VTK-XML, OFF, PLY, STL and FreeSurfer's 24-bit
+   * big-endian magic in that order, and only falls back to the extension when none of them
+   * answers. That is why there is no `format: 'freesurfer' | 'gifti'` field on this type: the
+   * loader would not read it, and a field that is accepted, documented and inert is the bug this
+   * repository has already shipped once (`stateColors.idle`, §6.1).
+   *
+   * It is also why the extensionless FreeSurfer surfaces work — `lh.central`, `lh.pial`, `rh.white`
+   * carry no extension at all in a SimNIBS or FreeSurfer tree, and are recognised by their magic.
+   */
   path: string;
   fingerprint?: string;
   /** `path` is resolved against **the dataset's own URL**, per §4.6: a sidecar travels with it. */
   sidecars?: {
     lut?: { path: string };
     opt?: { path: string };
+    /**
+     * Per-vertex files attached to a **surface** after it opens (protocol 3; §4.6's third sidecar
+     * role, `Engine.attachSurfaceData`): a FreeSurfer `.annot`, a morph file (`.thickness`,
+     * `.curv`, `.sulc`, …) or a data-only GIfTI (`.func.gii`, `.shape.gii`, `.label.gii`).
+     *
+     * An array, and **the order matters**: they are attached in it, and each is named after its own
+     * file — `lh.ernie_DK40.annot`, not `annot` — so two atlases on one hemisphere coexist and a
+     * layer's `overlay.name` / `annotation.name` says which one it means.
+     *
+     * Best-effort, like the other two roles: one that 404s is a missing table, never a failed load.
+     * Which means a surface whose annotation URL does not resolve opens **grey**, with a successful
+     * `loaded` — check the `layers` event's `colorMode` if that matters to you.
+     */
+    fields?: { path: string }[];
   };
 }
 
@@ -890,6 +945,130 @@ export interface EmbedPointsLayer {
   offPlaneOpacity?: number;
   [key: string]: unknown;
 }
+
+// ------------------------------------------------------------------------------------------------
+// Protocol 3: a surface is not a mesh (2026-09-06).
+// ------------------------------------------------------------------------------------------------
+
+/**
+ * A **surface** layer — §4.4's `SurfaceLayer`, as a host writes one (protocol 3).
+ *
+ * ## What a surface is, and what it is not
+ *
+ * A surface is a triangle sheet with no tetrahedra: a hemisphere from a FreeSurfer binary
+ * (`lh.pial`, `rh.white`, `lh.central`) or a GIfTI (`lh.pial.gii`), an STL/PLY/OBJ shell, a `.vtp`.
+ * A **mesh** (`kind: 'mesh'`) is a tetrahedral FEM volume — a SimNIBS `.msh` with element
+ * fields, tissue tags and an interior to cut open.
+ *
+ * They are drawn by the same §7.4 triangle passes, and that is deliberate; the difference is the
+ * *model*. A surface has no tissue tags, no isolation, no glyphs, no 2-D fill and **no caps** —
+ * a sheet has no interior to cap — so `tagStyle`, `clip.caps`, `fillIn2D` and `field` have no
+ * meaning here and are not fields of this type. What it has instead is exactly one colour source
+ * at a time, which is what `colorMode` picks.
+ *
+ * Before protocol 3 a `.gii` had to be sent as `kind: 'mesh'` (`docs/EMBED.md` §5(c) said so), and
+ * it worked — the renderer drew the triangles — but the layer carried a tet mesh's whole vocabulary
+ * and the host had to know which two thirds of it were inert. `'mesh'` on a surface file still
+ * loads and still draws; it is the model that is wrong, not the picture.
+ *
+ * ## Three ways to colour one
+ *
+ *  * `'solid'` — one `solidColor`. The default, and what a geometry-only file gets.
+ *  * `'overlay'` — a **per-vertex scalar**: curvature, thickness, a `.func.gii`, an `.mgz` morph.
+ *    `overlay.name` names it, `colormap` / `scale` / `threshold` window it. This is `source: 'node'`
+ *    data, never a `.msh`'s per-element `'elm'` field.
+ *  * `'annotation'` — a **per-vertex atlas**: a FreeSurfer `.annot`, a `.label.gii`, or a
+ *    `<LabelTable>` the geometry file carried. `annotation.name` names it and `mode` says whether
+ *    the parcels are filled, outlined, or both.
+ *
+ * A file opened as geometry carries neither an overlay nor an annotation unless it had one inside
+ * it. Both of the other two normally arrive as a **second file**, listed in the dataset's
+ * `sidecars.fields` (see {@link EmbedDatasetRef}) — and the name to use here is the *file's* name,
+ * `lh.ernie_DK40.annot`, because that is what the reader calls the field it produced.
+ *
+ * ## What happens when a name misses
+ *
+ * `annotation.table` is §4.4's one non-JSON field (it is a `LabelTable`) and is **not** part of this
+ * type: the engine re-derives it from the dataset by `annotation.name` at load. A name that matches
+ * nothing does not fail the load — the layer falls back to `colorMode: 'solid'` and its palette
+ * colour. So does an annotation whose file 404'd. The `layers` event is where you find out.
+ *
+ * ## Omitting colours
+ *
+ * A layer that sends neither `solidColor` nor `contourColor` is seeded from the surface palette **by
+ * load order** — the first surface is Freeview yellow, the second green, and so on, wrapping at six.
+ * That is a nicety for two hemispheres and a trap for a host that expected a fixed colour: name one
+ * if you care.
+ *
+ * Everything except `id`, `datasetId` and `kind` is optional and falls back to
+ * `defaultSurfaceLayer` — visible, opaque, `colorMode: 'solid'`, `contoursIn2D: true` at 1.5 px.
+ * `contoursIn2D` defaulting to *true* is the one default that differs from a mesh's: a sheet's
+ * whole 2-D presence is its outline, and without it a surface is invisible in the slice panes.
+ */
+export interface EmbedSurfaceLayer {
+  id: string;
+  /** A dataset in this spec — the surface file. Its `kind` may be `'surface'` or `'mesh'`. */
+  datasetId: string;
+  kind: 'surface';
+  name?: string;
+  visible?: boolean;
+  /** 0..1. */
+  opacity?: number;
+  pickable?: boolean;
+  showColorbar?: boolean;
+  /** Which of the three colour sources below is live. Absent is `'solid'`. */
+  colorMode?: 'solid' | 'overlay' | 'annotation';
+  /** 0..1 RGBA. Absent takes the load-order palette entry — see this type's doc comment. */
+  solidColor?: vec4;
+  /**
+   * The per-vertex scalar that colours the surface, when `colorMode` is `'overlay'`.
+   *
+   * `name` is the field's name in the dataset — for an attached file, the file's own base name
+   * (`lh.thickness`, `surf.func.gii`). `component` is `'mag'` for a scalar, or a 0-based index for
+   * a vector. There is no `source`: a surface's data is per-vertex by construction, which is the
+   * `source: 'node'` a mesh layer has to say out loud.
+   */
+  overlay?: { name: string; component?: 'mag' | 0 | 1 | 2 };
+  /**
+   * The per-vertex atlas that colours the surface, when `colorMode` is `'annotation'`.
+   *
+   * `table` is deliberately absent: it is re-derived from the dataset by `name` on load, and a host
+   * has never seen the colours in the `.annot` it is naming. `visibleLabels` is a whitelist of
+   * label ids — absent means all of them.
+   */
+  annotation?: {
+    name: string;
+    mode?: 'fill' | 'outline' | 'both';
+    outlineWidthPx?: number;
+    visibleLabels?: number[];
+  };
+  colormap?: string;
+  colormapNegative?: string;
+  /** §4.2. Omit it and an overlay is windowed from its own field's stats. */
+  scale?: Record<string, unknown>;
+  threshold?: Record<string, unknown>;
+  flatShading?: boolean;
+  /** Forced to `'both'` for a surface with open edges, whatever this says. */
+  faceMode?: 'cull' | 'both';
+  edges?: boolean;
+  edgeColor?: vec4;
+  edgeWidthPx?: number;
+  /**
+   * Clip **planes only**. A mesh layer's `caps` and `capColorMode` are not here: a sheet has no
+   * interior, so there is nothing for a cap to fill.
+   */
+  clip?: { planes: Record<string, unknown>[] };
+  /** Absent is `true` — a surface's 2-D presence is its outline. */
+  contoursIn2D?: boolean;
+  contourWidthPx?: number;
+  contourColor?: vec4;
+  [key: string]: unknown;
+}
+
+/** The layer kinds a host may write, and the message an unknown one is refused with. */
+export const EMBED_LAYER_KINDS = ['volume', 'mesh', 'surface', 'points'] as const;
+
+export type EmbedLayerKind = (typeof EMBED_LAYER_KINDS)[number];
 
 /**
  * A `ViewSpec` as a **host** can write one: `datasets` and `layers`, everything else optional.

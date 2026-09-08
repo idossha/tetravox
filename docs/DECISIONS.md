@@ -5451,3 +5451,57 @@ branch culls by them before the dot branch overrides the radius, so overloading 
 off-slice cull — which is a change to the instance buffer layout and its tests, not a line in a
 shader. It is the next ask, not this one.
 
+
+## 2026-09-07 — the embed protocol distinguishes a surface from a mesh, and its number moves for it (§4.6, docs/EMBED.md)
+
+**Decision.** Embed protocol **3**. The host-facing `ViewSpec` gains `kind: "surface"` — §4.4's
+`SurfaceLayer`, added to the engine by PR #37 — alongside `volume`, `mesh` and `points`; the third
+sidecar role `sidecars.fields` (PR #36's `attachSurfaceData`) is admitted and URL-resolved against
+the dataset; `DatasetRef.kind` accepts `"surface"` as a host-facing spelling that `normalize.ts` maps
+down to `"mesh"`; and `normalizeScene` now **refuses** a layer kind it does not know.
+
+**Why the number moved, when protocol 2 was additive.** Everything protocol 2 added was declinable —
+a message a host need not send, a field it need not write — so an older build ignoring it was
+harmless and the feature level was a courtesy. A layer **kind** is not declinable. `Engine.load`
+filters layers through `isRestorableKind` and *skips* what it does not know, with no throw and no
+event, then answers `loaded`: a protocol-2 build handed a surface reports that the scene opened and
+the surface is simply not in it. A host cannot detect that. So the number moves so a host can ask
+first, and the compatibility rule is stated by direction rather than by "additive": a protocol-2 host
+is unaffected in both directions and needs no change, while a host wanting surfaces gates on
+`ready.version >= 3`. No message type was added, removed or changed shape; that is asserted in
+`protocol.test.ts` rather than promised.
+
+**Why the embed needed almost no code.** The model is the engine's. `normalize.ts` already passes
+every non-points layer through verbatim, `isRestorableKind` already accepts `'surface'`, and
+`Engine.load` already replays `sidecars.fields` before creating layers. The additions are therefore
+the schema, the TypeScript, the sidecar URL resolution and the guard — nothing that re-states a
+default or re-implements a loader, which is what would have drifted.
+
+**Alternatives rejected.** A `format: 'freesurfer' | 'gifti'` field on `DatasetRef`, which the ask
+named: `tvx_mesh_io::sniff` reads magic bytes and falls back to the extension only, so the field
+would be accepted, documented and never read — the exact shape of the `stateColors.idle` bug this
+project shipped once. Sniffing by extension in the embed instead: it would disagree with the loader
+on the extensionless `lh.central`, which is the common case in a SimNIBS tree. A third **dataset**
+kind reaching the engine: §4.6 has two, because surface-ness is `nTets === 0` and is read from the
+bytes; the word is kept at the host boundary and mapped down, so a host's document is coherent and
+the engine never sees a kind it does not define. Leaving an unknown kind to `Engine.load`: it is the
+silent-drop failure above. Reimplementing the surface editor or the `.annot` reader in the embed:
+the embed is the app renderer (README), and a second implementation of either is the drift the
+package was shaped to avoid.
+
+**Evidence.** `packages/embed/test/e2e/embed-surface.spec.ts` — 17 cases through the real iframe,
+protocol and engine, against the **committed** `testdata/` fixtures rather than `TETRAVOX_TESTDATA`,
+because the kind a file opens as is a property of its bytes: a FreeSurfer binary and a GIfTI each
+open as `surface`, a `.annot` attached through `sidecars.fields` comes back `colorMode: 'annotation'`
+(and a missing one comes back `'solid'`, which is what makes the positive case mean something), a
+tetrahedral `.msh` still opens as `mesh` with its `tagStyle`, a NIfTI as `volume`, all three in one
+scene as themselves, an unknown kind is an `error` naming it, and a surface survives `serialize`
+with its `sidecars.fields`. Unit: `normalize.test.ts` and `viewspec-schema.test.ts` pin the
+dataset-kind mapping, the sidecar resolution and order, the guard's ordering ahead of URL resolution,
+and the *absence* of the tetrahedral vocabulary on `SurfaceLayer`.
+
+**Verification (local macOS, Chromium/SwiftShader and ANGLE).** Embed unit 100 passed; embed E2E 58
+passed, 8 skipped (`TETRAVOX_TESTDATA` unset). Typecheck and build clean.
+
+**Scope.** No new dependency, no desktop change, no engine change. The embed is versioned 0.4.0 with
+the repository, and one repository version implements exactly one protocol.

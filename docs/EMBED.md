@@ -24,9 +24,9 @@ Download `tetravox-embed-<version>.tgz` from the [release
 page](https://github.com/idossha/tetravox/releases) and unpack it:
 
 ```sh
-tar xzf tetravox-embed-0.3.11.tgz
-# tetravox-embed-0.3.11/
-#   manifest.json          {"name":"@tetravox/embed","version":"0.3.11","protocol":2,"sha":"…"}
+tar xzf tetravox-embed-0.4.0.tgz
+# tetravox-embed-0.4.0/
+#   manifest.json          {"name":"@tetravox/embed","version":"0.4.0","protocol":3,"sha":"…"}
 #   LICENSE  EMBED.md  protocol.schema.json  viewspec.schema.json
 #   dist/index.html
 #   dist/assets/…          the JS chunks, the CSS, two module workers, tvx_wasm_bg-*.wasm
@@ -36,13 +36,13 @@ Serve `dist/` under **any** path — `/tetravox/`, `/viewer/`, a versioned CDN p
 `base: './'`, so every URL it emits is relative to `index.html` and nothing assumes a root.
 
 `manifest.json` says which build you are serving: `protocol` is the contract version implemented
-(`2` since 0.3.11), and `sha` is the commit it was built from. `version` is the **Tetravox release
-version** — the embed carries no version of its own. Quote both in a bug report.
+(`2` since 0.3.11, `3` since 0.4.0), and `sha` is the commit it was built from. `version` is the
+**Tetravox release version** — the embed carries no version of its own. Quote both in a bug report.
 
 **`protocol` is the number to gate a feature on, and it is not the `tvx` on the wire.** Pin a
-*range* and the features you need, never a version: everything protocol 2 added is optional, so a
-host that needs none of it works against `protocol: 1` and `protocol: 2` alike, and a host that
-wants the points layer checks `protocol >= 2` and falls back rather than refusing to start.
+*range* and the features you need, never a version: a host that needs nothing protocol 2 or 3 added
+works against all three alike, one that wants the points layer checks `protocol >= 2`, and one that
+wants **surfaces** checks `protocol >= 3` — falling back rather than refusing to start.
 
 ### Headers the host must send
 
@@ -144,12 +144,42 @@ embed does the same with yours.
 
 `tvx` is the **envelope** and it is `1`. It changes only for a breaking change, which the additive
 promise above says will not happen; a host filters on it and posts it, and if it ever moved every
-existing host would stop talking to the viewer on the same day. It has not moved for protocol 2 and
-it will not move for protocol 3.
+existing host would stop talking to the viewer on the same day. It did not move for protocol 2 and
+it did not move for protocol 3.
 
 `ready.version` — the same number as `manifest.json`'s `protocol` — is the **feature level**: which
-edition of the tables below this build implements. It is `2` since Tetravox 0.3.11. Read it to decide
-whether a feature is there; never to decide whether to talk at all.
+edition of the tables below this build implements. It is `2` since Tetravox 0.3.11 and `3` since
+0.4.0. Read it to decide whether a feature is there; never to decide whether to talk at all.
+
+**Protocol 3 (Tetravox 0.4.0) added** one thing, and it is not a message:
+
+* **`kind: "surface"`** in the `ViewSpec` — a triangular surface as its own layer kind, distinct
+  from a tetrahedral `mesh`, with `overlays` and `annotations` attached through the dataset's third
+  sidecar role. §4.4 and §5(c) are the whole of it.
+
+Nothing else moved. **No message type was added, removed or changed shape for protocol 3**, which is
+asserted rather than promised (`packages/embed/src/protocol.test.ts`).
+
+### The protocol-3 compatibility rule
+
+Read it in one direction and it is trivial; read it in the other and it is the reason the number
+moved at all.
+
+* **A protocol-2 host needs no change, and none of its scenes mean anything different.** Every spec
+  it can write — `volume`, `mesh`, `points` — loads exactly as it did, every reply and event has the
+  same shape, and it may go on ignoring `ready.version` entirely. A protocol-2 host sending a
+  volume/mesh-only spec to a protocol-3 build is the case this rule exists to guarantee, and it is a
+  test (`embed-compat.spec.ts`), not a promise.
+* **A host must not send a `surface` layer to a build below protocol 3.** This is the asymmetry, and
+  it is why `surface` did not arrive as "one more optional field". Everything protocol 2 added was a
+  *message* or a *field*, and an older build ignores both harmlessly. A layer **kind** is neither: an
+  older `Engine.load` filters layers through a list of kinds it knows and **silently drops** the ones
+  it does not — no error, no event — and then answers `loaded`. The host is told the scene opened,
+  and the surface is simply not in it. So: `if (ready.version >= 3) sendSurfaces(); else …`.
+
+That failure is also fixed **going forward** on this build: from protocol 3 the embed refuses a layer
+kind it does not know, with an `error` naming the kind, the layer's index and the four that exist,
+rather than loading a scene with a hole in it. A protocol-4 spec sent here fails loudly.
 
 **Protocol 2 (Tetravox 0.3.11) added**, all of it optional and none of it on by default:
 
@@ -162,7 +192,7 @@ whether a feature is there; never to decide whether to talk at all.
 
 A protocol-1 host is unaffected in both directions: it sends none of those messages, and with `pick`
 off and no tool armed the embed posts it exactly the ten types protocol 1 defined. That is a test
-(`packages/embed/test/e2e/embed-compat.spec.ts`), not a promise.
+(`packages/embed/test/e2e/embed-compat.spec.ts`), not a promise. It is still true at protocol 3.
 
 `protocol.schema.json` is this contract as JSON Schema, and `packages/embed/src/protocol.ts` is the
 TypeScript. Both are in the tarball.
@@ -263,6 +293,47 @@ reply carries the whole layer array rather than an `ok`.
 
 ## 4. Datasets are URLs
 
+### 4.0 Three kinds, and the difference between two of them
+
+`DatasetRef.kind` and a layer's `kind` are three words, and getting the middle one wrong is the most
+common mistake against this contract:
+
+| | The file | The layer `kind` | Coloured by |
+|---|---|---|---|
+| **volume** | NIfTI, MGZ — `T1.nii.gz`, `final_tissues.nii.gz` | `"volume"` | a colormap, or a LUT for a label volume |
+| **mesh** | a **tetrahedral FEM** volume — a SimNIBS `.msh` | `"mesh"` | a per-**element** field, or its tissue tags |
+| **surface** | a **triangular sheet** — FreeSurfer `lh.pial` / `rh.white` / `lh.central`, GIfTI `.gii`, STL/PLY/OBJ/`.vtp` | `"surface"` | a solid colour, a per-**vertex** overlay, or an annotation |
+
+A mesh has an interior: tetrahedra, tissue tags, a cut plane that can be *capped*, a per-element
+simulation field. A surface has none of that — it is a sheet — so a `SurfaceLayer` has no
+`tagStyle`, no `fillIn2D`, no `clip.caps`, and one colour source at a time instead of a tag/field
+pair. The renderer draws both with the same triangle passes, deliberately; it is the **model** that
+differs, which is the whole of the change protocol 3 made.
+
+Before protocol 3 there was no `"surface"` and a `.gii` had to be sent as `"mesh"`. That still loads
+and still draws — it is not deprecated and nothing about it changed — but the layer then carries a
+tet mesh's whole vocabulary and you have to know which two thirds of it are inert.
+
+**On a `DatasetRef`, `"surface"` is a host-facing spelling of `"mesh"`.** §4.6 has only two dataset
+kinds, because the engine decides surface-ness from the bytes: a mesh dataset with no tetrahedra
+*is* a surface. The embed maps the word down before the engine sees it. It exists so you do not have
+to write `kind: "mesh"` on the dataset of a `kind: "surface"` layer, which reads as a mistake and is
+exactly the confusion this section exists to end. Either spelling loads the same bytes the same way.
+
+### 4.1 The format comes from the bytes, not the extension
+
+There is **no `format: "freesurfer" | "gifti"` field**, and there will not be one. The loader sniffs
+the content — `$MeshFormat`, VTK, MEDIT, GIfTI's XML, VTK-XML, OFF, PLY, STL, then FreeSurfer's
+24-bit big-endian magic — and only falls back to the extension when none of them answers. A `format`
+field would be accepted, documented and never read, which is a bug this project has shipped once
+already (§6.1's `stateColors.idle`) and does not intend to ship again.
+
+This is also why the **extensionless** FreeSurfer surfaces work at all. `lh.central`, `lh.pial` and
+`rh.white` have no extension in a SimNIBS or FreeSurfer tree, and are recognised by their magic
+bytes. Send the path your server publishes; do not rename anything.
+
+### 4.2 Where a ref points
+
 `DatasetRef.path` is a URL, not a path relative to a scene file. Two spellings, both supported:
 
 | What you send | What is fetched |
@@ -284,6 +355,39 @@ describes). `final_tissues.nii.gz` with `sidecars.lut.path = 'final_tissues_LUT.
 LUT from the same directory the volume came from. Reading a sidecar is best-effort: one that is not
 there is a missing table, never a failed load.
 
+### 4.3 `sidecars.fields` — what you attach to a surface (protocol 3)
+
+A geometry file is geometry. Curvature, thickness and an atlas arrive as **separate files**, and
+`sidecars.fields` is the list of them:
+
+```json
+{ "id": "d1", "kind": "surface", "name": "lh.central",
+  "path": "https://data.example/sub-ernie/m2m_ernie/surfaces/lh.central",
+  "sidecars": { "fields": [
+    { "path": "../segmentation/lh.ernie_DK40.annot" },
+    { "path": "lh.thickness" }
+  ] } }
+```
+
+Four things to know, each of which is a support question otherwise:
+
+* **It is an array and the order is the attach order.** They are read in it, into the surface's own
+  worker, and each is checked against the surface's vertex count there.
+* **Each field is named after its own file** — `lh.ernie_DK40.annot`, never `annot`. That is the name
+  a layer's `overlay.name` / `annotation.name` must use, and it is what lets two atlases on one
+  hemisphere coexist.
+* **The paths are relative to the dataset**, like every other sidecar. SimNIBS really does write the
+  atlas one directory over from the surface, so `../segmentation/…` is the ordinary case, not an
+  edge one.
+* **It is best-effort.** A file that 404s is a missing table, never a failed load — so a surface
+  whose annotation did not resolve opens in its **solid colour**, with a perfectly successful
+  `loaded`. Read `colorMode` off the `layers` event if that distinction matters to you; it is the
+  only place it shows.
+
+What may be attached: a FreeSurfer `.annot`, a morph file (`.thickness`, `.curv`, `.sulc`, `.area`),
+or a data-only GIfTI (`.func.gii`, `.shape.gii`, `.label.gii`). Which one it is, is again read from
+the bytes.
+
 ### What a host may omit
 
 §4.6's `ViewSpec` requires nine view fields — `slices`, `view3d`, `layout`, `cursor`,
@@ -294,7 +398,7 @@ scene**. Nothing you do send is ever overridden.
 
 | Field | May omit? |
 |---|---|
-| `datasets`, `layers` | **No.** |
+| `datasets`, `layers` | **No.** — and a layer's `kind` must be one of the four. An unknown one is an `error`. |
 | `version` | Yes — defaults to this build's `SCENE_VERSION`. |
 | `activeLayerId` | Yes — `null`. |
 | `DatasetRef.fingerprint` | Yes. It is computed in the worker over bytes you have never seen (§5 rule 3) and identifies a file only for a relocate dialog an embed does not have. `''` is exact. |
@@ -314,7 +418,7 @@ bytes it cannot see:
 
 ---
 
-## 5. Four scenes, verbatim
+## 5. Five scenes, verbatim
 
 Absolute URLs throughout, and only the keys a host has to send.
 
@@ -349,7 +453,11 @@ No `scale` on either scalar layer: both get the 2nd–98th percentile window. Th
 no `colormap` — it is recognised from its own data and drawn through the LUT sidecar. `threshold.hi`
 is `null` because JSON has no infinity, and `null` is read back as the `+Infinity` it stands for.
 
-### (b) T1 and a `.msh` coloured by element field `TI_max`, clipped on the cursor, contoured in 2D
+### (b) T1 and a **tetrahedral** `.msh` coloured by element field `TI_max`, clipped on the cursor
+
+This is a `mesh` and not a `surface`: it has an interior, tissue tags, and a clip plane that can be
+capped. Compare (c) below, which is a sheet.
+
 
 ```json
 {
@@ -388,31 +496,79 @@ is `null` because JSON has no infinity, and `null` is read back as the `+Infinit
 than showing a hollow shell. `component` is `"mag"` for a scalar field and `"mag"` or a 0-based index
 for a vector one.
 
-### (c) A GIfTI surface with a scalar
+### (c) Two surfaces: one with a `.annot` atlas, one plain (protocol 3)
 
 ```json
 {
   "version": 2,
   "datasets": [
-    { "id": "d1", "kind": "mesh", "name": "lh.pial.gii",
-      "path": "https://data.example/sub-ernie/m2m_ernie/surfaces/lh.pial.gii" }
+    { "id": "d1", "kind": "surface", "name": "lh.central",
+      "path": "https://data.example/sub-ernie/m2m_ernie/surfaces/lh.central",
+      "sidecars": { "fields": [{ "path": "../segmentation/lh.ernie_DK40.annot" }] } },
+    { "id": "d2", "kind": "surface", "name": "rh.pial.gii",
+      "path": "https://data.example/sub-ernie/m2m_ernie/surfaces/rh.pial.gii" }
   ],
   "layers": [
-    { "id": "l1", "datasetId": "d1", "kind": "mesh", "name": "lh.pial",
+    { "id": "l1", "datasetId": "d1", "kind": "surface", "name": "lh + DK40",
       "visible": true,
-      "colorMode": "field",
-      "colormap": "viridis",
-      "field": { "source": "node", "name": "<the scalar's name in the file>", "component": "mag" },
-      "contoursIn2D": true }
+      "colorMode": "annotation",
+      "annotation": { "name": "lh.ernie_DK40.annot", "mode": "fill" } },
+    { "id": "l2", "datasetId": "d2", "kind": "surface", "name": "rh.pial",
+      "visible": true,
+      "colorMode": "solid",
+      "solidColor": [0.78, 0.78, 0.8, 1],
+      "opacity": 0.9 }
   ],
   "activeLayerId": "l1"
 }
 ```
 
-`source: "node"` — a surface scalar is per-vertex, where a `.msh` simulation field is usually per
-element (`"elm"`). A GIfTI with no data array carries no field: drop the `field` key and use
-`"colorMode": "solid"` with a `solidColor`. A surface is triangles only, so it renders as an outline
-in the slice panes and a shell in 3D; `contoursIn2D` is what puts the outline there.
+Two geometry formats, and neither is declared: `lh.central` is a FreeSurfer binary with **no
+extension** and `rh.pial.gii` is GIfTI XML, and both are recognised from their bytes (§4.1).
+
+`annotation.name` is the **file's** name, because that is what the reader called the field it
+produced from `sidecars.fields[0]`. There is deliberately no `table` here: the colours live in the
+`.annot` and are re-derived from the dataset on load — a host has never seen them. A name that
+matches nothing does **not** fail the load; the layer falls back to `"colorMode": "solid"`.
+
+**Omitting `solidColor` is not neutral.** A surface that names neither `solidColor` nor
+`contourColor` takes a palette entry **by load order** — first Freeview yellow `[1, 0.9, 0.15, 1]`,
+then green, orange, periwinkle, rose, teal, wrapping at six. That is what you want for two
+hemispheres and a surprise if you expected a fixed grey, so name one if you care.
+
+`contoursIn2D` defaults to **`true`** for a surface, unlike a mesh: a sheet's whole 2-D presence is
+its outline, and without it a surface is invisible in the slice panes — a state that gets reported as
+"it did not load".
+
+### (c′) The same surface coloured by a per-vertex overlay
+
+```json
+{
+  "version": 2,
+  "datasets": [
+    { "id": "d1", "kind": "surface", "name": "lh.central",
+      "path": "https://data.example/sub-ernie/m2m_ernie/surfaces/lh.central",
+      "sidecars": { "fields": [{ "path": "lh.thickness" }] } }
+  ],
+  "layers": [
+    { "id": "l1", "datasetId": "d1", "kind": "surface", "name": "lh thickness",
+      "visible": true,
+      "colorMode": "overlay",
+      "overlay": { "name": "lh.thickness", "component": "mag" },
+      "colormap": "viridis",
+      "showColorbar": true }
+  ],
+  "activeLayerId": "l1"
+}
+```
+
+`overlay` has **no `source`**. A `.msh` field layer must say `"source": "node"` or `"elm"` because a
+simulation field is usually per element; a surface's data is per-vertex by construction, so the
+question has one answer and is not asked. Omit `scale` and the overlay is windowed from that field's
+own stats.
+
+A GIfTI that carries its scalar *inside* it needs no `sidecars.fields` — name the array in
+`overlay.name` directly. A geometry-only file with nothing attached is `"colorMode": "solid"`.
 
 ### (d) A T1 and an electrode net — a points layer, written inline
 
@@ -452,9 +608,10 @@ electrodes and no axial slice holds two of them, so without it the panes show on
 time; above 0 the off-slice ones are drawn as ghosts at their full radius. Leave it out for a layer
 whose points really do lie in a plane.
 
-`viewspec.schema.json` in the tarball validates this subset — the points layer included, since
-0.3.11. Fields it does not list are still accepted and passed through; §4.4 is the complete layer
-model.
+`viewspec.schema.json` in the tarball validates this subset — the points layer since 0.3.11 and the
+**surface layer since 0.4.0**. Fields it does not list are still accepted and passed through; §4.4 is
+the complete layer model. A layer **`kind`** it does not list is the one exception: that is refused,
+with an `error` naming the layer's index, the kind you sent and the four that exist.
 
 ---
 

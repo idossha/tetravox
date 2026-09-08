@@ -79,8 +79,9 @@
       <select id="scene">
         <option value="a">(a) T1 + heat field + LUT labels</option>
         <option value="b">(b) T1 + .msh TI_max, clip + contours</option>
-        <option value="c">(c) GIfTI surface + scalar</option>
+        <option value="c">(c) two surfaces + a .annot atlas</option>
         <option value="d">(d) T1 + an electrode net (points)</option>
+        <option value="e">(e) a surface + a morph overlay</option>
       </select>
       <button id="load">load</button>
       <button id="probe">probe at cursor</button>
@@ -342,27 +343,86 @@
           activeLayerId: 'l2',
         },
 
-        // (c) A GIfTI surface with a per-vertex scalar.
+        // (c) Two SURFACES — protocol 3. A surface is a triangular sheet and NOT a `mesh`: no
+        //     tissue tags, no caps, no 2-D fill, and one colour source at a time. The left
+        //     hemisphere carries a FreeSurfer `.annot` attached as a second file through
+        //     `sidecars.fields`; the right is a GIfTI in a flat colour.
+        //
+        //     `kind: 'surface'` on the DATASET is protocol 3's host-facing spelling of `'mesh'` —
+        //     the engine has no third dataset kind, because surface-ness is read from the bytes.
+        //     It is here so the dataset and its layer say the same word.
         c: {
           version: 2,
           datasets: [
             {
               id: 'd1',
-              kind: 'mesh',
-              name: 'lh.pial.gii',
-              path: `${DATA}/m2m_ernie/surfaces/lh.pial.gii`,
+              kind: 'surface',
+              // FreeSurfer surfaces carry no extension at all; the loader reads the magic bytes.
+              name: 'lh.central',
+              path: `${DATA}/m2m_ernie/surfaces/lh.central`,
+              // Anchored to the DATASET's directory, not to this page: SimNIBS writes the atlas one
+              // directory over. Best-effort — if it 404s the surface opens solid, not broken.
+              sidecars: { fields: [{ path: '../segmentation/lh.ernie_DK40.annot' }] },
+            },
+            {
+              id: 'd2',
+              kind: 'surface',
+              name: 'rh.pial.gii',
+              path: `${DATA}/m2m_ernie/surfaces/rh.pial.gii`,
             },
           ],
           layers: [
             {
               id: 'l1',
               datasetId: 'd1',
-              kind: 'mesh',
-              name: 'lh.pial',
+              kind: 'surface',
+              name: 'lh + DK40',
+              visible: true,
+              colorMode: 'annotation',
+              // The field is named after ITS OWN FILE, which is how two atlases coexist.
+              annotation: { name: 'lh.ernie_DK40.annot', mode: 'fill' },
+            },
+            {
+              id: 'l2',
+              datasetId: 'd2',
+              kind: 'surface',
+              name: 'rh.pial',
               visible: true,
               colorMode: 'solid',
               solidColor: [0.78, 0.78, 0.8, 1],
+              // A sheet's whole 2-D presence is its outline — but this defaults to true for a
+              // surface, so it is written here only to say so.
               contoursIn2D: true,
+            },
+          ],
+          activeLayerId: 'l1',
+        },
+
+        // (e) A per-vertex OVERLAY rather than an atlas: the same geometry coloured by a morph
+        //     file. `source: 'node'` is not written — a surface's data is per-vertex by
+        //     construction, which is the thing a `.msh` field has to say out loud.
+        e: {
+          version: 2,
+          datasets: [
+            {
+              id: 'd1',
+              kind: 'surface',
+              name: 'lh.central',
+              path: `${DATA}/m2m_ernie/surfaces/lh.central`,
+              sidecars: { fields: [{ path: 'lh.thickness' }] },
+            },
+          ],
+          layers: [
+            {
+              id: 'l1',
+              datasetId: 'd1',
+              kind: 'surface',
+              name: 'lh thickness',
+              visible: true,
+              colorMode: 'overlay',
+              overlay: { name: 'lh.thickness', component: 'mag' },
+              colormap: 'viridis',
+              showColorbar: true,
             },
           ],
           activeLayerId: 'l1',

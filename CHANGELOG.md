@@ -10,6 +10,28 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An embedded Tetravox tells a surface from a mesh.** The browser build speaks **protocol 3**, and
+  a `ViewSpec` now has a third geometry layer kind: `"surface"`. A **mesh** is a tetrahedral FEM
+  volume — a SimNIBS `.msh` with an interior, tissue tags, per-element fields and a clip plane that
+  can be capped. A **surface** is a triangular sheet — FreeSurfer `lh.pial` / `rh.white` /
+  `lh.central`, GIfTI, STL/PLY/OBJ — with none of that, and one colour source at a time: a solid
+  colour, a per-vertex `overlay` (curvature, thickness, a `.func.gii`), or an `annotation` (a
+  `.annot` or `.label.gii` atlas). It is the same distinction the desktop app gained in 0.4.0, said
+  in the host protocol.
+
+  A `.annot`, a morph file or a data-only GIfTI is attached by listing it in the dataset's
+  `sidecars.fields` — resolved against the surface's own directory, so SimNIBS's
+  `../segmentation/lh.ernie_DK40.annot` is written exactly like that. The geometry format is read
+  from the file's bytes and never from its name, which is why the extensionless FreeSurfer surfaces
+  work; there is deliberately no `format` field to get wrong.
+
+  **A host written for protocol 2 needs no change**, and every volume/mesh/points scene it can write
+  means what it always did. What it must not do is send a `surface` layer to a build whose
+  `ready.version` is below 3: an older viewer silently drops a layer kind it does not know and still
+  reports a successful load. From protocol 3 that failure is gone in the other direction too — an
+  unknown layer kind is refused with an error naming the layer and the four kinds that exist, rather
+  than opening a scene with a hole in it. `docs/EMBED.md` §4.0 and §5(c) are the contract.
+
 - **An embedded panel can show only the visualization.** Add `presentation=viewport` beside `embed=1`
   to give the entire frame to the view grid while your application supplies the controls. Orientation
   annotations, 3D gestures and host messages remain available. The full viewer stays the default when

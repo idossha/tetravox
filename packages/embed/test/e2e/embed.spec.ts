@@ -56,7 +56,8 @@ test.describe('the embed announces itself', () => {
   test('posts ready with WebGL2 capabilities on boot', async ({ page }) => {
     const ready = await openHost(page, '/none');
     // The protocol FEATURE level, not the envelope: `tvx` is still 1 (`embed-compat.spec.ts`).
-    expect(ready['version']).toBe(2);
+    // 3 since Tetravox 0.4.0, when the `surface` layer kind arrived.
+    expect(ready['version']).toBe(3);
     const caps = ready['caps'] as { webgl2: boolean; renderer?: string };
     expect(caps.webgl2).toBe(true);
     // §11's authority is SwiftShader; a developer's Mac reports ANGLE/Metal. Either is a string.

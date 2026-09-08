@@ -217,13 +217,69 @@ describe('protocol.schema.json', () => {
   });
 
   it('pins the envelope version, which is not the protocol version', () => {
-    // The whole compatibility promise in one assertion: `tvx` is 1 and the feature level is 2.
+    // The whole compatibility promise in one assertion: `tvx` is 1 and the feature level is 3.
     // Bumping `tvx` would strand every protocol-1 host, which filters on `tvx !== 1` and posts
     // `tvx: 1` — so an additive release would have been unreachable by exactly the hosts the
     // additive promise was made to.
+    //
+    // The feature level has now moved twice and `tvx` has not moved once, which is the point of
+    // there being two numbers. Protocol 3 (Tetravox 0.4.0) added no message and changed no message:
+    // it is entirely a `ViewSpec` change, and it moved the number only because a layer *kind* is the
+    // one part of a spec an older build cannot partly understand — it drops the layer and still
+    // answers `loaded`. Every message this file describes is byte-identical to protocol 2's.
     expect(schema.properties.tvx.const).toBe(ENVELOPE_VERSION);
     expect(ENVELOPE_VERSION).toBe(1);
-    expect(PROTOCOL_VERSION).toBe(2);
+    expect(PROTOCOL_VERSION).toBe(3);
+  });
+
+  it('changed no message type for protocol 3, which is what makes a protocol-2 host safe', () => {
+    // The compatibility rule of `docs/EMBED.md` §3, asserted rather than promised: a host written
+    // against protocol 2 sends and receives exactly the same types against this build. If protocol 3
+    // had needed a message, this list would have grown and that host would have had a gap.
+    expect([...HOST_MESSAGE_TYPES].sort()).toEqual(
+      [
+        'hello',
+        'load',
+        'setTheme',
+        'setLayout',
+        'setCursor',
+        'setLayerVisible',
+        'setLayerOpacity',
+        'updateLayer',
+        'setActiveLayer',
+        'screenshot',
+        'serialize',
+        'probe',
+        'focus',
+        'reset',
+        'setPointTool',
+        'setPointSelection',
+        'setPoints',
+        'setPickEvents',
+        'getCamera',
+        'setCamera',
+        'setHoverEvents',
+      ].sort()
+    );
+    expect([...EMBED_MESSAGE_TYPES].sort()).toEqual(
+      [
+        'ready',
+        'status',
+        'progress',
+        'loaded',
+        'layers',
+        'cursor',
+        'probe',
+        'screenshot',
+        'scene',
+        'error',
+        'pick',
+        'pointTool',
+        'camera',
+        'ack',
+        'pointHover',
+      ].sort()
+    );
   });
 
   it('pins the feature level on `ready.version`, which is what a host reads', () => {

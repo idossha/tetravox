@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://tetravox.dev/schema/embed-viewspec-v2.json",
-  "title": "Tetravox ViewSpec v2 — the host-facing subset",
-  "description": "THE HOST-FACING SUBSET of ARCHITECTURE.md 4.6's ViewSpec, hand-maintained. It covers what a host writes by hand and validates it strictly enough to catch a typo; it is NOT the full spec. Two differences from a *.tetravox.json on disk. (1) `datasets[].path` is a URL, not a path relative to a scene file — absolute http(s) is used as-is, anything else is resolved against LoadMessage.baseUrl. (2) Only `datasets` and `layers` are required: the nine view fields the engine requires (slices, view3d, layout, cursor, radiological, background, lighting, annotations, transparency) are filled from the engine's own empty scene when a host omits them, and a layer needs only id, datasetId and kind — every other field falls back to the engine's per-dataset default. A third layer kind, `points`, arrived with protocol 2 and is written inline — there is no points file to name. Fields not listed here are still accepted and passed through unchanged; see ARCHITECTURE.md 4.4 for the complete layer model.",
+  "$id": "https://tetravox.dev/schema/embed-viewspec-v3.json",
+  "title": "Tetravox ViewSpec v2 — the host-facing subset (embed protocol 3)",
+  "description": "THE HOST-FACING SUBSET of ARCHITECTURE.md 4.6's ViewSpec, hand-maintained. It covers what a host writes by hand and validates it strictly enough to catch a typo; it is NOT the full spec. Two differences from a *.tetravox.json on disk. (1) `datasets[].path` is a URL, not a path relative to a scene file — absolute http(s) is used as-is, anything else is resolved against LoadMessage.baseUrl. (2) Only `datasets` and `layers` are required: the nine view fields the engine requires (slices, view3d, layout, cursor, radiological, background, lighting, annotations, transparency) are filled from the engine's own empty scene when a host omits them, and a layer needs only id, datasetId and kind — every other field falls back to the engine's per-dataset default. FOUR LAYER KINDS, and the distinction between three of them is the point: `volume` is a NIfTI/MGZ scalar or label volume; `mesh` is a TETRAHEDRAL FEM volume (a SimNIBS .msh with element fields, tissue tags and an interior to cut open); `surface` is a TRIANGULAR two-dimensional sheet (FreeSurfer lh.pial/rh.white/lh.central, GIfTI .gii, STL/PLY/OBJ), which has no tags, no caps and no 2-D fill, and arrived with embed protocol 3 / Tetravox 0.4.0; `points` is written inline and arrived with protocol 2. Fields not listed here are still accepted and passed through unchanged; see ARCHITECTURE.md 4.4 for the complete layer model. A layer `kind` NOT listed here is the one thing the embed refuses outright, with an error naming the four.",
   "type": "object",
   "properties": {
     "version": {
       "enum": [1, 2],
-      "description": "Optional. Defaults to this build's SCENE_VERSION."
+      "description": "Optional. Defaults to this build's SCENE_VERSION. This is the SCENE version and has nothing to do with the embed protocol number, which is 3."
     },
     "datasets": {
       "type": "array",
@@ -24,6 +24,9 @@
           },
           {
             "$ref": "#/definitions/MeshLayer"
+          },
+          {
+            "$ref": "#/definitions/SurfaceLayer"
           },
           {
             "$ref": "#/definitions/PointsLayer"
@@ -83,7 +86,8 @@
           "description": "Host-chosen, and referenced by layers[].datasetId."
         },
         "kind": {
-          "enum": ["volume", "mesh"]
+          "enum": ["volume", "mesh", "surface"],
+          "description": "`volume` is a NIfTI/MGZ. `mesh` is a TETRAHEDRAL FEM mesh (.msh). `surface` is a TRIANGULAR surface — FreeSurfer binary (lh.pial, rh.white, lh.central — often with NO extension at all), GIfTI (.gii), or an STL/PLY/OBJ/OFF/.vtp shell. `surface` is a HOST-FACING SPELLING OF `mesh`, added by embed protocol 3: ARCHITECTURE.md 4.6's DatasetRef has only volume|mesh, because the engine decides surface-ness from the bytes (a mesh dataset with nTets === 0 IS a surface), and the embed maps `surface` down to `mesh` before the engine sees the ref. It exists so a host does not have to write `kind: 'mesh'` on a dataset whose layer is `kind: 'surface'`. Sending `mesh` for a surface file keeps working and loads identically. THIS IS NOT A FORMAT HINT — see `path`."
         },
         "name": {
           "type": "string",
@@ -91,7 +95,7 @@
         },
         "path": {
           "type": "string",
-          "description": "Absolute http(s) URL, or relative/root-relative resolved against LoadMessage.baseUrl (default: the embed document's baseURI)."
+          "description": "Absolute http(s) URL, or relative/root-relative resolved against LoadMessage.baseUrl (default: the embed document's baseURI). THE FILE FORMAT IS READ FROM THE BYTES, NOT FROM THIS STRING: tvx_mesh_io::sniff tries $MeshFormat, VTK, MEDIT, GIfTI's XML, VTK-XML, OFF, PLY, STL and FreeSurfer's 24-bit big-endian magic in that order, and only falls back to the extension when none of them answers. That is why there is no `format: 'freesurfer' | 'gifti'` field here — the loader would not read it — and it is why the extensionless FreeSurfer surfaces work."
         },
         "fingerprint": {
           "type": "string",
@@ -120,6 +124,19 @@
               },
               "required": ["path"],
               "description": "A Gmsh .msh.opt — the only source of tissue names for a mesh with no $PhysicalNames."
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": ["path"]
+              },
+              "description": "SURFACES ONLY, and new in embed protocol 3. Per-vertex files attached to the surface after it opens (ARCHITECTURE.md 4.6's third sidecar role, Engine.attachSurfaceData): a FreeSurfer .annot, a morph file (.thickness, .curv, .sulc, .area, .sulc), or a data-only GIfTI (.func.gii, .shape.gii, .label.gii). AN ARRAY, AND THE ORDER MATTERS — they are attached in it. Each becomes a field/label table named after ITS OWN FILE (`lh.ernie_DK40.annot`, never `annot`), which is the name a SurfaceLayer's `overlay.name` / `annotation.name` must use, and which is what lets two atlases on one hemisphere coexist. Best-effort like lut and opt: one that 404s is a missing table, never a failed load — so a surface whose annotation did not resolve opens SOLID, with a successful `loaded`."
             }
           },
           "additionalProperties": false
@@ -130,6 +147,7 @@
     "VolumeLayer": {
       "type": "object",
       "title": "VolumeLayer",
+      "description": "A NIfTI/MGZ volume — a scalar (T1, a TI_max field) or a label volume with its LUT sidecar.",
       "properties": {
         "id": {
           "type": "string",
@@ -285,6 +303,7 @@
     "MeshLayer": {
       "type": "object",
       "title": "MeshLayer",
+      "description": "A TETRAHEDRAL FEM MESH — a SimNIBS .msh with element fields, tissue tags and an interior to cut open. NOT a triangular surface: from embed protocol 3 a FreeSurfer or GIfTI surface is `kind: 'surface'` (see SurfaceLayer), which has one colour source and no tags, caps, isolation or 2-D fill. Sending a surface file as `mesh` still loads and still draws — the renderer uses the same 7.4 triangle passes for both — but the layer then carries a tet mesh's whole vocabulary, two thirds of which is inert on a sheet.",
       "properties": {
         "id": {
           "type": "string",
@@ -537,6 +556,281 @@
         },
         "faceMode": {
           "enum": ["cull", "both"]
+        }
+      },
+      "required": ["id", "datasetId", "kind"]
+    },
+    "SurfaceLayer": {
+      "type": "object",
+      "title": "SurfaceLayer",
+      "description": "A TRIANGULAR SURFACE (embed protocol 3, Tetravox 0.4.0) — ARCHITECTURE.md 4.4's SurfaceLayer as a host writes one. A surface is a triangle sheet with NO TETRAHEDRA: a hemisphere from a FreeSurfer binary (lh.pial, rh.white, lh.central) or a GIfTI (lh.pial.gii), an STL/PLY/OBJ shell, a .vtp. A MeshLayer is the other thing: a TETRAHEDRAL FEM volume, a SimNIBS .msh with element fields, tissue tags and an interior to cut open. The renderer draws both with the same 7.4 triangle passes, deliberately; the difference is the MODEL. A surface has no tissue tags, no isolation, no glyphs, no 2-D fill and NO CAPS (a sheet has no interior to cap), so tagStyle, clip.caps, fillIn2D and `field` are absent from this definition rather than accepted and ignored. What it has instead is exactly ONE COLOUR SOURCE at a time, chosen by colorMode: a solid colour, a per-vertex `overlay` (curvature, thickness, a .func.gii) or a per-vertex `annotation` (a .annot or .label.gii atlas). Before protocol 3 a .gii had to be sent as kind:'mesh'; that still loads and still draws — it is the model that was wrong, not the picture.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Host-chosen. NOT the id you get back: Engine.load reassigns every id."
+        },
+        "datasetId": {
+          "type": "string",
+          "description": "Must match a DatasetRef.id in `datasets`. That ref's kind may be `surface` or `mesh`."
+        },
+        "kind": {
+          "const": "surface"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pickable": {
+          "type": "boolean"
+        },
+        "showColorbar": {
+          "type": "boolean"
+        },
+        "colorMode": {
+          "enum": ["solid", "overlay", "annotation"],
+          "description": "Which colour source is live. Absent is 'solid'. THESE ARE NOT THE MESH NAMES: a MeshLayer says 'field' and 'tag', a surface says 'overlay' and 'annotation'. 'overlay' with no `overlay`, or 'annotation' with no `annotation`, falls back to 'solid' rather than failing."
+        },
+        "solidColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "0..1 RGBA, drawn when colorMode is 'solid'. OMITTING BOTH THIS AND contourColor takes a palette entry BY LOAD ORDER — first surface Freeview yellow [1, 0.9, 0.15, 1], then green, orange, periwinkle, rose, teal, wrapping at six. A nicety for two hemispheres and a trap for a host that expected a fixed colour: name one if you care."
+        },
+        "overlay": {
+          "type": "object",
+          "description": "The per-vertex SCALAR that colours the surface when colorMode is 'overlay' — curvature, thickness, a .func.gii, a morph file. `name` is the field's name in the dataset, which for a file attached through sidecars.fields is THAT FILE'S OWN BASE NAME (`lh.thickness`). There is no `source` field: a surface's data is per-vertex by construction, which is the `source: 'node'` a MeshLayer has to say out loud (a .msh simulation field is usually 'elm'). Window it with colormap / scale / threshold below.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "component": {
+              "description": "'mag' (the default, and all a scalar has) or a 0-based component index for a vector."
+            }
+          },
+          "required": ["name"]
+        },
+        "annotation": {
+          "type": "object",
+          "description": "The per-vertex ATLAS that colours the surface when colorMode is 'annotation' — a FreeSurfer .annot, a .label.gii, or a <LabelTable> the geometry file carried. `name` is the field's name in the dataset: for an attached file, that file's own base name (`lh.ernie_DK40.annot`). THERE IS NO `table` HERE and there must not be: 4.4's LabelTable is the one non-JSON field, re-derived from the dataset by `name` on load, and a host has never seen the colours inside the .annot it is naming. A name that matches nothing does NOT fail the load — the layer falls back to colorMode 'solid' and its palette colour, and the `layers` event is where you find out.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "mode": {
+              "enum": ["fill", "outline", "both"],
+              "description": "How the parcels are drawn. Absent is 'fill'."
+            },
+            "outlineWidthPx": {
+              "type": "number"
+            },
+            "visibleLabels": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "A whitelist of label ids. Absent means all."
+            }
+          },
+          "required": ["name"]
+        },
+        "colormap": {
+          "enum": [
+            "gray",
+            "viridis",
+            "plasma",
+            "inferno",
+            "magma",
+            "cividis",
+            "turbo",
+            "jet",
+            "hot",
+            "cool",
+            "bone",
+            "coolwarm",
+            "bwr",
+            "freesurfer-heat",
+            "blue-cyan"
+          ],
+          "description": "Colours an `overlay`. An `annotation` is drawn through its own table instead."
+        },
+        "colormapNegative": {
+          "enum": [
+            "gray",
+            "viridis",
+            "plasma",
+            "inferno",
+            "magma",
+            "cividis",
+            "turbo",
+            "jet",
+            "hot",
+            "cool",
+            "bone",
+            "coolwarm",
+            "bwr",
+            "freesurfer-heat",
+            "blue-cyan"
+          ],
+          "description": "A second ramp for the negative half of a signed overlay."
+        },
+        "scale": {
+          "description": "ARCHITECTURE.md 4.2. Omit it: a volume gets its own 2nd-98th percentile window, and a mesh field layer is windowed from that field's stats by the embed.",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "linear"
+                },
+                "lo": {
+                  "type": "number"
+                },
+                "hi": {
+                  "type": "number"
+                }
+              },
+              "required": ["kind", "lo", "hi"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "heat"
+                },
+                "min": {
+                  "type": "number"
+                },
+                "mid": {
+                  "type": "number"
+                },
+                "max": {
+                  "type": "number"
+                },
+                "truncate": {
+                  "type": "boolean"
+                },
+                "inverse": {
+                  "type": "boolean"
+                },
+                "negative": {
+                  "enum": ["mirror", "hide", "separate"]
+                }
+              },
+              "required": ["kind", "min", "mid", "max"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "threshold": {
+          "type": "object",
+          "description": "JSON has no infinity: an unset bound is written as null and read back as the infinity it stands for.",
+          "properties": {
+            "lo": {
+              "type": ["number", "null"]
+            },
+            "hi": {
+              "type": ["number", "null"]
+            },
+            "symmetric": {
+              "type": "boolean"
+            },
+            "mode": {
+              "enum": ["hide", "clamp"]
+            },
+            "softEdge": {
+              "type": "number",
+              "description": "Alpha ramp width as a fraction of hi-lo; 0 is a hard discard."
+            }
+          },
+          "additionalProperties": false
+        },
+        "flatShading": {
+          "type": "boolean"
+        },
+        "faceMode": {
+          "enum": ["cull", "both"],
+          "description": "Forced to 'both' for a surface with open edges, whatever this says."
+        },
+        "edges": {
+          "type": "boolean",
+          "description": "A BOOLEAN here, not the MeshLayer's { surface, caps } object: a sheet has no caps."
+        },
+        "edgeColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "edgeWidthPx": {
+          "type": "number"
+        },
+        "clip": {
+          "type": "object",
+          "description": "PLANES ONLY. A MeshLayer's `caps` and `capColorMode` are absent by design: a sheet has no interior for a cap to fill.",
+          "properties": {
+            "planes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "plane": {
+                    "type": "object",
+                    "properties": {
+                      "normal": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["normal", "offset"]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "followCursor": {
+                    "type": "boolean",
+                    "description": "The plane tracks the crosshair."
+                  }
+                },
+                "required": ["plane"]
+              }
+            }
+          }
+        },
+        "contoursIn2D": {
+          "type": "boolean",
+          "description": "ABSENT IS TRUE here, unlike a MeshLayer. A surface's whole 2-D presence is its outline; without it a surface is invisible in the slice panes."
+        },
+        "contourWidthPx": {
+          "type": "number",
+          "description": "Absent is 1.5."
+        },
+        "contourColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
         }
       },
       "required": ["id", "datasetId", "kind"]

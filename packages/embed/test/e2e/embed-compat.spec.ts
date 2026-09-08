@@ -132,7 +132,10 @@ test.describe('a protocol-1 host, unchanged', () => {
     // itself and never load a thing — which is why the envelope and the feature level are two
     // numbers.
     expect(ready['tvx']).toBe(1);
-    expect(ready['version']).toBe(2);
+    // The feature level has moved twice now (1 → 2 → 3) and `tvx` has not moved once. That is the
+    // entire compatibility story: this host reads a number it does not recognise, ignores it, and
+    // keeps working, because nothing it sends or receives changed shape.
+    expect(ready['version']).toBe(3);
     expect((ready['caps'] as { webgl2: boolean }).webgl2).toBe(true);
   });
 

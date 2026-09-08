@@ -24,13 +24,35 @@ pages import engine source. There is no second UI here.
 ```
 index.html            the embed document
 src/main.tsx          the entry: register the channel, then render <App/>
-src/protocol.ts       host protocol v1 — types, unions, and the trust boundary
+src/protocol.ts       host protocol v3 — types, unions, and the trust boundary
 src/normalize.ts      a host's partial ViewSpec → the complete one Engine.load needs
+src/points.ts         protocol 2's points vocabulary, spent before the engine sees a layer
 src/host.ts           the channel: every message → one ShellController call
 example/host.html     a working host page, and what the E2E drives
 protocol.schema.json  the protocol as JSON Schema
 viewspec.schema.json  the host-facing subset of ViewSpec v2
 ```
+
+## The three things a host can open
+
+`docs/EMBED.md` §4.0 is the contract; this is the one-paragraph version, because it is the
+distinction the package exists to make and the one a host gets wrong.
+
+A **volume** is a NIfTI or MGZ. A **mesh** is a *tetrahedral* FEM volume — a SimNIBS `.msh`, with an
+interior, tissue tags, per-element fields and a clip plane that can be capped. A **surface** is a
+*triangular* sheet — FreeSurfer `lh.pial` / `rh.white` / `lh.central`, GIfTI, STL/PLY/OBJ — with none
+of that, and one colour source at a time: solid, a per-vertex `overlay`, or an `annotation`.
+
+Surfaces are `kind: "surface"` and arrived with **protocol 3** (Tetravox 0.4.0). Nothing here
+implements them: `SurfaceLayer` is `packages/engine`'s, added by PR #37, and the `.annot` / morph /
+data-GIfTI attachment is PR #36's `Engine.attachSurfaceData` reached through §4.6's third sidecar
+role, `sidecars.fields`. This package's whole contribution is the schema, the types, the URL
+resolution for that sidecar role, and one guard — `normalize.ts` refuses a layer `kind` it does not
+know, because `Engine.load` would otherwise drop the layer and still answer `loaded`.
+
+That guard is why protocol 3 is a number and not another optional field. Everything protocol 2 added
+was declinable; a layer *kind* is not, because an older build cannot half-understand one. A
+protocol-2 host is unaffected in both directions — see `test/e2e/embed-compat.spec.ts`.
 
 ## Why the app renderer, and not a small UI on the engine
 
@@ -82,3 +104,10 @@ from one origin is a boundary whose failure modes are never exercised.
 `test/e2e/embed.spec.ts` drives `example/host.html` itself, so the documented example cannot rot. It
 needs `TETRAVOX_TESTDATA` for the scenes and skips them without it; the protocol half always runs.
 Headless only — there is no headed project here and none may be added (AGENTS.md rule 8).
+
+`test/e2e/embed-surface.spec.ts` is the exception that needs **no** `TETRAVOX_TESTDATA`: it runs
+against the committed synthetic fixtures in `testdata/` — `lh.fixture.surf`, `lh.fixture.annot`,
+`surf_ascii.surf.gii`, `mesh_tetonly.msh` — over Vite's `/@fs/` mount. The kind a file opens as is a
+property of its bytes, so a four-vertex patch proves it exactly as a hemisphere would, and the part
+of the contract a host is most likely to get wrong is not the part that skips on a machine with no
+reference subject.

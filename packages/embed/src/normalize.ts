@@ -2,7 +2,7 @@
  * A host's partial `ViewSpec` → the complete §4.6 one `Engine.load` needs, plus the URL each
  * `DatasetRef` resolved to.
  *
- * Three gaps between what a host can write and what the engine requires, and this file is all of
+ * Four gaps between what a host can write and what the engine requires, and this file is all of
  * them:
  *
  *  1. **Nine mandatory view fields a host cannot know.** `applyViewSpec` assigns `slices`, `view3d`,
@@ -32,6 +32,17 @@
  *     spends both here, before the engine sees the layer. Every other layer kind passes through
  *     untouched.
  *
+ *  4. **`kind: 'surface'`, in both places it appears** (protocol 3). On a *layer* it is §4.4's own
+ *     word and rides through untouched — the engine has had a `SurfaceLayer` since 0.4.0. On a
+ *     *dataset ref* it is a host-facing spelling the engine does not have, and `datasetKind` maps
+ *     it down to `'mesh'`; a surface is a mesh dataset with no tetrahedra, and which of the two
+ *     words the host used changes nothing about the load. The third sidecar role, `fields`, is
+ *     resolved against the dataset like the other two.
+ *
+ *     This is also the one file that **rejects** a spec rather than passing it on. `checkLayerKinds`
+ *     refuses a `kind` this build does not know, because `Engine.load` would drop such a layer in
+ *     silence and answer `loaded`.
+ *
  * Sidecars get the same treatment against a different base: §4.6 anchors `SidecarRef.path` to **the
  * dataset's own directory**, because a sidecar travels with the file it describes. `new URL(path,
  * datasetUrl)` is exactly that rule, so the resolved sidecar is written into `absPath` with `path`
@@ -42,6 +53,7 @@
 
 import type { DatasetRef, ViewSpec } from '@tetravox/engine';
 import type { EmbedDatasetRef, EmbedViewSpec } from './protocol';
+import { EMBED_LAYER_KINDS } from './protocol';
 import { isPointsLayer, resolvePointsLayer } from './points';
 
 /** What {@link normalizeScene} produced: the spec to load, and `Engine.load`'s resolver input. */
@@ -76,11 +88,24 @@ export function resolveUrl(path: string, base: string): string {
   return new URL(path, base).href;
 }
 
+/**
+ * A host's dataset kind → §4.6's.
+ *
+ * `'surface'` is protocol 3's host-facing spelling and the engine has no such dataset kind: a
+ * surface is a `MeshDataset` whose `nTets` is 0, decided from the bytes by `isSurfaceMesh` and not
+ * from anything a ref can say. Mapping it here rather than passing it through is what keeps that
+ * true — the engine never sees a kind it does not have, and a host still gets to write the word it
+ * means. Which of the two spellings was used changes nothing about the load.
+ */
+function datasetKind(kind: EmbedDatasetRef['kind']): DatasetRef['kind'] {
+  return kind === 'surface' ? 'mesh' : kind;
+}
+
 function normalizeRef(ref: EmbedDatasetRef, base: string): { ref: DatasetRef; url: string } {
   const url = resolveUrl(ref.path, base);
   const out: DatasetRef = {
     id: ref.id,
-    kind: ref.kind,
+    kind: datasetKind(ref.kind),
     name: ref.name,
     path: url,
     // §4.6's fingerprint is computed in the worker over the file's own bytes; a host has never seen
@@ -90,12 +115,49 @@ function normalizeRef(ref: EmbedDatasetRef, base: string): { ref: DatasetRef; ur
   };
   const lut = ref.sidecars?.lut;
   const opt = ref.sidecars?.opt;
-  if (lut !== undefined || opt !== undefined) {
+  // Protocol 3's third role: the per-vertex files attached to a surface. An ARRAY, and the order is
+  // the attach order the engine replays — so it is mapped rather than reduced, and an empty one is
+  // left off entirely rather than written as `fields: []`.
+  const fields = ref.sidecars?.fields ?? [];
+  if (lut !== undefined || opt !== undefined || fields.length > 0) {
     out.sidecars = {};
     if (lut !== undefined) out.sidecars.lut = { path: '', absPath: resolveUrl(lut.path, url) };
     if (opt !== undefined) out.sidecars.opt = { path: '', absPath: resolveUrl(opt.path, url) };
+    if (fields.length > 0) {
+      out.sidecars.fields = fields.map((f) => ({ path: '', absPath: resolveUrl(f.path, url) }));
+    }
   }
   return { ref: out, url };
+}
+
+/**
+ * Refuse a layer kind this build cannot draw — protocol 3's one guard, and the reason its number
+ * moved.
+ *
+ * Everything else in this file is permissive on purpose: unknown *fields* ride through to the
+ * engine untouched, because §4.4 is the complete layer model and this package is a subset of it
+ * that is allowed to be behind. A `kind` is the exception, and the difference is what the silence
+ * costs. `Engine.load` filters its layers through `isRestorableKind` and **skips** the ones it does
+ * not know — no throw, no event — so a spec written against a later protocol loaded here as a
+ * successful `loaded` reply carrying a scene with the layer missing. That is the worst answer
+ * available: the host is told it worked.
+ *
+ * So the kinds are checked here, before anything is fetched, and an unknown one throws with the
+ * layer's index, the kind it sent and the four that exist. `host.ts` turns that into
+ * `status: 'error'` and an `error` reply naming it, exactly as a bad URL is handled.
+ */
+function checkLayerKinds(layers: Record<string, unknown>[]): void {
+  const known = new Set<string>(EMBED_LAYER_KINDS);
+  layers.forEach((layer, index) => {
+    const kind = layer['kind'];
+    if (typeof kind !== 'string' || !known.has(kind)) {
+      throw new Error(
+        `layers[${index}]: unknown layer kind ${JSON.stringify(kind)} — ` +
+          `this build understands ${EMBED_LAYER_KINDS.join(', ')}. ` +
+          `A tetrahedral FEM .msh is 'mesh'; a triangular surface (FreeSurfer or GIfTI) is 'surface'.`
+      );
+    }
+  });
 }
 
 /**
@@ -111,6 +173,11 @@ export function normalizeScene(
   template: ViewSpec,
   baseUrl: string
 ): NormalizedScene {
+  // FIRST, before a single URL is resolved: a spec naming a kind this build cannot draw is refused
+  // outright, and refusing it here means the host hears about the typo instead of the malformed URL
+  // three lines down, and no dataset is queued for fetching on the way to finding out.
+  checkLayerKinds(scene.layers ?? []);
+
   const resolved: Record<string, string> = {};
   const datasets = (scene.datasets ?? []).map((ref) => {
     const { ref: out, url } = normalizeRef(ref, baseUrl);

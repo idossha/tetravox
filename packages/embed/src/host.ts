@@ -346,7 +346,11 @@ export class EmbedHost {
     globalThis.document?.addEventListener('pointerleave', onPointerLeave as EventListener, true);
     this.#offs.push(() => {
       globalThis.document?.removeEventListener('pointermove', onPointerMove as EventListener, true);
-      globalThis.document?.removeEventListener('pointerleave', onPointerLeave as EventListener, true);
+      globalThis.document?.removeEventListener(
+        'pointerleave',
+        onPointerLeave as EventListener,
+        true
+      );
     });
 
     this.emitReady();
