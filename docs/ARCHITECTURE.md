@@ -992,7 +992,7 @@ export interface Engine {
   readPixel(viewId: ViewId, px: number, py: number): Uint8Array;   // RGBA8, backs expectPixel (§11)
 
   serialize(): ViewSpec;
-  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void>;
+  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null, signal?: AbortSignal): Promise<void>;
 
   on<E extends keyof EngineEvents>(e: E, cb: (p: EngineEvents[E]) => void): () => void;
   destroy(): void;
@@ -3875,3 +3875,21 @@ an empty-document popup whose frame name is `tetravox-module-<id>` is allowed, a
 preload — an extension window renders a portal and never talks to main, so everything an extension does still travels
 the opener's bridge on the opener's channels. An `http(s)` URL goes to the user's browser through
 `shell.openExternal`; everything else is denied and logged.
+
+
+### Progressive scene replacement and selection reuse (2026-09-09; §4.7 / §5)
+
+`Engine.load` accepts an optional `AbortSignal`; absent, callers retain the existing completion promise.
+Missing datasets start concurrently in their existing dedicated workers. Each completed dataset restores
+its layers immediately, while final layer ordering follows the specification rather than network timing.
+A layer requiring another dataset waits for that dependency. All loads settle before a combined error is
+reported, leaving successful layers available. Cancellation terminates workers and rejects with
+`AbortError`; late results cannot upload geometry, attach layers or restore a stale camera.
+
+An already adopted dataset is reused only when its resolved path/URL and sidecars match. Datasets no
+longer selected are disposed. This is an in-memory current-selection cache, not a file freshness cache:
+explicit Reset/Reload discards it. The embed reconciles repeated selections; ordinary desktop Open Scene
+still clears the scene first. Camera/layout are established once per fresh load; incremental selection
+keeps the current 3D camera. Later dataset arrivals update layer visibility without refitting the camera.
+`LoadProgress.name` is optional and identifies the source before adoption; embed progress uses its
+existing protocol name field. No wire-version change is required.

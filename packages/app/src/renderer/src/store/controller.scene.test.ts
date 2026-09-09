@@ -12,7 +12,7 @@
  * pixels. The rendered dialogs are asserted in `packages/app/e2e/shell-phase2.spec.ts`.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CoordSpaceRef, DatasetRef, MeshLayer, ScreenshotOptions } from '@tetravox/engine';
 import type { TetravoxBridge } from '../../../preload/index';
 import { NoGlEngine } from '../engine/mockEngine';
@@ -623,5 +623,27 @@ describe('the dialog switch', () => {
     expect(fs.writes).toHaveLength(1);
     await controller.runSceneCommand('new');
     expect(store.getState().datasets).toHaveLength(0);
+  });
+});
+
+describe('scene load generations', () => {
+  it('does not apply an old completion or error after New', async () => {
+    fakeFs();
+    const { engine, store, controller } = harness();
+    let reject!: (error: Error) => void;
+    let signal: AbortSignal | undefined;
+    vi.spyOn(engine, 'load').mockImplementation((_spec, _resolve, incoming?: AbortSignal) => {
+      signal = incoming;
+      return new Promise<void>((_yes, no) => {
+        reject = no;
+      });
+    });
+    const loading = controller.loadSpecFromUrls(engine.serialize(), {});
+    controller.newScene();
+    expect(signal?.aborted).toBe(true);
+    reject(new Error('obsolete file failure'));
+    expect(await loading).toBe(false);
+    expect(store.getState().sceneError).toBeNull();
+    expect(store.getState().sceneFile).toBeNull();
   });
 });

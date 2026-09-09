@@ -271,6 +271,8 @@ export interface NewMeasurement {
 
 export interface LoadProgress {
   datasetId: DatasetId;
+  /** Source name is available while the dataset is still being parsed. */
+  name?: string;
   phase: LoadPhase;
   done: number;
   total: number;
@@ -718,7 +720,11 @@ export interface Engine {
    * nothing to do with the answer.
    */
   setSceneDir?(dir: string | null): void;
-  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void>;
+  load(
+    spec: ViewSpec,
+    resolve: (r: DatasetRef) => string | null,
+    signal?: AbortSignal
+  ): Promise<void>;
 
   on<E extends keyof EngineEvents>(e: E, cb: (p: EngineEvents[E]) => void): () => void;
   destroy(): void;
@@ -966,9 +972,14 @@ export class MockEngine implements Engine {
   serialize(): ViewSpec {
     throw new Error('phase 1');
   }
-  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
+  load(
+    spec: ViewSpec,
+    resolve: (r: DatasetRef) => string | null,
+    signal?: AbortSignal
+  ): Promise<void> {
     void spec;
     void resolve;
+    void signal;
     throw new Error('phase 1');
   }
 

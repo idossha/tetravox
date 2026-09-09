@@ -215,6 +215,7 @@ export class ShellController {
   private readonly helperDatasets = new Map<string, DatasetId>();
   private readonly helperLoads = new Map<string, Promise<DatasetId | null>>();
   private ticketSeq = 0;
+  private sceneLoad: AbortController | null = null;
   private toastSeq = 0;
   /**
    * Guards `loadTheme`'s screenshot-defaults merge (directed task: unified settings, 2026-08-28)
@@ -353,6 +354,8 @@ export class ShellController {
   }
 
   detach(): void {
+    this.sceneLoad?.abort();
+    this.sceneLoad = null;
     // §13.1: a module's lifetime is the controller's. `Shell.tsx` detaches on unmount and on an
     // engine swap, and a module left holding a disposed engine would be a module drawing into it.
     // Every session, not just the docked one (§13.10) — a popped-out module outlives the slot but
@@ -1999,6 +2002,8 @@ export class ShellController {
 
   /** Close every dataset, which is the only way their wasm heaps come back (§5 rule 1). */
   newScene(): void {
+    this.sceneLoad?.abort();
+    this.sceneLoad = null;
     for (const dataset of [...this.engine.scene.datasets.values()]) {
       this.engine.removeDataset(dataset.id);
     }
@@ -2217,15 +2222,22 @@ export class ShellController {
    * directory for `setSceneDir` to make future relative paths mean something.
    */
   async loadSpecFromUrls(spec: ViewSpec, resolved: Record<string, string>): Promise<boolean> {
-    return this.applyScene(spec, null, resolved);
+    return this.applyScene(spec, null, resolved, true);
   }
 
   private async applyScene(
     spec: ViewSpec,
     scenePath: string | null,
-    resolved: Record<string, string>
+    resolved: Record<string, string>,
+    reuseDatasets = false
   ): Promise<boolean> {
-    this.newScene();
+    if (reuseDatasets) {
+      this.sceneLoad?.abort();
+      this.store.setState({ sceneError: null });
+    } else this.newScene();
+    const load = new AbortController();
+    this.sceneLoad = load;
+    const current = (): boolean => this.sceneLoad === load && !load.signal.aborted;
     // §5 directive A2: `tetravox://file/…` serves only what main has allow-listed, and `Engine.load`
     // asks the loader for each ref's §6.5.1 sidecars — derived from wherever the dataset resolved
     // to (`sidecarPathsFor`, the engine's own function, so the two cannot drift). Without this the
@@ -2237,20 +2249,26 @@ export class ShellController {
       if (path === undefined) continue;
       for (const sidecar of Object.values(sidecarPathsFor(ref, path)).flat()) {
         if (sidecar !== undefined) await bridge().allowPath(sidecar);
+        if (!current()) return false;
       }
     }
+    if (!current()) return false;
     try {
       await this.engine.load(
         migrateSpecLayout(spec),
-        (ref: DatasetRef) => resolved[ref.id] ?? null
+        (ref: DatasetRef) => resolved[ref.id] ?? null,
+        load.signal
       );
     } catch (error: unknown) {
+      if (!current()) return false;
+      this.resyncFromEngine();
       const message = errorMessage(error);
       this.store.setState({ sceneError: message });
       this.toast(errorCode(error), scenePath === null ? 'scene' : baseName(scenePath), message);
       return false;
     }
 
+    if (!current()) return false;
     const byPath = new Map<string, DatasetId>();
     for (const dataset of this.engine.scene.datasets.values()) {
       if (dataset.path !== undefined) byPath.set(dataset.path, dataset.id);
@@ -2274,17 +2292,10 @@ export class ShellController {
       } as NewLayer);
     }
 
-    // `activeLayerId` cannot be assigned from the spec — those ids went with the old datasets — so
-    // it is re-derived positionally, which carries the same information the spec had.
-    const specIndex = spec.layers.findIndex((l) => l.id === spec.activeLayerId);
-    const live = this.engine.scene.layers;
-    if (specIndex >= 0 && specIndex < live.length) {
-      this.engine.setActiveLayer((live[specIndex] as Layer).id);
-    }
-
     // §13.2's blocks, **after** `layersToRestore`: a module finds its own layer by `LayerBase.module`
     // and there would be no layer to find before this point.
-    await this.restoreModuleBlocks(spec);
+    await this.restoreModuleBlocks(spec, load.signal);
+    if (!current()) return false;
 
     // §4.6 v2's optional theme: applied when the scene names one, ignored when it does not, so a
     // scene never silently overrides a preference it said nothing about (directed task 13).
@@ -3382,12 +3393,13 @@ export class ShellController {
    * Blocks for modules this build does not have are kept **verbatim** so `serialiseScene` writes
    * them back out — opening and re-saving a colleague's scene must not delete their work.
    */
-  private async restoreModuleBlocks(spec: ViewSpec): Promise<void> {
+  private async restoreModuleBlocks(spec: ViewSpec, signal?: AbortSignal): Promise<void> {
     const blocks = sceneExtensions(spec);
     if (Object.keys(blocks).length === 0) return;
     this.store.setState({ moduleBlocks: blocks });
     this.emitSceneEvent({ kind: 'loaded', blocks });
     for (const registration of this.modules()) {
+      if (signal?.aborted) return;
       const block = blocks[registration.manifest.id];
       if (block === undefined) continue;
       if (!registration.manifest.activation.includes('onSceneBlock')) continue;

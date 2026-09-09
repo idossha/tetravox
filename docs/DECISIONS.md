@@ -5505,3 +5505,22 @@ passed, 8 skipped (`TETRAVOX_TESTDATA` unset). Typecheck and build clean.
 
 **Scope.** No new dependency, no desktop change, no engine change. The embed is versioned 0.4.0 with
 the repository, and one repository version implements exactly one protocol.
+
+
+## 2026-09-09 — Progressive loads and retained selection datasets
+
+**Decision.** Start missing dataset workers concurrently, restore layers as each finishes, and reuse
+current datasets with matching resolved URLs and sidecars when an embed selection changes. Dispose
+unselected datasets; explicit Reload starts fresh. Add optional cancellation to `Engine.load` and source
+names to engine progress. Guard shell and embed completion by load generation.
+
+**Why.** A slow first volume kept all otherwise ready surfaces invisible. Adding one selection also
+reloaded existing files. Worker-per-dataset loading already permits independent completion; stable spec
+ordering and explicit cancellation preserve scene correctness while exposing that progress.
+
+**Cost.** Concurrent decoding increases peak memory. Reuse does not detect an edited file at the same
+URL; Reload is the freshness boundary. Failed datasets still report an error after successful layers
+have appeared, and cross-dataset layers wait for their dependencies.
+
+**Revisit if.** Measured memory pressure requires bounded admission, or hosts supply file revisions for
+stronger cache invalidation. The wire protocol remains unchanged.

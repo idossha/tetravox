@@ -80,6 +80,15 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Scenes appear as their datasets finish loading.** A small surface or volume no longer waits
+  behind another file before it can be viewed, and progress identifies files while they are being
+  parsed. Failed files are reported while successful layers remain available. Layer ordering and
+  saved camera settings are preserved.
+- **Adding to an embedded selection keeps datasets already loaded.** Only missing URLs are read;
+  removing a selection releases its resources. Use **Reload** to refresh a file changed at the same
+  URL. Reset and interrupted loads cannot restore an obsolete scene afterward; the existing embed
+  protocol remains compatible.
+
 - **Dot-shaped points are dot-shaped in the 3D view too.** `shape: 'dot'` asks for a marker of a
   fixed size on screen, and it worked only in the slice views: a 3D view drew a millimetre sphere
   whatever the setting said, so an electrode net looked right when scrolling through slices and

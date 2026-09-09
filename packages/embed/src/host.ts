@@ -146,6 +146,7 @@ const NO_ENGINE = 'no WebGL2 context: this embed cannot render (see ready.caps.w
 
 export class EmbedHost {
   readonly #controller: ShellController | null;
+  #loadGeneration = 0;
   readonly #engine: Engine | null;
   readonly #store: UiStore;
   readonly #hostOrigin: string;
@@ -234,7 +235,7 @@ export class EmbedHost {
             tvx: ENVELOPE_VERSION,
             type: 'progress',
             datasetId: p.datasetId,
-            name: ds?.name ?? '',
+            name: p.name ?? ds?.name ?? '',
             phase: p.phase,
             done: p.done,
             total: p.total,
@@ -359,6 +360,7 @@ export class EmbedHost {
   }
 
   stop(): void {
+    this.#loadGeneration += 1;
     for (const off of this.#offs) off();
     this.#offs = [];
     if (this.#press !== null) clearTimeout(this.#press.timer);
@@ -696,6 +698,7 @@ export class EmbedHost {
           globalThis.focus?.();
           return;
         case 'reset':
+          this.#loadGeneration += 1;
           // §5 rule 1: `newScene` closes every dataset, and closing a dataset is
           // `worker.terminate()`, which is the only way its wasm heap comes back.
           controller.newScene();
@@ -792,6 +795,7 @@ export class EmbedHost {
     request: HostMessage
   ): Promise<void> {
     const { controller, template } = this.#live();
+    const generation = ++this.#loadGeneration;
     this.send({ tvx: ENVELOPE_VERSION, type: 'status', phase: 'loading' });
     let normalized;
     try {
@@ -805,6 +809,7 @@ export class EmbedHost {
     }
 
     const ok = await controller.loadSpecFromUrls(normalized.spec, normalized.resolved);
+    if (generation !== this.#loadGeneration) return;
     if (!ok) {
       const message = this.#store.getState().sceneError ?? 'the scene could not be loaded';
       this.send({ tvx: ENVELOPE_VERSION, type: 'status', phase: 'error', message });
