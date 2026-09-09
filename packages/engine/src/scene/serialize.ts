@@ -397,6 +397,9 @@ export function remapLayer(
     }
   }
   if (layer.kind === 'mesh') {
+    // Older hosts wrote null for a solid mesh's absent field. Canonical runtime layers use
+    // undefined; passing null into the active mesh editor crashes the shell during loading.
+    if (out.field === null) delete out.field;
     // §4.6 does not serialise the `LabelTable`, so the spec's `label` has no `table` and cannot be
     // handed to `addLayer` as a `MeshLayer['label']`. It **is** carried, though: `mode`,
     // `outlineWidthPx` and `visibleLabels` are things the user set in the annotation editor, and

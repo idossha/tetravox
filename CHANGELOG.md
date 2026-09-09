@@ -80,6 +80,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Solid ROI meshes no longer close the viewer while a scene loads.** Saved scenes from hosts
+  that represented an absent mesh field as `null` now open correctly, including when the mesh
+  finishes before its anatomical volumes.
+
 - **Scenes appear as their datasets finish loading.** A small surface or volume no longer waits
   behind another file before it can be viewed, and progress identifies files while they are being
   parsed. Failed files are reported while successful layers remain available. Layer ordering and

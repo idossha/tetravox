@@ -108,4 +108,22 @@ describe('progressive scene loading', () => {
     fast.resolve(dataset('fast'));
     await done;
   });
+  it('normalizes a legacy solid mesh with field:null before it becomes the first visible layer', async () => {
+    const { engine, spec, slow, fast } = harness();
+    spec.layers[1] = {
+      ...spec.layers[1],
+      kind: 'mesh',
+      colorMode: 'solid',
+      field: null,
+    } as unknown as ViewSpec['layers'][number];
+    const done = engine.load(spec, (ref) => ref.id);
+    fast.resolve({ id: 'roi', kind: 'mesh' } as Dataset);
+    await tick();
+    expect(engine.scene.layers).toHaveLength(1);
+    expect(engine.scene.layers[0]?.kind).toBe('mesh');
+    expect(engine.scene.layers[0]).not.toHaveProperty('field');
+    slow.resolve(dataset('anatomy'));
+    await done;
+    expect(engine.scene.layers).toHaveLength(2);
+  });
 });
