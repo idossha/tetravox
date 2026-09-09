@@ -554,10 +554,7 @@ export class DerivedPass implements FramePass {
         // electrode net over a `sphere` ROI marker draws both correctly in one pane. The number is
         // `dotRadiusPxOf(layer) · uiScale`, the same expression the 2D branch and the CPU hit test
         // use, so the picture and the click radius cannot answer two different sizes (2026-09-05).
-        prog.float(
-          'uDotPx',
-          d.layer.shape === 'dot' ? dotRadiusPxOf(d.layer) * input.uiScale : 0
-        );
+        prog.float('uDotPx', d.layer.shape === 'dot' ? dotRadiusPxOf(d.layer) * input.uiScale : 0);
         prog.float('uOpacity', d.layer.opacity);
         inst.vao.bind();
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, POINT_QUAD_VERTICES, inst.count);

@@ -5524,3 +5524,13 @@ have appeared, and cross-dataset layers wait for their dependencies.
 
 **Revisit if.** Measured memory pressure requires bounded admission, or hosts supply file revisions for
 stronger cache invalidation. The wire protocol remains unchanged.
+
+## 2026-09-09 — Gate the browser embed in CI
+
+**Decision.** Run the embed Playwright suite in the existing unsharded app/wasm job and retain its
+failure traces in that job's artifact. Keep the existing timeout and one-worker headless configuration.
+
+**Why.** PR #35's CI run 34390583349 ran the engine, app and wasm suites but omitted the embed's own
+host-protocol and pixel assertions. Green checks must include the browser interface being merged.
+
+**Cost.** One additional suite on the existing runner; no new runner, dependency or renderer policy.
