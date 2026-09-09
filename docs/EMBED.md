@@ -242,6 +242,10 @@ Both, not either. The origin check alone passes a sibling iframe served from the
 | `getCamera` **(2)** | `id` **(required)** | `camera` |
 | `setCamera` **(2)** | `preset?`, `patch?: Partial<Camera3D>` | `camera` (with an `id`) |
 
+A pending `load` superseded by another `load` or `reset` receives an `error` reply with its original
+`id`, so an awaiting host can finish that request. This cancellation does not emit an error status for
+the replacement scene.
+
 `setLayout`'s `kind` is one of the seven arrangements — `'1x1'`, `'1x3'`, `'1x3-horizontal'`,
 `'2x2'`, `'3d-only'`, `'1+3'`, `'3d+1'` — **or** one of four names that pick a single pane by what is
 in it: `'3d'`, `'axial'`, `'coronal'`, `'sagittal'`. Anything else is answered with an `error`.

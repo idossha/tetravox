@@ -809,7 +809,13 @@ export class EmbedHost {
     }
 
     const ok = await controller.loadSpecFromUrls(normalized.spec, normalized.resolved);
-    if (generation !== this.#loadGeneration) return;
+    if (generation !== this.#loadGeneration) {
+      // Supersession suppresses stale scene/status events, but a host awaiting this request's id
+      // still needs a terminal reply. A stopped host has already detached its listeners.
+      if (this.#offs.length > 0)
+        this.fail(request, new DOMException('Scene load superseded', 'AbortError'));
+      return;
+    }
     if (!ok) {
       const message = this.#store.getState().sceneError ?? 'the scene could not be loaded';
       this.send({ tvx: ENVELOPE_VERSION, type: 'status', phase: 'error', message });
@@ -866,7 +872,7 @@ export class EmbedHost {
       if (specLayer['kind'] !== 'mesh') return;
       if (specLayer['scale'] !== undefined) return;
       const field = specLayer['field'] as { source: 'node' | 'elm'; name: string } | undefined;
-      if (field === undefined) return;
+      if (field == null) return;
       const layer = live[index];
       if (layer === undefined || layer.kind !== 'mesh') return;
       const dataset = this.#engine?.scene.datasets.get(layer.datasetId);

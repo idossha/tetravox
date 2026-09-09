@@ -356,7 +356,11 @@ export function layersToRestore(input: ReconcileInput): LayerToAdd[] {
     if (datasetId === undefined) continue; // the user skipped this dataset in the relocate dialog
     const at = unmatched.findIndex(
       (live) =>
-        live.datasetId === datasetId && live.kind === specLayer.kind && live.name === specLayer.name
+        live.datasetId === datasetId &&
+        live.kind === specLayer.kind &&
+        // An embed may omit the name; the engine then supplies the dataset/kind default. That
+        // restored layer is still its counterpart, not a second layer the shell must create.
+        (specLayer.name === undefined || live.name === specLayer.name)
     );
     if (at !== -1) {
       unmatched.splice(at, 1);

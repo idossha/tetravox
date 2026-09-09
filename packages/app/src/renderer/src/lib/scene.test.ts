@@ -251,6 +251,20 @@ describe('layersToRestore', () => {
     ).toEqual([]);
   });
 
+  it('matches unnamed embed layers to engine defaults without losing an additional layer', () => {
+    const unnamed = specLayer({ name: undefined });
+    expect(
+      layersToRestore({ specLayers: [unnamed], liveLayers: [liveLayer()], datasetIdMap: map })
+    ).toEqual([]);
+    expect(
+      layersToRestore({
+        specLayers: [unnamed, specLayer({ id: 'ly2', name: undefined })],
+        liveLayers: [liveLayer()],
+        datasetIdMap: map,
+      })
+    ).toHaveLength(1);
+  });
+
   it('matches counterparts one for one, so a second layer over the same dataset is still added', () => {
     const out = layersToRestore({
       specLayers: [specLayer(), specLayer({ id: 'ly2', name: 'T1.nii.gz overlay' })],

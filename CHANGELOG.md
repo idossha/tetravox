@@ -59,7 +59,7 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   no catalogue or directory listing.
 
 - **An embedded Tetravox can show electrodes, answer clicks, and remember where the camera was.**
-  The browser build speaks **protocol 2**, and everything it adds is optional. A host
+  The browser build includes **protocol 2's point controls**, retained in protocol 3; all are optional. A host
   can put a **points layer** straight into the scene — the coordinates inline, its own ids, and each
   point marked `selected`, `disabled` or neither, so an application says _what an electrode is_
   rather than working out what selected should look like. It can arm the same point tool the sEEG
@@ -70,7 +70,7 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
   **A host written against protocol 1 needs no change at all.** The message envelope is still
   `tvx: 1`; only the feature level a host reads out of `ready.version` (and the tarball's
-  `manifest.json`) moved to 2. The new events are off until asked for, so an older host receives
+  `manifest.json`) identifies the supported protocol. The new events are off until asked for, so an older host receives
   exactly the messages it received before — which is a test, not a promise.
 
 - **An embedded host can be told which point the pointer is on.** `setHoverEvents` turns on a
@@ -82,7 +82,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 - **Solid ROI meshes no longer close the viewer while a scene loads.** Saved scenes from hosts
   that represented an absent mesh field as `null` now open correctly, including when the mesh
-  finishes before its anatomical volumes.
+  finishes before its anatomical volumes, and the host receives its completion reply.
+
+- **Interrupted embed loads answer their callers.** Replacing a pending scene or resetting the
+  viewer returns a cancellation error for the original request instead of leaving the host waiting.
+- **Unnamed embed layers appear once.** Omitting a layer name keeps the engine's default name
+  without adding a duplicate layer during scene restoration.
 
 - **Scenes appear as their datasets finish loading.** A small surface or volume no longer waits
   behind another file before it can be viewed, and progress identifies files while they are being
