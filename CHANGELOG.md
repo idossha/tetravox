@@ -8,7 +8,121 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **An embedded Tetravox tells a surface from a mesh.** The browser build speaks **protocol 3**, and
+  a `ViewSpec` now has a third geometry layer kind: `"surface"`. A **mesh** is a tetrahedral FEM
+  volume — a SimNIBS `.msh` with an interior, tissue tags, per-element fields and a clip plane that
+  can be capped. A **surface** is a triangular sheet — FreeSurfer `lh.pial` / `rh.white` /
+  `lh.central`, GIfTI, STL/PLY/OBJ — with none of that, and one colour source at a time: a solid
+  colour, a per-vertex `overlay` (curvature, thickness, a `.func.gii`), or an `annotation` (a
+  `.annot` or `.label.gii` atlas). It is the same distinction the desktop app gained in 0.4.0, said
+  in the host protocol.
+
+  A `.annot`, a morph file or a data-only GIfTI is attached by listing it in the dataset's
+  `sidecars.fields` — resolved against the surface's own directory, so SimNIBS's
+  `../segmentation/lh.ernie_DK40.annot` is written exactly like that. The geometry format is read
+  from the file's bytes and never from its name, which is why the extensionless FreeSurfer surfaces
+  work; there is deliberately no `format` field to get wrong.
+
+  **A host written for protocol 2 needs no change**, and every volume/mesh/points scene it can write
+  means what it always did. What it must not do is send a `surface` layer to a build whose
+  `ready.version` is below 3: an older viewer silently drops a layer kind it does not know and still
+  reports a successful load. From protocol 3 that failure is gone in the other direction too — an
+  unknown layer kind is refused with an error naming the layer and the four kinds that exist, rather
+  than opening a scene with a hole in it. `docs/EMBED.md` §4.0 and §5(c) are the contract.
+
+- **An embedded panel can show only the visualization.** Add `presentation=viewport` beside `embed=1`
+  to give the entire frame to the view grid while your application supplies the controls. Orientation
+  annotations, 3D gestures and host messages remain available. The full viewer stays the default when
+  the option is omitted; `docs/EMBED.md` §2 documents the URL and the inactive shell shortcuts.
+
+- **The browser embed ships with a checksum and a manifest beside it.** Every release now carries
+  `tetravox-embed-<version>.tgz.sha256` (in `sha256sum` format, so `sha256sum -c` works on it) and
+  `tetravox-embed-<version>.manifest.json` — a copy of the manifest inside the tarball. An
+  application that installs the viewer automatically can read which protocol a release implements
+  before downloading it, and verify what it downloaded before unpacking it. The release workflow
+  refuses to publish unless all three are attached and the digest matches the tarball.
+
+- **Tetravox embeds in a web application.** A new release asset, `tetravox-embed-<version>.tgz`,
+  contains a browser build of the viewer that a host serves from any route and mounts in an
+  `<iframe>`, then drives over `postMessage` — load a scene, move the cursor, patch a layer, probe a
+  point, take a screenshot, read the scene back. It is the same shell and the same WebGL2 engine the
+  desktop window runs, not a cut-down second viewer, so every message ends in something a user could
+  have done with the mouse. `docs/EMBED.md` is the contract: the URL, the message table, the headers
+  and CSP a host must send, three complete `ViewSpec` examples, and a working example page. The
+  protocol is versioned (`{ tvx: 1, … }`) and additive-only from here.
+- **Datasets can be loaded from URLs.** A scene may point at `https://…` files, and the dataset
+  worker streams them the way it has always streamed local ones. This was previously listed as a
+  non-goal; it is now a supported, tested path, exercised on every CI run against real NIfTI and
+  `.msh` data over HTTP. Remote _browsing_ is still out of scope — a host names files, and there is
+  no catalogue or directory listing.
+
+- **An embedded Tetravox can show electrodes, answer clicks, and remember where the camera was.**
+  The browser build includes **protocol 2's point controls**, retained in protocol 3; all are optional. A host
+  can put a **points layer** straight into the scene — the coordinates inline, its own ids, and each
+  point marked `selected`, `disabled` or neither, so an application says _what an electrode is_
+  rather than working out what selected should look like. It can arm the same point tool the sEEG
+  contact editor uses, so a user places and drags points with the mouse and the host hears about it;
+  it can ask to be told **what a click landed on** — the point, the region, the tissue tag and the
+  world position, in one message; and it can read the 3-D camera and put it back. `docs/EMBED.md` §6
+  is the contract.
+
+  **A host written against protocol 1 needs no change at all.** The message envelope is still
+  `tvx: 1`; only the feature level a host reads out of `ready.version` (and the tarball's
+  `manifest.json`) identifies the supported protocol. The new events are off until asked for, so an older host receives
+  exactly the messages it received before — which is a test, not a promise.
+
+- **An embedded host can be told which point the pointer is on.** `setHoverEvents` turns on a
+  `pointHover` message naming the point under the mouse, and naming nothing when it leaves one — so
+  an application can light up the electrode you are about to click. It reports the same point a
+  click would select, and it fires when the answer changes rather than on every mouse move.
+
+### Fixed
+
+- **Solid ROI meshes no longer close the viewer while a scene loads.** Saved scenes from hosts
+  that represented an absent mesh field as `null` now open correctly, including when the mesh
+  finishes before its anatomical volumes, and the host receives its completion reply.
+
+- **Interrupted embed loads answer their callers.** Replacing a pending scene or resetting the
+  viewer returns a cancellation error for the original request instead of leaving the host waiting.
+- **Unnamed embed layers appear once.** Omitting a layer name keeps the engine's default name
+  without adding a duplicate layer during scene restoration.
+
+- **Scenes appear as their datasets finish loading.** A small surface or volume no longer waits
+  behind another file before it can be viewed, and progress identifies files while they are being
+  parsed. Failed files are reported while successful layers remain available. Layer ordering and
+  saved camera settings are preserved.
+- **Adding to an embedded selection keeps datasets already loaded.** Only missing URLs are read;
+  removing a selection releases its resources. Use **Reload** to refresh a file changed at the same
+  URL. Reset and interrupted loads cannot restore an obsolete scene afterward; the existing embed
+  protocol remains compatible.
+
+- **Dot-shaped points are dot-shaped in the 3D view too.** `shape: 'dot'` asks for a marker of a
+  fixed size on screen, and it worked only in the slice views: a 3D view drew a millimetre sphere
+  whatever the setting said, so an electrode net looked right when scrolling through slices and
+  wrong the moment you rotated the head — and asking for a bigger or smaller dot changed nothing at
+  all there. A 3D dot is now the size you asked for at any camera distance, flat rather than shaded
+  so its colour reads as one value, still hidden behind the scalp when it is behind the scalp, and
+  clickable across the whole marker.
+
+- **An idle electrode can be given its own colour.** A points layer's `stateColors.idle` was
+  accepted, documented and ignored — a host that asked for "grey when this electrode is in no
+  channel" silently got the layer's colour instead and had to paint every idle point by hand. It is
+  now applied, and a layer that does not set it behaves exactly as before.
+
+- **An embedded viewer now answers when you tell it to change its points.** `setPointTool`,
+  `setPointSelection` and `setPoints` did the work and said nothing back, so a host application that
+  waited for confirmation — the ordinary "select this electrode, then redraw" shape — waited for
+  ever. Each now replies once the change is in the scene. Sending them without asking for a reply
+  works exactly as before.
+
+- **`setLayout` could kill an embedded viewer.** Four of the pane arrangements `docs/EMBED.md` has
+  documented since the first release — `3d`, `axial`, `coronal`, `sagittal` — were not arrangements
+  the renderer had, and asking for one left the layout with no panes and stopped the viewer on the
+  next frame, silently, with no way back but reloading the page. They now do what the documentation
+  always said, and a name the viewer does not know is answered with an error instead of a blank
+  window.
 
 ## [0.4.0] - 2026-09-07
 

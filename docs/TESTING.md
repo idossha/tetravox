@@ -68,10 +68,21 @@ packages/engine/test/pages/*          the pages those specs drive (HTML + a smal
 packages/engine/test/helpers/*        expectPixel / expectGolden
 packages/engine/test/golden/<class>/  the goldens, one directory per renderer class
 packages/app/e2e/*.spec.ts            Playwright-Electron
+packages/embed/test/e2e/*.spec.ts     Playwright — the host protocol, driven through example/host.html
+packages/embed/test/golden/<class>/   the embed's goldens, same policy and same helpers
 scripts/reference/                    the Python reference renderer and its 117 self-tests
 ```
 
 `*.test.ts` is vitest; `*.spec.ts` is Playwright. Nothing collects both.
+
+**The embed's suite imports `packages/engine/test/helpers/pixels.ts` rather than copying it.** §11 is one
+rule, not one per package, so `expectGolden` and its `TETRAVOX_UPDATE_GOLDENS` lock are the same function in
+both places, and `packages/embed/playwright.config.ts` repeats the engine config's `snapshotDir`,
+`snapshotPathTemplate`, `updateSnapshots: 'none'` and ratios. What it cannot reuse is `expectPixel`: that
+reads the drawing buffer through the test page's `window.__tvxRender()`, and the app renderer has no such
+hook — its context is `preserveDrawingBuffer: false`, so a `readPixels` after compositing sees undefined
+content. The embed's analytic assertions therefore go through the documented `screenshot` message and decode
+the PNG in the page. Lossless RGBA8, and the pixels are the ones the product hands a host.
 
 ### Testing something that persists
 
@@ -322,6 +333,8 @@ cover the primary format path. That coverage comes from analytic `expectPixel` t
 ```sh
 TETRAVOX_UPDATE_GOLDENS=1 pnpm --filter @tetravox/engine run e2e
 # or: pnpm --filter @tetravox/engine run e2e:update-goldens
+# the embed's, which live under packages/embed/test/golden/<class>/:
+TETRAVOX_UPDATE_GOLDENS=1 pnpm --filter @tetravox/embed exec playwright test --update-snapshots
 ```
 
 Two locks, both deliberate: `updateSnapshots: 'none'` unless that variable is set, so a **missing** golden is
@@ -477,10 +490,14 @@ and plain int16 — so a reader that folds slope/inter, or ignores it, makes the
 
 ## 6. CI (§12)
 
-`.github/workflows/ci.yml`. **`test`** on `ubuntu-24.04` (golden authority, every event) and `macos-latest`
-(push to `main` and `workflow_dispatch` only — macOS bills 10× on a private repo): pinned Rust toolchain →
-`cargo fmt` / `clippy -D warnings` / `cargo test` → `pnpm wasm` → `pnpm typecheck` / `pnpm lint` /
-`pnpm test` → `pnpm e2e`. Caches: cargo, the pnpm store, `~/.cache/electron`, `~/.cache/ms-playwright`, with
+`.github/workflows/ci.yml`. **`test`** runs the Rust checks, WASM build, typecheck, lint, SDK emission and
+Vitest on `ubuntu-24.04` on every event; `macos-latest` is added only for `workflow_dispatch`.
+**`e2e`** runs concurrently: three engine shards and an unsharded **app + wasm** job, which also runs
+`pnpm --filter @tetravox/embed run e2e`. The embed's synthetic host-protocol, surface and analytic pixel
+tests must pass before merge; real-data cases skip when their root is unset. Embed failure traces are
+uploaded from `packages/embed/test-results` with the other unsharded results. Manual dispatch also adds
+unsharded macOS engine and app/wasm/embed legs to exercise the platform GPU.
+Caches: cargo, the pnpm store, `~/.cache/electron`, `~/.cache/ms-playwright`, with
 `ELECTRON_CACHE` and `PLAYWRIGHT_BROWSERS_PATH` pinned to those paths on both runners (macOS would otherwise
 use `~/Library/Caches` and the keys would not match).
 
@@ -492,7 +509,7 @@ Three steps that exist for a specific past failure:
   `--version`.
 * **Xvfb** is started and exported as `DISPLAY`, with the step waiting on `xdpyinfo` first, so a display that
   never came up is a red Xvfb step rather than an unexplained Electron crash three steps later.
-* **`timeout-minutes: 45`.** A green leg is ~8 min on ubuntu and ~5 min on macOS. This suite's characteristic
+* **`timeout-minutes: 20` for e2e.** An engine shard is ~2 min. This suite's characteristic
   failure is not a hang but a slow-motion pile of timeouts — an engine page that never publishes
   `window.__tvxEngine` fails ~120 tests at 30 s each, per project. One such run spent 3 h 14 m of macOS runner
   time at the 10× rate for a defect visible in its first minute.

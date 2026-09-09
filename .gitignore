@@ -13,6 +13,7 @@ packages/wasm/pkg/*
 
 # Build output
 dist/
+dist-pkg/
 out/
 release/
 *.tsbuildinfo

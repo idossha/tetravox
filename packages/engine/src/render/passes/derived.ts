@@ -544,11 +544,17 @@ export class DerivedPass implements FramePass {
       prog.vec3('uNormal', [0, 0, 1]);
       prog.float('uPlaneOffset', 0);
       prog.float('uMmPerPx', 1);
-      prog.float('uDotPx', 0);
+      // The pane in DEVICE pixels: the `dot` branch converts its pixel radius to NDC with it.
+      prog.vec2('uViewportPx', [ctx.rect.width, ctx.rect.height]);
       prog.float('uAmbient', input.scene.lighting.ambient);
       for (const d of points) {
         const inst = store.pointInstances(d.layer);
         if (inst === null) continue;
+        // Per LAYER, not once for the pass: `shape` is a layer field, so a scene with a `dot`
+        // electrode net over a `sphere` ROI marker draws both correctly in one pane. The number is
+        // `dotRadiusPxOf(layer) · uiScale`, the same expression the 2D branch and the CPU hit test
+        // use, so the picture and the click radius cannot answer two different sizes (2026-09-05).
+        prog.float('uDotPx', d.layer.shape === 'dot' ? dotRadiusPxOf(d.layer) * input.uiScale : 0);
         prog.float('uOpacity', d.layer.opacity);
         inst.vao.bind();
         gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, POINT_QUAD_VERTICES, inst.count);

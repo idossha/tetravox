@@ -32,10 +32,22 @@ the number is the reason for a rule.
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
 
 **Non-goals:** WebGPU, Windows, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
-scope), remote/URL loading, **third-party runtime-loaded plugins** (first-party extensions, downloaded
+scope), **third-party runtime-loaded plugins** (first-party extensions, downloaded
 through File ▸ Extensions…, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
 and *unattended* download-and-install stays a non-goal.)
+
+**Remote/URL loading left this list on 2026-09-03**, with the embed (§2's `packages/embed`,
+`docs/EMBED.md`). It is not a new capability so much as an acknowledged one: the dataset worker has
+always fetched a URL — `tetravox://file/…` *is* one — and `datasets/source.ts`'s `fileUrl` has passed
+an absolute `http(s)://` straight through since Phase 1, which is how the §11 harness reads the
+reference dataset over `/@fs/`. What changed is that the path is now **supported and tested** rather
+than incidental: a `DatasetRef.path` may be an `http(s)` URL, the embed resolves a relative one
+against a host-supplied base, and the E2E loads real NIfTI and `.msh` files over HTTP on every run.
+Two things stay non-goals and are the reason this was ever on the list: **Range requests** (a dataset
+is streamed whole, and §5 rule 4's `DecompressionStream` pipe depends on that) and any **remote
+browsing** — there is no catalogue, no directory listing and no discovery. A host names files or
+nothing happens.
 
 ---
 
@@ -57,7 +69,9 @@ tetravox/
 │   ├── protocol/                 # @tetravox/protocol — worker envelope + every op args/result type (§6.5). FROZEN.
 │   ├── wasm/                     # @tetravox/wasm — HAND-WRITTEN package.json; imports ./pkg/tvx_wasm.js
 │   ├── engine/                   # @tetravox/engine — WebGL2 renderer, scene model, views, interaction, colormaps
-│   └── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
+│   ├── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
+│   └── embed/                    # @tetravox/embed — the app renderer as a BROWSER bundle, driven over
+│                                 #   postMessage from a host iframe. Ships as a release tarball (docs/EMBED.md)
 ├── python/                       # the automation client (docs/AUTOMATION.md)
 ├── testdata/                     # synthetic fixtures from scripts/gen-fixtures.py + manifest.json (committed)
 ├── scripts/                      # build-wasm.sh, gen-fixtures.py, bench.ts, refvalues/, reference/
@@ -562,7 +576,10 @@ the constant it replaces (`DOT_RADIUS_PX` = 4) is authored in; clamped to 0.5…
 editable text and `NaN` deletes the quad rather than resizing it. `overlay/point-ring.ts#dotRadiusPxOf` is
 the single function the shader uniform (`uDotPx = dotRadiusPxOf(layer) · uiScale`), the selection ring and
 `pointAtPane`'s grab radius all read, so a bigger marker is a bigger target: a 12 px disc with an 8 px grab
-would put the hit boundary a third of the way inside the thing the user is aiming at. `shape: 'sphere'` does
+would put the hit boundary a third of the way inside the thing the user is aiming at. **`dot` covers the 3D
+pane too from 2026-09-05**, and the same three-way agreement holds there: `pointAtPane3D`'s grab radius is
+`max(POINT_HIT_3D_PX, dotRadiusPxOf(layer) · uiScale)`, so the 14 px floor stays for a small dot and a large
+one is grabbable across its whole face. `shape: 'sphere'` does
 not read it — a sphere's size is `radiusMm`, which is also its cross-section, its billboard, its label slab
 and its probe radius, and a second size for one of those five would disagree with the other four.
 
@@ -954,6 +971,7 @@ export interface Engine {
                                                 //   materialises `p<index>` ids, and null clears + emits 'cleared'
   pointTool(): PointToolSpec | null;
   pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null;   // CSS px, like pick()
+  paneAt(x: number, y: number): PaneHit | null;                                  // canvas DEVICE px, top-left
   setPointSelection(sel: { layerId: LayerId; pointId: string } | null): void;     // by ID, never by index
   pointSelection(): PointSelection | null;      // re-resolved against the current points[]
 
@@ -974,7 +992,7 @@ export interface Engine {
   readPixel(viewId: ViewId, px: number, py: number): Uint8Array;   // RGBA8, backs expectPixel (§11)
 
   serialize(): ViewSpec;
-  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void>;
+  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null, signal?: AbortSignal): Promise<void>;
 
   on<E extends keyof EngineEvents>(e: E, cb: (p: EngineEvents[E]) => void): () => void;
   destroy(): void;
@@ -1000,7 +1018,12 @@ took that index; **arming materialises ids**, giving a layer whose points carry 
 tool, the selection and the saved scene name the same contact by the same string; and **a ghost is never
 hit**, because a ghost is the projection of a point on another slice and dragging one would move a contact in
 a plane it is not in. `pointAtScreen` is the hit rule on its own, for a host that wants to ask without
-selecting. The rings the tool shows are `DrawInput.pointSelection`/`pointHot` (§7.2), which are *not* on this
+selecting — and **`paneAt` (2026-09-05) is what makes it usable by one**: every hit test on this facade is
+*per pane* and takes pane-local coordinates, while a host that owns the pointer has a canvas coordinate and
+no way to turn one into the other. It is the pointer layer's own existing question made public (canvas device
+pixels in, `{ viewId, is3D, x, y, width, height }` pane-local device pixels out, `null` in a layout's gaps),
+not a second implementation of §4.5's viewport arithmetic. Without it an embedded host must guess the active
+pane, which is wrong in every layout with more than one. The rings the tool shows are `DrawInput.pointSelection`/`pointHot` (§7.2), which are *not* on this
 facade: a ring is not something the UI does.
 
 `attachFsaverage` composes three §6.5 ops — `vertices` on the fsaverage sphere, `sphereMap` on the subject's,
@@ -1198,6 +1221,42 @@ Rules:
     invoke them — but the worst it can reach is a restart into the sha512-verified artefact of a release
     the pinned `idossha/tetravox` feed published, which is the app the user would have gotten anyway. The
     boot status is **pulled** (`updateStatus`), like `startupPaths` and for the same race.
+15. **There is a second host: a browser page with no main process at all** (`packages/embed`,
+    `docs/EMBED.md`, 2026-09-03). The renderer and the workers above are unchanged — same React shell,
+    same `ShellController`, same engine, same worker-per-dataset — and everything *left* of the
+    `contextBridge` line in the diagram is simply absent. `bridge()` falls through to `ABSENT`, the
+    null object the renderer already shipped for "vitest, or a plain browser tab", so every channel in
+    rules 9–14 answers "no preload bridge" and the chrome that would call them is hidden by
+    `?embed=1`. What replaces main is a **`postMessage` channel to the host page**, accepted only from
+    `window.parent` and only from the exact `hostOrigin` named in the embed's own URL.
+
+    Three consequences follow, and they are the whole difference:
+
+    * **`tetravox://` does not exist**, so rules 9 and 10's allow-lists have nothing to guard and
+      nothing to serve. A dataset is an ordinary `http(s)` URL the worker fetches with `fetch` — §1's
+      amended non-goal — and the *server's* CORS and the embed document's `connect-src` are what
+      decide whether it may be read. There is no arbitrary-file-read primitive here because there is
+      no filesystem to read.
+    * **Rule 3 still holds, and holds more easily.** Bytes never touch the UI thread: the worker
+      fetches the URL itself, exactly as it fetches `tetravox://file/…` in the desktop app. No byte
+      crosses the frame boundary in either direction — a `load` carries a `ViewSpec`, and a
+      `screenshot` reply carries a PNG the engine already rendered.
+    * **A host is not a user.** Every message the channel accepts ends in a `ShellController` call a
+      user can make with the mouse — the property `automation/run.ts` keeps for `--job`, for the same
+      reason — so the protocol grants a host no reach the UI does not already have.
+
+    **Every message that changes something answers** (2026-09-05). A host message carrying an `id`
+    gets a reply carrying that `id` — a value where there is one, and `ack { id, of }` for the three
+    protocol-2 messages that act and return nothing (`setPointTool`, `setPointSelection`,
+    `setPoints`). Without it a host awaiting a reply hangs, because `postMessage` cannot distinguish
+    silence from a dropped message. A request with **no** `id` is still answered with nothing, which
+    is what keeps a protocol-1 host's message stream byte for byte the one it had.
+
+    **The host may supply the surrounding controls** (2026-09-04, requirements
+    `2026-09-04-ti-toolbox-viewport.md` R1). With `embed=1`, `presentation=viewport` omits the shell
+    chrome described in §8 while preserving this renderer, canvas, worker and message-channel
+    lifecycle. Absent or unknown presentations reproduce the full embedded viewer. The URL option
+    changes no message type or version; pane layout and scene annotations remain host-controlled.
 
 ---
 
@@ -2224,6 +2283,16 @@ Rules:
      per-layer uniforms there, and the value is clamped to 0…1 because a scene file is editable text. At 0,
      which is what absent means, the shader takes the cull branch verbatim and the pixels are the ones every
      §11 golden was captured with.
+   * **Points in a 3D pane are a view-aligned billboard**, shaded as a hemisphere so a `sphere` reads as a
+     ball. **`shape: 'dot'` is a screen-space disc there as well (2026-09-05)**, and it has to be arrived at
+     differently: a slice pane has a constant `mmPerPx` and can convert pixels to millimetres, while a 3D
+     pane under perspective has no such number, so the dot's quad is expanded **in clip space** —
+     `clip.xy += aCorner · (uDotPx · 2 / uViewportPx) · clip.w` — which is exactly `uDotPx` device pixels of
+     radius at every depth and, with `w = 1`, under an orthographic projection too. `clip.z` is untouched, so
+     the disc is depth-tested at its own centre and an electrode behind the scalp is still hidden by it. A 3D
+     dot is **flat**: the hemisphere's shading darkens the marker's own colour towards its rim, and a layer
+     whose colour *is* its state (an EEG net where a hue means a channel) must not have a gradient across it.
+     `uDotPx` is 0 for a `sphere`, which is the branch every existing golden was captured with.
 2. **Transparent, scene-wide, two phases:**
    * **2a — back faces:** `cullFace(FRONT)`, depth test on, depth write off; objects sorted back-to-front by
      the depth of their **far** extent.
@@ -2746,6 +2815,16 @@ Input (Freeview-like):
 ## 8. App (Electron) — UX contract
 
 **Everything the UI can do must be reachable from the `Engine` API alone. No logic in React.**
+
+**Embedded viewport profile.** A browser host may opt into `embed=1&presentation=viewport` (§5 rule 15)
+to display only `ViewGrid`, with no toolbar, sidebars or collapse rails, status bar, toasts, dialogs
+or extension windows. The same engine continues to draw the scene's orientation labels and cube and
+handle orbit, pan, dolly, picking and pointer-scoped keys. Shell keyboard commands and file drops are
+inactive: invisible tools and datasets loaded outside the host's selection would leave the host's
+controls inconsistent with its viewport. Layout and layer controls remain reachable through the
+host protocol, including `setLayout { kind: '3d' }` and `updateLayer`. The presentation is fixed at
+iframe creation; absent or unknown values retain the full viewer described below. This refines the
+regions rule for host-supplied controls only, per `docs/requirements/2026-09-04-ti-toolbox-viewport.md` R1.
 
 **Regions.** **Left**: layer panel (ordered list, per-row disclosure, eye, opacity slider, per-kind property
 editor, 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed +
@@ -3796,3 +3875,21 @@ an empty-document popup whose frame name is `tetravox-module-<id>` is allowed, a
 preload — an extension window renders a portal and never talks to main, so everything an extension does still travels
 the opener's bridge on the opener's channels. An `http(s)` URL goes to the user's browser through
 `shell.openExternal`; everything else is denied and logged.
+
+
+### Progressive scene replacement and selection reuse (2026-09-09; §4.7 / §5)
+
+`Engine.load` accepts an optional `AbortSignal`; absent, callers retain the existing completion promise.
+Missing datasets start concurrently in their existing dedicated workers. Each completed dataset restores
+its layers immediately, while final layer ordering follows the specification rather than network timing.
+A layer requiring another dataset waits for that dependency. All loads settle before a combined error is
+reported, leaving successful layers available. Cancellation terminates workers and rejects with
+`AbortError`; late results cannot upload geometry, attach layers or restore a stale camera.
+
+An already adopted dataset is reused only when its resolved path/URL and sidecars match. Datasets no
+longer selected are disposed. This is an in-memory current-selection cache, not a file freshness cache:
+explicit Reset/Reload discards it. The embed reconciles repeated selections; ordinary desktop Open Scene
+still clears the scene first. Camera/layout are established once per fresh load; incremental selection
+keeps the current 3D camera. Later dataset arrivals update layer visibility without refitting the camera.
+`LoadProgress.name` is optional and identifies the source before adoption; embed progress uses its
+existing protocol name field. No wire-version change is required.

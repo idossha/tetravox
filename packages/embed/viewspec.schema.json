@@ -1,0 +1,988 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://tetravox.dev/schema/embed-viewspec-v3.json",
+  "title": "Tetravox ViewSpec v2 — the host-facing subset (embed protocol 3)",
+  "description": "THE HOST-FACING SUBSET of ARCHITECTURE.md 4.6's ViewSpec, hand-maintained. It covers what a host writes by hand and validates it strictly enough to catch a typo; it is NOT the full spec. Two differences from a *.tetravox.json on disk. (1) `datasets[].path` is a URL, not a path relative to a scene file — absolute http(s) is used as-is, anything else is resolved against LoadMessage.baseUrl. (2) Only `datasets` and `layers` are required: the nine view fields the engine requires (slices, view3d, layout, cursor, radiological, background, lighting, annotations, transparency) are filled from the engine's own empty scene when a host omits them, and a layer needs only id, datasetId and kind — every other field falls back to the engine's per-dataset default. FOUR LAYER KINDS, and the distinction between three of them is the point: `volume` is a NIfTI/MGZ scalar or label volume; `mesh` is a TETRAHEDRAL FEM volume (a SimNIBS .msh with element fields, tissue tags and an interior to cut open); `surface` is a TRIANGULAR two-dimensional sheet (FreeSurfer lh.pial/rh.white/lh.central, GIfTI .gii, STL/PLY/OBJ), which has no tags, no caps and no 2-D fill, and arrived with embed protocol 3 / Tetravox 0.4.0; `points` is written inline and arrived with protocol 2. Fields not listed here are still accepted and passed through unchanged; see ARCHITECTURE.md 4.4 for the complete layer model. A layer `kind` NOT listed here is the one thing the embed refuses outright, with an error naming the four.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "enum": [1, 2],
+      "description": "Optional. Defaults to this build's SCENE_VERSION. This is the SCENE version and has nothing to do with the embed protocol number, which is 3."
+    },
+    "datasets": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DatasetRef"
+      }
+    },
+    "layers": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/VolumeLayer"
+          },
+          {
+            "$ref": "#/definitions/MeshLayer"
+          },
+          {
+            "$ref": "#/definitions/SurfaceLayer"
+          },
+          {
+            "$ref": "#/definitions/PointsLayer"
+          }
+        ]
+      }
+    },
+    "activeLayerId": {
+      "type": ["string", "null"],
+      "description": "One of the layers' `id`s, or null."
+    },
+    "cursor": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "World RAS mm. Optional."
+    },
+    "radiological": {
+      "type": "boolean"
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": ["2x2", "1+3", "3d+1", "3d", "axial", "coronal", "sagittal"]
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "background": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "theme": {
+      "enum": ["system", "light", "dark"]
+    }
+  },
+  "required": ["datasets", "layers"],
+  "definitions": {
+    "DatasetRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Host-chosen, and referenced by layers[].datasetId."
+        },
+        "kind": {
+          "enum": ["volume", "mesh", "surface"],
+          "description": "`volume` is a NIfTI/MGZ. `mesh` is a TETRAHEDRAL FEM mesh (.msh). `surface` is a TRIANGULAR surface — FreeSurfer binary (lh.pial, rh.white, lh.central — often with NO extension at all), GIfTI (.gii), or an STL/PLY/OBJ/OFF/.vtp shell. `surface` is a HOST-FACING SPELLING OF `mesh`, added by embed protocol 3: ARCHITECTURE.md 4.6's DatasetRef has only volume|mesh, because the engine decides surface-ness from the bytes (a mesh dataset with nTets === 0 IS a surface), and the embed maps `surface` down to `mesh` before the engine sees the ref. It exists so a host does not have to write `kind: 'mesh'` on a dataset whose layer is `kind: 'surface'`. Sending `mesh` for a surface file keeps working and loads identically. THIS IS NOT A FORMAT HINT — see `path`."
+        },
+        "name": {
+          "type": "string",
+          "description": "What the layer panel calls it."
+        },
+        "path": {
+          "type": "string",
+          "description": "Absolute http(s) URL, or relative/root-relative resolved against LoadMessage.baseUrl (default: the embed document's baseURI). THE FILE FORMAT IS READ FROM THE BYTES, NOT FROM THIS STRING: tvx_mesh_io::sniff tries $MeshFormat, VTK, MEDIT, GIfTI's XML, VTK-XML, OFF, PLY, STL and FreeSurfer's 24-bit big-endian magic in that order, and only falls back to the extension when none of them answers. That is why there is no `format: 'freesurfer' | 'gifti'` field here — the loader would not read it — and it is why the extensionless FreeSurfer surfaces work."
+        },
+        "fingerprint": {
+          "type": "string",
+          "description": "Optional. '' is exact for an embed: it is computed in the worker over bytes a host has never seen, and identifies a file only for a relocate dialog an embed does not have."
+        },
+        "sidecars": {
+          "type": "object",
+          "description": "Resolved against the DATASET's own URL, not the page: a sidecar travels with the file it describes (ARCHITECTURE.md 4.6). Reading one is best-effort — a missing sidecar is a missing table, never a failed load.",
+          "properties": {
+            "lut": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": ["path"],
+              "description": "A label volume's colour/name table, e.g. final_tissues_LUT.txt."
+            },
+            "opt": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": ["path"],
+              "description": "A Gmsh .msh.opt — the only source of tissue names for a mesh with no $PhysicalNames."
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": ["path"]
+              },
+              "description": "SURFACES ONLY, and new in embed protocol 3. Per-vertex files attached to the surface after it opens (ARCHITECTURE.md 4.6's third sidecar role, Engine.attachSurfaceData): a FreeSurfer .annot, a morph file (.thickness, .curv, .sulc, .area, .sulc), or a data-only GIfTI (.func.gii, .shape.gii, .label.gii). AN ARRAY, AND THE ORDER MATTERS — they are attached in it. Each becomes a field/label table named after ITS OWN FILE (`lh.ernie_DK40.annot`, never `annot`), which is the name a SurfaceLayer's `overlay.name` / `annotation.name` must use, and which is what lets two atlases on one hemisphere coexist. Best-effort like lut and opt: one that 404s is a missing table, never a failed load — so a surface whose annotation did not resolve opens SOLID, with a successful `loaded`."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["id", "kind", "name", "path"]
+    },
+    "VolumeLayer": {
+      "type": "object",
+      "title": "VolumeLayer",
+      "description": "A NIfTI/MGZ volume — a scalar (T1, a TI_max field) or a label volume with its LUT sidecar.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Host-chosen. NOT the id you get back: Engine.load reassigns every id."
+        },
+        "datasetId": {
+          "type": "string",
+          "description": "Must match a DatasetRef.id in `datasets`."
+        },
+        "kind": {
+          "const": "volume"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pickable": {
+          "type": "boolean"
+        },
+        "showColorbar": {
+          "type": "boolean"
+        },
+        "colormap": {
+          "enum": [
+            "gray",
+            "viridis",
+            "plasma",
+            "inferno",
+            "magma",
+            "cividis",
+            "turbo",
+            "jet",
+            "hot",
+            "cool",
+            "bone",
+            "coolwarm",
+            "bwr",
+            "freesurfer-heat",
+            "blue-cyan"
+          ]
+        },
+        "scale": {
+          "description": "ARCHITECTURE.md 4.2. Omit it: a volume gets its own 2nd-98th percentile window, and a mesh field layer is windowed from that field's stats by the embed.",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "linear"
+                },
+                "lo": {
+                  "type": "number"
+                },
+                "hi": {
+                  "type": "number"
+                }
+              },
+              "required": ["kind", "lo", "hi"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "heat"
+                },
+                "min": {
+                  "type": "number"
+                },
+                "mid": {
+                  "type": "number"
+                },
+                "max": {
+                  "type": "number"
+                },
+                "truncate": {
+                  "type": "boolean"
+                },
+                "inverse": {
+                  "type": "boolean"
+                },
+                "negative": {
+                  "enum": ["mirror", "hide", "separate"]
+                }
+              },
+              "required": ["kind", "min", "mid", "max"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "threshold": {
+          "type": "object",
+          "description": "JSON has no infinity: an unset bound is written as null and read back as the infinity it stands for.",
+          "properties": {
+            "lo": {
+              "type": ["number", "null"]
+            },
+            "hi": {
+              "type": ["number", "null"]
+            },
+            "symmetric": {
+              "type": "boolean"
+            },
+            "mode": {
+              "enum": ["hide", "clamp"]
+            },
+            "softEdge": {
+              "type": "number",
+              "description": "Alpha ramp width as a fraction of hi-lo; 0 is a hard discard."
+            }
+          },
+          "additionalProperties": false
+        },
+        "volumeIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Which 3D volume of a 4D file."
+        },
+        "interpolation": {
+          "enum": ["nearest", "linear"],
+          "description": "Forced to nearest for a label volume."
+        },
+        "labelMode": {
+          "enum": ["fill", "outline"],
+          "description": "Label volumes only."
+        },
+        "outlineWidthPx": {
+          "type": "number"
+        },
+        "visibleLabels": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Absent means all."
+        },
+        "showIn3D": {
+          "type": "boolean"
+        },
+        "precision": {
+          "enum": ["auto", "r16", "r32f"]
+        }
+      },
+      "required": ["id", "datasetId", "kind"]
+    },
+    "MeshLayer": {
+      "type": "object",
+      "title": "MeshLayer",
+      "description": "A TETRAHEDRAL FEM MESH — a SimNIBS .msh with element fields, tissue tags and an interior to cut open. NOT a triangular surface: from embed protocol 3 a FreeSurfer or GIfTI surface is `kind: 'surface'` (see SurfaceLayer), which has one colour source and no tags, caps, isolation or 2-D fill. Sending a surface file as `mesh` still loads and still draws — the renderer uses the same 7.4 triangle passes for both — but the layer then carries a tet mesh's whole vocabulary, two thirds of which is inert on a sheet.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Host-chosen. NOT the id you get back: Engine.load reassigns every id."
+        },
+        "datasetId": {
+          "type": "string",
+          "description": "Must match a DatasetRef.id in `datasets`."
+        },
+        "kind": {
+          "const": "mesh"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pickable": {
+          "type": "boolean"
+        },
+        "showColorbar": {
+          "type": "boolean"
+        },
+        "colormap": {
+          "enum": [
+            "gray",
+            "viridis",
+            "plasma",
+            "inferno",
+            "magma",
+            "cividis",
+            "turbo",
+            "jet",
+            "hot",
+            "cool",
+            "bone",
+            "coolwarm",
+            "bwr",
+            "freesurfer-heat",
+            "blue-cyan"
+          ]
+        },
+        "scale": {
+          "description": "ARCHITECTURE.md 4.2. Omit it: a volume gets its own 2nd-98th percentile window, and a mesh field layer is windowed from that field's stats by the embed.",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "linear"
+                },
+                "lo": {
+                  "type": "number"
+                },
+                "hi": {
+                  "type": "number"
+                }
+              },
+              "required": ["kind", "lo", "hi"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "heat"
+                },
+                "min": {
+                  "type": "number"
+                },
+                "mid": {
+                  "type": "number"
+                },
+                "max": {
+                  "type": "number"
+                },
+                "truncate": {
+                  "type": "boolean"
+                },
+                "inverse": {
+                  "type": "boolean"
+                },
+                "negative": {
+                  "enum": ["mirror", "hide", "separate"]
+                }
+              },
+              "required": ["kind", "min", "mid", "max"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "threshold": {
+          "type": "object",
+          "description": "JSON has no infinity: an unset bound is written as null and read back as the infinity it stands for.",
+          "properties": {
+            "lo": {
+              "type": ["number", "null"]
+            },
+            "hi": {
+              "type": ["number", "null"]
+            },
+            "symmetric": {
+              "type": "boolean"
+            },
+            "mode": {
+              "enum": ["hide", "clamp"]
+            },
+            "softEdge": {
+              "type": "number",
+              "description": "Alpha ramp width as a fraction of hi-lo; 0 is a hard discard."
+            }
+          },
+          "additionalProperties": false
+        },
+        "colorMode": {
+          "enum": ["solid", "tag", "field"]
+        },
+        "solidColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "field": {
+          "type": "object",
+          "description": "Which field colours the mesh. `source` is where it lives in the file.",
+          "properties": {
+            "source": {
+              "enum": ["node", "elm"]
+            },
+            "name": {
+              "type": "string"
+            },
+            "component": {
+              "description": "'mag' or a 0-based component index for a vector field."
+            }
+          },
+          "required": ["source", "name"]
+        },
+        "tagStyle": {
+          "type": "object",
+          "description": "Per-tag visibility and opacity, keyed by the tag NUMBER as a string. Tags are not contiguous and a SimNIBS simulation mesh adds electrode/gel tags in the 101/501/1101/2101 ranges.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "visible": {
+                "type": "boolean"
+              },
+              "opacity": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "clip": {
+          "type": "object",
+          "properties": {
+            "planes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "plane": {
+                    "type": "object",
+                    "properties": {
+                      "normal": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["normal", "offset"]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "followCursor": {
+                    "type": "boolean",
+                    "description": "The plane tracks the crosshair."
+                  }
+                },
+                "required": ["plane"]
+              }
+            },
+            "caps": {
+              "type": "boolean",
+              "description": "Fill the cut with exact cap geometry."
+            },
+            "capColorMode": {
+              "enum": ["inherit", "solid"]
+            }
+          }
+        },
+        "contoursIn2D": {
+          "type": "boolean",
+          "description": "Draw the mesh as outlines in the slice panes."
+        },
+        "contourWidthPx": {
+          "type": "number"
+        },
+        "contourColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "fillIn2D": {
+          "type": "boolean"
+        },
+        "edges": {
+          "type": "object",
+          "properties": {
+            "surface": {
+              "type": "boolean"
+            },
+            "caps": {
+              "type": "boolean"
+            }
+          }
+        },
+        "edgeColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "edgeWidthPx": {
+          "type": "number"
+        },
+        "flatShading": {
+          "type": "boolean"
+        },
+        "faceMode": {
+          "enum": ["cull", "both"]
+        }
+      },
+      "required": ["id", "datasetId", "kind"]
+    },
+    "SurfaceLayer": {
+      "type": "object",
+      "title": "SurfaceLayer",
+      "description": "A TRIANGULAR SURFACE (embed protocol 3, Tetravox 0.4.0) — ARCHITECTURE.md 4.4's SurfaceLayer as a host writes one. A surface is a triangle sheet with NO TETRAHEDRA: a hemisphere from a FreeSurfer binary (lh.pial, rh.white, lh.central) or a GIfTI (lh.pial.gii), an STL/PLY/OBJ shell, a .vtp. A MeshLayer is the other thing: a TETRAHEDRAL FEM volume, a SimNIBS .msh with element fields, tissue tags and an interior to cut open. The renderer draws both with the same 7.4 triangle passes, deliberately; the difference is the MODEL. A surface has no tissue tags, no isolation, no glyphs, no 2-D fill and NO CAPS (a sheet has no interior to cap), so tagStyle, clip.caps, fillIn2D and `field` are absent from this definition rather than accepted and ignored. What it has instead is exactly ONE COLOUR SOURCE at a time, chosen by colorMode: a solid colour, a per-vertex `overlay` (curvature, thickness, a .func.gii) or a per-vertex `annotation` (a .annot or .label.gii atlas). Before protocol 3 a .gii had to be sent as kind:'mesh'; that still loads and still draws — it is the model that was wrong, not the picture.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Host-chosen. NOT the id you get back: Engine.load reassigns every id."
+        },
+        "datasetId": {
+          "type": "string",
+          "description": "Must match a DatasetRef.id in `datasets`. That ref's kind may be `surface` or `mesh`."
+        },
+        "kind": {
+          "const": "surface"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pickable": {
+          "type": "boolean"
+        },
+        "showColorbar": {
+          "type": "boolean"
+        },
+        "colorMode": {
+          "enum": ["solid", "overlay", "annotation"],
+          "description": "Which colour source is live. Absent is 'solid'. THESE ARE NOT THE MESH NAMES: a MeshLayer says 'field' and 'tag', a surface says 'overlay' and 'annotation'. 'overlay' with no `overlay`, or 'annotation' with no `annotation`, falls back to 'solid' rather than failing."
+        },
+        "solidColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "0..1 RGBA, drawn when colorMode is 'solid'. OMITTING BOTH THIS AND contourColor takes a palette entry BY LOAD ORDER — first surface Freeview yellow [1, 0.9, 0.15, 1], then green, orange, periwinkle, rose, teal, wrapping at six. A nicety for two hemispheres and a trap for a host that expected a fixed colour: name one if you care."
+        },
+        "overlay": {
+          "type": "object",
+          "description": "The per-vertex SCALAR that colours the surface when colorMode is 'overlay' — curvature, thickness, a .func.gii, a morph file. `name` is the field's name in the dataset, which for a file attached through sidecars.fields is THAT FILE'S OWN BASE NAME (`lh.thickness`). There is no `source` field: a surface's data is per-vertex by construction, which is the `source: 'node'` a MeshLayer has to say out loud (a .msh simulation field is usually 'elm'). Window it with colormap / scale / threshold below.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "component": {
+              "description": "'mag' (the default, and all a scalar has) or a 0-based component index for a vector."
+            }
+          },
+          "required": ["name"]
+        },
+        "annotation": {
+          "type": "object",
+          "description": "The per-vertex ATLAS that colours the surface when colorMode is 'annotation' — a FreeSurfer .annot, a .label.gii, or a <LabelTable> the geometry file carried. `name` is the field's name in the dataset: for an attached file, that file's own base name (`lh.ernie_DK40.annot`). THERE IS NO `table` HERE and there must not be: 4.4's LabelTable is the one non-JSON field, re-derived from the dataset by `name` on load, and a host has never seen the colours inside the .annot it is naming. A name that matches nothing does NOT fail the load — the layer falls back to colorMode 'solid' and its palette colour, and the `layers` event is where you find out.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "mode": {
+              "enum": ["fill", "outline", "both"],
+              "description": "How the parcels are drawn. Absent is 'fill'."
+            },
+            "outlineWidthPx": {
+              "type": "number"
+            },
+            "visibleLabels": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "A whitelist of label ids. Absent means all."
+            }
+          },
+          "required": ["name"]
+        },
+        "colormap": {
+          "enum": [
+            "gray",
+            "viridis",
+            "plasma",
+            "inferno",
+            "magma",
+            "cividis",
+            "turbo",
+            "jet",
+            "hot",
+            "cool",
+            "bone",
+            "coolwarm",
+            "bwr",
+            "freesurfer-heat",
+            "blue-cyan"
+          ],
+          "description": "Colours an `overlay`. An `annotation` is drawn through its own table instead."
+        },
+        "colormapNegative": {
+          "enum": [
+            "gray",
+            "viridis",
+            "plasma",
+            "inferno",
+            "magma",
+            "cividis",
+            "turbo",
+            "jet",
+            "hot",
+            "cool",
+            "bone",
+            "coolwarm",
+            "bwr",
+            "freesurfer-heat",
+            "blue-cyan"
+          ],
+          "description": "A second ramp for the negative half of a signed overlay."
+        },
+        "scale": {
+          "description": "ARCHITECTURE.md 4.2. Omit it: a volume gets its own 2nd-98th percentile window, and a mesh field layer is windowed from that field's stats by the embed.",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "linear"
+                },
+                "lo": {
+                  "type": "number"
+                },
+                "hi": {
+                  "type": "number"
+                }
+              },
+              "required": ["kind", "lo", "hi"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "heat"
+                },
+                "min": {
+                  "type": "number"
+                },
+                "mid": {
+                  "type": "number"
+                },
+                "max": {
+                  "type": "number"
+                },
+                "truncate": {
+                  "type": "boolean"
+                },
+                "inverse": {
+                  "type": "boolean"
+                },
+                "negative": {
+                  "enum": ["mirror", "hide", "separate"]
+                }
+              },
+              "required": ["kind", "min", "mid", "max"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "threshold": {
+          "type": "object",
+          "description": "JSON has no infinity: an unset bound is written as null and read back as the infinity it stands for.",
+          "properties": {
+            "lo": {
+              "type": ["number", "null"]
+            },
+            "hi": {
+              "type": ["number", "null"]
+            },
+            "symmetric": {
+              "type": "boolean"
+            },
+            "mode": {
+              "enum": ["hide", "clamp"]
+            },
+            "softEdge": {
+              "type": "number",
+              "description": "Alpha ramp width as a fraction of hi-lo; 0 is a hard discard."
+            }
+          },
+          "additionalProperties": false
+        },
+        "flatShading": {
+          "type": "boolean"
+        },
+        "faceMode": {
+          "enum": ["cull", "both"],
+          "description": "Forced to 'both' for a surface with open edges, whatever this says."
+        },
+        "edges": {
+          "type": "boolean",
+          "description": "A BOOLEAN here, not the MeshLayer's { surface, caps } object: a sheet has no caps."
+        },
+        "edgeColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "edgeWidthPx": {
+          "type": "number"
+        },
+        "clip": {
+          "type": "object",
+          "description": "PLANES ONLY. A MeshLayer's `caps` and `capColorMode` are absent by design: a sheet has no interior for a cap to fill.",
+          "properties": {
+            "planes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "plane": {
+                    "type": "object",
+                    "properties": {
+                      "normal": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "offset": {
+                        "type": "number"
+                      }
+                    },
+                    "required": ["normal", "offset"]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "followCursor": {
+                    "type": "boolean",
+                    "description": "The plane tracks the crosshair."
+                  }
+                },
+                "required": ["plane"]
+              }
+            }
+          }
+        },
+        "contoursIn2D": {
+          "type": "boolean",
+          "description": "ABSENT IS TRUE here, unlike a MeshLayer. A surface's whole 2-D presence is its outline; without it a surface is invisible in the slice panes."
+        },
+        "contourWidthPx": {
+          "type": "number",
+          "description": "Absent is 1.5."
+        },
+        "contourColor": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "required": ["id", "datasetId", "kind"]
+    },
+    "PointsLayer": {
+      "type": "object",
+      "title": "PointsLayer",
+      "description": "A points layer written INLINE (protocol 2). There is no points file an embed could serve, so the coordinates arrive with the layer: `datasetId` names a dataset already in this spec — the volume the points sit over — exactly as the sEEG contact editor hangs its contacts off the CT they were localised on. `state` and `labelMode` are this protocol's own vocabulary and are resolved before the engine sees the layer; everything else is ARCHITECTURE.md 4.4's PointsLayer verbatim.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "datasetId": {
+          "type": "string",
+          "description": "A dataset in THIS spec. Points need no file, but a layer needs a carrier (4.4)."
+        },
+        "kind": {
+          "const": "points"
+        },
+        "name": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "pickable": {
+          "type": "boolean",
+          "description": "Whether 7.2.3's id pass answers for this layer. The point tool hit-tests regardless."
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Point"
+          }
+        },
+        "shape": {
+          "enum": ["sphere", "dot"],
+          "description": "'sphere' (default) is radiusMm in world mm; 'dot' is a constant screen size in BOTH the 2-D slice panes and the 3-D pane (the 3-D half arrived in Tetravox 0.3.12; before it, a 3-D pane drew millimetre spheres whatever this said). A 3-D dot is flat, not shaded."
+        },
+        "radiusMm": {
+          "type": "number",
+          "description": "Default 4 mm, about an EEG electrode."
+        },
+        "color": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "0..1 RGBA — every point with neither its own colour nor a resolved state."
+        },
+        "labelMode": {
+          "enum": ["none", "names", "labels"],
+          "description": "Default 'none'. 'names' draws each point's own name at its own position; 'labels' draws the layer's free-standing labels[] anchors, which only a parsed Gmsh view has. There is no 'hover': the engine draws no hover text, and a mode that silently did nothing would be worse than its absence."
+        },
+        "stateColors": {
+          "type": "object",
+          "description": "What each points[].state paints, when that point carries no explicit color. Absent states keep the default: idle -> the layer colour, selected -> [1, 0.8, 0.2, 1] (rgb 255,204,51), disabled -> [0.6, 0.6, 0.6, 1] (rgb 153,153,153). `idle` was accepted and ignored before Tetravox 0.3.12; from 0.3.12 an idle point with no color of its own takes it.",
+          "properties": {
+            "idle": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "selected": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "disabled": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            }
+          },
+          "additionalProperties": false
+        },
+        "offPlaneOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "How visible a point is in a 2-D pane it is not on. 0 or absent is 7.2's hard cull — right for a scalp net, wrong for a depth electrode, whose shaft no single slice contains."
+        },
+        "dotRadiusPx": {
+          "type": "number",
+          "description": "shape 'dot' only: the screen radius in CSS pixels. Absent is 4."
+        }
+      },
+      "required": ["id", "datasetId", "kind", "points"]
+    },
+    "Point": {
+      "type": "object",
+      "title": "Point",
+      "description": "One point. Unlisted fields are accepted and passed through — 4.4 is the complete model.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The point's identity, and what a `pick` event and `setPointSelection` name it by. Optional — the engine mints `p<index>` for a point with none, and an index moves when a point is deleted, so send your own if you want to recognise your electrode."
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "description": "World-RAS millimetres."
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "enum": ["idle", "selected", "disabled"],
+          "description": "Resolved to a colour from stateColors above, including 'idle' (from Tetravox 0.3.12; before that 'idle' was never state-coloured). An explicit `color` on the same point wins. Not the tool selection: any number of points may be selected here, exactly one can be the selection."
+        },
+        "color": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "radiusMm": {
+          "type": "number"
+        },
+        "group": {
+          "type": "string"
+        },
+        "ordinal": {
+          "type": "number"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "required": ["position"]
+    }
+  }
+}

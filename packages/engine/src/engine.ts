@@ -76,7 +76,13 @@ import { readGlyphInstances } from './derived/glyph-readback';
 import type { GlyphInstance } from './derived/glyph-readback';
 import { VolumeLayerRuntime, buildLabelPalette } from './layers/volume';
 // §13's point tool (2026-08-30): the pure hit tests, and the `p<index>` id fallback.
-import { pointAtPane, pointAtPane3D, pointIdAt } from './layers/points';
+import {
+  POINT_HIT_3D_PX,
+  dotRadiusPxOf,
+  pointAtPane,
+  pointAtPane3D,
+  pointIdAt,
+} from './layers/points';
 import type { PointPaneHit } from './layers/points';
 
 import { visibleIn } from './layers/runtime';
@@ -156,6 +162,7 @@ import {
   isRestorableKind,
   migrateViewSpec,
   remapLayer,
+  remapViews,
   sidecarPathsFor,
   toViewSpec,
 } from './scene/serialize';
@@ -287,6 +294,7 @@ export class TetravoxEngine implements Engine, PointerHost {
   #dirtyViews = new Set<ViewId>();
   #raf = 0;
   #destroyed = false;
+  #cancelSceneLoad: (() => void) | null = null;
   /** §7.2's `interacting` (P2-02): the flag, its 120 ms settle timer, and the one re-render. */
   readonly #interaction: InteractionState;
   /** §7.5's pointer layer (P2-01). Bound to the canvas for the engine's whole life. */
@@ -579,7 +587,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     const client = new ComputeClient({
       worker,
       onProgress: (_reqId, phase, done, total) => {
-        this.#emit('progress', { datasetId: id, phase, done, total } satisfies LoadProgress);
+        this.#emit('progress', { datasetId: id, name, phase, done, total } satisfies LoadProgress);
       },
       onHeapBytes: (bytes) => {
         runtime.heapBytes = bytes;
@@ -619,7 +627,8 @@ export class TetravoxEngine implements Engine, PointerHost {
         runtime.loadId = req.id;
         const res = await this.#track(req.promise);
         runtime.loadId = null;
-        if (runtime.cancelled) throw new Error('cancelled');
+        if (runtime.cancelled || this.#destroyed || this.#workers.get(id) !== runtime)
+          throw new Error('cancelled');
         return this.#adoptVolume(
           id,
           res.meta,
@@ -640,7 +649,8 @@ export class TetravoxEngine implements Engine, PointerHost {
       runtime.loadId = req.id;
       const res = await this.#track(req.promise);
       runtime.loadId = null;
-      if (runtime.cancelled) throw new Error('cancelled');
+      if (runtime.cancelled || this.#destroyed || this.#workers.get(id) !== runtime)
+        throw new Error('cancelled');
       return await this.#adoptMesh(id, res.meta, path, res.geo);
     } catch (err) {
       this.#teardown(id);
@@ -711,6 +721,8 @@ export class TetravoxEngine implements Engine, PointerHost {
         : await this.#track(
             rt.client.call(`surface:${id}`, 'boundary', { handle: ds.handle, variant: 'indexed' })
           );
+      if (rt.cancelled || this.#destroyed || this.#workers.get(id) !== rt)
+        throw new Error('cancelled');
       this.#gpu.uploadSurface(surfaceKey(id, 'indexed'), payload);
     }
     this.#fingerprints.set(id, fingerprintFromMeta(meta));
@@ -728,7 +740,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       (b.min[1] + b.max[1]) / 2,
       (b.min[2] + b.max[2]) / 2,
     ];
-    if (this.#scene.datasets.size === 1) {
+    if (this.#scene.datasets.size === 1 && this.#cancelSceneLoad === null) {
       this.#store.setView3D({
         ...this.#scene.view3d,
         camera: fitCamera(this.#scene.view3d.camera, b),
@@ -3130,7 +3142,16 @@ export class TetravoxEngine implements Engine, PointerHost {
       const viewProj = this.#lastViewProj.get(viewId);
       if (viewProj === undefined) return null;
       for (const layer of layers) {
-        const hit = pointAtPane3D(layer, viewProj, rect, x, y);
+        // The disc IS the target, in 3D as in 2D (2026-09-05). Since the 3D pane draws a `dot`
+        // layer at `dotRadiusPx · uiScale` device pixels, a grab radius fixed at
+        // `POINT_HIT_3D_PX` would be *smaller* than a marker a host asked to make big — a click
+        // inside the disc that misses the point it is plainly on. `Math.max` keeps the floor: a
+        // 2 px dot is still grabbable at the 14 px this pane has always used.
+        const hitPx =
+          layer.shape === 'dot'
+            ? Math.max(POINT_HIT_3D_PX, dotRadiusPxOf(layer) * uiScale)
+            : POINT_HIT_3D_PX;
+        const hit = pointAtPane3D(layer, viewProj, rect, x, y, hitPx);
         if (hit !== null && beats(hit)) best = { layer, hit };
       }
     }
@@ -3317,7 +3338,7 @@ export class TetravoxEngine implements Engine, PointerHost {
   }
 
   /**
-   * §4.7's `load` — datasets, then **layers**, then views (P2-07).
+   * §4.7's `load` — reuse current data, load missing files concurrently, restore layers as ready.
    *
    * The order is forced. `addDataset` hands back a fresh `DatasetId`, so the spec's ids are stale the
    * moment the first one lands: layers can only be recreated once the old→new map exists, and the
@@ -3330,67 +3351,155 @@ export class TetravoxEngine implements Engine, PointerHost {
    * nothing. `scene/serialize.ts`'s `candidatePaths` is the "relative first, absolute fallback"
    * policy a host should try before it asks the user.
    */
-  async load(input: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
-    // §13: every layer in the scene is about to be replaced, ids included, so a tool armed on one
-    // of the outgoing ones is pointed at nothing. Disarmed here rather than left to fail its next
-    // click — and it emits `cleared` with `reason: 'load'`, which is how a module knows to re-arm
-    // against the layer the load brought back rather than to stay away.
+  async load(
+    input: ViewSpec,
+    resolve: (r: DatasetRef) => string | null,
+    signal?: AbortSignal
+  ): Promise<void> {
+    if (signal?.aborted || this.#destroyed)
+      throw new DOMException('Scene load cancelled', 'AbortError');
+    this.#cancelSceneLoad?.();
     this.#disarmPointTool('load');
-    // One migration point, so a host that read the file itself and a host that did not both get a
-    // spec at `SCENE_VERSION` (§4.6, directed task 13).
     const spec = migrateViewSpec(input);
     const idMap = new Map<DatasetId, DatasetId>();
+    const layerMap = new Map<LayerId, LayerId>();
+    const paths = new Map(spec.datasets.map((ref) => [ref.id, resolve(ref)]));
+    const retained = new Set<DatasetId>();
     for (const ref of spec.datasets) {
-      const path = resolve(ref);
-      if (path === null) continue;
-      // §6.5.1's sidecars come back with the dataset, resolved **against the path that resolved** —
-      // so a scene whose data moved brings its `.msh.opt` and its LUT along, which is the whole
-      // point of anchoring `SidecarRef.path` to the dataset's own directory. A sidecar that is not
-      // there any more is a missing table, never a failed load: `loadSource` reads them
-      // best-effort (`packages/wasm/src/sources.ts`).
-      const sidecars = sidecarPathsFor(ref, path);
-      const { fields, ...cars } = sidecars;
-      const ds = await this.addDataset(
-        Object.keys(cars).length > 0
-          ? { kind: 'path', path, sidecars: cars }
-          : { kind: 'path', path }
+      const path = paths.get(ref.id);
+      if (path == null) continue;
+      const wanted = sidecarPathsFor(ref, path);
+      const found = [...this.#scene.datasets.values()].find(
+        (dataset) =>
+          dataset.path === path &&
+          JSON.stringify(this.#sidecars.get(dataset.id) ?? {}) === JSON.stringify(wanted)
       );
-      idMap.set(ref.id, ds.id);
-      // The attached per-vertex files, in the order they were attached — best-effort like the
-      // other two roles: one that is gone, or no longer matches, is a missing table, never a
-      // failed load. The layers below find their tables by `label.name` (`addLayer`).
-      for (const field of fields ?? []) {
-        if (ds.kind !== 'mesh') break;
-        try {
-          await this.attachSurfaceData(ds.id, { kind: 'path', path: field });
-        } catch {
-          // reported by the worker's `error` event; the scene still opens
-        }
+      if (found !== undefined) {
+        idMap.set(ref.id, found.id);
+        retained.add(found.id);
       }
     }
-
-    const layerMap = new Map<LayerId, LayerId>();
-    for (const serialized of spec.layers) {
-      // Only the kinds `scene/defaults.ts` can seed today; `addLayer` derives a layer's kind from its
-      // dataset, so an `iso` or `points` layer would come back as a volume or a mesh one. Their
-      // defaults are E-DERIVED's, and this restores them unchanged the day they land.
-      if (!isRestorableKind(serialized.kind)) continue;
-      const patch = remapLayer(serialized, idMap);
-      if (patch === null) continue;
-      const created = this.addLayer(patch as NewLayer);
-      layerMap.set(serialized.id, created.id);
+    const savedCamera = retained.size > 0 ? this.#scene.view3d.camera : null;
+    // Reconcile current selection only: deselected datasets release their worker and GPU memory.
+    for (const dataset of [...this.#scene.datasets.values()]) {
+      if (!retained.has(dataset.id)) this.removeDataset(dataset.id);
     }
-
-    applyViewSpec(this.#store, spec, layerMap);
-    const active = spec.activeLayerId;
-    this.#store.setActiveLayer(active !== null ? (layerMap.get(active) ?? null) : null);
-    this.#emit('layers', [...this.#scene.layers]);
-    this.#emit('measurements', [...this.#scene.measurements]);
-    this.#emit('cursor', this.#scene.cursor);
-    this.requestRender();
+    for (const layer of [...this.#scene.layers]) this.removeLayer(layer.id);
+    const owned = new Set<DatasetId>();
+    const ready = new Set<DatasetId>();
+    let activeRestored = false;
+    let cancelled = signal?.aborted ?? false;
+    const cancel = (): void => {
+      cancelled = true;
+      for (const id of owned) {
+        if (!ready.has(id)) this.removeDataset(id);
+      }
+    };
+    this.#cancelSceneLoad = cancel;
+    signal?.addEventListener('abort', cancel, { once: true });
+    const check = (): void => {
+      if (cancelled || this.#destroyed)
+        throw new DOMException('Scene load cancelled', 'AbortError');
+    };
+    // Camera and layout are established once, before the first dataset can render. Later arrivals
+    // only remap layer visibility; they must not reset an orbit made while another file loads.
+    const attachReady = (final = false): void => {
+      check();
+      for (const serialized of spec.layers) {
+        if (layerMap.has(serialized.id) || !isRestorableKind(serialized.kind)) continue;
+        // An isolate depends on both the mesh and its label volume. Wait for that second dataset,
+        // or restore the existing missing-reference fallback after all files settle.
+        const dependency =
+          serialized.kind === 'mesh'
+            ? (serialized as unknown as MeshLayer).isolate?.labelVolume?.datasetId
+            : undefined;
+        if (!final && dependency !== undefined && !idMap.has(dependency)) continue;
+        const patch = remapLayer(serialized, idMap);
+        if (patch === null) continue;
+        const created = this.addLayer(patch as NewLayer);
+        layerMap.set(serialized.id, created.id);
+      }
+      this.#store.reorderLayers(
+        spec.layers.flatMap((layer) => {
+          const id = layerMap.get(layer.id);
+          return id === undefined ? [] : [id];
+        })
+      );
+      const views = remapViews(spec, layerMap);
+      this.#store.setView3D({
+        ...this.#scene.view3d,
+        layerVisibility: views.view3d.layerVisibility,
+      });
+      this.#store.setSlices(
+        this.#scene.slices.map((slice) => ({
+          ...slice,
+          layerVisibility: views.slices.find((saved) => saved.id === slice.id)?.layerVisibility,
+        }))
+      );
+      const active = spec.activeLayerId === null ? null : layerMap.get(spec.activeLayerId);
+      if (!activeRestored && active !== undefined) {
+        this.#store.setActiveLayer(active);
+        activeRestored = true;
+      }
+      this.#emit('layers', [...this.#scene.layers]);
+      this.requestRender();
+    };
+    try {
+      check();
+      applyViewSpec(this.#store, spec, layerMap);
+      if (savedCamera !== null)
+        this.#store.setView3D({ ...this.#scene.view3d, camera: savedCamera });
+      attachReady();
+      const results = await Promise.allSettled(
+        spec.datasets.map(async (ref) => {
+          check();
+          if (idMap.has(ref.id)) return;
+          const path = paths.get(ref.id);
+          if (path == null) return;
+          const { fields, ...cars } = sidecarPathsFor(ref, path);
+          // addDataset registers this worker synchronously before its first await. Keep pending
+          // workers too, since they are not yet present in scene.datasets when New is pressed.
+          owned.add(`ds${this.#nextId}`);
+          const ds = await this.addDataset(
+            Object.keys(cars).length > 0
+              ? { kind: 'path', path, sidecars: cars }
+              : { kind: 'path', path }
+          );
+          check();
+          for (const field of fields ?? []) {
+            if (ds.kind !== 'mesh') break;
+            try {
+              await this.attachSurfaceData(ds.id, { kind: 'path', path: field });
+            } catch {
+              /* Optional sidecars remain best-effort. */
+            }
+            check();
+          }
+          idMap.set(ref.id, ds.id);
+          ready.add(ds.id);
+          attachReady();
+        })
+      );
+      check();
+      attachReady(true);
+      this.#emit('measurements', [...this.#scene.measurements]);
+      this.#emit('cursor', this.#scene.cursor);
+      const failures = results.flatMap((result, index) =>
+        result.status === 'rejected'
+          ? [
+              `${spec.datasets[index]?.name ?? 'Dataset'}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
+            ]
+          : []
+      );
+      if (failures.length > 0) throw new Error(failures.join('; '));
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+      if (this.#cancelSceneLoad === cancel) this.#cancelSceneLoad = null;
+    }
   }
 
   destroy(): void {
+    this.#cancelSceneLoad?.();
     this.#destroyed = true;
     if (this.#raf !== 0 && typeof globalThis.cancelAnimationFrame === 'function') {
       globalThis.cancelAnimationFrame(this.#raf);

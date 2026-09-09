@@ -50,6 +50,7 @@ import type {
   NewMeasurement,
   OverlayTheme,
   PanePlacement,
+  PaneHit,
   PickResult,
   PointPaneHit,
   PointSelection,
@@ -733,6 +734,29 @@ export class NoGlEngine implements Engine {
    * project a centre with, and a hit test that guessed would make the app's E2E pass against a
    * geometry the real engine does not have.
    */
+  /**
+   * §4.5's pane lookup (2026-09-05), modelled the only way this engine can: there is no canvas and
+   * no layout here, so **one** pane covers everything — `pointPane`, the same one `pointAtScreen`
+   * measures in — and a point outside it is in no pane at all.
+   *
+   * That is not a stub: it makes `paneAt` → `pointAtScreen` compose here exactly as it does in the
+   * real engine, which is what an app or embed test driving a hover through both calls needs. What
+   * it does not model is a multi-pane grid, and it says so rather than guessing a split.
+   */
+  paneAt(x: number, y: number): PaneHit | null {
+    const { width, height } = this.pointPane;
+    if (x < 0 || y < 0 || x >= width || y >= height) return null;
+    const view = this.state.slices[0];
+    return {
+      viewId: view?.id ?? 'axial',
+      is3D: false,
+      x,
+      y,
+      width,
+      height,
+    };
+  }
+
   pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null {
     const hit = this.pointHitAt(viewId, px, py);
     if (hit === null) return null;

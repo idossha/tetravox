@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tetravox embed — example host</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: dark;
+        font:
+          13px/1.5 ui-sans-serif,
+          system-ui,
+          sans-serif;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        height: 100vh;
+        background: #101216;
+        color: #dfe3ea;
+      }
+      header {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        border-bottom: 1px solid #333941;
+      }
+      button,
+      select {
+        font: inherit;
+        background: #1e2126;
+        color: #dfe3ea;
+        border: 1px solid #333941;
+        border-radius: 4px;
+        padding: 3px 8px;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1fr 22rem;
+        min-height: 0;
+      }
+      iframe {
+        border: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      aside {
+        border-left: 1px solid #333941;
+        padding: 8px 10px;
+        overflow: auto;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+      }
+      h2 {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #99a1ae;
+        margin: 12px 0 4px;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      #log {
+        color: #99a1ae;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong style="margin-right: 8px">Example host</strong>
+      <select id="scene">
+        <option value="a">(a) T1 + heat field + LUT labels</option>
+        <option value="b">(b) T1 + .msh TI_max, clip + contours</option>
+        <option value="c">(c) two surfaces + a .annot atlas</option>
+        <option value="d">(d) T1 + an electrode net (points)</option>
+        <option value="e">(e) a surface + a morph overlay</option>
+      </select>
+      <button id="load">load</button>
+      <button id="probe">probe at cursor</button>
+      <button id="shot">screenshot</button>
+      <button id="serialize">serialize</button>
+      <button id="theme">toggle theme</button>
+      <button id="reset">reset</button>
+      <!-- Protocol 2. Every one of these is a no-op against a protocol-1 build, which ignores a
+           type it does not know — which is the compatibility rule from the other side. -->
+      <button id="armSelect">arm select</button>
+      <button id="armPlace">arm place</button>
+      <button id="disarm">disarm</button>
+      <button id="picks">pick events: off</button>
+      <button id="camGet">get camera</button>
+      <button id="camLeft">camera: left</button>
+      <span id="status">…</span>
+    </header>
+    <main>
+      <!-- The embed. `?embed=1` selects embed mode; `hostOrigin` is the origin this page will post
+           from, and the only one the embed will accept a message from. `allow="fullscreen"` is
+           optional; no other permission is needed. -->
+      <iframe id="viewer" title="Tetravox"></iframe>
+      <aside>
+        <h2>ready</h2>
+        <pre id="ready">—</pre>
+        <h2>cursor</h2>
+        <pre id="cursor">—</pre>
+        <h2>probe</h2>
+        <pre id="probeOut">—</pre>
+        <h2>pick</h2>
+        <pre id="pickOut">—</pre>
+        <h2>camera</h2>
+        <pre id="cameraOut">—</pre>
+        <h2>layers</h2>
+        <pre id="layers">—</pre>
+        <h2>log</h2>
+        <pre id="log"></pre>
+      </aside>
+    </main>
+
+    <script type="module">
+      // ---------------------------------------------------------------------------------------
+      // Where the data is. `?data=<url prefix>` so the same page works against a static server, a
+      // Vite `/@fs/` mount, or an application's own file API. Defaults to this page's own origin.
+      // ---------------------------------------------------------------------------------------
+      const params = new URLSearchParams(location.search);
+      const DATA = params.get('data') ?? '/data';
+      const EMBED = params.get('embed') ?? '../index.html';
+
+      const iframe = document.getElementById('viewer');
+      // The embed's own URL carries the mode flag and the origin it must trust. Built through
+      // `URL` rather than by string concatenation so that an `EMBED` that already has a query —
+      // which is how the E2E reaches `?forceWebgl2Null=1` — gains these two instead of hiding them
+      // inside the value of the last one.
+      const embedUrl = new URL(EMBED, location.href);
+      embedUrl.searchParams.set('embed', '1');
+      embedUrl.searchParams.set('hostOrigin', location.origin);
+      iframe.src = embedUrl.href;
+
+      // The origin the embed is served from — what every incoming message is checked against. Here
+      // it is the same origin as this page; a host serving the bundle from a CDN would compare
+      // against that CDN's origin instead.
+      const EMBED_ORIGIN = new URL(iframe.src, location.href).origin;
+
+      const $ = (id) => document.getElementById(id);
+      const log = (line) => {
+        $('log').textContent = `${line}\n${$('log').textContent}`
+          .split('\n')
+          .slice(0, 40)
+          .join('\n');
+      };
+
+      let nextId = 0;
+      const pending = new Map();
+
+      /** Post a message to the embed. With an `id`, resolve when the matching reply lands. */
+      function send(message, expectReply = false) {
+        const id = expectReply ? `h${nextId++}` : undefined;
+        const payload = { tvx: 1, ...message, ...(id ? { id } : {}) };
+        iframe.contentWindow.postMessage(payload, EMBED_ORIGIN);
+        if (!expectReply) return Promise.resolve(null);
+        return new Promise((resolve) => pending.set(id, resolve));
+      }
+
+      window.addEventListener('message', (event) => {
+        // BOTH checks, every time. The origin is the one the iframe is served from, and the source
+        // is that iframe's own window — a sibling frame on the same origin would otherwise pass.
+        if (event.origin !== EMBED_ORIGIN) return;
+        if (event.source !== iframe.contentWindow) return;
+        const m = event.data;
+        if (m === null || typeof m !== 'object' || m.tvx !== 1) return;
+
+        if (m.id !== undefined && pending.has(m.id)) {
+          pending.get(m.id)(m);
+          pending.delete(m.id);
+        }
+
+        switch (m.type) {
+          case 'ready':
+            $('ready').textContent = JSON.stringify(m.caps, null, 1);
+            if (!m.caps.webgl2) $('status').textContent = 'no WebGL2 — nothing can render here';
+            break;
+          case 'status':
+            $('status').textContent = m.phase + (m.message ? `: ${m.message}` : '');
+            break;
+          case 'progress':
+            $('status').textContent = `${m.name}: ${m.phase} ${m.done}/${m.total}`;
+            break;
+          case 'cursor':
+            $('cursor').textContent =
+              `RAS ${m.world.map((v) => v.toFixed(1)).join(' ')}` +
+              (m.mni ? `\nMNI ${m.mni.map((v) => v.toFixed(1)).join(' ')}` : '');
+            break;
+          case 'layers':
+          case 'loaded':
+            $('layers').textContent = m.layers
+              .map((l) => `${l.visible ? '●' : '○'} ${l.id}  ${l.kind}  ${l.name}`)
+              .join('\n');
+            if (m.type === 'loaded') log(`loaded ${m.datasets.length} dataset(s)`);
+            break;
+          case 'probe':
+            $('probeOut').textContent = m.result.rows
+              .map((r) => `${r.layerName}: ${JSON.stringify(r.value ?? r.labelName ?? r.fields)}`)
+              .join('\n');
+            break;
+          // ---- protocol 2 --------------------------------------------------------------
+          case 'pick':
+            // `pointId` when a point was hit, `label`/`tag` for the region under the click, and
+            // the whole ProbeResult beside them. One message per left press.
+            $('pickOut').textContent =
+              `${m.kind}${m.pointId ? ` ${m.pointId}` : ''}\n` +
+              `RAS ${m.world.map((v) => v.toFixed(1)).join(' ')}\n` +
+              (m.label ? `label ${m.label.id} ${m.label.name ?? ''}\n` : '') +
+              (m.tag ? `tag ${m.tag.id} ${m.tag.name ?? ''}\n` : '') +
+              (m.modifiers.shift ? 'shift\n' : '');
+            break;
+          case 'pointTool':
+            // `dragEnd` after a plain click is zero-length — compare positions before recording an
+            // edit. `cleared` says why in `reason`, which is how a host knows whether to re-arm.
+            log(`pointTool ${m.event.kind} ${m.event.pointId ?? ''} ${m.event.reason ?? ''}`);
+            if (m.event.kind === 'cleared' && m.event.reason === 'measure') armed = null;
+            break;
+          case 'camera':
+            $('cameraOut').textContent = JSON.stringify(m.camera, null, 1);
+            break;
+          case 'error':
+            log(`error ${m.code ?? ''} ${m.message}`);
+            break;
+        }
+      });
+
+      // ---------------------------------------------------------------------------------------
+      // The three ViewSpec examples of docs/EMBED.md, verbatim. Only `datasets` and `layers` are
+      // given: the embed fills the camera, layout, cursor, background, lighting, annotations and
+      // transparency from the engine's own empty scene.
+      // ---------------------------------------------------------------------------------------
+      const SCENES = {
+        // (a) A T1 in grey, a field volume on a heat scale, and a label volume with its LUT, hidden.
+        a: {
+          version: 2,
+          datasets: [
+            { id: 'd1', kind: 'volume', name: 'T1.nii.gz', path: `${DATA}/m2m_ernie/T1.nii.gz` },
+            {
+              id: 'd2',
+              kind: 'volume',
+              name: 'TI_max.nii.gz',
+              path: `${DATA}/Simulations/Thalamus/TI/niftis/grey_Thalamus_TI_subject_TI_max.nii.gz`,
+            },
+            {
+              id: 'd3',
+              kind: 'volume',
+              name: 'final_tissues.nii.gz',
+              path: `${DATA}/m2m_ernie/final_tissues.nii.gz`,
+              sidecars: { lut: { path: 'final_tissues_LUT.txt' } },
+            },
+          ],
+          layers: [
+            {
+              id: 'l1',
+              datasetId: 'd1',
+              kind: 'volume',
+              name: 'T1',
+              visible: true,
+              colormap: 'gray',
+            },
+            {
+              id: 'l2',
+              datasetId: 'd2',
+              kind: 'volume',
+              name: 'TI_max',
+              visible: true,
+              opacity: 0.8,
+              colormap: 'hot',
+              // No `scale`: the engine seeds a scalar volume's window from its own 2nd-98th
+              // percentiles (`scene/defaults.ts`), which is the percentile window a host wants and
+              // cannot compute — it has never seen the voxels.
+              threshold: { lo: 0.05, hi: null, symmetric: false, mode: 'hide', softEdge: 0 },
+            },
+            {
+              id: 'l3',
+              datasetId: 'd3',
+              kind: 'volume',
+              name: 'tissues',
+              // A label volume is recognised from its own data (`VolumeDataset.isLabel`) and drawn
+              // through the LUT sidecar above — there is no `colormap` to name for one.
+              visible: false,
+              labelMode: 'fill',
+            },
+          ],
+          activeLayerId: 'l2',
+        },
+
+        // (b) A T1 and a tetrahedral mesh coloured by its element field, clipped on the cursor and
+        //     drawn as contours in the 2D panes.
+        b: {
+          version: 2,
+          datasets: [
+            { id: 'd1', kind: 'volume', name: 'T1.nii.gz', path: `${DATA}/m2m_ernie/T1.nii.gz` },
+            {
+              id: 'd2',
+              kind: 'mesh',
+              name: 'grey_Thalamus_TI.msh',
+              path: `${DATA}/Simulations/Thalamus/TI/mesh/grey_Thalamus_TI.msh`,
+            },
+          ],
+          layers: [
+            {
+              id: 'l1',
+              datasetId: 'd1',
+              kind: 'volume',
+              name: 'T1',
+              visible: true,
+              colormap: 'gray',
+            },
+            {
+              id: 'l2',
+              datasetId: 'd2',
+              kind: 'mesh',
+              name: 'TI_max',
+              visible: true,
+              colorMode: 'field',
+              colormap: 'jet',
+              field: { source: 'elm', name: 'TI_max', component: 'mag' },
+              contoursIn2D: true,
+              contourWidthPx: 1.5,
+              clip: {
+                planes: [
+                  {
+                    plane: { normal: [1, 0, 0], offset: 0 },
+                    enabled: true,
+                    followCursor: true,
+                  },
+                ],
+                caps: true,
+                capColorMode: 'inherit',
+              },
+            },
+          ],
+          activeLayerId: 'l2',
+        },
+
+        // (c) Two SURFACES — protocol 3. A surface is a triangular sheet and NOT a `mesh`: no
+        //     tissue tags, no caps, no 2-D fill, and one colour source at a time. The left
+        //     hemisphere carries a FreeSurfer `.annot` attached as a second file through
+        //     `sidecars.fields`; the right is a GIfTI in a flat colour.
+        //
+        //     `kind: 'surface'` on the DATASET is protocol 3's host-facing spelling of `'mesh'` —
+        //     the engine has no third dataset kind, because surface-ness is read from the bytes.
+        //     It is here so the dataset and its layer say the same word.
+        c: {
+          version: 2,
+          datasets: [
+            {
+              id: 'd1',
+              kind: 'surface',
+              // FreeSurfer surfaces carry no extension at all; the loader reads the magic bytes.
+              name: 'lh.central',
+              path: `${DATA}/m2m_ernie/surfaces/lh.central`,
+              // Anchored to the DATASET's directory, not to this page: SimNIBS writes the atlas one
+              // directory over. Best-effort — if it 404s the surface opens solid, not broken.
+              sidecars: { fields: [{ path: '../segmentation/lh.ernie_DK40.annot' }] },
+            },
+            {
+              id: 'd2',
+              kind: 'surface',
+              name: 'rh.pial.gii',
+              path: `${DATA}/m2m_ernie/surfaces/rh.pial.gii`,
+            },
+          ],
+          layers: [
+            {
+              id: 'l1',
+              datasetId: 'd1',
+              kind: 'surface',
+              name: 'lh + DK40',
+              visible: true,
+              colorMode: 'annotation',
+              // The field is named after ITS OWN FILE, which is how two atlases coexist.
+              annotation: { name: 'lh.ernie_DK40.annot', mode: 'fill' },
+            },
+            {
+              id: 'l2',
+              datasetId: 'd2',
+              kind: 'surface',
+              name: 'rh.pial',
+              visible: true,
+              colorMode: 'solid',
+              solidColor: [0.78, 0.78, 0.8, 1],
+              // A sheet's whole 2-D presence is its outline — but this defaults to true for a
+              // surface, so it is written here only to say so.
+              contoursIn2D: true,
+            },
+          ],
+          activeLayerId: 'l1',
+        },
+
+        // (e) A per-vertex OVERLAY rather than an atlas: the same geometry coloured by a morph
+        //     file. `source: 'node'` is not written — a surface's data is per-vertex by
+        //     construction, which is the thing a `.msh` field has to say out loud.
+        e: {
+          version: 2,
+          datasets: [
+            {
+              id: 'd1',
+              kind: 'surface',
+              name: 'lh.central',
+              path: `${DATA}/m2m_ernie/surfaces/lh.central`,
+              sidecars: { fields: [{ path: 'lh.thickness' }] },
+            },
+          ],
+          layers: [
+            {
+              id: 'l1',
+              datasetId: 'd1',
+              kind: 'surface',
+              name: 'lh thickness',
+              visible: true,
+              colorMode: 'overlay',
+              overlay: { name: 'lh.thickness', component: 'mag' },
+              colormap: 'viridis',
+              showColorbar: true,
+            },
+          ],
+          activeLayerId: 'l1',
+        },
+
+        // (d) A T1 with an electrode net drawn on top — protocol 2. The points are INLINE: there is
+        //     no points file to name, and `datasetId` is the volume they sit over. `state` says what
+        //     each electrode currently is and the embed resolves it to a colour, so the host never
+        //     restates what "selected" looks like.
+        d: {
+          version: 2,
+          datasets: [
+            { id: 'd1', kind: 'volume', name: 'T1.nii.gz', path: `${DATA}/m2m_ernie/T1.nii.gz` },
+          ],
+          layers: [
+            {
+              id: 'l1',
+              datasetId: 'd1',
+              kind: 'volume',
+              name: 'T1',
+              visible: true,
+              colormap: 'gray',
+            },
+            {
+              id: 'l2',
+              datasetId: 'd1',
+              kind: 'points',
+              name: 'EEG net',
+              points: [
+                { id: 'E1', name: 'Fp1', position: [-25, 78, 15] },
+                { id: 'E2', name: 'Fp2', position: [25, 78, 15], state: 'selected' },
+                { id: 'E3', name: 'Cz', position: [0, 6, 100] },
+                { id: 'E4', name: 'T7', position: [-73, 6, 30], state: 'disabled' },
+              ],
+              color: [0.2, 0.6, 1, 1],
+              radiusMm: 5,
+              labelMode: 'names',
+              // A scalp net is a sphere of electrodes and no axial slice holds two of them, so the
+              // off-slice ones are ghosted rather than culled.
+              offPlaneOpacity: 0.5,
+            },
+          ],
+          activeLayerId: 'l2',
+        },
+      };
+
+      $('load').onclick = async () => {
+        const reply = await send({ type: 'load', scene: SCENES[$('scene').value] }, true);
+        log(reply.type === 'error' ? `load failed: ${reply.message}` : 'load ok');
+      };
+      $('probe').onclick = async () => {
+        const world = ($('cursor').textContent.match(/-?\d+(\.\d+)?/g) ?? [0, 0, 0])
+          .slice(0, 3)
+          .map(Number);
+        await send({ type: 'probe', world }, true);
+      };
+      $('shot').onclick = async () => {
+        const reply = await send({ type: 'screenshot', target: 'grid' }, true);
+        log(`screenshot ${Math.round(reply.dataUrl.length / 1024)} kB`);
+      };
+      $('serialize').onclick = async () => {
+        const reply = await send({ type: 'serialize' }, true);
+        log(`scene: ${reply.spec.datasets.length} datasets, ${reply.spec.layers.length} layers`);
+      };
+      let dark = true;
+      $('theme').onclick = () => {
+        dark = !dark;
+        send({ type: 'setTheme', theme: dark ? 'dark' : 'light' });
+      };
+      $('reset').onclick = () => send({ type: 'reset' });
+
+      // ---------------------------------------------------------------------------------------
+      // Protocol 2. `armed` is the layer the point tool is on, as the host believes it — the
+      // ENGINE owns the truth, and `pointTool: 'cleared'` above is what tells this page it was
+      // taken away (by Esc, by a load, or by the user picking measure mode instead).
+      // ---------------------------------------------------------------------------------------
+      let armed = null;
+      let pickEvents = false;
+
+      const pointsLayerId = () => {
+        const line = $('layers')
+          .textContent.split('\n')
+          .find((l) => l.includes(' points '));
+        return line ? line.split(/\s+/)[1] : null;
+      };
+
+      const arm = (mode) => {
+        const layerId = pointsLayerId();
+        if (layerId === null) return log('no points layer loaded');
+        armed = layerId;
+        send({ type: 'setPointTool', layerId, mode });
+      };
+      $('armSelect').onclick = () => arm('select');
+      $('armPlace').onclick = () => arm('place');
+      $('disarm').onclick = () => {
+        armed = null;
+        send({ type: 'setPointTool', layerId: null });
+      };
+      $('picks').onclick = () => {
+        pickEvents = !pickEvents;
+        $('picks').textContent = `pick events: ${pickEvents ? 'on' : 'off'}`;
+        send({ type: 'setPickEvents', enabled: pickEvents });
+      };
+      $('camGet').onclick = () => send({ type: 'getCamera' }, true);
+      // A preset, not a hand-built pose: 'L' is the same left view the `3` key gives.
+      $('camLeft').onclick = () => send({ type: 'setCamera', preset: 'L' }, true);
+
+      // A host that attaches its listener after the frame has already booted asks instead of
+      // waiting: `hello` is answered with the same `ready` the boot posted.
+      iframe.addEventListener('load', () => send({ type: 'hello' }));
+
+      // ---------------------------------------------------------------------------------------
+      // The E2E drives *this page*, not a harness of its own — so what the suite proves is that
+      // the documented example works, and an example that rots fails the build. `events` is every
+      // message the embed has posted, in order; `send` is the one above.
+      // ---------------------------------------------------------------------------------------
+      const events = [];
+      window.addEventListener('message', (event) => {
+        if (event.source === iframe.contentWindow && event.data?.tvx === 1) events.push(event.data);
+      });
+      window.__host = { send, events, SCENES, DATA, EMBED_ORIGIN, pointsLayerId };
+    </script>
+  </body>
+</html>

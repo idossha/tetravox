@@ -271,6 +271,8 @@ export interface NewMeasurement {
 
 export interface LoadProgress {
   datasetId: DatasetId;
+  /** Source name is available while the dataset is still being parsed. */
+  name?: string;
   phase: LoadPhase;
   done: number;
   total: number;
@@ -438,6 +440,24 @@ export interface EngineOptions {
   aa?: 'auto' | 'off';
 }
 
+/**
+ * One pane and a point inside it — {@link Engine.paneAt}'s answer.
+ *
+ * Structurally the pointer layer's own `PaneHit`, declared here because this file is the contract
+ * and it may not import from `input/`. `Engine.paneAt` satisfies both, which is what the compiler
+ * checks.
+ */
+export interface PaneHit {
+  viewId: string;
+  /** Whether this pane is the 3-D one — a slice pane's hit tests and a 3-D pane's differ (§7.5). */
+  is3D: boolean;
+  /** Pane-local, top-left origin, **device** pixels. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface Engine {
   /** §7.1 */
   readonly caps: Capabilities;
@@ -538,6 +558,22 @@ export interface Engine {
    * armed layer while a tool is armed, and over every visible points layer otherwise.
    */
   pointAtScreen(viewId: ViewId, px: number, py: number): PointSelection | null;
+  /**
+   * Which pane covers a **canvas** point, and where that point is inside it (2026-09-05).
+   *
+   * `x`/`y` in and out are **device** pixels with a top-left origin — the canvas's own backing-store
+   * coordinates. `null` when the point is in no pane, which a multi-pane layout has gaps of.
+   *
+   * It exists for a host that owns the pointer: §1's second host mounts this canvas in an iframe and
+   * has to answer "which electrode is the mouse on" for itself, and every hit test here
+   * ({@link Engine.pointAtScreen}, {@link Engine.contourAtScreen}) is *per pane* and takes
+   * pane-local coordinates. Without this, such a host must either guess the active pane — wrong in
+   * every layout with more than one — or re-derive the viewport arithmetic §4.5 already owns.
+   *
+   * The engine's own pointer layer has always asked exactly this question; this makes the existing
+   * answer public rather than adding a second one to disagree with it.
+   */
+  paneAt(x: number, y: number): PaneHit | null;
   /**
    * Select a point by **id**, or clear the selection with `null`. Emits `selected` / `cleared`.
    *
@@ -684,7 +720,11 @@ export interface Engine {
    * nothing to do with the answer.
    */
   setSceneDir?(dir: string | null): void;
-  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void>;
+  load(
+    spec: ViewSpec,
+    resolve: (r: DatasetRef) => string | null,
+    signal?: AbortSignal
+  ): Promise<void>;
 
   on<E extends keyof EngineEvents>(e: E, cb: (p: EngineEvents[E]) => void): () => void;
   destroy(): void;
@@ -876,6 +916,12 @@ export class MockEngine implements Engine {
     throw new Error('phase 1');
   }
 
+  paneAt(x: number, y: number): PaneHit | null {
+    void x;
+    void y;
+    throw new Error('phase 1');
+  }
+
   resetView(viewId: ViewId): void {
     void viewId;
     throw new Error('phase 1');
@@ -926,9 +972,14 @@ export class MockEngine implements Engine {
   serialize(): ViewSpec {
     throw new Error('phase 1');
   }
-  load(spec: ViewSpec, resolve: (r: DatasetRef) => string | null): Promise<void> {
+  load(
+    spec: ViewSpec,
+    resolve: (r: DatasetRef) => string | null,
+    signal?: AbortSignal
+  ): Promise<void> {
     void spec;
     void resolve;
+    void signal;
     throw new Error('phase 1');
   }
 

@@ -5116,6 +5116,119 @@ exists: `NewLayer` is `{ datasetId, kind: Layer['kind'] } & Partial<Layer>` and 
 `Layer` union, so `scene.addLayer` has taken one since §13.1 shipped. Recorded here because "add a
 points layer" is the kind of gap that gets re-proposed until the log says it was already closed.
 
+## 2026-09-03 — the embed: the app renderer as a browser bundle, and remote/URL loading becomes a supported path
+
+Tetravox ships a **browser build of the viewer** that a host application mounts in an `<iframe>` and drives
+over `postMessage` — `packages/embed`, `docs/EMBED.md`, protocol v1. It is a release tarball a host serves
+from a route of its own; no Tetravox source is copied into anybody's application.
+
+**It is the existing renderer, not a second one.** The alternative — a minimal chrome built directly on
+`@tetravox/engine` — was scoped and rejected after measuring what the app renderer actually depends on: the
+bridge is reached from eight files, all of them through `bridge()`, which has *always* fallen through to
+`ABSENT`, the null object shipped for "vitest, or a plain browser tab". A `vite build` of
+`packages/app/src/renderer` against a browser target produced a bundle that boots headless, reports
+`ANGLE (…SwiftShader…)`, and renders — with no console error and no change to `packages/app` at all. Building
+a second UI would have bought nothing and forked the layer panel, the coordinate bar and the property
+editors, which is precisely where two implementations diverge in ways a user notices and a test does not.
+
+The app needed four seams, and every one of them reproduces the previous behaviour when `?embed=1` is
+absent: `embed/mode.ts` (the flag, plus a single-slot `onShellReady` carrying the same
+`{ controller, engine, store }` triple `Shell` already hands `maybeRunJob`); the `Tetravox` menu and the
+Settings dialog's Paths/Startup tabs hidden, because all of them end in a bridge call and a control that
+silently does nothing is worse than no control; and `ShellController.loadSpecFromUrls`, which is `applyScene`
+with `scenePath: string | null` — null meaning "not a file on disk", so no scene slot, no Open Recent and no
+`sceneDir`.
+
+**Remote/URL loading leaves §1's non-goal list**, and ARCHITECTURE §1, §2 and §5 are amended in this commit
+(§12.3's rule). This is less a new capability than an admitted one: the dataset worker has always fetched a
+URL — `tetravox://file/…` *is* one — and `fileUrl` has passed an absolute `http(s)://` through since Phase 1,
+which is how the §11 harness reads the reference dataset over `/@fs/`. What is new is that the path is
+supported and tested. Range requests and remote *browsing* stay non-goals, and they were the substance of the
+original one: a dataset is streamed whole (§5 rule 4's `DecompressionStream` pipe depends on it), and there is
+no catalogue, listing or discovery — a host names files or nothing happens.
+
+**Two defaults the embed supplies, because a host cannot.** A `ViewSpec` requires nine view fields that
+`applyViewSpec` assigns unconditionally, which is right for a saved scene and impossible for a host writing
+one by hand; they are filled from `Engine.serialize()` on the empty scene, so the defaults are the engine's
+own rather than a second copy in this package. And a mesh layer carrying a `field` but no `scale` is windowed
+by the app's own `selectField`, the call the property editor makes when a user picks a field — without it the
+engine's placeholder `0..1` renders a `TI_max` field living in `0.002..0.13` as one flat colour, and the host
+cannot compute the range because `MeshFieldInfo.stats` is derived in the worker from bytes it has never seen.
+
+**The trust boundary is a pure function.** `acceptMessage` takes `{ source, origin, data }` and the two
+expectations, and returns the message or null; the embed's listener is three lines around it. That is what
+makes every branch — a sibling frame on the right origin, a near-miss origin, a missing `hostOrigin`, an
+unknown type — a vitest case rather than something an end-to-end test serving both pages from one origin
+could never exercise.
+
+**New dependencies: none.** `packages/embed` is a new workspace member and its `devDependencies` are the set
+`packages/app` already pins (vite, `@vitejs/plugin-react`, `@tailwindcss/vite`, playwright, vitest), so
+`pnpm-lock.yaml` gains an importer entry and no package. AGENTS.md rule 4 is satisfied by this paragraph.
+
+## 2026-09-04 — embed protocol 2: points, the point tool, `pick` and the camera; and two numbers instead of one
+
+`packages/embed` gains a **points layer in the `ViewSpec`, the point tool, a `pick` event and camera get/set**
+(`docs/EMBED.md` §6, embed 0.4.0). None of it is new rendering: §4.4 has had a points layer since Phase 2,
+§7.5's point tool and §4.7's `PointSelection` landed on 2026-08-30 for the sEEG editor, and
+`scene.camera()` / `setCamera()` landed on 2026-09-04 for extensions. What was missing was a way to reach any
+of it from **outside the application**, which is what an embedded host is. So this is exposure, and every
+message ends in the call a panel button already makes — `Engine.setPointTool`, `Engine.setPointSelection`,
+`controller.cameraPreset`, `controller.setModuleCamera` — which keeps §5's "there is no embed-only path into
+the scene" true.
+
+**The envelope and the feature level are now two numbers, and that is the whole compatibility story.**
+`tvx` was doing both jobs: it was the discriminator a host filters on *and* the thing `ready.version` and the
+tarball manifest reported. Bumping it to 2 would have been the one change that breaks every existing host —
+a protocol-1 host drops anything whose `tvx` is not 1 and posts `tvx: 1`, so an *additive* release would have
+been unreachable by exactly the hosts the additive promise was made to. So `ENVELOPE_VERSION` stays 1 for as
+long as the contract stays additive, and `PROTOCOL_VERSION` — `ready.version` and `manifest.protocol` — is 2.
+A host pins a range and the features it needs, never a version.
+
+**`pick` is opt-in, and that is what makes the guarantee structural rather than polite.** "A host ignores a
+type it does not know" is true and not enough: a `pick` carries a whole `ProbeResult` and fires on every left
+press, and a protocol-1 host would pay for a message it cannot read. With `setPickEvents` defaulting to off,
+and `pointTool` only firing while a tool is armed (which a protocol-1 host cannot do), and `camera` only ever
+being a reply, a protocol-1 host receives **exactly** protocol 1's ten types. `embed-compat.spec.ts` asserts
+that as a set-membership test over a whole session, not as a claim.
+
+**Two fields are the host's vocabulary and are resolved before the engine sees the layer** (`points.ts`).
+`points[].state` (`idle`/`selected`/`disabled`) becomes a per-point `color`, so a host says what an electrode
+*is* rather than restating what selected looks like at four call sites; and `labelMode` becomes §4.4's
+`showLabels` + `labelSource` pair. The asymmetry between them is deliberate: `labelMode` is *spent*, because
+it has a §4.4 twin and two spellings of one rule on one object would eventually disagree, while `state` and
+`stateColors` are *kept*, because they have no twin — they resolve into a different field — and the layer is
+the only place a later `setPoints` can read the host's palette back from. The default state colours are
+byte-exact (`[1, 0.8, 0.2, 1]` = `rgb(255, 204, 51)`, `[0.6, 0.6, 0.6, 1]` = `rgb(153, 153, 153)`) so §11's
+analytic pixel assertion is `round(c · 255)` and not a question about the rasteriser's rounding.
+
+**A points layer still hangs off a dataset.** §4.4 gives every layer a carrier and this one is no exception:
+`datasetId` names a volume or mesh already in the spec — the T1 the electrodes sit over — which is exactly
+what the sEEG editor does with the CT its contacts were localised on. Inventing a synthetic "points dataset"
+was rejected: it would have been a second dataset kind for the engine, a worker with nothing to parse, and a
+`DatasetRef` with no URL behind it, all to avoid naming a file the host has already loaded.
+
+**A repair, found by writing the tests.** `docs/EMBED.md`'s `setLayout` row has documented
+`'3d' | 'axial' | 'coronal' | 'sagittal'` since protocol 1, and none of the four is a §4.5 `LayoutKind`.
+TypeScript never caught it — the declared type is `LayoutKind` and the value is JSON — so one of them reached
+`Engine.setLayout` with `cells: undefined` (from `layoutCells`'s exhaustive switch falling off the end) and
+the **next frame** threw inside `viewports()`, in the render loop, with nothing said to the host and no
+recovery short of reloading the frame. A documented message that killed the viewer, and the one
+`dev/notes/v3-3d-panes-plan.md` opens with (`setLayout {kind:'3d'}`). `embed/src/layout.ts` makes the four
+names mean what the table always said and refuses everything else with an `error` reply. Not a behaviour
+regression under §12.3: what it replaces is a crash.
+
+**§11 in this package.** The embed imports `packages/engine/test/helpers/pixels.ts` rather than copying the
+golden policy, and its `playwright.config.ts` repeats the same `snapshotDir`, `updateSnapshots: 'none'` and
+ratios. It cannot reuse `expectPixel`, because that reads the drawing buffer through the engine test pages'
+`window.__tvxRender()` and the app renderer has none — its context is `preserveDrawingBuffer: false`, so a
+`readPixels` after compositing reads undefined content. The analytic assertions therefore go through the
+documented `screenshot` message and decode the PNG in the page: lossless RGBA8, and the pixels are the ones
+the product actually hands a host. The fixture is `testdata/mesh_v2_binary.msh`, whose ±10 mm bbox in
+`testdata/manifest.json` is what makes `center: [0, 0]` at `mmPerPx: 0.05` an exact 20 px/mm ruler around the
+world origin.
+
+**New dependencies: none.** `packages/embed` gains `src/points.ts`, `src/layout.ts` and two spec files; the
+lockfiles do not move.
 
 ## 2026-09-04 — Resolve surface depth before transparency blending (§7.2)
 
@@ -5161,6 +5274,75 @@ rejected because it would conceal controls. `view-controls.spec.ts` checks mesh 
 against the sidebar bounds at 960 and 1400 px window widths, including the narrow overlay.
 
 
+## 2026-09-04 — an embed host can supply the controls around a viewport
+
+**Decision.** `embed=1&presentation=viewport` makes the existing §8 shell render its view grid without
+toolbar, sidebars or collapse rails, status bar, toasts, dialogs or extension windows. The host keeps
+the same §5 rule 15 message channel, including load status and errors. Absent or unknown presentation
+values retain the full viewer. This implements
+`docs/requirements/2026-09-04-ti-toolbox-viewport.md` R1 and amends §5 and §8 together.
+
+**Why.** TI-Toolbox's run pages already provide subject selection and scene controls; embedding the
+full viewer duplicated those controls and crowded the visualization. Shell commands and file drops
+are inactive in this profile so an invisible measurement tool or independently loaded dataset cannot
+put the viewer out of step with its host. Engine gestures and orientation annotations stay available.
+
+**Evidence.** `packages/embed/test/e2e/embed-viewport.spec.ts` exercises the real iframe, renderer,
+synthetic mesh and protocol: default and unknown presentation keep full controls, viewport fills the
+frame, orbit and opacity commands change the scene, shell shortcuts cannot arm omitted controls,
+and a missing WebGL2 context still reaches the host. Its analytic mesh/background pixels precede its
+orientation-bearing viewport golden under §11.
+
+**Alternatives rejected.** Host-injected CSS would couple an application to private shell markup and
+leave hidden keyboard tools active. A second rendering component would split canvas lifetime and
+scene behavior. Reusing `jobMode` would couple an interactive host to batch execution state. This
+option only controls presentation; it does not change layout, annotation defaults or protocol versions.
+
+**Scope.** No new dependency, no desktop default change, and no release action.
+
+**Verification (local macOS, Chromium/SwiftShader and ANGLE).** The embed viewport and protocol
+compatibility command passed 15 tests; `scripts/e2e-quiet-check.sh` observed 19 samples with `ghostty`
+frontmost before and after, no Electron/Chromium window on screen, and exit zero. The embed unit suite
+passed 56 tests. App and embed typechecks, the embed build, and targeted lint/format checks passed.
+The viewport golden is a local proposal under §11; the Linux software authority still decides its
+cross-platform tolerance. The platform GPU project runs these viewport cases without requesting a
+hardware golden, and asserts that its renderer class is not software.
+
+
+## 2026-09-05 — the embed has no version of its own, and its release assets carry their own checks
+
+**One version.** `packages/embed/package.json` reads the repository version and nothing else.
+The protocol-2 branch carried `0.4.0` against a `0.3.11` tree, which would have hung
+`tetravox-embed-0.4.0.tgz` under a Release named `v0.3.11` — a reconciliation every host resolving an
+asset by name would have had to perform, and one no Release page explains. `scripts/release.sh`
+already bumped all six package.jsons and read them back, so the fix was to stop opting out of it;
+`version.test.ts` fails when either file is edited by hand. The alternative — versioning the embed
+independently, the way `@tetravox/module-sdk` names itself after the host API — was rejected because
+the SDK's number *is* a contract (an API level a module compiles against) while the embed's contract
+is `PROTOCOL_VERSION`, which is already a separate, already-published number. Two numbers where one
+of them is the contract is one number too many.
+
+**Three assets, not one.** `release.yml`'s `embed` job now attaches `tetravox-embed-<v>.tgz.sha256`
+and `tetravox-embed-<v>.manifest.json` beside the tarball, and `verify` requires all three and
+re-computes the digest against the attached tarball before publishing the draft. The sidecars exist
+for a host that installs the embed *automatically*: TI-Toolbox's updater has to answer "is there a
+newer bundle, and does its protocol fall in the range I support?" before deciding to download 30 MB,
+and it has to verify what it downloaded before unpacking it into an application's serving root. The
+manifest is a byte-for-byte copy of the one inside the tarball (extracted from it, not re-generated),
+so the answer the updater reads is the answer the bundle carries. `.sha256` is `sha256sum` format —
+`<64 hex>  <filename>`, two spaces — so `sha256sum -c` works on it unchanged. Rejected: a
+`releases.json` index committed to `main`, which was the original design and which nothing writes;
+the GitHub Releases API already enumerates releases and their assets, and an index file is a second
+source of truth that goes stale exactly when a release fails halfway.
+
+**Every point-layer message answers.** `setPoints`, `setPointTool` and `setPointSelection` acted and
+said nothing, so a host that awaited a reply — the ordinary shape for "select this electrode, then
+redraw" — waited forever. They now reply `ack` with the request's `id`, and only when one was sent:
+`withId` already encodes "a reply to an id-less request carries no id", and an unsolicited `ack`
+would be an event nobody subscribed to. A new `ack` type rather than echoing `layers`, because
+`layers` also fires for reasons the host did not cause and correlating on it would make a host act on
+a user's own click. Additive: `tvx` stays 1, the type joins `EMBED_MESSAGE_TYPES`, and a host that
+ignores it sees what it saw before.
 ## 2026-09-06 — Surface annotations attach to an open surface; they are not datasets (§4.7, §6.2, §6.5.2)
 
 The user asked to open SimNIBS's `segmentation/{lh,rh}.<subject>_{DK40,a2009s,HCP_MMP1}.annot` onto the
@@ -5197,3 +5379,158 @@ migrating pre-existing scenes' `mesh` layers over tet-less datasets (not owed, a
 opens as before). The R5 import wall is a source-reading vitest, so the separation is a test rather than a
 convention. New golden `surface-default` [surface.spec.ts]: the FreeSurfer patch in Freeview yellow.
 
+
+## 2026-09-05 — `shape: 'dot'` is a screen-space disc in the 3-D pane too, and the host is told what the pointer is on
+
+**The defect, measured before it was fixed.** TI-Toolbox's electrode pane sends `shape: 'dot'` with
+`dotRadiusPx: 5` and renders in a `3d-only` layout. It measured `dotRadiusPx` 5 and 15 producing a
+**byte-identical 209-pixel marker**, equal to what `radiusMm: 4` drew, while `radiusMm: 12` gave
+1835 px — so the 3-D pass was drawing millimetre spheres and `dotRadiusPx` was inert there.
+`uDotPx` was set in the `POINTS_2D` branch and hard-coded to 0 in the other one.
+
+**Clip space, not world space.** The 2-D branch turns pixels into millimetres with the slice camera's
+`mmPerPx`; a 3-D pane under perspective has no such constant, and a world radius chosen to look right
+at the front of a head is wrong at the back of it. So the 3-D dot expands its quad after projection:
+`clip.xy += aCorner · (uDotPx · 2 / uViewportPx) · clip.w`. Multiplying by `w` survives the
+perspective divide, `2 / viewport` is the pixel-to-NDC conversion, and with `w = 1` the same
+expression is the orthographic case — one branch for both projections. `clip.z` is left alone, so the
+disc is depth-tested at its centre and an occluded electrode is still occluded, which was the one
+property of the sphere that had to be kept.
+
+Rejected: sizing the world radius per point from the camera distance on the CPU. It would have been a
+per-frame walk over every point, wrong the moment the camera moved between the walk and the draw, and
+it would have put a second answer beside `dotRadiusPxOf` — the function the 2-D shader, the ring and
+the hit test already share.
+
+**A 3-D dot is flat.** The hemisphere shading is what makes a `sphere` read as a ball; on a marker
+whose *colour is its state* it is a gradient across the one thing being read, and the rim of a
+channel-coloured electrode stops being that channel's hue. `uDotPx > 0` takes the flat branch in the
+fragment shader; a sphere's pixels are unchanged, which is why every existing golden still passes.
+
+**The disc is the target in 3-D as in 2-D.** `pointAtPane3D`'s grab radius becomes
+`max(POINT_HIT_3D_PX, dotRadiusPxOf(layer) · uiScale)`. A fixed 14 px would have been *smaller* than a
+marker a host asked to make large — a click plainly inside the disc that misses.
+
+**Evidence.** Five embed e2e tests in `embed-points.spec.ts`, all analytic (§11 rule 1): the measured
+diameter is `2 · dotRadiusPx · devicePixelRatio`; the centre pixel is the colour the host sent; 5 and
+15 separate (the TI-Toolbox measurement, inverted); the width is unchanged when the camera distance
+doubles **while the same layer as a `sphere` shrinks**, which is the control that stops the test from
+passing on a marker that ignores the camera because it ignores everything; and the non-background
+pixels around the disc are its own π·r², which a ring's ~280 extra pixels could not hide inside. All
+five fail against the previous behaviour (verified by forcing `uDotPx` to 0). One new golden,
+`embed-points-3d-dot.png`. The test scene deliberately uses `dotRadiusPx: 20` against a `radiusMm: 4`
+sphere that measures ~18 px at that camera: 10 would have been indistinguishable from the bug, which
+is how the bug survived.
+
+**`stateColors.idle` was unreachable, and is now reachable.** `resolvePoint` returned early for an
+idle point without consulting the palette, so the field was accepted, documented, schema'd and did
+nothing; the host worked around it by writing an explicit `color` on every idle point. A layer that
+names no `idle` still falls through to the layer's own `color` — the old behaviour exactly, and the
+reason `DEFAULT_STATE_COLORS` still has no `idle` entry: a baked grey would override a host that
+coloured its whole net blue.
+
+**`pointHover`, and the `paneAt` it needed.** The ask was "a per-point hover state, or a
+`stateColors.hover`". The colour half is refused: the host owns colour, and the engine cannot know
+that "lighter than this electrode's channel hue" is what was wanted. What a host genuinely cannot
+compute is *which point the pointer is on* — the hit test is the engine's — so `setHoverEvents`
+(off by default, like `setPickEvents`) turns on a `pointHover { layerId, pointId }` that fires **on
+the edge**, not per move: the pointer produces dozens of moves a second and the answer changes twice.
+It reports what `pointAtScreen` reports, so a host cannot highlight one electrode and select another.
+
+That required one additive member on the frozen `api.ts`: **`paneAt(x, y)`**. Every hit test on that
+facade is per pane and takes pane-local coordinates, while a host that owns the pointer has a canvas
+coordinate; without it the embed would have had to assume the active pane (wrong in every multi-pane
+layout) or re-derive §4.5's viewport arithmetic. It is the pointer layer's own existing question made
+public rather than a second implementation, and `MockEngine` and the app's `NoGlEngine` implement it —
+the latter with the one pane it models, so `paneAt` → `pointAtScreen` composes there as it does for
+real. `ARCHITECTURE.md` §4.7 and §7.2 are amended in the same commit (§12.3's rule).
+
+Not done, and named rather than smuggled in: **a per-point `radiusPx`**. The host sends one and it is
+inert. It needs a second per-instance vertex attribute — `aRadius` carries millimetres and the 2-D
+branch culls by them before the dot branch overrides the radius, so overloading it would break the
+off-slice cull — which is a change to the instance buffer layout and its tests, not a line in a
+shader. It is the next ask, not this one.
+
+
+## 2026-09-07 — the embed protocol distinguishes a surface from a mesh, and its number moves for it (§4.6, docs/EMBED.md)
+
+**Decision.** Embed protocol **3**. The host-facing `ViewSpec` gains `kind: "surface"` — §4.4's
+`SurfaceLayer`, added to the engine by PR #37 — alongside `volume`, `mesh` and `points`; the third
+sidecar role `sidecars.fields` (PR #36's `attachSurfaceData`) is admitted and URL-resolved against
+the dataset; `DatasetRef.kind` accepts `"surface"` as a host-facing spelling that `normalize.ts` maps
+down to `"mesh"`; and `normalizeScene` now **refuses** a layer kind it does not know.
+
+**Why the number moved, when protocol 2 was additive.** Everything protocol 2 added was declinable —
+a message a host need not send, a field it need not write — so an older build ignoring it was
+harmless and the feature level was a courtesy. A layer **kind** is not declinable. `Engine.load`
+filters layers through `isRestorableKind` and *skips* what it does not know, with no throw and no
+event, then answers `loaded`: a protocol-2 build handed a surface reports that the scene opened and
+the surface is simply not in it. A host cannot detect that. So the number moves so a host can ask
+first, and the compatibility rule is stated by direction rather than by "additive": a protocol-2 host
+is unaffected in both directions and needs no change, while a host wanting surfaces gates on
+`ready.version >= 3`. No message type was added, removed or changed shape; that is asserted in
+`protocol.test.ts` rather than promised.
+
+**Why the embed needed almost no code.** The model is the engine's. `normalize.ts` already passes
+every non-points layer through verbatim, `isRestorableKind` already accepts `'surface'`, and
+`Engine.load` already replays `sidecars.fields` before creating layers. The additions are therefore
+the schema, the TypeScript, the sidecar URL resolution and the guard — nothing that re-states a
+default or re-implements a loader, which is what would have drifted.
+
+**Alternatives rejected.** A `format: 'freesurfer' | 'gifti'` field on `DatasetRef`, which the ask
+named: `tvx_mesh_io::sniff` reads magic bytes and falls back to the extension only, so the field
+would be accepted, documented and never read — the exact shape of the `stateColors.idle` bug this
+project shipped once. Sniffing by extension in the embed instead: it would disagree with the loader
+on the extensionless `lh.central`, which is the common case in a SimNIBS tree. A third **dataset**
+kind reaching the engine: §4.6 has two, because surface-ness is `nTets === 0` and is read from the
+bytes; the word is kept at the host boundary and mapped down, so a host's document is coherent and
+the engine never sees a kind it does not define. Leaving an unknown kind to `Engine.load`: it is the
+silent-drop failure above. Reimplementing the surface editor or the `.annot` reader in the embed:
+the embed is the app renderer (README), and a second implementation of either is the drift the
+package was shaped to avoid.
+
+**Evidence.** `packages/embed/test/e2e/embed-surface.spec.ts` — 17 cases through the real iframe,
+protocol and engine, against the **committed** `testdata/` fixtures rather than `TETRAVOX_TESTDATA`,
+because the kind a file opens as is a property of its bytes: a FreeSurfer binary and a GIfTI each
+open as `surface`, a `.annot` attached through `sidecars.fields` comes back `colorMode: 'annotation'`
+(and a missing one comes back `'solid'`, which is what makes the positive case mean something), a
+tetrahedral `.msh` still opens as `mesh` with its `tagStyle`, a NIfTI as `volume`, all three in one
+scene as themselves, an unknown kind is an `error` naming it, and a surface survives `serialize`
+with its `sidecars.fields`. Unit: `normalize.test.ts` and `viewspec-schema.test.ts` pin the
+dataset-kind mapping, the sidecar resolution and order, the guard's ordering ahead of URL resolution,
+and the *absence* of the tetrahedral vocabulary on `SurfaceLayer`.
+
+**Verification (local macOS, Chromium/SwiftShader and ANGLE).** Embed unit 100 passed; embed E2E 58
+passed, 8 skipped (`TETRAVOX_TESTDATA` unset). Typecheck and build clean.
+
+**Scope.** No new dependency, no desktop change, no engine change. The embed is versioned 0.4.0 with
+the repository, and one repository version implements exactly one protocol.
+
+
+## 2026-09-09 — Progressive loads and retained selection datasets
+
+**Decision.** Start missing dataset workers concurrently, restore layers as each finishes, and reuse
+current datasets with matching resolved URLs and sidecars when an embed selection changes. Dispose
+unselected datasets; explicit Reload starts fresh. Add optional cancellation to `Engine.load` and source
+names to engine progress. Guard shell and embed completion by load generation.
+
+**Why.** A slow first volume kept all otherwise ready surfaces invisible. Adding one selection also
+reloaded existing files. Worker-per-dataset loading already permits independent completion; stable spec
+ordering and explicit cancellation preserve scene correctness while exposing that progress.
+
+**Cost.** Concurrent decoding increases peak memory. Reuse does not detect an edited file at the same
+URL; Reload is the freshness boundary. Failed datasets still report an error after successful layers
+have appeared, and cross-dataset layers wait for their dependencies.
+
+**Revisit if.** Measured memory pressure requires bounded admission, or hosts supply file revisions for
+stronger cache invalidation. The wire protocol remains unchanged.
+
+## 2026-09-09 — Gate the browser embed in CI
+
+**Decision.** Run the embed Playwright suite in the existing unsharded app/wasm job and retain its
+failure traces in that job's artifact. Keep the existing timeout and one-worker headless configuration.
+
+**Why.** PR #35's CI run 34390583349 ran the engine, app and wasm suites but omitted the embed's own
+host-protocol and pixel assertions. Green checks must include the browser interface being merged.
+
+**Cost.** One additional suite on the existing runner; no new runner, dependency or renderer policy.
