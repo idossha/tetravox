@@ -4,7 +4,7 @@
  * §8: "everything the UI can do must be reachable from the `Engine` API alone. No logic in React."
  * That makes the interesting question not "did the control render" but "**what patch did it emit**",
  * and this file is where every §4.2 clause the editor touches is pinned to a number: `softEdge` as a
- * *fraction of `hi - lo`* rather than a bin count, `heat`'s `mid` inside `[min, max]`, and §7.1's
+ * *fraction of `hi - lo`* rather than a bin count, linear contrast windows, and §7.1's
  * forced-nearest fallback flagged rather than silently applied (audit P2-08).
  */
 
@@ -23,10 +23,8 @@ import {
   colormapStops,
   effectiveInterpolation,
   forcedNearest,
-  patchHeat,
   patchThreshold,
   scaleWindow,
-  switchScaleKind,
   thresholdWindow,
   volumeIndexPatch,
   withWindow,
@@ -52,8 +50,6 @@ const STATS: Stats = {
   histogramLo: -41.807507,
   histogramHi: 65535,
 };
-
-const POSITIVE_STATS: Stats = { ...STATS, min: 0, histogramLo: 0 };
 
 function volumeDataset(over: Partial<VolumeDataset> = {}): VolumeDataset {
   return {
@@ -117,87 +113,16 @@ describe('the scale window', () => {
   });
 
   it('moves a linear scale’s endpoints', () => {
-    expect(withWindow({ kind: 'linear', lo: 0, hi: 1 }, { lo: 5, hi: 50 })).toEqual({
+    expect(withWindow({ lo: 5, hi: 50 })).toEqual({
       kind: 'linear',
       lo: 5,
       hi: 50,
     });
   });
 
-  it('keeps heat’s `mid` at the same fraction of the window it was at', () => {
-    const heat: Scale = {
-      kind: 'heat',
-      min: 0,
-      mid: 2.5,
-      max: 10,
-      truncate: false,
-      inverse: false,
-      negative: 'mirror',
-    };
-    // mid was a quarter of the way up; after stretching to [0, 40] it must still be.
-    const next = withWindow(heat, { lo: 0, hi: 40 });
-    expect(next).toMatchObject({ kind: 'heat', min: 0, max: 40, mid: 10 });
-  });
-
   it('never produces a zero-width window, because the CPU bake divides by it', () => {
-    const next = withWindow({ kind: 'linear', lo: 0, hi: 1 }, { lo: 4, hi: 4 });
+    const next = withWindow({ lo: 4, hi: 4 });
     expect(next.kind === 'linear' && next.hi > next.lo).toBe(true);
-  });
-});
-
-describe('switching scale kind', () => {
-  it('is a no-op on the kind it already is, identity included', () => {
-    const scale: Scale = { kind: 'linear', lo: 1, hi: 2 };
-    expect(switchScaleKind(scale, 'linear', STATS)).toBe(scale);
-  });
-
-  it('carries the window across, so the picture does not jump', () => {
-    const heat = switchScaleKind({ kind: 'linear', lo: 20, hi: 60 }, 'heat', STATS);
-    expect(heat).toMatchObject({ kind: 'heat', min: 20, mid: 40, max: 60 });
-    expect(switchScaleKind(heat, 'linear', STATS)).toEqual({ kind: 'linear', lo: 20, hi: 60 });
-  });
-
-  it('seeds the negative branch from the data: mirror when there are negatives, hide when not', () => {
-    const withNegatives = switchScaleKind({ kind: 'linear', lo: 0, hi: 1 }, 'heat', STATS);
-    expect(withNegatives.kind === 'heat' && withNegatives.negative).toBe('mirror');
-    const allPositive = switchScaleKind({ kind: 'linear', lo: 0, hi: 1 }, 'heat', POSITIVE_STATS);
-    expect(allPositive.kind === 'heat' && allPositive.negative).toBe('hide');
-  });
-});
-
-describe('heat’s own fields', () => {
-  const heat: Scale = {
-    kind: 'heat',
-    min: 0,
-    mid: 5,
-    max: 10,
-    truncate: false,
-    inverse: false,
-    negative: 'mirror',
-  };
-
-  it('toggles truncate and inverse without touching the ramp', () => {
-    expect(patchHeat(heat, { truncate: true })).toMatchObject({
-      min: 0,
-      mid: 5,
-      max: 10,
-      truncate: true,
-    });
-    expect(patchHeat(heat, { inverse: true })).toMatchObject({ inverse: true });
-  });
-
-  it('keeps `mid` inside [min, max] — §4.2 has no meaning for one outside it', () => {
-    expect(patchHeat(heat, { mid: 40 })).toMatchObject({ mid: 10 });
-    expect(patchHeat(heat, { mid: -40 })).toMatchObject({ mid: 0 });
-  });
-
-  it('pushes `max` up rather than letting it fall below `min`', () => {
-    expect(patchHeat(heat, { min: 20 })).toMatchObject({ min: 20, max: 20, mid: 20 });
-  });
-
-  it('is a no-op on a linear scale, which has none of these fields', () => {
-    const linear: Scale = { kind: 'linear', lo: 0, hi: 1 };
-    expect(patchHeat(linear, { truncate: true })).toBe(linear);
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * The four §8 histogram presets, as a pure function of `Stats`.
+ * The §8 histogram presets, as a pure function of `Stats`.
  *
  * §8: "presets `min–max`, `2–98 %`, `p50–p99.9`, `symmetric ±p99`". §4.2's `Stats.percentiles` is a
  * `Record<PercentileKey, number>` computed **exactly** in the worker (§6.1, no sampling), so a preset
@@ -14,7 +14,7 @@
 
 import type { Stats } from '@tetravox/engine';
 
-export type PresetId = 'min-max' | 'p2-p98' | 'p50-p99.9' | 'sym-p99';
+export type PresetId = 'min-max' | 'p1-p99' | 'p2-p98' | 'p50-p99.9' | 'p95-p99.9' | 'sym-p99';
 
 export interface ValueWindow {
   lo: number;
@@ -41,6 +41,17 @@ export const PRESETS: readonly Preset[] = [
   },
 ];
 
+/** Volume contrast choices progress from nearly the whole distribution to its upper tail. */
+export const VOLUME_PRESETS: readonly Preset[] = [
+  { id: 'p1-p99', label: '1–99%', title: 'Percentiles 1–99 — nearly the full intensity range' },
+  {
+    id: 'p50-p99.9',
+    label: '50–99.9%',
+    title: 'Percentiles 50–99.9 — the upper half of intensities',
+  },
+  { id: 'p95-p99.9', label: '95–99.9%', title: 'Percentiles 95–99.9 — the highest intensities' },
+];
+
 /**
  * The window a preset asks for.
  *
@@ -53,6 +64,10 @@ export function applyPreset(id: PresetId, stats: Stats): ValueWindow {
   switch (id) {
     case 'min-max':
       return { lo: stats.min, hi: stats.max };
+    case 'p1-p99':
+      return { lo: p['1'], hi: p['99'] };
+    case 'p95-p99.9':
+      return { lo: p['95'], hi: p['99.9'] };
     case 'p2-p98':
       return { lo: p['2'], hi: p['98'] };
     case 'p50-p99.9':
@@ -80,9 +95,14 @@ export function normalizeWindow({ lo, hi }: ValueWindow): ValueWindow {
  * input, and `2–98 %` typed back in at four decimals is still `2–98 %` as far as the user is
  * concerned.
  */
-export function activePreset(window: ValueWindow, stats: Stats, tol = 1e-4): PresetId | null {
+export function activePreset(
+  window: ValueWindow,
+  stats: Stats,
+  tol = 1e-4,
+  presets: readonly Preset[] = PRESETS
+): PresetId | null {
   const span = Math.max(Math.abs(stats.max - stats.min), Number.EPSILON);
-  for (const preset of PRESETS) {
+  for (const preset of presets) {
     const want = applyPreset(preset.id, stats);
     if (
       Math.abs(want.lo - window.lo) <= tol * span &&

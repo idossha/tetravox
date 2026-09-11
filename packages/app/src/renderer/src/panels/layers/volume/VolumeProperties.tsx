@@ -1,11 +1,7 @@
 /**
  * The **volume** layer's property editor (§8: "per-kind property editor").
  *
- * Everything §8 and the ROADMAP ask of it: `Scale` (linear, and `heat`'s min/mid/max with `truncate`,
- * `inverse` and the negative branch), `Threshold` with `symmetric` and `softEdge`, the label
- * fill/outline/both selector with `outlineWidthPx`, `interpolation` with §7.1's forced-nearest flag
- * (audit P2-08), `showIn3D`, the 4D frame spinner (audit P2-05), the §8 histogram widget, and — for a
- * label volume — the R5 Region panel, which is where `visibleLabels` and `labelOpacity` are edited.
+ * Scalar contrast and visibility share one editor; label volumes use region controls.
  *
  * **No scene state lives here.** Every control computes a `Partial<VolumeLayer>` with a pure function
  * from `./patches.ts` and hands it to `controller.patchLayer`, which is one `Engine.updateLayer`
@@ -15,6 +11,8 @@
  * already ships that slider. Two sliders for one number is how they drift apart.
  */
 
+import { useState } from 'react';
+import { percentToValue, valueToPercent } from './threshold-percentiles';
 import type { Dataset, Layer, Scale, VolumeDataset, VolumeLayer } from '@tetravox/engine';
 import type { LayerPropertiesProps } from '../properties';
 import { useController, useUi } from '../../../ui/context';
@@ -30,19 +28,16 @@ import {
   patchIso3d,
   toggleIso3d,
 } from './iso3d';
-import { normalizeWindow } from '../../histogram/presets';
+import { normalizeWindow, VOLUME_PRESETS } from '../../histogram/presets';
 import {
   COLORMAPS,
   LABEL_MODES,
-  NEGATIVE_MODES,
   clampOutlineWidth,
   colormapStops,
   effectiveInterpolation,
   forcedNearest,
-  patchHeat,
   patchThreshold,
   scaleWindow,
-  switchScaleKind,
   thresholdWindow,
   volumeIndexPatch,
   withWindow,
@@ -102,6 +97,12 @@ export function VolumeProperties({
   layer,
   dataset,
 }: LayerPropertiesProps): React.JSX.Element | null {
+  const [thresholdPercentiles, setThresholdPercentiles] = useState(false);
+  // Equal intensities can represent several percentiles; keep the user's chosen rank while its
+  // intensity cutoff is unchanged instead of snapping the input to the first tied percentile.
+  const [percentEntries, setPercentEntries] = useState<
+    Partial<Record<'lo' | 'hi', { value: number; percent: number }>>
+  >({});
   const controller = useController();
   const caps = useUi((s) => s.caps);
   if (layer.kind !== 'volume' || dataset.kind !== 'volume') return null;
@@ -113,7 +114,16 @@ export function VolumeProperties({
 
   const forced = forcedNearest(ds, caps);
   const window = scaleWindow(vl.scale);
-  const heat = vl.scale.kind === 'heat' ? vl.scale : null;
+  const thresholdEnabled = Number.isFinite(vl.threshold.lo) || Number.isFinite(vl.threshold.hi);
+  const editThreshold = (lo: number, hi: number, edge?: 'lo' | 'hi'): void =>
+    patch({
+      threshold: patchThreshold(vl.threshold, {
+        ...(edge === 'lo' ? { lo } : edge === 'hi' ? { hi } : { lo, hi }),
+        mode: 'hide',
+        symmetric: false,
+        softEdge: 0,
+      }),
+    });
 
   return (
     <div
@@ -122,215 +132,158 @@ export function VolumeProperties({
       className="mt-1.5 flex flex-col gap-1 border-t border-tvx-line pt-1.5"
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {/* ---- colormap ------------------------------------------------------------------------ */}
-      <Row label="Colormap">
-        <select
-          data-testid={`volume-colormap-${vl.id}`}
-          aria-label="Colormap"
-          value={vl.colormap}
-          onChange={(e) => patch({ colormap: e.currentTarget.value })}
-          className="tvx-input min-w-0 flex-1 px-1 py-0.5 text-[10px]"
+      {!ds.isLabel && (
+        <section
+          aria-label="Contrast and visibility"
+          className="flex min-w-0 flex-col gap-2 rounded border border-tvx-line p-2"
         >
-          {COLORMAPS.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-      </Row>
-
-      {/* ---- scale ---------------------------------------------------------------------------- */}
-      <Row label="Scale">
-        <select
-          data-testid={`volume-scale-kind-${vl.id}`}
-          aria-label="Scale kind"
-          value={vl.scale.kind}
-          onChange={(e) =>
-            setScale(switchScaleKind(vl.scale, e.currentTarget.value as Scale['kind'], ds.stats))
-          }
-          className="tvx-input min-w-0 flex-1 px-1 py-0.5 text-[10px]"
-        >
-          <option value="linear">linear</option>
-          <option value="heat">heat</option>
-        </select>
-      </Row>
-
-      {heat === null ? (
-        <div className="flex gap-1">
-          <NumberField
-            testId={`volume-scale-lo-${vl.id}`}
-            label="Scale low"
-            value={window.lo}
-            onCommit={(lo) => setScale(withWindow(vl.scale, { lo, hi: window.hi }))}
-          />
-          <NumberField
-            testId={`volume-scale-hi-${vl.id}`}
-            label="Scale high"
-            value={window.hi}
-            onCommit={(hi) => setScale(withWindow(vl.scale, { lo: window.lo, hi }))}
-          />
-        </div>
-      ) : (
-        <>
-          <div className="flex gap-1">
-            <NumberField
-              testId={`volume-heat-min-${vl.id}`}
-              label="Heat min"
-              value={heat.min}
-              onCommit={(min) => setScale(patchHeat(vl.scale, { min }))}
-            />
-            <NumberField
-              testId={`volume-heat-mid-${vl.id}`}
-              label="Heat mid"
-              value={heat.mid}
-              onCommit={(mid) => setScale(patchHeat(vl.scale, { mid }))}
-            />
-            <NumberField
-              testId={`volume-heat-max-${vl.id}`}
-              label="Heat max"
-              value={heat.max}
-              onCommit={(max) => setScale(patchHeat(vl.scale, { max }))}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-1">
-            <button
-              type="button"
-              data-testid={`volume-heat-truncate-${vl.id}`}
-              aria-pressed={heat.truncate}
-              title="Clamp everything above max to max instead of letting it saturate"
-              className={'tvx-btn tvx-btn-sm' + (heat.truncate ? ' tvx-btn-on' : '')}
-              onClick={() => setScale(patchHeat(vl.scale, { truncate: !heat.truncate }))}
-            >
-              truncate
-            </button>
-            <button
-              type="button"
-              data-testid={`volume-heat-inverse-${vl.id}`}
-              aria-pressed={heat.inverse}
-              className={'tvx-btn tvx-btn-sm' + (heat.inverse ? ' tvx-btn-on' : '')}
-              onClick={() => setScale(patchHeat(vl.scale, { inverse: !heat.inverse }))}
-            >
-              inverse
-            </button>
+          <div className="text-[11px] font-medium">Contrast & visibility</div>
+          <Row label="Colormap">
             <select
-              data-testid={`volume-heat-negative-${vl.id}`}
-              aria-label="Negative branch"
-              value={heat.negative}
-              onChange={(e) =>
-                setScale(
-                  patchHeat(vl.scale, {
-                    negative: e.currentTarget.value as (typeof NEGATIVE_MODES)[number],
-                  })
-                )
-              }
-              className="tvx-input px-1 py-0.5 text-[10px]"
+              data-testid={`volume-colormap-${vl.id}`}
+              aria-label="Colormap"
+              value={vl.colormap}
+              onChange={(e) => patch({ colormap: e.currentTarget.value })}
+              className="tvx-input min-w-0 flex-1 px-1 py-0.5 text-[10px]"
             >
-              {NEGATIVE_MODES.map((m) => (
-                <option key={m} value={m}>
-                  −ve: {m}
+              {COLORMAPS.map((name) => (
+                <option key={name} value={name}>
+                  {name === 'gray' ? 'Grayscale' : name}
                 </option>
               ))}
             </select>
-            {heat.negative === 'separate' && (
-              <select
-                data-testid={`volume-colormap-negative-${vl.id}`}
-                aria-label="Negative colormap"
-                value={vl.colormapNegative ?? 'blue-cyan'}
-                onChange={(e) => patch({ colormapNegative: e.currentTarget.value })}
-                className="tvx-input px-1 py-0.5 text-[10px]"
-              >
-                {COLORMAPS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+          </Row>
+          <div className="text-[10px] text-tvx-dim">Display range · maps intensity to color</div>
+          <div className="grid grid-cols-2 gap-2">
+            {(['lo', 'hi'] as const).map((edge) => (
+              <label key={edge} className="flex min-w-0 flex-col gap-1 text-[10px] text-tvx-dim">
+                {edge === 'lo' ? 'Low' : 'High'}
+                <NumberField
+                  testId={`volume-scale-${edge}-${vl.id}`}
+                  label={`Display range ${edge === 'lo' ? 'low' : 'high'}`}
+                  value={window[edge]}
+                  onCommit={(value) => setScale(withWindow({ ...window, [edge]: value }))}
+                />
+              </label>
+            ))}
+          </div>
+          <Histogram
+            idPrefix={`volume-histogram-${vl.id}`}
+            stats={ds.stats}
+            window={window}
+            presets={VOLUME_PRESETS}
+            threshold={thresholdEnabled ? thresholdWindow(vl.threshold) : null}
+            colormapName={String(vl.colormap)}
+            colormapStops={colormapStops(vl.colormap)}
+            onWindow={(lo, hi) => setScale(withWindow(normalizeWindow({ lo, hi })))}
+            onThreshold={editThreshold}
+          />
+          <div className="flex flex-col gap-2 border-t border-tvx-line pt-2">
+            <label className="flex items-center gap-2 text-[11px]">
+              <input
+                type="checkbox"
+                data-testid={`volume-threshold-enabled-${vl.id}`}
+                checked={thresholdEnabled}
+                className="accent-tvx-accent"
+                onChange={(e) =>
+                  editThreshold(
+                    e.currentTarget.checked ? window.lo : -Infinity,
+                    e.currentTarget.checked ? window.hi : Infinity
+                  )
+                }
+              />
+              Threshold · show only a range
+            </label>
+            {thresholdEnabled && (
+              <>
+                <div className="flex items-center gap-2 text-[10px]">
+                  <label htmlFor={`threshold-units-${vl.id}`}>Threshold units</label>
+                  <select
+                    id={`threshold-units-${vl.id}`}
+                    data-testid={`volume-threshold-units-${vl.id}`}
+                    title="Percentiles use exact stored cutoffs and estimates between them"
+                    value={thresholdPercentiles ? 'percentiles' : 'values'}
+                    onChange={(e) =>
+                      setThresholdPercentiles(e.currentTarget.value === 'percentiles')
+                    }
+                    className="tvx-input min-w-0 flex-1 px-1 py-0.5"
+                  >
+                    <option value="values">Values</option>
+                    <option value="percentiles">Percentiles (%)</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['lo', 'hi'] as const).map((edge) => (
+                    <label
+                      key={edge}
+                      className="flex min-w-0 flex-col gap-1 text-[10px] text-tvx-dim"
+                    >
+                      {edge === 'lo' ? 'Low' : 'High'}
+                      {thresholdPercentiles ? ' (%)' : ''}
+                      <input
+                        type="number"
+                        step={thresholdPercentiles ? 0.1 : 'any'}
+                        min={thresholdPercentiles ? 0 : undefined}
+                        max={thresholdPercentiles ? 100 : undefined}
+                        aria-label={`Threshold ${edge === 'lo' ? 'low' : 'high'}`}
+                        data-testid={`volume-threshold-${edge}-${vl.id}`}
+                        value={
+                          Number.isFinite(vl.threshold[edge])
+                            ? thresholdPercentiles
+                              ? percentEntries[edge]?.value === vl.threshold[edge]
+                                ? percentEntries[edge]!.percent
+                                : Number(valueToPercent(ds.stats, vl.threshold[edge]).toFixed(3))
+                              : vl.threshold[edge]
+                            : ''
+                        }
+                        placeholder="No limit"
+                        className="tvx-input w-full min-w-0 px-1 py-0.5 font-mono text-[10px]"
+                        onChange={(e) => {
+                          const value =
+                            e.currentTarget.value === ''
+                              ? edge === 'lo'
+                                ? -Infinity
+                                : Infinity
+                              : thresholdPercentiles
+                                ? percentToValue(ds.stats, e.currentTarget.valueAsNumber)
+                                : e.currentTarget.valueAsNumber;
+                          if (!Number.isNaN(value)) {
+                            if (thresholdPercentiles && Number.isFinite(value)) {
+                              const percent = Math.min(
+                                100,
+                                Math.max(0, e.currentTarget.valueAsNumber)
+                              );
+                              setPercentEntries((entries) => ({
+                                ...entries,
+                                [edge]: { value, percent },
+                              }));
+                            }
+                            editThreshold(
+                              edge === 'lo' ? value : vl.threshold.lo,
+                              edge === 'hi' ? value : vl.threshold.hi,
+                              edge
+                            );
+                          }
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="tvx-btn tvx-btn-sm self-start"
+                  onClick={() => editThreshold(window.lo, window.hi)}
+                >
+                  Use display range
+                </button>
+              </>
             )}
           </div>
-        </>
+        </section>
       )}
 
-      {/* ---- the §8 histogram ------------------------------------------------------------------ */}
-      <Histogram
-        idPrefix={`volume-histogram-${vl.id}`}
-        stats={ds.stats}
-        window={window}
-        threshold={thresholdWindow(vl.threshold)}
-        colormapName={String(vl.colormap)}
-        colormapStops={colormapStops(vl.colormap)}
-        onWindow={(lo, hi) => setScale(withWindow(vl.scale, normalizeWindow({ lo, hi })))}
-        onThreshold={(lo, hi) => patch({ threshold: patchThreshold(vl.threshold, { lo, hi }) })}
-      />
-
-      {/* ---- threshold -------------------------------------------------------------------------- */}
-      <Row label="Threshold">
-        <NumberField
-          testId={`volume-threshold-lo-${vl.id}`}
-          label="Threshold low"
-          value={vl.threshold.lo}
-          onCommit={(lo) => patch({ threshold: patchThreshold(vl.threshold, { lo }) })}
-        />
-        <NumberField
-          testId={`volume-threshold-hi-${vl.id}`}
-          label="Threshold high"
-          value={vl.threshold.hi}
-          onCommit={(hi) => patch({ threshold: patchThreshold(vl.threshold, { hi }) })}
-        />
-      </Row>
-      <div className="flex flex-wrap items-center gap-1">
-        <button
-          type="button"
-          data-testid={`volume-threshold-symmetric-${vl.id}`}
-          aria-pressed={vl.threshold.symmetric}
-          title="Compare |v| instead of v (§4.2)"
-          className={'tvx-btn tvx-btn-sm' + (vl.threshold.symmetric ? ' tvx-btn-on' : '')}
-          onClick={() =>
-            patch({
-              threshold: patchThreshold(vl.threshold, { symmetric: !vl.threshold.symmetric }),
-            })
-          }
-        >
-          symmetric
-        </button>
-        <select
-          data-testid={`volume-threshold-mode-${vl.id}`}
-          aria-label="Threshold mode"
-          value={vl.threshold.mode}
-          onChange={(e) =>
-            patch({
-              threshold: patchThreshold(vl.threshold, {
-                mode: e.currentTarget.value as 'hide' | 'clamp',
-              }),
-            })
-          }
-          className="tvx-input px-1 py-0.5 text-[10px]"
-        >
-          <option value="hide">hide</option>
-          <option value="clamp">clamp</option>
-        </select>
-        <span className="ml-auto font-mono text-[10px] text-tvx-dim">
-          soft {vl.threshold.softEdge.toFixed(2)}
-        </span>
-      </div>
-      <input
-        type="range"
-        data-testid={`volume-threshold-softedge-${vl.id}`}
-        aria-label="Threshold soft edge"
-        title="Width of the alpha ramp as a fraction of hi − lo; 0 = hard discard (§4.2)"
-        min={0}
-        max={1}
-        step={0.01}
-        value={vl.threshold.softEdge}
-        onChange={(e) =>
-          patch({
-            threshold: patchThreshold(vl.threshold, { softEdge: Number(e.currentTarget.value) }),
-          })
-        }
-        className="h-1 w-full accent-tvx-accent"
-      />
-
       {/* ---- interpolation, and §7.1's forced-nearest flag (audit P2-08) ------------------------ */}
-      <Row label="Interp">
+      <Row label="Sampling">
         <select
           data-testid={`volume-interpolation-${vl.id}`}
           aria-label="Interpolation"
@@ -341,8 +294,8 @@ export function VolumeProperties({
           }
           className="tvx-input min-w-0 flex-1 px-1 py-0.5 text-[10px]"
         >
-          <option value="linear">linear</option>
-          <option value="nearest">nearest</option>
+          <option value="linear">Smooth (linear)</option>
+          <option value="nearest">Voxels (nearest)</option>
         </select>
       </Row>
       {forced !== null && (
@@ -405,17 +358,6 @@ export function VolumeProperties({
 
       {/* ---- showIn3D and the 4D spinner --------------------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-1">
-        <button
-          type="button"
-          data-testid={`volume-show-in-3d-${vl.id}`}
-          aria-pressed={vl.showIn3D}
-          title="Draw this layer's slice planes in the 3D view (§7.3)"
-          className={'tvx-btn tvx-btn-sm' + (vl.showIn3D ? ' tvx-btn-on' : '')}
-          onClick={() => patch({ showIn3D: !vl.showIn3D })}
-        >
-          show in 3D
-        </button>
-
         {ds.nvols > 1 && (
           <span
             data-testid={`volume-frame-${vl.id}`}
@@ -505,9 +447,19 @@ function Iso3dSection({
       <div className="flex items-center gap-1">
         <button
           type="button"
+          data-testid={`volume-show-in-3d-${layer.id}`}
+          aria-pressed={layer.showIn3D}
+          title="Show the three anatomical slice planes in the 3D view"
+          className={'tvx-btn tvx-btn-sm' + (layer.showIn3D ? ' tvx-btn-on' : '')}
+          onClick={() => patch({ showIn3D: !layer.showIn3D })}
+        >
+          3D slices
+        </button>
+        <button
+          type="button"
           data-testid={`volume-iso3d-toggle-${layer.id}`}
           aria-pressed={spec.enabled}
-          title="Build this volume's isosurface and draw it in the 3D pane (§4.4 iso3d)"
+          title="Show an extracted 3D surface: an intensity boundary or the selected tissue regions"
           className={'tvx-btn tvx-btn-sm' + (spec.enabled ? ' tvx-btn-on' : '')}
           onClick={() => patch(toggleIso3d(layer, dataset, !spec.enabled))}
         >
@@ -545,21 +497,6 @@ function Iso3dSection({
                   className="w-14 shrink-0 text-right font-mono"
                 >
                   {spec.iso.toPrecision(4)}
-                </span>
-              </Row>
-              <Row label="Exact">
-                <NumberField
-                  testId={`volume-iso3d-level-exact-${layer.id}`}
-                  label="3D surface iso level, exact"
-                  value={spec.iso}
-                  step={step}
-                  onCommit={(v) => patch(patchIso3d(layer, dataset, { iso: v }))}
-                />
-                <span
-                  data-testid={`volume-iso3d-range-${layer.id}`}
-                  className="ml-auto shrink-0 font-mono text-[9px] text-tvx-dim"
-                >
-                  {range.lo.toPrecision(3)} … {range.hi.toPrecision(3)}
                 </span>
               </Row>
               <Row label="Colour">
@@ -605,42 +542,14 @@ function Iso3dSection({
             />
             <span className="w-8 shrink-0 text-right font-mono">{spec.opacity.toFixed(2)}</span>
           </Row>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              data-testid={`volume-iso3d-smooth-${layer.id}`}
-              aria-pressed={spec.smooth}
-              className={'tvx-btn tvx-btn-sm' + (spec.smooth ? ' tvx-btn-on' : '')}
-              onClick={() => patch(patchIso3d(layer, dataset, { smooth: !spec.smooth }))}
-            >
-              {spec.smooth ? 'smooth' : 'flat'}
-            </button>
-            <button
-              type="button"
-              data-testid={`volume-iso3d-facemode-${layer.id}`}
-              aria-pressed={spec.faceMode === 'both'}
-              className={'tvx-btn tvx-btn-sm' + (spec.faceMode === 'both' ? ' tvx-btn-on' : '')}
-              onClick={() =>
-                patch(
-                  patchIso3d(layer, dataset, {
-                    faceMode: spec.faceMode === 'both' ? 'cull' : 'both',
-                  })
-                )
-              }
-            >
-              {spec.faceMode === 'both' ? 'two-sided' : 'cull back'}
-            </button>
-          </div>
-          {status !== undefined && (
+          {status !== undefined && pending && (
             <div
               data-testid={`volume-iso3d-progress-${layer.id}`}
               data-pending={pending}
               data-total={status.total}
               className="flex items-center gap-2"
             >
-              <span className="w-16 shrink-0 font-mono text-[10px] text-tvx-dim">
-                {pending ? 'building' : 'ready'}
-              </span>
+              <span className="w-16 shrink-0 font-mono text-[10px] text-tvx-dim">building</span>
               <div className="h-1 flex-1 overflow-hidden rounded bg-tvx-line">
                 <div className="h-full bg-tvx-accent" style={{ width: `${percent}%` }} />
               </div>

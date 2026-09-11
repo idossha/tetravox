@@ -1,5 +1,5 @@
 /**
- * §4.4's **surface** layer (2026-09-06, `docs/requirements/2026-09-06-idohaber-surfaces.md`
+ * §4.4's **surface** layer (2026-09-06, `docs/ARCHITECTURE.md` §4.4/§8
  * R1/R2): a triangle-only file opens as `kind: 'surface'`, in one colour from the surface palette,
  * with its 2D outline on — and renders through the same triangle passes as before.
  *

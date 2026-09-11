@@ -4,8 +4,9 @@ A 108.7-second tour of the interface and the rendering engine, over the real `su
 dataset. Neither the video nor the GIF is hand-edited: [`examples/capture/showcase.py`](https://github.com/idossha/tetravox/blob/main/examples/capture/showcase.py)
 writes six job documents, the app renders every frame offscreen through the same `Engine` calls a
 user makes with the mouse (see [Automation & Python](/automation)), and ffmpeg joins them and burns
-the captions. The full storyboard — shot list, timings and the reasoning behind each — is in
-[`docs/media/SHOWCASE.md`](https://github.com/idossha/tetravox/blob/main/docs/media/SHOWCASE.md).
+the captions. Capture guidance is in
+[`docs/AUTOMATION.md`](https://github.com/idossha/tetravox/blob/main/docs/AUTOMATION.md);
+the script owns the shot list and timings.
 
 <video controls preload="metadata" poster="/shots/brain/brain-t1-pial-both.webp">
   <source src="/media/showcase.mp4" type="video/mp4">

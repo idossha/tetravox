@@ -146,7 +146,7 @@ head/chest/abdomen CT, abdominal and spinal MRI, and the segmentations that go w
 every plate is rendered offscreen by the same engine the window uses, from a job document in
 [\`docs/screenshots/2026-08-29/jobs/\`](https://github.com/idossha/tetravox/tree/main/docs/screenshots/2026-08-29/jobs);
 the datasets and their licences are listed in
-[\`docs/screenshots/2026-08-29/DATASETS.md\`](https://github.com/idossha/tetravox/blob/main/docs/screenshots/2026-08-29/DATASETS.md).
+[\`docs/TESTING.md\`](https://github.com/idossha/tetravox/blob/main/docs/TESTING.md).
 
 ${intro}
 

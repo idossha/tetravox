@@ -218,7 +218,7 @@ describe('the shared visibility rules', () => {
 });
 
 /**
- * R5 (2026-09-06, `docs/requirements/2026-09-06-idohaber-surfaces.md`): the surface module is a
+ * R5 (2026-09-06, `docs/ARCHITECTURE.md` §4.4/§8): the surface module is a
  * separate module. The mesh runtime and the app's mesh editor import nothing from it, read off
  * disk so a refactor that quietly threads a surface import through the mesh side fails here.
  */

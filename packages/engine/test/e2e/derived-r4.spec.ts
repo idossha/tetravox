@@ -1,7 +1,7 @@
 /**
  * **R4 — mesh cross-sections in the 2D panes, sweepable like a NIfTI** — on the reference dataset.
  *
- * `docs/requirements/2026-08-27-maintainer.md`, verbatim, is what this file asserts:
+ * `docs/ARCHITECTURE.md` §7/§8 defines the cross-section behavior exercised here:
  *
  * > `ernie.msh` alone → three panes show tissue cross-sections with the `.msh.opt` colours,
  * > scalp/skull/CSF/GM/WM pixels at known RAS points equal their tag colours; `Thalamus_TI.msh` with

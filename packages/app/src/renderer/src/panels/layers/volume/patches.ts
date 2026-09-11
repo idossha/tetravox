@@ -7,14 +7,13 @@
  * beside it is then only inputs and a `controller.patchLayer(id, …)` call.
  *
  * Nothing here reads a dataset's samples. `Stats` (§4.2, computed exactly in the worker) is the only
- * source for a seeded value, which is why switching a scale kind or hitting a preset costs nothing.
+ * source for a seeded value, which is why hitting a preset costs nothing.
  */
 
 import type {
   Capabilities,
   ColormapName,
   Scale,
-  Stats,
   Threshold,
   VolumeDataset,
   VolumeLayer,
@@ -43,7 +42,6 @@ export const COLORMAPS: readonly ColormapName[] = [
 ];
 
 export const LABEL_MODES: readonly VolumeLayer['labelMode'][] = ['fill', 'outline', 'both'];
-export const NEGATIVE_MODES = ['mirror', 'hide', 'separate'] as const;
 
 // ------------------------------------------------------------------------------------------------
 // Scale
@@ -62,57 +60,10 @@ export function scaleWindow(scale: Scale): ValueWindow {
     : { lo: scale.min, hi: scale.max };
 }
 
-/**
- * Move a `Scale`'s window without changing its kind.
- *
- * `heat`'s `mid` keeps its **fraction** of the old window rather than its absolute value: dragging
- * `max` out to a larger number should stretch the ramp, not leave `mid` pinned near the bottom of
- * it, and `mid` outside `[min, max]` is not a state §4.2 has an answer for.
- */
-export function withWindow(scale: Scale, window: ValueWindow): Scale {
+/** Volume contrast uses a linear window with nonzero width for the colormap bake. */
+export function withWindow(window: ValueWindow): Scale {
   const { lo, hi } = normalizeWindow(window);
-  if (scale.kind === 'linear') return { ...scale, lo, hi };
-  const span = scale.max - scale.min;
-  const f = span > 0 ? (scale.mid - scale.min) / span : 0.5;
-  return { ...scale, min: lo, max: hi, mid: lo + (hi - lo) * Math.min(1, Math.max(0, f)) };
-}
-
-/**
- * Switch a scale between §4.2's two kinds, **preserving what is on screen**.
- *
- * linear → heat keeps `[lo, hi]` as `[min, max]` and puts `mid` at the midpoint; heat → linear keeps
- * `[min, max]`. Seeding from `Stats` instead would make the picture jump every time a user looked at
- * the other kind, and the numbers they had just dialled in would be gone.
- */
-export function switchScaleKind(scale: Scale, kind: Scale['kind'], stats: Stats): Scale {
-  if (scale.kind === kind) return scale;
-  if (kind === 'linear') {
-    const w = scaleWindow(scale);
-    return { kind: 'linear', lo: w.lo, hi: w.hi };
-  }
-  const w = normalizeWindow(scaleWindow(scale));
-  return {
-    kind: 'heat',
-    min: w.lo,
-    mid: (w.lo + w.hi) / 2,
-    max: w.hi,
-    truncate: false,
-    inverse: false,
-    negative: stats.min < 0 ? 'mirror' : 'hide',
-  };
-}
-
-/** One field of a `heat` scale. A no-op on a `linear` one, which has none of them. */
-export function patchHeat(
-  scale: Scale,
-  patch: Partial<Omit<Extract<Scale, { kind: 'heat' }>, 'kind'>>
-): Scale {
-  if (scale.kind !== 'heat') return scale;
-  const next = { ...scale, ...patch };
-  // §4.2 has no meaning for a `mid` outside the ramp, and the CPU bake divides by `mid - min`.
-  next.max = Math.max(next.max, next.min);
-  next.mid = Math.min(next.max, Math.max(next.min, next.mid));
-  return next;
+  return { kind: 'linear', lo, hi };
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -124,7 +75,7 @@ export function patchHeat(
  *
  * §4.2 defines `softEdge` as "the **width of the alpha ramp as a fraction of `hi - lo`**; 0 = hard
  * discard" — so it is a 0..1 number, not a count of bins and not a fraction of one bin. The editor
- * labels it that way and clamps it here, because the shader divides by it.
+ * clamps it here because the shader divides by it.
  */
 export function patchThreshold(threshold: Threshold, patch: Partial<Threshold>): Threshold {
   const next = { ...threshold, ...patch };

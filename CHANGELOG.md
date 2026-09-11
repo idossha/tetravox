@@ -8,6 +8,23 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Grab all four histogram bounds directly.** Contrast and threshold low/high handles have distinct,
+  staggered grab markers that remain accessible at the plot edges. Removed threshold helper paragraphs.
+
+- **Less clutter in 3D surface controls.** Use the iso slider; the redundant exact input is removed.
+  Build progress disappears when the surface is ready. Surfaces use smooth, two-sided shading
+  without extra toggles.
+
+- **Choose threshold values or percentiles.** Switch units without changing visibility; intermediate
+  percentiles are estimated. **3D slices** and **3D surface** now sit side by side with clearer tooltips.
+
+- **Simpler volume contrast and thresholding.** In **Layers ▸ Volume properties**, display bounds,
+  histogram and 1–99%, 50–99.9%, 95–99.9% presets share one panel. Enable thresholding to make values
+  outside a separate range transparent. Label volumes focus on tissue controls. Advanced volume scale
+  and threshold selectors are removed; editing contrast now uses a linear scale.
+
 ### Added
 
 - **An embedded Tetravox tells a surface from a mesh.** The browser build speaks **protocol 3**, and

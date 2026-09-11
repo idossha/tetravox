@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { PercentileKey, Stats } from '@tetravox/engine';
-import { PRESETS, activePreset, applyPreset, normalizeWindow } from './presets';
+import { PRESETS, VOLUME_PRESETS, activePreset, applyPreset, normalizeWindow } from './presets';
 
 /** Distinct, irregular values so a wrong percentile can never coincide with the right one. */
 const P: Record<PercentileKey, number> = {
@@ -88,5 +88,29 @@ describe('activePreset', () => {
     const w = applyPreset('p50-p99.9', STATS);
     const typed = { lo: Number(w.lo.toFixed(4)), hi: Number(w.hi.toFixed(4)) };
     expect(activePreset(typed, STATS)).toBe('p50-p99.9');
+  });
+});
+
+describe('volume contrast presets', () => {
+  it('offers broad, upper-half and upper-tail windows without the signed mesh choice', () => {
+    expect(VOLUME_PRESETS.map((p) => p.id)).toEqual(['p1-p99', 'p50-p99.9', 'p95-p99.9']);
+  });
+
+  it('uses the requested percentile endpoints rather than percentages of the value range', () => {
+    expect(applyPreset('p1-p99', STATS)).toEqual({ lo: P['1'], hi: P['99'] });
+    expect(applyPreset('p95-p99.9', STATS)).toEqual({ lo: P['95'], hi: P['99.9'] });
+  });
+
+  it('only recognizes choices offered by the current editor', () => {
+    expect(activePreset({ lo: P['95'], hi: P['99.9'] }, STATS, 1e-4, VOLUME_PRESETS)).toBe(
+      'p95-p99.9'
+    );
+    expect(activePreset({ lo: -P['99'], hi: P['99'] }, STATS, 1e-4, VOLUME_PRESETS)).toBeNull();
+    expect(activePreset({ lo: P['1'], hi: P['99'] }, STATS)).toBeNull();
+  });
+
+  it('recognizes a volume choice even when a hidden mesh choice has the same bounds', () => {
+    const tied: Stats = { ...STATS, percentiles: { ...P, '1': P['2'], '99': P['98'] } };
+    expect(activePreset({ lo: P['2'], hi: P['98'] }, tied, 1e-4, VOLUME_PRESETS)).toBe('p1-p99');
   });
 });

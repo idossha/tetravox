@@ -1,6 +1,6 @@
 /**
  * The **surface** layer's property editor (2026-09-06, R4 of
- * `docs/requirements/2026-09-06-idohaber-surfaces.md`).
+ * `docs/ARCHITECTURE.md` §4.4/§8).
  *
  * Five sections and no more: **Colour** (one source at a time — solid, overlay, annotation — with
  * the picker for the chosen one and *Attach file…*), **Regions** (the annotation's atlas, only when

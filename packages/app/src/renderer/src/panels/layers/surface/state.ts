@@ -1,6 +1,6 @@
 /**
  * Pure editors for §4.4's `SurfaceLayer` (2026-09-06, R4/R5 of
- * `docs/requirements/2026-09-06-idohaber-surfaces.md`): each takes the layer (and the dataset when
+ * `docs/ARCHITECTURE.md` §4.4/§8): each takes the layer (and the dataset when
  * it needs a field or a table) to a `Partial<SurfaceLayer>` the controller hands to
  * `Engine.updateLayer`. Nothing here imports from the mesh editor: a surface has one colour source
  * at a time, and that is the whole grammar.

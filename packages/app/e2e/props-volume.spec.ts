@@ -59,6 +59,11 @@ async function boot(target: LaunchTarget): Promise<{ app: ElectronApplication; p
     undefined,
     { timeout: 30_000 }
   );
+  expect(
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().every((window) => !window.isVisible())
+    )
+  ).toBe(true);
   return { app, page };
 }
 
@@ -155,65 +160,105 @@ test.describe('the §8 volume property editor', () => {
     expect((await layerState(page, fourD))['colormap']).toBe('viridis');
   });
 
-  test('switching to heat carries the window across and seeds mid at the midpoint', async () => {
-    const before = (await layerState(page, fourD))['scale'] as { lo: number; hi: number };
-    await page.getByTestId(`volume-scale-kind-${fourD}`).selectOption('heat');
-    const scale = (await layerState(page, fourD))['scale'] as Record<string, unknown>;
-    expect(scale['kind']).toBe('heat');
-    expect(scale['min']).toBeCloseTo(before.lo, 6);
-    expect(scale['max']).toBeCloseTo(before.hi, 6);
-    expect(scale['mid']).toBeCloseTo((before.lo + before.hi) / 2, 6);
-  });
-
-  test('heat’s min / mid / max, truncate, inverse and the negative branch all reach the layer', async () => {
-    await page.getByTestId(`volume-heat-min-${fourD}`).fill('10');
-    await page.getByTestId(`volume-heat-max-${fourD}`).fill('90');
-    await page.getByTestId(`volume-heat-mid-${fourD}`).fill('40');
-    await page.getByTestId(`volume-heat-truncate-${fourD}`).click();
-    await page.getByTestId(`volume-heat-inverse-${fourD}`).click();
-    await page.getByTestId(`volume-heat-negative-${fourD}`).selectOption('separate');
-
-    const scale = (await layerState(page, fourD))['scale'] as Record<string, unknown>;
-    expect(scale).toMatchObject({
-      kind: 'heat',
-      min: 10,
-      mid: 40,
-      max: 90,
-      truncate: true,
-      inverse: true,
-      negative: 'separate',
-    });
-
-    // §7.6's separate negative branch is a second colormap, so its picker only exists there.
-    await page.getByTestId(`volume-colormap-negative-${fourD}`).selectOption('blue-cyan');
-    expect((await layerState(page, fourD))['colormapNegative']).toBe('blue-cyan');
-  });
-
-  test('heat’s mid is clamped into [min, max] rather than escaping the ramp', async () => {
-    await page.getByTestId(`volume-heat-mid-${fourD}`).fill('9999');
-    const scale = (await layerState(page, fourD))['scale'] as Record<string, unknown>;
-    expect(scale['mid']).toBe(scale['max']);
-  });
-
-  test('back to linear, keeping [min, max] as [lo, hi]', async () => {
-    await page.getByTestId(`volume-scale-kind-${fourD}`).selectOption('linear');
+  test('scalar controls group contrast and optional transparency; labels omit both', async () => {
+    await expect(page.getByTestId(`volume-scale-kind-${fourD}`)).toHaveCount(0);
+    await expect(page.getByTestId(`volume-histogram-${labels}`)).toHaveCount(0);
+    await expect(page.getByTestId(`volume-colormap-${labels}`)).toHaveCount(0);
+    await page.getByTestId(`volume-threshold-enabled-${fourD}`).uncheck();
+    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveCount(0);
+    await page.getByTestId(`volume-scale-lo-${fourD}`).fill('10');
+    await page.getByTestId(`volume-scale-hi-${fourD}`).fill('90');
     expect((await layerState(page, fourD))['scale']).toEqual({ kind: 'linear', lo: 10, hi: 90 });
-  });
-
-  test('the threshold, its mode, its symmetric flag and softEdge are four separate patches', async () => {
+    await page.getByTestId(`volume-threshold-enabled-${fourD}`).check();
+    expect((await layerState(page, fourD))['threshold']).toEqual({
+      lo: 10,
+      hi: 90,
+      mode: 'hide',
+      symmetric: false,
+      softEdge: 0,
+    });
     await page.getByTestId(`volume-threshold-lo-${fourD}`).fill('12');
     await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('88');
-    await page.getByTestId(`volume-threshold-symmetric-${fourD}`).click();
-    await page.getByTestId(`volume-threshold-mode-${fourD}`).selectOption('clamp');
-    // §4.2: softEdge is the width of the alpha ramp as a FRACTION of `hi - lo`, so the slider is 0..1.
-    await page.getByTestId(`volume-threshold-softedge-${fourD}`).fill('0.5');
+    expect((await layerState(page, fourD))['threshold']).toMatchObject({ lo: 12, hi: 88 });
+    await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('5');
+    expect((await layerState(page, fourD))['threshold']).toMatchObject({ lo: 5, hi: 5 });
+    await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('88');
+    expect((await layerState(page, fourD))['scale']).toEqual({ kind: 'linear', lo: 10, hi: 90 });
+    await page.getByTestId(`volume-threshold-lo-${fourD}`).fill('');
+    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveValue('');
+    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveAttribute(
+      'placeholder',
+      'No limit'
+    );
+    await page.getByTestId(`volume-threshold-enabled-${fourD}`).uncheck();
+    const disabled = (await layerState(page, fourD))['threshold'] as { lo: number; hi: number };
+    expect(disabled.lo).toBe(-Infinity);
+    expect(disabled.hi).toBe(Infinity);
+    await page.getByTestId(`volume-threshold-enabled-${fourD}`).check();
+  });
 
-    expect((await layerState(page, fourD))['threshold']).toEqual({
-      lo: 12,
-      hi: 88,
-      symmetric: true,
-      mode: 'clamp',
-      softEdge: 0.5,
+  test('percentile threshold entry changes cutoffs, while switching units preserves visibility', async () => {
+    const units = page.getByTestId(`volume-threshold-units-${fourD}`);
+    const before = (await layerState(page, fourD))['threshold'];
+    await units.selectOption('percentiles');
+    expect((await layerState(page, fourD))['threshold']).toEqual(before);
+    // Raise high first so the lower bound never crosses the current high bound.
+    await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('99.9');
+    await page.getByTestId(`volume-threshold-lo-${fourD}`).fill('95');
+    const stats = await datasetStats(page, fourD);
+    const expected = {
+      lo: stats.percentiles['95'],
+      hi: stats.percentiles['99.9'],
+      mode: 'hide',
+      symmetric: false,
+      softEdge: 0,
+    };
+    expect((await layerState(page, fourD))['threshold']).toEqual(expected);
+    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveValue('95');
+    await units.selectOption('values');
+    expect((await layerState(page, fourD))['threshold']).toEqual(expected);
+    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveValue(
+      String(stats.percentiles['95'])
+    );
+  });
+
+  test('3D slices and 3D surface share one row with distinct descriptions', async () => {
+    const slices = page.getByTestId(`volume-show-in-3d-${fourD}`);
+    const surface = page.getByTestId(`volume-iso3d-toggle-${fourD}`);
+    await expect(slices).toHaveText('3D slices');
+    await expect(surface).toHaveText('3D surface');
+    await expect(slices).toHaveAttribute('title', /slice planes/);
+    await expect(surface).toHaveAttribute('title', /extracted 3D surface/);
+    await slices.scrollIntoViewIfNeeded();
+    const a = await slices.boundingBox();
+    const b = await surface.boundingBox();
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(Math.abs(a!.y - b!.y)).toBeLessThanOrEqual(1);
+    expect(b!.x).toBeGreaterThanOrEqual(a!.x + a!.width);
+  });
+
+  test('contrast controls fit a narrow panel and expose only the three volume presets', async () => {
+    const panel = page
+      .getByTestId(`volume-properties-${fourD}`)
+      .getByRole('region', { name: 'Contrast and visibility' });
+    await panel.evaluate((element) => {
+      element.style.width = '250px';
+    });
+    const bounds = await panel.evaluate((element) => ({
+      width: element.clientWidth,
+      content: element.scrollWidth,
+    }));
+    expect(bounds.content).toBeLessThanOrEqual(bounds.width);
+    await expect(panel.getByRole('button', { name: '1–99%', exact: true })).toHaveCount(1);
+    await expect(panel.getByRole('button', { name: '50–99.9%', exact: true })).toHaveCount(1);
+    await expect(panel.getByRole('button', { name: '95–99.9%', exact: true })).toHaveCount(1);
+    for (const suffix of ['symmetric', 'mode', 'softedge']) {
+      await expect(page.getByTestId(`volume-threshold-${suffix}-${fourD}`)).toHaveCount(0);
+    }
+    await panel.screenshot({ path: test.info().outputPath('volume-controls.png') });
+    await panel.evaluate((element) => {
+      element.style.width = '';
     });
   });
 
@@ -280,17 +325,12 @@ test.describe('the §8 histogram widget', () => {
     await page.getByTestId(`${prefix}-logy`).click();
   });
 
-  test('the four presets compute their window from Stats.percentiles', async () => {
+  test('the three volume presets compute their window from Stats.percentiles', async () => {
     const stats = await datasetStats(page, id);
     const cases: [string, number, number][] = [
-      ['min-max', stats.min, stats.max],
-      ['p2-p98', stats.percentiles['2'] as number, stats.percentiles['98'] as number],
+      ['p1-p99', stats.percentiles['1'] as number, stats.percentiles['99'] as number],
       ['p50-p99.9', stats.percentiles['50'] as number, stats.percentiles['99.9'] as number],
-      [
-        'sym-p99',
-        -Math.abs(stats.percentiles['99'] as number),
-        Math.abs(stats.percentiles['99'] as number),
-      ],
+      ['p95-p99.9', stats.percentiles['95'] as number, stats.percentiles['99.9'] as number],
     ];
     for (const [preset, lo, hi] of cases) {
       await page.getByTestId(`${prefix}-preset-${preset}`).click();
@@ -309,8 +349,74 @@ test.describe('the §8 histogram widget', () => {
     await expect(page.getByTestId(`${prefix}-colormap-name`)).toHaveText('turbo');
   });
 
+  for (const location of ['overlapping', 'outside the axis'] as const) {
+    test(`all four explicit handles remain independently draggable when ${location}`, async () => {
+      await page.getByTestId(`volume-threshold-enabled-${id}`).check();
+      await page.getByTestId(`volume-threshold-units-${id}`).selectOption('values');
+      const stats = await datasetStats(page, id);
+      const span = stats.histogramHi - stats.histogramLo;
+      const lo = stats.histogramLo + (location === 'overlapping' ? 0.2 : -0.2) * span;
+      const hi = stats.histogramLo + (location === 'overlapping' ? 0.8 : 1.2) * span;
+      const cases = [
+        ['windowLo', 'scale', 'lo', 0.4],
+        ['windowHi', 'scale', 'hi', 0.6],
+        ['thresholdLo', 'threshold', 'lo', 0.4],
+        ['thresholdHi', 'threshold', 'hi', 0.6],
+      ] as const;
+      for (const [handle, range, bound, target] of cases) {
+        // Matching ranges put contrast and threshold markers at identical x coordinates.
+        for (const field of ['scale', 'threshold']) {
+          await page.getByTestId(`volume-${field}-lo-${id}`).fill(String(Math.min(lo, stats.min)));
+          await page.getByTestId(`volume-${field}-hi-${id}`).fill(String(hi));
+          await page.getByTestId(`volume-${field}-lo-${id}`).fill(String(lo));
+        }
+        for (const marker of ['windowLo', 'windowHi', 'thresholdLo', 'thresholdHi']) {
+          const fraction = marker.endsWith('Lo')
+            ? location === 'overlapping'
+              ? 0.2
+              : 0
+            : location === 'overlapping'
+              ? 0.8
+              : 1;
+          const line = page.getByTestId(`${prefix}-handle-${marker}`).locator('line');
+          expect(Number(await line.getAttribute('x1'))).toBeCloseTo(256 * fraction, 6);
+        }
+        const before = await layerState(page, id);
+        const grab = page.getByTestId(`${prefix}-grab-${handle}`);
+        await expect(grab).toBeVisible();
+        await grab.scrollIntoViewIfNeeded();
+        const grabBox = await grab.boundingBox();
+        const plotBox = await page.getByTestId(`${prefix}-plot`).boundingBox();
+        if (grabBox === null || plotBox === null) throw new Error('histogram handle has no box');
+        const grabX = grabBox.x + grabBox.width / 2;
+        const grabY = grabBox.y + grabBox.height / 2;
+        // Out-of-range values must still have an on-axis target the user can grab.
+        expect(grabX).toBeGreaterThanOrEqual(plotBox.x);
+        expect(grabX).toBeLessThanOrEqual(plotBox.x + plotBox.width);
+        await page.mouse.move(grabX, grabY);
+        await page.mouse.down();
+        await page.mouse.move(plotBox.x + target * plotBox.width, grabY, { steps: 4 });
+        await page.mouse.up();
+        const after = await layerState(page, id);
+        const changed = after[range] as { lo: number; hi: number };
+        const oppositeBound = bound === 'lo' ? 'hi' : 'lo';
+        const oppositeRange = range === 'scale' ? 'threshold' : 'scale';
+        expect(Math.abs(changed[bound] - (stats.histogramLo + target * span)), handle).toBeLessThan(
+          0.005 * span
+        );
+        expect(changed[oppositeBound], handle).toBe(oppositeBound === 'lo' ? lo : hi);
+        expect(after[oppositeRange], handle).toEqual(before[oppositeRange]);
+      }
+    });
+  }
+
   test('dragging the window’s low handle lands on the value under the pointer', async () => {
-    await page.getByTestId(`${prefix}-preset-min-max`).click();
+    await page
+      .getByTestId(`volume-scale-lo-${id}`)
+      .fill(String((await datasetStats(page, id)).min));
+    await page
+      .getByTestId(`volume-scale-hi-${id}`)
+      .fill(String((await datasetStats(page, id)).max));
     const stats = await datasetStats(page, id);
 
     // Park the threshold in the top fifth of the axis first. `handleAt` gives a tie to the threshold
@@ -583,14 +689,16 @@ test.describe('the 3D surface switch', () => {
     await expect(page.getByTestId(`volume-iso3d-${fourD}`)).toHaveAttribute('data-enabled', 'true');
   });
 
-  test('the level slider spans the histogram, and both level controls are one patch each', async () => {
+  test('the level slider replaces exact input and completed progress is hidden', async () => {
     const stats = await datasetStats(page, fourD);
     const slider = page.getByTestId(`volume-iso3d-level-${fourD}`);
     await expect(slider).toHaveAttribute('min', String(stats.histogramLo));
     await expect(slider).toHaveAttribute('max', String(stats.histogramHi));
 
     const target = (stats.histogramLo + stats.histogramHi) / 2;
-    await page.getByTestId(`volume-iso3d-level-exact-${fourD}`).fill(String(target));
+    await expect(page.getByTestId(`volume-iso3d-level-exact-${fourD}`)).toHaveCount(0);
+    await slider.fill(String(target));
+    await expect(page.getByTestId(`volume-iso3d-progress-${fourD}`)).toHaveCount(0);
     const iso3d = (await layerState(page, fourD))['iso3d'] as Record<string, unknown>;
     expect(iso3d['iso']).toBeCloseTo(target, 6);
     // Everything else survived the patch — a control that rewrote the block would lose the rest.
@@ -598,14 +706,14 @@ test.describe('the 3D surface switch', () => {
     expect(iso3d['smooth']).toBe(true);
   });
 
-  test('opacity, smooth and the face mode each reach the layer', async () => {
+  test('opacity remains editable while surfaces stay smooth and two-sided', async () => {
     await page.getByTestId(`volume-iso3d-opacity-${fourD}`).fill('0.4');
-    await page.getByTestId(`volume-iso3d-smooth-${fourD}`).click();
-    await page.getByTestId(`volume-iso3d-facemode-${fourD}`).click();
+    await expect(page.getByTestId(`volume-iso3d-smooth-${fourD}`)).toHaveCount(0);
+    await expect(page.getByTestId(`volume-iso3d-facemode-${fourD}`)).toHaveCount(0);
     const iso3d = (await layerState(page, fourD))['iso3d'] as Record<string, unknown>;
     expect(iso3d['opacity']).toBeCloseTo(0.4, 6);
-    expect(iso3d['smooth']).toBe(false);
-    expect(iso3d['faceMode']).toBe('cull');
+    expect(iso3d['smooth']).toBe(true);
+    expect(iso3d['faceMode']).toBe('both');
   });
 
   test('turning it off keeps the settings rather than deleting them', async () => {
