@@ -142,9 +142,21 @@ test.describe('a surface opens as a surface', () => {
     expect(asMesh[0]?.['solidColor']).toEqual([1, 0.9, 0.15, 1]);
   });
 
-  test('a host that names no colour gets the load-order palette', async ({ page }) => {
+  test('a host that names no colour gets the load-order palette', async ({ page, context }) => {
     // Documented in `EMBED.md` §5(c) because it surprises: two hemispheres come out yellow and
     // green rather than both the same, and a host that wanted one colour has to say so.
+    // Hold the first file until the second surface is visible: palette order must follow the
+    // document even when worker/network completion runs in the opposite order.
+    await context.route('**/lh.fixture.surf', async (route) => {
+      await page.waitForFunction(() =>
+        (window as unknown as HostWindow).__host.events.some(
+          (event) =>
+            event['type'] === 'layers' &&
+            (event['layers'] as LoadedLayer[]).some((layer) => layer.name === 'rh')
+        )
+      );
+      await route.continue();
+    });
     await openHost(page);
     const layers = await loadOk(page, {
       datasets: [

@@ -8,6 +8,11 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Surface colors follow scene order during concurrent loading.** A faster download no longer
+  takes another surface’s default color. Explicit colors are retained.
+
 ### Changed
 
 - **Grab all four histogram bounds directly.** Contrast and threshold low/high handles have distinct,

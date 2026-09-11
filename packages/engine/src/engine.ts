@@ -3405,7 +3405,16 @@ export class TetravoxEngine implements Engine, PointerHost {
     // only remap layer visibility; they must not reset an orbit made while another file loads.
     const attachReady = (final = false): void => {
       check();
+      let surfaceIndex = 0;
       for (const serialized of spec.layers) {
+        // Reserve palette positions in document order, including surfaces still loading. Worker
+        // completion order must not decide hemisphere colours during progressive restoration.
+        const paletteIndex = surfaceIndex;
+        if (
+          serialized.kind === 'surface' ||
+          (serialized.kind === 'mesh' && 'contourColor' in serialized)
+        )
+          surfaceIndex++;
         if (layerMap.has(serialized.id) || !isRestorableKind(serialized.kind)) continue;
         // An isolate depends on both the mesh and its label volume. Wait for that second dataset,
         // or restore the existing missing-reference fallback after all files settle.
@@ -3416,7 +3425,15 @@ export class TetravoxEngine implements Engine, PointerHost {
         if (!final && dependency !== undefined && !idMap.has(dependency)) continue;
         const patch = remapLayer(serialized, idMap);
         if (patch === null) continue;
-        const created = this.addLayer(patch as NewLayer);
+        const seeded =
+          patch.kind === 'surface' && !('solidColor' in patch) && !('contourColor' in patch)
+            ? {
+                ...patch,
+                solidColor: surfaceContourColor(paletteIndex),
+                contourColor: surfaceContourColor(paletteIndex),
+              }
+            : patch;
+        const created = this.addLayer(seeded as NewLayer);
         layerMap.set(serialized.id, created.id);
       }
       this.#store.reorderLayers(

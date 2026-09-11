@@ -5608,3 +5608,11 @@ captures for scientific examples and actual window captures for interface docume
 manifest as the capture catalogue and the job scripts as the reproducible source. Proposed future film
 expansion, a neutral preset identifier and a knee sample were optional ideas, not release gates; no
 implementation is claimed for them.
+
+## 2026-09-11 — Seed progressive surface colors in scene order
+
+**Decision.** Reserve default surface palette positions in serialized layer order before checking which
+datasets are ready. Previously download completion order could reverse hemisphere colors even after
+layer order was corrected. Explicit colors and already adopted layers stay untouched. This repairs the
+pre-existing main CI failure in the embed surface palette test. The regression delays the first file
+until the second surface appears, then checks the exact documented palette.

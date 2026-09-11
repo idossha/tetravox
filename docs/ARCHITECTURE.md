@@ -3908,7 +3908,8 @@ the opener's bridge on the opener's channels. An `http(s)` URL goes to the user'
 
 `Engine.load` accepts an optional `AbortSignal`; absent, callers retain the existing completion promise.
 Missing datasets start concurrently in their existing dedicated workers. Each completed dataset restores
-its layers immediately, while final layer ordering follows the specification rather than network timing.
+its layers immediately, while final layer ordering and default surface palette positions follow the
+specification rather than network timing. Explicit surface colors and already adopted layers retain their colors.
 A layer requiring another dataset waits for that dependency. All loads settle before a combined error is
 reported, leaving successful layers available. Cancellation terminates workers and rejects with
 `AbortError`; late results cannot upload geometry, attach layers or restore a stale camera.
