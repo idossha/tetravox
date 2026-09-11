@@ -18,7 +18,6 @@ import {
   asyncSwitchFor,
   clearIsolate,
   clearIsolateClause,
-  cutColorSource,
   defaultGlyphs,
   disableGlyphs,
   flipClipPlane,
@@ -32,7 +31,6 @@ import {
   setColorMode,
   setClipNormal,
   setContoursIn2D,
-  setCutColorSource,
   setEdges,
   setFillIn2D,
   glyphOrigins,
@@ -41,7 +39,8 @@ import {
   setGlyphStride,
   setIsolateBox,
   setIsolateSphere,
-  setScaleKind,
+  setScaleBounds,
+  setFieldComponent,
   setTagVisible,
   soloTag,
   styleOf,
@@ -197,23 +196,23 @@ describe('the `tagStyle` primitives the Region panel writes through', () => {
 });
 
 describe('the field selector', () => {
-  it('re-seeds the scale and threshold from the field it selects', () => {
+  it('seeds contrast from the selected field and clears stale thresholding', () => {
     const patch = selectField(dataset(), meshLayer(), 'elm:TI_max');
     expect(patch.colorMode).toBe('field');
     expect(patch.field).toEqual({ source: 'elm', name: 'TI_max', component: 'mag' });
     expect(patch.scale).toEqual({ kind: 'linear', lo: 0, hi: 10.29 });
     expect(patch.threshold).toEqual({
-      lo: 0,
-      hi: 10.29,
+      lo: -Infinity,
+      hi: Infinity,
       symmetric: false,
       mode: 'hide',
       softEdge: 0,
     });
   });
 
-  it('keeps the chosen component on a vector field and forces `mag` on a scalar', () => {
+  it('starts every selected field in magnitude mode', () => {
     const vector = meshLayer({ field: { source: 'elm', name: 'E', component: 2 } });
-    expect(selectField(dataset(), vector, 'elm:E').field?.component).toBe(2);
+    expect(selectField(dataset(), vector, 'elm:E').field?.component).toBe('mag');
     expect(selectField(dataset(), vector, 'elm:TI_max').field?.component).toBe('mag');
   });
 
@@ -228,29 +227,79 @@ describe('the field selector', () => {
     expect(setColorMode(meshLayer(), 'solid')).toEqual({ colorMode: 'solid' });
   });
 
-  it('converts linear ⇄ heat without losing the window', () => {
-    const heat = setScaleKind(meshLayer({ scale: { kind: 'linear', lo: 2, hi: 8 } }), 'heat');
-    expect(heat.scale).toEqual({
-      kind: 'heat',
-      min: 2,
-      mid: 5,
-      max: 8,
-      truncate: false,
-      inverse: false,
-      negative: 'mirror',
+  it('converts old heat contrast to an ordered linear window and widens constant bounds', () => {
+    const layer = meshLayer({
+      scale: {
+        kind: 'heat',
+        min: 0,
+        mid: 1,
+        max: 2,
+        truncate: true,
+        inverse: true,
+        negative: 'mirror',
+      },
     });
-    const back = setScaleKind({ ...meshLayer(), ...heat } as MeshLayer, 'linear');
-    expect(back.scale).toEqual({ kind: 'linear', lo: 2, hi: 8 });
+    expect(setScaleBounds(layer, 8, 2).scale).toEqual({ kind: 'linear', lo: 2, hi: 8 });
+    const constant = setScaleBounds(layer, 5, 5).scale;
+    expect(constant?.kind).toBe('linear');
+    if (constant?.kind !== 'linear') throw new Error('Expected linear window');
+    expect(constant.lo).toBeLessThan(5);
+    expect(constant.hi).toBeGreaterThan(5);
   });
 
-  it('patches one threshold field at a time', () => {
-    const patch = patchThreshold(meshLayer(), { softEdge: 0.5 });
-    expect(patch.threshold).toEqual({
-      lo: 0,
-      hi: 1,
-      symmetric: false,
+  it('keeps negative vector components visible and clears thresholds when components change', () => {
+    const layer = meshLayer({ field: { source: 'elm', name: 'E', component: 'mag' } });
+    for (const component of [0, 1, 2] as const) {
+      const patch = setFieldComponent(layer, component, stats(2, 5));
+      expect(patch.field?.component).toBe(component);
+      expect(patch.scale).toEqual({ kind: 'linear', lo: -5, hi: 5 });
+      expect(patch.threshold).toEqual({
+        lo: -Infinity,
+        hi: Infinity,
+        mode: 'hide',
+        symmetric: false,
+        softEdge: 0,
+      });
+    }
+    expect(setFieldComponent(layer, 'mag', stats(2, 5)).scale).toEqual({
+      kind: 'linear',
+      lo: 2,
+      hi: 5,
+    });
+    expect(setFieldComponent(meshLayer(), 0, stats(2, 5))).toEqual({});
+  });
+
+  it('normalizes crossed threshold bounds and removes hidden advanced threshold behavior', () => {
+    const layer = meshLayer({
+      threshold: { lo: 2, hi: 8, mode: 'clamp', symmetric: true, softEdge: 0.5 },
+    });
+    expect(patchThreshold(layer, { lo: 9 }).threshold).toEqual({
+      lo: 9,
+      hi: 9,
       mode: 'hide',
-      softEdge: 0.5,
+      symmetric: false,
+      softEdge: 0,
+    });
+    expect(patchThreshold(layer, { hi: 1 }).threshold).toEqual({
+      lo: 1,
+      hi: 1,
+      mode: 'hide',
+      symmetric: false,
+      softEdge: 0,
+    });
+    expect(patchThreshold(layer, { lo: 7, hi: 3 }).threshold).toEqual({
+      lo: 3,
+      hi: 7,
+      mode: 'hide',
+      symmetric: false,
+      softEdge: 0,
+    });
+    expect(patchThreshold(layer, { lo: -Infinity, hi: Infinity }).threshold).toEqual({
+      lo: -Infinity,
+      hi: Infinity,
+      mode: 'hide',
+      symmetric: false,
+      softEdge: 0,
     });
   });
 
@@ -265,22 +314,6 @@ describe('the 2D cross-section (R4)', () => {
   it('toggles fill and contours independently', () => {
     expect(setFillIn2D(meshLayer(), true)).toEqual({ fillIn2D: true });
     expect(setContoursIn2D(meshLayer(), true)).toEqual({ contoursIn2D: true });
-  });
-
-  it('drives the cut colour through the layer’s own colour source', () => {
-    expect(setCutColorSource(dataset(), meshLayer(), 'tag')).toEqual({ colorMode: 'tag' });
-    const byField = setCutColorSource(dataset(), meshLayer(), 'elm:TI_max');
-    expect(byField.colorMode).toBe('field');
-    expect(byField.field?.name).toBe('TI_max');
-    expect(cutColorSource(meshLayer())).toBe('tag');
-    expect(
-      cutColorSource(
-        meshLayer({
-          colorMode: 'field',
-          field: { source: 'elm', name: 'TI_max', component: 'mag' },
-        })
-      )
-    ).toBe('elm:TI_max');
   });
 });
 

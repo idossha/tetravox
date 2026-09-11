@@ -363,6 +363,8 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
   // ---- the field selector ----------------------------------------------------------------------
 
   test('the field selector emits the field, and re-seeds the scale from its stats', async () => {
+    await setControl(page, `mesh-colormode-${ids.mesh}`, 'field');
+    await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:E');
     await record(page);
     await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:TI_max');
     const patch = await onePatch(page);
@@ -400,57 +402,104 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     );
   });
 
-  test('colormap, scale, threshold and shading are each one call', async () => {
-    const cases: {
-      control: string;
-      value: string;
-      expect: (p: Record<string, unknown>) => void;
-    }[] = [
-      {
-        control: `mesh-colormap-${ids.mesh}`,
-        value: 'inferno',
-        expect: (p) => expect(p).toEqual({ colormap: 'inferno' }),
-      },
-      {
-        control: `mesh-scalekind-${ids.mesh}`,
-        value: 'heat',
-        expect: (p) =>
-          expect(p.scale).toMatchObject({ kind: 'heat', truncate: false, negative: 'mirror' }),
-      },
-      {
-        control: `mesh-scale-mid-${ids.mesh}`,
-        value: '3',
-        expect: (p) => expect(p.scale).toMatchObject({ kind: 'heat', mid: 3 }),
-      },
-      {
-        control: `mesh-threshold-soft-${ids.mesh}`,
-        value: '0.5',
-        expect: (p) => expect(p.threshold).toMatchObject({ softEdge: 0.5 }),
-      },
-      {
-        control: `mesh-edge-width-${ids.mesh}`,
-        value: '2.5',
-        expect: (p) => expect(p).toEqual({ edgeWidthPx: 2.5 }),
-      },
-    ];
-    for (const item of cases) {
-      await record(page);
-      await setControl(page, item.control, item.value);
-      item.expect(await onePatch(page));
+  test('scalar field controls offer contrast and optional thresholding without advanced clutter', async () => {
+    await expect(page.getByTestId(`mesh-component-${ids.mesh}`)).toHaveCount(0);
+    for (const suffix of [
+      'scalekind',
+      'scale-mid',
+      'threshold-soft',
+      'threshold-symmetric',
+      'flat',
+      'facemode',
+      'solid-alpha',
+      'cut-color',
+    ]) {
+      await expect(page.getByTestId(`mesh-${suffix}-${ids.mesh}`)).toHaveCount(0);
     }
-
+    await expect(page.getByTestId(`mesh-solid-color-${ids.mesh}`)).toHaveCount(0);
     await record(page);
-    await page.click(`[data-testid="mesh-threshold-symmetric-${ids.mesh}"]`);
-    expect((await onePatch(page)).threshold).toMatchObject({ symmetric: true });
-
+    await setControl(page, `mesh-colormap-${ids.mesh}`, 'inferno');
+    expect(await onePatch(page)).toEqual({ colormap: 'inferno' });
     await record(page);
-    await page.click(`[data-testid="mesh-flat-${ids.mesh}"]`);
-    expect(await onePatch(page)).toEqual({ flatShading: true });
+    await page.getByTestId(`mesh-scale-lo-${ids.mesh}`).fill('1');
+    expect((await onePatch(page)).scale).toMatchObject({ kind: 'linear', lo: 1 });
+    await page.getByTestId(`mesh-threshold-enabled-${ids.mesh}`).check();
+    await record(page);
+    await page.getByTestId(`mesh-threshold-lo-${ids.mesh}`).fill('2');
+    expect((await onePatch(page)).threshold).toMatchObject({
+      lo: 2,
+      mode: 'hide',
+      symmetric: false,
+      softEdge: 0,
+    });
+    await record(page);
+    await setControl(page, `mesh-edge-width-${ids.mesh}`, '2.5');
+    expect(await onePatch(page)).toEqual({ edgeWidthPx: 2.5 });
+  });
+
+  test('percentile thresholds use field statistics and all four histogram handles are draggable', async () => {
+    const stats = await page.evaluate((id) => {
+      const state = window.__tetravox!.store.getState();
+      const layer = state.layers.find((l) => l.id === id)!;
+      const ds = state.datasets.find((d) => d.id === layer.datasetId);
+      if (ds?.kind !== 'mesh') throw new Error('no mesh');
+      return ds.fields.find((f) => f.name === 'TI_max')!.stats;
+    }, ids.mesh);
+    await page.getByTestId(`mesh-threshold-units-${ids.mesh}`).selectOption('percentiles');
+    await page.getByTestId(`mesh-threshold-lo-${ids.mesh}`).fill('50');
+    await record(page);
+    await page.getByTestId(`mesh-threshold-hi-${ids.mesh}`).fill('99.9');
+    expect((await onePatch(page)).threshold).toMatchObject({
+      lo: stats.percentiles['50'],
+      hi: stats.percentiles['99.9'],
+    });
+    await page.getByTestId(`mesh-threshold-units-${ids.mesh}`).selectOption('values');
+    const prefix = `mesh-histogram-${ids.mesh}`;
+    for (const handle of ['windowLo', 'windowHi', 'thresholdLo', 'thresholdHi']) {
+      const grab = page.getByTestId(`${prefix}-grab-${handle}`);
+      await expect(grab).toBeVisible();
+      await grab.scrollIntoViewIfNeeded();
+      const box = await grab.boundingBox();
+      const plot = await page.getByTestId(`${prefix}-plot`).boundingBox();
+      if (!box || !plot) throw new Error('missing histogram bounds');
+      await record(page);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      const fraction = handle.endsWith('Lo') ? 0.25 : 0.75;
+      await page.mouse.move(plot.x + plot.width * fraction, box.y + box.height / 2, { steps: 3 });
+      await page.mouse.up();
+      const calls = await patches(page);
+      expect(calls.length).toBeGreaterThan(0);
+      const patch = calls[calls.length - 1]!.patch;
+      const key = handle.startsWith('window') ? 'scale' : 'threshold';
+      const bound = handle.endsWith('Lo') ? 'lo' : 'hi';
+      expect(Object.keys(patch)).toEqual([key]);
+      const wanted = stats.histogramLo + (stats.histogramHi - stats.histogramLo) * fraction;
+      expect(Math.abs((patch[key] as Record<string, number>)[bound]! - wanted)).toBeLessThan(
+        (stats.histogramHi - stats.histogramLo) * 0.005
+      );
+    }
+    await page.getByTestId(`mesh-threshold-enabled-${ids.mesh}`).uncheck();
+    await expect(page.getByTestId(`${prefix}-grab-thresholdLo`)).toHaveCount(0);
+  });
+
+  test('vector components stay available and signed components reset stale contrast', async () => {
+    await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:E');
+    await expect(page.getByTestId(`mesh-component-${ids.mesh}`)).toBeVisible();
+    await record(page);
+    await setControl(page, `mesh-component-${ids.mesh}`, '0');
+    const patch = await onePatch(page);
+    expect(patch.field).toMatchObject({ component: 0 });
+    const scale = patch.scale as { lo: number; hi: number };
+    expect(scale.lo).toBeLessThan(0);
+    expect(scale.hi).toBe(-scale.lo);
+    await expect(page.getByTestId(`mesh-threshold-enabled-${ids.mesh}`)).not.toBeChecked();
+    await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:TI_max');
   });
 
   // ---- R4: the 2D cross-section ----------------------------------------------------------------
 
-  test('R4: fill and contours are independent toggles, and the cut colour is one call', async () => {
+  test('R4: fill and outline are independent, with styling only while the outline is visible', async () => {
     await record(page);
     await page.click(`[data-testid="mesh-fill2d-${ids.mesh}"]`);
     expect(await onePatch(page)).toEqual({ fillIn2D: true });
@@ -464,17 +513,11 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     await setControl(page, `mesh-contour-width-${ids.mesh}`, '3');
     expect(await onePatch(page)).toEqual({ contourWidthPx: 3 });
 
-    // "Which field colours the cut" is the layer's own colour source (§7.4 draws the cut with
-    // tag/field colour), so `tag` is `colorMode: 'tag'` and a field is the field patch.
-    await record(page);
-    await setControl(page, `mesh-cut-color-${ids.mesh}`, 'tag');
-    expect(await onePatch(page)).toEqual({ colorMode: 'tag' });
-
-    await record(page);
-    await setControl(page, `mesh-cut-color-${ids.mesh}`, 'elm:E');
-    const byField = await onePatch(page);
-    expect(byField.colorMode).toBe('field');
-    expect(byField.field).toMatchObject({ source: 'elm', name: 'E' });
+    await expect(page.getByTestId(`mesh-cut-color-${ids.mesh}`)).toHaveCount(0);
+    await page.getByTestId(`mesh-contours2d-${ids.mesh}`).click();
+    await expect(page.getByTestId(`mesh-contour-width-${ids.mesh}`)).toHaveCount(0);
+    await expect(page.getByTestId(`mesh-contour-color-${ids.mesh}`)).toHaveCount(0);
+    await page.getByTestId(`mesh-contours2d-${ids.mesh}`).click();
   });
 
   /**
@@ -687,6 +730,7 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     await setControl(page, `mesh-glyph-head-${ids.mesh}`, '0.5');
     expect((await onePatch(page)).glyphs).toMatchObject({ headProportion: 0.5 });
 
+    await setControl(page, `mesh-glyph-colorby-${ids.mesh}`, 'solid');
     await record(page);
     await setControl(page, `mesh-glyph-color-${ids.mesh}`, '#00ff00');
     expect((await onePatch(page)).glyphs).toMatchObject({ color: [0, 1, 0, 1] });
@@ -762,5 +806,41 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     await page.click(`[data-testid="points-row-goto-${ids.points}-1"]`);
     const cursor = await page.evaluate(() => window.__tetravox?.store.getState().cursor);
     expect(cursor).toEqual([0, -9.2, 100.2]);
+  });
+
+  test('a single-tissue scalar mesh keeps useful row controls without search, bulk actions or glyphs', async () => {
+    // Start with a query that excludes the remaining tissue: hiding search must not hide its row.
+    await page.getByTestId(`region-search-${ids.mesh}`).fill('scalp');
+    await page.evaluate((id) => {
+      const store = window.__tetravox!.store;
+      const state = store.getState();
+      const layer = state.layers.find((l) => l.id === id)!;
+      store.setState({
+        datasets: state.datasets.map((ds) =>
+          ds.id === layer.datasetId && ds.kind === 'mesh'
+            ? {
+                ...Object.assign(ds, {
+                  tags: ds.tags.filter((tag) => tag.id === 2),
+                  fields: ds.fields.filter((field) => field.ncomp === 1),
+                }),
+              }
+            : ds
+        ),
+      });
+    }, ids.mesh);
+    await expect(page.getByTestId(`region-list-${ids.mesh}`)).toHaveAttribute('data-rows', '1');
+    for (const suffix of ['search', 'showAll', 'hideAll', 'invert']) {
+      await expect(page.getByTestId(`region-${suffix}-${ids.mesh}`)).toHaveCount(0);
+    }
+    await expect(page.getByTestId(`mesh-glyphs-${ids.mesh}`)).toHaveCount(0);
+    await expect(page.getByTestId(`region-color-${ids.mesh}-2`)).toBeVisible();
+    await expect(page.getByTestId(`region-opacity-${ids.mesh}-2`)).toBeVisible();
+    await record(page);
+    await page.getByTestId(`region-eye-${ids.mesh}-2`).focus();
+    await page.getByTestId(`region-eye-${ids.mesh}-2`).press('Space');
+    expect((await onePatch(page)).tagStyle).toMatchObject({ '2': { visible: false } });
+    await record(page);
+    await setControl(page, `region-color-${ids.mesh}-2`, '#00ff00');
+    expect((await onePatch(page)).tagStyle).toMatchObject({ '2': { color: [0, 1, 0, 1] } });
   });
 });

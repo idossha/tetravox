@@ -19,7 +19,7 @@ import type {
   MeshDataset,
   MeshFieldInfo,
   MeshLayer,
-  Scale,
+  Stats,
   SurfaceLayer,
   Threshold,
   vec3,
@@ -27,6 +27,7 @@ import type {
   VolumeDataset,
 } from '@tetravox/engine';
 import { DEFAULT_GLYPH_LENGTH_MM, glyphScaling } from '@tetravox/engine';
+import { normalizeWindow } from '../../histogram/presets';
 
 // ------------------------------------------------------------------------------------------------
 // Small shared arithmetic
@@ -157,89 +158,54 @@ export function setColorMode(
  */
 export function selectField(
   dataset: MeshDataset,
-  layer: MeshLayer,
+  _layer: MeshLayer,
   key: string
 ): Partial<MeshLayer> {
   const field = findField(dataset, key);
   if (field === null) return {};
-  const component: 'mag' | 0 | 1 | 2 =
-    field.ncomp === 1 ? 'mag' : (layer.field?.component ?? 'mag');
   return {
     colorMode: 'field',
     showColorbar: true,
-    field: { source: field.source, name: field.name, component },
-    scale: { kind: 'linear', lo: field.stats.min, hi: field.stats.max },
-    threshold: { ...layer.threshold, lo: field.stats.min, hi: field.stats.max },
+    field: { source: field.source, name: field.name, component: 'mag' },
+    scale: { kind: 'linear', ...normalizeWindow({ lo: field.stats.min, hi: field.stats.max }) },
+    threshold: { lo: -Infinity, hi: Infinity, mode: 'hide', symmetric: false, softEdge: 0 },
   };
 }
 
 export function setFieldComponent(
   layer: MeshLayer,
-  component: 'mag' | 0 | 1 | 2
+  component: 'mag' | 0 | 1 | 2,
+  stats: Stats
 ): Partial<MeshLayer> {
   if (layer.field === undefined) return {};
-  return { field: { ...layer.field, component } };
+  // Worker statistics describe magnitudes; every signed component lies within ±max magnitude.
+  const window =
+    component === 'mag'
+      ? { lo: stats.min, hi: stats.max }
+      : { lo: -Math.abs(stats.max), hi: Math.abs(stats.max) };
+  return {
+    field: { ...layer.field, component },
+    scale: { kind: 'linear', ...normalizeWindow(window) },
+    threshold: { lo: -Infinity, hi: Infinity, mode: 'hide', symmetric: false, softEdge: 0 },
+  };
 }
 
 export function setColormap(_layer: MeshLayer, colormap: ColormapName): Partial<MeshLayer> {
   return { colormap };
 }
 
-export function setScaleBounds(layer: MeshLayer, lo: number, hi: number): Partial<MeshLayer> {
-  const s = layer.scale;
-  if (s.kind === 'linear') return { scale: { kind: 'linear', lo, hi } };
-  return { scale: { ...s, min: lo, max: hi, mid: Math.min(Math.max(s.mid, lo), hi) } };
+export function setScaleBounds(_layer: MeshLayer, lo: number, hi: number): Partial<MeshLayer> {
+  return { scale: { kind: 'linear', ...normalizeWindow({ lo, hi }) } };
 }
 
-/** `linear` ⇄ `heat` (§7.6: a different CPU bake, not a different shader). */
-export function setScaleKind(layer: MeshLayer, kind: Scale['kind']): Partial<MeshLayer> {
-  const s = layer.scale;
-  if (s.kind === kind) return {};
-  if (kind === 'linear') {
-    return {
-      scale: {
-        kind: 'linear',
-        lo: s.kind === 'heat' ? s.min : 0,
-        hi: s.kind === 'heat' ? s.max : 1,
-      },
-    };
-  }
-  const lo = s.kind === 'linear' ? s.lo : 0;
-  const hi = s.kind === 'linear' ? s.hi : 1;
-  return {
-    scale: {
-      kind: 'heat',
-      min: lo,
-      mid: (lo + hi) / 2,
-      max: hi,
-      truncate: false,
-      inverse: false,
-      negative: 'mirror',
-    },
-  };
-}
-
-export function patchHeat(
-  layer: MeshLayer,
-  patch: Partial<Extract<Scale, { kind: 'heat' }>>
-): Partial<MeshLayer> {
-  if (layer.scale.kind !== 'heat') return {};
-  return { scale: { ...layer.scale, ...patch } };
-}
-
+/** Editing one cutoff moves the other only when necessary; a pair is sorted together. */
 export function patchThreshold(layer: MeshLayer, patch: Partial<Threshold>): Partial<MeshLayer> {
-  return { threshold: { ...layer.threshold, ...patch } };
-}
-
-export function setFlatShading(_layer: MeshLayer, flatShading: boolean): Partial<MeshLayer> {
-  return { flatShading };
-}
-
-export function setFaceMode(
-  _layer: MeshLayer,
-  faceMode: MeshLayer['faceMode']
-): Partial<MeshLayer> {
-  return { faceMode };
+  let lo = patch.lo ?? layer.threshold.lo;
+  let hi = patch.hi ?? layer.threshold.hi;
+  if (patch.lo !== undefined && patch.hi === undefined) hi = Math.max(lo, hi);
+  else if (patch.hi !== undefined && patch.lo === undefined) lo = Math.min(lo, hi);
+  else [lo, hi] = [Math.min(lo, hi), Math.max(lo, hi)];
+  return { threshold: { lo, hi, mode: 'hide', symmetric: false, softEdge: 0 } };
 }
 
 export function setEdges(layer: MeshLayer, patch: Partial<MeshLayer['edges']>): Partial<MeshLayer> {
@@ -289,28 +255,6 @@ export function setContourColor(layer: MeshLayer, hex: string): Partial<MeshLaye
 /** What the contour swatch shows: the layer's own colour, else the edge colour it falls back to. */
 export function contourColorHex(layer: MeshLayer): string {
   return vec4ToHex(layer.contourColor ?? layer.edgeColor);
-}
-
-/**
- * **What colours the cut** (R4). The frozen §4.4 `MeshLayer` has no separate cut field — §7.4 draws
- * `fillIn2D` polygons "with tag/field colour", i.e. through the layer's own `colorMode` and `field`,
- * which is exactly what R4 asks for ("coloured by tissue tag (or by the selected node/element field
- * through the layer's colormap/scale)"). So this control is the layer's colour source, surfaced a
- * second time where the cross-section toggles are, and `'tag'` here means `colorMode: 'tag'`.
- */
-export function setCutColorSource(
-  dataset: MeshDataset,
-  layer: MeshLayer,
-  source: 'tag' | 'solid' | string
-): Partial<MeshLayer> {
-  if (source === 'tag' || source === 'solid') return { colorMode: source };
-  return selectField(dataset, layer, source);
-}
-
-/** What the cut-colour selector shows: `'tag'`, `'solid'`, or the active field's key. */
-export function cutColorSource(layer: MeshLayer): string {
-  if (layer.colorMode === 'field' && layer.field !== undefined) return fieldKey(layer.field);
-  return layer.colorMode;
 }
 
 // ------------------------------------------------------------------------------------------------

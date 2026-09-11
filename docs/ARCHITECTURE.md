@@ -2895,8 +2895,8 @@ scale endpoints and at `mid` for heat, the threshold cut drawn as a notch, the f
 `Field.units`. Per-layer `showColorbar`, position right/bottom.
 
 **Histogram widget** in the volume and mesh-field property editors: log-y toggle, draggable window and
-threshold handles, and the current colormap painted along the x axis. Mesh fields offer presets
-`min–max`, `2–98 %`, `p50–p99.9`, `symmetric ±p99`.
+threshold handles, and the current colormap painted along the x axis. Scalar volumes and mesh fields
+share the editor and presets **1–99%, 50–99.9%, 95–99.9%**.
 
 **Volume contrast and visibility** (2026-09-11): scalar volumes group a colormap picker, visibly labelled
 Low/High display bounds, histogram and percentile presets **1–99%, 50–99.9%, 95–99.9%** in one panel.
@@ -2906,7 +2906,7 @@ mode. No scale-kind, heat, symmetric, clamp/hide or soft-edge controls are expos
 restores unbounded visibility; unbounded inputs show “No limit”, never zero. Label volumes omit this
 continuous-intensity panel and use tissue visibility/colors and fill/outline controls. Sampling stays
 available as Smooth (linear) / Voxels (nearest), with labels forced nearest. The shared engine scale and
-threshold models still serve mesh/API rendering; there is no volume-editor compatibility branch.
+threshold models remain available to API rendering; there is no editor compatibility branch.
 The threshold editor offers Values / Percentiles (%); changing units does not patch the scene.
 Percentile input maps to intensity using the exact stored percentile anchors and linear estimates between
 anchors, with estimation noted in the percentile selector tooltip. Zero and 100 map to min/max. The engine continues to store
@@ -2918,6 +2918,21 @@ is shown only while work is pending, with no completed “ready 100%” row. Vol
 apply smooth shading and two-sided faces; these modes have no UI toggles. User intent and rationale are recorded in
 `docs/DECISIONS.md` (2026-09-11); behavioral proof is
 `packages/app/e2e/props-volume.spec.ts`.
+
+**Mesh controls** (2026-09-11): show the controls for the selected color source: Tissue, Field,
+Solid color, or an attached annotation. Field controls also remain visible when a tissue uses a field
+color override. Field selection resets to magnitude, linear field bounds and unrestricted visibility;
+component selection appears only for vectors and resets the range and threshold. Scalar fields and vector
+magnitudes use the shared contrast/visibility editor. Component x/y/z statistics are not available:
+these offer numeric bounds using a conservative signed magnitude range, without a misleading magnitude
+histogram or percentile selector. Solid color has no duplicate alpha input; layer opacity remains on
+its row. Mesh shading uses the existing smooth and geometry-aware face defaults without UI toggles.
+One mesh-edges toggle controls surface and cut edges together; width/color appear when enabled.
+Cross-sections offer Fill and Outline; outline styles appear only when enabled, and cuts follow the
+main color source. Attach data remains under More options, clipping and isolation remain available,
+and glyph controls appear for vector fields or an active glyph configuration. Single-tissue meshes
+omit search and bulk visibility controls while preserving per-tissue manipulation. Obsolete editor
+helpers are removed instead of keeping compatibility branches.
 
 **Surface editor** (2026-09-06, R4): a `surface` layer's property editor is its own — **Colour** (one source:
 solid / overlay / annotation, with the picker for the chosen one and *Attach file…*), **Regions** (only while an

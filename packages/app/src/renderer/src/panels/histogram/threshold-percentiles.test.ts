@@ -1,5 +1,5 @@
 /** Authored percentile anchors pin display conversion, independently of voxel statistics computation.
- * Run: pnpm exec vitest run packages/app/src/renderer/src/panels/layers/volume/threshold-percentiles.test.ts
+ * Run: pnpm exec vitest run packages/app/src/renderer/src/panels/histogram/threshold-percentiles.test.ts
  */
 import { describe, expect, it } from 'vitest';
 import { percentToValue, valueToPercent } from './threshold-percentiles';

@@ -41,7 +41,7 @@ export function MeshProperties({ layer, dataset }: LayerPropertiesProps): React.
           multi-select, pane-click selection) and pairs the two tags into one row. */}
       <RegionPanel layerId={layer.id} />
       <FieldSection dataset={dataset} layer={layer} />
-      <CrossSection dataset={dataset} layer={layer} />
+      <CrossSection layer={layer} />
       <ClipPlanes dataset={dataset} layer={layer} />
       <Isolation dataset={dataset} layer={layer} />
       <Glyphs dataset={dataset} layer={layer} />

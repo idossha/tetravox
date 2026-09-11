@@ -3,8 +3,7 @@
  *
  * Only **vector** fields appear in the selector — a scalar has no direction, so it can never drive a
  * glyph. On the reference data that means `ernie_TDCS_1_scalar.msh`'s `E` (ncomp 3, magnitude
- * 8.56e-13 … 57.79); `Thalamus_TI.msh` carries `TI_max` alone and this panel says so rather than
- * offering a control that would produce nothing.
+ * 8.56e-13 … 57.79); `Thalamus_TI.msh` carries `TI_max` alone, so the unused section stays hidden.
  *
  * The renderer is E-DERIVED's, and `clipToCutPlane` is the case §6.5.2 can already serve
  * (`CutPayload.positions` + `ownerTet`), so it is offered here with that note attached.
@@ -45,7 +44,7 @@ export function Glyphs({
 }: {
   dataset: MeshDataset;
   layer: MeshLayer;
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   const controller = useController();
   const patch = (p: Partial<MeshLayer>): void => controller.patchLayer(layer.id, p);
   const vectors = vectorFields(dataset);
@@ -58,6 +57,7 @@ export function Glyphs({
       ? undefined
       : dataset.fields.find((f) => f.name === spec.field.name && f.source === spec.field.source);
   const hasCutPlane = layer.clip.planes.some((p) => p.enabled);
+  if (vectors.length === 0 && spec === undefined) return null;
 
   return (
     <Section
@@ -68,7 +68,7 @@ export function Glyphs({
           testId={`mesh-glyphs-enabled-${layer.id}`}
           label={spec === undefined ? 'off' : 'on'}
           on={spec !== undefined}
-          disabled={vectors.length === 0}
+          disabled={vectors.length === 0 && spec === undefined}
           title={
             vectors.length === 0
               ? 'This mesh carries no vector field'
@@ -80,8 +80,7 @@ export function Glyphs({
     >
       {vectors.length === 0 ? (
         <p data-testid={`mesh-glyphs-none-${layer.id}`} className="text-[10px] text-tvx-dim">
-          No vector field. <code>ernie_TDCS_1_scalar.msh</code>’s <code>E</code> is the reference
-          case.
+          The glyph field is unavailable. You can turn glyphs off.
         </p>
       ) : spec === undefined || scaling === null ? (
         <p className="text-[10px] text-tvx-dim">Off.</p>

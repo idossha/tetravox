@@ -1,15 +1,15 @@
 /**
- * The four §8 histogram presets.
+ * The shared scalar histogram presets.
  *
  * A preset is a lookup into `Stats.percentiles`, so the assertion that matters is *which* percentile
- * each one reads — an off-by-one between `2–98 %` and `p50–p99.9` produces a plausible-looking window
+ * each one reads — an off-by-one between `1–99%` and `p50–p99.9` produces a plausible-looking window
  * that is silently the wrong one. Every expected value below is written as the percentile it must
  * come from, never as the number that percentile happens to hold.
  */
 
 import { describe, expect, it } from 'vitest';
 import type { PercentileKey, Stats } from '@tetravox/engine';
-import { PRESETS, VOLUME_PRESETS, activePreset, applyPreset, normalizeWindow } from './presets';
+import { SCALAR_PRESETS, activePreset, applyPreset, normalizeWindow } from './presets';
 
 /** Distinct, irregular values so a wrong percentile can never coincide with the right one. */
 const P: Record<PercentileKey, number> = {
@@ -34,30 +34,15 @@ const STATS: Stats = {
   histogramHi: 65535,
 };
 
-describe('the §8 presets', () => {
-  it('offers exactly the four §8 names, in §8’s order', () => {
-    expect(PRESETS.map((p) => p.id)).toEqual(['min-max', 'p2-p98', 'p50-p99.9', 'sym-p99']);
+describe('the scalar presets', () => {
+  it('offers exactly the broad, upper-half and upper-tail windows', () => {
+    expect(SCALAR_PRESETS.map((p) => p.id)).toEqual(['p1-p99', 'p50-p99.9', 'p95-p99.9']);
   });
 
-  it('min–max is Stats.min … Stats.max, not p0.1 … p99.9', () => {
-    expect(applyPreset('min-max', STATS)).toEqual({ lo: STATS.min, hi: STATS.max });
-  });
-
-  it('2–98 % reads percentiles 2 and 98', () => {
-    expect(applyPreset('p2-p98', STATS)).toEqual({ lo: P['2'], hi: P['98'] });
-  });
-
-  it('p50–p99.9 reads percentiles 50 and 99.9', () => {
+  it('uses percentile endpoints rather than percentages of the value range', () => {
+    expect(applyPreset('p1-p99', STATS)).toEqual({ lo: P['1'], hi: P['99'] });
     expect(applyPreset('p50-p99.9', STATS)).toEqual({ lo: P['50'], hi: P['99.9'] });
-  });
-
-  it('symmetric ±p99 is centred on zero and reads p99 alone', () => {
-    expect(applyPreset('sym-p99', STATS)).toEqual({ lo: -P['99'], hi: P['99'] });
-  });
-
-  it('symmetric ±p99 uses the magnitude, so an all-negative field still gets a window', () => {
-    const negative: Stats = { ...STATS, percentiles: { ...P, '99': -8 } };
-    expect(applyPreset('sym-p99', negative)).toEqual({ lo: -8, hi: 8 });
+    expect(applyPreset('p95-p99.9', STATS)).toEqual({ lo: P['95'], hi: P['99.9'] });
   });
 });
 
@@ -75,12 +60,12 @@ describe('normalizeWindow', () => {
 
 describe('activePreset', () => {
   it('names the preset a window already is', () => {
-    expect(activePreset(applyPreset('p2-p98', STATS), STATS)).toBe('p2-p98');
-    expect(activePreset(applyPreset('sym-p99', STATS), STATS)).toBe('sym-p99');
+    expect(activePreset(applyPreset('p1-p99', STATS), STATS)).toBe('p1-p99');
+    expect(activePreset(applyPreset('p95-p99.9', STATS), STATS)).toBe('p95-p99.9');
   });
 
   it('is null once the user has dragged a handle', () => {
-    const w = applyPreset('p2-p98', STATS);
+    const w = applyPreset('p1-p99', STATS);
     expect(activePreset({ lo: w.lo, hi: w.hi + 1000 }, STATS)).toBeNull();
   });
 
@@ -91,26 +76,10 @@ describe('activePreset', () => {
   });
 });
 
-describe('volume contrast presets', () => {
-  it('offers broad, upper-half and upper-tail windows without the signed mesh choice', () => {
-    expect(VOLUME_PRESETS.map((p) => p.id)).toEqual(['p1-p99', 'p50-p99.9', 'p95-p99.9']);
-  });
-
-  it('uses the requested percentile endpoints rather than percentages of the value range', () => {
-    expect(applyPreset('p1-p99', STATS)).toEqual({ lo: P['1'], hi: P['99'] });
-    expect(applyPreset('p95-p99.9', STATS)).toEqual({ lo: P['95'], hi: P['99.9'] });
-  });
-
+describe('custom preset choices', () => {
   it('only recognizes choices offered by the current editor', () => {
-    expect(activePreset({ lo: P['95'], hi: P['99.9'] }, STATS, 1e-4, VOLUME_PRESETS)).toBe(
-      'p95-p99.9'
-    );
-    expect(activePreset({ lo: -P['99'], hi: P['99'] }, STATS, 1e-4, VOLUME_PRESETS)).toBeNull();
-    expect(activePreset({ lo: P['1'], hi: P['99'] }, STATS)).toBeNull();
-  });
-
-  it('recognizes a volume choice even when a hidden mesh choice has the same bounds', () => {
-    const tied: Stats = { ...STATS, percentiles: { ...P, '1': P['2'], '99': P['98'] } };
-    expect(activePreset({ lo: P['2'], hi: P['98'] }, tied, 1e-4, VOLUME_PRESETS)).toBe('p1-p99');
+    const tailOnly = SCALAR_PRESETS.filter((preset) => preset.id === 'p95-p99.9');
+    expect(activePreset({ lo: P['95'], hi: P['99.9'] }, STATS, 1e-4, tailOnly)).toBe('p95-p99.9');
+    expect(activePreset({ lo: P['1'], hi: P['99'] }, STATS, 1e-4, tailOnly)).toBeNull();
   });
 });

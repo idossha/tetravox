@@ -1,6 +1,6 @@
 /**
  * The mesh **field selector** and the surface's appearance: colour source, node/element field and
- * component, `Scale` + colormap + `Threshold`, flat/smooth shading, and the masked-barycentric edges
+ * component, shared contrast and threshold controls, and mesh edges
  * (§7.4).
  *
  * Three of these controls are **async loads with a progress state, not instant checkboxes** (§7.4):
@@ -10,15 +10,15 @@
  */
 
 import type { ColormapName, MeshDataset, MeshLayer } from '@tetravox/engine';
+import { ScalarDisplayControls } from '../../histogram/ScalarDisplayControls';
 import { useController, useUi } from '../../../ui/context';
-import { NumberField, Pending, Row, Section, Select, Slider, Swatch, Toggle } from './controls';
+import { Pending, Row, Section, Select, Slider, Swatch, Toggle } from './controls';
 import { clearPaintOverrides, paintOverrideCount } from '../../regions/regions';
 import {
   componentsOf,
   fieldKey,
   findField,
   hexToVec4,
-  patchHeat,
   patchThreshold,
   selectField,
   setColorMode,
@@ -27,30 +27,9 @@ import {
   setEdgeWidth,
   setEdges,
   setScaleBounds,
-  setScaleKind,
+  setFieldComponent,
   vec4ToHex,
 } from './state';
-
-/** §4.1's `ColormapName`, as a value. The `satisfies` keeps it in step with the frozen union. */
-const COLORMAPS = [
-  'gray',
-  'viridis',
-  'plasma',
-  'inferno',
-  'magma',
-  'cividis',
-  'turbo',
-  'jet',
-  'hot',
-  'cool',
-  'bone',
-  'coolwarm',
-  'bwr',
-  'freesurfer-heat',
-  'blue-cyan',
-] as const satisfies readonly ColormapName[];
-
-const COLORMAP_OPTIONS = COLORMAPS.map((c) => ({ value: c, label: c }));
 
 /**
  * A **stable** empty array for the `meshPending` selector. `useUi` is `useSyncExternalStore`: a
@@ -76,14 +55,16 @@ export function FieldSection({
   const scale = layer.scale;
   const lo = scale.kind === 'linear' ? scale.lo : scale.min;
   const hi = scale.kind === 'linear' ? scale.hi : scale.max;
-  const span = hi - lo === 0 ? 1 : hi - lo;
+  const showField =
+    layer.colorMode === 'field' ||
+    Object.values(layer.tagStyle).some((style) => style.colorMode === 'field');
 
   const overrides = paintOverrideCount(layer, dataset);
 
   const colorModes: { value: MeshLayer['colorMode']; label: string }[] = [
-    { value: 'tag', label: 'tissue tag' },
-    { value: 'field', label: 'field' },
-    { value: 'solid', label: 'solid' },
+    { value: 'tag', label: 'Tissue' },
+    ...(dataset.fields.length ? [{ value: 'field' as const, label: 'Field' }] : []),
+    { value: 'solid', label: 'Solid color' },
     // `colorMode:'label'` needs a `.annot` / `.label.gii` table on the layer; offering it without
     // one would emit a patch the engine can only ignore.
     ...(layer.label === undefined ? [] : [{ value: 'label' as const, label: 'label' }]),
@@ -105,6 +86,16 @@ export function FieldSection({
               );
               return;
             }
+            if (mode === 'field' && field === null && dataset.fields[0]) {
+              const next = {
+                ...selectField(dataset, layer, fieldKey(dataset.fields[0])),
+                colorMode: mode,
+              };
+              if (next.field?.source === 'elm') {
+                void controller.patchLayerAsync<MeshLayer>(layer.id, next, 'elmField');
+              } else patch(next);
+              return;
+            }
             patch(setColorMode(layer, mode));
           }}
         />
@@ -112,31 +103,12 @@ export function FieldSection({
           <Pending testId={`mesh-pending-label-${layer.id}`} label="label" />
         ) : null}
       </Row>
-      {/* Per-vertex data from a second file (§4.7's `attachSurfaceData`): a FreeSurfer `.annot`
-          such as SimNIBS's `segmentation/lh.<subject>_DK40.annot`, a morph file, a data-only GIfTI.
-          The worker checks the node count, so a tet mesh may take one too. */}
-      {dataset.nNodes > 0 ? (
-        <Row label="Overlay">
-          <button
-            type="button"
-            data-testid={`mesh-attach-data-${layer.id}`}
-            className="tvx-btn tvx-btn-sm"
-            title="Attach an annotation (.annot, .label.gii) or a per-vertex scalar (curv, thickness, .func.gii) to this surface"
-            onClick={() => void controller.chooseSurfaceData(layer.id)}
-          >
-            Attach file…
-          </button>
-        </Row>
-      ) : null}
       {overrides > 0 ? (
         <div
           data-testid={`mesh-paint-overrides-${layer.id}`}
           className="-mt-0.5 mb-1 flex items-center gap-1 pl-[calc(5rem+0.375rem)] text-[10px] text-tvx-dim"
         >
-          <span>
-            {overrides} {overrides === 1 ? 'tissue paints' : 'tissues paint'} differently — the ramp
-            / swatch chips in the tissue list.
-          </span>
+          <span>{overrides} tissue color overrides</span>
           <button
             type="button"
             data-testid={`mesh-paint-reset-${layer.id}`}
@@ -149,36 +121,17 @@ export function FieldSection({
         </div>
       ) : null}
 
-      {/* The solid colour lived on the bottom of the old `TissueTable`; it belongs beside the
-          colour-source selector it feeds, not under a list of tissues it has nothing to do with. */}
-      <Row label="Solid colour">
-        <Swatch
-          testId={`mesh-solid-color-${layer.id}`}
-          hex={vec4ToHex(layer.solidColor)}
-          title="The colour used by colorMode 'solid' and by any tag the file left uncoloured"
-          onChange={(hex) => patch({ solidColor: hexToVec4(hex, layer.solidColor[3]) })}
-        />
-        <span className="flex-1" />
-        <span className="shrink-0 text-[10px] text-tvx-dim">alpha</span>
-        <NumberField
-          testId={`mesh-solid-alpha-${layer.id}`}
-          value={layer.solidColor[3]}
-          step={0.05}
-          min={0}
-          max={1}
-          onCommit={(a) =>
-            patch({
-              solidColor: [layer.solidColor[0], layer.solidColor[1], layer.solidColor[2], a],
-            })
-          }
-        />
-      </Row>
-
-      {dataset.fields.length === 0 ? (
-        <p className="text-[10px] text-tvx-dim">
-          This mesh carries no fields — <code>ernie.msh</code> is the reference case.
-        </p>
-      ) : (
+      {layer.colorMode === 'solid' && (
+        <Row label="Color">
+          <Swatch
+            testId={`mesh-solid-color-${layer.id}`}
+            hex={vec4ToHex(layer.solidColor)}
+            title="Solid color"
+            onChange={(hex) => patch({ solidColor: hexToVec4(hex, 1) })}
+          />
+        </Row>
+      )}
+      {showField && dataset.fields.length > 0 && (
         <>
           <Row label="Field">
             <Select
@@ -207,7 +160,7 @@ export function FieldSection({
             ) : null}
           </Row>
 
-          {field !== null ? (
+          {field !== null && field.ncomp > 1 ? (
             <Row label="Component">
               <Select
                 testId={`mesh-component-${layer.id}`}
@@ -219,7 +172,7 @@ export function FieldSection({
                 onChange={(c) => {
                   if (layer.field === undefined) return;
                   const component = c === 'mag' ? 'mag' : (Number(c) as 0 | 1 | 2);
-                  patch({ field: { ...layer.field, component } });
+                  patch(setFieldComponent(layer, component, field.stats));
                 }}
               />
               <span
@@ -233,158 +186,28 @@ export function FieldSection({
         </>
       )}
 
-      <Row label="Colormap">
-        <Select
-          testId={`mesh-colormap-${layer.id}`}
-          value={(typeof layer.colormap === 'string' ? layer.colormap : 'viridis') as ColormapName}
-          options={COLORMAP_OPTIONS}
-          onChange={(c) => patch(setColormap(layer, c))}
+      {showField && field !== null && (
+        <ScalarDisplayControls
+          key={`${layer.id}-${fieldKey(field)}-${layer.field?.component ?? 'mag'}`}
+          kind="mesh"
+          id={layer.id}
+          colormap={typeof layer.colormap === 'string' ? layer.colormap : 'viridis'}
+          stats={field.ncomp === 1 || layer.field?.component === 'mag' ? stats : null}
+          window={{ lo, hi }}
+          threshold={layer.threshold}
+          onColormap={(name) => patch(setColormap(layer, name as ColormapName))}
+          onWindow={(low, high) => patch(setScaleBounds(layer, low, high))}
+          onThreshold={(next) => patch(patchThreshold(layer, next))}
         />
-      </Row>
-
-      <Row label="Scale">
-        <Select
-          testId={`mesh-scalekind-${layer.id}`}
-          value={scale.kind}
-          options={[
-            { value: 'linear', label: 'linear' },
-            { value: 'heat', label: 'heat' },
-          ]}
-          onChange={(kind) => patch(setScaleKind(layer, kind))}
-        />
-        {stats === null ? null : (
-          <button
-            type="button"
-            data-testid={`mesh-scale-reset-${layer.id}`}
-            className="tvx-btn tvx-btn-sm"
-            title="Back to the field's own min…max"
-            onClick={(e) => {
-              e.stopPropagation();
-              patch(setScaleBounds(layer, stats.min, stats.max));
-            }}
-          >
-            min–max
-          </button>
-        )}
-      </Row>
-
-      <Row label={scale.kind === 'heat' ? 'min' : 'lo'}>
-        <NumberField
-          testId={`mesh-scale-lo-${layer.id}`}
-          value={lo}
-          step={span / 100}
-          width="w-24"
-          onCommit={(v) => patch(setScaleBounds(layer, v, hi))}
-        />
-      </Row>
-      {scale.kind === 'heat' ? (
-        <Row label="mid">
-          <NumberField
-            testId={`mesh-scale-mid-${layer.id}`}
-            value={scale.mid}
-            step={span / 100}
-            width="w-24"
-            onCommit={(v) => patch(patchHeat(layer, { mid: v }))}
-          />
-        </Row>
-      ) : null}
-      <Row label={scale.kind === 'heat' ? 'max' : 'hi'}>
-        <NumberField
-          testId={`mesh-scale-hi-${layer.id}`}
-          value={hi}
-          step={span / 100}
-          width="w-24"
-          onCommit={(v) => patch(setScaleBounds(layer, lo, v))}
-        />
-      </Row>
-      {scale.kind === 'heat' ? (
-        <Row label="heat">
-          <Toggle
-            testId={`mesh-heat-truncate-${layer.id}`}
-            label="truncate"
-            on={scale.truncate}
-            onChange={(v) => patch(patchHeat(layer, { truncate: v }))}
-          />
-          <Toggle
-            testId={`mesh-heat-inverse-${layer.id}`}
-            label="inverse"
-            on={scale.inverse}
-            onChange={(v) => patch(patchHeat(layer, { inverse: v }))}
-          />
-          <Select
-            testId={`mesh-heat-negative-${layer.id}`}
-            value={scale.negative}
-            options={[
-              { value: 'mirror', label: 'mirror −' },
-              { value: 'hide', label: 'hide −' },
-              { value: 'separate', label: 'separate −' },
-            ]}
-            onChange={(n) => patch(patchHeat(layer, { negative: n }))}
-          />
-        </Row>
-      ) : null}
-
-      <Row label="Threshold">
-        <NumberField
-          testId={`mesh-threshold-lo-${layer.id}`}
-          value={layer.threshold.lo}
-          step={span / 100}
-          onCommit={(v) => patch(patchThreshold(layer, { lo: v }))}
-        />
-        <NumberField
-          testId={`mesh-threshold-hi-${layer.id}`}
-          value={layer.threshold.hi}
-          step={span / 100}
-          onCommit={(v) => patch(patchThreshold(layer, { hi: v }))}
-        />
-        <Toggle
-          testId={`mesh-threshold-symmetric-${layer.id}`}
-          label="|v|"
-          title="Compare the absolute value (§4.2)"
-          on={layer.threshold.symmetric}
-          onChange={(v) => patch(patchThreshold(layer, { symmetric: v }))}
-        />
-      </Row>
-      <Row label="Soft edge">
-        <Slider
-          testId={`mesh-threshold-soft-${layer.id}`}
-          value={layer.threshold.softEdge}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(v) => patch(patchThreshold(layer, { softEdge: v }))}
-        />
-      </Row>
-
-      <Row label="Shading">
-        <Toggle
-          testId={`mesh-flat-${layer.id}`}
-          label={layer.flatShading ? 'flat' : 'smooth'}
-          on={layer.flatShading}
-          onChange={(v) => patch({ flatShading: v })}
-        />
-        <Toggle
-          testId={`mesh-facemode-${layer.id}`}
-          label={layer.faceMode === 'both' ? 'two-sided' : 'cull back'}
-          on={layer.faceMode === 'both'}
-          disabled={dataset.orient.openComponents > 0}
-          title={
-            dataset.orient.openComponents > 0
-              ? `Forced two-sided: ${dataset.orient.openComponents} open components (§7.4)`
-              : 'Face culling'
-          }
-          onChange={(v) => patch({ faceMode: v ? 'both' : 'cull' })}
-        />
-      </Row>
-
+      )}
       <Row label="Edges">
         <Toggle
           testId={`mesh-edges-surface-${layer.id}`}
-          label="surface"
+          label="Show mesh edges"
           on={layer.edges.surface}
           title="Element edges on the surface — the first switch builds the de-indexed variant (§7.4)"
           onChange={(v) => {
-            const next = setEdges(layer, { surface: v });
+            const next = setEdges(layer, { surface: v, caps: v });
             if (v && !layer.edges.surface) {
               void controller.patchLayerAsync<MeshLayer>(layer.id, next, 'edges');
               return;
@@ -392,33 +215,43 @@ export function FieldSection({
             patch(next);
           }}
         />
-        <Toggle
-          testId={`mesh-edges-caps-${layer.id}`}
-          label="caps"
-          on={layer.edges.caps}
-          onChange={(v) => patch(setEdges(layer, { caps: v }))}
-        />
         {pending.includes('edges') ? (
           <Pending testId={`mesh-pending-edges-${layer.id}`} label="edges" />
         ) : null}
       </Row>
-      <Row label="Edge width">
-        <Slider
-          testId={`mesh-edge-width-${layer.id}`}
-          value={layer.edgeWidthPx}
-          min={0.5}
-          max={4}
-          step={0.1}
-          format={(v) => `${v.toFixed(1)} px`}
-          onChange={(v) => patch(setEdgeWidth(layer, v))}
-        />
-        <Swatch
-          testId={`mesh-edge-color-${layer.id}`}
-          hex={vec4ToHex(layer.edgeColor)}
-          title="Edge colour"
-          onChange={(hex) => patch(setEdgeColor(layer, hexToVec4(hex, layer.edgeColor[3])))}
-        />
-      </Row>
+      {layer.edges.surface && (
+        <Row label="Edge width">
+          <Slider
+            testId={`mesh-edge-width-${layer.id}`}
+            value={layer.edgeWidthPx}
+            min={0.5}
+            max={4}
+            step={0.1}
+            format={(v) => `${v.toFixed(1)} px`}
+            onChange={(v) => patch(setEdgeWidth(layer, v))}
+          />
+          <Swatch
+            testId={`mesh-edge-color-${layer.id}`}
+            hex={vec4ToHex(layer.edgeColor)}
+            title="Edge colour"
+            onChange={(hex) => patch(setEdgeColor(layer, hexToVec4(hex, layer.edgeColor[3])))}
+          />
+        </Row>
+      )}
+      {dataset.nNodes > 0 ? (
+        <details className="text-[10px]">
+          <summary className="cursor-pointer text-tvx-dim">More options</summary>
+          <button
+            type="button"
+            data-testid={`mesh-attach-data-${layer.id}`}
+            className="tvx-btn tvx-btn-sm"
+            title="Attach an annotation (.annot, .label.gii) or a per-vertex scalar (curv, thickness, .func.gii) to this surface"
+            onClick={() => void controller.chooseSurfaceData(layer.id)}
+          >
+            Attach data…
+          </button>
+        </details>
+      ) : null}
     </Section>
   );
 }

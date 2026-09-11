@@ -106,9 +106,11 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
     void controller.loadRegionStats(layerId);
   }, [controller, layerId, wantsStats]);
 
+  const singleTissue = source?.kind === 'meshTag' && source.rows.length <= 1;
+  // A prior annotation search must not hide the only tissue when the source changes.
   const shown = useMemo(
-    () => (source === null ? [] : filterRows(source.rows, query)),
-    [source, query]
+    () => (source === null ? [] : filterRows(source.rows, singleTissue ? '' : query)),
+    [source, query, singleTissue]
   );
 
   if (source === null || layer === undefined) return null;
@@ -158,29 +160,33 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
         </span>
       </div>
 
-      <input
-        type="search"
-        data-testid={`region-search-${layerId}`}
-        aria-label="Search regions"
-        placeholder="Search name or id…"
-        value={query}
-        onChange={(e) => setQuery(e.currentTarget.value)}
-        className="tvx-input mt-1 w-full text-xs"
-      />
+      {!singleTissue && (
+        <>
+          <input
+            type="search"
+            data-testid={`region-search-${layerId}`}
+            aria-label="Search regions"
+            placeholder="Search name or id…"
+            value={query}
+            onChange={(e) => setQuery(e.currentTarget.value)}
+            className="tvx-input mt-1 w-full text-xs"
+          />
 
-      <div className="mt-1 flex gap-1">
-        {BULK.map(({ op, label }) => (
-          <button
-            key={op}
-            type="button"
-            data-testid={`region-${op}-${layerId}`}
-            className="tvx-btn tvx-btn-sm"
-            onClick={() => patch(bulkVisible(source.rows, op))}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+          <div className="mt-1 flex gap-1">
+            {BULK.map(({ op, label }) => (
+              <button
+                key={op}
+                type="button"
+                data-testid={`region-${op}-${layerId}`}
+                className="tvx-btn tvx-btn-sm"
+                onClick={() => patch(bulkVisible(source.rows, op))}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* `div role="list"` rather than `<ul>`, and the same for the rows — `TissueTable` already does
           it, and the reason matters here: this panel is mounted **inside** a layer's editor, which
