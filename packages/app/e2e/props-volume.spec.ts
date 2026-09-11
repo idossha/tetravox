@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, launchApp, packagedUnavailable } from './fixtures';
+import { APP_ROOT, launchApp, offscreenEnv, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const TESTDATA = resolve(APP_ROOT, '..', '..', 'testdata');
@@ -59,11 +59,14 @@ async function boot(target: LaunchTarget): Promise<{ app: ElectronApplication; p
     undefined,
     { timeout: 30_000 }
   );
-  expect(
-    await app.evaluate(({ BrowserWindow }) =>
-      BrowserWindow.getAllWindows().every((window) => !window.isVisible())
-    )
-  ).toBe(true);
+  // macOS uses never-shown windows; Linux CI uses a virtual Xvfb display.
+  if (offscreenEnv()?.TETRAVOX_E2E_OFFSCREEN === '1') {
+    expect(
+      await app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows().every((window) => !window.isVisible())
+      )
+    ).toBe(true);
+  }
   return { app, page };
 }
 
