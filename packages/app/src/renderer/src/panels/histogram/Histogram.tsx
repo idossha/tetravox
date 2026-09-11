@@ -23,13 +23,15 @@ import type { Stats } from '@tetravox/engine';
 import { axisRange, barHeights, dragHandle, formatValue, handleAt, xForValue } from './geometry';
 import type { HandleId, HandleValues, PlotBox } from './geometry';
 import { PRESETS, activePreset, applyPreset } from './presets';
-import type { PresetId, ValueWindow } from './presets';
+import type { Preset, PresetId, ValueWindow } from './presets';
 
 /** Logical units; the SVG is stretched to the panel by `preserveAspectRatio="none"`. */
 export const HISTOGRAM_BOX: PlotBox = { width: 256, height: 64 };
 
 export interface HistogramProps {
   stats: Stats;
+  /** Omitted for the original mesh-field preset choices. */
+  presets?: readonly Preset[];
   /** The window currently applied, in physical units. */
   window: ValueWindow;
   /** The threshold currently applied, or `null` when there is none. */
@@ -54,6 +56,7 @@ export interface HistogramProps {
 
 export function Histogram({
   stats,
+  presets = PRESETS,
   window,
   threshold,
   onWindow,
@@ -70,7 +73,7 @@ export function Histogram({
   const axis = axisRange(stats);
   const bars = useMemo(() => barHeights(stats.histogram, box, logY), [stats.histogram, box, logY]);
   const values: HandleValues = { window, threshold };
-  const preset = activePreset(window, stats);
+  const preset = activePreset(window, stats, 1e-4, presets);
   const span = axis.hi - axis.lo;
 
   /** Pointer client x → the logical x the geometry helpers speak. */
@@ -93,11 +96,15 @@ export function Histogram({
 
   const onPointerDown = (event: ReactPointerEvent<SVGSVGElement>): void => {
     const x = logicalX(event.clientX);
-    const grabbed = handleAt(x, values, stats, box);
+    const target = event.target as Element;
+    const explicit = target
+      .closest('[data-handle]')
+      ?.getAttribute('data-handle') as HandleId | null;
+    const grabbed = explicit ?? handleAt(x, values, stats, box);
     if (grabbed === null) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragging(grabbed);
-    emit(dragHandle(grabbed, x, values, stats, box), grabbed);
+    if (explicit === null) emit(dragHandle(grabbed, x, values, stats, box), grabbed);
   };
 
   const onPointerMove = (event: ReactPointerEvent<SVGSVGElement>): void => {
@@ -116,7 +123,9 @@ export function Histogram({
     onWindow(next.lo, next.hi);
   };
 
-  const handleX = (v: number): number => xForValue(v, stats, box);
+  // Keep grab targets inside the plot even for unlimited or out-of-histogram bounds.
+  const handleX = (v: number): number =>
+    Math.max(7, Math.min(box.width - 7, xForValue(v, stats, box)));
   const gradientId = `${idPrefix}-colormap`;
   const painted = colormapStops !== undefined && colormapStops.length > 1;
 
@@ -186,47 +195,64 @@ export function Histogram({
           fill={painted ? `url(#${gradientId})` : 'var(--color-tvx-line)'}
         />
 
-        {(['windowLo', 'windowHi'] as const).map((id) => {
-          const v = id === 'windowLo' ? window.lo : window.hi;
+        {(['windowLo', 'windowHi', 'thresholdLo', 'thresholdHi'] as const).map((id, index) => {
+          const isThreshold = id.startsWith('threshold');
+          if (isThreshold && threshold === null) return null;
+          const range = isThreshold ? threshold! : window;
+          const low = id.endsWith('Lo');
+          const value = low ? range.lo : range.hi;
+          const x = handleX(value);
+          const lineX = Math.max(0, Math.min(box.width, xForValue(value, stats, box)));
+          const y = [2, 17, 36, 51][index]!;
+          const color = isThreshold ? 'var(--color-tvx-warn)' : 'var(--color-tvx-accent-strong)';
+          const label = `${isThreshold ? 'Threshold' : 'Contrast'} ${low ? 'low' : 'high'}`;
           return (
-            <line
+            <g
               key={id}
               data-testid={`${idPrefix}-handle-${id}`}
-              data-value={v}
-              x1={handleX(v)}
-              x2={handleX(v)}
-              y1={0}
-              y2={box.height}
-              stroke="var(--color-tvx-accent-strong)"
-              strokeWidth={1.5}
-              vectorEffect="non-scaling-stroke"
-            />
-          );
-        })}
-
-        {/* Dashed, so a threshold reads as a cut and not as a second window — the *shape*, not a
-          louder colour, is what tells the two pairs of handles apart now that neither is neon
-          (directed task 9). Both take theme tokens through `var()`, because an SVG `stroke` is not
-          a Tailwind utility and a hardcoded hex here would not flip with `data-theme`. */}
-        {threshold !== null &&
-          (['thresholdLo', 'thresholdHi'] as const).map((id) => {
-            const v = id === 'thresholdLo' ? threshold.lo : threshold.hi;
-            return (
+              data-handle={id}
+              data-value={value}
+              style={{ cursor: 'ew-resize' }}
+            >
+              <title>
+                {label}: {Number.isFinite(value) ? value : 'No limit'} — drag to adjust
+              </title>
               <line
-                key={id}
-                data-testid={`${idPrefix}-handle-${id}`}
-                data-value={v}
-                x1={handleX(v)}
-                x2={handleX(v)}
+                pointerEvents="none"
+                x1={lineX}
+                x2={lineX}
                 y1={0}
                 y2={box.height}
-                stroke="var(--color-tvx-warn)"
+                stroke={color}
                 strokeWidth={1.5}
-                strokeDasharray="3 3"
+                strokeDasharray={isThreshold ? '3 3' : undefined}
                 vectorEffect="non-scaling-stroke"
               />
-            );
-          })}
+              <rect
+                data-testid={`${idPrefix}-grab-${id}`}
+                x={x - 6}
+                y={y}
+                width={12}
+                height={12}
+                rx={2}
+                fill="var(--color-tvx-bg)"
+                stroke={color}
+                vectorEffect="non-scaling-stroke"
+              />
+              <text
+                x={x}
+                y={y + 8.5}
+                textAnchor="middle"
+                fontSize={8}
+                fontWeight={600}
+                fill={color}
+                pointerEvents="none"
+              >
+                {low ? 'L' : 'H'}
+              </text>
+            </g>
+          );
+        })}
       </svg>
 
       <div className="flex items-baseline justify-between font-mono text-[10px] text-tvx-dim">
@@ -236,7 +262,7 @@ export function Histogram({
       </div>
 
       <div className="flex flex-wrap gap-1">
-        {PRESETS.map((p) => (
+        {presets.map((p) => (
           <button
             key={p.id}
             type="button"

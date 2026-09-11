@@ -113,11 +113,12 @@ describe('the switch', () => {
     const edited: VolumeLayer = { ...LAYER, iso3d: { ...on, iso: 900, smooth: false } };
     // Off is not a delete…
     const off = toggleIso3d(edited, dataset(), false).iso3d!;
-    expect(off).toEqual({ ...edited.iso3d, enabled: false });
+    expect(off).toEqual({ ...edited.iso3d, enabled: false, smooth: true, faceMode: 'both' });
     // …so on again is the user's own level, not p95 a second time.
     const again = toggleIso3d({ ...edited, iso3d: off }, dataset(), true).iso3d!;
     expect(again.iso).toBe(900);
-    expect(again.smooth).toBe(false);
+    expect(again.smooth).toBe(true);
+    expect(again.faceMode).toBe('both');
   });
 
   it('shows the defaults it would turn on with, so flipping it moves no control', () => {

@@ -843,7 +843,7 @@ export interface GeoData {
 }
 
 /**
- * A **surface** (2026-09-06, `docs/requirements/2026-09-06-idohaber-surfaces.md` R1): a triangle
+ * A **surface** (2026-09-06, `docs/ARCHITECTURE.md` §4.4/§8 R1): a triangle
  * sheet with no tetrahedra — a hemisphere from GIfTI or FreeSurfer, an STL/PLY/OBJ/OFF shell, a
  * `.vtp`. It is what a neuroscientist means by "the pial surface", and it is deliberately **not** a
  * `MeshLayer` with the tet controls greyed out: no tissue tags, no isolation, no glyphs, no 2D fill,

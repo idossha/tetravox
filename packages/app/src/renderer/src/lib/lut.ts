@@ -1,7 +1,7 @@
 /**
  * **R5's "Save LUT…"**: writing edited label colours back out as a colour lookup table.
  *
- * `docs/requirements/2026-08-27-maintainer.md` R5: a region row's "colour swatch (colour picker;
+ * `docs/ARCHITECTURE.md` §7/§8 R5: a region row's "colour swatch (colour picker;
  * edits persist in the scene **and can be saved as a LUT file**)". A-PROPS owns the picker and the
  * row; this is the export, per requirement R5.
  *

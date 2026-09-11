@@ -62,16 +62,16 @@ export function toggleIso3d(
 ): Partial<VolumeLayer> {
   const current = layer.iso3d;
   if (current === undefined) return on ? { iso3d: defaultIso3d(ds) } : {};
-  return { iso3d: { ...current, enabled: on } };
+  return { iso3d: { ...current, enabled: on, smooth: true, faceMode: 'both' } };
 }
 
 /** One field of the block, with the rest carried — the shape every control below the switch uses. */
 export function patchIso3d(
   layer: VolumeLayer,
   ds: VolumeDataset,
-  patch: Partial<VolumeIso3d>
+  patch: Partial<Omit<VolumeIso3d, 'smooth' | 'faceMode'>>
 ): Partial<VolumeLayer> {
-  return { iso3d: { ...effectiveIso3d(layer, ds), ...patch } };
+  return { iso3d: { ...effectiveIso3d(layer, ds), ...patch, smooth: true, faceMode: 'both' } };
 }
 
 /** How the block summarises itself in the editor: the level, or the region count for labels. */

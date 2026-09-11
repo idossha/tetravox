@@ -13,6 +13,12 @@ nav_order: 7
 This file is the **contract**. Deviating from it requires editing this file in the same commit and appending
 an entry to `docs/DECISIONS.md`. Section numbers are cited from code comments and tests — do not renumber.
 
+Project documentation stays in the core Markdown roster: this contract states current behavior,
+`docs/DECISIONS.md` records intent and rationale, `docs/ROADMAP.md` tracks open work, and the existing
+purpose-named manuals hold operating and verification guidance. Consolidate task notes into those
+files; do not create dated requirement, plan, or report Markdown. Capture assets and their executable
+jobs/manifests remain separate from prose. This prevents parallel histories from drifting.
+
 Measured figures live in `docs/BENCHMARKS.md`; this file states the *rules*, and quotes a number only where
 the number is the reason for a rule.
 
@@ -499,7 +505,7 @@ export interface PointsLayer extends LayerBase {
   dotRadiusPx?: number;                          // `shape:'dot'` screen radius, CSS px; absent = 4
 }
 
-// 2026-09-06 (`docs/requirements/2026-09-06-idohaber-surfaces.md` R1–R5): a triangle sheet with no tets
+// §4.4 / §7.4 / §8 surface-layer contract: a triangle sheet with no tets
 // — a hemisphere, an STL shell — is a **surface**, its own kind, not a mesh with the tet controls hidden.
 // One colour source at a time; no tagStyle, isolate, glyphs, fillIn2D or caps. `scene/surface.ts`
 // projects it onto `MeshLayer` for §7.4's shared triangle passes; `layers/surface.ts` wraps the mesh
@@ -2824,7 +2830,7 @@ inactive: invisible tools and datasets loaded outside the host's selection would
 controls inconsistent with its viewport. Layout and layer controls remain reachable through the
 host protocol, including `setLayout { kind: '3d' }` and `updateLayer`. The presentation is fixed at
 iframe creation; absent or unknown values retain the full viewer described below. This refines the
-regions rule for host-supplied controls only, per `docs/requirements/2026-09-04-ti-toolbox-viewport.md` R1.
+regions rule for host-supplied controls only, per the host-viewport decision in `docs/DECISIONS.md` (2026-09-04).
 
 **Regions.** **Left**: layer panel (ordered list, per-row disclosure, eye, opacity slider, per-kind property
 editor, 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed +
@@ -2889,8 +2895,29 @@ scale endpoints and at `mid` for heat, the threshold cut drawn as a notch, the f
 `Field.units`. Per-layer `showColorbar`, position right/bottom.
 
 **Histogram widget** in the volume and mesh-field property editors: log-y toggle, draggable window and
-threshold handles, the current colormap painted along the x axis, and presets `min–max`, `2–98 %`,
-`p50–p99.9`, `symmetric ±p99`.
+threshold handles, and the current colormap painted along the x axis. Mesh fields offer presets
+`min–max`, `2–98 %`, `p50–p99.9`, `symmetric ±p99`.
+
+**Volume contrast and visibility** (2026-09-11): scalar volumes group a colormap picker, visibly labelled
+Low/High display bounds, histogram and percentile presets **1–99%, 50–99.9%, 95–99.9%** in one panel.
+A checkbox enables a separate visibility range, seeded from the display range; values outside it are
+transparent. Display edits create a linear scale; threshold edits use signed values, hard edges and hide
+mode. No scale-kind, heat, symmetric, clamp/hide or soft-edge controls are exposed. Disabling threshold
+restores unbounded visibility; unbounded inputs show “No limit”, never zero. Label volumes omit this
+continuous-intensity panel and use tissue visibility/colors and fill/outline controls. Sampling stays
+available as Smooth (linear) / Voxels (nearest), with labels forced nearest. The shared engine scale and
+threshold models still serve mesh/API rendering; there is no volume-editor compatibility branch.
+The threshold editor offers Values / Percentiles (%); changing units does not patch the scene.
+Percentile input maps to intensity using the exact stored percentile anchors and linear estimates between
+anchors, with estimation noted in the percentile selector tooltip. Zero and 100 map to min/max. The engine continues to store
+intensity bounds. Histogram contrast and threshold bounds have separate staggered L/H grab markers, clamped inside
+the plot for out-of-range values; disabled thresholds have no markers. Tooltips identify each bound.
+The 3D slices and 3D surface toggles share one row; their tooltips distinguish slice
+planes from extracted intensity/tissue surfaces. Surface iso level uses a slider only; build progress
+is shown only while work is pending, with no completed “ready 100%” row. Volume-surface controls always
+apply smooth shading and two-sided faces; these modes have no UI toggles. User intent and rationale are recorded in
+`docs/DECISIONS.md` (2026-09-11); behavioral proof is
+`packages/app/e2e/props-volume.spec.ts`.
 
 **Surface editor** (2026-09-06, R4): a `surface` layer's property editor is its own — **Colour** (one source:
 solid / overlay / annotation, with the picker for the chosen one and *Attach file…*), **Regions** (only while an
@@ -3881,7 +3908,8 @@ the opener's bridge on the opener's channels. An `http(s)` URL goes to the user'
 
 `Engine.load` accepts an optional `AbortSignal`; absent, callers retain the existing completion promise.
 Missing datasets start concurrently in their existing dedicated workers. Each completed dataset restores
-its layers immediately, while final layer ordering follows the specification rather than network timing.
+its layers immediately, while final layer ordering and default surface palette positions follow the
+specification rather than network timing. Explicit surface colors and already adopted layers retain their colors.
 A layer requiring another dataset waits for that dependency. All loads settle before a combined error is
 reported, leaving successful layers available. Cancellation terminates workers and rejects with
 `AbortError`; late results cannot upload geometry, attach layers or restore a stale camera.

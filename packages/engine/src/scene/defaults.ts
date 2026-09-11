@@ -221,11 +221,7 @@ export function defaultMeshLayer(id: string, ds: MeshDataset): MeshLayer {
     // complex has, because an interface triangle's winding is arbitrary.
     faceMode: ds.orient.openComponents > 0 ? 'both' : 'cull',
     clip: { planes: [], caps: true, capColorMode: 'inherit' },
-    // **R4 (`docs/requirements/2026-08-27-maintainer.md`): "Default when a mesh is opened: fill and
-    // contours on."** A maintainer requirement wins over the contract where the two disagree, and
-    // this is the one place they do: §4.4 shipped both `false` in Phase 1 because nothing drew a
-    // mesh in a 2D pane at all. No Phase-1 golden contains a mesh in a 2D pane, so no golden moves.
-    // See `docs/DECISIONS.md`, 2026-08-27.
+    // §4.4/§8: show filled tissue cross-sections and their outlines when a mesh opens.
     contoursIn2D: true,
     contourWidthPx: 1,
     fillIn2D: true,

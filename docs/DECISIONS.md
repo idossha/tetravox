@@ -2175,7 +2175,7 @@ Each entry below names the problem, the fix, and the evidence.
 - 2026-08-27 — **`fillIn2D` and `contoursIn2D` default to `true` when a mesh is opened**, changing
   two Phase-1 defaults in `scene/defaults.ts` against that file's "never change an existing default"
   rule. R4 states it outright ("Default when a mesh is opened: fill **and** contours on"), and
-  `docs/requirements/2026-08-27-maintainer.md` says a maintainer requirement wins over the contract
+  The 2026-08-27 maintainer requirements (consolidated below on 2026-09-11) say a maintainer requirement wins over the contract
   where they conflict. The rule's stated reason — "it moves every golden that layer appears in" —
   does not apply: Phase 1 drew no mesh in any 2D pane, so no committed golden contains one, and
   `gate2` / `gate5`'s mesh scenes are `3d-only` where no cut is requested at all.
@@ -5279,8 +5279,7 @@ against the sidebar bounds at 960 and 1400 px window widths, including the narro
 **Decision.** `embed=1&presentation=viewport` makes the existing §8 shell render its view grid without
 toolbar, sidebars or collapse rails, status bar, toasts, dialogs or extension windows. The host keeps
 the same §5 rule 15 message channel, including load status and errors. Absent or unknown presentation
-values retain the full viewer. This implements
-`docs/requirements/2026-09-04-ti-toolbox-viewport.md` R1 and amends §5 and §8 together.
+values retain the full viewer. This implements the user’s request for a host-controlled visualization panel and amends §5 and §8 together.
 
 **Why.** TI-Toolbox's run pages already provide subject selection and scene controls; embedding the
 full viewer duplicated those controls and crowded the visualization. Shell commands and file drops
@@ -5364,7 +5363,7 @@ reader's `annot`, so two atlases on one hemisphere coexist and the region panel 
 
 ## 2026-09-06 — Surfaces are their own layer kind; the renderer still draws them as triangles (§4.4, §7.4, §8)
 
-The user's ask (`docs/requirements/2026-09-06-idohaber-surfaces.md`): "TetraVox needs to distinguish
+The user's ask: "TetraVox needs to distinguish
 between a mesh and a surface … treat surfaces as first class citizens … the menu that comes with them needs
 to be simpler or at least unique", with "a logical modular separation that would make sense for
 neuroscientists and 3D developers", and no backward compatibility owed. The engine already knew the
@@ -5534,3 +5533,86 @@ failure traces in that job's artifact. Keep the existing timeout and one-worker 
 host-protocol and pixel assertions. Green checks must include the browser interface being merged.
 
 **Cost.** One additional suite on the existing runner; no new runner, dependency or renderer policy.
+
+## 2026-09-11 — Simplify volume contrast and visibility (§8)
+
+**Decision.** Group scalar display bounds, histogram, three percentile presets and optional transparency
+threshold in one panel; omit it for labels. Remove volume heat-edit helpers and advanced threshold UI.
+**Why.** User-requested anatomy, tissue-label and scalar-field workflows need understandable color and
+visibility ranges. Preset endpoints 1–99, 50–99.9 and 95–99.9 are design choices from the user request
+(the near-full range interpreted as 1–99). Backward compatibility was explicitly waived; no legacy editor
+branches are retained. Mesh features and their shared engine primitives remain in use.
+**Evidence.** Gate: `props-volume.spec.ts` checks engine state after edits; histogram preset unit tests
+check percentile endpoints. The user requested grouped controls, categorical tissue labels and removal
+of unused volume editing code, explicitly permitting compatibility breaks.
+
+## 2026-09-11 — Inline 3D toggles and percentile threshold entry (§8)
+
+**Decision.** Present 3D slices and 3D surface side by side with distinct tooltips. Add Values / Percentiles
+threshold units, keeping engine intensity bounds authoritative. Exact percentile anchors come from
+worker statistics; intermediate inputs use a labelled linear estimate without rescanning voxels on the UI
+thread. Unit changes do not change visibility. “Percentage” follows the existing percentile presets,
+rather than a percentage of maximum intensity.
+**Evidence.** `threshold-percentiles.test.ts` pins endpoints, interpolation and ties;
+`props-volume.spec.ts` checks unchanged scene state on unit switches, percentile edits and button
+alignment within one CSS pixel (design tolerance). No engine or wire format additions.
+
+## 2026-09-11 — Remove redundant surface status and exact level input (§8)
+
+**Decision.** Keep the iso slider and remove its duplicate exact-number row. Show surface progress only
+while builds are pending. User-requested decluttering; shading and face-mode controls remain pending
+further direction. Evidence: `props-volume.spec.ts` verifies slider updates and absent completed status.
+
+## 2026-09-11 — Fix volume surface appearance to smooth and two-sided (§8)
+
+**Decision.** Remove both appearance toggles. Surface enable/edit actions set smooth shading and
+two-sided faces, while mesh controls remain independent. The user approved these defaults to simplify
+the volume editor. Evidence: iso3d unit tests and props-volume UI assertions.
+
+## 2026-09-11 — Make every histogram bound directly draggable (§8)
+
+**Decision.** Remove the two threshold helper paragraphs; keep percentile estimation in a tooltip.
+Use separately positioned L/H grab markers for contrast and thresholds, retaining bounded hit targets
+when values lie outside the histogram. This prevents overlapping bounds from making a range impossible
+to edit. Evidence: props-volume.spec.ts exercises all four grabs and range independence.
+
+
+## 2026-09-11 — Keep intent and operating guidance in the core Markdown roster
+
+**Decision.** Consolidate the six former dated requirement notes, the visual-refresh plan, gallery data
+note and generated showcase storyboard into the existing core documents. Current requirements live in
+ARCHITECTURE; rationale and user intent live here; verification and dataset provenance live in TESTING;
+showcase generation lives in AUTOMATION and its executable source. Do not create new per-task Markdown.
+The user explicitly requested this in preference to retaining dated files. Existing capture assets,
+JSON manifests and executable jobs remain available; they are evidence and inputs rather than competing
+prose specifications. This documentation consolidation does not reopen historical gates or claim a new
+execution of their tests.
+
+**Preserved maintainer intent (2026-08-27, R1–R5).** R1: clicking/dragging a slice moves the shared cursor;
+3D gestures orbit, pan, dolly and pick. R2: per-pane zoom preserves the world point under the pointer and
+reset restores fit. R3: left-drag moves the crosshair without panning; panning has an explicit gesture.
+R4: tetrahedral meshes show filled and outlined cross-sections even without a volume, follow the cursor,
+honor tissue visibility and isolation, and use latest-wins cuts. R5: labelled volumes, mesh tissues and
+surface annotations support region visibility, recoloring, selection, solo and cursor navigation. These
+requirements were reconciled into §7.3–§7.5 and §8; the original requirement precedence is preserved.
+Their tests remain the authority for behavioral and numeric evidence, not this consolidation.
+
+**Preserved later intent.** The 2026-09-04 direct-view/reset/screenshot requests and host-only viewport
+request are recorded in their existing decision entries above and §5/§7.5/§8. The 2026-09-06 request for
+first-class surfaces, distinct modules and a simpler editor is recorded above and in §4.4/§7.4/§8.
+The volume-control and percentile follow-ups are recorded in the 2026-09-11 decisions above and §8.
+
+**Preserved visual-refresh rationale (2026-08-29).** Show medical volumes and simulation fields beyond
+one brain dataset; name TI as one simulation paradigm, not a synonym for every field. Use rendered data
+captures for scientific examples and actual window captures for interface documentation. Keep the
+manifest as the capture catalogue and the job scripts as the reproducible source. Proposed future film
+expansion, a neutral preset identifier and a knee sample were optional ideas, not release gates; no
+implementation is claimed for them.
+
+## 2026-09-11 — Seed progressive surface colors in scene order
+
+**Decision.** Reserve default surface palette positions in serialized layer order before checking which
+datasets are ready. Previously download completion order could reverse hemisphere colors even after
+layer order was corrected. Explicit colors and already adopted layers stay untouched. This repairs the
+pre-existing main CI failure in the embed surface palette test. The regression delays the first file
+until the second surface appears, then checks the exact documented palette.

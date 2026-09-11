@@ -36,7 +36,7 @@ finds nothing.
 | [`screenshot.py`](screenshot.py) | `out/screenshot/` | Two PNGs from one launch: an axial T1, and the left pial surface over the T1's three planes. |
 | [`sweep.py`](sweep.py) | `out/sweep/` | A 32-frame axial sweep through the TI field on the T1 — PNG frames, a GIF and an MP4. |
 | [`orbit.py`](orbit.py) | `out/orbit/` | A 36-frame turntable of the head mesh, as a GIF and an MP4. |
-| [`showcase.py`](showcase.py) | `docs/media/` | The whole showcase film: `showcase.mp4`, `showcase-preview.gif` and `SHOWCASE.md`. |
+| [`showcase.py`](showcase.py) | `docs/media/` | The whole showcase film: `showcase.mp4` and `showcase-preview.gif`. |
 
 `TETRAVOX_EXAMPLE_OUT` moves the first three somewhere else; `TETRAVOX_DATA` points all four at a
 different copy of the data. `showcase.py` takes `--out` (default `docs/media/`) and `--work` (default
@@ -59,8 +59,8 @@ def act_c_field(job: Job) -> None:
 ```
 
 Every shot calls `story(shot, caption, frames, note)`. That one list is the caption burned into the
-film, the timeline in `docs/media/SHOWCASE.md`, and the film's length — so a shot cannot get longer
-without its caption and its row moving with it. To re-cut the film, change a constant or reorder the
+film and its length, so changing a shot also updates its caption timing. Capture guidance lives in
+[`docs/AUTOMATION.md`](../../docs/AUTOMATION.md). To re-cut the film, change a constant or reorder the
 calls in `build_film`; to see what a change costs before rendering 2,900 frames, run
 
 ```sh

@@ -1,8 +1,7 @@
 /**
  * §7.5's pointer layer — the R1 / R2 / R3 gate (P2-01, P2-02, P2-03, P2-04).
  *
- * Every assertion below is one of `docs/requirements/2026-08-27-maintainer.md`'s "Gate test:"
- * clauses, driven by **synthetic pointer events** through `page.mouse` — real `pointerdown` /
+ * The `docs/ARCHITECTURE.md` §7/§8 interaction contract is exercised through **synthetic pointer events** through `page.mouse` — real `pointerdown` /
  * `pointermove` / `pointerup` / `wheel` from Chromium's input pipeline, not `dispatchEvent`, so what
  * is tested is the path a user's hand takes.
  *

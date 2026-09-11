@@ -1,5 +1,5 @@
 /**
- * R4 of `docs/requirements/2026-09-06-idohaber-surfaces.md`: the **surface** editor is its own
+ * R4 of `docs/ARCHITECTURE.md` §4.4/§8: the **surface** editor is its own
  * panel — five sections, and none of the tet mesh's.
  *
  * Against the stand-in engine (`?engine=mock`), which reports a `.gii` with no tets exactly as the

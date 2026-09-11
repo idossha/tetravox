@@ -1,5 +1,5 @@
 /**
- * The surface layer's own module (2026-09-06, R5 of `docs/requirements/2026-09-06-idohaber-surfaces.md`):
+ * The surface layer's own module (2026-09-06, R5 of `docs/ARCHITECTURE.md` §4.4/§8):
  * its defaults and its **projection** onto the `MeshLayer` shape the triangle passes draw.
  *
  * §7.4 draws a surface with the same shaders as a tet mesh's boundary, and that is not going to

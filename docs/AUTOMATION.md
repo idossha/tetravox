@@ -593,3 +593,29 @@ path *is* the user naming it.
 | `python/tests/test_client.py` | The client's documents, and one example end to end against a dev build. Skips when either is missing. |
 | `python/tests/test_modules.py` | `Job.module`, the typed sEEG wrappers and `JobResult.results()` — documents only, so they run with no app and no extension in the build. |
 | `packages/app/e2e/module-job.spec.ts` | A `--job` launch that activates an extension and runs its operation, asserted through `job-result.json` and the scene it saved. The `tetravox.hello` half runs everywhere (the data is `testdata/`); the sEEG half is gated on `TETRAVOX_SEEG_FIXTURE`, which names a built extension to stage. |
+
+
+## 5. Regenerating the showcase
+
+`examples/capture/showcase.py` owns the showcase jobs, shot sequence, timings and captions. It renders
+through the same offscreen job path described above and uses ffmpeg to assemble
+`docs/media/showcase.mp4` and `docs/media/showcase-preview.gif`. Edit the script's shot list to change
+the film; a separate Markdown storyboard would duplicate that source. Dataset provenance and gallery
+capture guidance live in `docs/TESTING.md`.
+
+```sh
+scripts/fetch-data.sh
+pip install -e python/
+pnpm wasm && pnpm --filter @tetravox/app build
+export TETRAVOX_APP="$PWD/node_modules/.bin/electron" TETRAVOX_APP_ARGS="$PWD/packages/app"
+python examples/capture/showcase.py
+```
+
+The tour captures the actual interface with panels; the data acts capture the engine canvas. Each act
+starts from its own scene so temporary frame storage is bounded and scene state is reproducible. The
+source dataset inventory is `data/README.md`. The existing film demonstrates linked anatomy slices,
+labels and a region surface, scalar volume/mesh fields, tissue opacity, clip caps, isolation, vector
+arrows and electrode points. It is a historical capture, so consult `docs/USER_GUIDE.md` for current
+control names. Its absence of annotation attachment, oblique slicing or measurements is not a claim
+that the viewer lacks those features. In particular, driving an anatomy plane through a region surface
+is distinct from clipping that surface.

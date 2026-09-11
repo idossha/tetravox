@@ -12,6 +12,10 @@ behind a line here is in `docs/DECISIONS.md`.
 
 ## What exists
 
+**Volume controls (§8).** Grouped contrast/visibility with 1–99%, 50–99.9%, 95–99.9% presets; labels use
+region controls. Intent is recorded in `docs/DECISIONS.md`; verification is in
+`packages/app/e2e/props-volume.spec.ts`.
+
 **Formats.** NIfTI-1/2 (`.nii`, `.nii.gz`, 4D, every dtype but complex and 64-bit ints), Gmsh `.msh` v2.2 and
 v4.1 with `$NodeData`/`$ElementData` fields and `.msh.opt` sidecars, Gmsh parsed views (`.geo`/`.pos`, e.g.
 SimNIBS electrode nets), GIfTI, FreeSurfer surfaces / `curv` / `annot`, STL, PLY, OBJ. LUT sidecars in

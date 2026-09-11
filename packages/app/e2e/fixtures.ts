@@ -141,7 +141,7 @@ export function stageSeeg(): SeegStage | null {
  *
  * **Documentation** screenshots are a different thing and do not come here: the committed set lives
  * in `docs/screenshots/2026-08-29/` and is produced by `ui-tour-gallery.spec.ts` plus the `--job`
- * capture jobs (`docs/reports/2026-08-29-visual-refresh/PLAN.md`).
+ * capture jobs (`docs/AUTOMATION.md`).
  */
 export const SHOTS_DIR = resolve(here, '..', 'test-results', 'shots');
 

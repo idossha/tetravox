@@ -389,13 +389,63 @@ Two different things, and they never share a directory:
   `glyph-screenshots`, `surface-contours-screenshot`) writes there. **Do not add a second output
   directory**, and do not point a spec at `docs/`.
 * **Documentation** — the committed capture set, `docs/screenshots/2026-08-29/`
-  (`docs/reports/2026-08-29-visual-refresh/PLAN.md`). Its engine stills come from `--job` capture
+  (catalogued by its `manifest.json`). Its engine stills come from `--job` capture
   jobs; the UI states a job cannot reach come from `e2e/ui-tour-gallery.spec.ts`. The motion clips
-  are `docs/media/` (`docs/media/SHOWCASE.md`, `examples/capture/showcase.py`).
+  are in `docs/media/`; see `docs/AUTOMATION.md` §5 for the showcase generator.
 
 `e2e/catalogue.spec.ts` is the one deliberate exception: it *is* the report it writes, into
 `docs/reports/2026-08-28-visualization-scenarios/`, which `scripts/build-plates-report.py` then
 assembles into a single HTML page.
+
+### Consolidated requirement gates
+
+These are the historical intent-to-test mappings formerly kept in separate dated notes. `R` identifiers
+in older comments resolve through the date and row below. This is a preservation of acceptance criteria,
+not a new test result; current behavior is authoritative in ARCHITECTURE.
+
+| Original request | Core contract and verification intent |
+|---|---|
+| 2026-08-27 R1–R3 | §7.5 pointer/camera behavior; `pointer.spec.ts` checks cursor movement within half a voxel, pointer-anchored zoom within 0.1 mm, unchanged camera during cursor drag and unchanged cursor during pan. A fixed scan pixel away from the crosshair remains byte-identical. |
+| 2026-08-27 R4 | §7.3–§7.5 mesh cuts; `derived-r4.spec.ts` checks tissue and field cut pixels against real ernie data, with and without anatomy; original sweep gate is 20 axial steps at at least 30 fps including cut/upload/render. |
+| 2026-08-27 R5 | §8 regions; visibility, recolor and solo assertions cover labels and mesh tissues in both 2D/3D, and selection survives scene save/load. |
+| 2026-09-04 view controls R1–R4 | §7.5/§8; `view-controls.spec.ts` checks the three combined layouts, retained direct anatomical panes, 3D+1 migration, unchanged slice state, exact world-origin reset with loaded layers retained, and screenshot layout at 960×600 and 1400×900 with at most one CSS pixel rounding overflow. |
+| 2026-09-04 viewport R1 | §5/§8; `embed-viewport.spec.ts` checks exact omitted shell controls and frame bounds, camera/layer commands, unavailable WebGL2 reporting, default/unknown full presentation, and exact opaque-white synthetic mesh / black-background pixels plus orientation-bearing golden. |
+| 2026-09-06 surfaces R1–R2 | §4.4/§7.4; scene tests distinguish zero-tet surfaces from meshes; `surface.spec.ts` checks the default contour palette analytically and with `surface-default`; real surface loading is gated by `TETRAVOX_TESTDATA`. Existing mesh rendering remains governed by its own goldens. |
+| 2026-09-06 surfaces R3–R5 | §4.4/§4.7/§8; annotation tests assert attached color source and reference entry count; `props-surface.spec.ts` checks the dedicated editor and excluded mesh controls; `registry.test.ts` reads imports to hold the surface/mesh module boundary. |
+| 2026-09-11 volume controls and follow-up | §8; `props-volume.spec.ts` checks labelled scalar controls, label-only region controls, unbounded threshold state, preset values, side-by-side 3D controls and exact bound preservation across percentile unit changes. Preset and percentile unit tests pin stored anchors and interpolation independently. |
+
+### Documentation capture guidance
+
+The capture jobs and `docs/screenshots/2026-08-29/manifest.json` define the committed gallery. Use
+engine captures for data and real window captures for UI. Frame the structure with an explicit camera;
+retain orientation annotations, show a crosshair for linked-pane overviews, and hide it for detail or
+publication figures. Use color bars only for scalar fields. Include overview/detail pairs where zoom
+matters. Inspect orientation and clipping after the analytic checks; a screenshot alone is not proof.
+Build the website with dead-link checking after changing gallery references. Historical gallery plates
+may show older controls; regenerate affected plates when they are used to document current UI.
+
+### Public gallery dataset provenance
+
+`scripts/fetch-public-samples.sh` downloads and verifies the samples under ignored `data/public/`.
+It is the authority for exact download paths and SHA-256 values; do not maintain a second hash table.
+The following source and license inventory was consolidated from the gallery's original dataset note;
+it records that capture set's provenance, not a fresh license audit.
+
+| Source | Gallery inputs | Recorded license / usage |
+|---|---|---|
+| [TotalSegmentator](https://github.com/wasserth/TotalSegmentator), `tests/reference_files/` | `example_ct_sm.nii.gz`, `example_seg_fast.nii.gz`: low-resolution thorax/abdomen CT and organs | Apache-2.0 repository |
+| [niivue-images](https://github.com/neurolabusc/niivue-images) | `CT_Abdo.nii.gz` (chest/upper abdomen), `CT_Philips.nii.gz` (head CT) | BSD-2-Clause; license fetched alongside |
+| [CTSpine1K mirror](https://huggingface.co/datasets/alexanderdann/CTSpine1K) | COVID-19 `A-0377`, COLONOG `0477`, MSD-T10 `liver_0`: chest/abdomen CT and vertebral segmentation | CC-BY-NC-SA; non-commercial documentation use |
+| [AMOS22 CT mirror](https://huggingface.co/datasets/MedOtter/amos22-ct-dataset) | `amos_0004`, `amos_0088`: abdominal CT and organ labels | CC-BY-4.0 |
+| [AMOS22 MRI mirror](https://huggingface.co/datasets/MedOtter/amos22-mri-dataset) | `amos_0555`, `amos_0584`: abdominal T1-weighted MRI and organ labels | CC-BY-4.0 |
+| [TotalSegmentator MRI mirror](https://huggingface.co/datasets/MedOtter/TotalSegmentatorMR), upstream Zenodo 11367005 | `s0375` spine, `s0132` pelvis, `s0187` abdomen/pelvis, `s0175` whole body | CC-BY-NC-SA; non-commercial documentation use |
+
+The CTSpine1K LUT follows VerSe vertebra numbering; AMOS LUTs follow its organ order. For the
+TotalSegmentator-MR inputs, `scripts/merge-totalseg-mr.py` merges individual structure masks into
+`seg.nii.gz` and a golden-angle-hue LUT; later structures win at overlapping voxels. These are derived
+label maps. Small or thick-slice source data can produce blocky outlines and surfaces. `CT_Philips`
+is head coverage, despite its neutral filename. No knee sample belongs to this capture set; the
+original search did not find a small, registration-free NIfTI input.
 
 ## 4. Adding an analytic pixel test
 
