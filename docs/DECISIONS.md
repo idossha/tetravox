@@ -5616,3 +5616,19 @@ datasets are ready. Previously download completion order could reverse hemispher
 layer order was corrected. Explicit colors and already adopted layers stay untouched. This repairs the
 pre-existing main CI failure in the embed surface palette test. The regression delays the first file
 until the second surface appears, then checks the exact documented palette.
+
+## 2026-09-11 — Share scalar controls and reduce mesh decisions
+
+**Decision.** Apply the volume editor's contrast/visibility design to mesh fields, with the same three
+percentile presets and optional value/percentile thresholds. Show only controls relevant to the color
+source and data. Keep tissue overrides, vector components, attached data, clipping, isolation and glyphs;
+remove heat, soft-edge, symmetric, manual shading, duplicate alpha and duplicate cut-color controls.
+Use existing smooth/geometry-aware face defaults, and one edge switch for both surface and cuts.
+A single-tissue mesh needs no search or bulk toolbar. Field/component changes reset display bounds and
+thresholds so a previous field cannot silently hide the new one.
+
+**Rationale.** The user requested fewer decisions without restricting supported datasets or useful
+manipulation, and explicitly allowed removal of stale code without backward compatibility. Vector
+statistics describe magnitude, so x/y/z retain numeric controls but omit magnitude-based histograms and
+percentiles; conservative signed bounds avoid claiming component statistics we do not have. Intent,
+contract and verification stay in the core documents rather than new per-task Markdown.

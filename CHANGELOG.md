@@ -15,6 +15,11 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Simpler mesh controls.** Field colors share the volume contrast, histogram and optional threshold
+  editor. Controls follow the selected color source; vector components, tissue overrides and attached
+  data remain available. Mesh edges use one switch, cross-sections use Fill/Outline, and single-tissue
+  meshes omit search and bulk controls. Removed redundant advanced appearance controls.
+
 - **Grab all four histogram bounds directly.** Contrast and threshold low/high handles have distinct,
   staggered grab markers that remain accessible at the plot edges. Removed threshold helper paragraphs.
 

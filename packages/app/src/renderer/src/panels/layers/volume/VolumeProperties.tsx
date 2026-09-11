@@ -11,12 +11,10 @@
  * already ships that slider. Two sliders for one number is how they drift apart.
  */
 
-import { useState } from 'react';
-import { percentToValue, valueToPercent } from './threshold-percentiles';
-import type { Dataset, Layer, Scale, VolumeDataset, VolumeLayer } from '@tetravox/engine';
+import type { Dataset, Layer, VolumeDataset, VolumeLayer } from '@tetravox/engine';
 import type { LayerPropertiesProps } from '../properties';
 import { useController, useUi } from '../../../ui/context';
-import { Histogram } from '../../histogram/Histogram';
+import { ScalarDisplayControls } from '../../histogram/ScalarDisplayControls';
 import { RegionPanel } from '../../regions/RegionPanel';
 import { iso3dLabels } from '@tetravox/engine';
 import { hexToVec4, vec4ToHex } from '../mesh/state';
@@ -28,17 +26,13 @@ import {
   patchIso3d,
   toggleIso3d,
 } from './iso3d';
-import { normalizeWindow, VOLUME_PRESETS } from '../../histogram/presets';
 import {
-  COLORMAPS,
   LABEL_MODES,
   clampOutlineWidth,
-  colormapStops,
   effectiveInterpolation,
   forcedNearest,
   patchThreshold,
   scaleWindow,
-  thresholdWindow,
   volumeIndexPatch,
   withWindow,
 } from './patches';
@@ -63,46 +57,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
   );
 }
 
-function NumberField({
-  testId,
-  label,
-  value,
-  step,
-  onCommit,
-}: {
-  testId: string;
-  label: string;
-  value: number;
-  step?: number;
-  onCommit(v: number): void;
-}): React.JSX.Element {
-  return (
-    <input
-      type="number"
-      data-testid={testId}
-      aria-label={label}
-      value={Number.isFinite(value) ? value : 0}
-      step={step ?? 'any'}
-      onPointerDown={(e) => e.stopPropagation()}
-      onChange={(e) => {
-        const next = Number(e.currentTarget.value);
-        if (Number.isFinite(next)) onCommit(next);
-      }}
-      className="tvx-input w-full min-w-0 px-1 py-0.5 font-mono text-[10px]"
-    />
-  );
-}
-
 export function VolumeProperties({
   layer,
   dataset,
 }: LayerPropertiesProps): React.JSX.Element | null {
-  const [thresholdPercentiles, setThresholdPercentiles] = useState(false);
-  // Equal intensities can represent several percentiles; keep the user's chosen rank while its
-  // intensity cutoff is unchanged instead of snapping the input to the first tied percentile.
-  const [percentEntries, setPercentEntries] = useState<
-    Partial<Record<'lo' | 'hi', { value: number; percent: number }>>
-  >({});
   const controller = useController();
   const caps = useUi((s) => s.caps);
   if (layer.kind !== 'volume' || dataset.kind !== 'volume') return null;
@@ -110,20 +68,8 @@ export function VolumeProperties({
   const ds: VolumeDataset = dataset;
 
   const patch = (p: Partial<VolumeLayer>): void => controller.patchLayer<VolumeLayer>(vl.id, p);
-  const setScale = (scale: Scale): void => patch({ scale });
 
   const forced = forcedNearest(ds, caps);
-  const window = scaleWindow(vl.scale);
-  const thresholdEnabled = Number.isFinite(vl.threshold.lo) || Number.isFinite(vl.threshold.hi);
-  const editThreshold = (lo: number, hi: number, edge?: 'lo' | 'hi'): void =>
-    patch({
-      threshold: patchThreshold(vl.threshold, {
-        ...(edge === 'lo' ? { lo } : edge === 'hi' ? { hi } : { lo, hi }),
-        mode: 'hide',
-        symmetric: false,
-        softEdge: 0,
-      }),
-    });
 
   return (
     <div
@@ -133,153 +79,26 @@ export function VolumeProperties({
       onPointerDown={(e) => e.stopPropagation()}
     >
       {!ds.isLabel && (
-        <section
-          aria-label="Contrast and visibility"
-          className="flex min-w-0 flex-col gap-2 rounded border border-tvx-line p-2"
-        >
-          <div className="text-[11px] font-medium">Contrast & visibility</div>
-          <Row label="Colormap">
-            <select
-              data-testid={`volume-colormap-${vl.id}`}
-              aria-label="Colormap"
-              value={vl.colormap}
-              onChange={(e) => patch({ colormap: e.currentTarget.value })}
-              className="tvx-input min-w-0 flex-1 px-1 py-0.5 text-[10px]"
-            >
-              {COLORMAPS.map((name) => (
-                <option key={name} value={name}>
-                  {name === 'gray' ? 'Grayscale' : name}
-                </option>
-              ))}
-            </select>
-          </Row>
-          <div className="text-[10px] text-tvx-dim">Display range · maps intensity to color</div>
-          <div className="grid grid-cols-2 gap-2">
-            {(['lo', 'hi'] as const).map((edge) => (
-              <label key={edge} className="flex min-w-0 flex-col gap-1 text-[10px] text-tvx-dim">
-                {edge === 'lo' ? 'Low' : 'High'}
-                <NumberField
-                  testId={`volume-scale-${edge}-${vl.id}`}
-                  label={`Display range ${edge === 'lo' ? 'low' : 'high'}`}
-                  value={window[edge]}
-                  onCommit={(value) => setScale(withWindow({ ...window, [edge]: value }))}
-                />
-              </label>
-            ))}
-          </div>
-          <Histogram
-            idPrefix={`volume-histogram-${vl.id}`}
-            stats={ds.stats}
-            window={window}
-            presets={VOLUME_PRESETS}
-            threshold={thresholdEnabled ? thresholdWindow(vl.threshold) : null}
-            colormapName={String(vl.colormap)}
-            colormapStops={colormapStops(vl.colormap)}
-            onWindow={(lo, hi) => setScale(withWindow(normalizeWindow({ lo, hi })))}
-            onThreshold={editThreshold}
-          />
-          <div className="flex flex-col gap-2 border-t border-tvx-line pt-2">
-            <label className="flex items-center gap-2 text-[11px]">
-              <input
-                type="checkbox"
-                data-testid={`volume-threshold-enabled-${vl.id}`}
-                checked={thresholdEnabled}
-                className="accent-tvx-accent"
-                onChange={(e) =>
-                  editThreshold(
-                    e.currentTarget.checked ? window.lo : -Infinity,
-                    e.currentTarget.checked ? window.hi : Infinity
-                  )
-                }
-              />
-              Threshold · show only a range
-            </label>
-            {thresholdEnabled && (
-              <>
-                <div className="flex items-center gap-2 text-[10px]">
-                  <label htmlFor={`threshold-units-${vl.id}`}>Threshold units</label>
-                  <select
-                    id={`threshold-units-${vl.id}`}
-                    data-testid={`volume-threshold-units-${vl.id}`}
-                    title="Percentiles use exact stored cutoffs and estimates between them"
-                    value={thresholdPercentiles ? 'percentiles' : 'values'}
-                    onChange={(e) =>
-                      setThresholdPercentiles(e.currentTarget.value === 'percentiles')
-                    }
-                    className="tvx-input min-w-0 flex-1 px-1 py-0.5"
-                  >
-                    <option value="values">Values</option>
-                    <option value="percentiles">Percentiles (%)</option>
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['lo', 'hi'] as const).map((edge) => (
-                    <label
-                      key={edge}
-                      className="flex min-w-0 flex-col gap-1 text-[10px] text-tvx-dim"
-                    >
-                      {edge === 'lo' ? 'Low' : 'High'}
-                      {thresholdPercentiles ? ' (%)' : ''}
-                      <input
-                        type="number"
-                        step={thresholdPercentiles ? 0.1 : 'any'}
-                        min={thresholdPercentiles ? 0 : undefined}
-                        max={thresholdPercentiles ? 100 : undefined}
-                        aria-label={`Threshold ${edge === 'lo' ? 'low' : 'high'}`}
-                        data-testid={`volume-threshold-${edge}-${vl.id}`}
-                        value={
-                          Number.isFinite(vl.threshold[edge])
-                            ? thresholdPercentiles
-                              ? percentEntries[edge]?.value === vl.threshold[edge]
-                                ? percentEntries[edge]!.percent
-                                : Number(valueToPercent(ds.stats, vl.threshold[edge]).toFixed(3))
-                              : vl.threshold[edge]
-                            : ''
-                        }
-                        placeholder="No limit"
-                        className="tvx-input w-full min-w-0 px-1 py-0.5 font-mono text-[10px]"
-                        onChange={(e) => {
-                          const value =
-                            e.currentTarget.value === ''
-                              ? edge === 'lo'
-                                ? -Infinity
-                                : Infinity
-                              : thresholdPercentiles
-                                ? percentToValue(ds.stats, e.currentTarget.valueAsNumber)
-                                : e.currentTarget.valueAsNumber;
-                          if (!Number.isNaN(value)) {
-                            if (thresholdPercentiles && Number.isFinite(value)) {
-                              const percent = Math.min(
-                                100,
-                                Math.max(0, e.currentTarget.valueAsNumber)
-                              );
-                              setPercentEntries((entries) => ({
-                                ...entries,
-                                [edge]: { value, percent },
-                              }));
-                            }
-                            editThreshold(
-                              edge === 'lo' ? value : vl.threshold.lo,
-                              edge === 'hi' ? value : vl.threshold.hi,
-                              edge
-                            );
-                          }
-                        }}
-                      />
-                    </label>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="tvx-btn tvx-btn-sm self-start"
-                  onClick={() => editThreshold(window.lo, window.hi)}
-                >
-                  Use display range
-                </button>
-              </>
-            )}
-          </div>
-        </section>
+        <ScalarDisplayControls
+          kind="volume"
+          id={vl.id}
+          colormap={vl.colormap}
+          stats={ds.stats}
+          window={scaleWindow(vl.scale)}
+          threshold={vl.threshold}
+          onColormap={(colormap) => patch({ colormap })}
+          onWindow={(lo, hi) => patch({ scale: withWindow({ lo, hi }) })}
+          onThreshold={(next) =>
+            patch({
+              threshold: patchThreshold(vl.threshold, {
+                ...next,
+                mode: 'hide',
+                symmetric: false,
+                softEdge: 0,
+              }),
+            })
+          }
+        />
       )}
 
       {/* ---- interpolation, and §7.1's forced-nearest flag (audit P2-08) ------------------------ */}

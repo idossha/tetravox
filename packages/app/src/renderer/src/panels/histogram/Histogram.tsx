@@ -1,8 +1,7 @@
 /**
  * The histogram widget — §8, in the volume **and** mesh-field property editors.
  *
- * §8: "log-y toggle, draggable window and threshold handles, the current colormap painted along the
- * x axis, and presets `min–max`, `2–98 %`, `p50–p99.9`, `symmetric ±p99`."
+ * Log-y toggle, draggable contrast and threshold handles, a colormap strip, and scalar presets.
  *
  * The bins are `Stats.histogram` — 256 counts over `[histogramLo, histogramHi]`, computed exactly in
  * the worker (§6.1). This component never touches `VolumeDataset.data`, which is what keeps a handle
@@ -22,7 +21,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { Stats } from '@tetravox/engine';
 import { axisRange, barHeights, dragHandle, formatValue, handleAt, xForValue } from './geometry';
 import type { HandleId, HandleValues, PlotBox } from './geometry';
-import { PRESETS, activePreset, applyPreset } from './presets';
+import { SCALAR_PRESETS, activePreset, applyPreset } from './presets';
 import type { Preset, PresetId, ValueWindow } from './presets';
 
 /** Logical units; the SVG is stretched to the panel by `preserveAspectRatio="none"`. */
@@ -30,7 +29,7 @@ export const HISTOGRAM_BOX: PlotBox = { width: 256, height: 64 };
 
 export interface HistogramProps {
   stats: Stats;
-  /** Omitted for the original mesh-field preset choices. */
+  /** Override the shared scalar preset choices when needed. */
   presets?: readonly Preset[];
   /** The window currently applied, in physical units. */
   window: ValueWindow;
@@ -56,7 +55,7 @@ export interface HistogramProps {
 
 export function Histogram({
   stats,
-  presets = PRESETS,
+  presets = SCALAR_PRESETS,
   window,
   threshold,
   onWindow,

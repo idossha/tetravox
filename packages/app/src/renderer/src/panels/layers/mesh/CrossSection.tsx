@@ -1,40 +1,17 @@
-/**
- * **R4 — mesh cross-sections in the 2D panes.** The panel half of it: the `fillIn2D` and
- * `contoursIn2D` toggles, the contour width, and **which field colours the cut**.
- *
- * The engine halves are E-MESH's (the cut manager) and E-DERIVED's (the fill polygons and the
- * instanced contour renderer); R4's "default when a mesh is opened: fill **and** contours on" is
- * `scene/defaults.ts`, which is theirs too. What is A-PROPS's is exactly this: two toggles, a width
- * and a colour source, each one `Engine.updateLayer` call.
- *
- * **On "which field colours the cut":** the frozen §4.4 `MeshLayer` has no separate cut-colour field,
- * and it does not need one — §7.4 draws the cut polygons "with tag/field colour", i.e. through the
- * layer's own `colorMode` / `field` / `colormap` / `scale`, which is what R4 asks for. So this
- * selector drives `colorMode` and `field`, the same pair the appearance section drives, surfaced
- * where the cross-section lives because that is where the user is looking when they ask the question.
- */
+/** Mesh cross-section visibility and outline styling. Coloring follows Field & appearance. */
 
-import type { MeshDataset, MeshLayer } from '@tetravox/engine';
+import type { MeshLayer } from '@tetravox/engine';
 import { useController } from '../../../ui/context';
-import { Row, Section, Select, Slider, Swatch, Toggle } from './controls';
+import { Row, Section, Slider, Swatch, Toggle } from './controls';
 import {
   contourColorHex,
-  cutColorSource,
-  fieldKey,
   setContourColor,
   setContourWidth,
   setContoursIn2D,
-  setCutColorSource,
   setFillIn2D,
 } from './state';
 
-export function CrossSection({
-  dataset,
-  layer,
-}: {
-  dataset: MeshDataset;
-  layer: MeshLayer;
-}): React.JSX.Element {
+export function CrossSection({ layer }: { layer: MeshLayer }): React.JSX.Element {
   const controller = useController();
   const patch = (p: Partial<MeshLayer>): void => controller.patchLayer(layer.id, p);
   const on = layer.fillIn2D || layer.contoursIn2D;
@@ -56,74 +33,45 @@ export function CrossSection({
       <Row label="Draw">
         <Toggle
           testId={`mesh-fill2d-${layer.id}`}
-          label="fill"
+          label="Fill"
           on={layer.fillIn2D}
           title="Filled per-element cut polygons in every 2D pane (R4)"
           onChange={(v) => patch(setFillIn2D(layer, v))}
         />
         <Toggle
           testId={`mesh-contours2d-${layer.id}`}
-          label="contours"
+          label="Outline"
           on={layer.contoursIn2D}
           title="Tissue-boundary contour lines in every 2D pane (R4)"
           onChange={(v) => patch(setContoursIn2D(layer, v))}
         />
       </Row>
 
-      <Row label="Contour width">
-        <Slider
-          testId={`mesh-contour-width-${layer.id}`}
-          value={layer.contourWidthPx}
-          min={0.5}
-          max={6}
-          step={0.5}
-          format={(v) => `${v.toFixed(1)} px`}
-          onChange={(v) => patch(setContourWidth(layer, v))}
-        />
-      </Row>
+      {layer.contoursIn2D && (
+        <>
+          <Row label="Outline width">
+            <Slider
+              testId={`mesh-contour-width-${layer.id}`}
+              value={layer.contourWidthPx}
+              min={0.5}
+              max={6}
+              step={0.5}
+              format={(v) => `${v.toFixed(1)} px`}
+              onChange={(v) => patch(setContourWidth(layer, v))}
+            />
+          </Row>
 
-      {/*
-        Directed task 12: one colour per surface, editable. A surface opens with its palette entry
-        (`scene/defaults.ts`); a tet mesh has none and the swatch shows the `edgeColor` its contours
-        actually draw in, so setting it here is not a jump.
-      */}
-      <Row label="Contour colour">
-        <Swatch
-          testId={`mesh-contour-color-${layer.id}`}
-          hex={contourColorHex(layer)}
-          title="The colour this layer's outline draws in, in every 2D pane"
-          onChange={(hex) => patch(setContourColor(layer, hex))}
-        />
-      </Row>
-
-      <Row label="Cut colour">
-        <Select
-          testId={`mesh-cut-color-${layer.id}`}
-          value={cutColorSource(layer)}
-          options={[
-            { value: 'tag', label: 'tissue tag' },
-            { value: 'solid', label: 'solid colour' },
-            ...dataset.fields.map((f) => ({
-              value: fieldKey(f),
-              label: `${f.name} (${f.source})`,
-            })),
-          ]}
-          onChange={(source) => {
-            const next = setCutColorSource(dataset, layer, source);
-            // Same §7.4 async switch as the appearance section: an element field builds the
-            // de-indexed variant the first time it is asked for.
-            if (next.field?.source === 'elm' && layer.field?.source !== 'elm') {
-              void controller.patchLayerAsync<MeshLayer>(layer.id, next, 'elmField');
-              return;
-            }
-            patch(next);
-          }}
-        />
-      </Row>
-      <p className="text-[9px] leading-tight text-tvx-dim">
-        The cut honours <code>tagStyle</code> visibility/opacity and any isolation mask, and follows
-        the cursor as the slice sweeps (R4).
-      </p>
+          {/* Without a dedicated contour color, the swatch follows the renderer's edge color fallback. */}
+          <Row label="Outline colour">
+            <Swatch
+              testId={`mesh-contour-color-${layer.id}`}
+              hex={contourColorHex(layer)}
+              title="The colour this layer's outline draws in, in every 2D pane"
+              onChange={(hex) => patch(setContourColor(layer, hex))}
+            />
+          </Row>
+        </>
+      )}
     </Section>
   );
 }

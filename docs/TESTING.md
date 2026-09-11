@@ -413,6 +413,7 @@ not a new test result; current behavior is authoritative in ARCHITECTURE.
 | 2026-09-06 surfaces R1–R2 | §4.4/§7.4; scene tests distinguish zero-tet surfaces from meshes; `surface.spec.ts` checks the default contour palette analytically and with `surface-default`; real surface loading is gated by `TETRAVOX_TESTDATA`. Existing mesh rendering remains governed by its own goldens. |
 | 2026-09-06 surfaces R3–R5 | §4.4/§4.7/§8; annotation tests assert attached color source and reference entry count; `props-surface.spec.ts` checks the dedicated editor and excluded mesh controls; `registry.test.ts` reads imports to hold the surface/mesh module boundary. |
 | 2026-09-11 volume controls and follow-up | §8; `props-volume.spec.ts` checks labelled scalar controls, label-only region controls, unbounded threshold state, preset values, side-by-side 3D controls and exact bound preservation across percentile unit changes. Preset and percentile unit tests pin stored anchors and interpolation independently. |
+| 2026-09-11 mesh controls | §8; `props-mesh.spec.ts` checks field/component resets, conditional controls, shared percentile thresholds and independent dragging of all four histogram bounds, while retaining clipping, isolation and glyph manipulation. `mesh/state.test.ts` checks normalized ranges and hard-hide thresholds; the volume suite protects the shared editor. |
 
 ### Documentation capture guidance
 

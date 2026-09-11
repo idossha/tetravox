@@ -1022,12 +1022,11 @@ test.describe('visualisation scenario catalogue', () => {
       await activate(page, ti);
       await reveal(page, `volume-properties-${ti}`);
       await setControl(page, `volume-colormap-${ti}`, 'hot');
-      await setControl(page, `volume-scale-kind-${ti}`, 'heat');
-      await setControl(page, `volume-heat-min-${ti}`, '0.1');
-      await setControl(page, `volume-heat-mid-${ti}`, '0.6');
-      await setControl(page, `volume-heat-max-${ti}`, '1.6');
+      await setControl(page, `volume-scale-lo-${ti}`, '0.1');
+      await setControl(page, `volume-scale-hi-${ti}`, '1.6');
+      await page.getByTestId(`volume-threshold-enabled-${ti}`).check();
       await setControl(page, `volume-threshold-lo-${ti}`, '0.1');
-      await setControl(page, `volume-threshold-mode-${ti}`, 'hide');
+      await setControl(page, `volume-threshold-hi-${ti}`, '');
       await settle(page);
       await shoot(page, '02-ti-max-heat-overlay.png');
       await shootPane(page, 'axial', '02-ti-max-heat-overlay-closeup.png');
@@ -1048,7 +1047,7 @@ test.describe('visualisation scenario catalogue', () => {
         title: 'A TI field as a thresholded heat overlay',
         what_it_shows:
           'The simulated TI_max field composited over the anatomy: the T1 underneath in grey, the ' +
-          'field above it on a heat scale with min/mid/max, and everything below 0.1 V/m hidden ' +
+          'field above it on a linear hot colormap, and everything below 0.1 V/m hidden ' +
           'rather than painted, so the anatomy shows through where there is no field. The colour ' +
           'bar down the side of the pane carries the ticks, the units and the threshold notch. ' +
           'The two close-ups are the same axial slice in neurological (NEU) and radiological (RAD) ' +
@@ -1064,8 +1063,8 @@ test.describe('visualisation scenario catalogue', () => {
             name: 'Thalamus_TI_subject_TI_max.nii.gz',
             settings: {
               colormap: 'hot',
-              'scale.kind': 'heat',
-              'scale.min/mid/max': '0.1 / 0.6 / 1.6',
+              'scale.kind': 'linear',
+              'scale.lo/hi': '0.1 / 1.6',
               'threshold.lo': 0.1,
               'threshold.mode': 'hide',
               showColorbar: true,
@@ -1077,9 +1076,9 @@ test.describe('visualisation scenario catalogue', () => {
           'Open… → select the T1 and the TI NIfTI together; layers stack bottom→top in open order, ' +
             'and the layer panel’s ▲▼ (or Ctrl+↑/↓) reorders them.',
           'Click the overlay’s name in the layer panel to make it active and open its editor.',
-          'Colormap → hot. Scale → heat, then type min / mid / max.',
-          'Threshold low → 0.1 with mode “hide”; the histogram above it has draggable window and ' +
-            'threshold handles for the same two numbers.',
+          'Contrast & visibility → hot, then set Low / High to 0.1 / 1.6.',
+          'Enable threshold, set Low to 0.1 and leave High unbounded; the histogram has contrast and ' +
+            'threshold handles for all four bounds.',
           'Toolbar → Bars keeps the colour bars on (they are on by default).',
           'Toolbar → RAD/NEU flips the convention.',
           'The layer row’s own opacity slider blends the overlay into the anatomy.',
@@ -1303,7 +1302,7 @@ test.describe('visualisation scenario catalogue', () => {
           'Tissue list: the eye hides a tissue, the swatch recolours it, the slider fades it; ' +
             'Show all / Hide all / Invert and a search box act on the whole table.',
           '2D cross-section section: the fill and contours toggles, the contour width slider, and ' +
-            'a “cut colour” selector (tissue tag, a solid colour, or any field the mesh carries).',
+            'the same tissue, solid or field coloring selected in Field & appearance.',
           'Move the crosshair and the cross-section follows it.',
         ],
         notes: [
@@ -1385,11 +1384,11 @@ test.describe('visualisation scenario catalogue', () => {
       // picture of nothing. `6` is the inferior preset, which is where the kept upper half's cap
       // faces.
       await openSection(page, `mesh-field-${mesh}`);
-      await page.click(`[data-testid="mesh-edges-caps-${mesh}"]`);
+      await page.click(`[data-testid="mesh-edges-surface-${mesh}"]`);
       await frame3d(page, '6', 0, 0);
       await dolly3d(page, -520);
       await shootPaneCrop(page, 'view3d', '07-clip-caps-closeup-edges.png', 0.55);
-      await page.click(`[data-testid="mesh-edges-caps-${mesh}"]`);
+      await page.click(`[data-testid="mesh-edges-surface-${mesh}"]`);
       await frame3d(page, '1', 55, -25);
 
       await openSection(page, `mesh-clip-${mesh}`);
@@ -1727,12 +1726,10 @@ test.describe('visualisation scenario catalogue', () => {
 
       // ---- 9 · field colouring ---------------------------------------------------------------
       await openSection(page, `mesh-field-${full}`);
+      await setControl(page, `mesh-colormode-${full}`, 'field');
       await setControl(page, `mesh-fieldname-${full}`, 'elm:TI_max');
       await waitForField(page, full, 'TI_max');
-      await setControl(page, `mesh-colormode-${full}`, 'field');
       await setControl(page, `mesh-colormap-${full}`, 'jet');
-      await page.click(`[data-testid="mesh-flat-${full}"]`);
-      await setControl(page, `mesh-cut-color-${full}`, 'elm:TI_max');
       // The field's own min…max is 1.09e-12 … 10.29 and its 99th percentile is two orders of
       // magnitude below the top, so the default range paints the whole head the bottom colour of
       // the ramp. Re-ranged onto 0 … p99, which is where the field actually lives.
@@ -1807,7 +1804,7 @@ test.describe('visualisation scenario catalogue', () => {
               colorMode: 'field',
               field: 'TI_max (element field)',
               colormap: 'jet',
-              flatShading: true,
+              flatShading: false,
               'isolate.tags': [`${gmTet} (${gm.name}) — ${gm.count.toLocaleString()} tets`],
               'isolate.field': `TI_max ${gmField.p95.toFixed(4)} … ${gmField.max.toFixed(4)}`,
               'isolate.combine': 'all (both clauses must hold)',
@@ -1852,8 +1849,8 @@ test.describe('visualisation scenario catalogue', () => {
           'The same head mesh coloured by its TI_max element field instead of by tissue: the ' +
           'surface, the exact cap polygons of a coronal clip plane, and the 2D cross-sections in ' +
           'all three panes, all reading the same field through the same colour map and the same ' +
-          'range, with one colour bar for the layer. Flat shading is on, so each element is a flat ' +
-          'facet of its own value rather than a smoothed interpolation of its neighbours.',
+          'range, with one colour bar for the layer. Smooth lighting keeps the surface continuous; ' +
+          'element-field colors still represent each element’s own value.',
         data_files: [
           'Simulations/Thalamus/TI/mesh/Thalamus_TI.msh',
           'Simulations/Thalamus/TI/mesh/Thalamus_TI.msh.opt (found beside it)',
@@ -1869,8 +1866,8 @@ test.describe('visualisation scenario catalogue', () => {
               scale:
                 `linear 0 … ${fullField.p99.toFixed(4)} (the field's 99th percentile; its own ` +
                 `min…max is 1.09e-12 … ${fullField.max.toFixed(2)})`,
-              flatShading: true,
-              'cut colour': 'TI_max',
+              flatShading: false,
+              'cross-section field': 'TI_max (shared with surface)',
               'clip.capColorMode': 'inherit (so the caps carry the field)',
               showColorbar: true,
             },
@@ -1878,12 +1875,10 @@ test.describe('visualisation scenario catalogue', () => {
         ],
         controls_used: [
           'Field & appearance section: “colour by” (tissue tag / field / solid / label), the field ' +
-            'selector, the component selector for a vector field, the colour map, a linear or ' +
-            'heat scale with its bounds, a min–max button, the threshold pair with a |v| toggle ' +
-            'and a soft-edge slider, flat/smooth shading, two-sided or back-face culling, and the ' +
-            'surface/caps edge toggles with a width and colour.',
-          '2D cross-section section → “cut colour” set to the same field, so the slices are ' +
-            'coloured by it too.',
+            'selector and component selector for vector fields. Contrast & visibility groups the ' +
+            'colormap, Low / High bounds, percentile presets, histogram and optional thresholds. ' +
+            'Show mesh edges enables surface and cap edges with optional width and colour.',
+          '2D cross-sections inherit the same field and colormap as the surface.',
           'Toolbar → Bars shows the colour bar; it carries the units and the threshold notch.',
         ],
         notes: [
@@ -1901,9 +1896,9 @@ test.describe('visualisation scenario catalogue', () => {
       await activate(page, grey);
       await page.click(`[data-testid="layer-eye-${grey}"]`);
       await openSection(page, `mesh-field-${grey}`);
+      await setControl(page, `mesh-colormode-${grey}`, 'field');
       await setControl(page, `mesh-fieldname-${grey}`, 'elm:TI_max');
       await waitForField(page, grey, 'TI_max');
-      await setControl(page, `mesh-colormode-${grey}`, 'field');
       await setControl(page, `mesh-colormap-${grey}`, 'jet');
       await frame3d(page, '1');
       await shoot(page, '09-field-colouring-grey-only.png');
@@ -2133,7 +2128,10 @@ test.describe('visualisation scenario catalogue', () => {
       // every arrow in the brain sits in the bottom percent of the ramp; `cool` starts at cyan,
       // where `viridis` starts at near-black.
       await openSection(page, `mesh-field-${layer}`);
+      const previousColorMode = await page.getByTestId(`mesh-colormode-${layer}`).inputValue();
+      await setControl(page, `mesh-colormode-${layer}`, 'field');
       await setControl(page, `mesh-colormap-${layer}`, 'cool');
+      await setControl(page, `mesh-colormode-${layer}`, previousColorMode);
       await settle(page);
       const summary = await page.locator(`[data-testid="mesh-glyph-summary-${layer}"]`).innerText();
       await page.click('[data-testid="layout-3d-only"]');
