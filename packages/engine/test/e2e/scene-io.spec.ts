@@ -125,6 +125,7 @@ async function add(page: Page, url: string, kind: 'volume' | 'mesh'): Promise<vo
 /** Everything the round trip has to reproduce, read out of the live scene. */
 interface SceneShape {
   datasetIds: string[];
+  datasets: { id: string; name: string; kind: string }[];
   layers: { name: string; kind: string; datasetId: string; opacity: number }[];
   activeLayerName: string | null;
   cursor: [number, number, number];
@@ -145,6 +146,7 @@ async function shapeOf(page: Page): Promise<SceneShape> {
     const byId = new Map(scene.layers.map((l) => [l.id, l.name]));
     return {
       datasetIds: [...scene.datasets.keys()],
+      datasets: [...scene.datasets.values()].map(({ id, name, kind }) => ({ id, name, kind })),
       layers: scene.layers.map((l) => ({
         name: l.name,
         kind: l.kind,
@@ -243,12 +245,25 @@ test('@angle P2-07: a two-dataset scene round-trips through JSON, with fresh dat
   expect(spec.layers).toHaveLength(2);
   expect(spec.activeLayerId).not.toBeNull();
 
+  // Force reversed arrival order. Dataset insertion order is not layer display order.
+  await page.route('**/vol_f32.nii.gz', async (route) => {
+    await page.waitForFunction(() =>
+      [...window.__tvxEngine!.scene.datasets.values()].some((ds) => ds.kind === 'mesh')
+    );
+    await route.continue();
+  });
   await reopen(page, spec, resolveRefs(spec, `/@fs${REPO}testdata/scenes`));
   const after = await shapeOf(page);
 
   // The ids really are new — otherwise the remap is untested and this whole test is vacuous.
   expect(after.datasetIds).not.toEqual(before.datasetIds);
-  expect(after.layers.map((l) => l.datasetId)).toEqual(after.datasetIds);
+  expect(after.datasetIds.filter((id) => before.datasetIds.includes(id))).toEqual([]);
+  expect(after.layers.map((l) => l.datasetId).sort()).toEqual([...after.datasetIds].sort());
+  for (let i = 0; i < before.layers.length; i++) {
+    const original = before.datasets.find((ds) => ds.id === before.layers[i]?.datasetId)!;
+    const restored = after.datasets.find((ds) => ds.id === after.layers[i]?.datasetId)!;
+    expect([restored.name, restored.kind]).toEqual([original.name, original.kind]);
+  }
 
   expect(after.layers.map((l) => [l.name, l.kind, l.opacity])).toEqual(
     before.layers.map((l) => [l.name, l.kind, l.opacity])
