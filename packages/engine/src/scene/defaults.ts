@@ -408,7 +408,8 @@ function geoSeed(ds: VolumeDataset | MeshDataset): Partial<PointsLayer> {
   const lo = values.length > 0 ? Math.min(...values) : 0;
   const hi = values.length > 0 ? Math.max(...values) : 0;
   const seed: Partial<PointsLayer> = {
-    name: geo.viewNames[0] ?? 'Points',
+    // A parsed file is one layer; its internal view titles remain dataset metadata.
+    name: ds.name,
     points: geo.points.map((p, i) => {
       const text = paired ? geo.labels[i]?.text : undefined;
       return text === undefined

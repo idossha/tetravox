@@ -881,7 +881,12 @@ pub fn centroids(
     })
 }
 
-pub fn contours(handle: u32, plane: &[f32], mask_id: Option<u32>) -> Result<JsValue> {
+pub fn contours(
+    handle: u32,
+    plane: &[f32],
+    mask_id: Option<u32>,
+    annotation: Option<String>,
+) -> Result<JsValue> {
     if plane.len() != 4 {
         return Err(Error::Parse(format!(
             "contour plane carries {} floats; expected 4",
@@ -894,8 +899,19 @@ pub fn contours(handle: u32, plane: &[f32], mask_id: Option<u32>) -> Result<JsVa
     };
     handles::with_mesh(handle, |st| {
         let mask = st.mask(mask_id)?;
-        let segs = geom::surface_contours(&st.mesh, &pl, mask)?;
         let o = jsv::obj();
+        let segs = if let Some(name) = annotation {
+            let field = find_node_field(&st.mesh, &name)?;
+            if field.ncomp != 1 {
+                return Err(Error::Parse("annotation must be scalar".into()));
+            }
+            let (segments, labels) =
+                geom::labeled_surface_contours(&st.mesh, &pl, mask, &field.data)?;
+            jsv::set(&o, "labels", &jsv::u32s(&labels).into());
+            segments
+        } else {
+            geom::surface_contours(&st.mesh, &pl, mask)?
+        };
         jsv::set(&o, "segments", &jsv::f32s(&segs).into());
         Ok(o.into())
     })

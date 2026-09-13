@@ -382,3 +382,166 @@ pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> R
     }
     Ok(out)
 }
+
+/// Categorical surface contours. Split at barycentric dominance changes and carry one dense
+/// node-label index per segment; interpolating label numbers would invent regions.
+pub fn labeled_surface_contours(
+    mesh: &Mesh,
+    plane: &Plane,
+    mask: Option<&BitMask>,
+    labels: &[f32],
+) -> Result<(Vec<f32>, Vec<u32>)> {
+    if labels.len() != mesh.nodes.len()
+        || labels
+            .iter()
+            .any(|v| !v.is_finite() || *v < 0.0 || v.fract() != 0.0)
+    {
+        return Err(tvx_core::Error::Parse(
+            "invalid surface label indices".into(),
+        ));
+    }
+    let tri_mask = mask.filter(|m| m.len() == mesh.tris.len());
+    let mut segments = Vec::new();
+    let mut indices = Vec::new();
+    for (i, tri) in mesh.tris.iter().enumerate() {
+        if tri_mask.is_some_and(|m| !m.get(i)) {
+            continue;
+        }
+        let p = tri.map(|n| mesh.nodes[n as usize]);
+        let d = p.map(|p| signed(plane, p));
+        let mut hits = Vec::with_capacity(2);
+        for a in 0..3 {
+            let b = (a + 1) % 3;
+            if (d[a] >= 0.0) != (d[b] >= 0.0) {
+                let t = d[a] / (d[a] - d[b]);
+                let mut bary = [0.0; 3];
+                bary[a] = 1.0 - t;
+                bary[b] = t;
+                hits.push((lerp(p[a], p[b], t), bary));
+            }
+        }
+        if hits.len() != 2 {
+            continue;
+        }
+        let (a, ba) = hits[0];
+        let (b, bb) = hits[1];
+        let mut cuts = vec![0.0_f32, 1.0];
+        for j in 0..3 {
+            for k in j + 1..3 {
+                let start = ba[j] - ba[k];
+                let delta = (bb[j] - bb[k]) - start;
+                if delta != 0.0 {
+                    let t = -start / delta;
+                    if t > 0.0 && t < 1.0 {
+                        cuts.push(t);
+                    }
+                }
+            }
+        }
+        cuts.sort_by(f32::total_cmp);
+        cuts.dedup();
+        let first_segment = indices.len();
+        for interval in cuts.windows(2) {
+            let mid = (interval[0] + interval[1]) * 0.5;
+            let weights = lerp(ba, bb, mid);
+            // Stable ties choose the lowest original vertex id, independent of triangle winding.
+            let mut winner = 0;
+            for k in 1..3 {
+                if weights[k] > weights[winner]
+                    || (weights[k] == weights[winner] && tri[k] < tri[winner])
+                {
+                    winner = k;
+                }
+            }
+            let label = labels[tri[winner] as usize] as u32;
+            let end = lerp(a, b, interval[1]);
+            if indices.len() > first_segment && indices.last() == Some(&label) {
+                // Non-dominant weight crossings need no visual boundary. Keeping one interval
+                // per label also avoids overlapping alpha-blended line caps within a region.
+                let tail = segments.len() - 3;
+                segments[tail..].copy_from_slice(&end);
+            } else {
+                segments.extend_from_slice(&lerp(a, b, interval[0]));
+                segments.extend_from_slice(&end);
+                indices.push(label);
+            }
+        }
+    }
+    Ok((segments, indices))
+}
+
+#[cfg(test)]
+mod annotation_tests {
+    use super::*;
+
+    fn triangle() -> Mesh {
+        Mesh {
+            nodes: vec![[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [0.0, 4.0, 0.0]],
+            tris: vec![[0, 1, 2]],
+            tri_tags: vec![1],
+            tets: vec![],
+            tet_tags: vec![],
+            tri_edge_mask: None,
+            node_fields: vec![],
+            elm_fields: vec![],
+            physical_names: vec![],
+            gmsh_node_numbers: None,
+            gmsh_elm_numbers: None,
+            tet_perm: vec![],
+            skipped: vec![],
+            bounds: tvx_core::Aabb {
+                min: [0.0; 3],
+                max: [4.0, 4.0, 0.0],
+            },
+            label_table: None,
+        }
+    }
+
+    // Authored right triangle: at y=1, barycentrics are (3-x,x,1)/4. Thus the categorical
+    // transition is x=1.5, and the complete contour is [0,3] with total length 3.
+    #[test]
+    fn labels_split_at_dominant_barycentric_boundary_without_blending_ids() {
+        let mesh = triangle();
+        let plane = Plane {
+            normal: [0.0, 1.0, 0.0],
+            offset: -1.0,
+        };
+        for tri in [[0, 1, 2], [2, 1, 0]] {
+            let mut m = mesh.clone();
+            m.tris[0] = tri;
+            let (segments, labels) =
+                labeled_surface_contours(&m, &plane, None, &[10.0, 20.0, 30.0]).unwrap();
+            assert_eq!(segments.len(), labels.len() * 6);
+            assert_eq!(labels.len(), 2, "one interval per actual region");
+            let mut length = 0.0;
+            for (s, id) in segments.chunks_exact(6).zip(labels) {
+                assert_eq!([s[1], s[2], s[4], s[5]], [1.0, 0.0, 1.0, 0.0]);
+                let mid = (s[0] + s[3]) * 0.5;
+                assert_eq!(id, if mid < 1.5 { 10 } else { 20 });
+                assert!(s[0].max(s[3]) <= 1.5 || s[0].min(s[3]) >= 1.5);
+                length += (s[3] - s[0]).abs();
+            }
+            assert!((length - 3.0).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn annotation_contours_respect_mask_and_reject_invalid_label_fields() {
+        let m = triangle();
+        let p = Plane {
+            normal: [0.0, 1.0, 0.0],
+            offset: -1.0,
+        };
+        let mask = BitMask::new_all(1, false);
+        let (s, ids) = labeled_surface_contours(&m, &p, Some(&mask), &[0.0; 3]).unwrap();
+        assert!(s.is_empty() && ids.is_empty());
+        for bad in [
+            &[0.0, 1.0][..],
+            &[0.0, f32::NAN, 1.0],
+            &[0.0, -1.0, 1.0],
+            &[0.0, 0.5, 1.0],
+        ] {
+            assert!(labeled_surface_contours(&m, &p, None, bad).is_err());
+        }
+    }
+}

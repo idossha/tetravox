@@ -1436,7 +1436,7 @@ test.describe('visualisation scenario catalogue', () => {
         controls_used: [
           'Clip planes section → “+ plane” adds one through the cursor; per plane there is an ' +
             'enable toggle, axial / coronal / sagittal preset buttons, three free normal fields, ' +
-            'an offset slider that scrubs across the scene, flip (keep the other side), “to ' +
+            'an offset slider that scrubs across the scene, “to ' +
             'cursor” and a “follow cursor” toggle that keeps the plane on the crosshair as it ' +
             'moves.',
           'Caps row → “exact caps” on/off and the cap colour source (inherit or by tag).',
@@ -2103,14 +2103,15 @@ test.describe('visualisation scenario catalogue', () => {
       await reveal(page, `region-list-${layer}`);
       await page.click(`[data-testid="region-showAll-${layer}"]`);
 
-      // A cut plane first, so the glyphs have one to be restricted to. Flipped, so the kept half
+      // A cut plane first, so the glyphs have one to be restricted to. Normal −Z, so the kept half
       // is the lower one and the cut face is what the superior camera looks down at — arrows on a
       // cut plane are inside the head, and an opaque half in front of them shows nothing.
       await openSection(page, `mesh-clip-${layer}`);
       await page.click(`[data-testid="mesh-clip-add-${layer}"]`);
       await page.click(`[data-testid="mesh-clip-preset-${layer}-0-axial"]`);
       await page.click(`[data-testid="mesh-clip-tocursor-${layer}-0"]`);
-      await page.click(`[data-testid="mesh-clip-flip-${layer}-0"]`);
+      await setControl(page, `mesh-clip-normal-${layer}-0-2`, '-1');
+      await page.click(`[data-testid="mesh-clip-tocursor-${layer}-0"]`);
       // Cut faces inherit the active mesh coloring.
 
       await openSection(page, `mesh-glyphs-${layer}`);

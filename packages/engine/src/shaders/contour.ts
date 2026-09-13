@@ -22,7 +22,7 @@
  * A degenerate segment (both endpoints at the same place, or one behind the eye in a 3D pane) is
  * collapsed to nothing rather than being given an arbitrary normal.
  *
- * **`CONTOUR_COLORS` (2026-08-30)** is the one variant, and it exists for §4.4's `lineColors`: a
+ * **`CONTOUR_COLORS` (2026-08-30)** is the RGBA variant, and it exists for §4.4's `lineColors`: a
  * points layer draws a whole implant's shafts through this program, and one `uColor` paints every
  * electrode the same. At 0 — what every caller that does not ask for per-segment colour passes, and
  * the branch every mesh contour takes — the fragment is `uColor` verbatim, so the compiled output is
@@ -45,6 +45,9 @@ layout(location = 2) in vec3 aB;          // per-instance: segment end, world mm
 #if CONTOUR_COLORS
 layout(location = 3) in vec4 aColor;      // per-instance: §4.4 lineColors, RGBA 0..1
 out vec4 vColor;
+#elif CONTOUR_LABELS
+layout(location = 3) in highp uint aLabel;
+flat out highp uint vLabel;
 #endif
 
 uniform mat4 uViewProj;
@@ -56,6 +59,8 @@ uniform float uCapPx;                     // longitudinal extension at each end
 void main() {
 #if CONTOUR_COLORS
   vColor = aColor;
+#elif CONTOUR_LABELS
+  vLabel = aLabel;
 #endif
   vec4 ca = uViewProj * (uModel * vec4(aA, 1.0));
   vec4 cb = uViewProj * (uModel * vec4(aB, 1.0));
@@ -87,6 +92,10 @@ export const CONTOUR_FS = `${VERSION}
 ${PRECISION_FLOAT}
 #if CONTOUR_COLORS
 in vec4 vColor;                           // §4.4 lineColors, per instance
+#elif CONTOUR_LABELS
+flat in highp uint vLabel;
+uniform highp sampler2D uLabelPalette;
+uniform highp int uPaletteWidth;
 #endif
 uniform vec4 uColor;
 out vec4 fragColor;
@@ -95,6 +104,9 @@ void main() {
   // \`uColor\` is the layer's opacity as a tint (rgb = 1), so a per-segment colour fades with the
   // layer exactly as the single-colour branch does.
   fragColor = vColor * uColor;
+#elif CONTOUR_LABELS
+  highp int label = int(vLabel);
+  fragColor = texelFetch(uLabelPalette, ivec2(label % uPaletteWidth, label / uPaletteWidth), 0) * uColor;
 #else
   fragColor = uColor;
 #endif

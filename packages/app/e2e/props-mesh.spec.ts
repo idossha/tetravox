@@ -581,7 +581,7 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
 
   // ---- clip planes -----------------------------------------------------------------------------
 
-  test('a clip plane: add, preset, offset, flip, follow-cursor, automatic caps, remove', async () => {
+  test('a clip plane: add, preset, offset, follow-cursor, automatic caps, remove', async () => {
     await openSection(page, `mesh-clip-${ids.mesh}`);
 
     await record(page);
@@ -604,17 +604,6 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     const moved = (await onePatch(page)).clip as { planes: { plane: { offset: number } }[] };
     expect(moved.planes[0]?.plane.offset).toBe(20);
 
-    await record(page);
-    await page.click(`[data-testid="mesh-clip-flip-${ids.mesh}-0"]`);
-    const flipped = (await onePatch(page)).clip as {
-      planes: { plane: { normal: number[]; offset: number } }[];
-    };
-    // Flip keeps the plane where it is: `n → −n` **and** `offset → −offset`. (The recorder round
-    // trips through JSON, which folds the `−0`s of `−[−1, 0, 0]` back to `0`; the reducer's own test
-    // asserts the unfolded value.)
-    expect(flipped.planes[0]?.plane.normal).toEqual([1, 0, 0]);
-    expect(flipped.planes[0]?.plane.offset).toBe(-20);
-
     // Follow-cursor: the plane's offset is re-derived from the cursor on every `cursor` event.
     await page.click(`[data-testid="mesh-clip-follow-${ids.mesh}-0"]`);
     await expect(page.locator(`[data-testid="mesh-clip-plane-${ids.mesh}-0"]`)).toHaveAttribute(
@@ -628,14 +617,14 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
       const layer = tv.store.getState().layers.find((l) => l.id === layerId);
       return layer?.kind === 'mesh' ? (layer.clip.planes[0]?.plane.offset ?? null) : null;
     }, ids.mesh);
-    // n = +X after the flip ⇒ `offset = −dot(n, cursor) = −12`.
-    expect(offset).toBe(-12);
+    // The sagittal preset is n = −X ⇒ `offset = −dot(n, cursor) = 12`.
+    expect(offset).toBe(12);
     await page.click(`[data-testid="mesh-clip-follow-${ids.mesh}-0"]`);
 
     expect(added).toMatchObject({ caps: true, capColorMode: 'inherit' });
     await expect(page.getByTestId(`mesh-clip-capcolor-${ids.mesh}`)).toHaveCount(0);
     await expect(page.getByTestId(`mesh-clip-caps-${ids.mesh}`)).toHaveCount(0);
-    await expect(page.getByTestId(`mesh-clip-flip-${ids.mesh}-0`)).toHaveText('Reverse cut');
+    await expect(page.getByTestId(`mesh-clip-flip-${ids.mesh}-0`)).toHaveCount(0);
     const fits = await page.getByTestId(`mesh-clip-plane-${ids.mesh}-0`).evaluate((plane) => {
       const header = plane.firstElementChild as HTMLElement;
       return header.scrollWidth <= header.clientWidth;

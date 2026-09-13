@@ -297,12 +297,14 @@ function OutlineSection({ layer }: { layer: SurfaceLayer }): React.JSX.Element {
           max={8}
           onCommit={(w) => patch(setOutlineWidth(w))}
         />
-        <Swatch
-          testId={`surface-outline-color-${layer.id}`}
-          hex={vec4ToHex(layer.contourColor)}
-          title="Outline colour"
-          onChange={(hex) => patch(setOutlineColor(hexToVec4(hex, 1)))}
-        />
+        {layer.colorMode !== 'annotation' && (
+          <Swatch
+            testId={`surface-outline-color-${layer.id}`}
+            hex={vec4ToHex(layer.contourColor)}
+            title="Outline colour"
+            onChange={(hex) => patch(setOutlineColor(hexToVec4(hex, 1)))}
+          />
+        )}
       </Row>
     </Section>
   );

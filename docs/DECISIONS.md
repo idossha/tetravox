@@ -5650,3 +5650,17 @@ Keep the free plane, position and cursor controls, and preserve uncapped surface
 **Rationale.** The user requested fewer steps and clearer spatial control, and reported that controlled
 numeric fields prevented deleting `0.xx`. These changes refine the September 11 editor decisions; the
 request and tests remain in core documentation, with no dated task files or compatibility UI.
+
+## 2026-09-12 — File names and annotation colors across panes
+
+**Decision.** Remove Reverse cut following the user's revised preference; existing normal and position
+controls remain. Name parsed `.geo`/`.pos` point layers after their source filename, preserving internal
+view names only as metadata. An attached surface annotation supplies its region palette and visibility
+to the 2D intersection outlines as well as the 3D surface.
+
+**Mechanism.** The optional annotation contour request adds per-segment dense region indices computed
+in the dataset worker. Triangle-plane segments are partitioned by dominant barycentric vertex so labels
+remain categorical. The GPU looks up region colors and visibility from the same palette used in 3D;
+layer opacity still applies. Geometry cache identity includes annotation and mask. Plain contours stay
+on their existing path. The 3D surface's interpolation within mixed-label triangles is unchanged; the
+2D outline uses discrete region colors. No UI-thread geometry expansion or new dependency is introduced.

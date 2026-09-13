@@ -238,7 +238,9 @@ export class DerivedPass implements FramePass {
         geom.contourVao,
         geom.contourInstances,
         layer.contourWidthPx * input.uiScale,
-        contourColor(layer)
+        geom.contourColored ? [1, 1, 1, layer.opacity] : contourColor(layer),
+        false,
+        geom.contourColored ? geom.contourPalette : null
       );
     }
     // `GlyphSpec.in2D`: the pane's own cut is the origin table, so the arrows lie on the slice.
@@ -350,13 +352,17 @@ export class DerivedPass implements FramePass {
     instances: number,
     widthPx: number,
     color: vec4,
-    perSegmentColors = false
+    perSegmentColors = false,
+    labelPalette: Table | null = null
   ): void {
     const gl = this.#gl;
     // §4.4's `lineColors` (2026-08-30). `false` — every mesh contour, and every points layer that
     // does not colour its shafts — compiles `#define CONTOUR_COLORS 0`, whose output is the shader
     // that captured every existing golden.
-    const prog = this.#contour.get({ CONTOUR_COLORS: perSegmentColors ? 1 : 0 });
+    const prog = this.#contour.get({
+      CONTOUR_COLORS: perSegmentColors ? 1 : 0,
+      CONTOUR_LABELS: labelPalette !== null ? 1 : 0,
+    });
     prog.use();
     prog.mat4('uViewProj', viewProj);
     prog.mat4('uModel', model);
@@ -364,6 +370,12 @@ export class DerivedPass implements FramePass {
     prog.float('uWidthPx', Math.max(1, widthPx));
     prog.float('uCapPx', Math.max(1, widthPx) * 0.5);
     prog.vec4('uColor', color);
+    if (labelPalette !== null) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, labelPalette.texture);
+      prog.int('uLabelPalette', 0);
+      prog.int('uPaletteWidth', labelPalette.width);
+    }
     vao.bind();
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, CONTOUR_STRIP_VERTICES, instances);
     VertexArray.unbind(gl);

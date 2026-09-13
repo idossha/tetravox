@@ -343,8 +343,13 @@ pub fn mesh_centroids(
 
 /// `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment.
 #[wasm_bindgen]
-pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>) -> Result<JsValue, JsValue> {
-    mesh::contours(handle, plane, mask_id).map_err(err::map)
+pub fn mesh_contours(
+    handle: u32,
+    plane: &[f32],
+    mask_id: Option<u32>,
+    annotation: Option<String>,
+) -> Result<JsValue, JsValue> {
+    mesh::contours(handle, plane, mask_id, annotation).map_err(err::map)
 }
 
 #[wasm_bindgen]

@@ -30,6 +30,7 @@ import { Buffer, VertexArray } from '../gl/buffer';
 import { createTable, updateTable } from './tables';
 import type { Table } from './tables';
 import { buildTagLut } from './tag-lut';
+import { buildLabelPalette, paletteKey } from '../layers/mesh';
 import type { CutRequestOptions, CutSnapshot, CutSource } from './cut-source';
 import { cutKeyForPane } from '../compute/cut-manager';
 import { CONTOUR_STRIP } from '../shaders/contour';
@@ -73,6 +74,11 @@ export interface PaneCutGeometry {
   contourStrip: Buffer;
   contourBuffer: Buffer;
   contourInstances: number;
+  contourLabels: Buffer | null;
+  contourPalette: Table | null;
+  contourPaletteKey: string | null;
+  contourLabelSource: Uint32Array | null;
+  contourColored: boolean;
   /** The array currently in {@link contourBuffer}, so an unchanged result is not re-uploaded. */
   contourSource: Float32Array | null;
   /** True when the segments came from the `contours` op rather than from the cut (triangle meshes). */
@@ -236,7 +242,15 @@ export class DerivedStore {
   readonly #centroids = new Map<string, CentroidTables>();
   readonly #centroidPending = new Set<string>();
   /** Segments from the `contours` op, for triangle-only meshes, keyed `(datasetId, viewId)`. */
-  readonly #surfaceContours = new Map<string, { plane: PlaneT; segments: Float32Array | null }>();
+  readonly #surfaceContours = new Map<
+    string,
+    {
+      plane: PlaneT;
+      segments: Float32Array | null;
+      labels?: Uint32Array;
+      field: MeshDataset['fields'][number] | undefined;
+    }
+  >();
 
   constructor(
     gl: WebGL2RenderingContext,
@@ -284,7 +298,7 @@ export class DerivedStore {
     }
     // A triangle-only mesh (GIfTI, FreeSurfer, `.stl`) has no tets to cut, so its 2D representation
     // is the `contours` op — §6.3's `surface_contours` — and there is no fill.
-    return this.#surfaceContourGeometry(key, ds, viewId, plane, opts.maskId ?? undefined);
+    return this.#surfaceContourGeometry(key, layer, ds, viewId, plane, opts.maskId ?? undefined);
   }
 
   /**
@@ -330,6 +344,11 @@ export class DerivedStore {
       contourStrip,
       contourBuffer,
       contourInstances: 0,
+      contourLabels: null,
+      contourPalette: null,
+      contourPaletteKey: null,
+      contourLabelSource: null,
+      contourColored: false,
       contourSource: null,
       contoursFromSurfaceOp,
     };
@@ -374,34 +393,49 @@ export class DerivedStore {
   /** The `contours` op path, for a mesh with no tets. Latest-wins on its own per-pane key. */
   #surfaceContourGeometry(
     key: string,
+    layer: MeshLayer,
     ds: MeshDataset,
     viewId: ViewId,
     plane: PlaneT,
     maskId: number | undefined
   ): PaneCutGeometry | null {
-    const ck = `${ds.id}|${viewId}`;
+    const annotation = layer.colorMode === 'label' ? layer.label?.name : undefined;
+    const ck = JSON.stringify([ds.id, viewId, annotation ?? null, maskId ?? null]);
     const state = this.#surfaceContours.get(ck);
+    const field =
+      annotation === undefined
+        ? undefined
+        : ds.fields.find((f) => f.source === 'node' && f.name === annotation);
     const same =
       state !== undefined &&
+      state.field === field &&
       state.plane.offset === plane.offset &&
       state.plane.normal[0] === plane.normal[0] &&
       state.plane.normal[1] === plane.normal[1] &&
       state.plane.normal[2] === plane.normal[2];
     if (!same) {
-      this.#surfaceContours.set(ck, { plane, segments: state?.segments ?? null });
+      const pending = {
+        plane,
+        field,
+        segments: state?.field === field ? (state?.segments ?? null) : null,
+        labels: state?.field === field ? state?.labels : undefined,
+      };
+      this.#surfaceContours.set(ck, pending);
       const target = this.#target(ds.id);
       if (target !== undefined) {
         void this.#track(
-          target.client.call(`contours:${ds.id}:${viewId}`, 'contours', {
+          target.client.call(`contours:${ck}`, 'contours', {
             handle: target.handle,
             plane,
             maskId,
+            annotation,
           })
         )
           .then((res) => {
             const now = this.#surfaceContours.get(ck);
-            if (now === undefined || now.plane !== plane) return;
+            if (now !== pending) return;
             now.segments = res.segments;
+            now.labels = res.labels;
             this.#requestRender();
           })
           .catch(() => {
@@ -410,13 +444,43 @@ export class DerivedStore {
       }
     }
     const segments = this.#surfaceContours.get(ck)?.segments ?? null;
-    if (segments === null) return this.#panes.get(key) ?? null;
+    if (segments === null) return null;
     const g = this.#panes.get(key) ?? this.#createPaneGeometry(key, true);
     if (g.contourSource !== segments) {
       g.contourBuffer.update(segments);
       g.contourInstances = Math.floor(segments.length / 6);
       g.contourSource = segments;
       g.contoursFromSurfaceOp = true;
+    }
+    const labels = this.#surfaceContours.get(ck)?.labels;
+    const label = annotation === undefined ? undefined : layer.label;
+    const colorKey =
+      label === undefined
+        ? null
+        : paletteKey(ds.id, label.name, label.table, label.visibleLabels, new Set());
+    if (g.contourPaletteKey !== colorKey || g.contourLabelSource !== (labels ?? null)) {
+      g.contourColored =
+        label !== undefined && labels !== undefined && labels.length === g.contourInstances;
+      if (g.contourColored && label !== undefined && labels !== undefined) {
+        if (g.contourPaletteKey !== colorKey) {
+          const palette = buildLabelPalette(label.table, label.visibleLabels, new Set());
+          g.contourPalette = updateTable(
+            this.#gl,
+            g.contourPalette,
+            'rgba8',
+            palette,
+            Math.max(1, label.table.entries.length)
+          );
+        }
+        g.contourLabels ??= new Buffer(this.#gl, this.#gl.ARRAY_BUFFER, this.#gl.DYNAMIC_DRAW);
+        if (g.contourLabelSource !== labels) g.contourLabels.update(labels);
+        g.contourVao.attribI(3, g.contourLabels, 1, this.#gl.UNSIGNED_INT, 4, 0);
+        this.#gl.bindVertexArray(g.contourVao.vao);
+        this.#gl.vertexAttribDivisor(3, 1);
+        VertexArray.unbind(this.#gl);
+      } else g.contourVao.disable(3);
+      g.contourPaletteKey = colorKey;
+      g.contourLabelSource = labels ?? null;
     }
     return g;
   }
@@ -849,7 +913,7 @@ export class DerivedStore {
       this.#centroids.delete(k);
     }
     for (const k of [...this.#surfaceContours.keys()]) {
-      if (k.startsWith(`${id}|`)) this.#surfaceContours.delete(k);
+      if (JSON.parse(k)[0] === id) this.#surfaceContours.delete(k);
     }
   }
 
@@ -899,6 +963,8 @@ export class DerivedStore {
     g.contourVao.dispose();
     g.contourStrip.dispose();
     g.contourBuffer.dispose();
+    g.contourLabels?.dispose();
+    if (g.contourPalette !== null) this.#gl.deleteTexture(g.contourPalette.texture);
     if (g.tagTable !== null) gl.deleteTexture(g.tagTable.texture);
     if (g.ownerTable !== null) gl.deleteTexture(g.ownerTable.texture);
     if (g.posTable !== null) gl.deleteTexture(g.posTable.texture);
