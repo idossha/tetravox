@@ -5632,3 +5632,21 @@ manipulation, and explicitly allowed removal of stale code without backward comp
 statistics describe magnitude, so x/y/z retain numeric controls but omit magnitude-based histograms and
 percentiles; conservative signed bounds avoid claiming component statistics we do not have. Intent,
 contract and verification stay in the core documents rather than new per-task Markdown.
+
+## 2026-09-12 — Direct threshold editing and automatic clip caps
+
+**Decision.** NIfTI contrast and threshold inputs sit together below the histogram, with the threshold
+row always visible and initially spanning the data minimum and maximum. Remove the threshold checkbox
+and “Use display range” action. Values are the initial unit; the percentage switch represents the same
+stored numeric cutoffs, including a 95–99.9% selection switched back to values. Unbounded engine cutoffs
+are displayed at the finite dataset extrema without narrowing the dataset until the user edits them.
+Numeric inputs keep draft text so users can erase every character before entering a replacement;
+commit on blur/Enter and cancel on Escape. The shared mesh inputs benefit from the same editing behavior.
+
+Mesh clipping uses exact caps with inherited colors under the hood. Remove the cap/color controls and
+name the side-swap action Reverse cut. Negate both normal and offset so reversing does not move the cut.
+Keep the free plane, position and cursor controls, and preserve uncapped surface-only clipping.
+
+**Rationale.** The user requested fewer steps and clearer spatial control, and reported that controlled
+numeric fields prevented deleting `0.xx`. These changes refine the September 11 editor decisions; the
+request and tests remain in core documentation, with no dated task files or compatibility UI.

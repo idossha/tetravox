@@ -2898,20 +2898,24 @@ scale endpoints and at `mid` for heat, the threshold cut drawn as a notch, the f
 threshold handles, and the current colormap painted along the x axis. Scalar volumes and mesh fields
 share the editor and presets **1–99%, 50–99.9%, 95–99.9%**.
 
-**Volume contrast and visibility** (2026-09-11): scalar volumes group a colormap picker, visibly labelled
-Low/High display bounds, histogram and percentile presets **1–99%, 50–99.9%, 95–99.9%** in one panel.
-A checkbox enables a separate visibility range, seeded from the display range; values outside it are
-transparent. Display edits create a linear scale; threshold edits use signed values, hard edges and hide
-mode. No scale-kind, heat, symmetric, clamp/hide or soft-edge controls are exposed. Disabling threshold
-restores unbounded visibility; unbounded inputs show “No limit”, never zero. Label volumes omit this
+**Volume contrast and visibility** (2026-09-12): scalar volumes group a colormap picker, histogram
+and percentile presets **1–99%, 50–99.9%, 95–99.9%**, then vertically stacked Contrast and Threshold
+Low/High input rows beneath the spectrum. Threshold is always available; there is no enable checkbox
+or “Use display range” action. An unrestricted threshold displays the dataset min/max (0–100%) and
+both threshold markers, independent of the contrast range. Existing finite cutoffs remain exact.
+Display edits create a linear scale; threshold edits use signed values, hard edges and hide mode.
+No scale-kind, heat, symmetric, clamp/hide or soft-edge controls are exposed. Label volumes omit this
 continuous-intensity panel and use tissue visibility/colors and fill/outline controls. Sampling stays
 available as Smooth (linear) / Voxels (nearest), with labels forced nearest. The shared engine scale and
 threshold models remain available to API rendering; there is no editor compatibility branch.
-The threshold editor offers Values / Percentiles (%); changing units does not patch the scene.
-Percentile input maps to intensity using the exact stored percentile anchors and linear estimates between
-anchors, with estimation noted in the percentile selector tooltip. Zero and 100 map to min/max. The engine continues to store
-intensity bounds. Histogram contrast and threshold bounds have separate staggered L/H grab markers, clamped inside
-the plot for out-of-range values; disabled thresholds have no markers. Tooltips identify each bound.
+The threshold editor defaults to Values and offers Percentiles (%); changing units does not patch the
+scene. Percentile input maps to intensity using exact stored anchors and linear estimates between them,
+with estimation noted in the selector tooltip. Zero and 100 map to min/max; the engine stores intensity
+bounds, so switching back to values reflects the selected percentiles. Numeric inputs maintain editable
+text while focused, including empty text, and commit valid numbers on blur or Enter. Escape restores
+the current value; incomplete text never writes a fabricated zero. Histogram contrast and threshold
+bounds have separate staggered L/H grab markers, clamped inside the plot for out-of-range values.
+Tooltips identify each bound.
 The 3D slices and 3D surface toggles share one row; their tooltips distinguish slice
 planes from extracted intensity/tissue surfaces. Surface iso level uses a slider only; build progress
 is shown only while work is pending, with no completed “ready 100%” row. Volume-surface controls always
@@ -2928,6 +2932,9 @@ these offer numeric bounds using a conservative signed magnitude range, without 
 histogram or percentile selector. Solid color has no duplicate alpha input; layer opacity remains on
 its row. Mesh shading uses the existing smooth and geometry-aware face defaults without UI toggles.
 One mesh-edges toggle controls surface and cut edges together; width/color appear when enabled.
+Mesh clip edits use filled caps inheriting the layer's color source automatically, without cap controls.
+Each plane offers Reverse cut: normal and offset both change sign to keep the opposite side of the same
+stationary plane. Surface-only layers retain uncapped clipping.
 Cross-sections offer Fill and Outline; outline styles appear only when enabled, and cuts follow the
 main color source. Attach data remains under More options, clipping and isolation remain available,
 and glyph controls appear for vector fields or an active glyph configuration. Single-tissue meshes

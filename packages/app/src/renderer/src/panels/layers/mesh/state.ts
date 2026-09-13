@@ -283,7 +283,12 @@ export function offsetThrough(normal: vec3, point: vec3): number {
 export type ClipLayer = MeshLayer | SurfaceLayer;
 
 function withPlanes<L extends ClipLayer>(layer: L, planes: ClipPlane[]): Partial<L> {
-  return { clip: { ...layer.clip, planes } } as Partial<L>;
+  return {
+    clip:
+      layer.kind === 'mesh'
+        ? { ...layer.clip, planes, caps: true, capColorMode: 'inherit' }
+        : { ...layer.clip, planes },
+  } as Partial<L>;
 }
 
 export function addClipPlane<L extends ClipLayer>(
@@ -381,17 +386,6 @@ export function flipClipPlane<L extends ClipLayer>(layer: L, index: number): Par
       offset: -p.plane.offset,
     },
   }));
-}
-
-export function setClipCaps(layer: MeshLayer, caps: boolean): Partial<MeshLayer> {
-  return { clip: { ...layer.clip, caps } };
-}
-
-export function setCapColorMode(
-  layer: MeshLayer,
-  capColorMode: MeshLayer['clip']['capColorMode']
-): Partial<MeshLayer> {
-  return { clip: { ...layer.clip, capColorMode } };
 }
 
 /**

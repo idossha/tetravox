@@ -21,7 +21,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { APP_ROOT, launchApp, offscreenEnv, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
@@ -68,6 +68,11 @@ async function boot(target: LaunchTarget): Promise<{ app: ElectronApplication; p
     ).toBe(true);
   }
   return { app, page };
+}
+
+async function commitNumber(input: Locator, value: string): Promise<void> {
+  await input.fill(value);
+  await input.press('Enter');
 }
 
 /** The layer of the dataset whose name contains `needle`, as the store holds it. */
@@ -163,41 +168,55 @@ test.describe('the §8 volume property editor', () => {
     expect((await layerState(page, fourD))['colormap']).toBe('viridis');
   });
 
-  test('scalar controls group contrast and optional transparency; labels omit both', async () => {
+  test('scalar controls always show contrast and threshold beneath the histogram', async () => {
     await expect(page.getByTestId(`volume-scale-kind-${fourD}`)).toHaveCount(0);
     await expect(page.getByTestId(`volume-histogram-${labels}`)).toHaveCount(0);
     await expect(page.getByTestId(`volume-colormap-${labels}`)).toHaveCount(0);
-    await page.getByTestId(`volume-threshold-enabled-${fourD}`).uncheck();
-    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveCount(0);
-    await page.getByTestId(`volume-scale-lo-${fourD}`).fill('10');
-    await page.getByTestId(`volume-scale-hi-${fourD}`).fill('90');
-    expect((await layerState(page, fourD))['scale']).toEqual({ kind: 'linear', lo: 10, hi: 90 });
-    await page.getByTestId(`volume-threshold-enabled-${fourD}`).check();
-    expect((await layerState(page, fourD))['threshold']).toEqual({
-      lo: 10,
-      hi: 90,
-      mode: 'hide',
-      symmetric: false,
-      softEdge: 0,
-    });
-    await page.getByTestId(`volume-threshold-lo-${fourD}`).fill('12');
-    await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('88');
-    expect((await layerState(page, fourD))['threshold']).toMatchObject({ lo: 12, hi: 88 });
-    await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('5');
+    await expect(page.getByTestId(`volume-threshold-enabled-${fourD}`)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Use display range' })).toHaveCount(0);
+    const stats = await datasetStats(page, fourD);
+    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveValue(String(stats.min));
+    await expect(page.getByTestId(`volume-threshold-hi-${fourD}`)).toHaveValue(String(stats.max));
+    const histogram = await page.getByTestId(`volume-histogram-${fourD}`).boundingBox();
+    const contrast = await page.getByTestId(`volume-scale-lo-${fourD}`).boundingBox();
+    const threshold = await page.getByTestId(`volume-threshold-lo-${fourD}`).boundingBox();
+    expect(contrast!.y).toBeGreaterThan(histogram!.y + histogram!.height);
+    expect(threshold!.y).toBeGreaterThan(contrast!.y + contrast!.height);
+    for (const edge of ['windowLo', 'windowHi', 'thresholdLo', 'thresholdHi']) {
+      await expect(page.getByTestId(`volume-histogram-${fourD}-grab-${edge}`)).toBeVisible();
+    }
+  });
+
+  test('numeric drafts may be erased, committed on Enter or blur, and cancelled with Escape', async () => {
+    for (const field of ['scale', 'threshold']) {
+      const input = page.getByTestId(`volume-${field}-lo-${fourD}`);
+      const before = (await layerState(page, fourD))[field];
+      const original = await input.inputValue();
+      await input.fill('');
+      await expect(input).toHaveValue('');
+      expect((await layerState(page, fourD))[field]).toEqual(before);
+      await input.fill('12');
+      expect((await layerState(page, fourD))[field]).toEqual(before);
+      await input.press('Escape');
+      await expect(input).toHaveValue(original);
+      expect((await layerState(page, fourD))[field]).toEqual(before);
+      await input.fill('');
+      await input.press('Tab');
+      await expect(input).toHaveValue(original);
+      await commitNumber(input, '10');
+      expect((await layerState(page, fourD))[field]).toMatchObject({ lo: 10 });
+      await input.fill('12');
+      await input.press('Tab');
+      expect((await layerState(page, fourD))[field]).toMatchObject({ lo: 12 });
+    }
+    const negative = page.getByTestId(`volume-scale-lo-${fourD}`);
+    await negative.fill('');
+    await negative.pressSequentially('-1.25');
+    await expect(negative).toHaveValue('-1.25');
+    await negative.press('Enter');
+    expect((await layerState(page, fourD))['scale']).toMatchObject({ lo: -1.25 });
+    await commitNumber(page.getByTestId(`volume-threshold-hi-${fourD}`), '5');
     expect((await layerState(page, fourD))['threshold']).toMatchObject({ lo: 5, hi: 5 });
-    await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('88');
-    expect((await layerState(page, fourD))['scale']).toEqual({ kind: 'linear', lo: 10, hi: 90 });
-    await page.getByTestId(`volume-threshold-lo-${fourD}`).fill('');
-    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveValue('');
-    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveAttribute(
-      'placeholder',
-      'No limit'
-    );
-    await page.getByTestId(`volume-threshold-enabled-${fourD}`).uncheck();
-    const disabled = (await layerState(page, fourD))['threshold'] as { lo: number; hi: number };
-    expect(disabled.lo).toBe(-Infinity);
-    expect(disabled.hi).toBe(Infinity);
-    await page.getByTestId(`volume-threshold-enabled-${fourD}`).check();
   });
 
   test('percentile threshold entry changes cutoffs, while switching units preserves visibility', async () => {
@@ -206,8 +225,8 @@ test.describe('the §8 volume property editor', () => {
     await units.selectOption('percentiles');
     expect((await layerState(page, fourD))['threshold']).toEqual(before);
     // Raise high first so the lower bound never crosses the current high bound.
-    await page.getByTestId(`volume-threshold-hi-${fourD}`).fill('99.9');
-    await page.getByTestId(`volume-threshold-lo-${fourD}`).fill('95');
+    await commitNumber(page.getByTestId(`volume-threshold-hi-${fourD}`), '99.9');
+    await commitNumber(page.getByTestId(`volume-threshold-lo-${fourD}`), '95');
     const stats = await datasetStats(page, fourD);
     const expected = {
       lo: stats.percentiles['95'],
@@ -223,6 +242,85 @@ test.describe('the §8 volume property editor', () => {
     await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveValue(
       String(stats.percentiles['95'])
     );
+    await units.selectOption('percentiles');
+    await expect(page.getByTestId(`volume-threshold-lo-${fourD}`)).toHaveValue('95');
+    await expect(page.getByTestId(`volume-threshold-hi-${fourD}`)).toHaveValue('99.9');
+    expect((await layerState(page, fourD))['threshold']).toEqual(expected);
+    await units.selectOption('values');
+  });
+
+  test('constant volumes show percentile endpoints and retain an explicitly entered tied rank', async () => {
+    const saved = await page.evaluate((id) => {
+      const tv = window.__tetravox!;
+      const state = tv.store.getState();
+      const layer = state.layers.find((l) => l.id === id);
+      const ds = state.datasets.find((d) => d.id === layer?.datasetId);
+      if (layer?.kind !== 'volume' || ds?.kind !== 'volume') throw new Error('no volume');
+      const previous = {
+        threshold: { ...layer.threshold },
+        stats: {
+          min: ds.stats.min,
+          max: ds.stats.max,
+          histogramLo: ds.stats.histogramLo,
+          histogramHi: ds.stats.histogramHi,
+          percentiles: { ...ds.stats.percentiles },
+        },
+      };
+      Object.assign(ds.stats, {
+        min: 7,
+        max: 7,
+        histogramLo: 7,
+        histogramHi: 7,
+        percentiles: {
+          '0.1': 7,
+          '1': 7,
+          '2': 7,
+          '5': 7,
+          '50': 7,
+          '95': 7,
+          '98': 7,
+          '99': 7,
+          '99.9': 7,
+        },
+      });
+      tv.controller.patchLayer(id, {
+        threshold: { ...layer.threshold, lo: -Infinity, hi: Infinity },
+      });
+      return previous;
+    }, fourD);
+    const units = page.getByTestId(`volume-threshold-units-${fourD}`);
+    const low = page.getByTestId(`volume-threshold-lo-${fourD}`);
+    const high = page.getByTestId(`volume-threshold-hi-${fourD}`);
+    try {
+      await units.selectOption('values');
+      await expect(low).toHaveValue('7');
+      await expect(high).toHaveValue('7');
+      await units.selectOption('percentiles');
+      await expect(low).toHaveValue('0');
+      await expect(high).toHaveValue('100');
+      await commitNumber(low, '95');
+      await expect(low).toHaveValue('95');
+      expect((await layerState(page, fourD))['threshold']).toMatchObject({ lo: 7 });
+      await units.selectOption('values');
+      await expect(low).toHaveValue('7');
+      await units.selectOption('percentiles');
+      await expect(low).toHaveValue('95');
+      await expect(high).toHaveValue('100');
+    } finally {
+      await units.selectOption('values');
+      await page.evaluate(
+        ({ id, saved }) => {
+          const tv = window.__tetravox!;
+          const state = tv.store.getState();
+          const layer = state.layers.find((l) => l.id === id);
+          const ds = state.datasets.find((d) => d.id === layer?.datasetId);
+          if (ds?.kind !== 'volume') throw new Error('no volume');
+          Object.assign(ds.stats, saved.stats);
+          tv.controller.patchLayer(id, { threshold: saved.threshold });
+        },
+        { id: fourD, saved }
+      );
+    }
   });
 
   test('3D slices and 3D surface share one row with distinct descriptions', async () => {
@@ -354,7 +452,6 @@ test.describe('the §8 histogram widget', () => {
 
   for (const location of ['overlapping', 'outside the axis'] as const) {
     test(`all four explicit handles remain independently draggable when ${location}`, async () => {
-      await page.getByTestId(`volume-threshold-enabled-${id}`).check();
       await page.getByTestId(`volume-threshold-units-${id}`).selectOption('values');
       const stats = await datasetStats(page, id);
       const span = stats.histogramHi - stats.histogramLo;
@@ -369,9 +466,12 @@ test.describe('the §8 histogram widget', () => {
       for (const [handle, range, bound, target] of cases) {
         // Matching ranges put contrast and threshold markers at identical x coordinates.
         for (const field of ['scale', 'threshold']) {
-          await page.getByTestId(`volume-${field}-lo-${id}`).fill(String(Math.min(lo, stats.min)));
-          await page.getByTestId(`volume-${field}-hi-${id}`).fill(String(hi));
-          await page.getByTestId(`volume-${field}-lo-${id}`).fill(String(lo));
+          await commitNumber(
+            page.getByTestId(`volume-${field}-lo-${id}`),
+            String(Math.min(lo, stats.min))
+          );
+          await commitNumber(page.getByTestId(`volume-${field}-hi-${id}`), String(hi));
+          await commitNumber(page.getByTestId(`volume-${field}-lo-${id}`), String(lo));
         }
         for (const marker of ['windowLo', 'windowHi', 'thresholdLo', 'thresholdHi']) {
           const fraction = marker.endsWith('Lo')
@@ -414,22 +514,25 @@ test.describe('the §8 histogram widget', () => {
   }
 
   test('dragging the window’s low handle lands on the value under the pointer', async () => {
-    await page
-      .getByTestId(`volume-scale-lo-${id}`)
-      .fill(String((await datasetStats(page, id)).min));
-    await page
-      .getByTestId(`volume-scale-hi-${id}`)
-      .fill(String((await datasetStats(page, id)).max));
+    await commitNumber(
+      page.getByTestId(`volume-scale-lo-${id}`),
+      String((await datasetStats(page, id)).min)
+    );
+    await commitNumber(
+      page.getByTestId(`volume-scale-hi-${id}`),
+      String((await datasetStats(page, id)).max)
+    );
     const stats = await datasetStats(page, id);
 
     // Park the threshold in the top fifth of the axis first. `handleAt` gives a tie to the threshold
     // — the pair that sits *inside* the window is the one on top — so a threshold left near the low
     // end would be the handle this drag grabbed, and the test would be asserting the other feature.
     const span = stats.histogramHi - stats.histogramLo;
-    await page
-      .getByTestId(`volume-threshold-lo-${id}`)
-      .fill(String(stats.histogramLo + 0.8 * span));
-    await page.getByTestId(`volume-threshold-hi-${id}`).fill(String(stats.histogramHi));
+    await commitNumber(
+      page.getByTestId(`volume-threshold-lo-${id}`),
+      String(stats.histogramLo + 0.8 * span)
+    );
+    await commitNumber(page.getByTestId(`volume-threshold-hi-${id}`), String(stats.histogramHi));
     const plot = page.getByTestId(`${prefix}-plot`);
     // `page.mouse` is in viewport coordinates and the layer panel scrolls, so the widget has to be
     // brought into view before its box means anything. `click()` does this itself; `mouse` cannot.
@@ -456,8 +559,8 @@ test.describe('the §8 histogram widget', () => {
 
   test('dragging a threshold handle moves the threshold and leaves the window alone', async () => {
     const stats = await datasetStats(page, id);
-    await page.getByTestId(`volume-threshold-lo-${id}`).fill(String(stats.histogramLo));
-    await page.getByTestId(`volume-threshold-hi-${id}`).fill(String(stats.histogramHi));
+    await commitNumber(page.getByTestId(`volume-threshold-lo-${id}`), String(stats.histogramLo));
+    await commitNumber(page.getByTestId(`volume-threshold-hi-${id}`), String(stats.histogramHi));
     const windowBefore = (await layerState(page, id))['scale'];
 
     const plot = page.getByTestId(`${prefix}-plot`);
