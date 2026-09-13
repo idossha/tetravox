@@ -27,7 +27,6 @@ import { useCallback } from 'react';
 import { LAYOUT_LABEL } from '../lib/layout';
 import { KEYMAP_HELP } from '../keyboard/keymap';
 import { useController, useUi } from '../ui/context';
-import { embedMode } from '../embed/mode';
 import { ModuleSwitcher } from '../modules/ModuleSwitcher';
 import { AppMenu } from './AppMenu';
 import type { AppMenuAction } from './AppMenu';
@@ -109,13 +108,7 @@ export function Toolbar(): React.JSX.Element {
       style={{ gridTemplateColumns: `minmax(0, ${leftCol}) 1fr minmax(0, ${rightCol})` }}
     >
       <div className="flex min-w-0 items-center gap-2">
-        {/* Every item in this menu ends in a preload-bridge call — an OS file dialog, the sample
-          catalogue's downloader, a scene written to disk — and an **embed** has no bridge, so with
-          `?embed=1` all six would open a picker that never appears (`embed/mode.ts`). The scene an
-          embed shows arrives over the host protocol instead (`docs/EMBED.md`), which is the same
-          `ShellController` route File ▸ Open Scene… takes. The wordmark goes with the menu it is
-          the trigger for: a host frames the viewer in its own chrome. */}
-        {!embedMode() && <AppMenu actions={menuActions} />}
+        <AppMenu actions={menuActions} />
 
         {sceneFile !== null && (
           <span

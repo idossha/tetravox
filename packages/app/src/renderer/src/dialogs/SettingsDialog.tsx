@@ -21,7 +21,6 @@ import type { ThemeChoice } from '../theme/theme';
 import { THEME_CHOICES } from '../theme/theme';
 import type { ThemeName } from '../theme/tokens';
 import { Tabs } from '../ui/Tabs';
-import { embedMode } from '../embed/mode';
 import { DialogFrame, Field } from './dialog';
 
 export interface SettingsDialogProps {
@@ -63,18 +62,6 @@ const TABS: readonly { id: SettingsTab; label: string }[] = [
   { id: 'startup', label: 'Startup' },
 ];
 
-/**
- * The tabs an **embed** offers (`embed/mode.ts`, `docs/EMBED.md`).
- *
- * Appearance and Capture are the two that are about the *picture*, and both work in a browser tab
- * with no preload bridge: the theme applies immediately and the capture defaults feed the very next
- * screenshot. Paths and Startup are neither — a FreeSurfer `SUBJECTS_DIR` browse, "reopen the last
- * scene", "check for updates" and the `tetravoxrc` Reveal are all filesystem or updater calls that
- * a browser page cannot make and the null bridge answers with nothing. A control that silently does
- * nothing is worse than no control, so in embed mode they are absent rather than dead.
- */
-const EMBED_TABS = TABS.filter((t) => t.id === 'appearance' || t.id === 'capture');
-
 const BACKGROUNDS: readonly ScreenshotOptions['background'][] = [
   'scene',
   'white',
@@ -106,9 +93,6 @@ export function SettingsDialog({
   useEffect(() => setDraft(subjectsDir), [subjectsDir]);
   const [dpiText, setDpiText] = useState(String(screenshotDefaults.dpi));
   useEffect(() => setDpiText(String(screenshotDefaults.dpi)), [screenshotDefaults.dpi]);
-  // `embedMode()` reads the page URL, which cannot change for the life of the page — so this is a
-  // constant per window, not state, and a normal window takes the identical branch it always did.
-  const embed = embedMode();
 
   return (
     <DialogFrame
@@ -126,17 +110,15 @@ export function SettingsDialog({
           >
             {configPath === '' ? '' : `Config file: ${configPath}`}
           </span>
-          {!embed && (
-            <button
-              type="button"
-              data-testid="settings-reveal-config"
-              className="tvx-btn tvx-btn-sm"
-              disabled={configPath === ''}
-              onClick={onRevealConfigFile}
-            >
-              Reveal
-            </button>
-          )}
+          <button
+            type="button"
+            data-testid="settings-reveal-config"
+            className="tvx-btn tvx-btn-sm"
+            disabled={configPath === ''}
+            onClick={onRevealConfigFile}
+          >
+            Reveal
+          </button>
           <button type="button" data-testid="settings-close" className="tvx-btn" onClick={onClose}>
             Close
           </button>
@@ -144,7 +126,7 @@ export function SettingsDialog({
       }
     >
       <Tabs
-        tabs={embed ? EMBED_TABS : TABS}
+        tabs={TABS}
         active={tab}
         onChange={onTab}
         testIdPrefix="settings-tab"
@@ -243,7 +225,7 @@ export function SettingsDialog({
         </div>
       )}
 
-      {tab === 'paths' && !embed && (
+      {tab === 'paths' && (
         <div className="flex flex-col gap-1.5" role="tabpanel" data-testid="settings-panel-paths">
           <label
             htmlFor="settings-fs-subjects"
@@ -301,7 +283,7 @@ export function SettingsDialog({
         </div>
       )}
 
-      {tab === 'startup' && !embed && (
+      {tab === 'startup' && (
         <div className="flex flex-col gap-1.5" role="tabpanel" data-testid="settings-panel-startup">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
             Scenes

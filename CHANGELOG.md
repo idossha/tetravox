@@ -21,6 +21,14 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Windows portable ZIP.** Builds include an x64 ZIP for managed installations alongside the
+  regular NSIS installer, avoiding replacement of a separately installed copy.
+
+- **Native application integration.** The browser embed and its host protocol are removed. Open
+  `.tetravox.json` files with the native application; batch rendering through `--job` is retained.
+- **Managed installations keep their pinned version.** Launches with `TETRAVOX_MANAGED_BY` set leave
+  updates to that installation manager and explain this in Updates.
+
 - **Annotations color 2D surface outlines.** Axial, coronal and sagittal outlines follow the attached
   annotation's region colors and visibility, as well as layer opacity.
 - Removed the Reverse cut button from clip-plane controls.

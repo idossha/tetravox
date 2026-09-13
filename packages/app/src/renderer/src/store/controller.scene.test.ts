@@ -628,8 +628,9 @@ describe('the dialog switch', () => {
 
 describe('scene load generations', () => {
   it('does not apply an old completion or error after New', async () => {
-    fakeFs();
+    const fs = fakeFs();
     const { engine, store, controller } = harness();
+    fs.files.set('/test.tetravox.json', JSON.stringify(engine.serialize()));
     let reject!: (error: Error) => void;
     let signal: AbortSignal | undefined;
     vi.spyOn(engine, 'load').mockImplementation((_spec, _resolve, incoming?: AbortSignal) => {
@@ -638,7 +639,8 @@ describe('scene load generations', () => {
         reject = no;
       });
     });
-    const loading = controller.loadSpecFromUrls(engine.serialize(), {});
+    const loading = controller.openScenePath('/test.tetravox.json');
+    await vi.waitFor(() => expect(signal).toBeDefined());
     controller.newScene();
     expect(signal?.aborted).toBe(true);
     reject(new Error('obsolete file failure'));

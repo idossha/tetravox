@@ -5,5 +5,4 @@ packages:
   - packages/wasm
   - packages/engine
   - packages/app
-  - packages/embed
   - website

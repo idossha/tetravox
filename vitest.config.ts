@@ -12,7 +12,6 @@ export default defineConfig({
       'packages/wasm/vitest.config.ts',
       'packages/engine/vitest.config.ts',
       'packages/app/vitest.config.ts',
-      'packages/embed/vitest.config.ts',
     ],
     passWithNoTests: true,
   },

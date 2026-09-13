@@ -275,7 +275,7 @@ deb:
 appImage:
   artifactName: Tetravox-${version}-linux-${arch}.${ext}
 
-# Windows: `nsis` x64 only, and unsigned. electron-builder downloads a native `makensis` for the build
+# Windows: unsigned x64 NSIS for users and ZIP for external installation managers. electron-builder downloads a native `makensis` for the build
 # host, so this target is produced from macOS and Linux as well as from Windows — verified locally on
 # macOS arm64 (docs/RELEASING.md §5). Only *signing* would need wine, and there is none.
 win:
@@ -283,6 +283,8 @@ win:
   artifactName: Tetravox-${version}-win-${arch}.${ext}
   target:
     - target: nsis
+      arch: [x64]
+    - target: zip
       arch: [x64]
 
 nsis:

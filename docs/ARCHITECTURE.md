@@ -37,23 +37,16 @@ the number is the reason for a rule.
 | Math | `gl-matrix` | Column-major `mat4` as `Float32Array(16)`. |
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
 
-**Non-goals:** WebGPU, Windows, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
+**Non-goals:** WebGPU, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
 scope), **third-party runtime-loaded plugins** (first-party extensions, downloaded
 through File ▸ Extensions…, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
 and *unattended* download-and-install stays a non-goal.)
 
-**Remote/URL loading left this list on 2026-09-03**, with the embed (§2's `packages/embed`,
-`docs/EMBED.md`). It is not a new capability so much as an acknowledged one: the dataset worker has
-always fetched a URL — `tetravox://file/…` *is* one — and `datasets/source.ts`'s `fileUrl` has passed
-an absolute `http(s)://` straight through since Phase 1, which is how the §11 harness reads the
-reference dataset over `/@fs/`. What changed is that the path is now **supported and tested** rather
-than incidental: a `DatasetRef.path` may be an `http(s)` URL, the embed resolves a relative one
-against a host-supplied base, and the E2E loads real NIfTI and `.msh` files over HTTP on every run.
-Two things stay non-goals and are the reason this was ever on the list: **Range requests** (a dataset
-is streamed whole, and §5 rule 4's `DecompressionStream` pipe depends on that) and any **remote
-browsing** — there is no catalogue, no directory listing and no discovery. A host names files or
-nothing happens.
+**Native-only integration (2026-09-13).** The browser embed and postMessage contract are retired.
+External applications open local `.tetravox.json` files through the native executable; batch rendering
+uses `--job`. Workers retain HTTP loading for engine tests and existing dataset sources. Remote browsing
+and Range requests remain outside scope. Native and test hosts share the WebGL2 engine.
 
 ---
 
@@ -75,9 +68,7 @@ tetravox/
 │   ├── protocol/                 # @tetravox/protocol — worker envelope + every op args/result type (§6.5). FROZEN.
 │   ├── wasm/                     # @tetravox/wasm — HAND-WRITTEN package.json; imports ./pkg/tvx_wasm.js
 │   ├── engine/                   # @tetravox/engine — WebGL2 renderer, scene model, views, interaction, colormaps
-│   ├── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
-│   └── embed/                    # @tetravox/embed — the app renderer as a BROWSER bundle, driven over
-│                                 #   postMessage from a host iframe. Ships as a release tarball (docs/EMBED.md)
+│   └── app/                      # @tetravox/app — Electron main/preload/renderer (React UI), packaging config
 ├── python/                       # the automation client (docs/AUTOMATION.md)
 ├── testdata/                     # synthetic fixtures from scripts/gen-fixtures.py + manifest.json (committed)
 ├── scripts/                      # build-wasm.sh, gen-fixtures.py, bench.ts, refvalues/, reference/
@@ -1227,42 +1218,10 @@ Rules:
     invoke them — but the worst it can reach is a restart into the sha512-verified artefact of a release
     the pinned `idossha/tetravox` feed published, which is the app the user would have gotten anyway. The
     boot status is **pulled** (`updateStatus`), like `startupPaths` and for the same race.
-15. **There is a second host: a browser page with no main process at all** (`packages/embed`,
-    `docs/EMBED.md`, 2026-09-03). The renderer and the workers above are unchanged — same React shell,
-    same `ShellController`, same engine, same worker-per-dataset — and everything *left* of the
-    `contextBridge` line in the diagram is simply absent. `bridge()` falls through to `ABSENT`, the
-    null object the renderer already shipped for "vitest, or a plain browser tab", so every channel in
-    rules 9–14 answers "no preload bridge" and the chrome that would call them is hidden by
-    `?embed=1`. What replaces main is a **`postMessage` channel to the host page**, accepted only from
-    `window.parent` and only from the exact `hostOrigin` named in the embed's own URL.
-
-    Three consequences follow, and they are the whole difference:
-
-    * **`tetravox://` does not exist**, so rules 9 and 10's allow-lists have nothing to guard and
-      nothing to serve. A dataset is an ordinary `http(s)` URL the worker fetches with `fetch` — §1's
-      amended non-goal — and the *server's* CORS and the embed document's `connect-src` are what
-      decide whether it may be read. There is no arbitrary-file-read primitive here because there is
-      no filesystem to read.
-    * **Rule 3 still holds, and holds more easily.** Bytes never touch the UI thread: the worker
-      fetches the URL itself, exactly as it fetches `tetravox://file/…` in the desktop app. No byte
-      crosses the frame boundary in either direction — a `load` carries a `ViewSpec`, and a
-      `screenshot` reply carries a PNG the engine already rendered.
-    * **A host is not a user.** Every message the channel accepts ends in a `ShellController` call a
-      user can make with the mouse — the property `automation/run.ts` keeps for `--job`, for the same
-      reason — so the protocol grants a host no reach the UI does not already have.
-
-    **Every message that changes something answers** (2026-09-05). A host message carrying an `id`
-    gets a reply carrying that `id` — a value where there is one, and `ack { id, of }` for the three
-    protocol-2 messages that act and return nothing (`setPointTool`, `setPointSelection`,
-    `setPoints`). Without it a host awaiting a reply hangs, because `postMessage` cannot distinguish
-    silence from a dropped message. A request with **no** `id` is still answered with nothing, which
-    is what keeps a protocol-1 host's message stream byte for byte the one it had.
-
-    **The host may supply the surrounding controls** (2026-09-04, requirements
-    `2026-09-04-ti-toolbox-viewport.md` R1). With `embed=1`, `presentation=viewport` omits the shell
-    chrome described in §8 while preserving this renderer, canvas, worker and message-channel
-    lifecycle. Absent or unknown presentations reproduce the full embedded viewer. The URL option
-    changes no message type or version; pane layout and scene annotations remain host-controlled.
+15. **Native application only (2026-09-13).** The browser host is retired. External applications
+    launch the executable with a local scene path; `--job` remains the batch automation surface.
+    No live external control channel is provided. This removes the duplicate browser lifecycle and
+    host protocol while preserving the native renderer and worker architecture.
 
 ---
 
@@ -2824,16 +2783,6 @@ Input (Freeview-like):
 
 **Everything the UI can do must be reachable from the `Engine` API alone. No logic in React.**
 
-**Embedded viewport profile.** A browser host may opt into `embed=1&presentation=viewport` (§5 rule 15)
-to display only `ViewGrid`, with no toolbar, sidebars or collapse rails, status bar, toasts, dialogs
-or extension windows. The same engine continues to draw the scene's orientation labels and cube and
-handle orbit, pan, dolly, picking and pointer-scoped keys. Shell keyboard commands and file drops are
-inactive: invisible tools and datasets loaded outside the host's selection would leave the host's
-controls inconsistent with its viewport. Layout and layer controls remain reachable through the
-host protocol, including `setLayout { kind: '3d' }` and `updateLayer`. The presentation is fixed at
-iframe creation; absent or unknown values retain the full viewer described below. This refines the
-regions rule for host-supplied controls only, per the host-viewport decision in `docs/DECISIONS.md` (2026-09-04).
-
 **Regions.** **Left**: layer panel (ordered list, per-row disclosure, eye, opacity slider, per-kind property
 editor, 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed +
 Cancel). **Centre**: view grid (coloured border on the active view pane). **Right**, top to bottom in this
@@ -3410,7 +3359,7 @@ status-bar pill for as long as it stays true — and does nothing further until 
   macOS (the signed zip beside each dmg is the update artefact; Squirrel.Mac also checks the code
   signature), Windows NSIS, Linux AppImage (`APPIMAGE` set); `'notify'` — a `.deb`/`.tar.gz` install,
   which only reads `latest-linux.yml` over `net.fetch`, compares, and offers the Releases page;
-  `'off'` — a dev tree (`!app.isPackaged`) and every `--job` run. (A *packaged* unsigned build —
+  `'off'` — a dev tree (`!app.isPackaged`), every `--job` run, and externally managed launches. (A *packaged* unsigned build —
   a contributor's own `pnpm package` — is `'inplace'` and checks; on macOS Squirrel then refuses
   the unsigned swap at install time, surfaced honestly as an 'error' status.)
 * **Flow.** A launch check (a few seconds after ready, gated by the `checkForUpdates` setting, silent
@@ -3423,6 +3372,12 @@ status-bar pill for as long as it stays true — and does nothing further until 
   `skippedUpdateVersion`), both renderer-writable — a skip is a preference, not a capability.
 * **Tests.** `updater.test.ts` injects the `UpdaterImpl`/`fetchImpl` seams and asserts the refusals
   above; electron-updater itself is loaded only in a packaged `'inplace'` build, by dynamic import.
+
+External installation managers set `TETRAVOX_MANAGED_BY` when launching their copy. That launch
+never checks, downloads or installs native updates; the Updates dialog identifies the manager.
+The manager owns version changes so the app cannot replace a pinned installation. Windows builds
+include a portable x64 ZIP for manager-owned extraction as well as the ordinary NSIS installer;
+the ZIP avoids NSIS registry-driven replacement of an unrelated standalone installation.
 
 ---
 
@@ -3954,8 +3909,7 @@ reported, leaving successful layers available. Cancellation terminates workers a
 
 An already adopted dataset is reused only when its resolved path/URL and sidecars match. Datasets no
 longer selected are disposed. This is an in-memory current-selection cache, not a file freshness cache:
-explicit Reset/Reload discards it. The embed reconciles repeated selections; ordinary desktop Open Scene
-still clears the scene first. Camera/layout are established once per fresh load; incremental selection
+explicit Reset/Reload discards it. Desktop Open Scene clears the scene first. Camera/layout are established once per fresh load;
+incremental selection
 keeps the current 3D camera. Later dataset arrivals update layer visibility without refitting the camera.
-`LoadProgress.name` is optional and identifies the source before adoption; embed progress uses its
-existing protocol name field. No wire-version change is required.
+`LoadProgress.name` is optional and identifies the source before adoption.

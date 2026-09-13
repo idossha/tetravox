@@ -320,6 +320,7 @@ export interface UpdateStatus {
   error?: string;
   /** `'inplace'` downloads and restarts; `'notify'` (`.deb`/`.tar.gz`) offers the Releases page; `'off'` is a dev build. */
   mode: 'inplace' | 'notify' | 'off';
+  managedBy?: string;
   /** True on statuses born from the launch check, so the renderer toasts instead of assuming a dialog. */
   auto?: boolean;
 }

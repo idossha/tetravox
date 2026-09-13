@@ -84,9 +84,8 @@ dialog, and an optional reopen-on-launch.
 `sweep` / `orbit` / `tween` actions into PNGs, GIFs and MP4s. A stdlib-only Python client wraps it.
 See `docs/AUTOMATION.md`.
 
-**Embedded viewport.** `embed=1&presentation=viewport` lets a host supply the surrounding controls
-while retaining the same canvas, gestures and protocol (`docs/EMBED.md` §2; requirements
-`2026-09-04-ti-toolbox-viewport.md` R1). The full embed is still the default.
+**Native integration.** External applications open local scene files through the packaged executable.
+The retired browser package is no longer built or tested. Managed launches leave updates to their installer.
 
 **Verification.** 235 Rust tests, 1,128 vitest tests, 66 Playwright specs and 40 goldens; analytic pixel
 assertions on synthetic fixtures plus a pure-Python reference renderer for pane-scale slice diffs; real-data

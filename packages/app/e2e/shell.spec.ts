@@ -511,3 +511,22 @@ test.describe('the webgl2-null screen (§1, §8)', () => {
     }
   });
 });
+
+test('managed launch identifies its updater owner and offers no update action', async ({}, info) => {
+  const target = info.project.name as LaunchTarget;
+  const blocked = target === 'packaged' ? packagedUnavailable() : null;
+  test.skip(blocked !== null, blocked ?? '');
+  const { app, page } = await boot(target, { env: { TETRAVOX_MANAGED_BY: 'example-manager' } });
+  try {
+    await page.evaluate(() => window.__tetravox?.controller?.openUpdates());
+    await expect(page.getByTestId('updates-dialog')).toContainText(
+      'Updates are managed by example-manager'
+    );
+    await expect(page.getByTestId('updates-check')).toHaveCount(0);
+    await expect(page.getByTestId('updates-download')).toHaveCount(0);
+    const status = await page.evaluate(() => window.tetravox?.updateStatus?.());
+    expect(status).toMatchObject({ mode: 'off', managedBy: 'example-manager' });
+  } finally {
+    await app.close();
+  }
+});

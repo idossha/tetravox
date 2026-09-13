@@ -273,13 +273,6 @@ jobs:
         if: matrix.leg == 'app+wasm'
         run: pnpm --filter @tetravox/wasm run e2e
 
-      # PR #35 / run 34390583349 exercised engine + app + wasm but never the new host protocol.
-      # Keep its synthetic protocol, surface and pixel assertions in the existing unsharded leg;
-      # otherwise an embed regression can merge with every browser check green.
-      - name: Browser embed Playwright
-        if: matrix.leg == 'app+wasm'
-        run: pnpm --filter @tetravox/embed run e2e
-
       # `electron-vite build && playwright test`, so this is also what makes `out/renderer/assets/`
       # fresh for the loader guard below.
       - name: App Playwright (Electron)
@@ -326,7 +319,6 @@ jobs:
             packages/app/test-results
             packages/wasm/playwright-report
             packages/wasm/test-results
-            packages/embed/test-results
           retention-days: 7
           if-no-files-found: ignore
 
@@ -544,13 +536,14 @@ jobs:
               packages/app/release/*.AppImage
               packages/app/release/*.deb
               packages/app/release/*.tar.gz
-          - name: Windows x64 (nsis, optional)
+          - name: Windows x64 (nsis + zip, optional)
             os: windows-latest
             builder: --win --x64
             smoke: --version-only
             required: 'no'
             artefacts: |
               packages/app/release/*.exe
+              packages/app/release/*-win-x64.zip
     steps:
       - uses: actions/checkout@v5
 
