@@ -68,21 +68,10 @@ packages/engine/test/pages/*          the pages those specs drive (HTML + a smal
 packages/engine/test/helpers/*        expectPixel / expectGolden
 packages/engine/test/golden/<class>/  the goldens, one directory per renderer class
 packages/app/e2e/*.spec.ts            Playwright-Electron
-packages/embed/test/e2e/*.spec.ts     Playwright — the host protocol, driven through example/host.html
-packages/embed/test/golden/<class>/   the embed's goldens, same policy and same helpers
 scripts/reference/                    the Python reference renderer and its 117 self-tests
 ```
 
 `*.test.ts` is vitest; `*.spec.ts` is Playwright. Nothing collects both.
-
-**The embed's suite imports `packages/engine/test/helpers/pixels.ts` rather than copying it.** §11 is one
-rule, not one per package, so `expectGolden` and its `TETRAVOX_UPDATE_GOLDENS` lock are the same function in
-both places, and `packages/embed/playwright.config.ts` repeats the engine config's `snapshotDir`,
-`snapshotPathTemplate`, `updateSnapshots: 'none'` and ratios. What it cannot reuse is `expectPixel`: that
-reads the drawing buffer through the test page's `window.__tvxRender()`, and the app renderer has no such
-hook — its context is `preserveDrawingBuffer: false`, so a `readPixels` after compositing sees undefined
-content. The embed's analytic assertions therefore go through the documented `screenshot` message and decode
-the PNG in the page. Lossless RGBA8, and the pixels are the ones the product hands a host.
 
 ### Testing something that persists
 
@@ -333,8 +322,6 @@ cover the primary format path. That coverage comes from analytic `expectPixel` t
 ```sh
 TETRAVOX_UPDATE_GOLDENS=1 pnpm --filter @tetravox/engine run e2e
 # or: pnpm --filter @tetravox/engine run e2e:update-goldens
-# the embed's, which live under packages/embed/test/golden/<class>/:
-TETRAVOX_UPDATE_GOLDENS=1 pnpm --filter @tetravox/embed exec playwright test --update-snapshots
 ```
 
 Two locks, both deliberate: `updateSnapshots: 'none'` unless that variable is set, so a **missing** golden is
@@ -409,7 +396,6 @@ not a new test result; current behavior is authoritative in ARCHITECTURE.
 | 2026-08-27 R4 | §7.3–§7.5 mesh cuts; `derived-r4.spec.ts` checks tissue and field cut pixels against real ernie data, with and without anatomy; original sweep gate is 20 axial steps at at least 30 fps including cut/upload/render. |
 | 2026-08-27 R5 | §8 regions; visibility, recolor and solo assertions cover labels and mesh tissues in both 2D/3D, and selection survives scene save/load. |
 | 2026-09-04 view controls R1–R4 | §7.5/§8; `view-controls.spec.ts` checks the three combined layouts, retained direct anatomical panes, 3D+1 migration, unchanged slice state, exact world-origin reset with loaded layers retained, and screenshot layout at 960×600 and 1400×900 with at most one CSS pixel rounding overflow. |
-| 2026-09-04 viewport R1 | §5/§8; `embed-viewport.spec.ts` checks exact omitted shell controls and frame bounds, camera/layer commands, unavailable WebGL2 reporting, default/unknown full presentation, and exact opaque-white synthetic mesh / black-background pixels plus orientation-bearing golden. |
 | 2026-09-06 surfaces R1–R2 | §4.4/§7.4; scene tests distinguish zero-tet surfaces from meshes; `surface.spec.ts` checks the default contour palette analytically and with `surface-default`; real surface loading is gated by `TETRAVOX_TESTDATA`. Existing mesh rendering remains governed by its own goldens. |
 | 2026-09-06 surfaces R3–R5 | §4.4/§4.7/§8; annotation tests assert attached color source and reference entry count; `props-surface.spec.ts` checks the dedicated editor and excluded mesh controls; `registry.test.ts` reads imports to hold the surface/mesh module boundary. |
 | 2026-09-11 volume controls and follow-up | §8; `props-volume.spec.ts` checks labelled scalar controls, label-only region controls, unbounded threshold state, preset values, side-by-side 3D controls and exact bound preservation across percentile unit changes. Preset and percentile unit tests pin stored anchors and interpolation independently. |
@@ -545,11 +531,8 @@ and plain int16 — so a reader that folds slope/inter, or ignores it, makes the
 
 `.github/workflows/ci.yml`. **`test`** runs the Rust checks, WASM build, typecheck, lint, SDK emission and
 Vitest on `ubuntu-24.04` on every event; `macos-latest` is added only for `workflow_dispatch`.
-**`e2e`** runs concurrently: three engine shards and an unsharded **app + wasm** job, which also runs
-`pnpm --filter @tetravox/embed run e2e`. The embed's synthetic host-protocol, surface and analytic pixel
-tests must pass before merge; real-data cases skip when their root is unset. Embed failure traces are
-uploaded from `packages/embed/test-results` with the other unsharded results. Manual dispatch also adds
-unsharded macOS engine and app/wasm/embed legs to exercise the platform GPU.
+**`e2e`** runs concurrently: three engine shards and an unsharded **app + wasm** job.
+Manual dispatch also adds unsharded macOS engine and app/wasm legs to exercise the platform GPU.
 Caches: cargo, the pnpm store, `~/.cache/electron`, `~/.cache/ms-playwright`, with
 `ELECTRON_CACHE` and `PLAYWRIGHT_BROWSERS_PATH` pinned to those paths on both runners (macOS would otherwise
 use `~/Library/Caches` and the keys would not match).

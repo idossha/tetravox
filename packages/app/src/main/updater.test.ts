@@ -549,3 +549,23 @@ describe('the two small parsers', () => {
     expect(plainNotes([{ version: 'x', note: '<p>a</p>' }, { note: 'b' }])).toBe('a\n\nb');
   });
 });
+
+describe('external installation ownership', () => {
+  it('does not check, download or install when a manager owns this packaged copy', async () => {
+    const impl = stubImpl();
+    const schedule = vi.fn();
+    const service = new UpdaterService({
+      packaged: true,
+      platform: 'darwin',
+      managedBy: 'example-manager',
+      impl,
+      scheduleLaunchCheck: schedule,
+    });
+    service.startLaunchCheck();
+    expect(await service.check()).toMatchObject({ mode: 'off', managedBy: 'example-manager' });
+    expect((await service.download()).ok).toBe(false);
+    expect((await service.install()).ok).toBe(false);
+    expect(schedule).not.toHaveBeenCalled();
+    expect(impl.calls).toEqual([]);
+  });
+});

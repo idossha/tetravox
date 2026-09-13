@@ -5664,3 +5664,20 @@ remain categorical. The GPU looks up region colors and visibility from the same 
 layer opacity still applies. Geometry cache identity includes annotation and mask. Plain contours stay
 on their existing path. The 3D surface's interpolation within mixed-label triangles is unchanged; the
 2D outline uses discrete region colors. No UI-thread geometry expansion or new dependency is introduced.
+
+## 2026-09-13 — Native-only distribution and managed installation ownership
+
+User direction replaces TI-Toolbox browser embedding with native scene launching. This supersedes
+the browser-host and embedded-viewport decisions of 2026-09-03/04 and retires their public protocol.
+Remove the browser workspace, message transport, presentation branches and release/test wiring; keep
+the engine, native scene CLI and offscreen batch jobs. No new external live IPC is introduced.
+`TETRAVOX_MANAGED_BY` disables the updater to prevent an application-owned pinned copy changing
+independently. Native scene-generation cancellation and updater refusal tests cover the retained
+behavior; existing engine/native suites remain the rendering authority.
+
+### 2026-09-13 — Windows portable distribution for managed installations
+
+Add an x64 ZIP alongside NSIS. External installation managers extract the ZIP rather than run
+NSIS, whose registry lookup can replace an existing installation despite a separate destination.
+Both Windows artifacts remain optional with the Windows build leg. Existing 0.4.0 assets contain
+no ZIP; managers must wait for a verified official ZIP with a pinned digest before enabling Windows.

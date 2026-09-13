@@ -60,6 +60,8 @@ export interface UpdateStatus {
    * dev or `--job` build) says so instead of pretending to check.
    */
   mode: UpdateMode;
+  /** The external installer that owns updates for this launch. */
+  managedBy?: string;
   /**
    * True on statuses born from the launch check, so the renderer knows this `available` was not
    * asked for and shows a toast instead of assuming a dialog is open.
@@ -90,6 +92,7 @@ export interface UpdaterDeps {
   appImage?: string | undefined;
   packaged?: boolean;
   isJob?: boolean;
+  managedBy?: string;
   version?: string;
   onStatus?: (status: UpdateStatus) => void;
   /** The launch check's grace delay, injectable so the tests need no clock. */
@@ -122,11 +125,12 @@ export function updateMode(opts: {
   isJob: boolean;
   platform: NodeJS.Platform;
   appImage: string | undefined;
+  managedBy?: string;
 }): UpdateMode {
   // A dev tree has nothing an updater could replace, and a `--job` run has nobody to answer.
   // Deliberately NOT a signing check: a packaged-but-unsigned contributor build still checks (and
   // on macOS fails honestly at install, when Squirrel refuses the swap) — see the header.
-  if (!opts.packaged || opts.isJob) return 'off';
+  if (!opts.packaged || opts.isJob || opts.managedBy?.trim()) return 'off';
   if (opts.platform === 'linux' && (opts.appImage === undefined || opts.appImage === '')) {
     return 'notify';
   }
@@ -200,12 +204,14 @@ export class UpdaterService {
       isJob: this.deps.isJob,
       platform: this.deps.platform,
       appImage: deps.appImage ?? process.env['APPIMAGE'],
+      managedBy: deps.managedBy ?? process.env['TETRAVOX_MANAGED_BY'],
     });
     this.impl = deps.impl ?? null;
     this.status = {
       phase: 'idle',
       current: this.deps.version ?? app.getVersion(),
       mode: this.mode,
+      managedBy: (deps.managedBy ?? process.env['TETRAVOX_MANAGED_BY'])?.trim() || undefined,
     };
   }
 

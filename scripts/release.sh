@@ -10,10 +10,9 @@
 #
 # THE VERSION LIVES IN TWO KINDS OF PLACE and this script is the only thing that knows both:
 #
-#   * `package.json` × 6 — the root and the five workspace packages. `packages/app/package.json` is
+#   * `package.json` × 5 — the root and the four workspace packages. `packages/app/package.json` is
 #     the one electron-builder reads for `${version}` in every artefact name, so a partial bump ships
-#     `Tetravox-0.1.0-mac-arm64.dmg` out of a 0.2.0 tree, and `packages/embed/package.json` is what
-#     names the embed tarball and fills its `manifest.json` (`docs/EMBED.md`).
+#     `Tetravox-0.1.0-mac-arm64.dmg` out of a 0.2.0 tree.
 #   * `CITATION.cff` — `version` and `date-released`, which GitHub's "Cite this repository" reads.
 #   * `Cargo.toml` — `[workspace.package] version`, which all five crates inherit via
 #     `version.workspace = true`. Bumping it moves `Cargo.lock`, so the lock is regenerated here with
@@ -68,7 +67,7 @@ CURRENT="$(node -p "require('./package.json').version")"
 echo "==> $CURRENT → $VERSION"
 
 PACKAGE_JSONS=(package.json packages/protocol/package.json packages/engine/package.json \
-  packages/wasm/package.json packages/app/package.json packages/embed/package.json)
+  packages/wasm/package.json packages/app/package.json)
 
 # ------------------------------------------------------------------------------------------------
 # The edits

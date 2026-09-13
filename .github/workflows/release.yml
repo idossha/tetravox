@@ -159,99 +159,6 @@ jobs:
           files: dist/module-sdk/*.tgz
           fail_on_unmatched_files: true
 
-  embed:
-    name: Browser embed
-    needs: create-release
-    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    outputs:
-      asset: ${{ steps.pack.outputs.asset }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Resolve the pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: pnpm store cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-ubuntu-24.04-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-ubuntu-24.04-
-
-      - name: pnpm install
-        run: pnpm install --frozen-lockfile
-
-      # The bundle carries `tvx_wasm_bg.wasm`, so the crate has to be built first — `pnpm wasm` is a
-      # prerequisite of every build in this repository (§2), and a Vite build with no `pkg/` fails
-      # by emitting a page that resolves nothing rather than by stopping.
-      - name: Build the wasm
-        run: pnpm run wasm
-
-      - name: Build and pack the embed
-        id: pack
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --filter @tetravox/embed build
-          pnpm --filter @tetravox/embed pack:embed
-          cd packages/embed/dist-pkg
-          asset="$(basename "$(ls ./*.tgz)")"
-
-          # THE TWO SIDECARS, for a host that installs the embed WITHOUT a human in the loop
-          # (TI-Toolbox's updater is the one this is for). Such a host has two questions before it
-          # spends 30 MB and unpacks anything into an application's serving root:
-          #
-          #   "is this bundle's protocol one I support?"  → the manifest, without downloading the tarball
-          #   "is what I downloaded what you built?"      → the digest, before unpacking it
-          #
-          # The manifest is EXTRACTED from the tarball rather than regenerated, so the answer the
-          # updater reads is the answer the bundle carries; regenerating it here would be a second
-          # `pack.mjs` that could disagree with the first. The member path carries the tarball's one
-          # directory prefix, which is the tarball's own name without `.tgz`.
-          tar xzf "$asset" -O "${asset%.tgz}/manifest.json" > "${asset%.tgz}.manifest.json"
-
-          # `sha256sum` FORMAT — `<64 hex>  <filename>`, two spaces — so a host can run
-          # `sha256sum -c tetravox-embed-<v>.tgz.sha256` on it unchanged, and so can a maintainer.
-          # A bare digest would need every consumer to reformat it.
-          sha256sum "$asset" > "$asset.sha256"
-
-          echo "asset=$asset" >> "$GITHUB_OUTPUT"
-          echo "packed $asset"
-          cat "$asset.sha256"
-          cat "${asset%.tgz}.manifest.json"
-
-      - name: Upload the workflow artefact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tetravox-embed
-          path: |
-            packages/embed/dist-pkg/*.tgz
-            packages/embed/dist-pkg/*.sha256
-            packages/embed/dist-pkg/*.manifest.json
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Attach to the Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          draft: true
-          files: |
-            packages/embed/dist-pkg/*.tgz
-            packages/embed/dist-pkg/*.sha256
-            packages/embed/dist-pkg/*.manifest.json
-          fail_on_unmatched_files: true
-
   # ------------------------------------------------------------------------------------------------
   # 2. One job per OS/arch: build, smoke-test, upload a workflow artefact, attach to the Release.
   # ------------------------------------------------------------------------------------------------
@@ -315,13 +222,14 @@ jobs:
           # tooling: no wine, no Visual Studio, no certificate. `continue-on-error` plus
           # `required: no` mean a Windows failure never blocks a macOS/Linux release; `verify` reports
           # it as an absence instead of failing on it.
-          - name: Windows x64 (nsis, optional)
+          - name: Windows x64 (nsis + zip, optional)
             os: windows-latest
             builder: --win --x64
             smoke: --version-only
             required: 'no'
             artefacts: |
               packages/app/release/*.exe
+              packages/app/release/*-win-x64.zip
               packages/app/release/*.blockmap
               packages/app/release/latest.yml
 
@@ -565,7 +473,7 @@ jobs:
   # ------------------------------------------------------------------------------------------------
   verify:
     name: Verify the Release assets
-    needs: [create-release, sdk, embed, build]
+    needs: [create-release, sdk, build]
     if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && needs.create-release.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
@@ -577,7 +485,6 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
           TAG: ${{ github.ref_name }}
           SDK_ASSET: ${{ needs.sdk.outputs.asset }}
-          EMBED_ASSET: ${{ needs.embed.outputs.asset }}
         shell: bash
         run: |
           set -euo pipefail
@@ -613,24 +520,10 @@ jobs:
             echo "MISSING  the module SDK tarball (the sdk job produced no asset name)" >&2
             missing_sdk=1
           fi
-          # The browser embed, for the same reason and taken the same way: a release that documents
-          # an embed contract and ships no bundle is one no host can install. Its name carries the
-          # version (`packages/embed/scripts/pack.mjs`), so it comes from the job that packed it.
-          if [ -n "${EMBED_ASSET:-}" ]; then
-            # All THREE: a host that installs the embed automatically resolves the manifest to read
-            # the protocol, then the digest to check what it downloaded. A release carrying only the
-            # tarball would make that host either download 30 MB to answer a question the manifest
-            # answers, or unpack a bundle it never verified.
-            required+=("$EMBED_ASSET" "$EMBED_ASSET.sha256" "${EMBED_ASSET%.tgz}.manifest.json")
-          else
-            echo "MISSING  the browser embed tarball (the embed job produced no asset name)" >&2
-            missing_embed=1
-          fi
           # OPTIONAL — Windows is a bonus leg. Absence is reported, not fatal.
-          optional=("Tetravox-$VERSION-win-x64.exe" "latest.yml")
+          optional=("Tetravox-$VERSION-win-x64.exe" "Tetravox-$VERSION-win-x64.zip" "latest.yml")
 
           missing="${missing_sdk:-0}"
-          if [ "${missing_embed:-0}" != "0" ]; then missing=1; fi
           for asset in "${required[@]}"; do
             if grep -qxF "$asset" /tmp/attached.txt; then
               echo "ok       $asset"
@@ -655,39 +548,6 @@ jobs:
           fi
           echo
           echo "All required assets are attached."
-
-      # Present is not the same as correct. The digest is the one asset whose VALUE can be wrong
-      # while its name is right — a re-run that re-packed the tarball and attached a stale `.sha256`
-      # beside it would publish a release every automatic installer refuses, and the failure would
-      # surface in somebody else's application rather than here. So both files are downloaded from
-      # the Release itself (not from the job that made them) and checked against each other.
-      - name: The embed's digest must match the tarball that was attached
-        if: ${{ needs.embed.outputs.asset != '' }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-          EMBED_ASSET: ${{ needs.embed.outputs.asset }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          work="$(mktemp -d)"
-          gh release download "$TAG" --dir "$work" \
-            --pattern "$EMBED_ASSET" \
-            --pattern "$EMBED_ASSET.sha256" \
-            --pattern "${EMBED_ASSET%.tgz}.manifest.json"
-          cd "$work"
-          # `sha256sum -c` reads the sidecar's own `<digest>  <name>` line, which is the same command
-          # a host runs — so this checks the FORMAT as well as the value.
-          sha256sum -c "$EMBED_ASSET.sha256"
-          # And the manifest must describe this tarball: the version in its name, and the protocol
-          # the bundle inside actually reports. `pack.mjs` reads that out of `protocol.ts`, so a
-          # mismatch here means the two were built from different trees.
-          tar xzf "$EMBED_ASSET" -O "${EMBED_ASSET%.tgz}/manifest.json" > inside.json
-          if ! diff -u inside.json "${EMBED_ASSET%.tgz}.manifest.json"; then
-            echo "the attached manifest is not the one inside the tarball" >&2
-            exit 1
-          fi
-          echo "embed: digest and manifest both agree with $EMBED_ASSET"
 
       # The end of the draft window. Only reached when every required asset above is present, which
       # is exactly the check a maintainer used to perform by eye. `--latest` is explicit rather than

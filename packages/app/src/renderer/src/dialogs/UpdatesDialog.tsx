@@ -97,8 +97,9 @@ export function UpdatesDialog({
       <div className="flex flex-col gap-2 text-xs" data-testid={`updates-phase-${phase}`}>
         {mode === 'off' && (
           <p className="text-[11px] leading-relaxed text-tvx-dim">
-            In-app updates come with the packaged releases. This build checks nothing — new versions
-            are announced on the GitHub Releases page.
+            {status?.managedBy
+              ? `Updates are managed by ${status.managedBy}. Update this installation through that application.`
+              : 'In-app updates come with the packaged releases. This build checks nothing — new versions are announced on the GitHub Releases page.'}
           </p>
         )}
 

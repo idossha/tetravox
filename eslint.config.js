@@ -52,7 +52,6 @@ export default tseslint.config(
       'website/scripts/**/*.{mjs,js}',
       // `packages/app/scripts/` is deliberately NOT here: `record-walkthrough.mjs` declares its
       // own globals in a `/* global */` comment, and adding them again is a `no-redeclare` error.
-      'packages/embed/scripts/**/*.{mjs,js}',
     ],
     languageOptions: {
       globals: {

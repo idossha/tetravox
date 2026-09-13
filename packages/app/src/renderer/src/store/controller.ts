@@ -2208,33 +2208,12 @@ export class ShellController {
    * `spec.layers` today (audit P2-07, E-SCENE's), so the shell asks for the layers that are missing.
    * When P2-07 lands, `layersToRestore` finds counterparts and returns nothing.
    */
-  /**
-   * Apply a `ViewSpec` whose datasets have **already** resolved to URLs — the embed host's route
-   * (`embed/mode.ts`, `docs/EMBED.md`).
-   *
-   * `Engine.load`'s resolver returns whatever string the loader should fetch, and
-   * `datasets/source.ts`'s `fileUrl` passes an absolute `http(s)://` through unchanged, so an
-   * absolute URL is a resolved path in exactly the sense `openScenePath` means one. This is the
-   * same `applyScene` File ▸ Open Scene… ends in — the dataset-id remap, the layer reconcile, the
-   * positional `activeLayerId`, the §13.2 blocks and `resyncFromEngine` all happen identically —
-   * with `scenePath: null`, because a scene that arrived over a message port is not a file on disk:
-   * there is nothing to name in the toolbar's scene slot, nothing to push onto Open Recent, and no
-   * directory for `setSceneDir` to make future relative paths mean something.
-   */
-  async loadSpecFromUrls(spec: ViewSpec, resolved: Record<string, string>): Promise<boolean> {
-    return this.applyScene(spec, null, resolved, true);
-  }
-
   private async applyScene(
     spec: ViewSpec,
     scenePath: string | null,
-    resolved: Record<string, string>,
-    reuseDatasets = false
+    resolved: Record<string, string>
   ): Promise<boolean> {
-    if (reuseDatasets) {
-      this.sceneLoad?.abort();
-      this.store.setState({ sceneError: null });
-    } else this.newScene();
+    this.newScene();
     const load = new AbortController();
     this.sceneLoad = load;
     const current = (): boolean => this.sceneLoad === load && !load.signal.aborted;
