@@ -2,11 +2,7 @@
  * §7.4's **six clip planes**, and §7.5's "cut plane: sliders (normal preset + free normal + offset)".
  *
  * Per plane: enable, a preset normal (axial / coronal / sagittal), free normal sliders, an offset
- * slider that scrubs across the scene's own extent, reverse cut, and **follow cursor**. Mesh cuts are filled using the layer coloring.
- *
- * **Flip is `n → −n`, `offset → −offset`.** Negating only the normal moves the plane to its mirror
- * about the origin, which looks right at `offset == 0` and is wrong everywhere else; `state.ts` has
- * the derivation and `state.test.ts` pins it.
+ * slider that scrubs across the scene's own extent, and **follow cursor**. Mesh cuts are filled using the layer coloring.
  *
  * **Follow cursor is layer state.** `ClipPlane.followCursor` (§4.4, added by the Phase-2 integrator
  * from this panel's filing) holds the flag, so it is one `updateLayer` like every other control here
@@ -21,7 +17,6 @@ import type { ClipLayer } from './state';
 import {
   addClipPlane,
   CLIP_PRESETS,
-  flipClipPlane,
   MAX_CLIP_PLANES,
   offsetThrough,
   removeClipPlane,
@@ -129,18 +124,6 @@ export function ClipPlanes({
                   {preset.name.slice(0, 3)}
                 </button>
               ))}
-              <button
-                type="button"
-                data-testid={`${prefix}-clip-flip-${layer.id}-${index}`}
-                className="tvx-btn tvx-btn-sm"
-                title="Keep the other side (the plane does not move)"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  patch(flipClipPlane(layer, index));
-                }}
-              >
-                Reverse cut
-              </button>
               <button
                 type="button"
                 data-testid={`${prefix}-clip-remove-${layer.id}-${index}`}

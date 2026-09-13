@@ -1778,6 +1778,8 @@ pub fn marching_cubes_label(vol: &Volume, vol_index: usize, label: f32, smooth: 
 pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&BitMask>,
                      p: &mut dyn ProgressSink) -> Result<SurfaceBuffers>;
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
+pub fn labeled_surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>,
+                                 labels: &[f32]) -> Result<(Vec<f32>, Vec<u32>)>;
 pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
 pub fn nearest_vertex(nodes: &[[f32; 3]], p: [f32; 3]) -> Option<(u32, [f32; 3])>;
 pub fn sphere_map(source: &[[f32; 3]], target: &[[f32; 3]]) -> Vec<u32>;
@@ -1916,7 +1918,7 @@ is present wherever an op can exceed one frame, and is called at section boundar
 #[wasm_bindgen] pub fn mesh_marching_tets(handle: u32, source: &str, name: &str, component: &str,
                                           iso: f32, mask_id: Option<u32>,
                                           on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>)
+#[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>, annotation: Option<String>)
                                     -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_centroids(handle: u32, mask_id: Option<u32>, stride: u32,
@@ -2933,8 +2935,8 @@ histogram or percentile selector. Solid color has no duplicate alpha input; laye
 its row. Mesh shading uses the existing smooth and geometry-aware face defaults without UI toggles.
 One mesh-edges toggle controls surface and cut edges together; width/color appear when enabled.
 Mesh clip edits use filled caps inheriting the layer's color source automatically, without cap controls.
-Each plane offers Reverse cut: normal and offset both change sign to keep the opposite side of the same
-stationary plane. Surface-only layers retain uncapped clipping.
+The editor exposes normal presets, free normal, position and cursor following; it has no separate
+Reverse cut button. Surface-only layers retain uncapped clipping.
 Cross-sections offer Fill and Outline; outline styles appear only when enabled, and cuts follow the
 main color source. Attach data remains under More options, clipping and isolation remain available,
 and glyph controls appear for vector fields or an active glyph configuration. Single-tissue meshes
@@ -2947,6 +2949,20 @@ annotation is shown), **Appearance** (opacity, flat, back faces, edges), **2D ou
 **Clip planes** (planes only). No tissue table, no Isolation, no Glyphs, no cross-section fill, no caps. The
 layer row reads `surface` and its summary `<lh|rh> · <n> vertices · <m> triangles`. An attached annotation
 becomes the surface's colour source; an attached scalar becomes its overlay with a re-seeded range.
+In annotation mode the 2D outlines use the same region palette and visibility as the 3D surface, with
+layer opacity applied. Worker `contours` optionally takes `annotation` (the scalar node field name),
+and returns dense `labels: Uint32Array` alongside `segments`, one label per six-float segment. Omission
+retains the plain contour response. The Rust worker partitions each triangle-plane intersection at
+changes of its dominant barycentric vertex, retaining categorical region colors rather than blending
+label IDs. Adjacent intervals of the same label within a triangle merge. Per-segment indices transfer
+to the GPU and look up the current palette there; palette edits require no new intersection geometry.
+Contour caches include annotation, field revision and mask identity so shared datasets cannot reuse
+the wrong atlas. Reattaching data requests a render even when slice positions are unchanged.
+Solid-color outlines retain the existing uniform color path.
+
+**Parsed-view point names** (2026-09-12): `.geo`/`.pos` points layers use the source dataset filename,
+including its extension, rather than a parsed view title such as “view 1”. Internal view names remain
+metadata and do not rename the file's layer.
 
 **Region panel** for label volumes, mesh tissue tags and `.annot` layers: search-as-you-type over the
 `LabelTable`, per-row eye + colour swatch + count, `Alt+click` to solo, double-click to jump the cursor to

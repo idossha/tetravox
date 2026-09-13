@@ -89,3 +89,30 @@ test.describe('real data', () => {
     expect((first?.tag as ArraySummary).max).toBe(2);
   });
 });
+
+test('annotation contours transfer dense categorical labels alongside their segments', async ({
+  page,
+}) => {
+  test.skip(!(await geomAvailable(page)), GEOM_SKIP);
+  await open(page);
+  const out = await must(page, 'loadMesh', {
+    source: { kind: 'url', url: fixtureUrl('surf_labelled.surf.gii') },
+    format: 'gii',
+  });
+  const meta = out.result?.meta as { handle: number; labelTables: Record<string, unknown> };
+  const annotation = Object.keys(meta.labelTables)[0]!;
+  // Coronal plane through the first grid row: Beta and Alpha both intersect it.
+  const plane = { normal: [0, 1, 0] as [number, number, number], offset: 18 };
+  const plain = await must(page, 'contours', { handle: meta.handle, plane });
+  expect(plain.result?.labels).toBeUndefined();
+  const labeled = await must(page, 'contours', { handle: meta.handle, plane, annotation });
+  const segments = labeled.result?.segments as ArraySummary;
+  const labels = labeled.result?.labels as ArraySummary;
+  expect(labels.kind).toBe('Uint32Array');
+  expect(labels.length).toBeGreaterThan(0);
+  expect(segments.length).toBe(labels.length * 6);
+  // Original file ids are 3 and 7; transport must carry palette indices 1 and 2 instead.
+  expect(labels.min).toBe(1);
+  expect(labels.max).toBe(2);
+  expect(labels.nonFinite).toBe(0);
+});

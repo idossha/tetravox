@@ -10,6 +10,9 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Point layers keep their filenames.** Loading `.geo` or `.pos` files no longer replaces the layer
+  name with an internal view title such as “view 1”.
+
 - **Replace numeric bounds freely.** Contrast and threshold inputs allow clearing all characters;
   valid replacements commit on Enter or when leaving the input.
 
@@ -17,6 +20,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   takes another surface’s default color. Explicit colors are retained.
 
 ### Changed
+
+- **Annotations color 2D surface outlines.** Axial, coronal and sagittal outlines follow the attached
+  annotation's region colors and visibility, as well as layer opacity.
+- Removed the Reverse cut button from clip-plane controls.
 
 - **NIfTI thresholds are ready to edit.** Contrast and threshold rows sit beneath the histogram, with
   thresholds initially spanning min–max. Removed the enable checkbox and Use display range button;

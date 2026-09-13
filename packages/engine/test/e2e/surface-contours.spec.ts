@@ -26,7 +26,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { expectGolden, expectPixel, readCanvasRect } from '../helpers/pixels';
+import { readFileSync } from 'node:fs';
+import { expectGolden, expectPixel, readCanvasRect, readCanvasPixels } from '../helpers/pixels';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
 const fixture = (name: string): string => `/@fs${REPO}testdata/${name}`;
@@ -477,5 +478,291 @@ test('golden: derived-surface-contours-2x2', async ({ page }) => {
     await engine.whenSettled();
   }, SURFACE);
   await expectGolden(page, 'derived-surface-contours-2x2');
+  expect(errors).toEqual([]);
+});
+
+/** Independent triangle/plane probes, retaining barycentric weights to identify the atlas region. */
+function annotationProbes(normal: [number, number, number], offset: number, keys: number[]) {
+  const vertices = fixtureVertices();
+  const out: { world: [number, number, number]; key: number }[] = [];
+  for (const tri of fixtureTriangles()) {
+    const points = tri.map((id) => vertices[id]!);
+    const distances = points.map((p) => p.reduce((sum, v, i) => sum + v * normal[i]!, offset));
+    const hits: { world: number[]; weights: number[] }[] = [];
+    for (let i = 0; i < 3; i++) {
+      const j = (i + 1) % 3;
+      if (distances[i]! >= 0 === distances[j]! >= 0) continue;
+      const t = distances[i]! / (distances[i]! - distances[j]!);
+      hits.push({
+        world: points[i]!.map((v, k) => v + t * (points[j]![k]! - v)),
+        weights: [0, 1, 2].map((k) => (k === i ? 1 - t : k === j ? t : 0)),
+      });
+    }
+    if (hits.length !== 2) continue;
+    for (const t of [0.2, 0.4, 0.6, 0.8]) {
+      const weights = hits[0]!.weights.map((v, k) => v + t * (hits[1]!.weights[k]! - v));
+      const ranked = [0, 1, 2].sort((a, b) => weights[b]! - weights[a]!);
+      // Stay clear of categorical boundaries and their subpixel end caps.
+      if (weights[ranked[0]!]! - weights[ranked[1]!]! < 0.2) continue;
+      out.push({
+        world: hits[0]!.world.map((v, k) => v + t * (hits[1]!.world[k]! - v)) as [
+          number,
+          number,
+          number,
+        ],
+        key: keys[tri[ranked[0]!]!]!,
+      });
+    }
+  }
+  return out;
+}
+
+const REGION_COLORS: Record<number, readonly [number, number, number]> = {
+  0: [0, 0, 0],
+  3: [255, 0, 0],
+  7: [0, 128, 0],
+  11: [0, 0, 255],
+};
+
+async function annotatedOutline(page: Page): Promise<string> {
+  const id = await page.evaluate(
+    async ([surface, annotation]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({ kind: 'path', path: surface! });
+      const layer = engine.addLayer({ datasetId: ds.id } as never);
+      const annotated = await engine.attachSurfaceData(ds.id, { kind: 'path', path: annotation! });
+      engine.updateLayer(layer.id, {
+        colorMode: 'annotation',
+        contoursIn2D: true,
+        contourWidthPx: 4,
+        annotation: {
+          name: 'surf_regions.label.gii',
+          table: annotated.labelTables!['surf_regions.label.gii']!,
+          mode: 'fill',
+          outlineWidthPx: 1,
+        },
+      } as never);
+      engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
+      return layer.id;
+    },
+    [SURFACE, fixture('surf_regions.label.gii')]
+  );
+  return id;
+}
+
+async function annotationView(page: Page, view: 'axial' | 'coronal' | 'sagittal') {
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    engine.setLayout({ kind: '1x1', cells: [id] });
+    engine.setCursor([2.5, -4, 8]);
+    engine.setView(id, { camera: { center: [0, 0], mmPerPx: 0.15 } });
+    for (let i = 0; i < 8; i++) {
+      await engine.whenSettled();
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }, view);
+}
+
+test('annotation colors follow the surface into all three 2D panes @angle', async ({ page }) => {
+  test.slow();
+  const errors = await openScene(page);
+  const layerId = await annotatedOutline(page);
+  const keys = new Array<number>(16).fill(3);
+  for (const id of [0, 1, 5]) keys[id] = 7;
+  for (const id of [10, 14, 15]) keys[id] = 11;
+  const anchor = sceneAnchor();
+  const cases = [
+    {
+      view: 'axial' as const,
+      normal: [0, 0, 1] as [number, number, number],
+      offset: -8,
+      right: 0,
+      up: 1,
+    },
+    {
+      view: 'coronal' as const,
+      normal: [0, -1, 0] as [number, number, number],
+      offset: -4,
+      right: 0,
+      up: 2,
+    },
+    {
+      view: 'sagittal' as const,
+      normal: [-1, 0, 0] as [number, number, number],
+      offset: 2.5,
+      right: 1,
+      up: 2,
+    },
+  ];
+  const seen = new Set<number>();
+  for (const { view, normal, offset, right, up } of cases) {
+    await annotationView(page, view);
+    expect(await page.evaluate(() => window.__tvxErrors ?? [])).toEqual([]);
+    const probes = annotationProbes(normal, offset, keys);
+    expect(probes.length).toBeGreaterThan(4);
+    const coords = probes.map(
+      ({ world }) =>
+        [
+          Math.round(
+            CX + ((world[right]! - anchor[right]!) / 0.15) * (view === 'sagittal' ? -1 : 1) - 0.5
+          ),
+          Math.round(CY - (world[up]! - anchor[up]!) / 0.15 - 0.5),
+        ] as [number, number]
+    );
+    const pixels = await readCanvasPixels(page, coords);
+    for (const [i, probe] of probes.entries()) {
+      const expected = REGION_COLORS[probe.key]!;
+      for (let c = 0; c < 3; c++)
+        expect(
+          Math.abs(pixels[i]![c]! - expected[c]!),
+          `${view} label ${probe.key} at ${coords[i]} got ${pixels[i]} expected ${expected}`
+        ).toBeLessThanOrEqual(2);
+      seen.add(probe.key);
+    }
+    if (view === 'coronal') {
+      // Palette and visibility edits repaint without moving the cut or reattaching data.
+      await page.evaluate(async (id) => {
+        const engine = window.__tvxEngine!;
+        const layer = engine.scene.layers.find((l) => l.id === id);
+        if (layer?.kind !== 'surface' || !layer.annotation) throw new Error('missing annotation');
+        engine.updateLayer(id, {
+          annotation: {
+            ...layer.annotation,
+            visibleLabels: new Uint32Array([7, 11]),
+            table: {
+              ...layer.annotation.table,
+              entries: layer.annotation.table.entries.map((e) =>
+                e.id === 7 ? { ...e, color: [1, 0, 1, 1] } : e
+              ),
+            },
+          },
+        } as never);
+        await engine.whenSettled();
+      }, layerId);
+      await annotationView(page, view);
+      const changed = await readCanvasPixels(page, coords);
+      for (const [i, probe] of probes.entries()) {
+        const expected =
+          probe.key === 3 ? BG : probe.key === 7 ? [255, 0, 255] : REGION_COLORS[probe.key]!;
+        for (let c = 0; c < 3; c++)
+          expect(Math.abs(changed[i]![c]! - expected[c]!)).toBeLessThanOrEqual(2);
+      }
+      await page.evaluate(async (id) => {
+        const engine = window.__tvxEngine!;
+        const layer = engine.scene.layers.find((l) => l.id === id);
+        if (layer?.kind !== 'surface' || !layer.annotation) throw new Error('missing annotation');
+        const ds = engine.scene.datasets.get(layer.datasetId);
+        if (ds?.kind !== 'mesh') throw new Error('missing surface');
+        engine.updateLayer(id, {
+          annotation: {
+            ...layer.annotation,
+            visibleLabels: undefined,
+            table: ds.labelTables!['surf_regions.label.gii']!,
+          },
+        } as never);
+        await engine.whenSettled();
+      }, layerId);
+    }
+  }
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    engine.updateLayer(id, { opacity: 0.5 });
+    await engine.whenSettled();
+  }, layerId);
+  await annotationView(page, 'axial');
+  const fadedProbes = annotationProbes([0, 0, 1], -8, keys);
+  const fadedPixels = await readCanvasPixels(
+    page,
+    fadedProbes.map(({ world }) => axialPixel(world, 0.15))
+  );
+  for (const [i, probe] of fadedProbes.entries()) {
+    for (let c = 0; c < 3; c++) {
+      const expected = (REGION_COLORS[probe.key]![c]! + BG[c]!) / 2;
+      expect(Math.abs(fadedPixels[i]![c]! - expected)).toBeLessThanOrEqual(2);
+    }
+  }
+  await page.evaluate(async (id) => {
+    window.__tvxEngine!.updateLayer(id, { colorMode: 'solid', opacity: 1 } as never);
+    await window.__tvxEngine!.whenSettled();
+  }, layerId);
+  await annotationView(page, 'axial');
+  const solidPixels = await readCanvasPixels(
+    page,
+    fadedProbes.map(({ world }) => axialPixel(world, 0.15))
+  );
+  for (const pixel of solidPixels) {
+    for (let c = 0; c < 3; c++) expect(Math.abs(pixel[c]! - YELLOW[c]!)).toBeLessThanOrEqual(2);
+  }
+  await page.evaluate(async (id) => {
+    window.__tvxEngine!.updateLayer(id, { colorMode: 'annotation' } as never);
+    await window.__tvxEngine!.whenSettled();
+  }, layerId);
+  await annotationView(page, 'axial');
+  const restoredPixels = await readCanvasPixels(
+    page,
+    fadedProbes.map(({ world }) => axialPixel(world, 0.15))
+  );
+  for (const [i, probe] of fadedProbes.entries()) {
+    for (let c = 0; c < 3; c++)
+      expect(Math.abs(restoredPixels[i]![c]! - REGION_COLORS[probe.key]![c]!)).toBeLessThanOrEqual(
+        2
+      );
+  }
+  // Replace the same named field without moving the pane: geometry must follow the new labels.
+  await annotationView(page, 'coronal');
+  await page.route('**/replacement/surf_regions.label.gii', (route) =>
+    route.fulfill({
+      contentType: 'application/xml',
+      body: readFileSync(`${REPO}testdata/surf.label.gii`),
+    })
+  );
+  await page.evaluate(async (id) => {
+    const engine = window.__tvxEngine!;
+    const layer = engine.scene.layers.find((l) => l.id === id);
+    if (layer?.kind !== 'surface') throw new Error('missing surface');
+    await engine.attachSurfaceData(layer.datasetId, {
+      kind: 'path',
+      path: `${location.origin}/replacement/surf_regions.label.gii`,
+    });
+    await engine.whenSettled();
+  }, layerId);
+  // Same layout and cursor; settle pending worker geometry without a plane update.
+  await page.evaluate(async () => {
+    for (let i = 0; i < 8; i++) {
+      await window.__tvxEngine!.whenSettled();
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  });
+  const replacementProbes = annotationProbes(
+    [0, -1, 0],
+    -4,
+    Array.from({ length: 16 }, (_, i) => [0, 3, 7, 11][i % 4]!)
+  );
+  const replacementPixels = await readCanvasPixels(
+    page,
+    replacementProbes.map(
+      ({ world }) =>
+        [
+          Math.round(CX + (world[0] - anchor[0]) / 0.15 - 0.5),
+          Math.round(CY - (world[2] - anchor[2]) / 0.15 - 0.5),
+        ] as [number, number]
+    )
+  );
+  for (const [i, probe] of replacementProbes.entries()) {
+    for (let c = 0; c < 3; c++)
+      expect(
+        Math.abs(replacementPixels[i]![c]! - REGION_COLORS[probe.key]![c]!),
+        `replacement label ${probe.key}, world ${probe.world}, got ${replacementPixels[i]}`
+      ).toBeLessThanOrEqual(2);
+  }
+  expect([...seen].sort((a, b) => a - b)).toEqual([3, 7, 11]);
+  expect(errors).toEqual([]);
+});
+
+test('golden: annotated surface contours', async ({ page }) => {
+  const errors = await openScene(page);
+  await annotatedOutline(page);
+  await annotationView(page, 'coronal');
+  await expectGolden(page, 'surface-annotation-contours');
   expect(errors).toEqual([]);
 });

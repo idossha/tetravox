@@ -317,3 +317,20 @@ pub fn sphere_map(source: &[[f32; 3]], target: &[[f32; 3]]) -> Result<Vec<u32>> 
         Err(unavailable("sphere_map"))
     }
 }
+
+pub fn labeled_surface_contours(
+    mesh: &Mesh,
+    plane: &Plane,
+    mask: Option<&BitMask>,
+    labels: &[f32],
+) -> Result<(Vec<f32>, Vec<u32>)> {
+    #[cfg(feature = "geom")]
+    {
+        tvx_geom::labeled_surface_contours(mesh, plane, mask, labels)
+    }
+    #[cfg(not(feature = "geom"))]
+    {
+        let _ = (mesh, plane, mask, labels);
+        Err(unavailable("labeled_surface_contours"))
+    }
+}

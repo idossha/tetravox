@@ -83,10 +83,42 @@ describe('a parsed view becoming a points layer', () => {
       { position: [1, 2, 3], value: 10, name: 'E001' },
       { position: [4, 5, 6], value: 20, name: 'E002' },
     ]);
-    expect(layer.name).toBe('view 1');
+    expect(layer.name).toBe('GSN-HydroCel-185.geo');
     expect(layer.labels).toHaveLength(2);
     expect(layer.lineSegments).toBeInstanceOf(Float32Array);
     expect(layer.valueRange).toEqual({ lo: 10, hi: 20 });
+  });
+
+  it('keeps the filename primary while retaining multiple named views as metadata', () => {
+    const ds = dataset(
+      wire({
+        viewNames: ['electrodes', 'connections'],
+        views: [
+          {
+            name: 'electrodes',
+            points: 2,
+            labels: 2,
+            lines: 0,
+            tris: 0,
+            timeSteps: 1,
+            skipped: [],
+          },
+          {
+            name: 'connections',
+            points: 0,
+            labels: 0,
+            lines: 1,
+            tris: 0,
+            timeSteps: 1,
+            skipped: [],
+          },
+        ],
+      }),
+      { name: 'a.geo' }
+    );
+    expect(defaultPointsLayer('l1', ds).name).toBe('a.geo');
+    expect(ds.geo?.viewNames).toEqual(['electrodes', 'connections']);
+    expect(ds.geo?.views.map((view) => view.name)).toEqual(['electrodes', 'connections']);
   });
 
   /**

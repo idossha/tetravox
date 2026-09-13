@@ -1725,6 +1725,8 @@ export class TetravoxEngine implements Engine, PointerHost {
       this.#sidecars.set(datasetId, { ...cars, fields: [...fields, src.path] });
     }
     this.#emit('datasets', [...this.#scene.datasets.values()]);
+    // Replacing an annotation must repaint unchanged slice planes with the new region field.
+    this.requestRender();
     return ds;
   }
 

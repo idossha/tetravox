@@ -20,13 +20,13 @@ import {
   clearIsolateClause,
   defaultGlyphs,
   disableGlyphs,
-  flipClipPlane,
   hexToVec4,
   isolateIsEmpty,
   offsetThrough,
   patchThreshold,
   planesThroughCursor,
   setClipFollowsCursor,
+  setClipOffset,
   selectField,
   setColorMode,
   setClipNormal,
@@ -322,22 +322,23 @@ describe('clip planes', () => {
     const mesh = meshLayer({ clip: { planes: [], caps: false, capColorMode: 'tag' } });
     const added = addClipPlane(mesh, [0, 0, 1], -12);
     expect(added.clip).toMatchObject({ caps: true, capColorMode: 'inherit' });
-    const edited = flipClipPlane(
+    const edited = setClipOffset(
       { ...mesh, clip: { ...mesh.clip, planes: added.clip!.planes } },
-      0
+      0,
+      12
     );
     expect(edited.clip).toMatchObject({
       caps: true,
       capColorMode: 'inherit',
-      planes: [{ plane: { normal: [-0, -0, -1], offset: 12 } }],
+      planes: [{ plane: { normal: [0, 0, 1], offset: 12 } }],
     });
     const surface = { ...mesh, kind: 'surface', clip: { planes: [] } } as unknown as SurfaceLayer;
     const surfaceAdded = addClipPlane(surface, [0, 0, 1], -12);
     expect(surfaceAdded.clip).not.toHaveProperty('caps');
     expect(surfaceAdded.clip).not.toHaveProperty('capColorMode');
-    const reversed = flipClipPlane({ ...surface, clip: surfaceAdded.clip! }, 0);
-    expect(reversed.clip).not.toHaveProperty('caps');
-    expect(reversed.clip?.planes[0]?.plane.offset).toBe(12);
+    const moved = setClipOffset({ ...surface, clip: surfaceAdded.clip! }, 0, 12);
+    expect(moved.clip).not.toHaveProperty('caps');
+    expect(moved.clip?.planes[0]?.plane.offset).toBe(12);
   });
 
   it('adds up to six and then refuses', () => {
@@ -360,33 +361,6 @@ describe('clip planes', () => {
     const patch = setClipNormal(layer, 0, [0, 0, 4]);
     expect(patch.clip?.planes[0]?.plane.normal).toEqual([0, 0, 1]);
     expect(setClipNormal(layer, 0, [0, 0, 0])).toEqual({});
-  });
-
-  it('flips the kept side without moving the plane', () => {
-    // A plane through z = 40: `dot([0,0,1], p) - 40 = 0`.
-    const layer = meshLayer({
-      clip: {
-        planes: [{ plane: { normal: [0, 0, 1], offset: -40 }, enabled: true }],
-        caps: true,
-        capColorMode: 'inherit',
-      },
-    });
-    const flipped = flipClipPlane(layer, 0).clip?.planes[0]?.plane;
-    expect(flipped).toEqual({ normal: [-0, -0, -1], offset: 40 });
-    const on: vec3 = [10, -5, 40];
-    const before = 0 * on[0] + 0 * on[1] + 1 * on[2] - 40;
-    const after =
-      (flipped?.normal[0] ?? 0) * on[0] +
-      (flipped?.normal[1] ?? 0) * on[1] +
-      (flipped?.normal[2] ?? 0) * on[2] +
-      (flipped?.offset ?? 0);
-    // The plane is the same set of points; only which half-space is kept changed.
-    expect(before).toBe(0);
-    expect(after).toBe(0);
-    // And a point that was kept is now discarded.
-    const above: vec3 = [0, 0, 60];
-    expect(1 * above[2] - 40).toBeGreaterThan(0);
-    expect(-1 * above[2] + 40).toBeLessThan(0);
   });
 
   it('puts a plane through a point with `offsetThrough`', () => {

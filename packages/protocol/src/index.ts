@@ -481,7 +481,7 @@ export interface OpArgs {
     iso: number;
     maskId?: number;
   };
-  contours: { handle: number; plane: PlaneT; maskId?: number };
+  contours: { handle: number; plane: PlaneT; maskId?: number; annotation?: string };
   labelCentroids: { handle: number; volumeIndex: number };
   /**
    * Volumetric `GlyphSpec` origins (§7.4). `stride` keeps every `stride`-th tet that survives
@@ -549,7 +549,7 @@ export interface OpResult {
   marchingCubesLabel: SurfacePayload;
   marchingTets: SurfacePayload;
   /** 6 floats per segment. */
-  contours: { segments: Float32Array };
+  contours: { segments: Float32Array; labels?: Uint32Array };
   labelCentroids: {
     centroids: { id: number; centroid: [number, number, number]; count: number }[];
   };

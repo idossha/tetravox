@@ -1114,6 +1114,28 @@ fn surface_contours_match_numpy_on_lh_pial() {
         let offset = want["offset"].as_f64().unwrap() as f32;
         let seg = surface_contours(&m, &Plane { normal, offset }, None).unwrap();
         assert_eq!(seg.len() % 6, 0, "{name}: 6 floats per segment");
+        // Annotation partitioning must retain the independently measured contour length. Synthetic
+        // categorical node ids exercise splits on the real pial triangles without private annotations.
+        let node_labels: Vec<f32> = (0..m.nodes.len()).map(|i| (i % 3) as f32).collect();
+        let (partitioned, labels) =
+            tvx_geom::labeled_surface_contours(&m, &Plane { normal, offset }, None, &node_labels)
+                .unwrap();
+        assert_eq!(partitioned.len(), labels.len() * 6);
+        assert!(labels.iter().all(|id| *id < 3));
+        let partitioned_length: f64 = partitioned
+            .chunks_exact(6)
+            .map(|s| {
+                let dx = f64::from(s[3] - s[0]);
+                let dy = f64::from(s[4] - s[1]);
+                let dz = f64::from(s[5] - s[2]);
+                (dx * dx + dy * dy + dz * dz).sqrt()
+            })
+            .sum();
+        let ref_length = want["totalLengthMm"].as_f64().unwrap();
+        assert!(
+            (partitioned_length - ref_length).abs() / ref_length < 0.01,
+            "{name}: labeled contour length matches numpy"
+        );
 
         let length: f64 = seg
             .chunks_exact(6)

@@ -373,22 +373,6 @@ export function setClipOffset<L extends ClipLayer>(
 }
 
 /**
- * Flip which side is kept, **without moving the plane**: `dot(n, x) + d >= 0` becomes
- * `dot(−n, x) − d >= 0`, and the set `dot(n, x) + d == 0` is the same set. Negating only the normal
- * would translate the plane to `dot(n, x) = d`, which is the mirror plane through the origin — a
- * bug that looks like "flip works, but the cut jumps" and is invisible at `offset == 0`.
- */
-export function flipClipPlane<L extends ClipLayer>(layer: L, index: number): Partial<L> {
-  return patchPlane(layer, index, (p) => ({
-    ...p,
-    plane: {
-      normal: [-p.plane.normal[0], -p.plane.normal[1], -p.plane.normal[2]],
-      offset: -p.plane.offset,
-    },
-  }));
-}
-
-/**
  * The patch that makes every `followCursor` plane pass through `cursor`, keeping its normal.
  *
  * Returns `{}` when nothing follows or nothing moved, so the controller can skip the call rather
