@@ -414,6 +414,7 @@ not a new test result; current behavior is authoritative in ARCHITECTURE.
 | 2026-09-06 surfaces R3–R5 | §4.4/§4.7/§8; annotation tests assert attached color source and reference entry count; `props-surface.spec.ts` checks the dedicated editor and excluded mesh controls; `registry.test.ts` reads imports to hold the surface/mesh module boundary. |
 | 2026-09-11 volume controls and follow-up | §8; `props-volume.spec.ts` checks labelled scalar controls, label-only region controls, unbounded threshold state, preset values, side-by-side 3D controls and exact bound preservation across percentile unit changes. Preset and percentile unit tests pin stored anchors and interpolation independently. |
 | 2026-09-11 mesh controls | §8; `props-mesh.spec.ts` checks field/component resets, conditional controls, shared percentile thresholds and independent dragging of all four histogram bounds, while retaining clipping, isolation and glyph manipulation. `mesh/state.test.ts` checks normalized ranges and hard-hide thresholds; the volume suite protects the shared editor. |
+| 2026-09-12 clip and threshold ergonomics | §8; `props-volume.spec.ts` checks min/max defaults, four visible handles, vertical input order, fully erasable drafts, Enter/blur commits, Escape cancellation and percentile/value round trips. `props-mesh.spec.ts` checks automatic inherited caps, a stationary reversed cut at a nonzero offset and header fit; mesh state tests protect uncapped surfaces. |
 
 ### Documentation capture guidance
 

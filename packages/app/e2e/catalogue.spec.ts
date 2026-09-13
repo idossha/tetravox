@@ -465,6 +465,12 @@ async function layerIdOf(page: Page, kind: string, nth = 0): Promise<string> {
 
 /** Set a range / select / number the way a user's drag does: native setter, then input + change. */
 async function setControl(page: Page, testId: string, value: string): Promise<void> {
+  const control = page.getByTestId(testId);
+  if ((await control.getAttribute('type')) === 'number') {
+    await control.fill(value);
+    await control.blur();
+    return;
+  }
   await page.evaluate(
     ([id, v]) => {
       const el = document.querySelector(`[data-testid="${id}"]`);
@@ -1024,7 +1030,6 @@ test.describe('visualisation scenario catalogue', () => {
       await setControl(page, `volume-colormap-${ti}`, 'hot');
       await setControl(page, `volume-scale-lo-${ti}`, '0.1');
       await setControl(page, `volume-scale-hi-${ti}`, '1.6');
-      await page.getByTestId(`volume-threshold-enabled-${ti}`).check();
       await setControl(page, `volume-threshold-lo-${ti}`, '0.1');
       await setControl(page, `volume-threshold-hi-${ti}`, '');
       await settle(page);
@@ -1366,7 +1371,7 @@ test.describe('visualisation scenario catalogue', () => {
       await page.click(`[data-testid="mesh-clip-add-${mesh}"]`);
       await page.click(`[data-testid="mesh-clip-preset-${mesh}-0-axial"]`);
       await page.click(`[data-testid="mesh-clip-tocursor-${mesh}-0"]`);
-      await setControl(page, `mesh-clip-capcolor-${mesh}`, 'tag');
+      // Cut faces inherit the active mesh coloring.
       // Look up into the kept half: the axial plane keeps everything above it, so the cut face
       // points down and an anterior camera sees only scalp.
       await frame3d(page, '6', 70, 35);
@@ -1422,7 +1427,7 @@ test.describe('visualisation scenario catalogue', () => {
               'clip.planes[0]': 'normal (0,0,1) through the cursor',
               'clip.planes[1]': 'normal (1,0,0) through the cursor (second close-up)',
               'clip.caps': true,
-              'clip.capColorMode': 'tag',
+              'clip.capColorMode': 'inherit',
               'edges.caps': true,
               edgeWidthPx: 1,
             },
@@ -2106,7 +2111,7 @@ test.describe('visualisation scenario catalogue', () => {
       await page.click(`[data-testid="mesh-clip-preset-${layer}-0-axial"]`);
       await page.click(`[data-testid="mesh-clip-tocursor-${layer}-0"]`);
       await page.click(`[data-testid="mesh-clip-flip-${layer}-0"]`);
-      await setControl(page, `mesh-clip-capcolor-${layer}`, 'tag');
+      // Cut faces inherit the active mesh coloring.
 
       await openSection(page, `mesh-glyphs-${layer}`);
       await page.click(`[data-testid="mesh-glyphs-enabled-${layer}"]`);
@@ -2143,8 +2148,8 @@ test.describe('visualisation scenario catalogue', () => {
 
       // Now the arrows. Hiding the **surface** tags (1001…) empties the pane of geometry while
       // leaving the **volume** tags (1…) visible, and the volume tags are what the glyph origins
-      // are filtered by — "Hide all" would take those too and the glyphs with them. The caps go
-      // off for the same reason: they are drawn at the plane, in front of everything near it.
+      // are filtered by — "Hide all" would take those too and the glyphs with them. Disable the
+      // cut for this view so its filled face does not obscure the arrows.
       // This is the one gesture that addresses a single tag rather than a whole tissue, which is
       // why the paired row keeps two toggles: "Surf" is the tri half, "Vol" the tet half.
       const rows = await page
@@ -2159,7 +2164,7 @@ test.describe('visualisation scenario catalogue', () => {
         if (await surf.isEnabled()) await surf.click();
       }
       await openSection(page, `mesh-clip-${layer}`);
-      await page.click(`[data-testid="mesh-clip-caps-${layer}"]`);
+      await page.click(`[data-testid="mesh-clip-enabled-${layer}-0"]`);
       await dolly3d(page, -260);
       await shootPaneCrop(page, 'view3d', '11-vector-glyphs-closeup.png', 0.7);
       await dolly3d(page, 520);
@@ -2174,7 +2179,7 @@ test.describe('visualisation scenario catalogue', () => {
           'subsampled to every 600th, 6 mm long, coloured by magnitude. The first close-up is ' +
           'the axial cut with every tissue on — the exact caps coloured by tissue, which is the ' +
           'context the arrows sit in and also the reason no arrow can be seen in it. The second ' +
-          'is the same scene with the tissue **surfaces** hidden and the caps off, which is what ' +
+          'is the same scene with the tissue **surfaces** hidden and the cut disabled, which is what ' +
           `it takes to see inside. The panel reports the stride as “${summary.trim()}”.`,
         data_files: [
           'Simulations/L_Insula/high_Frequency/mesh/ernie_TDCS_1_scalar.msh (E, 3 components, ' +
@@ -2187,7 +2192,7 @@ test.describe('visualisation scenario catalogue', () => {
             settings: {
               colorMode: 'tag',
               'clip.planes[0]': 'axial, through the cursor',
-              'clip.capColorMode': 'tag',
+              'clip.capColorMode': 'inherit',
               'glyphs.field': 'E (element field, 3 components)',
               'glyphs.shape': 'arrow',
               'glyphs.origins': 'volume — one per tet',

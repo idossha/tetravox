@@ -2,8 +2,7 @@
  * §7.4's **six clip planes**, and §7.5's "cut plane: sliders (normal preset + free normal + offset)".
  *
  * Per plane: enable, a preset normal (axial / coronal / sagittal), free normal sliders, an offset
- * slider that scrubs across the scene's own extent, flip, and **follow cursor**. Plus the layer-wide
- * cap switch and `capColorMode`.
+ * slider that scrubs across the scene's own extent, reverse cut, and **follow cursor**. Mesh cuts are filled using the layer coloring.
  *
  * **Flip is `n → −n`, `offset → −offset`.** Negating only the normal moves the plane to its mirror
  * about the origin, which looks right at `offset == 0` and is wrong everywhere else; `state.ts` has
@@ -17,7 +16,7 @@
 
 import type { MeshDataset, vec3 } from '@tetravox/engine';
 import { useController, useUi } from '../../../ui/context';
-import { NumberField, Row, Section, Select, Slider, Toggle } from './controls';
+import { NumberField, Row, Section, Slider, Toggle } from './controls';
 import type { ClipLayer } from './state';
 import {
   addClipPlane,
@@ -26,8 +25,6 @@ import {
   MAX_CLIP_PLANES,
   offsetThrough,
   removeClipPlane,
-  setCapColorMode,
-  setClipCaps,
   setClipEnabled,
   setClipNormal,
   setClipOffset,
@@ -89,7 +86,7 @@ export function ClipPlanes({
     >
       {planes.length === 0 ? (
         <p data-testid={`${prefix}-clip-empty-${layer.id}`} className="text-[10px] text-tvx-dim">
-          No clip plane. §7.4 allows up to six, each with exact caps.
+          Add a cut to reveal the inside.
         </p>
       ) : null}
 
@@ -110,7 +107,7 @@ export function ClipPlanes({
             data-follows-cursor={follows}
             className="rounded border border-tvx-line/60 p-1"
           >
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <Toggle
                 testId={`${prefix}-clip-enabled-${layer.id}-${index}`}
                 label={`#${index + 1}`}
@@ -142,7 +139,7 @@ export function ClipPlanes({
                   patch(flipClipPlane(layer, index));
                 }}
               >
-                flip
+                Reverse cut
               </button>
               <button
                 type="button"
@@ -215,27 +212,6 @@ export function ClipPlanes({
           </div>
         );
       })}
-
-      {layer.kind !== 'mesh' ? null : (
-        <Row label="Caps">
-          <Toggle
-            testId={`${prefix}-clip-caps-${layer.id}`}
-            label={layer.clip.caps ? 'exact caps' : 'no caps'}
-            on={layer.clip.caps}
-            title="Exact per-element cap polygons from `plane_cut` (§7.4)"
-            onChange={(v) => patch(setClipCaps(layer, v))}
-          />
-          <Select
-            testId={`${prefix}-clip-capcolor-${layer.id}`}
-            value={layer.clip.capColorMode}
-            options={[
-              { value: 'inherit', label: 'inherit' },
-              { value: 'tag', label: 'by tag' },
-            ]}
-            onChange={(m) => patch(setCapColorMode(layer, m))}
-          />
-        </Row>
-      )}
     </Section>
   );
 }

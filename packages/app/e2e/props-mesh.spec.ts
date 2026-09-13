@@ -47,6 +47,12 @@ async function boot(
  * prototype setter and dispatch, which is the only way the change reaches `onChange`.
  */
 async function setControl(page: Page, testId: string, value: string): Promise<void> {
+  const control = page.getByTestId(testId);
+  if ((await control.getAttribute('type')) === 'number') {
+    await control.fill(value);
+    await control.blur();
+    return;
+  }
   await page.evaluate(
     ([id, v]) => {
       const el = document.querySelector(`[data-testid="${id}"]`);
@@ -422,10 +428,12 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     expect(await onePatch(page)).toEqual({ colormap: 'inferno' });
     await record(page);
     await page.getByTestId(`mesh-scale-lo-${ids.mesh}`).fill('1');
+    await page.getByTestId(`mesh-scale-lo-${ids.mesh}`).blur();
     expect((await onePatch(page)).scale).toMatchObject({ kind: 'linear', lo: 1 });
     await page.getByTestId(`mesh-threshold-enabled-${ids.mesh}`).check();
     await record(page);
     await page.getByTestId(`mesh-threshold-lo-${ids.mesh}`).fill('2');
+    await page.getByTestId(`mesh-threshold-lo-${ids.mesh}`).blur();
     expect((await onePatch(page)).threshold).toMatchObject({
       lo: 2,
       mode: 'hide',
@@ -447,8 +455,10 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     }, ids.mesh);
     await page.getByTestId(`mesh-threshold-units-${ids.mesh}`).selectOption('percentiles');
     await page.getByTestId(`mesh-threshold-lo-${ids.mesh}`).fill('50');
+    await page.getByTestId(`mesh-threshold-lo-${ids.mesh}`).blur();
     await record(page);
     await page.getByTestId(`mesh-threshold-hi-${ids.mesh}`).fill('99.9');
+    await page.getByTestId(`mesh-threshold-hi-${ids.mesh}`).blur();
     expect((await onePatch(page)).threshold).toMatchObject({
       lo: stats.percentiles['50'],
       hi: stats.percentiles['99.9'],
@@ -571,7 +581,7 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
 
   // ---- clip planes -----------------------------------------------------------------------------
 
-  test('a clip plane: add, preset, offset, flip, follow-cursor, caps, remove', async () => {
+  test('a clip plane: add, preset, offset, flip, follow-cursor, automatic caps, remove', async () => {
     await openSection(page, `mesh-clip-${ids.mesh}`);
 
     await record(page);
@@ -622,9 +632,15 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     expect(offset).toBe(-12);
     await page.click(`[data-testid="mesh-clip-follow-${ids.mesh}-0"]`);
 
-    await record(page);
-    await setControl(page, `mesh-clip-capcolor-${ids.mesh}`, 'tag');
-    expect((await onePatch(page)).clip).toMatchObject({ capColorMode: 'tag' });
+    expect(added).toMatchObject({ caps: true, capColorMode: 'inherit' });
+    await expect(page.getByTestId(`mesh-clip-capcolor-${ids.mesh}`)).toHaveCount(0);
+    await expect(page.getByTestId(`mesh-clip-caps-${ids.mesh}`)).toHaveCount(0);
+    await expect(page.getByTestId(`mesh-clip-flip-${ids.mesh}-0`)).toHaveText('Reverse cut');
+    const fits = await page.getByTestId(`mesh-clip-plane-${ids.mesh}-0`).evaluate((plane) => {
+      const header = plane.firstElementChild as HTMLElement;
+      return header.scrollWidth <= header.clientWidth;
+    });
+    expect(fits).toBe(true);
 
     await record(page);
     await page.click(`[data-testid="mesh-clip-remove-${ids.mesh}-0"]`);

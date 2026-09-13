@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { MeshDataset, MeshLayer, Stats, vec3, vec4 } from '@tetravox/engine';
+import type { MeshDataset, MeshLayer, SurfaceLayer, Stats, vec3, vec4 } from '@tetravox/engine';
 import {
   MAX_CLIP_PLANES,
   addClipPlane,
@@ -318,6 +318,28 @@ describe('the 2D cross-section (R4)', () => {
 });
 
 describe('clip planes', () => {
+  it('mesh clip edits restore filled inherited cuts while surfaces stay cap-free', () => {
+    const mesh = meshLayer({ clip: { planes: [], caps: false, capColorMode: 'tag' } });
+    const added = addClipPlane(mesh, [0, 0, 1], -12);
+    expect(added.clip).toMatchObject({ caps: true, capColorMode: 'inherit' });
+    const edited = flipClipPlane(
+      { ...mesh, clip: { ...mesh.clip, planes: added.clip!.planes } },
+      0
+    );
+    expect(edited.clip).toMatchObject({
+      caps: true,
+      capColorMode: 'inherit',
+      planes: [{ plane: { normal: [-0, -0, -1], offset: 12 } }],
+    });
+    const surface = { ...mesh, kind: 'surface', clip: { planes: [] } } as unknown as SurfaceLayer;
+    const surfaceAdded = addClipPlane(surface, [0, 0, 1], -12);
+    expect(surfaceAdded.clip).not.toHaveProperty('caps');
+    expect(surfaceAdded.clip).not.toHaveProperty('capColorMode');
+    const reversed = flipClipPlane({ ...surface, clip: surfaceAdded.clip! }, 0);
+    expect(reversed.clip).not.toHaveProperty('caps');
+    expect(reversed.clip?.planes[0]?.plane.offset).toBe(12);
+  });
+
   it('adds up to six and then refuses', () => {
     let layer = meshLayer();
     for (let i = 0; i < MAX_CLIP_PLANES; i += 1) {

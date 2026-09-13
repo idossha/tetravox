@@ -10,10 +10,19 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Replace numeric bounds freely.** Contrast and threshold inputs allow clearing all characters;
+  valid replacements commit on Enter or when leaving the input.
+
 - **Surface colors follow scene order during concurrent loading.** A faster download no longer
   takes another surface’s default color. Explicit colors are retained.
 
 ### Changed
+
+- **NIfTI thresholds are ready to edit.** Contrast and threshold rows sit beneath the histogram, with
+  thresholds initially spanning min–max. Removed the enable checkbox and Use display range button;
+  switching Values/Percentiles preserves the selected cutoffs.
+- **Reverse mesh cuts directly.** Reverse cut keeps the opposite side without moving the plane.
+  Filled caps inherit mesh colors automatically, replacing the cap and color-source controls.
 
 - **Simpler mesh controls.** Field colors share the volume contrast, histogram and optional threshold
   editor. Controls follow the selected color source; vector components, tissue overrides and attached
