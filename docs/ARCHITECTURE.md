@@ -37,7 +37,7 @@ the number is the reason for a rule.
 | Math | `gl-matrix` | Column-major `mat4` as `Float32Array(16)`. |
 | Tests | `cargo test` · `vitest` · Playwright (Chromium headless **and** Electron) with **analytic pixel assertions + goldens** (§11) | An agent cannot judge a PNG; it can judge a number. |
 
-**Non-goals:** WebGPU, Windows, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
+**Non-goals:** WebGPU, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
 scope), **third-party runtime-loaded plugins** (first-party extensions, downloaded
 through File ▸ Extensions…, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
