@@ -255,7 +255,8 @@ test.describe('the §8 volume property editor', () => {
       const state = tv.store.getState();
       const layer = state.layers.find((l) => l.id === id);
       const ds = state.datasets.find((d) => d.id === layer?.datasetId);
-      if (layer?.kind !== 'volume' || ds?.kind !== 'volume') throw new Error('no volume');
+      if (layer?.kind !== 'volume' || ds?.kind !== 'volume' || tv.controller === null)
+        throw new Error('no volume controller');
       const previous = {
         threshold: { ...layer.threshold },
         stats: {
@@ -314,7 +315,8 @@ test.describe('the §8 volume property editor', () => {
           const state = tv.store.getState();
           const layer = state.layers.find((l) => l.id === id);
           const ds = state.datasets.find((d) => d.id === layer?.datasetId);
-          if (ds?.kind !== 'volume') throw new Error('no volume');
+          if (ds?.kind !== 'volume' || tv.controller === null)
+            throw new Error('no volume controller');
           Object.assign(ds.stats, saved.stats);
           tv.controller.patchLayer(id, { threshold: saved.threshold });
         },
