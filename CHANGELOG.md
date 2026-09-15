@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.0] - 2026-09-15
+
 ### Fixed
 
 - **Point layers keep their filenames.** Loading `.geo` or `.pos` files no longer replaces the layer
