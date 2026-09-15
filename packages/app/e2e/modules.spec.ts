@@ -412,9 +412,13 @@ test.describe('a build that offers no module', () => {
   test('does not list the fixture, and puts nothing in the slot', async () => {
     // "Offers no extension" means the FIXTURE (hello): compiled into every build and listed only
     // behind `?modules=`, so a launch that did not name it is in the state a build that never had
-    // it is in. Nothing ships bundled (2026-08-31) and this launch stages no install, so the
-    // switcher — a control the toolbar grows only when an extension IS carried — is not rendered.
-    await expect(page.locator('[data-testid="module-switcher"]')).toHaveCount(0);
+    // it is in. The switcher is still there — it is the door to installing one — but its menu
+    // holds no module row, only `Manage extensions…`.
+    await expect(page.locator('[data-testid="module-switcher"]')).toHaveCount(1);
+    await page.click('[data-testid="module-switcher"]');
+    await expect(page.locator('[data-testid="module-switcher-list"] [role="menuitemcheckbox"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="module-switcher-manage"]')).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await expect(page.locator('[data-testid="module-slot"]')).toHaveCount(0);
     await expect(page.locator('[data-testid^="status-module-"]')).toHaveCount(0);

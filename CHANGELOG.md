@@ -8,7 +8,16 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The toolbar keeps one row for longer in a narrow window.** The side columns now give way
+  before the centre controls wrap, and the right-hand controls are never pushed out of view. At
+  full width nothing moves.
+
+### Changed
+
+- **The Extensions button is always in the toolbar.** With nothing installed its menu holds
+  **Manage extensions…**, so installing one no longer starts from **File ▸ Extensions…** alone.
 
 ## [0.5.1] - 2026-09-15
 

@@ -1,7 +1,7 @@
 /**
  * The module switcher — one control in the toolbar's **right** column (§13.3).
  *
- * One switcher from the first module, and never a button per module. Two modules' worth of buttons
+ * One switcher, always present, and never a button per module. Two modules' worth of buttons
  * after `Cube` wrap the toolbar's centre cluster at 1440 px (`Toolbar.tsx` is `flex-wrap`), which
  * grows the header and shrinks the view grid — the same canvas-resize class the status bar was
  * pinned against. An E2E asserts the toolbar's height is unchanged after an activation.
@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useController, useUi } from '../ui/context';
 
-export function ModuleSwitcher(): React.JSX.Element | null {
+export function ModuleSwitcher(): React.JSX.Element {
   const controller = useController();
   const activeModule = useUi((s) => s.activeModule);
   // §13.10: every live module and where it is showing. The rows read this rather than `activeModule`
@@ -56,9 +56,8 @@ export function ModuleSwitcher(): React.JSX.Element | null {
   }, [open, close]);
 
   const modules = controller.modules();
-  // A build with no module offers no control at all, rather than a menu with nothing in it. This is
-  // also what keeps the toolbar byte-identical in a default launch, where the fixture is hidden.
-  if (modules.length === 0) return null;
+  // Always rendered, even with nothing installed: the menu then holds only `Manage extensions…`,
+  // which is the door to installing one — hiding the control hid the door too.
 
   const active = modules.find((m) => m.manifest.id === activeModule) ?? null;
 

@@ -105,20 +105,19 @@ export function Toolbar(): React.JSX.Element {
   // **view grid** rather than over the window — which is where a user looking at the panes expects
   // the layout, crosshair and screenshot buttons to be. The columns follow the collapse state, so a
   // collapsed panel slides the cluster over with the grid.
+  //
+  // When the window narrows, the outer columns give way first, down to their content, and only
+  // then does the centre wrap. The 1e6 : 1 shrink ratio is what makes "first" exact: at 1000 : 1
+  // the centre's share was still 0.05 px, enough to tip its last button onto a second row.
+  // `items-start`: a centred outer column would float into the centre's wrapped second row.
   const leftCol = leftPanelCollapsed ? '1.5rem' : '18rem';
   const rightCol = rightPanelCollapsed ? '1.5rem' : '20rem';
   return (
     <header
       data-testid="toolbar"
-      // `items-start`, not `items-center`: the centre column wraps to two rows at narrow widths
-      // (`toolbar-controls` is `flex-wrap`), which grows this grid row's height. `items-center` at
-      // the grid level would then float the left/right columns' single-row content in the middle of
-      // that taller row, overlapping the wrapped second line — each column re-centres itself with
-      // its own `items-center` below instead.
-      className="grid items-start gap-2 border-b border-tvx-line bg-tvx-panel px-3 py-1.5"
-      style={{ gridTemplateColumns: `minmax(0, ${leftCol}) 1fr minmax(0, ${rightCol})` }}
+      className="flex items-start gap-2 border-b border-tvx-line bg-tvx-panel px-3 py-1.5"
     >
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex items-center gap-2" style={{ flex: `0 1000000 ${leftCol}` }}>
         <AppMenu actions={menuActions} />
 
         {sceneFile !== null && (
@@ -144,6 +143,7 @@ export function Toolbar(): React.JSX.Element {
       <div
         data-testid="toolbar-controls"
         className="flex min-w-0 flex-wrap items-center justify-center gap-2"
+        style={{ flex: '1 1 auto' }}
       >
         <div className="flex items-center gap-0.5" role="group" aria-label="Layout">
           {controller.layouts.map((kind) => (
@@ -285,12 +285,12 @@ export function Toolbar(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-2">
-        {/* §13.3: one switcher, in the right column, directly above the slot it opens — never a
-          button per module, which would wrap the toolbar's centre cluster at 1440 px with the
-          second one. It renders nothing at all in a build that offers no module.
-          `shrink-0` keeps its trigger from being squeezed below its label's natural width, which
-          is what wrapped "Extensions ▾" onto two lines and doubled the button's height. */}
+      <div
+        className="flex items-center justify-end gap-2"
+        style={{ flex: `0 1000000 ${rightCol}` }}
+      >
+        {/* §13.3: one switcher, never a button per module. Always present: with nothing installed
+          its menu is the door to installing. */}
         <ModuleSwitcher />
 
         <button
