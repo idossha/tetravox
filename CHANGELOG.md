@@ -8,7 +8,25 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Toolbar controls no longer overlap at narrow window widths.** When the toolbar's centre cluster
+  wrapped onto a second row, the right-hand controls (Extensions, `?`, `⚙`) floated to the middle of
+  the taller row instead of staying pinned to the first — they now stay aligned to the top, so nothing
+  overlaps.
+
+- **The Extensions button stays one line tall.** Its label could wrap onto two lines under a shrinking
+  toolbar, doubling its height compared to every other button. It now keeps to one line at any width.
+
+- **A launch that finds a new version now opens Software Update itself.** Checking for updates on
+  launch previously only posted a toast; the update dialog now opens automatically, with the same
+  Update/Skip/Later choices the manual check has always had. It defers to a toast instead if another
+  dialog is already open, so it never interrupts what you're doing.
+
+### Added
+
+- **Check for Updates… is in the Tetravox menu.** Previously only the native macOS app menu could
+  open Software Update; the in-app "Tetravox" menu now has the same entry.
 
 ## [0.5.0] - 2026-09-15
 

@@ -92,6 +92,12 @@ export function Toolbar(): React.JSX.Element {
       disabled: !hasContent,
       onSelect: () => void controller.saveSceneAs(),
     },
+    {
+      id: 'check-for-updates',
+      label: 'Check for Updates…',
+      title: 'Software Update — the same dialog as the native app menu (§12.4)',
+      onSelect: () => controller.openUpdates(),
+    },
   ];
 
   // Three columns whose outer two are the sidebars' widths (`ui/Shell.tsx`: `w-72` left, `w-80`
@@ -104,7 +110,12 @@ export function Toolbar(): React.JSX.Element {
   return (
     <header
       data-testid="toolbar"
-      className="grid items-center gap-2 border-b border-tvx-line bg-tvx-panel px-3 py-1.5"
+      // `items-start`, not `items-center`: the centre column wraps to two rows at narrow widths
+      // (`toolbar-controls` is `flex-wrap`), which grows this grid row's height. `items-center` at
+      // the grid level would then float the left/right columns' single-row content in the middle of
+      // that taller row, overlapping the wrapped second line — each column re-centres itself with
+      // its own `items-center` below instead.
+      className="grid items-start gap-2 border-b border-tvx-line bg-tvx-panel px-3 py-1.5"
       style={{ gridTemplateColumns: `minmax(0, ${leftCol}) 1fr minmax(0, ${rightCol})` }}
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -274,10 +285,12 @@ export function Toolbar(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex shrink-0 items-center justify-end gap-2">
         {/* §13.3: one switcher, in the right column, directly above the slot it opens — never a
           button per module, which would wrap the toolbar's centre cluster at 1440 px with the
-          second one. It renders nothing at all in a build that offers no module. */}
+          second one. It renders nothing at all in a build that offers no module.
+          `shrink-0` keeps its trigger from being squeezed below its label's natural width, which
+          is what wrapped "Extensions ▾" onto two lines and doubled the button's height. */}
         <ModuleSwitcher />
 
         <button
@@ -285,7 +298,7 @@ export function Toolbar(): React.JSX.Element {
           data-testid="keyboard-help-button"
           aria-label="Keyboard shortcuts"
           aria-pressed={dialog === 'keyboard'}
-          className={dialog === 'keyboard' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+          className={dialog === 'keyboard' ? 'tvx-btn tvx-btn-on shrink-0' : 'tvx-btn shrink-0'}
           title={KEYMAP_HELP}
           onClick={() => controller.toggleKeyboardHelp()}
         >
@@ -298,7 +311,7 @@ export function Toolbar(): React.JSX.Element {
           title="Settings — appearance, capture defaults, paths and startup (§8)"
           aria-label="Settings"
           aria-pressed={dialog === 'settings'}
-          className={dialog === 'settings' ? 'tvx-btn tvx-btn-on' : 'tvx-btn'}
+          className={dialog === 'settings' ? 'tvx-btn tvx-btn-on shrink-0' : 'tvx-btn shrink-0'}
           onClick={() => controller.openDialogKind(dialog === 'settings' ? 'none' : 'settings')}
         >
           ⚙

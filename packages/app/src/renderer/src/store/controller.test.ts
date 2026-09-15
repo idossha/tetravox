@@ -13,6 +13,7 @@ import { ShellController } from './controller';
 import { activeLayer, createUiStore } from './store';
 import type { UiStore } from './store';
 import type { OpenRequest } from '../open/sources';
+import type { UpdateStatus } from '../bridge';
 
 function harness(options: ConstructorParameters<typeof NoGlEngine>[0] = {}): {
   engine: NoGlEngine;
@@ -388,6 +389,51 @@ describe('views, screenshot and the rest of the toolbar (§8)', () => {
     const { engine, store } = harness();
     for (let i = 0; i < 5; i++) engine.requestRender();
     expect(store.getState().metrics.samples.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('automatic update notices open the Software Update dialog (§12.4)', () => {
+  const available = (overrides: Partial<UpdateStatus> = {}): UpdateStatus => ({
+    phase: 'available',
+    current: '0.5.0',
+    available: '0.5.1',
+    mode: 'inplace',
+    auto: true,
+    ...overrides,
+  });
+
+  it('opens the dialog itself on the edge into an auto `available`, no toast', () => {
+    const { store, controller } = harness();
+    expect(store.getState().dialog).toBe('none');
+    controller.onUpdateStatus(available());
+    expect(store.getState().dialog).toBe('updates');
+    expect(store.getState().updates).toEqual(available());
+    expect(store.getState().toasts).toHaveLength(0);
+  });
+
+  it('re-pushing the same available version does not reopen a dialog the user already closed', () => {
+    const { store, controller } = harness();
+    controller.onUpdateStatus(available());
+    store.setState({ dialog: 'none' });
+    controller.onUpdateStatus(available({ received: 10 }));
+    expect(store.getState().dialog).toBe('none');
+    expect(store.getState().toasts).toHaveLength(0);
+  });
+
+  it('falls back to a toast, and never steals another open dialog, mid-task', () => {
+    const { store, controller } = harness();
+    store.setState({ dialog: 'settings' });
+    controller.onUpdateStatus(available());
+    expect(store.getState().dialog).toBe('settings');
+    expect(store.getState().toasts).toHaveLength(1);
+    expect(store.getState().toasts[0]?.title).toBe('Tetravox 0.5.1 is available');
+  });
+
+  it('a manual check (`auto` unset) never pops the dialog or a toast on its own', () => {
+    const { store, controller } = harness();
+    controller.onUpdateStatus(available({ auto: undefined }));
+    expect(store.getState().dialog).toBe('none');
+    expect(store.getState().toasts).toHaveLength(0);
   });
 });
 

@@ -1008,15 +1008,28 @@ export class ShellController {
   }
 
   /**
-   * A status pushed from main. The launch check's find gets one info toast — the first the app has
-   * ever had a use for — and only on the edge into `available`, so download progress re-pushing
-   * sixty statuses re-announces nothing.
+   * A status pushed from main. The launch check's find opens the Software Update dialog itself —
+   * the user asked for updates to surface without digging through a menu — and only on the edge
+   * into `available`, so download progress re-pushing sixty statuses re-announces nothing. If some
+   * other dialog is already up (a load in progress, Settings, …), opening `'updates'` over it would
+   * blindside whatever the user is doing, so that case falls back to the toast the dialog itself
+   * would otherwise make redundant.
    */
   onUpdateStatus(status: UpdateStatus): void {
     const prev = this.store.getState().updates;
-    this.store.setState({ updates: status });
     const announced = prev?.phase === 'available' && prev.available === status.available;
-    if (status.phase === 'available' && status.auto === true && !announced) {
+    this.store.setState((s) => ({
+      updates: status,
+      ...(status.phase === 'available' && status.auto === true && !announced && s.dialog === 'none'
+        ? { dialog: 'updates' as const }
+        : {}),
+    }));
+    if (
+      status.phase === 'available' &&
+      status.auto === true &&
+      !announced &&
+      this.store.getState().dialog !== 'updates'
+    ) {
       this.store.setState((s) => ({
         toasts: toasts.pushToast(s.toasts, {
           id: ++this.toastSeq,

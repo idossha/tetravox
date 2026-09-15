@@ -96,9 +96,12 @@ body {
 /* The shell's repeated controls, so a hundred class strings do not drift apart. Tailwind 4
    resolves `@apply` against the same theme tokens above. */
 @layer components {
+  /* `whitespace-nowrap`: a flex item's default `min-width: auto` lets a shrinking container squeeze
+     a button below its label's natural width, which wraps the label onto two lines and doubles the
+     button's height — the toolbar's rows are sized for one line only. */
   .tvx-btn {
     @apply rounded border border-tvx-line bg-tvx-bg/40 px-2 py-1 text-xs text-tvx-text
-      transition-colors hover:border-tvx-line-strong hover:text-tvx-accent-strong
+      whitespace-nowrap transition-colors hover:border-tvx-line-strong hover:text-tvx-accent-strong
       disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-tvx-line
       disabled:hover:text-tvx-text;
   }

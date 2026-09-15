@@ -63,7 +63,7 @@ export function ModuleSwitcher(): React.JSX.Element | null {
   const active = modules.find((m) => m.manifest.id === activeModule) ?? null;
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative shrink-0">
       <button
         type="button"
         data-testid="module-switcher"
@@ -72,7 +72,7 @@ export function ModuleSwitcher(): React.JSX.Element | null {
         // `aria-pressed` while one is active, like every other toolbar toggle.
         aria-pressed={active !== null}
         title="Extensions — one in the panel, any number in their own windows (§13, §13.10)"
-        className={active === null ? 'tvx-btn' : 'tvx-btn tvx-btn-on'}
+        className={active === null ? 'tvx-btn shrink-0' : 'tvx-btn tvx-btn-on shrink-0'}
         onClick={() => setOpen((v) => !v)}
       >
         {active === null ? 'Extensions' : active.manifest.title} ▾
