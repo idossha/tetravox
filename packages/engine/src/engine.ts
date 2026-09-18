@@ -151,6 +151,7 @@ import {
 import {
   defaultLayerFor,
   seedMeshLayerFromOpt,
+  seedSurfaceLayerFromOpt,
   surfaceContourColor,
   VIEW3D_ID,
 } from './scene/defaults';
@@ -186,6 +187,7 @@ import type {
   SliceMode,
   SliceView,
   Stats,
+  SurfaceLayer,
   TemplateSpace,
   vec3,
   vec4,
@@ -3294,10 +3296,13 @@ export class TetravoxEngine implements Engine, PointerHost {
   optDefaults(datasetId: DatasetId): MshOptSeed | null {
     const ds = this.#store.dataset(datasetId);
     if (ds === undefined || ds.kind !== 'mesh') return null;
-    const layer = this.#scene.layers.find((l) => l.datasetId === datasetId && l.kind === 'mesh') as
-      MeshLayer | undefined;
+    const layer = this.#scene.layers.find(
+      (l) => l.datasetId === datasetId && (l.kind === 'mesh' || l.kind === 'surface')
+    ) as MeshLayer | SurfaceLayer | undefined;
     if (layer === undefined) return null;
-    return seedMeshLayerFromOpt(layer, ds).seed;
+    return layer.kind === 'surface'
+      ? seedSurfaceLayerFromOpt(layer, ds).seed
+      : seedMeshLayerFromOpt(layer, ds).seed;
   }
 
   /**

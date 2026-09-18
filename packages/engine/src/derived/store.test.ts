@@ -68,7 +68,7 @@ describe('surfaceContourRequest', () => {
       ...fieldLayer('TI_max_ROI'),
       colorMode: 'label',
       label: { name: 'TI_normal_ROI', table: { entries: [] }, mode: 'fill', outlineWidthPx: 1 },
-    } as MeshLayer;
+    } as unknown as MeshLayer;
     const req = surfaceContourRequest(layer, ds);
     expect(req.annotation).toBe('TI_normal_ROI');
     expect(req.scalar).toBeUndefined();

@@ -5765,7 +5765,10 @@ blocks (`Visible = 1|0`, `RangeType = 2`, `CustomMin/Max`, `ColormapNumber = 1|2
    `colorMode:'field'` on `ds.fields[index]` — Gmsh's view index is the data block's index in file
    order, which the loader preserves as node fields then element fields — and turns
    `ColormapAlphaPower > 0` into `hide` just above `CustomMin` with `hi` open. A SimNIBS sidecar
-   (one view, no `Visible`) therefore seeds exactly what it did, pinned by a `toEqual` test.
+   (one view, no `Visible`) therefore seeds exactly what it did, pinned by a `toEqual` test. A
+   triangle-only `.msh` opens as a *surface* (R1), so `seedSurfaceLayerFromOpt` applies the same
+   view as `colorMode:'overlay'`; the first headless render of the bare file showed flat yellow
+   because only the mesh kind was seeded.
    `MSH_OPT_COLORMAPS` gains 1 (vis5d → turbo, the rainbow that is not already jet) and 20–24,
    whose Gmsh names are §7.6 names exactly.
 3. *Surface outlines carry the field.* The `contours` op takes an optional

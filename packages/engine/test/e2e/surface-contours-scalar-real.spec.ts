@@ -4,7 +4,7 @@
  * the analysis directory under it.
  *
  * What one open of the bare mesh must give, end to end: the `.msh.opt`'s `Visible = 1` view seeds
- * `colorMode:'field'` on `TI_max_ROI` with a `hide` gate just above zero (`scene/defaults.ts`),
+ * `colorMode:'overlay'` on `TI_max_ROI` (the surface form of `'field'`) with a `hide` gate just above zero (`scene/defaults.ts`),
  * the gate keeps the field where it is non-zero (`render/passes/mesh.ts`), and the 2D outline is
  * the scalar-coloured one (`derived/store.ts`, `shaders/contour.ts`). The field is zero outside
  * the ROI by construction, so on a slice the outline exists **only** inside the ROI's bounding box
@@ -12,28 +12,57 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readCanvasRect } from '../helpers/pixels';
 
+/**
+ * The sample: `TETRAVOX_ROI_OVERLAY` names a `roi_overlay.msh` directly (any subject's analysis
+ * directory), else the one under `TETRAVOX_TESTDATA`. The ROI's bounding box and cursor come from
+ * the `scene.tetravox.json` TI-Toolbox writes beside it (`meta.framing.regions[0]`), so the test
+ * does not carry one subject's numbers.
+ */
 const root = process.env.TETRAVOX_TESTDATA;
 const ANALYSIS = 'Simulations/L_Insula/Analyses/Mesh/cortical_lh.insula_DK40';
-const MSH = root === undefined ? undefined : `${root}/${ANALYSIS}/roi_overlay.msh`;
+const MSH =
+  process.env.TETRAVOX_ROI_OVERLAY ??
+  (root === undefined ? undefined : `${root}/${ANALYSIS}/roi_overlay.msh`);
 
 const PANE = 768;
 const BG = [10, 13, 18] as const;
 /** `SURFACE_CONTOUR_PALETTE[0]`, the solid default, as bytes. */
 const YELLOW = [255, 230, 38] as const;
-
-/** `scene.tetravox.json`'s `meta.framing.regions[0]`: the ROI's RAS bounding box and cursor. */
-const ROI_BBOX = { min: [-39.51, -8.97, -8.14], max: [-21.7, 57.81, 32.32] } as const;
-const CURSOR: [number, number, number] = [-33.8, 24.86, 18.16];
 const MM_PER_PX = 0.3;
+
+interface Region {
+  bbox: { min: [number, number, number]; max: [number, number, number] };
+  cursor: [number, number, number];
+}
+
+function regionOf(mshPath: string): Region | null {
+  const scenePath = mshPath.replace(/roi_overlay\.msh$/, 'scene.tetravox.json');
+  if (!existsSync(scenePath)) return null;
+  const scene = JSON.parse(readFileSync(scenePath, 'utf8')) as {
+    meta?: { framing?: { regions?: { bbox_ras: number[][]; cursor_ras: number[] }[] } };
+  };
+  const r = scene.meta?.framing?.regions?.[0];
+  if (r === undefined) return null;
+  return {
+    bbox: {
+      min: r.bbox_ras[0] as [number, number, number],
+      max: r.bbox_ras[1] as [number, number, number],
+    },
+    cursor: r.cursor_ras as [number, number, number],
+  };
+}
 
 test('@angle a bare roi_overlay.msh shows a colormap-coloured outline inside the ROI only', async ({
   page,
 }) => {
-  test.skip(!root, 'TETRAVOX_TESTDATA is unset');
-  test.skip(MSH === undefined || !existsSync(MSH), `${ANALYSIS}/roi_overlay.msh is not present`);
+  test.skip(MSH === undefined, 'TETRAVOX_TESTDATA and TETRAVOX_ROI_OVERLAY are unset');
+  test.skip(MSH !== undefined && !existsSync(MSH), `${MSH} is not present`);
+  const region = MSH === undefined ? null : regionOf(MSH);
+  test.skip(region === null, 'no scene.tetravox.json with a framed region beside the mesh');
+  if (region === null) return;
   test.slow();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -48,7 +77,8 @@ test('@angle a bare roi_overlay.msh shows a colormap-coloured outline inside the
         sidecars: { opt: `${path as string}.opt` },
       });
       if (ds.kind !== 'mesh') throw Error('mesh required');
-      const l = e.addLayer({ kind: 'mesh', datasetId: ds.id });
+      // R1: a triangle-only mesh opens as a surface — the kind the app gives a bare `.msh` sheet.
+      const l = e.addLayer({ kind: 'surface', datasetId: ds.id });
       e.setLayout({ kind: '1x1', cells: ['axial'] });
       e.setCursor(cursor as [number, number, number]);
       e.setView('axial', { camera: { center: [0, 0], mmPerPx: mmPerPx as number } });
@@ -60,7 +90,7 @@ test('@angle a bare roi_overlay.msh shows a colormap-coloured outline inside the
       await e.whenSettled();
       const layer = e.scene.layers.find((x) => x.id === l.id) as {
         colorMode: string;
-        field?: { name: string };
+        overlay?: { name: string };
         colormap: string;
         threshold: { lo: number; hi: number; mode: string };
         contoursIn2D: boolean;
@@ -70,20 +100,20 @@ test('@angle a bare roi_overlay.msh shows a colormap-coloured outline inside the
         nTets: ds.nTets,
         fields: ds.fields.map((f) => `${f.source}:${f.name}`),
         colorMode: layer.colorMode,
-        field: layer.field?.name,
+        field: layer.overlay?.name,
         colormap: layer.colormap,
         threshold: layer.threshold,
         contoursIn2D: layer.contoursIn2D,
         anchor: [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2],
       };
     },
-    [`/@fs${MSH}`, CURSOR, MM_PER_PX] as const
+    [`/@fs${MSH}`, region.cursor, MM_PER_PX] as const
   );
 
   // The seed, as the file dictates it.
   expect(state.nTets).toBe(0);
   expect(state.fields).toEqual(['node:TI_max_ROI', 'node:TI_normal_ROI']);
-  expect(state.colorMode).toBe('field');
+  expect(state.colorMode).toBe('overlay');
   expect(state.field).toBe('TI_max_ROI');
   expect(state.colormap).toBe('turbo');
   expect(state.threshold.mode).toBe('hide');
@@ -95,8 +125,8 @@ test('@angle a bare roi_overlay.msh shows a colormap-coloured outline inside the
     Math.round(PANE / 2 + (x - state.anchor[0]!) / MM_PER_PX),
     Math.round(PANE / 2 - (y - state.anchor[1]!) / MM_PER_PX),
   ];
-  const [x0, y1] = toPx(ROI_BBOX.min[0], ROI_BBOX.min[1]);
-  const [x1, y0] = toPx(ROI_BBOX.max[0], ROI_BBOX.max[1]);
+  const [x0, y1] = toPx(region.bbox.min[0], region.bbox.min[1]);
+  const [x1, y0] = toPx(region.bbox.max[0], region.bbox.max[1]);
   const MARGIN = 6; // px: the line's own half-width, caps and the box's rounding
 
   const img = await readCanvasRect(page, 0, 0, PANE, PANE);

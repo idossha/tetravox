@@ -13,8 +13,10 @@ import {
   SURFACE_CONTOUR_PALETTE,
   defaultLayerFor,
   defaultMeshLayer,
+  defaultSurfaceLayer,
   isSurfaceMesh,
   seedMeshLayerFromOpt,
+  seedSurfaceLayerFromOpt,
   surfaceContourColor,
 } from './defaults';
 import { fitMmPerPx } from '../view/geometry';
@@ -294,6 +296,45 @@ describe('seedMeshLayerFromOpt (§7.6)', () => {
     const { layer } = seedMeshLayerFromOpt(base, ds);
     expect(layer.colorMode).toBe('field');
     expect(layer.threshold).toBe(base.threshold);
+  });
+
+  it('seeds a surface layer the same way, as an overlay — the bare-open path for a .msh sheet', () => {
+    const ds = roiDataset(ROI_VIEWS);
+    const layer = defaultLayerFor('layer1', ds, 'surface');
+    expect(layer.kind).toBe('surface');
+    if (layer.kind !== 'surface') return;
+    expect(layer.colorMode).toBe('overlay');
+    expect(layer.overlay).toEqual({ name: 'TI_max_ROI', component: 'mag' });
+    expect(layer.scale).toEqual({ kind: 'linear', lo: 0, hi: 0.12789118384677717 });
+    expect(layer.colormap).toBe('turbo');
+    expect(layer.showColorbar).toBe(true);
+    expect(layer.threshold.mode).toBe('hide');
+    expect(layer.threshold.hi).toBe(Infinity);
+    // The palette colour and the outline are the surface's own, untouched by the sidecar.
+    expect(layer.solidColor).toEqual(SURFACE_CONTOUR_PALETTE[0]);
+    expect(layer.contoursIn2D).toBe(true);
+    const seed = seedSurfaceLayerFromOpt(defaultSurfaceLayer('layer1', ds), ds).seed;
+    expect(seed?.seeded).toEqual([
+      'colorMode',
+      'overlay',
+      'threshold',
+      'scale',
+      'colormap',
+      'showColorbar',
+    ]);
+  });
+
+  it('a surface with a SimNIBS sidecar opens solid, with only range/colormap/colour bar seeded', () => {
+    const ds = meshDataset({ tagColor: {}, tagVisible: {}, views: [SIMNIBS_VIEW] });
+    const base = defaultSurfaceLayer('layer1', ds);
+    const { layer } = seedSurfaceLayerFromOpt(base, ds);
+    expect(layer).toEqual({
+      ...base,
+      scale: { kind: 'linear', lo: -1.5, hi: 3.5 },
+      colormap: 'jet',
+      showColorbar: true,
+    });
+    expect(layer.colorMode).toBe('solid');
   });
 
   it('is idempotent — seeding an already-seeded layer changes nothing', () => {
