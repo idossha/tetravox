@@ -887,11 +887,18 @@ pub fn centroids(
     })
 }
 
+/// `contours` (§6.5.2). `annotation` names a node label field for categorical per-segment
+/// indices; `field` / `component` (2026-09-18) name a node field whose interpolated values come
+/// back as `values`, one per segment, for a colormap-coloured outline. Both absent is the plain
+/// single-colour result. `annotation` wins when both are given: an outline is categorical or scalar,
+/// not both.
 pub fn contours(
     handle: u32,
     plane: &[f32],
     mask_id: Option<u32>,
     annotation: Option<String>,
+    field: Option<String>,
+    component: Option<String>,
 ) -> Result<JsValue> {
     if plane.len() != 4 {
         return Err(Error::Parse(format!(
@@ -914,6 +921,13 @@ pub fn contours(
             let (segments, labels) =
                 geom::labeled_surface_contours(&st.mesh, &pl, mask, &field.data)?;
             jsv::set(&o, "labels", &jsv::u32s(&labels).into());
+            segments
+        } else if let Some(name) = field {
+            let f = find_node_field(&st.mesh, &name)?;
+            let c = component_of(component.as_deref().unwrap_or("mag"))?;
+            let values = select(&f.data, f.ncomp, &c)?;
+            let (segments, values) = geom::valued_surface_contours(&st.mesh, &pl, mask, &values)?;
+            jsv::set(&o, "values", &jsv::f32s(&values).into());
             segments
         } else {
             geom::surface_contours(&st.mesh, &pl, mask)?

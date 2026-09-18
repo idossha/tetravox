@@ -45,7 +45,7 @@ import {
 import { buildArrow, HEAD_LEN } from '../../derived/arrow';
 import { glyphPlan } from '../../derived/glyph-plan';
 import { visibleTetTags } from '../../derived/tag-lut';
-import { usesField } from './mesh';
+import { thresholdUniforms, usesField } from './mesh';
 import type { DerivedStore } from '../../derived/store';
 import type { Table } from '../../derived/tables';
 import type { IsoDrawItem, PointsDrawItem } from '../../layers/runtime';
@@ -61,6 +61,15 @@ type PaneGeom = NonNullable<ReturnType<DerivedStore['paneCut']>>;
 
 /** §7.4's contour colour when the layer does not override it: the layer's own edge colour. */
 const DEFAULT_CONTOUR_COLOR: vec4 = [0.05, 0.05, 0.06, 1];
+
+/** What `CONTOUR_SCALAR` needs from the layer, gathered once per draw. */
+interface ScalarContourUniforms {
+  lut: WebGLTexture;
+  lutRange: [number, number];
+  threshold: [number, number];
+  hide: boolean;
+  symmetric: boolean;
+}
 
 export class DerivedPass implements FramePass {
   readonly name = 'derived' as const;
@@ -230,6 +239,7 @@ export class DerivedPass implements FramePass {
     this.#state.clipDistances(0);
     for (const { layer, ds, geom } of this.#cuts2D) {
       if (!layer.contoursIn2D || geom.contourInstances === 0) continue;
+      const tinted = geom.contourColored || geom.contourScalar;
       this.#drawContours(
         viewProj,
         ds.transform,
@@ -238,9 +248,10 @@ export class DerivedPass implements FramePass {
         geom.contourVao,
         geom.contourInstances,
         layer.contourWidthPx * input.uiScale,
-        geom.contourColored ? [1, 1, 1, layer.opacity] : contourColor(layer),
+        tinted ? [1, 1, 1, layer.opacity] : contourColor(layer),
         false,
-        geom.contourColored ? geom.contourPalette : null
+        geom.contourColored ? geom.contourPalette : null,
+        geom.contourScalar && !geom.contourColored ? this.#scalarContourUniforms(ctx, layer) : null
       );
     }
     // `GlyphSpec.in2D`: the pane's own cut is the origin table, so the arrows lie on the slice.
@@ -343,6 +354,24 @@ export class DerivedPass implements FramePass {
    * the drawn width is the same number of pixels at every zoom. That is the §11 obligation this
    * carries, and it is why this is not `LINES` + `lineWidth` (`ALIASED_LINE_WIDTH_RANGE` is `[1,1]`).
    */
+  /**
+   * The `CONTOUR_SCALAR` uniforms for a surface outline coloured by the layer's field (2026-09-18):
+   * the same baked LUT the 3D surface samples and the same `hide` gate, so the outline on a slice
+   * is the colour the surface has where the plane cuts it.
+   */
+  #scalarContourUniforms(ctx: PassContext, layer: MeshLayer): ScalarContourUniforms {
+    const lut = ctx.input.store.lut(layer.scale, layer.colormap, layer.colormapNegative);
+    const t = layer.threshold;
+    const u = thresholdUniforms(t, layer.scale);
+    return {
+      lut: lut.texture,
+      lutRange: [lut.lo, lut.hi === lut.lo ? lut.lo + 1 : lut.hi],
+      threshold: [u.lo, u.hi],
+      hide: t.mode === 'hide',
+      symmetric: t.symmetric,
+    };
+  }
+
   #drawContours(
     viewProj: Float32Array,
     model: Float32Array,
@@ -353,7 +382,8 @@ export class DerivedPass implements FramePass {
     widthPx: number,
     color: vec4,
     perSegmentColors = false,
-    labelPalette: Table | null = null
+    labelPalette: Table | null = null,
+    scalar: ScalarContourUniforms | null = null
   ): void {
     const gl = this.#gl;
     // §4.4's `lineColors` (2026-08-30). `false` — every mesh contour, and every points layer that
@@ -362,6 +392,7 @@ export class DerivedPass implements FramePass {
     const prog = this.#contour.get({
       CONTOUR_COLORS: perSegmentColors ? 1 : 0,
       CONTOUR_LABELS: labelPalette !== null ? 1 : 0,
+      CONTOUR_SCALAR: scalar !== null && labelPalette === null ? 1 : 0,
     });
     prog.use();
     prog.mat4('uViewProj', viewProj);
@@ -375,6 +406,14 @@ export class DerivedPass implements FramePass {
       gl.bindTexture(gl.TEXTURE_2D, labelPalette.texture);
       prog.int('uLabelPalette', 0);
       prog.int('uPaletteWidth', labelPalette.width);
+    } else if (scalar !== null) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, scalar.lut);
+      prog.int('uLut', 0);
+      prog.vec2('uLutRange', scalar.lutRange);
+      prog.vec2('uThreshold', scalar.threshold);
+      prog.int('uThresholdMode', scalar.hide ? 1 : 0);
+      prog.int('uSymmetric', scalar.symmetric ? 1 : 0);
     }
     vao.bind();
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, CONTOUR_STRIP_VERTICES, instances);

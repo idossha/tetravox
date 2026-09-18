@@ -251,7 +251,14 @@ async function runOp<K extends OpName>(
         a.plane.normal[2],
         a.plane.offset,
       ]);
-      return call(a.handle, plane, a.maskId, a.annotation) as OpResult[K];
+      return call(
+        a.handle,
+        plane,
+        a.maskId,
+        a.annotation,
+        a.field?.name,
+        a.field === undefined ? undefined : String(a.field.component)
+      ) as OpResult[K];
     }
     case 'labelCentroids': {
       const a = args as OpArgs['labelCentroids'];

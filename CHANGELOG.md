@@ -18,6 +18,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 - **External applications can load and save scenes.** The native scene API opens a scene or exports
   the current edited view to a caller-selected path, with a completion reply and optional overwrite.
   Existing scene files and native **File ▸ Save / Save As…** behavior are unchanged.
+- **A surface coloured by a field draws its 2D outline in that field's colours.** On the axial,
+  coronal and sagittal panes a surface mesh in field mode now traces the slice with each segment
+  coloured by the layer's colormap at the interpolated field value, and the layer's hide threshold
+  drops the segments below it — so an ROI field outlines only the ROI. Solid and annotation
+  outlines are unchanged.
+
 - **Opening a `.msh` honours the view its `.msh.opt` shows.** A sidecar with `View[n].Visible = 1`
   opens the mesh coloured by that view's field — node and element data in file order — with its
   range, colormap and colour bar, and a `ColormapAlphaPower` fade becomes a hide threshold just

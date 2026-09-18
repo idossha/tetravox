@@ -1758,6 +1758,8 @@ pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&Bi
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
 pub fn labeled_surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>,
                                  labels: &[f32]) -> Result<(Vec<f32>, Vec<u32>)>;
+pub fn valued_surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>,   // 2026-09-18
+                               values: &[f32]) -> Result<(Vec<f32>, Vec<f32>)>;      // one value per segment
 pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
 pub fn nearest_vertex(nodes: &[[f32; 3]], p: [f32; 3]) -> Option<(u32, [f32; 3])>;
 pub fn sphere_map(source: &[[f32; 3]], target: &[[f32; 3]]) -> Vec<u32>;
@@ -1896,7 +1898,8 @@ is present wherever an op can exceed one frame, and is called at section boundar
 #[wasm_bindgen] pub fn mesh_marching_tets(handle: u32, source: &str, name: &str, component: &str,
                                           iso: f32, mask_id: Option<u32>,
                                           on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>, annotation: Option<String>)
+#[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>, annotation: Option<String>,
+                                     field: Option<String>, component: Option<String>)   // trailing two: 2026-09-18
                                     -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_tensor(handle: u32, order: &str, basis: &str, stride: u32, max_3d: u32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
@@ -2119,7 +2122,7 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `marchingCubes` | `{ handle; volumeIndex; iso; smooth }` | `SurfacePayload` | |
 | `marchingCubesLabel` | `{ handle; volumeIndex; label; smooth }` | `SurfacePayload` | §4.4's `VolumeLayer.iso3d` on a label volume |
 | `marchingTets` | `{ handle; source; name; component; iso; maskId? }` | `SurfacePayload` | |
-| `contours` | `{ handle; plane: PlaneT; maskId? }` | `{ segments: Float32Array }` | 6 floats per segment. **Stored triangles only.** A tri-less tet mesh answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
+| `contours` | `{ handle; plane: PlaneT; maskId?; annotation?; field?: { name; component } }` | `{ segments: Float32Array; labels?; values?: Float32Array }` | 6 floats per segment; `values` (2026-09-18) is one interpolated node-field value per segment, for the scalar-coloured outline — present only when `field` was asked for. **Stored triangles only.** A tri-less tet mesh answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
 | `labelCentroids` | `{ handle; volumeIndex }` | `{ centroids: { id; centroid; count }[] }` | |
 | `meshCentroids` | `{ handle; maskId?; stride; tags? }` | `{ positions: Float32Array; ownerTet: Uint32Array }` | glyph origins for a **volumetric** `GlyphSpec` (§7.4), Morton order, no geometry. `maskId`/`tags` filter first, then every `stride`-th survivor; `stride: 0` is `Error::Parse`. Also serves the region panel's jump-to-centroid for a mesh tissue tag |
 | `nearestVertex` | `{ handle; world }` | `{ vertex: number \| null; coord? }` | the mesh **node** nearest a world point. Not `locate`: that finds the containing tet, and a surface has none |
@@ -2939,7 +2942,13 @@ becomes the surface's colour source; an attached scalar becomes its overlay with
 In annotation mode the 2D outlines use the same region palette and visibility as the 3D surface, with
 layer opacity applied. Worker `contours` optionally takes `annotation` (the scalar node field name),
 and returns dense `labels: Uint32Array` alongside `segments`, one label per six-float segment. Omission
-retains the plain contour response. The Rust worker partitions each triangle-plane intersection at
+retains the plain contour response. It likewise optionally takes `field: { name, component }` (a node
+field; 2026-09-18) and returns `values: Float32Array`, one value per segment — the mean of the two
+edge-hit values, each interpolated with the hit's own `t` — which the pass draws through the contour
+program's `CONTOUR_SCALAR` variant: the layer's baked LUT sampled at the value, the layer's `hide`
+threshold discarding the segment. A surface in `colorMode:'field'` on a node field with `contoursIn2D`
+takes this path; the derived store's latest-wins key carries the field, so a field switch never serves
+the previous field's segments. The Rust worker partitions each triangle-plane intersection at
 changes of its dominant barycentric vertex, retaining categorical region colors rather than blending
 label IDs. Adjacent intervals of the same label within a triangle merge. Per-segment indices transfer
 to the GPU and look up the current palette there; palette edits require no new intersection geometry.

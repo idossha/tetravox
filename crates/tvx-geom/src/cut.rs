@@ -470,6 +470,155 @@ pub fn labeled_surface_contours(
     Ok((segments, indices))
 }
 
+/// Scalar-valued surface contours (2026-09-18): [`surface_contours`]'s segments plus **one field
+/// value per segment** — the mean of the two edge-hit values, each interpolated linearly along its
+/// edge with the same `t` the hit position uses — so a 2D pane can colour a surface's outline by
+/// the layer's colormap. Averaging the two hits is a choice, not an approximation to something
+/// better: a segment is one instance in the contour program, and a per-instance value is what the
+/// GPU can key a LUT sample on.
+///
+/// `values` has one entry per node (a vector field is reduced by the caller). A NaN at a hit — a
+/// `partial` field (§6.2) — makes the segment's value NaN, which the shader drops; nothing here
+/// invents a number for it.
+pub fn valued_surface_contours(
+    mesh: &Mesh,
+    plane: &Plane,
+    mask: Option<&BitMask>,
+    values: &[f32],
+) -> Result<(Vec<f32>, Vec<f32>)> {
+    if values.len() != mesh.nodes.len() {
+        return Err(tvx_core::Error::Parse(format!(
+            "contour field carries {} values for {} nodes",
+            values.len(),
+            mesh.nodes.len()
+        )));
+    }
+    let tri_mask = mask.filter(|m| m.len() == mesh.tris.len());
+    let mut segments = Vec::new();
+    let mut out_values = Vec::new();
+    for (i, tri) in mesh.tris.iter().enumerate() {
+        if tri_mask.is_some_and(|m| !m.get(i)) {
+            continue;
+        }
+        let p = tri.map(|n| mesh.nodes[n as usize]);
+        let d = p.map(|p| signed(plane, p));
+        let mut hits: Vec<([f32; 3], f32)> = Vec::with_capacity(2);
+        for a in 0..3 {
+            let b = (a + 1) % 3;
+            if (d[a] >= 0.0) != (d[b] >= 0.0) {
+                let t = d[a] / (d[a] - d[b]);
+                let (va, vb) = (values[tri[a] as usize], values[tri[b] as usize]);
+                hits.push((lerp(p[a], p[b], t), va + (vb - va) * t));
+            }
+        }
+        if hits.len() == 2 {
+            segments.extend_from_slice(&hits[0].0);
+            segments.extend_from_slice(&hits[1].0);
+            out_values.push((hits[0].1 + hits[1].1) * 0.5);
+        }
+    }
+    Ok((segments, out_values))
+}
+
+#[cfg(test)]
+mod valued_tests {
+    use super::*;
+
+    /// Two triangles over the unit-ish square `[0,4]²` at z = 0, split along the diagonal.
+    fn square() -> Mesh {
+        Mesh {
+            nodes: vec![
+                [0.0, 0.0, 0.0],
+                [4.0, 0.0, 0.0],
+                [4.0, 4.0, 0.0],
+                [0.0, 4.0, 0.0],
+            ],
+            tris: vec![[0, 1, 2], [0, 2, 3]],
+            tri_tags: vec![1, 1],
+            tets: vec![],
+            tet_tags: vec![],
+            tri_edge_mask: None,
+            node_fields: vec![],
+            elm_fields: vec![],
+            physical_names: vec![],
+            gmsh_node_numbers: None,
+            gmsh_elm_numbers: None,
+            tet_perm: vec![],
+            skipped: vec![],
+            bounds: tvx_core::Aabb {
+                min: [0.0; 3],
+                max: [4.0, 4.0, 0.0],
+            },
+            label_table: None,
+        }
+    }
+
+    /// The field is `f = x + 10·y`, linear, so any linear interpolation along an edge reproduces
+    /// it exactly and the segment value is `f` at the segment's midpoint.
+    fn linear_field(m: &Mesh) -> Vec<f32> {
+        m.nodes.iter().map(|n| n[0] + 10.0 * n[1]).collect()
+    }
+
+    #[test]
+    fn a_linear_field_is_sampled_exactly_at_each_segments_midpoint() {
+        let m = square();
+        let f = linear_field(&m);
+        // The plane x = 1 crosses the lower triangle (0,1,2) on edges (0,1) at (1,0) and (0,2) at
+        // (1,1), and the upper triangle (0,2,3) on (0,2) at (1,1) and (2,3) at (1,4).
+        let plane = Plane {
+            normal: [1.0, 0.0, 0.0],
+            offset: -1.0,
+        };
+        let (segs, vals) = valued_surface_contours(&m, &plane, None, &f).unwrap();
+        assert_eq!(segs.len(), 12);
+        assert_eq!(vals.len(), 2);
+        for (s, v) in segs.chunks_exact(6).zip(&vals) {
+            let mid = [(s[0] + s[3]) * 0.5, (s[1] + s[4]) * 0.5];
+            assert!((s[0] - 1.0).abs() < 1e-6 && (s[3] - 1.0).abs() < 1e-6);
+            let expect = mid[0] + 10.0 * mid[1];
+            assert!((v - expect).abs() < 1e-5, "got {v}, expected {expect}");
+        }
+        // Lower triangle: (1,0)–(1,1), midpoint y = 0.5 → 6. Upper: (1,1)–(1,4), y = 2.5 → 26.
+        let mut sorted = vals.clone();
+        sorted.sort_by(f32::total_cmp);
+        assert!((sorted[0] - 6.0).abs() < 1e-5 && (sorted[1] - 26.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_segments_are_exactly_the_plain_contours() {
+        let m = square();
+        let f = linear_field(&m);
+        let plane = Plane {
+            normal: [0.0, 1.0, 0.0],
+            offset: -2.5,
+        };
+        let plain = surface_contours(&m, &plane, None).unwrap();
+        let (segs, vals) = valued_surface_contours(&m, &plane, None, &f).unwrap();
+        assert_eq!(segs, plain);
+        assert_eq!(vals.len(), segs.len() / 6);
+    }
+
+    #[test]
+    fn a_nan_node_makes_its_segment_nan_and_a_bad_length_is_an_error() {
+        let m = square();
+        let mut f = linear_field(&m);
+        f[2] = f32::NAN;
+        let plane = Plane {
+            normal: [1.0, 0.0, 0.0],
+            offset: -1.0,
+        };
+        let (_, vals) = valued_surface_contours(&m, &plane, None, &f).unwrap();
+        assert!(
+            vals.iter().all(|v| v.is_nan()),
+            "both segments touch node 2"
+        );
+        assert!(valued_surface_contours(&m, &plane, None, &f[..3]).is_err());
+        let mask = BitMask::new_all(2, false);
+        let (s, v) = valued_surface_contours(&m, &plane, Some(&mask), &f).unwrap();
+        assert!(s.is_empty() && v.is_empty());
+    }
+}
+
 #[cfg(test)]
 mod annotation_tests {
     use super::*;

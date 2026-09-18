@@ -341,15 +341,19 @@ pub fn mesh_centroids(
     mesh::centroids(handle, mask_id, stride, tags).map_err(err::map)
 }
 
-/// `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment.
+/// `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment, plus
+/// `labels` with `annotation` or `values` with `field` (2026-09-18; both trailing arguments are
+/// optional, so an older caller's call is unchanged).
 #[wasm_bindgen]
 pub fn mesh_contours(
     handle: u32,
     plane: &[f32],
     mask_id: Option<u32>,
     annotation: Option<String>,
+    field: Option<String>,
+    component: Option<String>,
 ) -> Result<JsValue, JsValue> {
-    mesh::contours(handle, plane, mask_id, annotation).map_err(err::map)
+    mesh::contours(handle, plane, mask_id, annotation, field, component).map_err(err::map)
 }
 
 #[wasm_bindgen]

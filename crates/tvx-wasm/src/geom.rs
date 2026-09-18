@@ -318,6 +318,23 @@ pub fn sphere_map(source: &[[f32; 3]], target: &[[f32; 3]]) -> Result<Vec<u32>> 
     }
 }
 
+pub fn valued_surface_contours(
+    mesh: &Mesh,
+    plane: &Plane,
+    mask: Option<&BitMask>,
+    values: &[f32],
+) -> Result<(Vec<f32>, Vec<f32>)> {
+    #[cfg(feature = "geom")]
+    {
+        tvx_geom::valued_surface_contours(mesh, plane, mask, values)
+    }
+    #[cfg(not(feature = "geom"))]
+    {
+        let _ = (mesh, plane, mask, values);
+        Err(unavailable("valued_surface_contours"))
+    }
+}
+
 pub fn labeled_surface_contours(
     mesh: &Mesh,
     plane: &Plane,

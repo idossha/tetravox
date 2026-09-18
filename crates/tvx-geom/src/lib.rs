@@ -54,7 +54,7 @@ mod util;
 mod voxel;
 
 pub use centroids::tet_centroids;
-pub use cut::{labeled_surface_contours, plane_cut, surface_contours};
+pub use cut::{labeled_surface_contours, plane_cut, surface_contours, valued_surface_contours};
 pub use fields::{elm_to_node, node_to_elm};
 pub use isolate::isolate;
 pub use labels::label_centroids;

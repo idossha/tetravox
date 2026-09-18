@@ -29,6 +29,13 @@
  * the shader that captured every existing golden. At 1 a fourth per-instance attribute carries the
  * segment's own RGBA and the fragment is `vColor * uColor`, which is how the layer's opacity still
  * reaches a per-segment colour: the pass sends `uColor = vec4(1, 1, 1, opacity)`.
+ *
+ * **`CONTOUR_SCALAR` (2026-09-18)** is the colormap variant for a surface in `colorMode:'field'`:
+ * attribute 3 is one node-field value per segment (the `contours` op's `values`), the fragment is
+ * the layer's baked LUT sampled at `(v − lo)/(hi − lo)` times `uColor` (the opacity tint again), and
+ * the layer's `hide` threshold — `uThreshold`, `uSymmetric`, `uThresholdMode` — discards the
+ * segment outright. A segment is one value, so there is nothing to ramp: hard discard is the exact
+ * behaviour, not an approximation. A NaN value (a `partial` field) is discarded too.
  */
 
 import { PRECISION_FLOAT, VERSION } from './chunks/caps';
@@ -48,6 +55,9 @@ out vec4 vColor;
 #elif CONTOUR_LABELS
 layout(location = 3) in highp uint aLabel;
 flat out highp uint vLabel;
+#elif CONTOUR_SCALAR
+layout(location = 3) in float aValue;     // per-instance: node-field value, physical units
+flat out float vValue;
 #endif
 
 uniform mat4 uViewProj;
@@ -61,6 +71,8 @@ void main() {
   vColor = aColor;
 #elif CONTOUR_LABELS
   vLabel = aLabel;
+#elif CONTOUR_SCALAR
+  vValue = aValue;
 #endif
   vec4 ca = uViewProj * (uModel * vec4(aA, 1.0));
   vec4 cb = uViewProj * (uModel * vec4(aB, 1.0));
@@ -96,6 +108,13 @@ in vec4 vColor;                           // §4.4 lineColors, per instance
 flat in highp uint vLabel;
 uniform highp sampler2D uLabelPalette;
 uniform highp int uPaletteWidth;
+#elif CONTOUR_SCALAR
+flat in float vValue;
+uniform sampler2D uLut;                   // the layer's baked Scale LUT (§7.6)
+uniform vec2 uLutRange;                   // (lo, hi), physical units
+uniform vec2 uThreshold;                  // (lo, hi); open bounds arrive as finite sentinels
+uniform int uThresholdMode;               // 0 = clamp (LUT clamps anyway), 1 = hide
+uniform int uSymmetric;                   // 1 => compare |v|
 #endif
 uniform vec4 uColor;
 out vec4 fragColor;
@@ -107,6 +126,15 @@ void main() {
 #elif CONTOUR_LABELS
   highp int label = int(vLabel);
   fragColor = texelFetch(uLabelPalette, ivec2(label % uPaletteWidth, label / uPaletteWidth), 0) * uColor;
+#elif CONTOUR_SCALAR
+  float v = vValue;
+  if (v != v) discard;                    // NaN: a partial field's gap
+  if (uThresholdMode == 1) {
+    float g = uSymmetric == 1 ? abs(v) : v;
+    if (g < uThreshold.x || g > uThreshold.y) discard;
+  }
+  float t = clamp((v - uLutRange.x) / max(1e-20, uLutRange.y - uLutRange.x), 0.0, 1.0);
+  fragColor = texture(uLut, vec2(t, 0.5)) * uColor;
 #else
   fragColor = uColor;
 #endif
