@@ -18,6 +18,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 - **External applications can load and save scenes.** The native scene API opens a scene or exports
   the current edited view to a caller-selected path, with a completion reply and optional overwrite.
   Existing scene files and native **File ▸ Save / Save As…** behavior are unchanged.
+- **Opening a `.msh` honours the view its `.msh.opt` shows.** A sidecar with `View[n].Visible = 1`
+  opens the mesh coloured by that view's field — node and element data in file order — with its
+  range, colormap and colour bar, and a `ColormapAlphaPower` fade becomes a hide threshold just
+  above the range's minimum, so an ROI overlay written by TI-Toolbox opens showing the ROI field,
+  not a flat surface. A SimNIBS sidecar (one view, no `Visible`) seeds exactly as before. Gmsh
+  colormaps 1 (vis5d → turbo) and 20–24 (magma, inferno, plasma, viridis, turbo) are now mapped.
 
 ### Fixed
 

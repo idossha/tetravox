@@ -294,7 +294,8 @@ export interface MshOptions {
   tagColor: Record<number, vec4>;
   tagVisible: Record<number, boolean>;
   views: { name?: string; customMin?: number; customMax?: number; rangeType?: number;
-           saturateValues?: boolean; colormapNumber?: number; showScale?: boolean; vectorType?: number }[];
+           saturateValues?: boolean; colormapNumber?: number; showScale?: boolean; vectorType?: number;
+           visible?: boolean; colormapAlphaPower?: number }[];   // the last two added 2026-09-18, additive
 }
 
 export interface MeshDataset {
@@ -1478,7 +1479,8 @@ pub struct MshOptions {
 pub struct MshView { pub name: Option<String>, pub custom_min: Option<f32>, pub custom_max: Option<f32>,
                      pub range_type: Option<i32>, pub saturate_values: Option<bool>,
                      pub colormap_number: Option<i32>, pub show_scale: Option<bool>,
-                     pub vector_type: Option<i32> }
+                     pub vector_type: Option<i32>,
+                     pub visible: Option<bool>, pub colormap_alpha_power: Option<f32> }   // 2026-09-18
 
 pub fn read_msh(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh>;
 pub fn read_msh_opt(bytes: &[u8]) -> Result<MshOptions>;
@@ -2807,7 +2809,11 @@ Input (Freeview-like):
   meshes add tri 1013–1016 / tet 13–16. A viewer colouring only 1–10 / 1001–1010 renders every electrode and
   gel layer as untagged grey. Tags are **not** contiguous — tag 4 is absent from ernie.
 * `<mesh>.msh.opt` seeds tag colours/visibility, field range, colormap and colorbar on open, with a
-  "defaults from X.msh.opt" chip and a one-click Reset.
+  "defaults from X.msh.opt" chip and a one-click Reset. The seeding view is the first `View[n].Visible = 1`,
+  else `View[0]` (SimNIBS writes one view and no `Visible`); a view that *says* it is visible also seeds
+  `colorMode:'field'` on the dataset's field at that index — Gmsh's view index is the data block's index in
+  file order, node fields then element fields — and, when its `ColormapAlphaPower > 0`, a `hide` threshold
+  just above `CustomMin` with no upper bound (2026-09-18).
 
 ---
 

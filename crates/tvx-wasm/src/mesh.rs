@@ -204,6 +204,12 @@ fn opt_to_js(o: &MshOptions) -> js_sys::Object {
         if let Some(x) = v.vector_type {
             jsv::set_f64(&jv, "vectorType", f64::from(x));
         }
+        if let Some(x) = v.visible {
+            jsv::set_bool(&jv, "visible", x);
+        }
+        if let Some(x) = v.colormap_alpha_power {
+            jsv::set_f64(&jv, "colormapAlphaPower", f64::from(x));
+        }
         views.push(&jv);
     }
     let out = jsv::obj();

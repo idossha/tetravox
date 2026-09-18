@@ -488,11 +488,21 @@ export { identity4 };
  * viewer disagreeing with Gmsh about a colormap rather than lying about a field.
  */
 export const MSH_OPT_COLORMAPS: Record<number, ColormapName> = {
+  // Gmsh 1 is "vis5d", a blue→cyan→green→yellow→red rainbow. Turbo is the rainbow this project has
+  // that is not already number 2 (jet). TI-Toolbox writes `ColormapNumber = 1` for its ROI overlays
+  // (2026-09-18).
+  1: 'turbo',
   2: 'jet',
   7: 'hot',
   9: 'gray',
   13: 'bone',
   18: 'cool',
+  // Gmsh 20–24 carry these names exactly.
+  20: 'magma',
+  21: 'inferno',
+  22: 'plasma',
+  23: 'viridis',
+  24: 'turbo',
 };
 
 /** Which fields a `.msh.opt` actually seeded, for §7.6's "defaults from X.msh.opt" chip. */
@@ -551,10 +561,23 @@ export function seedMeshLayerFromOpt(
   if (tagColours > 0) seeded.push('tagStyle.color');
   if (Object.keys(opt.tagVisible).length > 0) seeded.push('tagStyle.visible');
 
-  // The first `View[n]` block. SimNIBS writes exactly one, and a mesh's field range, colormap and
-  // colour bar are per-view in Gmsh's model as they are per-layer in §4.4's.
-  const view = opt.views[0];
+  // The view Gmsh would show. SimNIBS writes exactly one block and never `Visible`, so it is
+  // `View[0]` and seeds range, colormap and colour bar only — exactly as before 2026-09-18. A
+  // sidecar that does say `Visible = 1` (TI-Toolbox's two-view ROI overlay) names the view to
+  // open on, and Gmsh's view *index* is the index of the `$NodeData`/`$ElementData` block in file
+  // order — which is `MeshDataset.fields`' order (§6.5.1: node fields, then element fields, each
+  // as the file lists them). That view then also seeds the colouring itself: the field, and — for
+  // `ColormapAlphaPower > 0`, Gmsh's fade-to-transparent at the low end — a `hide` gate just above
+  // `CustomMin`, so a field written as zero outside its region of interest shows only the region.
+  const visibleIndex = opt.views.findIndex((v) => v.visible === true);
+  const view = visibleIndex >= 0 ? opt.views[visibleIndex] : opt.views[0];
   if (view !== undefined) {
+    const field = visibleIndex >= 0 ? ds.fields[visibleIndex] : undefined;
+    if (field !== undefined) {
+      next.colorMode = 'field';
+      next.field = { source: field.source, name: field.name, component: 'mag' };
+      seeded.push('colorMode', 'field');
+    }
     // `RangeType = 2` is Gmsh's "custom", and only then do `CustomMin` / `CustomMax` mean anything:
     // with RangeType 1 they are whatever the last save happened to leave behind.
     if (view.rangeType === 2 && view.customMin !== undefined && view.customMax !== undefined) {
@@ -572,6 +595,20 @@ export function seedMeshLayerFromOpt(
     if (view.showScale === true) {
       next.showColorbar = true;
       seeded.push('showColorbar');
+    }
+    if (field !== undefined && (view.colormapAlphaPower ?? 0) > 0) {
+      const lo = next.scale.kind === 'linear' ? next.scale.lo : field.stats.min;
+      const hi = next.scale.kind === 'linear' ? next.scale.hi : field.stats.max;
+      const span = Number.isFinite(hi - lo) && hi > lo ? hi - lo : 1;
+      // Open above: §4.2's ramp is then measured against the scale span (`render/passes/mesh.ts`).
+      next.threshold = {
+        lo: lo + span * 1e-6,
+        hi: Infinity,
+        symmetric: false,
+        mode: 'hide',
+        softEdge: 0,
+      };
+      seeded.push('threshold');
     }
   }
 

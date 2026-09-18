@@ -278,6 +278,10 @@ export interface MshOptions {
     colormapNumber?: number;
     showScale?: boolean;
     vectorType?: number;
+    /** `View[n].Visible`; absent in SimNIBS-written sidecars (2026-09-18, additive). */
+    visible?: boolean;
+    /** `View[n].ColormapAlphaPower`; > 0 fades the colormap at its low end (2026-09-18, additive). */
+    colormapAlphaPower?: number;
   }[];
 }
 

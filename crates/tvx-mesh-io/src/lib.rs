@@ -159,6 +159,12 @@ pub struct MshView {
     pub colormap_number: Option<i32>,
     pub show_scale: Option<bool>,
     pub vector_type: Option<i32>,
+    /// `View[n].Visible` — which view Gmsh shows on open. Absent in every SimNIBS-written sidecar
+    /// (one view, always shown); TI-Toolbox writes it for a multi-view overlay (2026-09-18).
+    pub visible: Option<bool>,
+    /// `View[n].ColormapAlphaPower` — Gmsh fades the colormap towards its low end when > 0, which is
+    /// how a writer hides a field that is zero outside a region of interest.
+    pub colormap_alpha_power: Option<f32>,
 }
 
 /// The formats [`sniff`] can identify and `load_mesh(format)` dispatches on (§6.4).

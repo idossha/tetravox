@@ -163,6 +163,139 @@ describe('seedMeshLayerFromOpt (§7.6)', () => {
     expect(layer.showColorbar).toBe(true);
   });
 
+  // -- `View[n].Visible` (2026-09-18): the view Gmsh would show names the field to open on ------
+
+  const STATS = {
+    min: 0,
+    max: 0.127891,
+    mean: 0.01,
+    std: 0.02,
+    percentiles: {
+      '0.1': 0,
+      '1': 0,
+      '2': 0,
+      '5': 0,
+      '50': 0,
+      '95': 0.1,
+      '98': 0.11,
+      '99': 0.12,
+      '99.9': 0.127,
+    },
+  };
+
+  /** A triangle-only ROI overlay with two node fields, as TI-Toolbox writes it. */
+  function roiDataset(views: MshOptions['views']): MeshDataset {
+    const ds = meshDataset({ tagColor: {}, tagVisible: {}, views });
+    return {
+      ...ds,
+      name: 'roi_overlay.msh',
+      tags: [
+        { id: 5003, name: 'lh', color: [0.5, 0.5, 0.5, 1], kind: 'tri', count: 4 },
+        { id: 7003, name: 'rh', color: [0.5, 0.5, 0.5, 1], kind: 'tri', count: 4 },
+      ],
+      fields: [
+        { name: 'TI_max_ROI', source: 'node', ncomp: 1, n: 8, partial: false, stats: STATS },
+        { name: 'TI_normal_ROI', source: 'node', ncomp: 1, n: 8, partial: false, stats: STATS },
+      ],
+    } as unknown as MeshDataset;
+  }
+
+  /** `View[0]` / `View[1]` of `roi_overlay.msh.opt`, transcribed. */
+  const ROI_VIEWS: MshOptions['views'] = [
+    {
+      visible: true,
+      colormapNumber: 1,
+      rangeType: 2,
+      customMin: 0,
+      customMax: 0.12789118384677717,
+      showScale: true,
+      colormapAlphaPower: 0.08,
+    },
+    {
+      visible: false,
+      colormapNumber: 2,
+      rangeType: 2,
+      customMin: 0,
+      customMax: 0.1142332159101202,
+      showScale: true,
+      colormapAlphaPower: 0.08,
+    },
+  ];
+
+  it('a SimNIBS sidecar (one view, no `Visible`) still seeds exactly what it did before', () => {
+    // The regression guard for the multi-view change: SimNIBS never writes `Visible`, and a mesh
+    // it produced must open coloured by tag with its range, colormap and colour bar seeded — and
+    // nothing else touched.
+    const ds = meshDataset({ tagColor: {}, tagVisible: {}, views: [SIMNIBS_VIEW] });
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer, seed } = seedMeshLayerFromOpt(base, ds);
+    expect(layer).toEqual({
+      ...base,
+      scale: { kind: 'linear', lo: -1.5, hi: 3.5 },
+      colormap: 'jet',
+      showColorbar: true,
+    });
+    expect(seed?.seeded).toEqual(['scale', 'colormap', 'showColorbar']);
+    expect(layer.colorMode).toBe('tag');
+    expect(layer.field).toBeUndefined();
+    expect(layer.threshold).toBe(base.threshold);
+  });
+
+  it('opens on the `Visible = 1` view: its field, range, colormap, colour bar and a hide gate', () => {
+    const ds = roiDataset(ROI_VIEWS);
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer, seed } = seedMeshLayerFromOpt(base, ds);
+    expect(layer.colorMode).toBe('field');
+    expect(layer.field).toEqual({ source: 'node', name: 'TI_max_ROI', component: 'mag' });
+    expect(layer.scale).toEqual({ kind: 'linear', lo: 0, hi: 0.12789118384677717 });
+    expect(layer.colormap).toBe('turbo');
+    expect(layer.showColorbar).toBe(true);
+    // `ColormapAlphaPower > 0`: Gmsh fades the low end out, so the zero outside the ROI is hidden.
+    expect(layer.threshold.mode).toBe('hide');
+    expect(layer.threshold.hi).toBe(Infinity);
+    expect(layer.threshold.lo).toBeGreaterThan(0);
+    expect(layer.threshold.lo).toBeLessThan(1e-6);
+    expect(seed?.seeded).toEqual(
+      expect.arrayContaining([
+        'colorMode',
+        'field',
+        'scale',
+        'colormap',
+        'showColorbar',
+        'threshold',
+      ])
+    );
+  });
+
+  it('the visible view’s index is the field’s index in file order, not always the first', () => {
+    const views = [
+      { ...ROI_VIEWS[0]!, visible: false },
+      { ...ROI_VIEWS[1]!, visible: true },
+    ];
+    const ds = roiDataset(views);
+    const { layer } = seedMeshLayerFromOpt(defaultMeshLayer('layer1', ds), ds);
+    expect(layer.field?.name).toBe('TI_normal_ROI');
+    expect(layer.scale).toEqual({ kind: 'linear', lo: 0, hi: 0.1142332159101202 });
+    expect(layer.colormap).toBe('jet');
+  });
+
+  it('a `Visible = 1` view with no field at its index seeds no field', () => {
+    const ds = roiDataset([{ ...ROI_VIEWS[0]!, visible: false }, ROI_VIEWS[1]!, { visible: true }]);
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer } = seedMeshLayerFromOpt(base, ds);
+    expect(layer.colorMode).toBe('tag');
+    expect(layer.field).toBeUndefined();
+    expect(layer.threshold).toBe(base.threshold);
+  });
+
+  it('no gate without `ColormapAlphaPower`', () => {
+    const ds = roiDataset([{ ...ROI_VIEWS[0]!, colormapAlphaPower: 0 }]);
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer } = seedMeshLayerFromOpt(base, ds);
+    expect(layer.colorMode).toBe('field');
+    expect(layer.threshold).toBe(base.threshold);
+  });
+
   it('is idempotent — seeding an already-seeded layer changes nothing', () => {
     const ds = meshDataset({
       tagColor: { 1: [0.1, 0.2, 0.3, 1] },
