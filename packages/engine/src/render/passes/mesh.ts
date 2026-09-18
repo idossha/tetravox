@@ -20,7 +20,17 @@ import { MAX_CLIP_PLANES } from '../../gl/state';
 import type { MeshDrawItem, MeshDrawStyle } from '../../layers/runtime';
 import type { CapGeometry, GpuStore, SurfaceGeometry } from '../gpu';
 import { isSliceView } from '../../scene/store';
-import type { Aabb, mat4, MeshDataset, MeshLayer, Plane, vec3, vec4 } from '../../scene/types';
+import type {
+  Aabb,
+  mat4,
+  MeshDataset,
+  MeshLayer,
+  Plane,
+  Scale,
+  Threshold,
+  vec3,
+  vec4,
+} from '../../scene/types';
 
 /** Texture units, fixed so a variant switch never has to re-bind. */
 const UNIT = { lut: 0, field: 1, owner: 2, palette: 3, edgeMask: 4 } as const;
@@ -275,6 +285,43 @@ export function thresholdVariant(layer: MeshLayer, colorSource: number): 0 | 1 |
   if (t.mode !== 'hide') return MESH_THRESHOLD.none;
   if (!Number.isFinite(t.lo) && !Number.isFinite(t.hi)) return MESH_THRESHOLD.none;
   return t.symmetric ? MESH_THRESHOLD.hideSymmetric : MESH_THRESHOLD.hide;
+}
+
+/**
+ * The three `uThresh*` uniforms of §4.2's mesh value gate, with **one open bound** handled.
+ *
+ * `Threshold.lo` / `hi` default to `±Infinity` (`scene/defaults.ts`), and the shader takes the finite
+ * stand-in `±F32_MAX`. The ramp width, however, is "`softEdge` as a fraction of `hi - lo`" — and when
+ * one bound is open that difference is ~3.4e38, so even the floor that keeps `smoothstep` off two
+ * equal edges (`span · 1e-6`) became ~3.4e32: the lower ramp then swallowed every value in the data
+ * and a `hide` gate with `hi: null` hid the whole layer (found 2026-09-18 on TI-Toolbox's
+ * `roi_overlay.msh` scene, `threshold: {lo: 1e-6, hi: null}`).
+ *
+ * So the ramp is measured against a **finite reference span**: `hi - lo` when both are finite, else
+ * the layer's colour-scale span — the same range the slice pass's `uThreshold` sentinels leave the
+ * ramp to `uSoftEdge · (hi − lo)` over, and the width a user reads on the colour bar — and `1` when
+ * even that is degenerate. An open bound is still `±F32_MAX` for the comparison itself.
+ */
+export function thresholdUniforms(
+  t: Threshold,
+  scale: Scale
+): { lo: number; hi: number; soft: number } {
+  const loFinite = Number.isFinite(t.lo);
+  const hiFinite = Number.isFinite(t.hi);
+  const lo = loFinite ? t.lo : -F32_MAX;
+  const hi = hiFinite ? t.hi : F32_MAX;
+  let ref: number;
+  if (loFinite && hiFinite) {
+    ref = Math.abs(hi - lo);
+  } else {
+    const scaleSpan =
+      scale.kind === 'linear' ? Math.abs(scale.hi - scale.lo) : Math.abs(scale.max - scale.min);
+    ref = Number.isFinite(scaleSpan) && scaleSpan > 0 ? scaleSpan : 1;
+  }
+  // §4.2: the ramp width is `softEdge` as a fraction of the span. Floored just above zero, so the
+  // shader's `smoothstep` never sees two equal edges — which GLSL leaves undefined.
+  const soft = Math.max(Math.max(0, t.softEdge) * ref, ref * 1e-6, 1e-30);
+  return { lo, hi, soft };
 }
 
 /**
@@ -670,15 +717,10 @@ export class MeshPass implements FramePass {
         prog.int('uOwnerWidth', geom.ownerWidth);
       }
       if (variant.TVX_THRESHOLD !== MESH_THRESHOLD.none) {
-        const t = layer.threshold;
-        const lo = Number.isFinite(t.lo) ? t.lo : -F32_MAX;
-        const hi = Number.isFinite(t.hi) ? t.hi : F32_MAX;
-        const span = Math.abs(hi - lo);
-        prog.float('uThreshLo', lo);
-        prog.float('uThreshHi', hi);
-        // §4.2: the ramp width is `softEdge` as a fraction of `hi - lo`. Floored just above zero, so
-        // the shader's `smoothstep` never sees two equal edges — which GLSL leaves undefined.
-        prog.float('uThreshSoft', Math.max(t.softEdge * span, span * 1e-6, 1e-30));
+        const u = thresholdUniforms(layer.threshold, layer.scale);
+        prog.float('uThreshLo', u.lo);
+        prog.float('uThreshHi', u.hi);
+        prog.float('uThreshSoft', u.soft);
       }
     } else if (source === MESH_COLOR_SOURCE.label) {
       const table = style?.fieldTable;
@@ -764,13 +806,10 @@ export class MeshPass implements FramePass {
         prog.int('uFieldWidth', table.width);
       }
       if (variant.TVX_THRESHOLD !== MESH_THRESHOLD.none) {
-        const t = layer.threshold;
-        const lo = Number.isFinite(t.lo) ? t.lo : -F32_MAX;
-        const hi = Number.isFinite(t.hi) ? t.hi : F32_MAX;
-        const span = Math.abs(hi - lo);
-        prog.float('uThreshLo', lo);
-        prog.float('uThreshHi', hi);
-        prog.float('uThreshSoft', Math.max(t.softEdge * span, span * 1e-6, 1e-30));
+        const u = thresholdUniforms(layer.threshold, layer.scale);
+        prog.float('uThreshLo', u.lo);
+        prog.float('uThreshHi', u.hi);
+        prog.float('uThreshSoft', u.soft);
       }
     }
     if (source === MESH_COLOR_SOURCE.capTag || variant.TVX_CAP_MIX === 1) {

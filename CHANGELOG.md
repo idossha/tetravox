@@ -24,6 +24,11 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 - **Scene requests restore a missing viewer window.** A running app without a window waits for its
   new renderer before delivering the request.
 
+- **A mesh field threshold with no upper bound no longer hides the whole layer.** `hide` with
+  `hi` left open (`null` in a scene file) is "hide everything below `lo`"; it used to measure its
+  soft edge against the float sentinel standing in for infinity and dropped every value. The ROI
+  overlays TI-Toolbox writes were the first to hit it.
+
 ## [0.5.2] - 2026-09-15
 
 ### Fixed

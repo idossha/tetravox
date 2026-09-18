@@ -220,6 +220,8 @@ export interface Threshold {
   symmetric: boolean;                 // compare |v| instead of v
   mode: 'hide' | 'clamp';
   softEdge: number;                   // width of the alpha ramp as a fraction of `hi - lo`; 0 = hard discard
+                                      // `lo`/`hi` may be ±Infinity (an open bound, serialised as null); the
+                                      // ramp is then a fraction of the layer's `scale` span instead (2026-09-18)
 }
 
 export type PercentileKey = '0.1' | '1' | '2' | '5' | '50' | '95' | '98' | '99' | '99.9';
