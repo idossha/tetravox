@@ -655,44 +655,64 @@ describe('scene load generations', () => {
   });
 });
 
-describe('TI live-scene request provenance', () => {
-  it('exports live state without changing its attachment and invalidates on manual scene replacement', async () => {
+describe('generic live-scene API', () => {
+  it('exports manually opened live state without requiring an API-open session', async () => {
     const { fs, controller, store, engine } = await loadedScene();
-    const scenePath = '/project/code/ti-toolbox/viewer/result.tetravox.json';
+    const scenePath = '/research/manual scene.tetravox.json';
     fs.savePath = scenePath;
     await controller.saveSceneAs();
     const original = fs.files.get(scenePath);
-    const context = { protocol: 1 as const, id: 'a'.repeat(32), nonce: 'b'.repeat(64), scenePath };
-    await controller.handleTiSceneRequest({ ...context, action: 'open-scene' });
     engine.setCursor([7, 8, 9]);
     store.setState({ themeChoice: 'dark' });
-    const destination = '/project/code/ti-toolbox/viewer/scenes/edited.tetravox.json';
-    const saved = await controller.handleTiSceneRequest({
-      ...context,
+    const saved = await controller.handleSceneRequest({
+      protocol: 1,
+      id: 'a'.repeat(32),
       action: 'save-scene',
-      destination,
+      path: '/my exports/edited.tetravox.json',
     });
     expect(parseScene(saved.text!).spec?.cursor).toEqual([7, 8, 9]);
     expect(JSON.parse(saved.text!).theme).toBe('dark');
     expect(store.getState().sceneFile?.path).toBe(scenePath);
     expect(fs.files.get(scenePath)).toBe(original);
     await expect(
-      controller.handleTiSceneRequest({
-        ...context,
-        nonce: 'c'.repeat(64),
+      controller.handleSceneRequest({
+        protocol: 1,
+        id: 'b'.repeat(32),
         action: 'save-scene',
-        destination,
+        path: '/my exports/another.tetravox.json',
+        expectedScenePath: '/different.tetravox.json',
       })
-    ).rejects.toThrow('not bound');
-    const canonicalSave = '/project/code/ti-toolbox/viewer/scenes/result.tetravox.json';
-    fs.savePath = canonicalSave;
+    ).rejects.toThrow();
+  });
+  it('exports an untitled live scene without creating an attachment', async () => {
+    const { controller, store, engine } = await loadedScene();
+    expect(store.getState().sceneFile).toBeNull();
+    engine.setCursor([2, 4, 6]);
+    const saved = await controller.handleSceneRequest({
+      protocol: 1,
+      id: 'd'.repeat(32),
+      action: 'save-scene',
+      path: '/exports/untitled view.tetravox.json',
+    });
+    expect(parseScene(saved.text!).spec?.cursor).toEqual([2, 4, 6]);
+    expect(store.getState().sceneFile).toBeNull();
+  });
+  it('API open leaves native Save behavior and attachment unchanged', async () => {
+    const { fs, controller, engine, store } = await loadedScene();
+    const path = '/research/source.tetravox.json';
+    fs.savePath = path;
+    await controller.saveSceneAs();
+    await controller.handleSceneRequest({
+      protocol: 1,
+      id: 'c'.repeat(32),
+      action: 'open-scene',
+      path,
+    });
+    engine.setCursor([4, 5, 6]);
+    const dialogsBefore = fs.saveDefaults.length;
     await expect(controller.saveScene()).resolves.toBe(true);
-    expect(fs.saveDefaults.at(-1)).toBe(canonicalSave);
-    expect(fs.files.get(scenePath)).toBe(original);
-    expect(parseScene(fs.files.get(canonicalSave)!).spec?.cursor).toEqual([7, 8, 9]);
-    await controller.openScenePath(scenePath);
-    await expect(
-      controller.handleTiSceneRequest({ ...context, action: 'save-scene', destination })
-    ).rejects.toThrow('not bound');
+    expect(fs.saveDefaults.length).toBe(dialogsBefore);
+    expect(store.getState().sceneFile?.path).toBe(path);
+    expect(parseScene(fs.files.get(path)!).spec?.cursor).toEqual([4, 5, 6]);
   });
 });

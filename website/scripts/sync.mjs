@@ -111,6 +111,13 @@ function rewriteLinks(body) {
   out = out.replaceAll('{{ site.baseurl }}/TESTING.html', '/developers/testing');
   out = out.replaceAll('docs/AUTOMATION.md', '/automation');
   out = out.replaceAll('docs/TESTING.md', '/developers/testing');
+  out = out.replaceAll('](SCENE_API.md)', '](/developers/scene-api)');
+  out = out.replaceAll('](ARCHITECTURE.md)', '](/developers/architecture)');
+  out = out.replaceAll('](TESTING.md)', '](/developers/testing)');
+  out = out.replaceAll(
+    '](requirements/2026-09-19-generic-scene-api.md)',
+    '](' + GITHUB_BLOB + 'docs/requirements/2026-09-19-generic-scene-api.md)'
+  );
   // USER_GUIDE.md cross-links to its own other sections, once split into
   // one page per topic under /guide/ (see splitGuide() below).
   out = out.replace(/\{\{ site\.baseurl \}\}\/guide\/([a-z0-9-]+)\.html/g, '/guide/$1');
@@ -193,6 +200,7 @@ const DOC_PAGES = [
   // at all (verified: only Rust/TS generics and placeholder text look like
   // tags), so those get every `<...>` escaped, not just the disallowed ones.
   { src: 'AUTOMATION.md', out: 'automation.md', title: 'Automation & Python', allowRealTags: true },
+  { src: 'SCENE_API.md', out: 'developers/scene-api.md', title: 'Native scene API' },
   { src: 'ARCHITECTURE.md', out: 'developers/architecture.md', title: 'Architecture' },
   { src: 'DECISIONS.md', out: 'developers/decisions.md', title: 'Decisions' },
   { src: 'TESTING.md', out: 'developers/testing.md', title: 'Testing' },

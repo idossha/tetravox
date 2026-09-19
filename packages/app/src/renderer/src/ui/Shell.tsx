@@ -254,9 +254,9 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
         });
     }
 
-    const offTi = bridge().onTiSceneRequest?.((request) => {
+    const offSceneApi = bridge().onSceneRequest?.((request) => {
       if (cancelled) return Promise.reject(new Error('Viewer window is unavailable'));
-      return controller.handleTiSceneRequest(request);
+      return controller.handleSceneRequest(request);
     });
 
     // Runtime opens — menu Open…, ⌘O, a second instance, macOS `open-file` after ready.
@@ -295,7 +295,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
       cancelled = true;
       off();
       offScene();
-      offTi?.();
+      offSceneApi?.();
       offSample();
       offProgress();
       offExtensions?.();

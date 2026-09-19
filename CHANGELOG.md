@@ -10,14 +10,14 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **TI-Toolbox can save your edited scene into the active project.** Its native scene request API
-  saves current view settings and layers with a completion receipt. **File ▸ Save As…** defaults to
-  the project's saved-scenes folder for TI-opened scenes; existing scene files remain compatible.
+- **External applications can load and save scenes.** The native scene API opens a scene or exports
+  the current edited view to a caller-selected path, with a completion reply and optional overwrite.
+  Existing scene files and native **File ▸ Save / Save As…** behavior are unchanged.
 
 ### Fixed
 
-- **Opening a scene from TI-Toolbox recreates a closed viewer window.** A running app with no window
-  waits for its new renderer before receiving the scene, instead of silently losing the request.
+- **Scene requests restore a missing viewer window.** A running app without a window waits for its
+  new renderer before delivering the request.
 
 ## [0.5.2] - 2026-09-15
 

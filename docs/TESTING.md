@@ -555,11 +555,11 @@ pnpm store reaches `pnpm e2e` green* — is what the cold-cache path exercises o
 cache key.
 
 
-### Native TI request regression coverage
+### Native scene API regression coverage
 
-`pnpm exec vitest run --project app packages/app/src/main/ti-scene-request.test.ts packages/app/src/renderer/src/store/controller.scene.test.ts`
-checks create-only receipts, current serialized edits, original recipe preservation, session invalidation,
-and canonical/private filesystem boundaries without opening a window. Packaged cold/warm launches and
+`pnpm exec vitest run --project app packages/app/src/main/scene-api.test.ts packages/app/src/renderer/src/store/controller.scene.test.ts`
+checks create-only receipts, current serialized edits, original recipe preservation, optional expected-scene checks, explicit overwrite,
+and private request boundaries without opening a window. Packaged cold/warm launches and
 closed-window recovery use the hidden Electron native-scene E2E regression; Windows ACL and Linux desktop
 foreground behavior still require platform-specific execution before claiming cross-platform proof.
 
@@ -569,7 +569,7 @@ at its absolute executable path (an invalid explicit path fails instead of silen
 
 ```sh
 cd packages/app
-TETRAVOX_REQUIRE_PACKAGED=1 TETRAVOX_PACKAGED_EXECUTABLE=/tmp/tetravox-ti-native-package/mac-arm64/Tetravox.app/Contents/MacOS/Tetravox pnpm exec playwright test --project=packaged e2e/native-scene.spec.ts
+TETRAVOX_REQUIRE_PACKAGED=1 TETRAVOX_PACKAGED_EXECUTABLE=/tmp/tetravox-scene-api-package/mac-arm64/Tetravox.app/Contents/MacOS/Tetravox pnpm exec playwright test --project=packaged e2e/native-scene.spec.ts
 ```
 
 The normal package freshness check and hidden-window policy still apply to this override.

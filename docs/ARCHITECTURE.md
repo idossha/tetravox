@@ -45,7 +45,7 @@ and *unattended* download-and-install stays a non-goal.)
 
 **Native-only integration (2026-09-13).** The browser embed and postMessage contract are retired.
 External applications open local `.tetravox.json` files through the native executable; batch rendering
-uses `--job`. TI-Toolbox may additionally use the explicitly advertised native scene protocol below. Workers retain HTTP loading for engine tests and existing dataset sources. Remote browsing
+uses `--job`. External applications may also use the native scene API below. Workers retain HTTP loading for engine tests and existing dataset sources. Remote browsing
 and Range requests remain outside scope. Native and test hosts share the WebGL2 engine.
 
 ---
@@ -3915,28 +3915,21 @@ keeps the current 3D camera. Later dataset arrivals update layer visibility with
 `LoadProgress.name` is optional and identifies the source before adoption.
 
 
-### TI-Toolbox native scene requests (2026-09-19; §5 / §8)
+### Native scene API (§5 / §8)
 
-The packaged `tiToolboxSceneProtocol: 1` capability advertises `--ti-request=<private JSON file>`.
-This is a user-scoped file request, not a listening service. Main validates an absolute private request
-(maximum 16 KiB, age at most 60 seconds), canonical project paths, and a 32-hex request ID plus a 64-hex
-session nonce. POSIX requests and their directory must belong to the current user and exclude group/other
-access; Windows callers must create a user-private ACL. The renderer response must come from the selected
-window's main frame and match both correlation values.
+External programs may load a scene or save the current live scene through `--scene-request=<private JSON file>`.
+`sceneApiProtocol: 1` in the application package advertises support. The request carries a protocol version,
+unique ID, action and absolute `.tetravox.json` path; a matching receipt reports completion or an error.
+Loading uses the existing guarded loader. Saving uses the existing live serializer and leaves the current
+attachment and native Save/Save As behavior unchanged. It does not require a previous API load.
 
-`open-scene` uses the ordinary guarded scene loader and binds the original scene path to that nonce.
-`save-scene` requires the same binding and serializes the current engine, theme, and extension blocks.
-New or replaced scenes invalidate the binding. Exports preserve the original attachment and restore its
-scene directory after serialization, preventing changed relative paths or a recipe from replacing live edits.
-Outputs are directly under `<project>/code/ti-toolbox/viewer/scenes/` with a `.tetravox.json` suffix.
-Staging, fsync, and create-only hard-link publication prevent partial files and overwrites. The receipt at
-`<request>.receipt.json` acknowledges the exact opened/saved path only after completion; errors are explicit.
+Callers choose paths and create destination directories. No caller names, project layout, naming policy or
+application-update policy belongs in this API. An optional `expectedScenePath` rejects a save if another
+scene is attached; absent means save the current scene. Existing outputs are preserved unless the caller
+explicitly supplies `overwrite: true`. Writes are atomic, and symlink output targets are rejected.
 
-Native Save initially routes a TI-bound generated input through Save As, defaulting to the same project
-scenes directory. After a native Save As, subsequent native saves use that attachment. Users may choose a
-different directory in the native dialog; external hosts must not claim those files are automatically
-indexed. Changing the attachment requires a fresh acknowledged TI open before another TI export.
-
-Requests queue until the renderer subscribes, including when a second invocation must recreate a closed
-window. Normal interactive windows restore/show/focus; hidden tests retain their no-screen policy, and batch
-jobs do not accept interactive requests. TetraVox retains ownership of application updates.
+Requests use private local files with bounded reads and correlated replies; no listening service is added.
+They queue until the renderer is ready, including after recreating a missing interactive window. Batch jobs
+ignore interactive requests; hidden tests never show or focus a window. See [SCENE_API.md](SCENE_API.md) for
+request examples and field definitions, and [the requirements](requirements/2026-09-19-generic-scene-api.md)
+for the caller-independent boundary.

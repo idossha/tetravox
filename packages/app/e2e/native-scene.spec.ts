@@ -1,4 +1,4 @@
-/** Native TI requests cross real main/preload/controller IPC and produce receipts on disk.
+/** Native scene requests cross real main/preload/controller IPC and produce receipts on disk.
  * Uses an isolated, forced-hidden real-engine app and the committed synthetic vol_u8 fixture.
  * Cursor values are authored input, compared with saved JSON; this is not a pixel assertion.
  * Run: pnpm --filter @tetravox/app exec playwright test --project=dev native-scene.spec.ts
@@ -27,10 +27,11 @@ const HIDDEN = { TETRAVOX_E2E_HEADED: '0', TETRAVOX_E2E_OFFSCREEN: '1' };
 type Request = {
   protocol: 1;
   id: string;
-  nonce: string;
+
   action: 'open-scene' | 'save-scene';
-  scenePath: string;
-  destination?: string;
+  path: string;
+  expectedScenePath?: string;
+  overwrite?: boolean;
 };
 function requestFile(root: string, body: Request): string {
   const directory = mkdtempSync(join(root, '.tetravox-request-'));
@@ -45,9 +46,9 @@ async function receipt(path: string, body: Request): Promise<void> {
   expect(JSON.parse(readFileSync(output, 'utf8'))).toMatchObject({
     protocol: 1,
     id: body.id,
-    nonce: body.nonce,
+
     ok: true,
-    path: body.destination ?? body.scenePath,
+    path: body.path,
   });
 }
 async function ready(page: Page): Promise<void> {
@@ -75,7 +76,7 @@ async function deliver(app: ElectronApplication, path: string): Promise<void> {
     running.emit(
       'second-instance',
       {},
-      [process.execPath, `--ti-request=${requestPath}`],
+      [process.execPath, `--scene-request=${requestPath}`],
       process.cwd()
     );
   }, path);
@@ -91,7 +92,7 @@ test('cold open, edited live save and Dock-only recreation acknowledge real disk
     'Dock-only process survival is macOS-specific; this test verifies its whole cold/open/save sequence.'
   );
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'tetravox-native-scene-e2e-')));
-  const scenePath = join(root, 'code/ti-toolbox/viewer/scenes/source.tetravox.json');
+  const scenePath = join(root, 'My research scenes/source.tetravox.json');
   mkdirSync(dirname(scenePath), { recursive: true });
   const destination = join(dirname(scenePath), 'live.tetravox.json');
   let app: ElectronApplication | undefined;
@@ -119,18 +120,16 @@ test('cold open, edited live save and Dock-only recreation acknowledge real disk
     await app.close();
     app = undefined;
     const original = readFileSync(scenePath, 'utf8');
-    const nonce = randomBytes(32).toString('hex');
     const opening: Request = {
       protocol: 1,
       id: randomBytes(16).toString('hex'),
-      nonce,
       action: 'open-scene',
-      scenePath,
+      path: scenePath,
     };
     const openingPath = requestFile(root, opening);
     app = await launchApp(target, {
       search: 'engine=real',
-      args: [`--ti-request=${openingPath}`],
+      args: [`--scene-request=${openingPath}`],
       env: HIDDEN,
       userDataDir: join(root, 'viewer-profile'),
     });
@@ -144,7 +143,8 @@ test('cold open, edited live save and Dock-only recreation acknowledge real disk
       ...opening,
       id: randomBytes(16).toString('hex'),
       action: 'save-scene',
-      destination,
+      path: destination,
+      expectedScenePath: scenePath,
     };
     const savingPath = requestFile(root, saving);
     await deliver(app, savingPath);
@@ -163,7 +163,6 @@ test('cold open, edited live save and Dock-only recreation acknowledge real disk
     const reopening: Request = {
       ...opening,
       id: randomBytes(16).toString('hex'),
-      nonce: randomBytes(32).toString('hex'),
     };
     const reopeningPath = requestFile(root, reopening);
     const newWindow = app.waitForEvent('window');

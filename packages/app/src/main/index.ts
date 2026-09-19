@@ -19,8 +19,8 @@ import { mkdirSync, writeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
-import { handleTiSceneRequest } from './ti-scene-request';
-import type { TiSceneRequest, TiSceneSnapshot } from '../shared/ti-scene-protocol';
+import { handleSceneRequest } from './scene-api-request';
+import type { SceneRequest, SceneSnapshot } from '../shared/scene-api-protocol';
 import {
   buildMenu,
   sendOpenScene,
@@ -361,25 +361,24 @@ function createWindow(): BrowserWindow {
 }
 
 // Only requests explicitly passed on the CLI enter this private, per-user bridge.
-const tiRequests = process.argv
-  .filter((arg) => arg.startsWith('--ti-request='))
-  .map((arg) => arg.slice('--ti-request='.length));
-let tiReadyContents: number | undefined;
-let tiDraining = false;
-function tiDispatch(request: TiSceneRequest): Promise<TiSceneSnapshot> {
+const sceneRequests = process.argv
+  .filter((arg) => arg.startsWith('--scene-request='))
+  .map((arg) => arg.slice('--scene-request='.length));
+let sceneReadyContents: number | undefined;
+let sceneDraining = false;
+function sceneDispatch(request: SceneRequest): Promise<SceneSnapshot> {
   const win = mainWindow;
-  if (!win || win.isDestroyed() || win.webContents.id !== tiReadyContents)
+  if (!win || win.isDestroyed() || win.webContents.id !== sceneReadyContents)
     return Promise.reject(new Error('Viewer window is unavailable'));
   return new Promise((resolve, reject) => {
     const finish = (): void => {
       clearTimeout(timer);
-      ipcMain.removeListener('tetravox:ti-response', listener);
+      ipcMain.removeListener('tetravox:scene-api-response', listener);
     };
     const listener = (
       event: Electron.IpcMainEvent,
       value: {
         id?: string;
-        nonce?: string;
         ok?: boolean;
         scenePath?: string;
         text?: string;
@@ -390,13 +389,11 @@ function tiDispatch(request: TiSceneRequest): Promise<TiSceneSnapshot> {
         event.sender !== win.webContents ||
         event.senderFrame !== win.webContents.mainFrame ||
         !value ||
-        value.id !== request.id ||
-        value.nonce !== request.nonce
+        value.id !== request.id
       )
         return;
       finish();
-      if (!value.ok || typeof value.scenePath !== 'string')
-        reject(new Error(value.error || 'Viewer rejected the TI request'));
+      if (!value.ok) reject(new Error(value.error || 'Viewer rejected the scene request'));
       else
         resolve({
           scenePath: value.scenePath,
@@ -407,39 +404,44 @@ function tiDispatch(request: TiSceneRequest): Promise<TiSceneSnapshot> {
       finish();
       reject(new Error('Viewer request timed out'));
     }, 25_000);
-    ipcMain.on('tetravox:ti-response', listener);
-    win.webContents.send('tetravox:ti-request', request);
+    ipcMain.on('tetravox:scene-api-response', listener);
+    win.webContents.send('tetravox:scene-api-request', request);
   });
 }
-async function drainTiRequests(): Promise<void> {
-  if (tiDraining || !mainWindow || mainWindow.webContents.id !== tiReadyContents || isJobRun())
+async function drainSceneRequests(): Promise<void> {
+  if (
+    sceneDraining ||
+    !mainWindow ||
+    mainWindow.webContents.id !== sceneReadyContents ||
+    isJobRun()
+  )
     return;
-  tiDraining = true;
+  sceneDraining = true;
   try {
-    while (tiRequests.length) {
-      const requestFile = tiRequests.shift()!;
+    while (sceneRequests.length) {
+      const requestFile = sceneRequests.shift()!;
       try {
-        await handleTiSceneRequest(requestFile, tiDispatch);
+        await handleSceneRequest(requestFile, sceneDispatch);
       } catch (error) {
         console.warn(
-          '[tetravox] invalid TI request',
+          '[tetravox] invalid scene request',
           error instanceof Error ? error.message : String(error)
         );
       }
     }
   } finally {
-    tiDraining = false;
+    sceneDraining = false;
   }
 }
-ipcMain.on('tetravox:ti-ready', (event) => {
+ipcMain.on('tetravox:scene-api-ready', (event) => {
   if (
     !mainWindow ||
     event.sender !== mainWindow.webContents ||
     event.senderFrame !== mainWindow.webContents.mainFrame
   )
     return;
-  tiReadyContents = event.sender.id;
-  void drainTiRequests();
+  sceneReadyContents = event.sender.id;
+  void drainSceneRequests();
 });
 
 // Single instance, so a second `tetravox file.nii` hands its paths to the running window (§8).
@@ -453,16 +455,16 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', (_event, argv, cwd) => {
     const requests = argv
-      .filter((arg) => arg.startsWith('--ti-request='))
-      .map((arg) => arg.slice('--ti-request='.length));
+      .filter((arg) => arg.startsWith('--scene-request='))
+      .map((arg) => arg.slice('--scene-request='.length));
     if (requests.length && !isJobRun()) {
-      tiRequests.push(...requests);
+      sceneRequests.push(...requests);
       if (!mainWindow || mainWindow.isDestroyed()) {
-        tiReadyContents = undefined;
+        sceneReadyContents = undefined;
         mainWindow = createWindow();
         mainWindow.on('closed', () => {
           mainWindow = null;
-          tiReadyContents = undefined;
+          sceneReadyContents = undefined;
         });
         installCloseGuard(mainWindow, { isJob: false, packaged: app.isPackaged });
       }
@@ -471,7 +473,7 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
         mainWindow.show();
         mainWindow.focus();
       }
-      void drainTiRequests();
+      void drainSceneRequests();
       return;
     }
     const opened = toOpened(collectCliPaths(argv, app.getAppPath(), cwd));
@@ -830,7 +832,7 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     const settings = readSettings();
     const last = settings.recentScenes[0];
     if (
-      tiRequests.length === 0 &&
+      sceneRequests.length === 0 &&
       startupScene === null &&
       startupPaths.length === 0 &&
       settings.reopenLastScene &&

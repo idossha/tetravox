@@ -5685,6 +5685,8 @@ no ZIP; managers must wait for a verified official ZIP with a pinned digest befo
 
 ## 2026-09-19 — Native TI scene saving and surviving-window handoff
 
+**Superseded 2026-09-19** by the generic scene API decision below.
+
 TI needs the edited viewer state saved in its active project, rather than another copy of its generated
 scene recipe. Add an explicitly advertised, nonce-bound file request/receipt protocol, using the ordinary
 scene loader and serializer. Reject wrong sessions, path escapes, and existing output names. No socket,
@@ -5695,3 +5697,12 @@ interactive window before draining second-instance requests so a dock-only proce
 A general remote API and unacknowledged CLI launches were rejected: the former exceeds this workflow's
 scope and the latter cannot establish whether the intended scene is loaded or saved. See ARCHITECTURE's
 TI-Toolbox native scene requests contract for exact state and filesystem boundaries.
+
+## 2026-09-19 — Keep the native scene API independent of its callers
+
+The maintainer rejected embedding TI-specific project paths, session binding and Save As defaults in
+TetraVox. Replace that proposal with a generic load/save request surface: callers supply paths, may guard
+a save with an expected attached path, and explicitly opt into overwriting. TetraVox owns scene loading,
+serialization and completion replies. Native menu behavior stays unchanged; project conventions stay in
+the calling application. Private request files and the existing Electron handoff avoid introducing a
+network service. See [SCENE_API.md](SCENE_API.md) and [requirements](requirements/2026-09-19-generic-scene-api.md).
