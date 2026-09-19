@@ -19,6 +19,8 @@ import { mkdirSync, writeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
+import { handleTiSceneRequest } from './ti-scene-request';
+import type { TiSceneRequest, TiSceneSnapshot } from '../shared/ti-scene-protocol';
 import {
   buildMenu,
   sendOpenScene,
@@ -358,6 +360,88 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
+// Only requests explicitly passed on the CLI enter this private, per-user bridge.
+const tiRequests = process.argv
+  .filter((arg) => arg.startsWith('--ti-request='))
+  .map((arg) => arg.slice('--ti-request='.length));
+let tiReadyContents: number | undefined;
+let tiDraining = false;
+function tiDispatch(request: TiSceneRequest): Promise<TiSceneSnapshot> {
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || win.webContents.id !== tiReadyContents)
+    return Promise.reject(new Error('Viewer window is unavailable'));
+  return new Promise((resolve, reject) => {
+    const finish = (): void => {
+      clearTimeout(timer);
+      ipcMain.removeListener('tetravox:ti-response', listener);
+    };
+    const listener = (
+      event: Electron.IpcMainEvent,
+      value: {
+        id?: string;
+        nonce?: string;
+        ok?: boolean;
+        scenePath?: string;
+        text?: string;
+        error?: string;
+      }
+    ): void => {
+      if (
+        event.sender !== win.webContents ||
+        event.senderFrame !== win.webContents.mainFrame ||
+        !value ||
+        value.id !== request.id ||
+        value.nonce !== request.nonce
+      )
+        return;
+      finish();
+      if (!value.ok || typeof value.scenePath !== 'string')
+        reject(new Error(value.error || 'Viewer rejected the TI request'));
+      else
+        resolve({
+          scenePath: value.scenePath,
+          ...(value.text === undefined ? {} : { text: value.text }),
+        });
+    };
+    const timer = setTimeout(() => {
+      finish();
+      reject(new Error('Viewer request timed out'));
+    }, 25_000);
+    ipcMain.on('tetravox:ti-response', listener);
+    win.webContents.send('tetravox:ti-request', request);
+  });
+}
+async function drainTiRequests(): Promise<void> {
+  if (tiDraining || !mainWindow || mainWindow.webContents.id !== tiReadyContents || isJobRun())
+    return;
+  tiDraining = true;
+  try {
+    while (tiRequests.length) {
+      const requestFile = tiRequests.shift()!;
+      try {
+        await handleTiSceneRequest(requestFile, tiDispatch);
+      } catch (error) {
+        console.warn(
+          '[tetravox] invalid TI request',
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+  } finally {
+    tiDraining = false;
+  }
+}
+ipcMain.on('tetravox:ti-ready', (event) => {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return;
+  tiReadyContents = event.sender.id;
+  void drainTiRequests();
+});
+
 // Single instance, so a second `tetravox file.nii` hands its paths to the running window (§8).
 //
 // **A `--job` run is exempt.** The lock's purpose is that opening a file joins the window you are
@@ -368,6 +452,28 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv, cwd) => {
+    const requests = argv
+      .filter((arg) => arg.startsWith('--ti-request='))
+      .map((arg) => arg.slice('--ti-request='.length));
+    if (requests.length && !isJobRun()) {
+      tiRequests.push(...requests);
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        tiReadyContents = undefined;
+        mainWindow = createWindow();
+        mainWindow.on('closed', () => {
+          mainWindow = null;
+          tiReadyContents = undefined;
+        });
+        installCloseGuard(mainWindow, { isJob: false, packaged: app.isPackaged });
+      }
+      if (MODE === 'normal') {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+      void drainTiRequests();
+      return;
+    }
     const opened = toOpened(collectCliPaths(argv, app.getAppPath(), cwd));
     if (mainWindow && MODE === 'normal') {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -724,6 +830,7 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     const settings = readSettings();
     const last = settings.recentScenes[0];
     if (
+      tiRequests.length === 0 &&
       startupScene === null &&
       startupPaths.length === 0 &&
       settings.reopenLastScene &&

@@ -45,7 +45,7 @@ and *unattended* download-and-install stays a non-goal.)
 
 **Native-only integration (2026-09-13).** The browser embed and postMessage contract are retired.
 External applications open local `.tetravox.json` files through the native executable; batch rendering
-uses `--job`. Workers retain HTTP loading for engine tests and existing dataset sources. Remote browsing
+uses `--job`. TI-Toolbox may additionally use the explicitly advertised native scene protocol below. Workers retain HTTP loading for engine tests and existing dataset sources. Remote browsing
 and Range requests remain outside scope. Native and test hosts share the WebGL2 engine.
 
 ---
@@ -3913,3 +3913,30 @@ explicit Reset/Reload discards it. Desktop Open Scene clears the scene first. Ca
 incremental selection
 keeps the current 3D camera. Later dataset arrivals update layer visibility without refitting the camera.
 `LoadProgress.name` is optional and identifies the source before adoption.
+
+
+### TI-Toolbox native scene requests (2026-09-19; §5 / §8)
+
+The packaged `tiToolboxSceneProtocol: 1` capability advertises `--ti-request=<private JSON file>`.
+This is a user-scoped file request, not a listening service. Main validates an absolute private request
+(maximum 16 KiB, age at most 60 seconds), canonical project paths, and a 32-hex request ID plus a 64-hex
+session nonce. POSIX requests and their directory must belong to the current user and exclude group/other
+access; Windows callers must create a user-private ACL. The renderer response must come from the selected
+window's main frame and match both correlation values.
+
+`open-scene` uses the ordinary guarded scene loader and binds the original scene path to that nonce.
+`save-scene` requires the same binding and serializes the current engine, theme, and extension blocks.
+New or replaced scenes invalidate the binding. Exports preserve the original attachment and restore its
+scene directory after serialization, preventing changed relative paths or a recipe from replacing live edits.
+Outputs are directly under `<project>/code/ti-toolbox/viewer/scenes/` with a `.tetravox.json` suffix.
+Staging, fsync, and create-only hard-link publication prevent partial files and overwrites. The receipt at
+`<request>.receipt.json` acknowledges the exact opened/saved path only after completion; errors are explicit.
+
+Native Save initially routes a TI-bound generated input through Save As, defaulting to the same project
+scenes directory. After a native Save As, subsequent native saves use that attachment. Users may choose a
+different directory in the native dialog; external hosts must not claim those files are automatically
+indexed. Changing the attachment requires a fresh acknowledged TI open before another TI export.
+
+Requests queue until the renderer subscribes, including when a second invocation must recreate a closed
+window. Normal interactive windows restore/show/focus; hidden tests retain their no-screen policy, and batch
+jobs do not accept interactive requests. TetraVox retains ownership of application updates.

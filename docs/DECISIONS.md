@@ -5681,3 +5681,17 @@ Add an x64 ZIP alongside NSIS. External installation managers extract the ZIP ra
 NSIS, whose registry lookup can replace an existing installation despite a separate destination.
 Both Windows artifacts remain optional with the Windows build leg. Existing 0.4.0 assets contain
 no ZIP; managers must wait for a verified official ZIP with a pinned digest before enabling Windows.
+
+
+## 2026-09-19 — Native TI scene saving and surviving-window handoff
+
+TI needs the edited viewer state saved in its active project, rather than another copy of its generated
+scene recipe. Add an explicitly advertised, nonce-bound file request/receipt protocol, using the ordinary
+scene loader and serializer. Reject wrong sessions, path escapes, and existing output names. No socket,
+X11 dependency, version pin, or host-managed update loop is introduced. Native Save As defaults to the
+project scenes directory while preserving the user's ability to choose a location. Recreate a missing
+interactive window before draining second-instance requests so a dock-only process remains usable.
+
+A general remote API and unacknowledged CLI launches were rejected: the former exceeds this workflow's
+scope and the latter cannot establish whether the intended scene is loaded or saved. See ARCHITECTURE's
+TI-Toolbox native scene requests contract for exact state and filesystem boundaries.

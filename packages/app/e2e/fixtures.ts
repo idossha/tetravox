@@ -17,7 +17,7 @@ import {
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
@@ -162,6 +162,15 @@ export type LaunchTarget = 'dev' | 'packaged';
 
 /** The macOS/Linux executable inside `release/`, or null when `pnpm package` has not run. */
 export function packagedExecutable(): string | null {
+  const override = process.env['TETRAVOX_PACKAGED_EXECUTABLE'];
+  if (override !== undefined) {
+    if (!isAbsolute(override) || !existsSync(override) || !statSync(override).isFile()) {
+      throw new Error(
+        'TETRAVOX_PACKAGED_EXECUTABLE must name an existing absolute executable file'
+      );
+    }
+    return override;
+  }
   const release = join(APP_ROOT, 'release');
   if (!existsSync(release)) return null;
   if (process.platform === 'darwin') {

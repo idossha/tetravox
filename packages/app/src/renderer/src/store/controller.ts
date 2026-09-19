@@ -1,3 +1,4 @@
+import type { TiSceneRequest, TiSceneSnapshot } from '../../../shared/ti-scene-protocol';
 /**
  * The only place the shell talks to the `Engine` (§8: "Everything the UI can do must be reachable
  * from the `Engine` API alone. No logic in React.").
@@ -2015,6 +2016,7 @@ export class ShellController {
 
   /** Close every dataset, which is the only way their wasm heaps come back (§5 rule 1). */
   newScene(): void {
+    this.tiSceneBinding = null;
     this.sceneLoad?.abort();
     this.sceneLoad = null;
     for (const dataset of [...this.engine.scene.datasets.values()]) {
@@ -2041,10 +2043,44 @@ export class ShellController {
     this.syncLayers();
   }
 
+  private tiSceneBinding: { nonce: string; scenePath: string } | null = null;
+
+  /** Export live edits without changing the attached scene or overwriting its recipe. */
+  async handleTiSceneRequest(request: TiSceneRequest): Promise<TiSceneSnapshot> {
+    if (request.action === 'open-scene') {
+      if (!(await this.openScenePath(request.scenePath)))
+        throw new Error('Viewer could not open the TI scene');
+      if (this.store.getState().sceneFile?.path !== request.scenePath)
+        throw new Error('Viewer scene changed during open');
+      this.tiSceneBinding = { nonce: request.nonce, scenePath: request.scenePath };
+      return { scenePath: request.scenePath };
+    }
+    const attached = this.store.getState().sceneFile;
+    if (
+      !attached ||
+      attached.path !== request.scenePath ||
+      this.tiSceneBinding?.scenePath !== request.scenePath ||
+      this.tiSceneBinding.nonce !== request.nonce ||
+      !request.destination
+    )
+      throw new Error('Viewer is not bound to this TI session');
+    try {
+      this.engine.setSceneDir?.(dirName(request.destination));
+      const text = serialiseScene(this.engine.serialize(), request.destination, {
+        theme: this.store.getState().themeChoice,
+        extensions: this.store.getState().moduleBlocks,
+      });
+      return { scenePath: request.scenePath, text };
+    } finally {
+      this.engine.setSceneDir?.(dirName(attached.path));
+    }
+  }
+
   /** Save to the attached file when there is one, else fall through to Save As. */
   async saveScene(): Promise<boolean> {
     const attached = this.store.getState().sceneFile;
-    if (attached === null) return this.saveSceneAs();
+    if (attached === null || this.tiSceneBinding?.scenePath === attached.path)
+      return this.saveSceneAs();
     return this.writeScene(attached.path);
   }
 
@@ -2053,7 +2089,14 @@ export class ShellController {
    * so the common gesture — save this beside the data I am looking at — is one keystroke and Enter.
    */
   async saveSceneAs(): Promise<boolean> {
-    const path = await bridge().saveSceneDialog(defaultScenePath(this.engine.serialize()));
+    const source = this.tiSceneBinding?.scenePath.replace(/\\/g, '/');
+    const marker = '/code/ti-toolbox/viewer/';
+    const at = source?.lastIndexOf(marker) ?? -1;
+    const defaultPath =
+      source && at >= 0
+        ? `${source.slice(0, at + marker.length)}scenes/${baseName(source)}`
+        : defaultScenePath(this.engine.serialize());
+    const path = await bridge().saveSceneDialog(defaultPath);
     if (path === null) return false;
     return this.writeScene(path);
   }

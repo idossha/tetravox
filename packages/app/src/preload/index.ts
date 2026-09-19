@@ -1,3 +1,4 @@
+import type { TiSceneRequest, TiSceneSnapshot } from '../shared/ti-scene-protocol';
 /**
  * Preload bridge (§5, §8).
  *
@@ -111,6 +112,7 @@ export interface TetravoxBridge {
    * renderer never sniffs a filename to decide which of the two a path is.
    */
   onOpenScene(listener: (path: string) => void): () => void;
+  onTiSceneRequest?(listener: (request: TiSceneRequest) => Promise<TiSceneSnapshot>): () => void;
   /**
    * The scene this launch should open, drained once — argv, a launch-time `open-file`, or
    * "reopen last scene on launch". Pulled rather than pushed, for the same reason
@@ -589,6 +591,29 @@ const bridge: TetravoxBridge = {
   jobFrames: (payload) => ipcRenderer.invoke('tetravox:job-frames', payload),
   jobLog: (message) => ipcRenderer.send('tetravox:job-log', message),
   jobDone: (report) => ipcRenderer.invoke('tetravox:job-done', report),
+  onTiSceneRequest: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, request: TiSceneRequest): void => {
+      void listener(request).then(
+        (snapshot) =>
+          ipcRenderer.send('tetravox:ti-response', {
+            id: request.id,
+            nonce: request.nonce,
+            ok: true,
+            ...snapshot,
+          }),
+        (error: unknown) =>
+          ipcRenderer.send('tetravox:ti-response', {
+            id: request.id,
+            nonce: request.nonce,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+      );
+    };
+    ipcRenderer.on('tetravox:ti-request', wrapped);
+    ipcRenderer.send('tetravox:ti-ready');
+    return () => ipcRenderer.removeListener('tetravox:ti-request', wrapped);
+  },
   onOpenScene: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, path: string): void => listener(path);
     ipcRenderer.on('tetravox:open-scene', wrapped);

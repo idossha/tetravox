@@ -553,3 +553,23 @@ Three steps that exist for a specific past failure:
 **`TETRAVOX_TESTDATA` is unset in CI**, and a step asserts it. The §12.2 gate — *a clean clone with an empty
 pnpm store reaches `pnpm e2e` green* — is what the cold-cache path exercises on every first run of a new
 cache key.
+
+
+### Native TI request regression coverage
+
+`pnpm exec vitest run --project app packages/app/src/main/ti-scene-request.test.ts packages/app/src/renderer/src/store/controller.scene.test.ts`
+checks create-only receipts, current serialized edits, original recipe preservation, session invalidation,
+and canonical/private filesystem boundaries without opening a window. Packaged cold/warm launches and
+closed-window recovery use the hidden Electron native-scene E2E regression; Windows ACL and Linux desktop
+foreground behavior still require platform-specific execution before claiming cross-platform proof.
+
+
+To test an isolated local package without replacing `packages/app/release`, point the packaged fixture
+at its absolute executable path (an invalid explicit path fails instead of silently skipping):
+
+```sh
+cd packages/app
+TETRAVOX_REQUIRE_PACKAGED=1 TETRAVOX_PACKAGED_EXECUTABLE=/tmp/tetravox-ti-native-package/mac-arm64/Tetravox.app/Contents/MacOS/Tetravox pnpm exec playwright test --project=packaged e2e/native-scene.spec.ts
+```
+
+The normal package freshness check and hidden-window policy still apply to this override.

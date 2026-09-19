@@ -254,6 +254,11 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
         });
     }
 
+    const offTi = bridge().onTiSceneRequest?.((request) => {
+      if (cancelled) return Promise.reject(new Error('Viewer window is unavailable'));
+      return controller.handleTiSceneRequest(request);
+    });
+
     // Runtime opens — menu Open…, ⌘O, a second instance, macOS `open-file` after ready.
     const off = bridge().onOpened((opened) => void openPaths(opened.map((o) => o.path)));
     // …and the scene half of the same routes, split by main so nothing here sniffs a filename.
@@ -290,6 +295,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
       cancelled = true;
       off();
       offScene();
+      offTi?.();
       offSample();
       offProgress();
       offExtensions?.();

@@ -416,7 +416,9 @@ test.describe('a build that offers no module', () => {
     // holds no module row, only `Manage extensions…`.
     await expect(page.locator('[data-testid="module-switcher"]')).toHaveCount(1);
     await page.click('[data-testid="module-switcher"]');
-    await expect(page.locator('[data-testid="module-switcher-list"] [role="menuitemcheckbox"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-testid="module-switcher-list"] [role="menuitemcheckbox"]')
+    ).toHaveCount(0);
     await expect(page.locator('[data-testid="module-switcher-manage"]')).toBeVisible();
     await page.keyboard.press('Escape');
 

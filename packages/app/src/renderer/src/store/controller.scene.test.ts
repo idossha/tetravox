@@ -30,6 +30,7 @@ interface FakeFs {
   files: Map<string, string>;
   /** What the next Save dialog returns; null = the user cancelled. */
   savePath: string | null;
+  saveDefaults: string[];
   /** What the next Open-scene dialog returns. */
   openScenePath: string | null;
   /** What the next relocate picker returns, consumed one per call. */
@@ -42,6 +43,7 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
   const fs: FakeFs = {
     files: new Map(Object.entries(files)),
     savePath: null,
+    saveDefaults: [],
     openScenePath: null,
     relocations: [],
     writes: [],
@@ -102,7 +104,10 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
       fs.openScenePath === null
         ? null
         : { path: fs.openScenePath, url: `tetravox://file/${fs.openScenePath}` },
-    saveSceneDialog: async () => fs.savePath,
+    saveSceneDialog: async (path) => {
+      fs.saveDefaults.push(path);
+      return fs.savePath;
+    },
     relocateDialog: async () => {
       const next = fs.relocations.shift() ?? null;
       return next === null ? null : { path: next, url: `tetravox://file/${next}` };
@@ -647,5 +652,47 @@ describe('scene load generations', () => {
     expect(await loading).toBe(false);
     expect(store.getState().sceneError).toBeNull();
     expect(store.getState().sceneFile).toBeNull();
+  });
+});
+
+describe('TI live-scene request provenance', () => {
+  it('exports live state without changing its attachment and invalidates on manual scene replacement', async () => {
+    const { fs, controller, store, engine } = await loadedScene();
+    const scenePath = '/project/code/ti-toolbox/viewer/result.tetravox.json';
+    fs.savePath = scenePath;
+    await controller.saveSceneAs();
+    const original = fs.files.get(scenePath);
+    const context = { protocol: 1 as const, id: 'a'.repeat(32), nonce: 'b'.repeat(64), scenePath };
+    await controller.handleTiSceneRequest({ ...context, action: 'open-scene' });
+    engine.setCursor([7, 8, 9]);
+    store.setState({ themeChoice: 'dark' });
+    const destination = '/project/code/ti-toolbox/viewer/scenes/edited.tetravox.json';
+    const saved = await controller.handleTiSceneRequest({
+      ...context,
+      action: 'save-scene',
+      destination,
+    });
+    expect(parseScene(saved.text!).spec?.cursor).toEqual([7, 8, 9]);
+    expect(JSON.parse(saved.text!).theme).toBe('dark');
+    expect(store.getState().sceneFile?.path).toBe(scenePath);
+    expect(fs.files.get(scenePath)).toBe(original);
+    await expect(
+      controller.handleTiSceneRequest({
+        ...context,
+        nonce: 'c'.repeat(64),
+        action: 'save-scene',
+        destination,
+      })
+    ).rejects.toThrow('not bound');
+    const canonicalSave = '/project/code/ti-toolbox/viewer/scenes/result.tetravox.json';
+    fs.savePath = canonicalSave;
+    await expect(controller.saveScene()).resolves.toBe(true);
+    expect(fs.saveDefaults.at(-1)).toBe(canonicalSave);
+    expect(fs.files.get(scenePath)).toBe(original);
+    expect(parseScene(fs.files.get(canonicalSave)!).spec?.cursor).toEqual([7, 8, 9]);
+    await controller.openScenePath(scenePath);
+    await expect(
+      controller.handleTiSceneRequest({ ...context, action: 'save-scene', destination })
+    ).rejects.toThrow('not bound');
   });
 });
