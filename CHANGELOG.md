@@ -8,7 +8,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Diffusion tensors can be viewed as direction-coloured ellipsoids.** In a six-component
+  floating-point volume, choose **Layer properties ▸ Display ▸ Tensor · FSL / SimNIBS** or
+  **Tensor · NIfTI symmetric matrix**, then adjust glyph spacing and minimum FA. Coordinate
+  conventions are selectable; ordinary scalar frames and saved scenes retain their existing display.
 
 ## [0.5.2] - 2026-09-15
 

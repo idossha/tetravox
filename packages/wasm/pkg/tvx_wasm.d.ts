@@ -240,6 +240,11 @@ export function volume_marching_cubes(handle: number, vol_index: number, iso: nu
 export function volume_marching_cubes_label(handle: number, vol_index: number, label: number, smooth: boolean, on_progress: Function): any;
 
 /**
+ * §6.4: opt-in tensor glyphs; computation remains in the volume's worker.
+ */
+export function volume_tensor(handle: number, order: string, basis: string, stride: number, max_3d: number): any;
+
+/**
  * Stamped onto every `Res` (§6.5) and read by the §9 memory bar and `scripts/bench.ts`.
  */
 export function wasm_heap_bytes(): number;
@@ -292,6 +297,7 @@ export interface InitOutput {
     readonly volume_label_centroids: (a: number, b: number) => [number, number, number];
     readonly volume_marching_cubes: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly volume_marching_cubes_label: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
+    readonly volume_tensor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly wasm_heap_bytes: () => number;
     readonly free_mask: (a: number, b: number) => void;
     readonly free: (a: number) => void;

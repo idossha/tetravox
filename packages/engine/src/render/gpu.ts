@@ -33,8 +33,13 @@ import { ATLAS_H, ATLAS_W, buildAtlas } from './font';
  * mutating one in place, which is what lets `volumeFrame` (§6.5.2) upload the new frame beside the
  * old one.
  */
-export function volumeKey(layer: Pick<VolumeLayer, 'datasetId' | 'volumeIndex'>): string {
-  return `${layer.datasetId}|${layer.volumeIndex}`;
+export function volumeKey(
+  layer: Pick<VolumeLayer, 'datasetId' | 'volumeIndex' | 'tensor'>
+): string {
+  const t = layer.tensor;
+  return t === undefined
+    ? `${layer.datasetId}|${layer.volumeIndex}`
+    : `${layer.datasetId}|tensor|${t.order}|${t.basis}|${t.stride}`;
 }
 
 /**

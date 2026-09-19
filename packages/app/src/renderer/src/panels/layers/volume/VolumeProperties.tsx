@@ -15,6 +15,7 @@ import type { Dataset, Layer, VolumeDataset, VolumeLayer } from '@tetravox/engin
 import type { LayerPropertiesProps } from '../properties';
 import { useController, useUi } from '../../../ui/context';
 import { ScalarDisplayControls } from '../../histogram/ScalarDisplayControls';
+import { TensorControls } from './TensorControls';
 import { RegionPanel } from '../../regions/RegionPanel';
 import { iso3dLabels } from '@tetravox/engine';
 import { hexToVec4, vec4ToHex } from '../mesh/state';
@@ -41,6 +42,8 @@ import {
 export function volumeSummary(dataset: Dataset, layer: Layer): string {
   if (dataset.kind !== 'volume') return layer.kind;
   const dims = dataset.dims.join('×');
+  if (layer.kind === 'volume' && layer.tensor !== undefined)
+    return `${dims} · tensor ellipsoids (${layer.tensor.order})`;
   const four =
     dataset.nvols > 1
       ? ` · vol ${(layer as Partial<VolumeLayer>).volumeIndex ?? 0}/${dataset.nvols - 1}`
@@ -78,7 +81,8 @@ export function VolumeProperties({
       className="mt-1.5 flex flex-col gap-1 border-t border-tvx-line pt-1.5"
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {!ds.isLabel && (
+      <TensorControls dataset={ds} layer={vl} patch={patch} />
+      {!ds.isLabel && vl.tensor === undefined && (
         <ScalarDisplayControls
           kind="volume"
           id={vl.id}
@@ -102,22 +106,24 @@ export function VolumeProperties({
       )}
 
       {/* ---- interpolation, and §7.1's forced-nearest flag (audit P2-08) ------------------------ */}
-      <Row label="Sampling">
-        <select
-          data-testid={`volume-interpolation-${vl.id}`}
-          aria-label="Interpolation"
-          value={effectiveInterpolation(vl, ds, caps)}
-          disabled={forced !== null}
-          onChange={(e) =>
-            patch({ interpolation: e.currentTarget.value as VolumeLayer['interpolation'] })
-          }
-          className="tvx-input min-w-0 flex-1 px-1 py-0.5 text-[10px]"
-        >
-          <option value="linear">Smooth (linear)</option>
-          <option value="nearest">Voxels (nearest)</option>
-        </select>
-      </Row>
-      {forced !== null && (
+      {vl.tensor === undefined && (
+        <Row label="Sampling">
+          <select
+            data-testid={`volume-interpolation-${vl.id}`}
+            aria-label="Interpolation"
+            value={effectiveInterpolation(vl, ds, caps)}
+            disabled={forced !== null}
+            onChange={(e) =>
+              patch({ interpolation: e.currentTarget.value as VolumeLayer['interpolation'] })
+            }
+            className="tvx-input min-w-0 flex-1 px-1 py-0.5 text-[10px]"
+          >
+            <option value="linear">Smooth (linear)</option>
+            <option value="nearest">Voxels (nearest)</option>
+          </select>
+        </Row>
+      )}
+      {vl.tensor === undefined && forced !== null && (
         <p
           data-testid={`volume-forced-nearest-${vl.id}`}
           data-reason={forced.reason}
@@ -133,7 +139,7 @@ export function VolumeProperties({
       )}
 
       {/* ---- label display ---------------------------------------------------------------------- */}
-      {ds.isLabel && (
+      {ds.isLabel && vl.tensor === undefined && (
         <>
           <Row label="Labels">
             <select
@@ -177,7 +183,7 @@ export function VolumeProperties({
 
       {/* ---- showIn3D and the 4D spinner --------------------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-1">
-        {ds.nvols > 1 && (
+        {ds.nvols > 1 && vl.tensor === undefined && (
           <span
             data-testid={`volume-frame-${vl.id}`}
             data-index={vl.volumeIndex}
@@ -215,10 +221,10 @@ export function VolumeProperties({
       </div>
 
       {/* ---- the 3D surface (§4.4's iso3d) ------------------------------------------------------- */}
-      <Iso3dSection layer={vl} dataset={ds} />
+      {vl.tensor === undefined && <Iso3dSection layer={vl} dataset={ds} />}
 
       {/* ---- R5's Region panel: where visibleLabels and labelOpacity are edited ------------------ */}
-      {ds.isLabel && <RegionPanel layerId={vl.id} />}
+      {ds.isLabel && vl.tensor === undefined && <RegionPanel layerId={vl.id} />}
     </div>
   );
 }

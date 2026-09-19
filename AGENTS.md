@@ -44,6 +44,7 @@ The files that matter and why:
 | File | Why it is the test file |
 |---|---|
 | `m2m_ernie/T1.nii.gz` | **float32, max exactly 65535.0** — which is why R16F is not the default (half-float tops out at 65504). Also the `qfac = −1` reference |
+| `m2m_ernie/DTI_coregT1_tensor.nii.gz` | FSL six-component tensors with **no tensor intent** — frame count alone cannot select tensor mode. `scripts/refvalues/tensor_refvalues.py` regenerates the NumPy eigen/shape reference. |
 | `m2m_ernie/segmentation/labeling.nii.gz` | a **float32 label volume**, 57 integral values to 530 — an `is_label` heuristic that requires an integer dtype misclassifies it |
 | `m2m_ernie/ernie.msh` | 184 MB, 847,165 nodes / 1,177,213 tris / 4,722,625 tets. **No `$PhysicalNames`** — its `.msh.opt` is the only source of tissue names |
 | `Simulations/*/high_Frequency/mesh/ernie_TDCS_1_scalar.msh` | 420 MB, the **only reference file with a vector field** (`E`, 3 components) — the test file for glyphs, `component: 0\|1\|2` and the electrode/gel palette |

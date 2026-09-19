@@ -1187,10 +1187,29 @@ def ct_shafts_volume() -> np.ndarray:
     return np.rint(vol + 1024.0)
 
 
+def generate_tensors(out: Path) -> None:
+    """Asymmetric grid, diagonal/rotated/invalid tensors, and both six-component orders."""
+    data = np.zeros((9, 7, 5, 6), dtype=np.float32)
+    data[...] = [0.003, 0, 0, 0.001, 0, 0.0005]
+    data[3, :, :, :] = [0.002, 0.001, 0, 0.002, 0, 0.0005]
+    data[5, :, :, :] = [0.001, 0, 0, 0.003, 0, 0.0005]
+    data[6, :, :, :] = [0.001, 0, 0, 0.001, 0, 0.001]
+    data[7, :, :, :] = [0.003, 0, 0, -0.001, 0, 0.0005]
+    data[8, :, :, :] = 0
+    write_nifti(out / "tensor_fsl.nii.gz", data, np.eye(4), gzip_it=True)
+    # NIfTI-2 + dim[5] + lower-triangle order catch independent header and layout mistakes.
+    lower = data[..., [0, 1, 3, 2, 4, 5]][..., None, :]
+    write_nifti(out / "tensor_symmatrix.nii.gz", lower, np.eye(4), klass=nib.Nifti2Image,
+                gzip_it=True, tweak=lambda img: img.header.set_intent("symmetric matrix", (3,)))
+    affine = affine_from(R_OBLIQUE, spacing=(1.2, 1.5, 2.0), qfac=-1)
+    write_nifti(out / "tensor_scaled.nii.gz", data, affine, gzip_it=True, scl=(2, 0.0001))
+
+
 def generate(out: Path) -> dict:
     """Write every fixture. Returns a dict of *writer-side* notes (never ground truth)."""
     out.mkdir(parents=True, exist_ok=True)
     notes: dict = {}
+    generate_tensors(out)
 
     # ---------------- NIfTI ----------------
     aff_ob = affine_from(R_OBLIQUE)
@@ -1542,6 +1561,9 @@ def inspect_nifti(path: Path) -> dict:
             slope, inter = 1.0, 0.0
         phys = raw_arr.astype(np.float64) * slope + inter
 
+    if nvols > 1:
+        raw_arr = raw_arr.reshape((*dims, nvols), order="F")
+        phys = phys.reshape((*dims, nvols), order="F")
     spots = []
     for (i, j, k) in SPOTS:
         if i >= dims[0] or j >= dims[1] or k >= dims[2]:

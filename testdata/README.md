@@ -93,6 +93,12 @@ interior ones — §6.3's surface invariant at a size a human can check by hand.
 | `patch_tri.obj` | the triangle-only OBJ |
 | `view_electrodes.geo` | a parsed Gmsh post-processing view (§6.2, task 6): the SimNIBS `View""{` dialect plus one of every supported primitive — `SP`, `T3`, `SL`, `ST`, `SQ` (fanned), `VP` (magnitude), a skipped `SS`, and a second named view. **Hand-written, not generated**: it exists to pin the dialect, and Gmsh round-tripping it would normalise away the very spellings it pins. |
 | `view_geometry_script.geo` | a Gmsh **geometry script** — the file `read_geo_view` must reject with `Unsupported`, not read as an empty view |
+| `tensor_fsl.nii.gz` | Six float32 components, asymmetric grid, diagonal/rotated/isotropic/invalid tensors; FSL component order. |
+| `tensor_symmatrix.nii.gz` | The same matrices in NIfTI-2 SYMMATRIX lower-triangle order with components in dim[5]. |
+| `tensor_scaled.nii.gz` | Header scaling plus oblique, anisotropic, negative-determinant affine; catches double scaling and orientation errors. |
+
+Tensor eigenvalue/shape references are read back with nibabel and NumPy in
+`scripts/refvalues/tensor_refvalues.py` → `tensors.json`.
 
 ## What is deliberately absent
 
