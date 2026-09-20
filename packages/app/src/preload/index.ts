@@ -1,3 +1,4 @@
+import type { SceneRequest, SceneSnapshot } from '../shared/scene-api-protocol';
 /**
  * Preload bridge (§5, §8).
  *
@@ -111,6 +112,7 @@ export interface TetravoxBridge {
    * renderer never sniffs a filename to decide which of the two a path is.
    */
   onOpenScene(listener: (path: string) => void): () => void;
+  onSceneRequest?(listener: (request: SceneRequest) => Promise<SceneSnapshot>): () => void;
   /**
    * The scene this launch should open, drained once — argv, a launch-time `open-file`, or
    * "reopen last scene on launch". Pulled rather than pushed, for the same reason
@@ -589,6 +591,27 @@ const bridge: TetravoxBridge = {
   jobFrames: (payload) => ipcRenderer.invoke('tetravox:job-frames', payload),
   jobLog: (message) => ipcRenderer.send('tetravox:job-log', message),
   jobDone: (report) => ipcRenderer.invoke('tetravox:job-done', report),
+  onSceneRequest: (listener) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, request: SceneRequest): void => {
+      void listener(request).then(
+        (snapshot) =>
+          ipcRenderer.send('tetravox:scene-api-response', {
+            id: request.id,
+            ok: true,
+            ...snapshot,
+          }),
+        (error: unknown) =>
+          ipcRenderer.send('tetravox:scene-api-response', {
+            id: request.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+          })
+      );
+    };
+    ipcRenderer.on('tetravox:scene-api-request', wrapped);
+    ipcRenderer.send('tetravox:scene-api-ready');
+    return () => ipcRenderer.removeListener('tetravox:scene-api-request', wrapped);
+  },
   onOpenScene: (listener) => {
     const wrapped = (_event: Electron.IpcRendererEvent, path: string): void => listener(path);
     ipcRenderer.on('tetravox:open-scene', wrapped);

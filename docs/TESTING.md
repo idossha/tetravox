@@ -564,3 +564,23 @@ affine, invalid matrices, allocation limits, scalar preservation, and the gated 
 `pnpm --filter @tetravox/engine exec playwright test tensor.spec.ts` checks analytic pixels plus a
 golden and runs both real files through the worker and WebGL renderer on both configured backends.
 The real-data case skips explicitly when the files are absent. No real data are committed.
+
+
+### Native scene API regression coverage
+
+`pnpm exec vitest run --project app packages/app/src/main/scene-api.test.ts packages/app/src/renderer/src/store/controller.scene.test.ts`
+checks create-only receipts, current serialized edits, original recipe preservation, optional expected-scene checks, explicit overwrite,
+and private request boundaries without opening a window. Packaged cold/warm launches and
+closed-window recovery use the hidden Electron native-scene E2E regression; Windows ACL and Linux desktop
+foreground behavior still require platform-specific execution before claiming cross-platform proof.
+
+
+To test an isolated local package without replacing `packages/app/release`, point the packaged fixture
+at its absolute executable path (an invalid explicit path fails instead of silently skipping):
+
+```sh
+cd packages/app
+TETRAVOX_REQUIRE_PACKAGED=1 TETRAVOX_PACKAGED_EXECUTABLE=/tmp/tetravox-scene-api-package/mac-arm64/Tetravox.app/Contents/MacOS/Tetravox pnpm exec playwright test --project=packaged e2e/native-scene.spec.ts
+```
+
+The normal package freshness check and hidden-window policy still apply to this override.

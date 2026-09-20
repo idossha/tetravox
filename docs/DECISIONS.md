@@ -5710,3 +5710,37 @@ against nibabel/NumPy (`tests/tensors.rs`). The same test covers Ernie T1 and DT
 `TETRAVOX_TESTDATA` is set. `tensor.spec.ts` pins analytic silhouette/shading pixels, a SwiftShader
 golden, scalar restoration and both-file rendering on SwiftShader and ANGLE. Free-standing 3D glyph
 clouds, fitting raw DWI and tractography remain outside this change.
+
+
+## 2026-09-19 — Native TI scene saving and surviving-window handoff
+
+**Superseded 2026-09-19** by the generic scene API decision below.
+
+TI needs the edited viewer state saved in its active project, rather than another copy of its generated
+scene recipe. Add an explicitly advertised, nonce-bound file request/receipt protocol, using the ordinary
+scene loader and serializer. Reject wrong sessions, path escapes, and existing output names. No socket,
+X11 dependency, version pin, or host-managed update loop is introduced. Native Save As defaults to the
+project scenes directory while preserving the user's ability to choose a location. Recreate a missing
+interactive window before draining second-instance requests so a dock-only process remains usable.
+
+A general remote API and unacknowledged CLI launches were rejected: the former exceeds this workflow's
+scope and the latter cannot establish whether the intended scene is loaded or saved. See ARCHITECTURE's
+TI-Toolbox native scene requests contract for exact state and filesystem boundaries.
+
+## 2026-09-19 — Keep the native scene API independent of its callers
+
+The maintainer rejected embedding TI-specific project paths, session binding and Save As defaults in
+TetraVox. Replace that proposal with a generic load/save request surface: callers supply paths, may guard
+a save with an expected attached path, and explicitly opt into overwriting. TetraVox owns scene loading,
+serialization and completion replies. Native menu behavior stays unchanged; project conventions stay in
+the calling application. Private request files and the existing Electron handoff avoid introducing a
+network service. See [Automation](AUTOMATION.md#native-scene-api).
+
+
+## 2026-09-19 — Keep scene API documentation in the canonical manuals
+
+Consolidate the scene API instructions into AUTOMATION and keep the caller-independent behavior in
+ARCHITECTURE. The duplicate dated requirements and separate API guide are removed; this append-only
+log retains design rationale. Existing scene API unit, controller and hidden Electron tests remain
+the executable acceptance evidence. Separate task documents were rejected because they duplicate
+the canonical contract and drift after implementation.

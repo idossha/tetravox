@@ -30,6 +30,7 @@ interface FakeFs {
   files: Map<string, string>;
   /** What the next Save dialog returns; null = the user cancelled. */
   savePath: string | null;
+  saveDefaults: string[];
   /** What the next Open-scene dialog returns. */
   openScenePath: string | null;
   /** What the next relocate picker returns, consumed one per call. */
@@ -42,6 +43,7 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
   const fs: FakeFs = {
     files: new Map(Object.entries(files)),
     savePath: null,
+    saveDefaults: [],
     openScenePath: null,
     relocations: [],
     writes: [],
@@ -102,7 +104,10 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
       fs.openScenePath === null
         ? null
         : { path: fs.openScenePath, url: `tetravox://file/${fs.openScenePath}` },
-    saveSceneDialog: async () => fs.savePath,
+    saveSceneDialog: async (path) => {
+      fs.saveDefaults.push(path);
+      return fs.savePath;
+    },
     relocateDialog: async () => {
       const next = fs.relocations.shift() ?? null;
       return next === null ? null : { path: next, url: `tetravox://file/${next}` };
@@ -647,5 +652,67 @@ describe('scene load generations', () => {
     expect(await loading).toBe(false);
     expect(store.getState().sceneError).toBeNull();
     expect(store.getState().sceneFile).toBeNull();
+  });
+});
+
+describe('generic live-scene API', () => {
+  it('exports manually opened live state without requiring an API-open session', async () => {
+    const { fs, controller, store, engine } = await loadedScene();
+    const scenePath = '/research/manual scene.tetravox.json';
+    fs.savePath = scenePath;
+    await controller.saveSceneAs();
+    const original = fs.files.get(scenePath);
+    engine.setCursor([7, 8, 9]);
+    store.setState({ themeChoice: 'dark' });
+    const saved = await controller.handleSceneRequest({
+      protocol: 1,
+      id: 'a'.repeat(32),
+      action: 'save-scene',
+      path: '/my exports/edited.tetravox.json',
+    });
+    expect(parseScene(saved.text!).spec?.cursor).toEqual([7, 8, 9]);
+    expect(JSON.parse(saved.text!).theme).toBe('dark');
+    expect(store.getState().sceneFile?.path).toBe(scenePath);
+    expect(fs.files.get(scenePath)).toBe(original);
+    await expect(
+      controller.handleSceneRequest({
+        protocol: 1,
+        id: 'b'.repeat(32),
+        action: 'save-scene',
+        path: '/my exports/another.tetravox.json',
+        expectedScenePath: '/different.tetravox.json',
+      })
+    ).rejects.toThrow();
+  });
+  it('exports an untitled live scene without creating an attachment', async () => {
+    const { controller, store, engine } = await loadedScene();
+    expect(store.getState().sceneFile).toBeNull();
+    engine.setCursor([2, 4, 6]);
+    const saved = await controller.handleSceneRequest({
+      protocol: 1,
+      id: 'd'.repeat(32),
+      action: 'save-scene',
+      path: '/exports/untitled view.tetravox.json',
+    });
+    expect(parseScene(saved.text!).spec?.cursor).toEqual([2, 4, 6]);
+    expect(store.getState().sceneFile).toBeNull();
+  });
+  it('API open leaves native Save behavior and attachment unchanged', async () => {
+    const { fs, controller, engine, store } = await loadedScene();
+    const path = '/research/source.tetravox.json';
+    fs.savePath = path;
+    await controller.saveSceneAs();
+    await controller.handleSceneRequest({
+      protocol: 1,
+      id: 'c'.repeat(32),
+      action: 'open-scene',
+      path,
+    });
+    engine.setCursor([4, 5, 6]);
+    const dialogsBefore = fs.saveDefaults.length;
+    await expect(controller.saveScene()).resolves.toBe(true);
+    expect(fs.saveDefaults.length).toBe(dialogsBefore);
+    expect(store.getState().sceneFile?.path).toBe(path);
+    expect(parseScene(fs.files.get(path)!).spec?.cursor).toEqual([4, 5, 6]);
   });
 });

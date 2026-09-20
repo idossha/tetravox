@@ -1,3 +1,4 @@
+import type { SceneRequest, SceneSnapshot } from '../../../shared/scene-api-protocol';
 /**
  * The only place the shell talks to the `Engine` (§8: "Everything the UI can do must be reachable
  * from the `Engine` API alone. No logic in React.").
@@ -2039,6 +2040,31 @@ export class ShellController {
     this.syncTitle();
     this.engine.requestRender();
     this.syncLayers();
+  }
+
+  /** Snapshot the live scene without changing its attachment or native Save behavior. */
+  async handleSceneRequest(request: SceneRequest): Promise<SceneSnapshot> {
+    if (request.action === 'open-scene') {
+      if (!(await this.openScenePath(request.path)))
+        throw new Error('Viewer could not open the scene');
+      if (this.store.getState().sceneFile?.path !== request.path)
+        throw new Error('Viewer scene changed during open');
+      return { scenePath: request.path };
+    }
+    const attached = this.store.getState().sceneFile;
+    if (request.expectedScenePath !== undefined && attached?.path !== request.expectedScenePath) {
+      throw new Error('Viewer scene does not match expectedScenePath');
+    }
+    try {
+      this.engine.setSceneDir?.(dirName(request.path));
+      const text = serialiseScene(this.engine.serialize(), request.path, {
+        theme: this.store.getState().themeChoice,
+        extensions: this.store.getState().moduleBlocks,
+      });
+      return { ...(attached ? { scenePath: attached.path } : {}), text };
+    } finally {
+      this.engine.setSceneDir?.(attached ? dirName(attached.path) : null);
+    }
   }
 
   /** Save to the attached file when there is one, else fall through to Save As. */

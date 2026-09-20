@@ -19,6 +19,8 @@ import { mkdirSync, writeSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { collectCliPaths } from './cli';
+import { handleSceneRequest } from './scene-api-request';
+import type { SceneRequest, SceneSnapshot } from '../shared/scene-api-protocol';
 import {
   buildMenu,
   sendOpenScene,
@@ -358,6 +360,90 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
+// Only requests explicitly passed on the CLI enter this private, per-user bridge.
+const sceneRequests = process.argv
+  .filter((arg) => arg.startsWith('--scene-request='))
+  .map((arg) => arg.slice('--scene-request='.length));
+let sceneReadyContents: number | undefined;
+let sceneDraining = false;
+function sceneDispatch(request: SceneRequest): Promise<SceneSnapshot> {
+  const win = mainWindow;
+  if (!win || win.isDestroyed() || win.webContents.id !== sceneReadyContents)
+    return Promise.reject(new Error('Viewer window is unavailable'));
+  return new Promise((resolve, reject) => {
+    const finish = (): void => {
+      clearTimeout(timer);
+      ipcMain.removeListener('tetravox:scene-api-response', listener);
+    };
+    const listener = (
+      event: Electron.IpcMainEvent,
+      value: {
+        id?: string;
+        ok?: boolean;
+        scenePath?: string;
+        text?: string;
+        error?: string;
+      }
+    ): void => {
+      if (
+        event.sender !== win.webContents ||
+        event.senderFrame !== win.webContents.mainFrame ||
+        !value ||
+        value.id !== request.id
+      )
+        return;
+      finish();
+      if (!value.ok) reject(new Error(value.error || 'Viewer rejected the scene request'));
+      else
+        resolve({
+          scenePath: value.scenePath,
+          ...(value.text === undefined ? {} : { text: value.text }),
+        });
+    };
+    const timer = setTimeout(() => {
+      finish();
+      reject(new Error('Viewer request timed out'));
+    }, 25_000);
+    ipcMain.on('tetravox:scene-api-response', listener);
+    win.webContents.send('tetravox:scene-api-request', request);
+  });
+}
+async function drainSceneRequests(): Promise<void> {
+  if (
+    sceneDraining ||
+    !mainWindow ||
+    mainWindow.webContents.id !== sceneReadyContents ||
+    isJobRun()
+  )
+    return;
+  sceneDraining = true;
+  try {
+    while (sceneRequests.length) {
+      const requestFile = sceneRequests.shift()!;
+      try {
+        await handleSceneRequest(requestFile, sceneDispatch);
+      } catch (error) {
+        console.warn(
+          '[tetravox] invalid scene request',
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+    }
+  } finally {
+    sceneDraining = false;
+  }
+}
+ipcMain.on('tetravox:scene-api-ready', (event) => {
+  if (
+    !mainWindow ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  )
+    return;
+  sceneReadyContents = event.sender.id;
+  void drainSceneRequests();
+});
+
 // Single instance, so a second `tetravox file.nii` hands its paths to the running window (§8).
 //
 // **A `--job` run is exempt.** The lock's purpose is that opening a file joins the window you are
@@ -368,6 +454,28 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv, cwd) => {
+    const requests = argv
+      .filter((arg) => arg.startsWith('--scene-request='))
+      .map((arg) => arg.slice('--scene-request='.length));
+    if (requests.length && !isJobRun()) {
+      sceneRequests.push(...requests);
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        sceneReadyContents = undefined;
+        mainWindow = createWindow();
+        mainWindow.on('closed', () => {
+          mainWindow = null;
+          sceneReadyContents = undefined;
+        });
+        installCloseGuard(mainWindow, { isJob: false, packaged: app.isPackaged });
+      }
+      if (MODE === 'normal') {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+      void drainSceneRequests();
+      return;
+    }
     const opened = toOpened(collectCliPaths(argv, app.getAppPath(), cwd));
     if (mainWindow && MODE === 'normal') {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -724,6 +832,7 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
     const settings = readSettings();
     const last = settings.recentScenes[0];
     if (
+      sceneRequests.length === 0 &&
       startupScene === null &&
       startupPaths.length === 0 &&
       settings.reopenLastScene &&

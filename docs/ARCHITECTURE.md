@@ -45,7 +45,7 @@ and *unattended* download-and-install stays a non-goal.)
 
 **Native-only integration (2026-09-13).** The browser embed and postMessage contract are retired.
 External applications open local `.tetravox.json` files through the native executable; batch rendering
-uses `--job`. Workers retain HTTP loading for engine tests and existing dataset sources. Remote browsing
+uses `--job`. External applications may also use the native scene API below. Workers retain HTTP loading for engine tests and existing dataset sources. Remote browsing
 and Range requests remain outside scope. Native and test hosts share the WebGL2 engine.
 
 ---
@@ -3943,3 +3943,22 @@ explicit Reset/Reload discards it. Desktop Open Scene clears the scene first. Ca
 incremental selection
 keeps the current 3D camera. Later dataset arrivals update layer visibility without refitting the camera.
 `LoadProgress.name` is optional and identifies the source before adoption.
+
+
+### Native scene API (§5 / §8)
+
+External programs may load a scene or save the current live scene through `--scene-request=<private JSON file>`.
+`sceneApiProtocol: 1` in the application package advertises support. The request carries a protocol version,
+unique ID, action and absolute `.tetravox.json` path; a matching receipt reports completion or an error.
+Loading uses the existing guarded loader. Saving uses the existing live serializer and leaves the current
+attachment and native Save/Save As behavior unchanged. It does not require a previous API load.
+
+Callers choose paths and create destination directories. No caller names, project layout, naming policy or
+application-update policy belongs in this API. An optional `expectedScenePath` rejects a save if another
+scene is attached; absent means save the current scene. Existing outputs are preserved unless the caller
+explicitly supplies `overwrite: true`. Writes are atomic, and symlink output targets are rejected.
+
+Requests use private local files with bounded reads and correlated replies; no listening service is added.
+They queue until the renderer is ready, including after recreating a missing interactive window. Batch jobs
+ignore interactive requests; hidden tests never show or focus a window. See [Automation](AUTOMATION.md#native-scene-api) for
+request examples and field definitions.

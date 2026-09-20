@@ -15,6 +15,15 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   **Tensor · NIfTI symmetric matrix**, then adjust glyph spacing and minimum FA. Coordinate
   conventions are selectable; ordinary scalar frames and saved scenes retain their existing display.
 
+- **External applications can load and save scenes.** The native scene API opens a scene or exports
+  the current edited view to a caller-selected path, with a completion reply and optional overwrite.
+  Existing scene files and native **File ▸ Save / Save As…** behavior are unchanged.
+
+### Fixed
+
+- **Scene requests restore a missing viewer window.** A running app without a window waits for its
+  new renderer before delivering the request.
+
 ## [0.5.2] - 2026-09-15
 
 ### Fixed

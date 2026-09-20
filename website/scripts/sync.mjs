@@ -111,6 +111,9 @@ function rewriteLinks(body) {
   out = out.replaceAll('{{ site.baseurl }}/TESTING.html', '/developers/testing');
   out = out.replaceAll('docs/AUTOMATION.md', '/automation');
   out = out.replaceAll('docs/TESTING.md', '/developers/testing');
+  out = out.replaceAll('](ARCHITECTURE.md)', '](/developers/architecture)');
+  out = out.replaceAll('](TESTING.md)', '](/developers/testing)');
+  out = out.replaceAll('](AUTOMATION.md#native-scene-api)', '](/automation#native-scene-api)');
   // USER_GUIDE.md cross-links to its own other sections, once split into
   // one page per topic under /guide/ (see splitGuide() below).
   out = out.replace(/\{\{ site\.baseurl \}\}\/guide\/([a-z0-9-]+)\.html/g, '/guide/$1');
