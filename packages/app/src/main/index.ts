@@ -405,6 +405,8 @@ function sceneDispatch(request: SceneRequest): Promise<SceneSnapshot> {
       reject(new Error('Viewer request timed out'));
     }, 25_000);
     ipcMain.on('tetravox:scene-api-response', listener);
+    // §5 rule 10: a validated external open names exactly the scene native Save may overwrite.
+    if (request.action === 'open-scene') allowOpenedScene(request.path);
     win.webContents.send('tetravox:scene-api-request', request);
   });
 }
