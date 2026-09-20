@@ -63,7 +63,7 @@ async function coronalLattice(page: Page, mmPerPx = 0.05): Promise<{ layerId: st
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.setLayout({ kind: '1x1', cells: ['coronal'] });
       engine.setCursor([0, 2.5, 0]);
       engine.setView('coronal', { camera: { center: [0, 0], mmPerPx: scale as number } });
@@ -121,7 +121,7 @@ test('fillIn2D follows the cursor: an axial sweep crosses the tag boundary at z 
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       // Both tags visible, so the sweep shows a colour change rather than an appearance.
       engine.updateLayer(layer.id, {
         tagStyle: { 1: { visible: true, opacity: 1 }, 2: { visible: true, opacity: 1 } },
@@ -430,7 +430,7 @@ test('vector glyphs draw from the field, and `subsample` is the knob that says h
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
       engine.resetView('view3d');
       engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
@@ -531,7 +531,7 @@ test('`origins: "volume"` reads meshCentroids, and its tag filter rides the requ
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
       engine.resetView('view3d');
       engine.setAnnotations({ crosshair: false, orientationLabels: false, cornerInfo: false });
@@ -640,7 +640,7 @@ test('golden: derived-fill2d', async ({ page }) => {
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.updateLayer(layer.id, {
         tagStyle: { 1: { visible: true, opacity: 1 }, 2: { visible: true, opacity: 1 } },
       });
@@ -671,7 +671,7 @@ test('golden: derived-points-and-iso', async ({ page }) => {
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.updateLayer(layer.id, {
         opacity: 0.35,
         tagStyle: { 1: { visible: true, opacity: 1 }, 2: { visible: true, opacity: 1 } },
@@ -720,7 +720,7 @@ test('golden: derived-glyphs-e-field', async ({ page }) => {
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.updateLayer(layer.id, {
         // The tets visible (they colour the 2D cut and gate the origins), the surface hidden (it
         // would occlude every interior arrow in the 3D pane).
@@ -803,7 +803,7 @@ async function meshWithColorbar(page: Page): Promise<string[]> {
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
       engine.setAnnotations({ colorbars: true, crosshair: false, orientationLabels: false });
       engine.updateLayer(layer.id, {

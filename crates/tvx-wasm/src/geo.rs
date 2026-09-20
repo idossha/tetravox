@@ -91,6 +91,7 @@ pub fn to_mesh(views: &[GeoView]) -> Mesh {
         tri_edge_mask: None,
         node_fields,
         elm_fields: Vec::new(),
+        gmsh_field_order: Vec::new(),
         physical_names: views
             .iter()
             .enumerate()

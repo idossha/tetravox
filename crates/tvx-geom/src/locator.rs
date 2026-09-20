@@ -304,6 +304,7 @@ mod tests {
             tri_edge_mask: None,
             node_fields: Vec::new(),
             elm_fields: Vec::new(),
+            gmsh_field_order: Vec::new(),
             physical_names: Vec::new(),
             gmsh_node_numbers: None,
             gmsh_elm_numbers: None,

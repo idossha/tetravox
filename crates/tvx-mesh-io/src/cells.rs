@@ -189,6 +189,7 @@ impl Assembly {
             tri_edge_mask: self.saw_ngon.then_some(self.mask),
             node_fields: self.node_fields,
             elm_fields: self.elm_fields,
+            gmsh_field_order: Vec::new(),
             physical_names: Vec::new(),
             gmsh_node_numbers: None,
             gmsh_elm_numbers: None,

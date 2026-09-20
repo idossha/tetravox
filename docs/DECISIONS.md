@@ -5744,3 +5744,67 @@ ARCHITECTURE. The duplicate dated requirements and separate API guide are remove
 log retains design rationale. Existing scene API unit, controller and hidden Electron tests remain
 the executable acceptance evidence. Separate task documents were rejected because they duplicate
 the canonical contract and drift after implementation.
+
+## 2026-09-18 — ROI overlays from TI-Toolbox: open bound, visible view, scalar outlines
+
+Superseded by **2026-09-19 — Generic field display and conservative Gmsh defaults** below.
+
+**Context.** TI-Toolbox writes an analysis `roi_overlay.msh` (triangle-only central surface, node
+fields `<field>_ROI` zero outside the ROI and `TI_normal_ROI`), a `.msh.opt` with two `View[n]`
+blocks (`Visible = 1|0`, `RangeType = 2`, `CustomMin/Max`, `ColormapNumber = 1|2`,
+`ColormapAlphaPower = 0.08`) and a ViewSpec v2 scene whose field layer is
+`threshold: {lo: 1e-6, hi: null, mode: 'hide'}` with `contoursIn2D`. Three things were wrong.
+
+**Decisions.**
+
+1. *An open threshold bound is measured against the colour scale.* The mesh pass stands `±F32_MAX`
+   in for `±Infinity` and derived the ramp width from `|hi − lo|`, so `hi: null` made the ramp
+   ~3.4e32 wide and hid everything. `thresholdUniforms` now takes the reference span from `hi − lo`
+   when both are finite, else from the layer's `scale` (else 1) — the range the colour bar shows
+   and the slice pass already ramps over. §4.2's `Threshold` comment records it.
+2. *`View[n].Visible` picks the seeding view and, when present, seeds the colouring.* `mshopt.rs`
+   reads `Visible` and `ColormapAlphaPower` (additive on `MshView`, the wire object, `MshOptions`).
+   The first `Visible = 1` view wins, else `View[0]`; only a view that *says* it is visible seeds
+   `colorMode:'field'` on `ds.fields[index]` — Gmsh's view index is the data block's index in file
+   order, which the loader preserves as node fields then element fields — and turns
+   `ColormapAlphaPower > 0` into `hide` just above `CustomMin` with `hi` open. A SimNIBS sidecar
+   (one view, no `Visible`) therefore seeds exactly what it did, pinned by a `toEqual` test. A
+   triangle-only `.msh` opens as a *surface* (R1), so `seedSurfaceLayerFromOpt` applies the same
+   view as `colorMode:'overlay'`; the first headless render of the bare file showed flat yellow
+   because only the mesh kind was seeded.
+   `MSH_OPT_COLORMAPS` gains 1 (vis5d → turbo, the rainbow that is not already jet) and 20–24,
+   whose Gmsh names are §7.6 names exactly.
+3. *Surface outlines carry the field.* The `contours` op takes an optional
+   `field: { name, component }` and answers `values`, one per segment — the mean of the two
+   edge-hit values, each interpolated with the hit's own `t`; a linear field is thus sampled
+   exactly at the midpoint. The value is a per-instance float at attribute 3 (the slot the label
+   variant uses as a uint; the two are exclusive) and a `CONTOUR_SCALAR` variant samples the
+   layer's baked LUT and applies its hide gate by hard discard — a segment is one value, so there
+   is nothing to ramp. The store's latest-wins key names the request (annotation, field,
+   component, mask) so a field switch never serves the previous field's segments. Element fields on
+   a surface keep the single-colour outline; `annotation` wins over `field`. Protocol additive:
+   absent `field` is the previous response.
+
+**Verification.** `mesh-threshold.test.ts` (gate formula on the uniforms), `mesh-threshold-open.spec.ts`
+(+ golden), `defaults.test.ts` (one-view regression + two-view seeding), `mshopt.rs` tests,
+`cut.rs::valued_tests` (linear field on a two-triangle square), `store.test.ts` (request + key),
+`surface-contours-scalar.spec.ts` (analytic grey per segment midpoint, threshold, golden) and
+`surface-contours-scalar-real.spec.ts` (the bare TI-Toolbox sample: outline inside the ROI box
+only, 78 distinct colours, no yellow, gated on `TETRAVOX_TESTDATA`).
+
+
+### 2026-09-19 — Generic field display and conservative Gmsh defaults
+
+Supersedes the 2026-09-18 overlay-specific seeding and midpoint contour choices. Tetravox owns
+format interpretation and scalar rendering; callers choose fields, thresholds, palettes and transforms.
+`ColormapAlphaPower` is retained as metadata without a threshold approximation, and unsupported
+vis5d retains the existing palette. Static Gmsh view identity preserves interleaved node/element
+order; temporal or duplicate-name ambiguities decline automatic field selection. Existing explicit
+scene settings take precedence. No producer names, ROI semantics or orientation corrections enter
+production behavior.
+
+Scalar contour responses carry endpoint values, interpolated per fragment with the surface LUT and
+soft threshold. Surface contours use the transpose of the dataset transform for the cut plane,
+preventing translated or scaled surfaces from being cut in the wrong coordinates. This keeps gradients and threshold crossings continuous while preserving categorical
+annotation rendering and field-revision cache invalidation. Existing canonical documents and focused
+parser/unit/pixel tests hold the contract and acceptance evidence; no parallel task Markdown is added.

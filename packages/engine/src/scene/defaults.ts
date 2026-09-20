@@ -18,8 +18,10 @@ import type {
   IsosurfaceLayer,
   Layer,
   MeshDataset,
+  MeshFieldInfo,
   MeshLayer,
   PointsLayer,
+  Scale,
   Scene,
   SliceMode,
   SliceView,
@@ -462,7 +464,9 @@ export function defaultLayerFor(
     case 'mesh':
       return ds.kind === 'mesh' ? seededMeshLayer(id, ds) : defaultVolumeLayer(id, ds);
     case 'surface':
-      return ds.kind === 'mesh' ? defaultSurfaceLayer(id, ds) : defaultVolumeLayer(id, ds);
+      return ds.kind === 'mesh'
+        ? seedSurfaceLayerFromOpt(defaultSurfaceLayer(id, ds), ds).layer
+        : defaultVolumeLayer(id, ds);
     case 'iso':
       return defaultIsoLayer(id, ds);
     case 'points':
@@ -493,6 +497,11 @@ export const MSH_OPT_COLORMAPS: Record<number, ColormapName> = {
   9: 'gray',
   13: 'bone',
   18: 'cool',
+  20: 'magma',
+  21: 'inferno',
+  22: 'plasma',
+  23: 'viridis',
+  24: 'turbo',
 };
 
 /** Which fields a `.msh.opt` actually seeded, for §7.6's "defaults from X.msh.opt" chip. */
@@ -551,30 +560,94 @@ export function seedMeshLayerFromOpt(
   if (tagColours > 0) seeded.push('tagStyle.color');
   if (Object.keys(opt.tagVisible).length > 0) seeded.push('tagStyle.visible');
 
-  // The first `View[n]` block. SimNIBS writes exactly one, and a mesh's field range, colormap and
-  // colour bar are per-view in Gmsh's model as they are per-layer in §4.4's.
-  const view = opt.views[0];
-  if (view !== undefined) {
-    // `RangeType = 2` is Gmsh's "custom", and only then do `CustomMin` / `CustomMax` mean anything:
-    // with RangeType 1 they are whatever the last save happened to leave behind.
-    if (view.rangeType === 2 && view.customMin !== undefined && view.customMax !== undefined) {
-      if (view.customMax > view.customMin) {
-        next.scale = { kind: 'linear', lo: view.customMin, hi: view.customMax };
-        seeded.push('scale');
-      }
-    }
-    const colormap =
-      view.colormapNumber !== undefined ? MSH_OPT_COLORMAPS[view.colormapNumber] : undefined;
-    if (colormap !== undefined) {
-      next.colormap = colormap;
-      seeded.push('colormap');
-    }
-    if (view.showScale === true) {
-      next.showColorbar = true;
-      seeded.push('showColorbar');
+  const view = optViewSeed(ds);
+  if (view.field !== undefined) {
+    next.colorMode = 'field';
+    next.field = { source: view.field.source, name: view.field.name, component: 'mag' };
+  }
+  if (view.scale !== undefined) next.scale = view.scale;
+  if (view.colormap !== undefined) next.colormap = view.colormap;
+  if (view.showColorbar === true) next.showColorbar = true;
+  seeded.push(...view.seeded);
+
+  return seeded.length > 0
+    ? { layer: next, seed: { file: `${ds.name}.opt`, seeded } }
+    : { layer, seed: null };
+}
+
+/** Select only explicitly visible fields; metadata without visibility retains legacy defaults. */
+function optViewSeed(ds: MeshDataset): {
+  field?: MeshFieldInfo;
+  scale?: Extract<Scale, { kind: 'linear' }>;
+  colormap?: ColormapName;
+  showColorbar?: boolean;
+  seeded: string[];
+} {
+  const opt = ds.opt;
+  const seeded: string[] = [];
+  if (opt === undefined) return { seeded };
+  const visibleIndex = opt.views.findIndex((v) => v.visible === true);
+  if (visibleIndex < 0 && opt.views.some((v) => v.visible !== undefined)) return { seeded };
+  const view = visibleIndex >= 0 ? opt.views[visibleIndex] : opt.views[0];
+  if (view === undefined) return { seeded };
+  const out: ReturnType<typeof optViewSeed> = { seeded };
+  const selected =
+    visibleIndex >= 0 ? ds.fields.find((f) => f.gmshViewIndex === visibleIndex) : undefined;
+  const field =
+    selected !== undefined &&
+    ds.fields.filter((f) => f.source === selected.source && f.name === selected.name).length === 1
+      ? selected
+      : undefined;
+  if (visibleIndex >= 0 && field === undefined) return { seeded };
+  if (field !== undefined) {
+    out.field = field;
+    seeded.push('colorMode', 'field');
+  }
+  if (view.rangeType === 2 && view.customMin !== undefined && view.customMax !== undefined) {
+    if (view.customMax > view.customMin) {
+      out.scale = { kind: 'linear', lo: view.customMin, hi: view.customMax };
+      seeded.push('scale');
     }
   }
+  const colormap =
+    view.colormapNumber !== undefined ? MSH_OPT_COLORMAPS[view.colormapNumber] : undefined;
+  if (colormap !== undefined) {
+    out.colormap = colormap;
+    seeded.push('colormap');
+  }
+  if (view.showScale === true) {
+    out.showColorbar = true;
+    seeded.push('showColorbar');
+  }
+  return out;
+}
 
+/** Node-field view defaults also apply to triangle-only surface layers. */
+export function seedSurfaceLayerFromOpt(
+  layer: SurfaceLayer,
+  ds: MeshDataset
+): { layer: SurfaceLayer; seed: MshOptSeed | null } {
+  if (ds.opt === undefined) return { layer, seed: null };
+  const view = optViewSeed(ds);
+  const next: SurfaceLayer = { ...layer };
+  const seeded: string[] = [];
+  if (view.field !== undefined && view.field.source === 'node') {
+    next.colorMode = 'overlay';
+    next.overlay = { name: view.field.name, component: 'mag' };
+    seeded.push('colorMode', 'overlay');
+  }
+  if (view.scale !== undefined) {
+    next.scale = view.scale;
+    seeded.push('scale');
+  }
+  if (view.colormap !== undefined) {
+    next.colormap = view.colormap;
+    seeded.push('colormap');
+  }
+  if (view.showColorbar === true) {
+    next.showColorbar = true;
+    seeded.push('showColorbar');
+  }
   return seeded.length > 0
     ? { layer: next, seed: { file: `${ds.name}.opt`, seeded } }
     : { layer, seed: null };

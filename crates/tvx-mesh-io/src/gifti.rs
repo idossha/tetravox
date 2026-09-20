@@ -537,6 +537,7 @@ pub fn read(bytes: &[u8], p: &mut dyn ProgressSink) -> Result<Mesh> {
         tri_edge_mask: None,
         node_fields,
         elm_fields: Vec::new(),
+        gmsh_field_order: Vec::new(),
         physical_names: Vec::new(),
         gmsh_node_numbers: None,
         gmsh_elm_numbers: None,

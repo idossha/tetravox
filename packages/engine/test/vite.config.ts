@@ -11,6 +11,7 @@
 // from *this* directory, where `vite` is not resolvable; a plain object avoids the problem entirely.
 
 import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
 
 const port = Number(process.env.TETRAVOX_TEST_PORT ?? 5199);
 // The scene page loads real NIfTI/mesh bytes over `/@fs/<abs path>`: the committed fixtures live at
@@ -18,6 +19,11 @@ const port = Number(process.env.TETRAVOX_TEST_PORT ?? 5199);
 // entirely. Both must be admitted explicitly, because `fs.strict` is on.
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const realData = process.env.TETRAVOX_TESTDATA;
+/** `surface-contours-scalar-real.spec.ts`'s sample may live outside `TETRAVOX_TESTDATA`. */
+const roiOverlay = process.env.TETRAVOX_ROI_OVERLAY;
+const allow = [repoRoot];
+if (realData) allow.push(realData);
+if (roiOverlay) allow.push(dirname(roiOverlay));
 
 export default {
   root: fileURLToPath(new URL('..', import.meta.url)),
@@ -29,6 +35,6 @@ export default {
     host: '127.0.0.1',
     port,
     strictPort: true,
-    fs: { strict: true, allow: realData ? [repoRoot, realData] : [repoRoot] },
+    fs: { strict: true, allow },
   },
 };

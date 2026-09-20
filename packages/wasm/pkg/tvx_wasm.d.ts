@@ -115,9 +115,11 @@ export function mesh_build_topology(handle: number, on_progress: Function): any;
 export function mesh_centroids(handle: number, mask_id: number | null | undefined, stride: number, tags?: Int32Array | null): any;
 
 /**
- * `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment.
+ * `plane` is 4 f32 (`normal.xyz`, `offset`). Returns `{ segments }`, 6 floats per segment, plus
+ * `labels` with `annotation` or `values` with `field` (2026-09-18; both trailing arguments are
+ * optional, so an older caller's call is unchanged).
  */
-export function mesh_contours(handle: number, plane: Float32Array, mask_id?: number | null, annotation?: string | null): any;
+export function mesh_contours(handle: number, plane: Float32Array, mask_id?: number | null, annotation?: string | null, field?: string | null, component?: string | null): any;
 
 /**
  * Both directions of §6.3's pair: `direction` is `'elmToNode' | 'nodeToElm'`.
@@ -279,7 +281,7 @@ export interface InitOutput {
     readonly mesh_boundary: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly mesh_build_topology: (a: number, b: any) => [number, number, number];
     readonly mesh_centroids: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
-    readonly mesh_contours: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly mesh_contours: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly mesh_convert_field: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly mesh_cut: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly mesh_field: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];

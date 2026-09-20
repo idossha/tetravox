@@ -227,6 +227,8 @@ fn parse_view(p: &mut Parsed, rest: &str, value: &str) {
         "ColormapNumber" => v.colormap_number = num().map(|x| x as i32),
         "ShowScale" => v.show_scale = num().map(|x| x != 0.0),
         "VectorType" => v.vector_type = num().map(|x| x as i32),
+        "Visible" => v.visible = num().map(|x| x != 0.0),
+        "ColormapAlphaPower" => v.colormap_alpha_power = num().map(|x| x as f32),
         _ => {}
     }
 }
@@ -277,6 +279,41 @@ Volume{1};
         assert_eq!(o.views.len(), 1);
         assert_eq!(o.views[0].custom_min, Some(-1.5));
         assert_eq!(o.views[0].custom_max, None);
+    }
+
+    /// The two-view sidecar TI-Toolbox writes next to an ROI overlay: the field view is shown, the
+    /// second is hidden, and both fade their colormap at the low end.
+    const ROI_SRC: &str = r#"Mesh.SurfaceFaces = 0;
+View[0].Visible = 1;
+View[0].ColormapNumber = 1;
+View[0].RangeType = 2;
+View[0].CustomMin = 0;
+View[0].CustomMax = 0.12789118384677717;
+View[0].ShowScale = 1;
+View[0].ColormapAlpha = 1;
+View[0].ColormapAlphaPower = 0.08;
+View[1].Visible = 0;
+View[1].ColormapNumber = 2;
+View[1].CustomMax = 0.1142332159101202;
+"#;
+
+    #[test]
+    fn visible_and_colormap_alpha_power_are_read_per_view() {
+        let o = read(ROI_SRC.as_bytes()).unwrap();
+        assert_eq!(o.views.len(), 2);
+        assert_eq!(o.views[0].visible, Some(true));
+        assert_eq!(o.views[1].visible, Some(false));
+        assert_eq!(o.views[0].colormap_alpha_power, Some(0.08));
+        assert_eq!(o.views[1].colormap_alpha_power, None);
+        assert_eq!(o.views[0].colormap_number, Some(1));
+        assert_eq!(o.views[0].show_scale, Some(true));
+    }
+
+    #[test]
+    fn a_simnibs_sidecar_says_nothing_about_visibility() {
+        let o = read(SRC.as_bytes()).unwrap();
+        assert_eq!(o.views[0].visible, None);
+        assert_eq!(o.views[0].colormap_alpha_power, None);
     }
 
     #[test]

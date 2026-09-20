@@ -18,11 +18,21 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 - **External applications can load and save scenes.** The native scene API opens a scene or exports
   the current edited view to a caller-selected path, with a completion reply and optional overwrite.
   Existing scene files and native **File ▸ Save / Save As…** behavior are unchanged.
+- **Surface outlines follow scalar fields continuously.** Slice outlines use the surface's
+  colormap and threshold, including soft edges. Solid and annotation outlines are unchanged.
+- **Gmsh sidecars can select the initial field.** The first explicitly visible view seeds its
+  unambiguous field, range and supported colormap for meshes and triangle-only surfaces.
+  Caller-specified scene settings take precedence; opacity functions are not converted into thresholds.
+  Sidecars without visibility metadata retain their previous defaults.
 
 ### Fixed
 
 - **Scene requests restore a missing viewer window.** A running app without a window waits for its
   new renderer before delivering the request.
+
+- **A mesh field threshold with no upper bound no longer hides the whole layer.** `hide` with
+  `hi` left open (`null` in a scene file) is "hide everything below `lo`"; it used to measure its
+  soft edge against the float sentinel standing in for infinity and dropped every value.
 
 ## [0.5.2] - 2026-09-15
 

@@ -674,6 +674,7 @@ MSH_OPT_EXPECTED = {
             "colormapNumber": 2,
             "showScale": True,
             "vectorType": 1,
+            "visible": True,
         }
     ],
 }

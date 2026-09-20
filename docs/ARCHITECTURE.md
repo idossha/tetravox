@@ -220,6 +220,8 @@ export interface Threshold {
   symmetric: boolean;                 // compare |v| instead of v
   mode: 'hide' | 'clamp';
   softEdge: number;                   // width of the alpha ramp as a fraction of `hi - lo`; 0 = hard discard
+                                      // `lo`/`hi` may be ±Infinity (an open bound, serialised as null); the
+                                      // ramp is then a fraction of the layer's `scale` span instead (2026-09-18)
 }
 
 export type PercentileKey = '0.1' | '1' | '2' | '5' | '50' | '95' | '98' | '99' | '99.9';
@@ -280,6 +282,7 @@ export interface TemplateSpace {
 }
 
 export interface MeshFieldInfo {
+  gmshViewIndex?: number;             // reliable static Gmsh view identity; absent when ambiguous
   name: string; source: 'node' | 'elm'; ncomp: 1 | 3 | 9; n: number;
   units?: string; partial: boolean;   // true when the file left gaps (filled with NaN, §6.2)
   stats: Stats;                       // of the magnitude when ncomp > 1
@@ -292,7 +295,8 @@ export interface MshOptions {
   tagColor: Record<number, vec4>;
   tagVisible: Record<number, boolean>;
   views: { name?: string; customMin?: number; customMax?: number; rangeType?: number;
-           saturateValues?: boolean; colormapNumber?: number; showScale?: boolean; vectorType?: number }[];
+           saturateValues?: boolean; colormapNumber?: number; showScale?: boolean; vectorType?: number;
+           visible?: boolean; colormapAlphaPower?: number }[];   // the last two added 2026-09-18, additive
 }
 
 export interface MeshDataset {
@@ -1457,6 +1461,7 @@ pub struct Mesh {
     pub tri_edge_mask: Option<Vec<u8>>,        // low 3 bits per tri; Some only from n-gon triangulation
     pub node_fields: Vec<Field>,
     pub elm_fields: Vec<ElmField>,
+    pub gmsh_field_order: Vec<(bool, String)>, // (is_node, name); empty for temporal/other formats
     pub physical_names: Vec<(i32, String)>,
     pub gmsh_node_numbers: Option<Vec<u64>>,
     pub gmsh_elm_numbers: Option<Vec<u64>>,    // per element, in (tris then tets) order.
@@ -1476,7 +1481,8 @@ pub struct MshOptions {
 pub struct MshView { pub name: Option<String>, pub custom_min: Option<f32>, pub custom_max: Option<f32>,
                      pub range_type: Option<i32>, pub saturate_values: Option<bool>,
                      pub colormap_number: Option<i32>, pub show_scale: Option<bool>,
-                     pub vector_type: Option<i32> }
+                     pub vector_type: Option<i32>,
+                     pub visible: Option<bool>, pub colormap_alpha_power: Option<f32> }   // 2026-09-18
 
 pub fn read_msh(bytes: Vec<u8>, p: &mut dyn ProgressSink) -> Result<Mesh>;
 pub fn read_msh_opt(bytes: &[u8]) -> Result<MshOptions>;
@@ -1754,6 +1760,8 @@ pub fn marching_tets(mesh: &Mesh, node_field: &[f32], iso: f32, mask: Option<&Bi
 pub fn surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>) -> Result<Vec<f32>>;
 pub fn labeled_surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>,
                                  labels: &[f32]) -> Result<(Vec<f32>, Vec<u32>)>;
+pub fn valued_surface_contours(mesh: &Mesh, plane: &Plane, mask: Option<&BitMask>,   // 2026-09-18
+                               values: &[f32]) -> Result<(Vec<f32>, Vec<f32>)>;      // two endpoint values per segment
 pub fn locate_point(mesh: &Mesh, grid: &PointLocator, p: [f32; 3]) -> Option<ProbeHit>;
 pub fn nearest_vertex(nodes: &[[f32; 3]], p: [f32; 3]) -> Option<(u32, [f32; 3])>;
 pub fn sphere_map(source: &[[f32; 3]], target: &[[f32; 3]]) -> Vec<u32>;
@@ -1892,7 +1900,8 @@ is present wherever an op can exceed one frame, and is called at section boundar
 #[wasm_bindgen] pub fn mesh_marching_tets(handle: u32, source: &str, name: &str, component: &str,
                                           iso: f32, mask_id: Option<u32>,
                                           on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
-#[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>, annotation: Option<String>)
+#[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>, annotation: Option<String>,
+                                     field: Option<String>, component: Option<String>)   // trailing two: 2026-09-18
                                     -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_tensor(handle: u32, order: &str, basis: &str, stride: u32, max_3d: u32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
@@ -2115,7 +2124,7 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `marchingCubes` | `{ handle; volumeIndex; iso; smooth }` | `SurfacePayload` | |
 | `marchingCubesLabel` | `{ handle; volumeIndex; label; smooth }` | `SurfacePayload` | §4.4's `VolumeLayer.iso3d` on a label volume |
 | `marchingTets` | `{ handle; source; name; component; iso; maskId? }` | `SurfacePayload` | |
-| `contours` | `{ handle; plane: PlaneT; maskId? }` | `{ segments: Float32Array }` | 6 floats per segment. **Stored triangles only.** A tri-less tet mesh answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
+| `contours` | `{ handle; plane: PlaneT; maskId?; annotation?; field?: { name; component } }` | `{ segments: Float32Array; labels?; values?: Float32Array }` | 6 floats per segment; `values` contains two interpolated node-field values per segment, in endpoint order, for the scalar-coloured outline — present only when `field` was asked for. **Stored triangles only.** A tri-less tet mesh answers with **zero** segments, legitimately — its `contoursIn2D` tissue boundaries are `cut` → `boundarySegments`, which arrive with `fillIn2D`'s polygons on the same latest-wins key. Two producers, not interchangeable |
 | `labelCentroids` | `{ handle; volumeIndex }` | `{ centroids: { id; centroid; count }[] }` | |
 | `meshCentroids` | `{ handle; maskId?; stride; tags? }` | `{ positions: Float32Array; ownerTet: Uint32Array }` | glyph origins for a **volumetric** `GlyphSpec` (§7.4), Morton order, no geometry. `maskId`/`tags` filter first, then every `stride`-th survivor; `stride: 0` is `Error::Parse`. Also serves the region panel's jump-to-centroid for a mesh tissue tag |
 | `nearestVertex` | `{ handle; world }` | `{ vertex: number \| null; coord? }` | the mesh **node** nearest a world point. Not `locate`: that finds the containing tet, and a surface has none |
@@ -2805,7 +2814,17 @@ Input (Freeview-like):
   meshes add tri 1013–1016 / tet 13–16. A viewer colouring only 1–10 / 1001–1010 renders every electrode and
   gel layer as untagged grey. Tags are **not** contiguous — tag 4 is absent from ernie.
 * `<mesh>.msh.opt` seeds tag colours/visibility, field range, colormap and colorbar on open, with a
-  "defaults from X.msh.opt" chip and a one-click Reset.
+  "defaults from X.msh.opt" chip and a one-click Reset. The seeding view is the first `View[n].Visible = 1`,
+  selecting only an unambiguous source/name identity through `MeshFieldInfo.gmshViewIndex`. The parser
+  preserves mixed node/element block order; files with nonzero time-step indices or unsupported `$ElementNodeData` omit this mapping
+  because Gmsh can group blocks into logical views. Duplicate source/name fields and unmappable
+  visible views do not seed view settings. Multiple visible views select the first; all-hidden views
+  seed no view settings. Without any visibility metadata, `View[0]` seeds the legacy range/colormap
+  defaults without choosing a field. Triangle-only surfaces use the selected node field as an overlay.
+  Explicit scene/layer settings override seeds. `ColormapAlphaPower` is preserved but not rendered
+  or converted into a threshold; unsupported palettes retain the default. Gmsh palettes 20–24 map to
+  magma, inferno, plasma, viridis and turbo. No producer, filename, ROI or orientation inference applies.
+
 
 ---
 
@@ -2931,7 +2950,13 @@ becomes the surface's colour source; an attached scalar becomes its overlay with
 In annotation mode the 2D outlines use the same region palette and visibility as the 3D surface, with
 layer opacity applied. Worker `contours` optionally takes `annotation` (the scalar node field name),
 and returns dense `labels: Uint32Array` alongside `segments`, one label per six-float segment. Omission
-retains the plain contour response. The Rust worker partitions each triangle-plane intersection at
+retains the plain contour response. It likewise optionally takes `field: { name, component }` (a node
+field) and returns `values: Float32Array`, two endpoint values per segment. Edge-hit values use the
+same interpolation as geometry; `CONTOUR_SCALAR` interpolates them along the line before sampling the
+surface's baked LUT and applying its hide threshold and soft edge. Partial-field NaNs are discarded. Surface intersections pull the world plane through the transpose
+of the dataset transform, then draw the returned model-space endpoints with that transform once.
+This applies to node-field mesh coloring and surface overlays. The latest-wins key carries field,
+component and mask identity; field-object replacement invalidates stationary-plane geometry. The Rust worker partitions each triangle-plane intersection at
 changes of its dominant barycentric vertex, retaining categorical region colors rather than blending
 label IDs. Adjacent intervals of the same label within a triangle merge. Per-segment indices transfer
 to the GPU and look up the current palette there; palette edits require no new intersection geometry.

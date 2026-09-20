@@ -13,8 +13,10 @@ import {
   SURFACE_CONTOUR_PALETTE,
   defaultLayerFor,
   defaultMeshLayer,
+  defaultSurfaceLayer,
   isSurfaceMesh,
   seedMeshLayerFromOpt,
+  seedSurfaceLayerFromOpt,
   surfaceContourColor,
 } from './defaults';
 import { fitMmPerPx } from '../view/geometry';
@@ -161,6 +163,218 @@ describe('seedMeshLayerFromOpt (§7.6)', () => {
     expect(layer.kind).toBe('mesh');
     expect(layer.colormap).toBe('jet');
     expect(layer.showColorbar).toBe(true);
+  });
+
+  // -- `View[n].Visible` (2026-09-18): the view Gmsh would show names the field to open on ------
+
+  const STATS = {
+    min: 0,
+    max: 0.127891,
+    mean: 0.01,
+    std: 0.02,
+    percentiles: {
+      '0.1': 0,
+      '1': 0,
+      '2': 0,
+      '5': 0,
+      '50': 0,
+      '95': 0.1,
+      '98': 0.11,
+      '99': 0.12,
+      '99.9': 0.127,
+    },
+  };
+
+  /** A triangle-only ROI overlay with two node fields, as TI-Toolbox writes it. */
+  function fieldDataset(views: MshOptions['views']): MeshDataset {
+    const ds = meshDataset({ tagColor: {}, tagVisible: {}, views });
+    return {
+      ...ds,
+      name: 'roi_overlay.msh',
+      tags: [
+        { id: 5003, name: 'lh', color: [0.5, 0.5, 0.5, 1], kind: 'tri', count: 4 },
+        { id: 7003, name: 'rh', color: [0.5, 0.5, 0.5, 1], kind: 'tri', count: 4 },
+      ],
+      fields: [
+        {
+          name: 'signal_a',
+          source: 'node',
+          gmshViewIndex: 0,
+          ncomp: 1,
+          n: 8,
+          partial: false,
+          stats: STATS,
+        },
+        {
+          name: 'signal_b',
+          source: 'node',
+          gmshViewIndex: 1,
+          ncomp: 1,
+          n: 8,
+          partial: false,
+          stats: STATS,
+        },
+      ],
+    } as unknown as MeshDataset;
+  }
+
+  /** Two independently styled scalar views. */
+  const FIELD_VIEWS: MshOptions['views'] = [
+    {
+      visible: true,
+      colormapNumber: 24,
+      rangeType: 2,
+      customMin: 0,
+      customMax: 0.12789118384677717,
+      showScale: true,
+      colormapAlphaPower: 0.08,
+    },
+    {
+      visible: false,
+      colormapNumber: 2,
+      rangeType: 2,
+      customMin: 0,
+      customMax: 0.1142332159101202,
+      showScale: true,
+      colormapAlphaPower: 0.08,
+    },
+  ];
+
+  it('a SimNIBS sidecar (one view, no `Visible`) still seeds exactly what it did before', () => {
+    // The regression guard for the multi-view change: SimNIBS never writes `Visible`, and a mesh
+    // it produced must open coloured by tag with its range, colormap and colour bar seeded — and
+    // nothing else touched.
+    const ds = meshDataset({ tagColor: {}, tagVisible: {}, views: [SIMNIBS_VIEW] });
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer, seed } = seedMeshLayerFromOpt(base, ds);
+    expect(layer).toEqual({
+      ...base,
+      scale: { kind: 'linear', lo: -1.5, hi: 3.5 },
+      colormap: 'jet',
+      showColorbar: true,
+    });
+    expect(seed?.seeded).toEqual(['scale', 'colormap', 'showColorbar']);
+    expect(layer.colorMode).toBe('tag');
+    expect(layer.field).toBeUndefined();
+    expect(layer.threshold).toBe(base.threshold);
+  });
+
+  it('opens on the `Visible = 1` view: its field, range, colormap and colour bar without inventing a threshold', () => {
+    const ds = fieldDataset(FIELD_VIEWS);
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer, seed } = seedMeshLayerFromOpt(base, ds);
+    expect(layer.colorMode).toBe('field');
+    expect(layer.field).toEqual({ source: 'node', name: 'signal_a', component: 'mag' });
+    expect(layer.scale).toEqual({ kind: 'linear', lo: 0, hi: 0.12789118384677717 });
+    expect(layer.colormap).toBe('turbo');
+    expect(layer.showColorbar).toBe(true);
+    expect(layer.threshold).toBe(base.threshold);
+    expect(seed?.seeded).toEqual(
+      expect.arrayContaining(['colorMode', 'field', 'scale', 'colormap', 'showColorbar'])
+    );
+  });
+
+  it('the visible view’s index is the field’s index in file order, not always the first', () => {
+    const views = [
+      { ...FIELD_VIEWS[0]!, visible: false },
+      { ...FIELD_VIEWS[1]!, visible: true },
+    ];
+    const ds = fieldDataset(views);
+    const { layer } = seedMeshLayerFromOpt(defaultMeshLayer('layer1', ds), ds);
+    expect(layer.field?.name).toBe('signal_b');
+    expect(layer.scale).toEqual({ kind: 'linear', lo: 0, hi: 0.1142332159101202 });
+    expect(layer.colormap).toBe('jet');
+  });
+
+  it('a `Visible = 1` view with no field at its index seeds no field', () => {
+    const ds = fieldDataset([
+      { ...FIELD_VIEWS[0]!, visible: false },
+      FIELD_VIEWS[1]!,
+      { visible: true },
+    ]);
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer } = seedMeshLayerFromOpt(base, ds);
+    expect(layer.colorMode).toBe('tag');
+    expect(layer.field).toBeUndefined();
+    expect(layer.threshold).toBe(base.threshold);
+  });
+
+  it('maps mixed node/element storage order through source view identity', () => {
+    const ds = fieldDataset([{ visible: true }, { visible: false }]);
+    ds.fields = [
+      { ...ds.fields[0]!, name: 'node', gmshViewIndex: 1 },
+      { ...ds.fields[0]!, name: 'element', source: 'elm', gmshViewIndex: 0 },
+    ];
+    expect(seedMeshLayerFromOpt(defaultMeshLayer('a', ds), ds).layer.field).toEqual({
+      name: 'element',
+      source: 'elm',
+      component: 'mag',
+    });
+    expect(seedSurfaceLayerFromOpt(defaultSurfaceLayer('b', ds), ds).layer.colorMode).toBe('solid');
+  });
+
+  it('all-hidden views leave display defaults untouched; multiple-visible selects the first', () => {
+    const ds = fieldDataset(FIELD_VIEWS.map((v) => ({ ...v, visible: false })));
+    const base = defaultSurfaceLayer('a', ds);
+    expect(seedSurfaceLayerFromOpt(base, ds)).toEqual({ layer: base, seed: null });
+    ds.opt!.views.forEach((v) => {
+      v.visible = true;
+    });
+    expect(seedSurfaceLayerFromOpt(base, ds).layer.overlay?.name).toBe('signal_a');
+  });
+
+  it('declines ambiguous names and unavailable source-view identities', () => {
+    const ds = fieldDataset(FIELD_VIEWS);
+    ds.fields.push({ ...ds.fields[0]!, gmshViewIndex: 2 });
+    expect(seedMeshLayerFromOpt(defaultMeshLayer('a', ds), ds).layer.field).toBeUndefined();
+    ds.fields = ds.fields.map(({ gmshViewIndex: _index, ...field }) => field);
+    expect(seedMeshLayerFromOpt(defaultMeshLayer('a', ds), ds).layer.field).toBeUndefined();
+  });
+
+  it('does not approximate unsupported vis5d with another palette', () => {
+    const ds = fieldDataset([{ ...FIELD_VIEWS[0]!, colormapNumber: 1 }]);
+    const base = defaultMeshLayer('a', ds);
+    expect(seedMeshLayerFromOpt(base, ds).layer.colormap).toBe(base.colormap);
+  });
+
+  it('no gate without `ColormapAlphaPower`', () => {
+    const ds = fieldDataset([{ ...FIELD_VIEWS[0]!, colormapAlphaPower: 0 }]);
+    const base = defaultMeshLayer('layer1', ds);
+    const { layer } = seedMeshLayerFromOpt(base, ds);
+    expect(layer.colorMode).toBe('field');
+    expect(layer.threshold).toBe(base.threshold);
+  });
+
+  it('seeds a surface layer the same way, as an overlay — the bare-open path for a .msh sheet', () => {
+    const ds = fieldDataset(FIELD_VIEWS);
+    const layer = defaultLayerFor('layer1', ds, 'surface');
+    expect(layer.kind).toBe('surface');
+    if (layer.kind !== 'surface') return;
+    expect(layer.colorMode).toBe('overlay');
+    expect(layer.overlay).toEqual({ name: 'signal_a', component: 'mag' });
+    expect(layer.scale).toEqual({ kind: 'linear', lo: 0, hi: 0.12789118384677717 });
+    expect(layer.colormap).toBe('turbo');
+    expect(layer.showColorbar).toBe(true);
+    expect(layer.threshold.mode).toBe('clamp');
+    expect(layer.threshold.hi).toBe(Infinity);
+    // The palette colour and the outline are the surface's own, untouched by the sidecar.
+    expect(layer.solidColor).toEqual(SURFACE_CONTOUR_PALETTE[0]);
+    expect(layer.contoursIn2D).toBe(true);
+    const seed = seedSurfaceLayerFromOpt(defaultSurfaceLayer('layer1', ds), ds).seed;
+    expect(seed?.seeded).toEqual(['colorMode', 'overlay', 'scale', 'colormap', 'showColorbar']);
+  });
+
+  it('a surface with a SimNIBS sidecar opens solid, with only range/colormap/colour bar seeded', () => {
+    const ds = meshDataset({ tagColor: {}, tagVisible: {}, views: [SIMNIBS_VIEW] });
+    const base = defaultSurfaceLayer('layer1', ds);
+    const { layer } = seedSurfaceLayerFromOpt(base, ds);
+    expect(layer).toEqual({
+      ...base,
+      scale: { kind: 'linear', lo: -1.5, hi: 3.5 },
+      colormap: 'jet',
+      showColorbar: true,
+    });
+    expect(layer.colorMode).toBe('solid');
   });
 
   it('is idempotent — seeding an already-seeded layer changes nothing', () => {

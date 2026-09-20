@@ -4794,7 +4794,8 @@
       "rangeType": 2,
       "saturateValues": true,
       "showScale": true,
-      "vectorType": 1
+      "vectorType": 1,
+      "visible": true
      }
     ]
    },

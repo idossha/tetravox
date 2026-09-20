@@ -79,6 +79,11 @@ export interface PaneCutGeometry {
   contourPaletteKey: string | null;
   contourLabelSource: Uint32Array | null;
   contourColored: boolean;
+  /** Scalar-coloured outline (2026-09-18): two endpoint values per segment at attribute 3. */
+  contourValues: Buffer | null;
+  contourValueSource: Float32Array | null;
+  /** True when {@link contourValues} is bound and the draw should take `CONTOUR_SCALAR`. */
+  contourScalar: boolean;
   /** The array currently in {@link contourBuffer}, so an unchanged result is not re-uploaded. */
   contourSource: Float32Array | null;
   /** True when the segments came from the `contours` op rather than from the cut (triangle meshes). */
@@ -209,6 +214,69 @@ export interface DerivedTarget {
   handle: number;
 }
 
+/**
+ * What a surface layer asks the `contours` op for beyond its segments (2026-09-18).
+ *
+ * `annotation` is the categorical outline (`colorMode:'label'`); `scalar` is the colormap-coloured
+ * one — `colorMode:'field'` on a **node** field, the only kind the op can interpolate along an
+ * edge. An element field on a surface keeps the single-colour outline. `field` is the dataset's own
+ * entry, the identity the store keys its pending state on.
+ */
+export function surfaceContourRequest(
+  layer: MeshLayer,
+  ds: MeshDataset
+): {
+  annotation?: string;
+  scalar?: { name: string; component: ComponentSel };
+  field: MeshDataset['fields'][number] | undefined;
+} {
+  if (layer.colorMode === 'label' && layer.label !== undefined) {
+    const name = layer.label.name;
+    return {
+      annotation: name,
+      field: ds.fields.find((f) => f.source === 'node' && f.name === name),
+    };
+  }
+  if (layer.colorMode === 'field' && layer.field !== undefined && layer.field.source === 'node') {
+    const { name, component } = layer.field;
+    const field = ds.fields.find((f) => f.source === 'node' && f.name === name);
+    if (field !== undefined) {
+      return { scalar: { name, component: component as ComponentSel }, field };
+    }
+  }
+  return { field: undefined };
+}
+
+/** Include the requested field/component/mask so layers cannot reuse incompatible contours. */
+export function surfaceContourKey(
+  datasetId: DatasetId,
+  viewId: ViewId,
+  req: ReturnType<typeof surfaceContourRequest>,
+  maskId: number | undefined
+): string {
+  return JSON.stringify([
+    datasetId,
+    viewId,
+    req.annotation ?? null,
+    req.scalar === undefined ? null : [req.scalar.name, req.scalar.component],
+    maskId ?? null,
+  ]);
+}
+
+/** Pull a world plane into dataset coordinates before cutting transformed surface geometry. */
+export function surfaceContourPlane(plane: PlaneT, model: Float32Array): PlaneT | null {
+  const p = [...plane.normal, plane.offset];
+  const local = [0, 1, 2, 3].map((col) =>
+    p.reduce((sum, v, row) => sum + model[col * 4 + row]! * v, 0)
+  );
+  const length = Math.hypot(local[0]!, local[1]!, local[2]!);
+  if (!Number.isFinite(length) || length === 0) return null;
+  return {
+    normal: [local[0]! / length, local[1]! / length, local[2]! / length],
+    offset: local[3]! / length,
+  };
+}
+
 export class DerivedStore {
   /** §11's glyph readback; see {@link DerivedStore.retainGlyphSources}. */
   #retain = false;
@@ -248,6 +316,7 @@ export class DerivedStore {
       plane: PlaneT;
       segments: Float32Array | null;
       labels?: Uint32Array;
+      values?: Float32Array;
       field: MeshDataset['fields'][number] | undefined;
     }
   >();
@@ -298,7 +367,10 @@ export class DerivedStore {
     }
     // A triangle-only mesh (GIfTI, FreeSurfer, `.stl`) has no tets to cut, so its 2D representation
     // is the `contours` op — §6.3's `surface_contours` — and there is no fill.
-    return this.#surfaceContourGeometry(key, layer, ds, viewId, plane, opts.maskId ?? undefined);
+    const localPlane = surfaceContourPlane(plane, ds.transform);
+    return localPlane === null
+      ? null
+      : this.#surfaceContourGeometry(key, layer, ds, viewId, localPlane, opts.maskId ?? undefined);
   }
 
   /**
@@ -349,6 +421,9 @@ export class DerivedStore {
       contourPaletteKey: null,
       contourLabelSource: null,
       contourColored: false,
+      contourValues: null,
+      contourValueSource: null,
+      contourScalar: false,
       contourSource: null,
       contoursFromSurfaceOp,
     };
@@ -399,13 +474,10 @@ export class DerivedStore {
     plane: PlaneT,
     maskId: number | undefined
   ): PaneCutGeometry | null {
-    const annotation = layer.colorMode === 'label' ? layer.label?.name : undefined;
-    const ck = JSON.stringify([ds.id, viewId, annotation ?? null, maskId ?? null]);
+    const req = surfaceContourRequest(layer, ds);
+    const ck = surfaceContourKey(ds.id, viewId, req, maskId);
     const state = this.#surfaceContours.get(ck);
-    const field =
-      annotation === undefined
-        ? undefined
-        : ds.fields.find((f) => f.source === 'node' && f.name === annotation);
+    const field = req.field;
     const same =
       state !== undefined &&
       state.field === field &&
@@ -419,6 +491,7 @@ export class DerivedStore {
         field,
         segments: state?.field === field ? (state?.segments ?? null) : null,
         labels: state?.field === field ? state?.labels : undefined,
+        values: state?.field === field ? state?.values : undefined,
       };
       this.#surfaceContours.set(ck, pending);
       const target = this.#target(ds.id);
@@ -428,7 +501,8 @@ export class DerivedStore {
             handle: target.handle,
             plane,
             maskId,
-            annotation,
+            annotation: req.annotation,
+            field: req.scalar,
           })
         )
           .then((res) => {
@@ -436,6 +510,7 @@ export class DerivedStore {
             if (now !== pending) return;
             now.segments = res.segments;
             now.labels = res.labels;
+            now.values = res.values;
             this.#requestRender();
           })
           .catch(() => {
@@ -443,7 +518,8 @@ export class DerivedStore {
           });
       }
     }
-    const segments = this.#surfaceContours.get(ck)?.segments ?? null;
+    const landed = this.#surfaceContours.get(ck);
+    const segments = landed?.segments ?? null;
     if (segments === null) return null;
     const g = this.#panes.get(key) ?? this.#createPaneGeometry(key, true);
     if (g.contourSource !== segments) {
@@ -452,8 +528,9 @@ export class DerivedStore {
       g.contourSource = segments;
       g.contoursFromSurfaceOp = true;
     }
-    const labels = this.#surfaceContours.get(ck)?.labels;
-    const label = annotation === undefined ? undefined : layer.label;
+    const gl = this.#gl;
+    const labels = landed?.labels;
+    const label = req.annotation === undefined ? undefined : layer.label;
     const colorKey =
       label === undefined
         ? null
@@ -465,22 +542,45 @@ export class DerivedStore {
         if (g.contourPaletteKey !== colorKey) {
           const palette = buildLabelPalette(label.table, label.visibleLabels, new Set());
           g.contourPalette = updateTable(
-            this.#gl,
+            gl,
             g.contourPalette,
             'rgba8',
             palette,
             Math.max(1, label.table.entries.length)
           );
         }
-        g.contourLabels ??= new Buffer(this.#gl, this.#gl.ARRAY_BUFFER, this.#gl.DYNAMIC_DRAW);
+        g.contourLabels ??= new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
         if (g.contourLabelSource !== labels) g.contourLabels.update(labels);
-        g.contourVao.attribI(3, g.contourLabels, 1, this.#gl.UNSIGNED_INT, 4, 0);
-        this.#gl.bindVertexArray(g.contourVao.vao);
-        this.#gl.vertexAttribDivisor(3, 1);
-        VertexArray.unbind(this.#gl);
-      } else g.contourVao.disable(3);
+        g.contourVao.attribI(3, g.contourLabels, 1, gl.UNSIGNED_INT, 4, 0);
+        gl.bindVertexArray(g.contourVao.vao);
+        gl.vertexAttribDivisor(3, 1);
+        VertexArray.unbind(gl);
+        // Attribute 3 is the label now; the scalar binding below must be redone if it comes back.
+        g.contourValueSource = null;
+        g.contourScalar = false;
+      } else if (!g.contourScalar) g.contourVao.disable(3);
       g.contourPaletteKey = colorKey;
       g.contourLabelSource = labels ?? null;
+    }
+    // Scalar contours use two endpoint values in the annotation attribute slot.
+    const values = req.scalar === undefined ? undefined : landed?.values;
+    const scalar =
+      values !== undefined && values.length === g.contourInstances * 2 && !g.contourColored;
+    if (scalar) {
+      if (g.contourValueSource !== values) {
+        g.contourValues ??= new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
+        g.contourValues.update(values);
+        g.contourVao.attrib(3, g.contourValues, 2, gl.FLOAT, false, 8, 0);
+        gl.bindVertexArray(g.contourVao.vao);
+        gl.vertexAttribDivisor(3, 1);
+        VertexArray.unbind(gl);
+        g.contourValueSource = values;
+      }
+      g.contourScalar = true;
+    } else if (g.contourScalar) {
+      g.contourVao.disable(3);
+      g.contourValueSource = null;
+      g.contourScalar = false;
     }
     return g;
   }
@@ -964,6 +1064,7 @@ export class DerivedStore {
     g.contourStrip.dispose();
     g.contourBuffer.dispose();
     g.contourLabels?.dispose();
+    g.contourValues?.dispose();
     if (g.contourPalette !== null) this.#gl.deleteTexture(g.contourPalette.texture);
     if (g.tagTable !== null) gl.deleteTexture(g.tagTable.texture);
     if (g.ownerTable !== null) gl.deleteTexture(g.ownerTable.texture);

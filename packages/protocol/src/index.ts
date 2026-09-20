@@ -167,6 +167,7 @@ export interface VolumeFrameT {
 }
 
 export interface MeshFieldMeta {
+  gmshViewIndex?: number;
   name: string;
   source: FieldSource;
   ncomp: 1 | 3 | 9;
@@ -233,6 +234,10 @@ export interface MeshMeta {
       colormapNumber?: number;
       showScale?: boolean;
       vectorType?: number;
+      /** `View[n].Visible`; absent preserves legacy view defaults. */
+      visible?: boolean;
+      /** `View[n].ColormapAlphaPower`; preserved metadata, not approximated by the renderer. */
+      colormapAlphaPower?: number;
     }[];
   };
   /** Keyed by node-field name (`.annot` / `.label.gii`). */
@@ -489,7 +494,17 @@ export interface OpArgs {
     iso: number;
     maskId?: number;
   };
-  contours: { handle: number; plane: PlaneT; maskId?: number; annotation?: string };
+  contours: {
+    handle: number;
+    plane: PlaneT;
+    maskId?: number;
+    annotation?: string;
+    /**
+     * A node field to value each segment by (2026-09-18, additive): the result then carries
+     * `values`. Ignored when `annotation` is given — an outline is categorical or scalar, not both.
+     */
+    field?: { name: string; component: ComponentSel };
+  };
   labelCentroids: { handle: number; volumeIndex: number };
   /**
    * Volumetric `GlyphSpec` origins (§7.4). `stride` keeps every `stride`-th tet that survives
@@ -557,8 +572,8 @@ export interface OpResult {
   marchingCubes: SurfacePayload;
   marchingCubesLabel: SurfacePayload;
   marchingTets: SurfacePayload;
-  /** 6 floats per segment. */
-  contours: { segments: Float32Array; labels?: Uint32Array };
+  /** 6 floats per segment; `values` has two endpoint values per segment, only with `field`. */
+  contours: { segments: Float32Array; labels?: Uint32Array; values?: Float32Array };
   labelCentroids: {
     centroids: { id: number; centroid: [number, number, number]; count: number }[];
   };

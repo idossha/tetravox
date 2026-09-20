@@ -154,6 +154,16 @@ fn resolve_tags(
     (names, colors)
 }
 
+fn unique_view_index(mesh: &Mesh, is_node: bool, name: &str) -> Option<usize> {
+    let mut matches = mesh
+        .gmsh_field_order
+        .iter()
+        .enumerate()
+        .filter(|(_, (node, field))| *node == is_node && field == name);
+    let (index, _) = matches.next()?;
+    matches.next().is_none().then_some(index)
+}
+
 fn field_meta(name: &str, source: &str, ncomp: usize, n: usize, s: &FieldStats) -> js_sys::Object {
     let o = jsv::obj();
     jsv::set_str(&o, "name", name);
@@ -203,6 +213,12 @@ fn opt_to_js(o: &MshOptions) -> js_sys::Object {
         }
         if let Some(x) = v.vector_type {
             jsv::set_f64(&jv, "vectorType", f64::from(x));
+        }
+        if let Some(x) = v.visible {
+            jsv::set_bool(&jv, "visible", x);
+        }
+        if let Some(x) = v.colormap_alpha_power {
+            jsv::set_f64(&jv, "colormapAlphaPower", f64::from(x));
         }
         views.push(&jv);
     }
@@ -292,6 +308,9 @@ fn meta(
         if let Some(u) = &f.units {
             jsv::set_str(&jf, "units", u);
         }
+        if let Some(index) = unique_view_index(m, true, &f.name) {
+            jsv::set_u32(&jf, "gmshViewIndex", index as u32);
+        }
         jsv::set_bool(&jf, "partial", f.partial);
         fields.push(&jf);
     }
@@ -300,6 +319,9 @@ fn meta(
         let jf = field_meta(&f.name, "elm", f.ncomp, n, &f.stats);
         if let Some(u) = &f.units {
             jsv::set_str(&jf, "units", u);
+        }
+        if let Some(index) = unique_view_index(m, false, &f.name) {
+            jsv::set_u32(&jf, "gmshViewIndex", index as u32);
         }
         jsv::set_bool(&jf, "partial", f.partial);
         fields.push(&jf);
@@ -881,11 +903,18 @@ pub fn centroids(
     })
 }
 
+/// `contours` (§6.5.2). `annotation` names a node label field for categorical per-segment
+/// indices; `field` / `component` (2026-09-18) name a node field whose interpolated values come
+/// back as `values`, two endpoints per segment, for a colormap-coloured outline. Both absent is the plain
+/// single-colour result. `annotation` wins when both are given: an outline is categorical or scalar,
+/// not both.
 pub fn contours(
     handle: u32,
     plane: &[f32],
     mask_id: Option<u32>,
     annotation: Option<String>,
+    field: Option<String>,
+    component: Option<String>,
 ) -> Result<JsValue> {
     if plane.len() != 4 {
         return Err(Error::Parse(format!(
@@ -908,6 +937,13 @@ pub fn contours(
             let (segments, labels) =
                 geom::labeled_surface_contours(&st.mesh, &pl, mask, &field.data)?;
             jsv::set(&o, "labels", &jsv::u32s(&labels).into());
+            segments
+        } else if let Some(name) = field {
+            let f = find_node_field(&st.mesh, &name)?;
+            let c = component_of(component.as_deref().unwrap_or("mag"))?;
+            let values = select(&f.data, f.ncomp, &c)?;
+            let (segments, values) = geom::valued_surface_contours(&st.mesh, &pl, mask, &values)?;
+            jsv::set(&o, "values", &jsv::f32s(&values).into());
             segments
         } else {
             geom::surface_contours(&st.mesh, &pl, mask)?

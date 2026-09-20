@@ -1114,6 +1114,14 @@ fn surface_contours_match_numpy_on_lh_pial() {
         let offset = want["offset"].as_f64().unwrap() as f32;
         let seg = surface_contours(&m, &Plane { normal, offset }, None).unwrap();
         assert_eq!(seg.len() % 6, 0, "{name}: 6 floats per segment");
+        let values: Vec<f32> = m.nodes.iter().map(|p| p[0] + 2.0 * p[1] - p[2]).collect();
+        let (scalar_segments, endpoints) =
+            tvx_geom::valued_surface_contours(&m, &Plane { normal, offset }, None, &values)
+                .unwrap();
+        assert_eq!(scalar_segments, seg);
+        for (p, value) in scalar_segments.chunks_exact(3).zip(endpoints) {
+            assert!((value - (p[0] + 2.0 * p[1] - p[2])).abs() < 1e-4);
+        }
         // Annotation partitioning must retain the independently measured contour length. Synthetic
         // categorical node ids exercise splits on the real pial triangles without private annotations.
         let node_labels: Vec<f32> = (0..m.nodes.len()).map(|i| (i % 3) as f32).collect();

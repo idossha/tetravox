@@ -89,7 +89,7 @@ async function ghostScene(
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       const points = engine.addLayer({
         datasetId: ds.id,
         kind: 'points',
@@ -166,7 +166,7 @@ test('a ghost blends over whatever is behind it, background included', async ({ 
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.addLayer({
         datasetId: ds.id,
         kind: 'points',
@@ -574,7 +574,7 @@ async function wireScene(
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       const spec = patch as { lineColor?: number[]; lineColors?: number[] };
       engine.addLayer({
         datasetId: ds.id,
@@ -663,7 +663,7 @@ test("labelColorSource 'points' draws each name in its own point's colour", asyn
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.addLayer({
         datasetId: ds.id,
         kind: 'points',

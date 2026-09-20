@@ -1222,3 +1222,54 @@ fn a_geometry_script_fixture_is_rejected_by_name() {
     assert!(msg.contains("`Point(`"), "{msg}");
     assert!(msg.contains("geometry script"), "{msg}");
 }
+
+// View indices independently checked with Gmsh 4.14's view.getTags/getModelData.
+fn view_order_mesh(blocks: &[(&str, &str, i32)]) -> Mesh {
+    let mut text = String::from("$MeshFormat\n2.2 0 8\n$EndMeshFormat\n$Nodes\n3\n1 0 0 0\n2 1 0 0\n3 0 1 0\n$EndNodes\n$Elements\n1\n1 2 0 1 2 3\n$EndElements\n");
+    for (kind, name, step) in blocks {
+        let record = if *kind == "ElementNodeData" {
+            "1 3 7 7 7"
+        } else {
+            "1 7"
+        };
+        text.push_str(&format!(
+            "${kind}\n1\n\"{name}\"\n1\n0\n3\n{step}\n1\n1\n{record}\n$End{kind}\n"
+        ));
+    }
+    read_msh(text.into_bytes(), &mut NoProgress).unwrap()
+}
+
+#[test]
+fn gmsh_view_order_preserves_interleaved_sources() {
+    let mesh = view_order_mesh(&[
+        ("ElementData", "A", 0),
+        ("NodeData", "B", 0),
+        ("ElementData", "C", 0),
+    ]);
+    assert_eq!(
+        mesh.gmsh_field_order,
+        vec![(false, "A".into()), (true, "B".into()), (false, "C".into())]
+    );
+    assert_eq!(mesh.node_fields[0].name, "B");
+    assert_eq!(mesh.elm_fields[1].name, "C");
+}
+
+#[test]
+fn temporal_gmsh_views_decline_mapping_without_rejecting_the_file() {
+    // Gmsh groups A's steps, so C's logical index is 2, not block ordinal 3.
+    let mesh = view_order_mesh(&[
+        ("NodeData", "A", 0),
+        ("NodeData", "B", 0),
+        ("NodeData", "A", 1),
+        ("NodeData", "C", 0),
+    ]);
+    assert!(mesh.gmsh_field_order.is_empty());
+    assert_eq!(mesh.node_fields.len(), 4);
+}
+
+#[test]
+fn unsupported_element_node_data_declines_view_mapping() {
+    let mesh = view_order_mesh(&[("ElementNodeData", "unsupported", 0), ("NodeData", "B", 0)]);
+    assert!(mesh.gmsh_field_order.is_empty());
+    assert_eq!(mesh.node_fields[0].name, "B");
+}

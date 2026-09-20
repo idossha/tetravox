@@ -47,7 +47,14 @@ both unset on purpose and asserts so. Locally:
 ```sh
 export TETRAVOX_TESTDATA=/path/to/derivatives/SimNIBS/sub-ernie
 export TETRAVOX_SEEG_TESTDATA=/path/to/derivatives/seegprep/sub-P076   # §13's contact editor
+export TETRAVOX_ROI_OVERLAY=/path/to/<analysis>/roi_overlay.msh           # a TI-Toolbox ROI overlay (optional)
 ```
+
+`TETRAVOX_ROI_OVERLAY` points `surface-contours-scalar-real.spec.ts` at any TI-Toolbox analysis's
+`roi_overlay.msh` (its `.msh.opt` and `scene.tetravox.json` must sit beside it); without it the spec looks
+under `TETRAVOX_TESTDATA/Simulations/L_Insula/Analyses/Mesh/cortical_lh.insula_DK40/` and skips when that is
+absent. The test server's allow-list is rebuilt from the environment at start, so restart a reused Vite
+(`reuseExistingServer`) after changing it.
 
 `TETRAVOX_SEEG_TESTDATA` is a **subject directory inside a `seegprep` derivative tree** —
 `<dir>/ct/sub-<id>_acq-bone_space-T1w_ct.nii.gz` and `<dir>/ieeg/sub-<id>_space-T1w_electrodes.tsv`. There is
@@ -399,6 +406,7 @@ not a new test result; current behavior is authoritative in ARCHITECTURE.
 | 2026-09-06 surfaces R1–R2 | §4.4/§7.4; scene tests distinguish zero-tet surfaces from meshes; `surface.spec.ts` checks the default contour palette analytically and with `surface-default`; real surface loading is gated by `TETRAVOX_TESTDATA`. Existing mesh rendering remains governed by its own goldens. |
 | 2026-09-06 surfaces R3–R5 | §4.4/§4.7/§8; annotation tests assert attached color source and reference entry count; `props-surface.spec.ts` checks the dedicated editor and excluded mesh controls; `registry.test.ts` reads imports to hold the surface/mesh module boundary. |
 | 2026-09-11 volume controls and follow-up | §8; `props-volume.spec.ts` checks labelled scalar controls, label-only region controls, unbounded threshold state, preset values, side-by-side 3D controls and exact bound preservation across percentile unit changes. Preset and percentile unit tests pin stored anchors and interpolation independently. |
+| 2026-09-19 Generic scalar contours | Open-bound thresholds: `mesh-threshold.test.ts` and `mesh-threshold-open.spec.ts`. Static Gmsh view identity, ambiguous mapping and caller overrides: mesh parser fixtures, `defaults.test.ts`, `gmsh-view-seeding.spec.ts`. Endpoint interpolation, soft thresholds and categorical preservation: `cut.rs::valued_tests`, real pial contours, `store.test.ts`, `surface-contours-scalar.spec.ts`, existing annotation tests and scalar golden. The optional real overlay spec applies a caller-selected threshold; bare import must not invent one. |
 | 2026-09-11 mesh controls | §8; `props-mesh.spec.ts` checks field/component resets, conditional controls, shared percentile thresholds and independent dragging of all four histogram bounds, while retaining clipping, isolation and glyph manipulation. `mesh/state.test.ts` checks normalized ranges and hard-hide thresholds; the volume suite protects the shared editor. |
 | 2026-09-12 clip and threshold ergonomics | §8; `props-volume.spec.ts` checks min/max defaults, four visible handles, vertical input order, fully erasable drafts, Enter/blur commits, Escape cancellation and percentile/value round trips. `props-mesh.spec.ts` checks automatic inherited caps, a stationary reversed cut at a nonzero offset and header fit; mesh state tests protect uncapped surfaces. |
 | 2026-09-12 annotation outlines and point names | `surface-contours.spec.ts` independently intersects fixture triangles and checks region RGB in axial/coronal/sagittal panes on both renderer backends, then checks visibility, recoloring, opacity and solid/annotation switching. A Linux SwiftShader reference image covers the annotated outline. Rust synthetic tests protect categorical boundary splits; the real-data pial test checks partitioned length against the NumPy reference. `geo-layer.test.ts` protects filenames and retained internal view metadata. |

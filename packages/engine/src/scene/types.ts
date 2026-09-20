@@ -238,6 +238,7 @@ export interface TemplateSpace {
 }
 
 export interface MeshFieldInfo {
+  gmshViewIndex?: number;
   name: string;
   source: 'node' | 'elm';
   ncomp: 1 | 3 | 9;
@@ -278,6 +279,10 @@ export interface MshOptions {
     colormapNumber?: number;
     showScale?: boolean;
     vectorType?: number;
+    /** `View[n].Visible`; absent preserves legacy view defaults. */
+    visible?: boolean;
+    /** `View[n].ColormapAlphaPower`; preserved metadata, not approximated by the renderer. */
+    colormapAlphaPower?: number;
   }[];
 }
 

@@ -33,7 +33,7 @@ test('tag surfaces render in 3D without any topology build', async ({ page }) =>
         path: url as string,
         sidecars: { opt: optUrl as string },
       });
-      engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
       engine.resetView('view3d');
       engine.setAnnotations({

@@ -196,6 +196,7 @@ export function fieldFromWire(f: MeshMeta['fields'][number]): MeshFieldInfo {
   return {
     name: f.name,
     source: f.source,
+    gmshViewIndex: f.gmshViewIndex,
     ncomp: f.ncomp,
     n: f.n,
     units: f.units,

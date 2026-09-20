@@ -121,6 +121,7 @@ fn mesh_of(nodes: Vec<[f32; 3]>, tris: Vec<[u32; 3]>, mask: Option<Vec<u8>>) -> 
         tri_edge_mask: mask,
         node_fields: Vec::new(),
         elm_fields: Vec::new(),
+        gmsh_field_order: Vec::new(),
         physical_names: Vec::new(),
         gmsh_node_numbers: None,
         gmsh_elm_numbers: None,
