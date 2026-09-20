@@ -66,6 +66,8 @@ export class VolumeLayerRuntime implements LayerRuntime {
 
   /** What the currently uploaded label style was built from; `null` when nothing is uploaded. */
   #styleSignature: string | null = null;
+  #tensorRequested = new Set<string>();
+  #disposed = false;
 
   constructor(layer: VolumeLayer, ds: VolumeDataset, ctx: LayerRuntimeContext) {
     this.#layer = layer;
@@ -76,6 +78,7 @@ export class VolumeLayerRuntime implements LayerRuntime {
     this.#frameStats.set(0, ds.stats);
     this.#frameLabelIds.set(0, ds.labelIds);
     this.#refreshLabelStyle();
+    this.#ensureTensor();
   }
 
   get layer(): VolumeLayer {
@@ -97,6 +100,7 @@ export class VolumeLayerRuntime implements LayerRuntime {
     this.#layer = next;
     if (next.volumeIndex !== prev.volumeIndex) this.#ensureFrame();
     this.#refreshLabelStyle();
+    this.#ensureTensor();
   }
 
   // -----------------------------------------------------------------------------------------
@@ -147,6 +151,22 @@ export class VolumeLayerRuntime implements LayerRuntime {
       (k * ds.dims[1] + j) * ds.dims[0] +
       i +
       layer.volumeIndex * ds.dims[0] * ds.dims[1] * ds.dims[2];
+    if (layer.tensor !== undefined) {
+      const per = ds.dims[0] * ds.dims[1] * ds.dims[2];
+      const at = (k * ds.dims[1] + j) * ds.dims[0] + i;
+      const names =
+        layer.tensor.order === 'fsl'
+          ? ['Dxx', 'Dxy', 'Dxz', 'Dyy', 'Dyz', 'Dzz']
+          : ['Dxx', 'Dxy', 'Dyy', 'Dxz', 'Dyz', 'Dzz'];
+      return {
+        ...base,
+        voxel: [i, j, k],
+        fields: names.map((name, c) => ({
+          name,
+          value: Number(ds.data[at + c * per]) * ds.sclSlope + ds.sclInter,
+        })),
+      };
+    }
     const raw = Number(ds.data[idx] ?? 0);
     const value = raw * ds.sclSlope + ds.sclInter;
     const row: ProbeRow = { ...base, voxel: [i, j, k], value };
@@ -170,7 +190,8 @@ export class VolumeLayerRuntime implements LayerRuntime {
     if (gpu === undefined) {
       // The 4D frame this layer wants is not on the GPU yet. Ask for it — audit P2-05: without this
       // the layer silently stops drawing at index > 0 instead of catching up a frame later.
-      this.#ensureFrame();
+      if (layer.tensor === undefined) this.#ensureFrame();
+      else this.#ensureTensor();
       return [];
     }
     const labelStyle = this.#labelStyle();
@@ -215,12 +236,54 @@ export class VolumeLayerRuntime implements LayerRuntime {
 
   /** Volume textures are keyed by dataset; the label styling is keyed by **layer** and goes here. */
   dispose(): void {
+    this.#disposed = true;
     this.#ctx.gpu.dropLabelStyles(this.id);
   }
 
   // -----------------------------------------------------------------------------------------
   // 4D — the `volumeFrame` op (§6.5.2), audit P2-05
   // -----------------------------------------------------------------------------------------
+
+  /** Build the opted-in glyph texture once per interpretation, reporting rejected grids. */
+  #ensureTensor(): void {
+    const t = this.#layer.tensor;
+    if (t === undefined || this.#disposed) return;
+    const key = volumeKey(this.#layer);
+    if (this.#ctx.gpu.hasVolume(key) || this.#tensorRequested.has(key)) return;
+    const client = this.#ctx.client(this.datasetId);
+    if (client === undefined) return;
+    this.#tensorRequested.add(key);
+    void this.#ctx.track(
+      client
+        .call(`${this.id}:${key}`, 'volumeTensor', {
+          handle: this.#ds.handle,
+          order: t.order,
+          basis: t.basis,
+          stride: t.stride,
+          max3d: this.#ctx.gpuCaps().max3d,
+        })
+        .then((frame) => {
+          if (this.#disposed) return;
+          this.#ctx.gpu.uploadVolume(
+            key,
+            { ...this.#ds, dims: frame.dims, isLabel: false },
+            frame.gpuBytes,
+            { format: 'R32F', scale: 1, offset: 0, filterable: false, chunked: true },
+            false,
+            null
+          );
+          this.#ctx.requestRender();
+        })
+        .catch((error: unknown) => {
+          // Remember failed keys: a redraw must not repeatedly queue a rejected allocation.
+          if (!this.#disposed)
+            this.#ctx.reportError?.(
+              this.datasetId,
+              error instanceof Error ? error.message : String(error)
+            );
+        })
+    );
+  }
 
   /**
    * Make sure the current `volumeIndex` has a texture, fetching the frame if it does not.
@@ -231,6 +294,7 @@ export class VolumeLayerRuntime implements LayerRuntime {
    */
   #ensureFrame(): void {
     const layer = this.#layer;
+    if (layer.tensor !== undefined) return;
     const index = layer.volumeIndex;
     const key = volumeKey(layer);
     if (this.#ctx.gpu.hasVolume(key) || this.#framesRequested.has(index)) return;

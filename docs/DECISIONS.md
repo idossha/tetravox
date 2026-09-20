@@ -5681,3 +5681,32 @@ Add an x64 ZIP alongside NSIS. External installation managers extract the ZIP ra
 NSIS, whose registry lookup can replace an existing installation despite a separate destination.
 Both Windows artifacts remain optional with the Windows build leg. Existing 0.4.0 assets contain
 no ZIP; managers must wait for a verified official ZIP with a pinned digest before enabling Windows.
+
+### 2026-09-19 — Opt-in six-component diffusion tensor display (§4.4, §6.1, §6.4–6.5, §7.3)
+
+**Intent:** display diffusion tensors from NIfTI alongside anatomical T1, following FSL conventions,
+without reinterpreting existing scalar/electric-field volumes. The supplied Ernie tensor has six
+float32 frames but intent 0 `[DATA: scripts/refvalues/tensor_refvalues.py; nibabel]`; frame count alone
+cannot distinguish it from a time series. Interpretation therefore remains an explicit layer setting.
+
+**Decision:** add `VolumeLayer.tensor` and `volumeTensor` → `volume_tensor`. FSL upper-triangle and
+NIfTI symmetric-matrix lower-triangle order are selectable independently of FSL/voxel/world axes.
+FSL orientation follows the scaled affine columns and positive-determinant X flip, matching
+[SimNIBS cond_utils](https://github.com/simnibs/simnibs/blob/master/simnibs/utils/cond_utils.py) and
+[FSLeyes tensor display](https://pages.fmrib.ox.ac.uk/fsl/fsleyes/fsleyes/userdoc/overlays.html).
+The [NIfTI intent specification](https://nifti.nimh.nih.gov/nifti-1/documentation/nifti1fields/nifti1fields_pages/intent_code.html/document_view.html)
+specifies component order, not a universal coordinate basis, so world axes remain an explicit choice.
+
+The dataset worker computes inverse ellipsoid shape, principal-direction colour and FA; the shared
+slice/pick shader projects ellipsoids at a regular subsampled grid. Default spacing is two voxels;
+maximum glyph radius is 0.42 grid spacings, minor-axis display floor is 2%, and each requested payload
+is capped at 128 MiB `[POLICY: bounded memory and stable finite glyphs; tensor_payload]`. Non-positive
+or non-finite tensors are hidden, never repaired. Sheared voxel bases are rejected explicitly.
+No dependency, parser default, scalar sample, affine, raw header or statistics changes. Scalar mode
+and existing scenes remain the default; switching back restores their prior controls and image.
+
+**Evidence:** synthetic NIfTI-1/FSL and NIfTI-2/dim[5]/SYMMATRIX plus a scaled oblique affine are checked
+against nibabel/NumPy (`tests/tensors.rs`). The same test covers Ernie T1 and DTI when
+`TETRAVOX_TESTDATA` is set. `tensor.spec.ts` pins analytic silhouette/shading pixels, a SwiftShader
+golden, scalar restoration and both-file rendering on SwiftShader and ANGLE. Free-standing 3D glyph
+clouds, fitting raw DWI and tractography remain outside this change.

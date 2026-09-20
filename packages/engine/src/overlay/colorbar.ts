@@ -217,7 +217,7 @@ export function volumeColorbarSpec(
   ds: VolumeDataset,
   baked: BakedLut
 ): ColorbarSpec | null {
-  if (!layer.showColorbar || ds.isLabel) return null;
+  if (!layer.showColorbar || ds.isLabel || layer.tensor !== undefined) return null;
   const scale = layer.scale;
   const twoSided = scale.kind === 'heat' && scale.negative !== 'hide';
   const v0 = scale.kind === 'linear' ? scale.lo : twoSided ? -scale.max : 0;

@@ -59,6 +59,7 @@ mod payload;
 mod read;
 mod scan;
 mod stats;
+pub mod tensor;
 
 pub use format::{read_volume, sniff_volume, VolumeFormat};
 pub use metaimage::read_metaimage;

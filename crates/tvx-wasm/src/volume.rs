@@ -238,3 +238,50 @@ pub fn marching_cubes_label(
         Ok(crate::surface::to_js(&s))
     })
 }
+
+/// §6.4: packed tensor glyph grid. Scalar frames and their statistics remain untouched.
+pub fn tensor(
+    handle: u32,
+    order: &str,
+    basis: &str,
+    stride: usize,
+    max_3d: usize,
+) -> Result<JsValue> {
+    use tvx_nifti::tensor::{tensor_payload, TensorBasis, TensorOrder};
+    let order = match order {
+        "fsl" => TensorOrder::Fsl,
+        "nifti" => TensorOrder::Nifti,
+        _ => {
+            return Err(tvx_core::Error::Parse(
+                "unknown tensor component order".into(),
+            ))
+        }
+    };
+    let basis = match basis {
+        "fsl" => TensorBasis::Fsl,
+        "voxel" => TensorBasis::Voxel,
+        "world" => TensorBasis::World,
+        _ => {
+            return Err(tvx_core::Error::Parse(
+                "unknown tensor coordinate basis".into(),
+            ))
+        }
+    };
+    handles::with_volume(handle, |v| {
+        let payload = tensor_payload(v, order, basis, stride, max_3d)?;
+        let out = jsv::obj();
+        jsv::set(
+            &out,
+            "dims",
+            &jsv::nums(payload.dims.iter().map(|d| *d as f64)).into(),
+        );
+        jsv::set(
+            &out,
+            "gpuBytes",
+            &js_sys::Float32Array::from(&payload.data[..])
+                .buffer()
+                .into(),
+        );
+        Ok(out.into())
+    })
+}

@@ -63,6 +63,14 @@ void main() {
  * is `INVALID_OPERATION` `[M2Max]`, so the two sampler types cannot share one compiled program.
  * `ProgramVariants` (`gl/program.ts`) caches the two.
  */
+const TENSOR_UNIFORMS = `uniform int uTensor;
+uniform float uTensorStride;
+uniform float uTensorMinFA;
+uniform mat4 uAffine;
+float tensorAt(ivec3 cell, int slab, int depth) {
+  return texelFetch(uVol, ivec3(cell.xy, cell.z + slab * depth), 0).r;
+}`;
+
 const SLICE_FS_HEAD = `${PRECISION_FLOAT}
 ${PRECISION_INT}
 ${PRECISION_SAMPLER3D}
@@ -77,6 +85,7 @@ ${LABEL_FUNCS}
 #else
 uniform sampler3D uVol;
 ${LADDER_UNIFORMS}
+${TENSOR_UNIFORMS}
 ${LUT_UNIFORMS}
 ${VALUE_GATE_UNIFORMS}
 #endif`;
@@ -89,6 +98,7 @@ ${VALUE_GATE_UNIFORMS}
  * asked for inside control flow a discard has already made non-uniform.
  */
 const SLICE_FS_BODY = `  ${SCREEN_STEP}
+  vec3 planeNormal = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
   vec3 voxel = (uInvAffine * vec4(vWorld, 1.0)).xyz;
   // Voxel centres are at integer indices (§3), so the texture coordinate of centre i is
   // (i + 0.5) / dims. A tc outside [0,1]^3 is outside this layer's own world AABB, which is the
@@ -108,9 +118,35 @@ const SLICE_FS_BODY = `  ${SCREEN_STEP}
   ${PALETTE_SAMPLE}
   ${LABEL_BODY}
 #else
-  ${LADDER_DECODE}
-  ${VALUE_GATE}
-  ${LUT_SAMPLE}
+  vec4 c;
+  float gateAlpha = 1.0;
+  if (uTensor == 1) {
+    ivec3 grid = ivec3(ceil(uDims / uTensorStride));
+    ivec3 cell = clamp(ivec3(floor(voxel / uTensorStride + 0.5)), ivec3(0), grid - 1);
+    float fa = tensorAt(cell, 7, grid.z);
+    float packedColor = tensorAt(cell, 6, grid.z);
+    if (packedColor == 0.0 || fa < uTensorMinFA) discard;
+    float xx = tensorAt(cell, 0, grid.z), xy = tensorAt(cell, 1, grid.z);
+    float xz = tensorAt(cell, 2, grid.z), yy = tensorAt(cell, 3, grid.z);
+    float yz = tensorAt(cell, 4, grid.z), zz = tensorAt(cell, 5, grid.z);
+    mat3 q = mat3(xx,xy,xz, xy,yy,yz, xz,yz,zz);
+    vec3 center = (uAffine * vec4(vec3(cell) * uTensorStride, 1.0)).xyz;
+    float spacing = min(length(uAffine[0].xyz), min(length(uAffine[1].xyz), length(uAffine[2].xyz)));
+    vec3 delta = (vWorld - center) / (0.42 * spacing * uTensorStride);
+    delta -= planeNormal * dot(delta, planeNormal);
+    // Project the ellipsoid onto this plane by minimising its quadratic along the normal.
+    // The same silhouette and FA gate are used for picking.
+    vec3 qn = q * planeNormal;
+    float dn = dot(delta, qn);
+    float radius2 = max(0.0, dot(delta, q * delta) - dn*dn / dot(planeNormal, qn));
+    if (radius2 > 1.0) discard;
+    vec3 rgb = mod(floor(packedColor / vec3(1.0,256.0,65536.0)), 256.0) / 255.0;
+    c = vec4(rgb * (0.4 + 0.6 * sqrt(1.0 - radius2)), 1.0);
+  } else {
+    ${LADDER_DECODE}
+    ${VALUE_GATE.replace('float gateAlpha =', 'gateAlpha =')}
+    ${LUT_SAMPLE.replace('vec4 c =', 'c =')}
+  }
 #endif
   if (c.a <= 0.0) discard;`;
 

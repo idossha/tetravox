@@ -164,6 +164,10 @@ async function runOp<K extends OpName>(
       const loaded = await loadSource(a.source, read);
       return call(a.handle, loaded.bytes, loaded.name) as OpResult[K];
     }
+    case 'volumeTensor': {
+      const a = args as OpArgs['volumeTensor'];
+      return call(a.handle, a.order, a.basis, a.stride, a.max3d) as OpResult[K];
+    }
     case 'volumeFrame': {
       const a = args as OpArgs['volumeFrame'];
       const [floatLinear, norm16, max3d] = capsOf(a.caps);

@@ -12,6 +12,11 @@ behind a line here is in `docs/DECISIONS.md`.
 
 ## What exists
 
+**Diffusion tensors (§6.1, §7.3).** Explicit six-component FSL/SimNIBS or NIfTI symmetric-matrix
+interpretation, independent axis convention, direction-coloured ellipsoid slices, glyph spacing and
+FA filtering. Ordinary volume frames remain the default. See the 2026-09-19 decision and
+`tests/tensors.rs` / `tensor.spec.ts`.
+
 **Volume controls (§8).** Grouped contrast/visibility with 1–99%, 50–99.9%, 95–99.9% presets; labels use
 region controls. Intent is recorded in `docs/DECISIONS.md`; verification is in
 `packages/app/e2e/props-volume.spec.ts`.

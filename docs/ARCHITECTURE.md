@@ -374,6 +374,7 @@ export interface LayerBase {
 export interface VolumeLayer extends LayerBase {
   kind: 'volume';
   volumeIndex: number;                                  // 0 unless nvols > 1. Changing it is a `volumeFrame` op
+  tensor?: { order: 'fsl' | 'nifti'; basis: 'fsl' | 'voxel' | 'world'; stride: 1 | 2 | 4 | 8; minFA: number };
   colormap: ColormapName | string;                      // string = user .json colormap id (§7.6)
   colormapNegative?: ColormapName | string;
   scale: Scale; threshold: Threshold;
@@ -1427,6 +1428,20 @@ Rules:
   the byte vector and frees it before returning**, so §4.6's `fingerprint` is taken by the caller over
   `&bytes` on the line above the call. Each reports `Read` → `Inflate` → `Parse` → `Index` like `read_nifti`.
 
+**Opt-in diffusion tensors (2026-09-19).** Six float32/float64 components can be interpreted through
+`tensor::tensor_payload(v: &Volume, order: TensorOrder, basis: TensorBasis, stride: usize,
+max_3d: usize) -> Result<TensorPayload>`. `TensorOrder::{Fsl,Nifti}` means respectively
+xx,xy,xz,yy,yz,zz and xx,xy,yy,xz,yz,zz. `TensorBasis::{Fsl,Voxel,World}` is independent:
+FSL uses normalised affine columns and flips their X column when the determinant is positive;
+Voxel uses those columns without the flip; World uses scanner RAS. Sheared voxel bases are rejected.
+Header scaling is applied once to all components. Finite positive-definite matrices yield ellipsoids;
+all other voxels yield no glyph. The source data, raw header and scalar frames remain unchanged.
+`TensorPayload { dims: [usize;3], data: Vec<f32> }` packs eight R32F z-slabs: six symmetric inverse
+shape entries, an exact 24-bit RGB integer, and FA. Radius ratios are eigenvalues divided by their
+maximum, with a display-only 0.02 lower bound. Strides are 1/2/4/8; the regular grid samples voxel
+indices 0,stride,2×stride. Dimensions must fit max3d and a payload is limited to 128 MiB.
+`tests/tensors.rs` pins this against NumPy, including the gated Ernie tensor and T1 alignment.
+
 ### 6.2 `tvx-mesh-io`
 
 ```rust
@@ -1879,6 +1894,7 @@ is present wherever an op can exceed one frame, and is called at section boundar
                                           on_progress: &js_sys::Function) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_contours(handle: u32, plane: &[f32], mask_id: Option<u32>, annotation: Option<String>)
                                     -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn volume_tensor(handle: u32, order: &str, basis: &str, stride: u32, max_3d: u32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_centroids(handle: u32, mask_id: Option<u32>, stride: u32,
                                       tags: Option<Vec<i32>>) -> Result<JsValue, JsValue>;
@@ -2086,6 +2102,7 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 |---|---|---|---|
 | `loadVolume` | `{ source: LoadSource; caps; wantLinear }` | `{ meta: VolumeMeta; data; gpuBytes: ArrayBuffer; labelIds?; denseIndexOf? }` | `data` = raw samples for probes; `gpuBytes` = the `gpu_payload` texture bytes |
 | `loadMesh` | `{ source: LoadSource; format: 'auto'\|'msh'\|'gii'\|'fs'\|'stl'\|'ply'\|'obj'\|'geo'\|'vtk'\|'vtu'\|'vtp'\|'off'\|'medit' }` | `{ meta: MeshMeta; geo?: GeoPayloadT }` | no bulk arrays; Morton reorder + `TetBlocks` + `PointLocator` built here. `geo` present **only** for `'geo'` |
+| `volumeTensor` | `{ handle; order: "fsl" \| "nifti"; basis: "fsl" \| "voxel" \| "world"; stride; max3d }` | `{ dims: [number,number,number]; gpuBytes: ArrayBuffer }` | `volume_tensor`; opt-in tensor glyph texture, computed in the dataset worker |
 | `volumeFrame` | `{ handle; volumeIndex; caps; wantLinear }` | `VolumeFrameT` | the **only** way to display a 4D index ≠ 0 |
 | `surface` | `{ handle; variant; maskId? }` | `SurfacePayload` | `tag_surfaces` when `hasTris`, else `extract_boundary` |
 | `boundary` | `{ handle; maskId?; variant }` | `SurfacePayload` | always `extract_boundary`; used after isolation/clip |
@@ -2485,6 +2502,19 @@ shaders declare `invariant gl_Position;`.
   texture over ~64 MB, which also renders progressively. This is a load-time hitch, not an interactive one,
   so **do not build a per-frame upload budget scheduler**. The justification for the format ladder is
   filterability and VRAM, not upload milliseconds.
+
+**Tensor slices (2026-09-19).** Absent `VolumeLayer.tensor` reproduces the scalar renderer. Explicit
+`tensor` selects §6.1's packed worker texture; no eigensolver or vertex expansion runs on the UI thread.
+Tensor keys include dataset, component order, basis and spacing; scalar frame keys are unchanged.
+The nearest glyph grid point is projected onto the slice. Its ellipsoid silhouette is the minimum of
+the inverse-shape quadratic along the plane normal, with maximum radius 0.42 times the grid's minimum
+world spacing. Colour is absolute principal direction in world RAS (red L/R, green A/P, blue S/I);
+isotropic tensors use neutral grey. A square-root radial shade reveals the silhouette. Min FA controls
+visibility, and picking runs the identical silhouette/FA discard. The 3D pane displays these same slice
+planes, not a free-standing glyph cloud. Tensor mode suppresses scalar colour bars, windowing and
+scalar isosurfaces, retaining those settings for a return to scalar mode. Probe fields show all six
+physical tensor components. Layer settings serialize with the scene. Six-frame files never opt in
+implicitly, even when a SYMMATRIX header provides an order hint: a volume count is not a tensor intent.
 
 ### 7.4 Mesh shaders
 

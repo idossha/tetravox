@@ -61,6 +61,7 @@ export interface LayerRuntimeContext {
   client(id: DatasetId): ComputeClient | undefined;
   /** Mark the frame dirty. §7.2: this **never** draws. */
   requestRender(): void;
+  reportError?(datasetId: DatasetId, message: string): void;
   /** Register a promise with `whenSettled()`, so a golden waits for it (§7.2). */
   track<T>(p: Promise<T>): Promise<T>;
   /**

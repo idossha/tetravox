@@ -381,6 +381,13 @@ export interface VolumeLayer extends LayerBase {
   kind: 'volume';
   /** 0 unless `nvols > 1`. Changing it is a `volumeFrame` op (§6.5.2): new texture bytes + new Stats. */
   volumeIndex: number;
+  /** §7.3: absent means scalar frames. Explicit opt-in avoids treating six-frame time series as DTI. */
+  tensor?: {
+    order: 'fsl' | 'nifti';
+    basis: 'fsl' | 'voxel' | 'world';
+    stride: 1 | 2 | 4 | 8;
+    minFA: number;
+  };
   /** `string` = user `.json` colormap id (§7.6). */
   colormap: ColormapName | string;
   colormapNegative?: ColormapName | string;
