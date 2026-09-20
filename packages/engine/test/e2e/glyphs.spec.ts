@@ -85,7 +85,7 @@ async function oneGlyph(
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.setLayout({ kind: '3d-only', cells: ['view3d'] });
       engine.setAnnotations({
         crosshair: false,
@@ -282,7 +282,7 @@ test('golden: derived-glyphs-log', async ({ page }) => {
         path: url as string,
         sidecars: { opt: opt as string },
       });
-      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh' });
+      const layer = engine.addLayer({ datasetId: ds.id, kind: 'mesh', colorMode: 'tag' });
       engine.setAnnotations({ colorbars: true, cornerInfo: true });
       engine.updateLayer(layer.id, {
         tagStyle: {
