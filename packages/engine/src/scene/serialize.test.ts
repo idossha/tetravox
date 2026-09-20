@@ -352,6 +352,21 @@ const meshDataset = (id: string): MeshDataset =>
   }) as unknown as MeshDataset;
 
 describe('serializableLayer (§4.6 SerializableLayer)', () => {
+  it('retains explicit tensor conventions and leaves old scalar scenes unchanged', () => {
+    const scalar = defaultVolumeLayer('layer1', volumeDataset('ds1'));
+    expect(serializableLayer(scalar)).not.toHaveProperty('tensor');
+    const tensor = {
+      order: 'nifti' as const,
+      basis: 'world' as const,
+      stride: 4 as const,
+      minFA: 0.2,
+    };
+    const saved = JSON.parse(JSON.stringify(serializableLayer({ ...scalar, tensor })));
+    expect(remapLayer(saved, new Map([['ds1', 'restored']]))).toMatchObject({
+      datasetId: 'restored',
+      tensor,
+    });
+  });
   it('turns `visibleLabels` into a plain array — a Uint32Array is not JSON', () => {
     const layer: Layer = {
       ...defaultVolumeLayer('layer1', volumeDataset('ds1')),

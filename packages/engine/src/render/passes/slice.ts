@@ -271,6 +271,13 @@ export function bindSliceSampling(
     return;
   }
 
+  prog.int('uTensor', layer.tensor === undefined ? 0 : 1);
+  if (layer.tensor !== undefined) {
+    prog.mat4('uAffine', ds.affine);
+    prog.float('uTensorStride', layer.tensor.stride);
+    prog.float('uTensorMinFA', Math.max(0, Math.min(1, finiteOr(layer.tensor.minFA, 0))));
+  }
+
   // The scalar branch: the baked `Scale` LUT plus §4.2's value gate.
   const lut = input.store.lut(layer.scale, layer.colormap, layer.colormapNegative);
   gl.activeTexture(gl.TEXTURE1);

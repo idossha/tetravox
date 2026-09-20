@@ -26,6 +26,7 @@ export type OpName =
   | 'loadVolume'
   | 'loadMesh'
   | 'volumeFrame'
+  | 'volumeTensor'
   | 'surface'
   | 'boundary'
   | 'buildTopology'
@@ -411,6 +412,13 @@ export interface GeoPayloadT {
 }
 
 export interface OpArgs {
+  volumeTensor: {
+    handle: number;
+    order: 'fsl' | 'nifti';
+    basis: 'fsl' | 'voxel' | 'world';
+    stride: number;
+    max3d: number;
+  };
   loadVolume: { source: LoadSource; caps: GpuCapsT; wantLinear: boolean };
   loadMesh: { source: LoadSource; format: MeshFormatSel };
   volumeFrame: {
@@ -494,6 +502,7 @@ export interface OpArgs {
 }
 
 export interface OpResult {
+  volumeTensor: { dims: [number, number, number]; gpuBytes: ArrayBuffer };
   /** `data` = raw samples for probes; `gpuBytes` = the `gpu_payload` texture bytes. */
   loadVolume: {
     meta: VolumeMeta;
@@ -572,6 +581,7 @@ export const OP_NAMES = [
   'loadVolume',
   'loadMesh',
   'volumeFrame',
+  'volumeTensor',
   'surface',
   'boundary',
   'buildTopology',
@@ -602,6 +612,7 @@ export const OP_TO_EXPORT = {
   loadVolume: 'load_volume',
   loadMesh: 'load_mesh',
   volumeFrame: 'volume_frame',
+  volumeTensor: 'volume_tensor',
   surface: 'mesh_surface',
   boundary: 'mesh_boundary',
   buildTopology: 'mesh_build_topology',

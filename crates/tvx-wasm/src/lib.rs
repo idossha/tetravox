@@ -507,3 +507,15 @@ impl CutOut {
         }
     }
 }
+
+/// §6.4: opt-in tensor glyphs; computation remains in the volume's worker.
+#[wasm_bindgen]
+pub fn volume_tensor(
+    handle: u32,
+    order: &str,
+    basis: &str,
+    stride: u32,
+    max_3d: u32,
+) -> Result<JsValue, JsValue> {
+    volume::tensor(handle, order, basis, stride as usize, max_3d as usize).map_err(err::map)
+}

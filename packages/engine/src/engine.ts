@@ -430,6 +430,8 @@ export class TetravoxEngine implements Engine, PointerHost {
       client: (id: DatasetId) => this.#workers.get(id)?.client,
       requestRender: () => this.requestRender(),
       track: <T>(p: Promise<T>) => this.#track(p),
+      reportError: (datasetId, message) =>
+        this.#emit('error', { code: 'TENSOR', datasetId, message }),
       // Appended for E-SLICE (Phase 2): §7.2 pass 1 draws every `showIn3D` plane in a 3D pane, and
       // `volumeFrame` (§6.5.2) needs the same `GpuCapsT` `loadVolume` was issued with.
       slicePlanes: () => this.#scene.slices,
@@ -2323,12 +2325,14 @@ export class TetravoxEngine implements Engine, PointerHost {
       (active.kind === 'volume' || active.kind === 'mesh' || active.kind === 'surface')
     ) {
       const ds = this.#scene.datasets.get(active.datasetId);
-      const isLabelVolume = active.kind === 'volume' && ds?.kind === 'volume' && ds.isLabel;
+      const isLabelVolume =
+        active.kind === 'volume' &&
+        (active.tensor !== undefined || (ds?.kind === 'volume' && ds.isLabel));
       if (!isLabelVolume) return { id: active.id, scale: active.scale };
     }
     for (let i = this.#scene.layers.length - 1; i >= 0; i -= 1) {
       const l = this.#scene.layers[i];
-      if (l === undefined || l.kind !== 'volume' || !l.visible) continue;
+      if (l === undefined || l.kind !== 'volume' || !l.visible || l.tensor !== undefined) continue;
       const ds = this.#scene.datasets.get(l.datasetId);
       if (ds === undefined || ds.kind !== 'volume' || ds.isLabel) continue;
       return { id: l.id, scale: l.scale };

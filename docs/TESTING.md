@@ -554,6 +554,17 @@ Three steps that exist for a specific past failure:
 pnpm store reaches `pnpm e2e` green* — is what the cold-cache path exercises on every first run of a new
 cache key.
 
+### Diffusion tensors (§6.1, §7.3)
+
+Regenerate the tensor fixtures through `scripts/gen-fixtures.py`, then run
+`simnibs_python scripts/refvalues/tensor_refvalues.py`. This reads them back with nibabel and NumPy;
+with `TETRAVOX_TESTDATA` set it also regenerates `scripts/refvalues/tensor_refvalues.json` for Ernie.
+`cargo test -p tvx-nifti --test tensors -- --nocapture` covers both component orders, a scaled oblique
+affine, invalid matrices, allocation limits, scalar preservation, and the gated T1/DTI comparison.
+`pnpm --filter @tetravox/engine exec playwright test tensor.spec.ts` checks analytic pixels plus a
+golden and runs both real files through the worker and WebGL renderer on both configured backends.
+The real-data case skips explicitly when the files are absent. No real data are committed.
+
 
 ### Native scene API regression coverage
 

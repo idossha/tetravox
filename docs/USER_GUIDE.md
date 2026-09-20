@@ -107,6 +107,27 @@ A 4D volume gets a frame index you step with `,` / `.`.
 visible region for a label volume, in each region's own colour. For deriving an isosurface from a scalar
 field on a mesh instead, see [Isosurfaces]({{ site.baseurl }}/guide/isosurfaces.html).
 
+### Diffusion tensors
+
+Open T1 and the tensor NIfTI together. In the tensor layer's properties, choose **Display ▸
+Tensor · FSL / SimNIBS** for `DTI_coregT1_tensor.nii.gz` or FSL `dtifit --save_tensor` output.
+The option appears for six-component float32/float64 volumes. NIfTI symmetric matrices use the other
+component-order option. The header viewer still shows the original metadata; a missing intent does
+not prevent explicit tensor interpretation.
+
+Ellipsoids appear on the slices, coloured by principal direction in scanner RAS: red left/right,
+green anterior/posterior, blue superior/inferior. Zoom in to see their shapes. **Spacing** samples every
+1, 2, 4 or 8 voxels; increase it if the grid exceeds the GPU/memory limit. **Min FA** hides less-anisotropic
+tensors. Isotropic tensors are grey; zero, non-finite and non-positive-definite tensors are hidden.
+Ellipsoid lengths show relative eigenvalues (with a 2% display floor), not absolute diffusivity.
+
+**Axes** defaults to the FSL convention for FSL data. Other producers may store components along voxel
+axes or world RAS; select the convention used by the producer. Component order alone cannot establish
+this. Sheared voxel-axis affines require resampling or tensors already expressed in world RAS.
+The **Show tensor slices in 3D** toggle displays the same glyph slices in the 3D pane.
+Switch **Display** back to **Scalar frames** to inspect individual components with the original controls.
+Tensor display settings are saved in the scene; existing scenes retain scalar display.
+
 ## Atlases & regions
 
 A label volume (an atlas or a tissue segmentation) is loaded like any other volume, and reads its region

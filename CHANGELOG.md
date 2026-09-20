@@ -10,6 +10,11 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Diffusion tensors can be viewed as direction-coloured ellipsoids.** In a six-component
+  floating-point volume, choose **Layer properties ▸ Display ▸ Tensor · FSL / SimNIBS** or
+  **Tensor · NIfTI symmetric matrix**, then adjust glyph spacing and minimum FA. Coordinate
+  conventions are selectable; ordinary scalar frames and saved scenes retain their existing display.
+
 - **External applications can load and save scenes.** The native scene API opens a scene or exports
   the current edited view to a caller-selected path, with a completion reply and optional overwrite.
   Existing scene files and native **File ▸ Save / Save As…** behavior are unchanged.

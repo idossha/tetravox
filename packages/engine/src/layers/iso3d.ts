@@ -123,6 +123,7 @@ export function iso3dLabelColor(
  * them afresh on every reconcile is what keeps them in step with the volume for free.
  */
 export function derivedIsoLayers(layer: VolumeLayer, ds: VolumeDataset): IsosurfaceLayer[] {
+  if (layer.tensor !== undefined) return [];
   const spec = layer.iso3d;
   if (spec === undefined || !spec.enabled) return [];
   const common = {
