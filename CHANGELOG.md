@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.1] - 2026-09-20
+
 ### Fixed
 
 - **Save works on scenes opened by another application.** After a native scene API open,
