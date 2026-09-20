@@ -67,6 +67,7 @@ interface ScalarContourUniforms {
   lut: WebGLTexture;
   lutRange: [number, number];
   threshold: [number, number];
+  soft: number;
   hide: boolean;
   symmetric: boolean;
 }
@@ -346,19 +347,7 @@ export class DerivedPass implements FramePass {
     VertexArray.unbind(gl);
   }
 
-  /**
-   * One instanced draw of the shared 4-vertex strip, once per segment.
-   *
-   * `widthPx` is in **render-target** pixels (§7.0.5), so the caller has already multiplied by the
-   * DPR/SSAA factor; the shader turns it into a clip-space offset with the pane's own viewport, so
-   * the drawn width is the same number of pixels at every zoom. That is the §11 obligation this
-   * carries, and it is why this is not `LINES` + `lineWidth` (`ALIASED_LINE_WIDTH_RANGE` is `[1,1]`).
-   */
-  /**
-   * The `CONTOUR_SCALAR` uniforms for a surface outline coloured by the layer's field (2026-09-18):
-   * the same baked LUT the 3D surface samples and the same `hide` gate, so the outline on a slice
-   * is the colour the surface has where the plane cuts it.
-   */
+  /** Share the surface LUT and hide gate with its scalar outline. */
   #scalarContourUniforms(ctx: PassContext, layer: MeshLayer): ScalarContourUniforms {
     const lut = ctx.input.store.lut(layer.scale, layer.colormap, layer.colormapNegative);
     const t = layer.threshold;
@@ -367,11 +356,20 @@ export class DerivedPass implements FramePass {
       lut: lut.texture,
       lutRange: [lut.lo, lut.hi === lut.lo ? lut.lo + 1 : lut.hi],
       threshold: [u.lo, u.hi],
-      hide: t.mode === 'hide',
+      soft: u.soft,
+      hide: t.mode === 'hide' && (Number.isFinite(t.lo) || Number.isFinite(t.hi)),
       symmetric: t.symmetric,
     };
   }
 
+  /**
+   * One instanced draw of the shared 4-vertex strip, once per segment.
+   *
+   * `widthPx` is in **render-target** pixels (§7.0.5), so the caller has already multiplied by the
+   * DPR/SSAA factor; the shader turns it into a clip-space offset with the pane's own viewport, so
+   * the drawn width is the same number of pixels at every zoom. That is the §11 obligation this
+   * carries, and it is why this is not `LINES` + `lineWidth` (`ALIASED_LINE_WIDTH_RANGE` is `[1,1]`).
+   */
   #drawContours(
     viewProj: Float32Array,
     model: Float32Array,
@@ -412,6 +410,7 @@ export class DerivedPass implements FramePass {
       prog.int('uLut', 0);
       prog.vec2('uLutRange', scalar.lutRange);
       prog.vec2('uThreshold', scalar.threshold);
+      prog.float('uThreshSoft', scalar.soft);
       prog.int('uThresholdMode', scalar.hide ? 1 : 0);
       prog.int('uSymmetric', scalar.symmetric ? 1 : 0);
     }

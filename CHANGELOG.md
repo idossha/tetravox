@@ -18,18 +18,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 - **External applications can load and save scenes.** The native scene API opens a scene or exports
   the current edited view to a caller-selected path, with a completion reply and optional overwrite.
   Existing scene files and native **File ▸ Save / Save As…** behavior are unchanged.
-- **A surface coloured by a field draws its 2D outline in that field's colours.** On the axial,
-  coronal and sagittal panes a surface mesh in field mode now traces the slice with each segment
-  coloured by the layer's colormap at the interpolated field value, and the layer's hide threshold
-  drops the segments below it — so an ROI field outlines only the ROI. Solid and annotation
-  outlines are unchanged.
-
-- **Opening a `.msh` honours the view its `.msh.opt` shows.** A sidecar with `View[n].Visible = 1`
-  opens the mesh coloured by that view's field — node and element data in file order — with its
-  range, colormap and colour bar, and a `ColormapAlphaPower` fade becomes a hide threshold just
-  above the range's minimum, so an ROI overlay written by TI-Toolbox opens showing the ROI field,
-  not a flat surface — whether the file opens as a mesh or, being triangle-only, as a surface. A SimNIBS sidecar (one view, no `Visible`) seeds exactly as before. Gmsh
-  colormaps 1 (vis5d → turbo) and 20–24 (magma, inferno, plasma, viridis, turbo) are now mapped.
+- **Surface outlines follow scalar fields continuously.** Slice outlines use the surface's
+  colormap and threshold, including soft edges. Solid and annotation outlines are unchanged.
+- **Gmsh sidecars can select the initial field.** The first explicitly visible view seeds its
+  unambiguous field, range and supported colormap for meshes and triangle-only surfaces.
+  Caller-specified scene settings take precedence; opacity functions are not converted into thresholds.
+  Sidecars without visibility metadata retain their previous defaults.
 
 ### Fixed
 
@@ -38,8 +32,7 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 - **A mesh field threshold with no upper bound no longer hides the whole layer.** `hide` with
   `hi` left open (`null` in a scene file) is "hide everything below `lo`"; it used to measure its
-  soft edge against the float sentinel standing in for infinity and dropped every value. The ROI
-  overlays TI-Toolbox writes were the first to hit it.
+  soft edge against the float sentinel standing in for infinity and dropped every value.
 
 ## [0.5.2] - 2026-09-15
 

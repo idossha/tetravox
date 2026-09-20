@@ -238,6 +238,7 @@ export interface TemplateSpace {
 }
 
 export interface MeshFieldInfo {
+  gmshViewIndex?: number;
   name: string;
   source: 'node' | 'elm';
   ncomp: 1 | 3 | 9;
@@ -278,9 +279,9 @@ export interface MshOptions {
     colormapNumber?: number;
     showScale?: boolean;
     vectorType?: number;
-    /** `View[n].Visible`; absent in SimNIBS-written sidecars (2026-09-18, additive). */
+    /** `View[n].Visible`; absent preserves legacy view defaults. */
     visible?: boolean;
-    /** `View[n].ColormapAlphaPower`; > 0 fades the colormap at its low end (2026-09-18, additive). */
+    /** `View[n].ColormapAlphaPower`; preserved metadata, not approximated by the renderer. */
     colormapAlphaPower?: number;
   }[];
 }

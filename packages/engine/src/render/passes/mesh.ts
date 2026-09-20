@@ -287,21 +287,8 @@ export function thresholdVariant(layer: MeshLayer, colorSource: number): 0 | 1 |
   return t.symmetric ? MESH_THRESHOLD.hideSymmetric : MESH_THRESHOLD.hide;
 }
 
-/**
- * The three `uThresh*` uniforms of §4.2's mesh value gate, with **one open bound** handled.
- *
- * `Threshold.lo` / `hi` default to `±Infinity` (`scene/defaults.ts`), and the shader takes the finite
- * stand-in `±F32_MAX`. The ramp width, however, is "`softEdge` as a fraction of `hi - lo`" — and when
- * one bound is open that difference is ~3.4e38, so even the floor that keeps `smoothstep` off two
- * equal edges (`span · 1e-6`) became ~3.4e32: the lower ramp then swallowed every value in the data
- * and a `hide` gate with `hi: null` hid the whole layer (found 2026-09-18 on TI-Toolbox's
- * `roi_overlay.msh` scene, `threshold: {lo: 1e-6, hi: null}`).
- *
- * So the ramp is measured against a **finite reference span**: `hi - lo` when both are finite, else
- * the layer's colour-scale span — the same range the slice pass's `uThreshold` sentinels leave the
- * ramp to `uSoftEdge · (hi − lo)` over, and the width a user reads on the colour bar — and `1` when
- * even that is degenerate. An open bound is still `±F32_MAX` for the comparison itself.
- */
+/** Open bounds use finite sentinels only for comparisons. Measure ramps against the finite
+ * threshold span, or the colour scale when a bound is open, so a sentinel cannot swallow the data. */
 export function thresholdUniforms(
   t: Threshold,
   scale: Scale

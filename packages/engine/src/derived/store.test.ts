@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { surfaceContourKey, surfaceContourRequest } from './store';
+import { surfaceContourKey, surfaceContourRequest, surfaceContourPlane } from './store';
 import { defaultMeshLayer } from '../scene/defaults';
 import type { MeshDataset, MeshLayer } from '../scene/types';
 
@@ -25,8 +25,8 @@ function surfaceDataset(): MeshDataset {
     hasTris: true,
     tags: [{ id: 5003, color: [0.5, 0.5, 0.5, 1], kind: 'tri', count: 8 }],
     fields: [
-      { name: 'TI_max_ROI', source: 'node', ncomp: 1, n: 8, partial: false, stats: STATS },
-      { name: 'TI_normal_ROI', source: 'node', ncomp: 1, n: 8, partial: false, stats: STATS },
+      { name: 'signal_a', source: 'node', ncomp: 1, n: 8, partial: false, stats: STATS },
+      { name: 'signal_b', source: 'node', ncomp: 1, n: 8, partial: false, stats: STATS },
       { name: 'per_tri', source: 'elm', ncomp: 1, n: 8, partial: false, stats: STATS },
     ],
     orient: { components: 1, openComponents: 0, nonManifoldEdges: 0, flippedComponents: 0 },
@@ -50,9 +50,9 @@ describe('surfaceContourRequest', () => {
 
   it('asks for `field` values when the layer colours by a node field', () => {
     const ds = surfaceDataset();
-    const req = surfaceContourRequest(fieldLayer('TI_max_ROI'), ds);
+    const req = surfaceContourRequest(fieldLayer('signal_a'), ds);
     expect(req.annotation).toBeUndefined();
-    expect(req.scalar).toEqual({ name: 'TI_max_ROI', component: 'mag' });
+    expect(req.scalar).toEqual({ name: 'signal_a', component: 'mag' });
     expect(req.field).toBe(ds.fields[0]);
   });
 
@@ -65,12 +65,12 @@ describe('surfaceContourRequest', () => {
   it('an annotation is categorical, never scalar', () => {
     const ds = surfaceDataset();
     const layer: MeshLayer = {
-      ...fieldLayer('TI_max_ROI'),
+      ...fieldLayer('signal_a'),
       colorMode: 'label',
-      label: { name: 'TI_normal_ROI', table: { entries: [] }, mode: 'fill', outlineWidthPx: 1 },
+      label: { name: 'signal_b', table: { entries: [] }, mode: 'fill', outlineWidthPx: 1 },
     } as unknown as MeshLayer;
     const req = surfaceContourRequest(layer, ds);
-    expect(req.annotation).toBe('TI_normal_ROI');
+    expect(req.annotation).toBe('signal_b');
     expect(req.scalar).toBeUndefined();
   });
 });
@@ -81,13 +81,13 @@ describe('surfaceContourKey', () => {
     const a = surfaceContourKey(
       'ds1',
       'axial',
-      surfaceContourRequest(fieldLayer('TI_max_ROI'), ds),
+      surfaceContourRequest(fieldLayer('signal_a'), ds),
       undefined
     );
     const b = surfaceContourKey(
       'ds1',
       'axial',
-      surfaceContourRequest(fieldLayer('TI_normal_ROI'), ds),
+      surfaceContourRequest(fieldLayer('signal_b'), ds),
       undefined
     );
     expect(a).not.toBe(b);
@@ -104,7 +104,7 @@ describe('surfaceContourKey', () => {
     const scalar = surfaceContourKey(
       'ds1',
       'axial',
-      surfaceContourRequest(fieldLayer('TI_max_ROI'), ds),
+      surfaceContourRequest(fieldLayer('signal_a'), ds),
       undefined
     );
     expect(solid).not.toBe(scalar);
@@ -112,7 +112,7 @@ describe('surfaceContourKey', () => {
 
   it('differs by component, pane and mask, and is stable for the same request', () => {
     const ds = surfaceDataset();
-    const base = fieldLayer('TI_max_ROI');
+    const base = fieldLayer('signal_a');
     const k = (layer: MeshLayer, view = 'axial', mask?: number): string =>
       surfaceContourKey('ds1', view, surfaceContourRequest(layer, ds), mask);
     expect(k(base)).toBe(k({ ...base }));
@@ -120,4 +120,21 @@ describe('surfaceContourKey', () => {
     expect(k(base)).not.toBe(k(base, 'coronal'));
     expect(k(base)).not.toBe(k(base, 'axial', 3));
   });
+});
+
+it('pulls translated and nonuniformly scaled world planes into surface coordinates', () => {
+  const model = new Float32Array([2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4, 0, 5, 6, 10, 1]);
+  expect(surfaceContourPlane({ normal: [0, 0, 1], offset: -10 }, model)).toEqual({
+    normal: [0, 0, 1],
+    offset: 0,
+  });
+  const plane = surfaceContourPlane({ normal: [1, 1, 0], offset: -11 }, model)!;
+  // Model points x=3,y=-2 and x=-3,y=2 both map onto x_world+y_world=11.
+  for (const [x, y] of [
+    [3, -2],
+    [-3, 2],
+  ]) {
+    expect(plane.normal[0] * x! + plane.normal[1] * y! + plane.offset).toBeCloseTo(0, 12);
+  }
+  expect(surfaceContourPlane({ normal: [0, 0, 1], offset: 0 }, new Float32Array(16))).toBeNull();
 });

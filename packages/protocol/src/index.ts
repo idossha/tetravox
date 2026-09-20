@@ -167,6 +167,7 @@ export interface VolumeFrameT {
 }
 
 export interface MeshFieldMeta {
+  gmshViewIndex?: number;
   name: string;
   source: FieldSource;
   ncomp: 1 | 3 | 9;
@@ -233,9 +234,9 @@ export interface MeshMeta {
       colormapNumber?: number;
       showScale?: boolean;
       vectorType?: number;
-      /** `View[n].Visible`; absent in SimNIBS-written sidecars (2026-09-18, additive). */
+      /** `View[n].Visible`; absent preserves legacy view defaults. */
       visible?: boolean;
-      /** `View[n].ColormapAlphaPower`; > 0 fades the colormap at its low end (2026-09-18, additive). */
+      /** `View[n].ColormapAlphaPower`; preserved metadata, not approximated by the renderer. */
       colormapAlphaPower?: number;
     }[];
   };
@@ -571,7 +572,7 @@ export interface OpResult {
   marchingCubes: SurfacePayload;
   marchingCubesLabel: SurfacePayload;
   marchingTets: SurfacePayload;
-  /** 6 floats per segment; `values` is one per segment, only with `field` (2026-09-18). */
+  /** 6 floats per segment; `values` has two endpoint values per segment, only with `field`. */
   contours: { segments: Float32Array; labels?: Uint32Array; values?: Float32Array };
   labelCentroids: {
     centroids: { id: number; centroid: [number, number, number]; count: number }[];

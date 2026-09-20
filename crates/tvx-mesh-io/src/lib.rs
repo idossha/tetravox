@@ -105,6 +105,8 @@ pub struct Mesh {
     pub tri_edge_mask: Option<Vec<u8>>,
     pub node_fields: Vec<Field>,
     pub elm_fields: Vec<ElmField>,
+    /// Gmsh view order: `(is_node, field_name)`. Empty for other formats.
+    pub gmsh_field_order: Vec<(bool, String)>,
     pub physical_names: Vec<(i32, String)>,
     pub gmsh_node_numbers: Option<Vec<u64>>,
     /// Per element, in (tris then tets) order. **`None` == the identity numbering** — the fast path,
@@ -159,11 +161,9 @@ pub struct MshView {
     pub colormap_number: Option<i32>,
     pub show_scale: Option<bool>,
     pub vector_type: Option<i32>,
-    /// `View[n].Visible` — which view Gmsh shows on open. Absent in every SimNIBS-written sidecar
-    /// (one view, always shown); TI-Toolbox writes it for a multi-view overlay (2026-09-18).
+    /// Explicit visibility, used to select the initial field view.
     pub visible: Option<bool>,
-    /// `View[n].ColormapAlphaPower` — Gmsh fades the colormap towards its low end when > 0, which is
-    /// how a writer hides a field that is zero outside a region of interest.
+    /// Preserved metadata; rendering does not approximate Gmsh opacity functions.
     pub colormap_alpha_power: Option<f32>,
 }
 

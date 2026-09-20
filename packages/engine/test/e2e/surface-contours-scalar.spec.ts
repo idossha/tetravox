@@ -1,21 +1,4 @@
-/**
- * **A surface's 2D outline coloured by its field (2026-09-18).**
- *
- * A surface in `colorMode:'field'` draws its plane intersection through the contour program's
- * `CONTOUR_SCALAR` variant: one interpolated node-field value per segment, the layer's baked LUT
- * sampled at it, the layer's `hide` threshold dropping the segment. Three things are asserted:
- *
- * 1. the colour at a computed segment midpoint is the LUT colour of the field value **there** —
- *    the value is computed here from the fixture's own field rule, never read back;
- * 2. a `hide` threshold removes exactly the segments whose value is below `lo`, with `hi` open;
- * 3. the golden.
- *
- * The fixture is `surface-contours.spec.ts`'s patch plus `surf.func.gii` — `scripts/gen-fixtures.py`
- * writes `f = 0.1·x + 0.01·y` over the patch's **pre-transform** vertices, and the surface is then
- * translated by `(2.5, −4, 7.25)`. `f` is linear, so the mean of two edge-hit values is exactly `f`
- * at the segment's midpoint, and a `gray` colormap on a linear scale writes the byte
- * `floor(256 · (f − lo)/(hi − lo))` in every channel (§7.6's `bakeScale`, sampled `NEAREST`).
- */
+/** Scalar contours: analytic LUT/threshold values along triangle-plane intersections. */
 
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
@@ -31,8 +14,6 @@ const PANE = 768;
 const CX = PANE / 2;
 const CY = PANE / 2;
 const BG = [10, 13, 18] as const;
-/** The Freeview-yellow default a solid outline has — the colour that must be absent. */
-const YELLOW = [255, 230, 38] as const;
 
 const XFORM: [number, number, number] = [2.5, -4, 7.25];
 /** `f` over the patch's pre-transform vertices, so the world point is un-translated first. */
@@ -203,45 +184,29 @@ async function patchAndSettle(page: Page, patch: Record<string, unknown>): Promi
 const Z = 8;
 const MM_PER_PX = 0.25;
 
-test('the outline at a segment midpoint is the LUT colour of the field value there @angle', async ({
-  page,
-}) => {
+test('contour colours interpolate continuously between endpoints @angle', async ({ page }) => {
   const errors = await openFieldSurface(page, Z, MM_PER_PX);
-  const segs = contourSegments([0, 0, 1], -Z);
-  expect(segs.length).toBeGreaterThan(4);
   const img = await readCanvasRect(page, 0, 0, PANE, PANE);
-
   let checked = 0;
-  for (const [a, b] of segs) {
-    const mid: [number, number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
-    // The op averages the two hit values; `f` is linear, so that is `f(mid)` exactly.
-    const want = greyFor((fieldAt(a) + fieldAt(b)) / 2);
-    expect(greyFor(fieldAt(mid))).toBe(want);
-    const [x, y] = axialPixel(mid, MM_PER_PX);
-    const lit = litNear(img, x, y, 1);
-    expect(lit.length, `a contour pixel near (${x}, ${y})`).toBeGreaterThan(0);
-    // Any lit pixel in the box is on this segment's line (segments are ≥ 10 mm = 40 px apart in
-    // the neighbouring rows), so every one must be the segment's grey — and a grey, not yellow.
-    for (const c of lit) {
-      const [r, g, bl] = c;
-      expect(Math.abs(r - g) <= 2 && Math.abs(g - bl) <= 2, `grey at (${x}, ${y}): ${c}`).toBe(
-        true
-      );
-      expect(Math.abs(r - want), `grey ${want} at (${x}, ${y}), got ${c}`).toBeLessThanOrEqual(3);
-      expect(
-        [0, 1, 2].every((k) => Math.abs(c[k]! - YELLOW[k]!) <= 2),
-        'not yellow'
-      ).toBe(false);
+  for (const [a, b] of contourSegments([0, 0, 1], -Z)) {
+    for (const t of [0.2, 0.5, 0.8]) {
+      const point = a.map((v, i) => v + (b[i]! - v) * t) as [number, number, number];
+      const [x, y] = axialPixel(point, MM_PER_PX);
+      const lit = litNear(img, x, y, 1);
+      expect(lit.length).toBeGreaterThan(0);
+      const want = greyFor(fieldAt(point));
+      for (const c of lit) {
+        expect(Math.abs(c[0] - want)).toBeLessThanOrEqual(4);
+        expect(Math.max(...c) - Math.min(...c)).toBeLessThanOrEqual(2);
+      }
+      checked += 1;
     }
-    checked += 1;
   }
-  expect(checked).toBe(segs.length);
+  expect(checked).toBeGreaterThan(12);
   expect(errors).toEqual([]);
 });
 
-test('a `hide` threshold with `hi` open removes exactly the segments below `lo` @angle', async ({
-  page,
-}) => {
+test('a `hide` threshold with `hi` open removes samples below `lo` @angle', async ({ page }) => {
   test.slow();
   const errors = await openFieldSurface(page, Z, MM_PER_PX);
   const segs = contourSegments([0, 0, 1], -Z);
@@ -270,6 +235,155 @@ test('a `hide` threshold with `hi` open removes exactly the segments below `lo` 
   });
   expect(kept).toBeGreaterThan(0);
   expect(dropped).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});
+
+test('a threshold cuts within one segment and a soft edge ramps alpha @angle', async ({ page }) => {
+  const errors = await openFieldSurface(page, Z, MM_PER_PX);
+  const segment = contourSegments([0, 0, 1], -Z).sort(
+    (a, b) => Math.abs(fieldAt(b[1]) - fieldAt(b[0])) - Math.abs(fieldAt(a[1]) - fieldAt(a[0]))
+  )[0]!;
+  const [a, b] = fieldAt(segment[0]) < fieldAt(segment[1]) ? segment : [segment[1], segment[0]];
+  const lo = (fieldAt(a) + fieldAt(b)) / 2;
+  const span = fieldAt(b) - fieldAt(a);
+  const point = (t: number) => a.map((v, i) => v + (b[i]! - v) * t) as [number, number, number];
+  await patchAndSettle(page, {
+    threshold: { lo, hi: null, symmetric: false, mode: 'hide', softEdge: 0 },
+  });
+  const hard = await readCanvasRect(page, 0, 0, PANE, PANE);
+  expect(litNear(hard, ...axialPixel(point(0.25), MM_PER_PX), 1)).toHaveLength(0);
+  expect(litNear(hard, ...axialPixel(point(0.75), MM_PER_PX), 1).length).toBeGreaterThan(0);
+  // At t=.75: halfway through a ramp of half the endpoint span => smoothstep(.5)=.5.
+  await patchAndSettle(page, {
+    threshold: { lo, hi: null, symmetric: false, mode: 'hide', softEdge: span / (2 * (HI - LO)) },
+  });
+  const soft = await readCanvasRect(page, 0, 0, PANE, PANE);
+  const [x, y] = axialPixel(point(0.75), MM_PER_PX);
+  const samples = litNear(soft, x, y, 0);
+  expect(samples).toHaveLength(1);
+  const grey = greyFor(fieldAt(point(0.75)));
+  for (let k = 0; k < 3; k += 1) {
+    expect(Math.abs(samples[0]![k]! - (grey + BG[k]!) / 2)).toBeLessThanOrEqual(7);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('signed heat colors and symmetric thresholds match the surface LUT @angle', async ({
+  page,
+}) => {
+  const errors = await openFieldSurface(page, Z, MM_PER_PX);
+  const scale = {
+    kind: 'heat',
+    min: 0,
+    mid: HI / 2,
+    max: HI,
+    truncate: false,
+    inverse: false,
+    negative: 'mirror',
+  };
+  await patchAndSettle(page, {
+    scale,
+    threshold: { lo: 0.1, hi: null, mode: 'hide', symmetric: true, softEdge: 0 },
+  });
+  const mirrored = await readCanvasRect(page, 0, 0, PANE, PANE);
+  await patchAndSettle(page, { scale: { ...scale, negative: 'hide' } });
+  const positive = await readCanvasRect(page, 0, 0, PANE, PANE);
+  let negatives = 0;
+  let positives = 0;
+  for (const [a, b] of contourSegments([0, 0, 1], -Z)) {
+    const point = a.map((v, i) => (v + b[i]!) / 2) as [number, number, number];
+    const value = fieldAt(point);
+    if (Math.abs(value) < 0.2) continue;
+    const [x, y] = axialPixel(point, MM_PER_PX);
+    const lit = litNear(mirrored, x, y, 0);
+    expect(lit).toHaveLength(1);
+    const want = Math.round((255 * Math.abs(value)) / HI);
+    expect(Math.abs(lit[0]![0] - want)).toBeLessThanOrEqual(4);
+    if (value < 0) {
+      expect(litNear(positive, x, y, 0)).toHaveLength(0);
+      negatives += 1;
+    } else {
+      expect(litNear(positive, x, y, 0)).toHaveLength(1);
+      positives += 1;
+    }
+  }
+  expect(negatives).toBeGreaterThan(0);
+  expect(positives).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});
+
+test('a translated surface is cut in its model coordinates @angle', async ({ page }) => {
+  const errors = await openFieldSurface(page, Z, MM_PER_PX);
+  const before = await readCanvasRect(page, 0, 0, PANE, PANE);
+  await page.evaluate(() => {
+    const e = window.__tvxEngine!;
+    const layer = e.scene.layers.find((l) => l.id === window.__tvxScalarLayer)!;
+    const ds = e.scene.datasets.get(layer.datasetId)!;
+    if (ds.kind !== 'mesh') throw new Error('mesh required');
+    ds.transform[14] = 100;
+    e.setCursor([0, 0, 108]);
+  });
+  await patchAndSettle(page, {});
+  const after = await readCanvasRect(page, 0, 0, PANE, PANE);
+  let mismatches = 0;
+  for (let i = 0; i < before.length; i += 1)
+    if (Math.abs(before[i]! - after[i]!) > 2) mismatches += 1;
+  expect(mismatches).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('stationary contours switch scalar, annotation and solid bindings and refresh replaced fields @angle', async ({
+  page,
+}) => {
+  test.slow();
+  const errors = await openFieldSurface(page, Z, MM_PER_PX);
+  const scalar = await readCanvasRect(page, 0, 0, PANE, PANE);
+  await page.evaluate(async (path) => {
+    const e = window.__tvxEngine!;
+    const layer = e.scene.layers.find((l) => l.id === window.__tvxScalarLayer)!;
+    const ds = await e.attachSurfaceData(layer.datasetId, { kind: 'path', path });
+    e.updateLayer(layer.id, {
+      colorMode: 'label',
+      label: {
+        name: 'surf_regions.label.gii',
+        table: ds.labelTables!['surf_regions.label.gii']!,
+        mode: 'fill',
+        outlineWidthPx: 1,
+      },
+    } as never);
+  }, fixture('surf_regions.label.gii'));
+  await patchAndSettle(page, {});
+  const annotation = await readCanvasRect(page, 0, 0, PANE, PANE);
+  await patchAndSettle(page, { colorMode: 'field' });
+  expect(await readCanvasRect(page, 0, 0, PANE, PANE)).toEqual(scalar);
+  await patchAndSettle(page, { colorMode: 'solid' });
+  expect(await readCanvasRect(page, 0, 0, PANE, PANE)).not.toEqual(annotation);
+  await patchAndSettle(page, { colorMode: 'label' });
+  expect(await readCanvasRect(page, 0, 0, PANE, PANE)).toEqual(annotation);
+  await patchAndSettle(page, { colorMode: 'field' });
+  await page.evaluate(async () => {
+    const e = window.__tvxEngine!;
+    const layer = e.scene.layers.find((l) => l.id === window.__tvxScalarLayer)!;
+    if (layer.kind !== 'mesh' || !layer.field) throw new Error('field layer required');
+    const text = `<GIFTI Version="1.0" NumberOfDataArrays="1"><DataArray Intent="NIFTI_INTENT_SHAPE" DataType="NIFTI_TYPE_FLOAT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="1" Dim0="16" Encoding="ASCII" Endian="LittleEndian"><Data>${Array(16).fill(1).join(' ')}</Data></DataArray></GIFTI>`;
+    await e.attachSurfaceData(layer.datasetId, {
+      kind: 'bytes',
+      name: layer.field.name,
+      bytes: new TextEncoder().encode(text).buffer,
+    });
+    // No cursor or layer change: attachment itself must invalidate and request repaint.
+    for (let i = 0; i < 40; i += 1) {
+      await e.whenSettled();
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  });
+  const replaced = await readCanvasRect(page, 0, 0, PANE, PANE);
+  for (const [a, b] of contourSegments([0, 0, 1], -Z)) {
+    const point = a.map((v, i) => (v + b[i]!) / 2) as [number, number, number];
+    const lit = litNear(replaced, ...axialPixel(point, MM_PER_PX), 0);
+    expect(lit).toHaveLength(1);
+    expect(Math.abs(lit[0]![0] - greyFor(1))).toBeLessThanOrEqual(2);
+  }
   expect(errors).toEqual([]);
 });
 

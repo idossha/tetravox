@@ -79,7 +79,7 @@ export interface PaneCutGeometry {
   contourPaletteKey: string | null;
   contourLabelSource: Uint32Array | null;
   contourColored: boolean;
-  /** Scalar-coloured outline (2026-09-18): one node-field value per segment at attribute 3. */
+  /** Scalar-coloured outline (2026-09-18): two endpoint values per segment at attribute 3. */
   contourValues: Buffer | null;
   contourValueSource: Float32Array | null;
   /** True when {@link contourValues} is bound and the draw should take `CONTOUR_SCALAR`. */
@@ -247,12 +247,7 @@ export function surfaceContourRequest(
   return { field: undefined };
 }
 
-/**
- * The latest-wins key one pane's surface contours live under. It names **what was asked for**, not
- * just the dataset and the pane: a key without the field would hand a layer that just switched
- * from `TI_max` to `TI_normal` — or from a solid outline to a scalar one — the previous request's
- * segments and values until the next plane change.
- */
+/** Include the requested field/component/mask so layers cannot reuse incompatible contours. */
 export function surfaceContourKey(
   datasetId: DatasetId,
   viewId: ViewId,
@@ -266,6 +261,20 @@ export function surfaceContourKey(
     req.scalar === undefined ? null : [req.scalar.name, req.scalar.component],
     maskId ?? null,
   ]);
+}
+
+/** Pull a world plane into dataset coordinates before cutting transformed surface geometry. */
+export function surfaceContourPlane(plane: PlaneT, model: Float32Array): PlaneT | null {
+  const p = [...plane.normal, plane.offset];
+  const local = [0, 1, 2, 3].map((col) =>
+    p.reduce((sum, v, row) => sum + model[col * 4 + row]! * v, 0)
+  );
+  const length = Math.hypot(local[0]!, local[1]!, local[2]!);
+  if (!Number.isFinite(length) || length === 0) return null;
+  return {
+    normal: [local[0]! / length, local[1]! / length, local[2]! / length],
+    offset: local[3]! / length,
+  };
 }
 
 export class DerivedStore {
@@ -358,7 +367,10 @@ export class DerivedStore {
     }
     // A triangle-only mesh (GIfTI, FreeSurfer, `.stl`) has no tets to cut, so its 2D representation
     // is the `contours` op — §6.3's `surface_contours` — and there is no fill.
-    return this.#surfaceContourGeometry(key, layer, ds, viewId, plane, opts.maskId ?? undefined);
+    const localPlane = surfaceContourPlane(plane, ds.transform);
+    return localPlane === null
+      ? null
+      : this.#surfaceContourGeometry(key, layer, ds, viewId, localPlane, opts.maskId ?? undefined);
   }
 
   /**
@@ -550,15 +562,15 @@ export class DerivedStore {
       g.contourPaletteKey = colorKey;
       g.contourLabelSource = labels ?? null;
     }
-    // The scalar-coloured outline (2026-09-18): the same attribute slot, as a float, one per segment.
+    // Scalar contours use two endpoint values in the annotation attribute slot.
     const values = req.scalar === undefined ? undefined : landed?.values;
     const scalar =
-      values !== undefined && values.length === g.contourInstances && !g.contourColored;
+      values !== undefined && values.length === g.contourInstances * 2 && !g.contourColored;
     if (scalar) {
       if (g.contourValueSource !== values) {
         g.contourValues ??= new Buffer(gl, gl.ARRAY_BUFFER, gl.DYNAMIC_DRAW);
         g.contourValues.update(values);
-        g.contourVao.attrib(3, g.contourValues, 1, gl.FLOAT, false, 4, 0);
+        g.contourVao.attrib(3, g.contourValues, 2, gl.FLOAT, false, 8, 0);
         gl.bindVertexArray(g.contourVao.vao);
         gl.vertexAttribDivisor(3, 1);
         VertexArray.unbind(gl);

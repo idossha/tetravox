@@ -65,6 +65,7 @@ fn oom(what: &str) -> Error {
 /// A `$NodeData` / `$ElementData` header. Tag counts are variable (§6.2): SimNIBS writes 1/1/4,
 /// Gmsh adds a second string tag naming an interpolation scheme.
 struct DataHeader {
+    step: i64,
     name: String,
     ncomp: usize,
     nrec: usize,
@@ -115,7 +116,12 @@ fn read_data_header(r: &mut Reader, binary: bool, what: &str) -> Result<DataHead
         // The payload starts on the line after the last integer tag.
         let _ = r.line()?;
     }
-    Ok(DataHeader { name, ncomp, nrec })
+    Ok(DataHeader {
+        step: ints[0],
+        name,
+        ncomp,
+        nrec,
+    })
 }
 
 #[derive(Default)]
@@ -134,6 +140,8 @@ struct Build {
     interleaved: bool,
     elm_map: Option<IdMap>,
     skipped: BTreeMap<u32, u64>,
+    gmsh_field_order: Vec<(bool, String)>,
+    ambiguous_view_order: bool,
     physical_names: Vec<(i32, String)>,
     node_fields: Vec<Field>,
     elm_fields: Vec<ElmField>,
@@ -271,6 +279,11 @@ impl Build {
             tri_edge_mask: None,
             node_fields: self.node_fields,
             elm_fields: self.elm_fields,
+            gmsh_field_order: if self.ambiguous_view_order {
+                Vec::new()
+            } else {
+                self.gmsh_field_order
+            },
             physical_names: self.physical_names,
             gmsh_node_numbers: node_numbers,
             gmsh_elm_numbers: elm_numbers,
@@ -391,6 +404,7 @@ pub fn read(bytes: &[u8], p: &mut dyn ProgressSink) -> Result<Mesh> {
                 expect_end(&mut r, b"$EndElementData")?;
             }
             _ => {
+                b.ambiguous_view_order |= name == b"$ElementNodeData";
                 // Every other section — `$InterpolationScheme`, `$Periodic`, `$ElementNodeData`,
                 // `$GhostElements`, `$Comments` — is skipped whole.
                 let mut endm = b"$End".to_vec();
@@ -853,6 +867,8 @@ fn read_node_data(
         }
     })?;
     let stats = field_stats_parts(&[&data], h.ncomp);
+    b.ambiguous_view_order |= h.step != 0;
+    b.gmsh_field_order.push((true, h.name.clone()));
     b.node_fields.push(Field {
         name: h.name,
         ncomp: h.ncomp,
@@ -892,6 +908,8 @@ fn read_element_data(
         }
     })?;
     let stats = field_stats_parts(&[&tri, &tet], h.ncomp);
+    b.ambiguous_view_order |= h.step != 0;
+    b.gmsh_field_order.push((false, h.name.clone()));
     b.elm_fields.push(ElmField {
         name: h.name,
         ncomp: h.ncomp,

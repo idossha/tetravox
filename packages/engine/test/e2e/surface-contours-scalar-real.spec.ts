@@ -1,15 +1,4 @@
-/**
- * TI-Toolbox's ROI overlay (`roi_overlay.msh` + `.msh.opt`), opened **bare**, on an axial pane
- * through the ROI (2026-09-18). Real data, so it skips without `TETRAVOX_TESTDATA` or without
- * the analysis directory under it.
- *
- * What one open of the bare mesh must give, end to end: the `.msh.opt`'s `Visible = 1` view seeds
- * `colorMode:'overlay'` on `TI_max_ROI` (the surface form of `'field'`) with a `hide` gate just above zero (`scene/defaults.ts`),
- * the gate keeps the field where it is non-zero (`render/passes/mesh.ts`), and the 2D outline is
- * the scalar-coloured one (`derived/store.ts`, `shaders/contour.ts`). The field is zero outside
- * the ROI by construction, so on a slice the outline exists **only** inside the ROI's bounding box
- * and its pixels are colormap colours, never the solid-outline default.
- */
+/** Real producer fixture: caller-selected threshold and palette over generic sidecar field seeding. */
 
 import { expect, test } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
@@ -55,7 +44,7 @@ function regionOf(mshPath: string): Region | null {
   };
 }
 
-test('@angle a bare roi_overlay.msh shows a colormap-coloured outline inside the ROI only', async ({
+test('@angle an explicitly thresholded real surface shows a colormap-coloured outline inside the ROI only', async ({
   page,
 }) => {
   test.skip(MSH === undefined, 'TETRAVOX_TESTDATA and TETRAVOX_ROI_OVERLAY are unset');
@@ -79,6 +68,12 @@ test('@angle a bare roi_overlay.msh shows a colormap-coloured outline inside the
       if (ds.kind !== 'mesh') throw Error('mesh required');
       // R1: a triangle-only mesh opens as a surface — the kind the app gives a bare `.msh` sheet.
       const l = e.addLayer({ kind: 'surface', datasetId: ds.id });
+      if (l.kind !== 'surface' || l.threshold.mode !== 'clamp')
+        throw Error('sidecar changed threshold');
+      e.updateLayer(l.id, {
+        colormap: 'turbo',
+        threshold: { lo: 1e-6, hi: null, symmetric: false, mode: 'hide', softEdge: 0 },
+      } as never);
       e.setLayout({ kind: '1x1', cells: ['axial'] });
       e.setCursor(cursor as [number, number, number]);
       e.setView('axial', { camera: { center: [0, 0], mmPerPx: mmPerPx as number } });

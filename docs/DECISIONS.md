@@ -5744,7 +5744,10 @@ ARCHITECTURE. The duplicate dated requirements and separate API guide are remove
 log retains design rationale. Existing scene API unit, controller and hidden Electron tests remain
 the executable acceptance evidence. Separate task documents were rejected because they duplicate
 the canonical contract and drift after implementation.
+
 ## 2026-09-18 — ROI overlays from TI-Toolbox: open bound, visible view, scalar outlines
+
+Superseded by **2026-09-19 — Generic field display and conservative Gmsh defaults** below.
 
 **Context.** TI-Toolbox writes an analysis `roi_overlay.msh` (triangle-only central surface, node
 fields `<field>_ROI` zero outside the ROI and `TI_normal_ROI`), a `.msh.opt` with two `View[n]`
@@ -5789,3 +5792,19 @@ blocks (`Visible = 1|0`, `RangeType = 2`, `CustomMin/Max`, `ColormapNumber = 1|2
 `surface-contours-scalar-real.spec.ts` (the bare TI-Toolbox sample: outline inside the ROI box
 only, 78 distinct colours, no yellow, gated on `TETRAVOX_TESTDATA`).
 
+
+### 2026-09-19 — Generic field display and conservative Gmsh defaults
+
+Supersedes the 2026-09-18 overlay-specific seeding and midpoint contour choices. Tetravox owns
+format interpretation and scalar rendering; callers choose fields, thresholds, palettes and transforms.
+`ColormapAlphaPower` is retained as metadata without a threshold approximation, and unsupported
+vis5d retains the existing palette. Static Gmsh view identity preserves interleaved node/element
+order; temporal or duplicate-name ambiguities decline automatic field selection. Existing explicit
+scene settings take precedence. No producer names, ROI semantics or orientation corrections enter
+production behavior.
+
+Scalar contour responses carry endpoint values, interpolated per fragment with the surface LUT and
+soft threshold. Surface contours use the transpose of the dataset transform for the cut plane,
+preventing translated or scaled surfaces from being cut in the wrong coordinates. This keeps gradients and threshold crossings continuous while preserving categorical
+annotation rendering and field-revision cache invalidation. Existing canonical documents and focused
+parser/unit/pixel tests hold the contract and acceptance evidence; no parallel task Markdown is added.

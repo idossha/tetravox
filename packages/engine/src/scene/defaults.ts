@@ -492,16 +492,11 @@ export { identity4 };
  * viewer disagreeing with Gmsh about a colormap rather than lying about a field.
  */
 export const MSH_OPT_COLORMAPS: Record<number, ColormapName> = {
-  // Gmsh 1 is "vis5d", a blue→cyan→green→yellow→red rainbow. Turbo is the rainbow this project has
-  // that is not already number 2 (jet). TI-Toolbox writes `ColormapNumber = 1` for its ROI overlays
-  // (2026-09-18).
-  1: 'turbo',
   2: 'jet',
   7: 'hot',
   9: 'gray',
   13: 'bone',
   18: 'cool',
-  // Gmsh 20–24 carry these names exactly.
   20: 'magma',
   21: 'inferno',
   22: 'plasma',
@@ -573,7 +568,6 @@ export function seedMeshLayerFromOpt(
   if (view.scale !== undefined) next.scale = view.scale;
   if (view.colormap !== undefined) next.colormap = view.colormap;
   if (view.showColorbar === true) next.showColorbar = true;
-  if (view.threshold !== undefined) next.threshold = view.threshold;
   seeded.push(...view.seeded);
 
   return seeded.length > 0
@@ -581,37 +575,30 @@ export function seedMeshLayerFromOpt(
     : { layer, seed: null };
 }
 
-/**
- * What the `.msh.opt`'s **view** seeds, independent of the layer kind that receives it.
- *
- * The view Gmsh would show. SimNIBS writes exactly one block and never `Visible`, so it is
- * `View[0]` and seeds range, colormap and colour bar only — exactly as before 2026-09-18. A
- * sidecar that does say `Visible = 1` (TI-Toolbox's two-view ROI overlay) names the view to
- * open on, and Gmsh's view *index* is the index of the `$NodeData`/`$ElementData` block in file
- * order — which is `MeshDataset.fields`' order (§6.5.1: node fields, then element fields, each
- * as the file lists them). That view then also seeds the colouring itself: the field, and — for
- * `ColormapAlphaPower > 0`, Gmsh's fade-to-transparent at the low end — a `hide` gate just above
- * `CustomMin`, so a field written as zero outside its region of interest shows only the region.
- *
- * `RangeType = 2` is Gmsh's "custom", and only then do `CustomMin` / `CustomMax` mean anything:
- * with RangeType 1 they are whatever the last save happened to leave behind.
- */
+/** Select only explicitly visible fields; metadata without visibility retains legacy defaults. */
 function optViewSeed(ds: MeshDataset): {
   field?: MeshFieldInfo;
   scale?: Extract<Scale, { kind: 'linear' }>;
   colormap?: ColormapName;
   showColorbar?: boolean;
-  threshold?: Threshold;
   seeded: string[];
 } {
   const opt = ds.opt;
   const seeded: string[] = [];
   if (opt === undefined) return { seeded };
   const visibleIndex = opt.views.findIndex((v) => v.visible === true);
+  if (visibleIndex < 0 && opt.views.some((v) => v.visible !== undefined)) return { seeded };
   const view = visibleIndex >= 0 ? opt.views[visibleIndex] : opt.views[0];
   if (view === undefined) return { seeded };
   const out: ReturnType<typeof optViewSeed> = { seeded };
-  const field = visibleIndex >= 0 ? ds.fields[visibleIndex] : undefined;
+  const selected =
+    visibleIndex >= 0 ? ds.fields.find((f) => f.gmshViewIndex === visibleIndex) : undefined;
+  const field =
+    selected !== undefined &&
+    ds.fields.filter((f) => f.source === selected.source && f.name === selected.name).length === 1
+      ? selected
+      : undefined;
+  if (visibleIndex >= 0 && field === undefined) return { seeded };
   if (field !== undefined) {
     out.field = field;
     seeded.push('colorMode', 'field');
@@ -632,30 +619,10 @@ function optViewSeed(ds: MeshDataset): {
     out.showColorbar = true;
     seeded.push('showColorbar');
   }
-  if (field !== undefined && (view.colormapAlphaPower ?? 0) > 0) {
-    const lo = out.scale?.lo ?? field.stats.min;
-    const hi = out.scale?.hi ?? field.stats.max;
-    const span = Number.isFinite(hi - lo) && hi > lo ? hi - lo : 1;
-    // Open above: §4.2's ramp is then measured against the scale span (`render/passes/mesh.ts`).
-    out.threshold = {
-      lo: lo + span * 1e-6,
-      hi: Infinity,
-      symmetric: false,
-      mode: 'hide',
-      softEdge: 0,
-    };
-    seeded.push('threshold');
-  }
   return out;
 }
 
-/**
- * `seedMeshLayerFromOpt`'s counterpart for a **surface** layer (2026-09-18): the same view, seeded
- * as `colorMode:'overlay'` on the node field it names. A triangle-only `.msh` opens as a surface
- * (R1), so this is the path TI-Toolbox's `roi_overlay.msh` takes on a bare open. Tag colours and
- * visibility do not apply — a surface has one colour, not a tissue table. An element field cannot
- * be a surface overlay, so a view that names one seeds range and colormap only.
- */
+/** Node-field view defaults also apply to triangle-only surface layers. */
 export function seedSurfaceLayerFromOpt(
   layer: SurfaceLayer,
   ds: MeshDataset
@@ -668,10 +635,6 @@ export function seedSurfaceLayerFromOpt(
     next.colorMode = 'overlay';
     next.overlay = { name: view.field.name, component: 'mag' };
     seeded.push('colorMode', 'overlay');
-    if (view.threshold !== undefined) {
-      next.threshold = view.threshold;
-      seeded.push('threshold');
-    }
   }
   if (view.scale !== undefined) {
     next.scale = view.scale;
