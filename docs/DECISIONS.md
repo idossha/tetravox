@@ -5705,4 +5705,13 @@ TetraVox. Replace that proposal with a generic load/save request surface: caller
 a save with an expected attached path, and explicitly opt into overwriting. TetraVox owns scene loading,
 serialization and completion replies. Native menu behavior stays unchanged; project conventions stay in
 the calling application. Private request files and the existing Electron handoff avoid introducing a
-network service. See [SCENE_API.md](SCENE_API.md) and [requirements](requirements/2026-09-19-generic-scene-api.md).
+network service. See [Automation](AUTOMATION.md#native-scene-api).
+
+
+## 2026-09-19 — Keep scene API documentation in the canonical manuals
+
+Consolidate the scene API instructions into AUTOMATION and keep the caller-independent behavior in
+ARCHITECTURE. The duplicate dated requirements and separate API guide are removed; this append-only
+log retains design rationale. Existing scene API unit, controller and hidden Electron tests remain
+the executable acceptance evidence. Separate task documents were rejected because they duplicate
+the canonical contract and drift after implementation.

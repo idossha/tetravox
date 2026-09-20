@@ -33,7 +33,6 @@ export default defineConfig({
     'src/guide/:page.md': 'guide/:page.md',
     'src/automation.md': 'automation.md',
     'src/gallery.md': 'gallery.md',
-    'src/developers/scene-api.md': 'developers/scene-api.md',
     'src/developers/architecture.md': 'developers/architecture.md',
     'src/developers/decisions.md': 'developers/decisions.md',
     'src/developers/testing.md': 'developers/testing.md',
@@ -136,7 +135,6 @@ export default defineConfig({
         collapsed: true,
         items: [
           { text: 'Building from source', link: '/developers/building' },
-          { text: 'Native scene API', link: '/developers/scene-api' },
           { text: 'Architecture', link: '/developers/architecture' },
           { text: 'Decisions', link: '/developers/decisions' },
           { text: 'Testing', link: '/developers/testing' },

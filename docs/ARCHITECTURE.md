@@ -3930,6 +3930,5 @@ explicitly supplies `overwrite: true`. Writes are atomic, and symlink output tar
 
 Requests use private local files with bounded reads and correlated replies; no listening service is added.
 They queue until the renderer is ready, including after recreating a missing interactive window. Batch jobs
-ignore interactive requests; hidden tests never show or focus a window. See [SCENE_API.md](SCENE_API.md) for
-request examples and field definitions, and [the requirements](requirements/2026-09-19-generic-scene-api.md)
-for the caller-independent boundary.
+ignore interactive requests; hidden tests never show or focus a window. See [Automation](AUTOMATION.md#native-scene-api) for
+request examples and field definitions.
