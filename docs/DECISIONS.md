@@ -5808,3 +5808,15 @@ soft threshold. Surface contours use the transpose of the dataset transform for 
 preventing translated or scaled surfaces from being cut in the wrong coordinates. This keeps gradients and threshold crossings continuous while preserving categorical
 annotation rendering and field-revision cache invalidation. Existing canonical documents and focused
 parser/unit/pixel tests hold the contract and acceptance evidence; no parallel task Markdown is added.
+
+## 2026-09-20 — Native API scene opens admit their native Save target
+
+A validated `open-scene` request now calls the existing `allowOpenedScene` at main-to-renderer
+dispatch (§5 rule 10), just like a menu or OS scene open. The API attached the scene but omitted
+this separate write permission, so native Save returned "not on the write list". Admission covers
+only that canonical `.tetravox.json` path; arbitrary renderer reads still grant no writes.
+
+`e2e/native-scene.spec.ts` reproduces the failure before the change and verifies a real-engine API
+open followed by edited native Save changes the attached file, keeps datasets and the exported
+snapshot unchanged, and works in an isolated hidden packaged app. No caller-specific policy or
+protocol change is introduced.

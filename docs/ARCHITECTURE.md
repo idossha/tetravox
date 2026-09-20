@@ -1122,10 +1122,11 @@ Rules:
     one compound extension, matched on the whole suffix (`isScenePath`), so §7.6's `_LUT.json` is not a scene
     and gains nothing. Nothing else widens that list.
 
-    **It is minted at the five delivery points, never by a read.** `showOpenSceneDialog`'s result;
+    **It is minted at main-owned delivery points, never by a read.** `showOpenSceneDialog`'s result;
     `menu.ts#sendOpenScene`, which is the scene half of the `tetravox:opened` routing (argv, `open-file`, a
-    second instance, File ▸ Open Recent, Sample Data); the `tetravox:startup-scene` drain; and
-    `tetravox:dropped-path`, which **preload** sends from `getDroppedFilePath` — `webUtils.getPathForFile`
+    second instance, File ▸ Open Recent, Sample Data); the `tetravox:startup-scene` drain;
+    validated native scene API `open-scene` dispatch; and `tetravox:dropped-path`, which **preload** sends
+    from `getDroppedFilePath` — `webUtils.getPathForFile`
     answers only for a `File` the user really dragged, so that path is a gesture main can trust and renderer
     script cannot manufacture one. `readSceneFile` admits **nothing** (2026-08-30): `tetravox:allow-path`
     takes any existing absolute path with no gesture, so a write derived from a read was a write the renderer
@@ -3975,7 +3976,8 @@ keeps the current 3D camera. Later dataset arrivals update layer visibility with
 External programs may load a scene or save the current live scene through `--scene-request=<private JSON file>`.
 `sceneApiProtocol: 1` in the application package advertises support. The request carries a protocol version,
 unique ID, action and absolute `.tetravox.json` path; a matching receipt reports completion or an error.
-Loading uses the existing guarded loader. Saving uses the existing live serializer and leaves the current
+Loading uses the existing guarded loader and admits exactly that opened scene for native Save,
+as normal user-selected scene opens do (§5 rule 10). Saving uses the existing live serializer and leaves the current
 attachment and native Save/Save As behavior unchanged. It does not require a previous API load.
 
 Callers choose paths and create destination directories. No caller names, project layout, naming policy or

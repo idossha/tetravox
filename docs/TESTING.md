@@ -579,7 +579,8 @@ The real-data case skips explicitly when the files are absent. No real data are 
 `pnpm exec vitest run --project app packages/app/src/main/scene-api.test.ts packages/app/src/renderer/src/store/controller.scene.test.ts`
 checks create-only receipts, current serialized edits, original recipe preservation, optional expected-scene checks, explicit overwrite,
 and private request boundaries without opening a window. Packaged cold/warm launches and
-closed-window recovery use the hidden Electron native-scene E2E regression; Windows ACL and Linux desktop
+closed-window recovery use the hidden Electron native-scene E2E regression. It also invokes native
+Save after an API open, checking changed disk contents and unchanged dataset bytes; Windows ACL and Linux desktop
 foreground behavior still require platform-specific execution before claiming cross-platform proof.
 
 

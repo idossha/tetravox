@@ -8,7 +8,11 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Save works on scenes opened by another application.** After a native scene API open,
+  **File ▸ Save** (⌘S / Ctrl+S) updates that scene instead of reporting "not on the write list".
+  Dataset files and unrelated scenes receive no write permission; the request protocol is unchanged.
 
 ## [0.6.0] - 2026-09-20
 

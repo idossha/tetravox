@@ -76,11 +76,11 @@ export function isWritable(candidate: string): boolean {
 /**
  * §5 rule 10's carve-out, minted where **main hands the renderer a scene to open** (2026-08-30).
  *
- * The five callers are the five places main itself chooses the path: {@link showOpenSceneDialog},
+ * Main-owned delivery points choose the path: {@link showOpenSceneDialog},
  * `menu.ts#sendOpenScene` (the scene half of the `tetravox:opened` routing — argv, `open-file`, a
- * second instance, File ▸ Open Recent, Sample Data), the `tetravox:startup-scene` drain, and the
- * dropped-path channel, whose path can only come from `webUtils.getPathForFile` on a `File` the user
- * really dragged. Opening a scene *is* naming the file ⌘S will save over, so those are exactly the
+ * second instance, File ▸ Open Recent, Sample Data), the `tetravox:startup-scene` drain, validated
+ * native scene API opens, and the dropped-path channel, whose path comes from
+ * `webUtils.getPathForFile` on a `File` the user really dragged. Opening a scene *is* naming the file ⌘S will save over, so those are exactly the
  * gestures the admission belongs to.
  *
  * Not `readSceneFile`: `tetravox:allow-path` admits any existing absolute path with no gesture, so

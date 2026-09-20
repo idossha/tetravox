@@ -120,6 +120,7 @@ test('cold open, edited live save and Dock-only recreation acknowledge real disk
     await app.close();
     app = undefined;
     const original = readFileSync(scenePath, 'utf8');
+    const datasetOriginal = readFileSync(VOLUME);
     const opening: Request = {
       protocol: 1,
       id: randomBytes(16).toString('hex'),
@@ -152,6 +153,13 @@ test('cold open, edited live save and Dock-only recreation acknowledge real disk
     expect(JSON.parse(readFileSync(destination, 'utf8'))).toMatchObject({ cursor: [7, -3, 11] });
     expect(JSON.parse(readFileSync(destination, 'utf8')).layers).toHaveLength(1);
     expect(readFileSync(scenePath, 'utf8')).toBe(original);
+    // An acknowledged API open is also the user's native Save destination, without Save As.
+    await cursor(page, '2 4 6');
+    await clickAppMenu(page, 'save');
+    await expect.poll(() => JSON.parse(readFileSync(scenePath, 'utf8')).cursor).toEqual([2, 4, 6]);
+    expect(await page.evaluate(() => window.__tetravox?.store.getState().sceneDirty)).toBe(false);
+    expect(readFileSync(VOLUME)).toEqual(datasetOriginal);
+    expect(JSON.parse(readFileSync(destination, 'utf8')).cursor).toEqual([7, -3, 11]);
     await hidden(app);
     // Destroy only this fixture's window. macOS leaves the process alive just as closing its final window does.
     await app.evaluate(({ BrowserWindow }) => {
