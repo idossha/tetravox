@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.0] - 2026-09-20
+
 ### Added
 
 - **Diffusion tensors can be viewed as direction-coloured ellipsoids.** In a six-component
