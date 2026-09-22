@@ -8,7 +8,14 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Updates offered inside a managed copy.** A Tetravox installed and launched by another application
+  (TI-Toolbox) now shows its own Software Update window when a newer release exists, instead of
+  saying nothing. **Update to X** closes Tetravox and hands the install to that application, which
+  downloads, verifies and reopens it; **Skip This Version** and **Later** work as usual. Standalone
+  installs update exactly as before. An installing application that does not support this keeps
+  today's behaviour: updates stay off and **File ▸ Check for Updates…** names it.
 
 ## [0.6.1] - 2026-09-20
 

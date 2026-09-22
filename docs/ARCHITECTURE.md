@@ -3415,7 +3415,10 @@ status-bar pill for as long as it stays true — and does nothing further until 
   macOS (the signed zip beside each dmg is the update artefact; Squirrel.Mac also checks the code
   signature), Windows NSIS, Linux AppImage (`APPIMAGE` set); `'notify'` — a `.deb`/`.tar.gz` install,
   which only reads `latest-linux.yml` over `net.fetch`, compares, and offers the Releases page;
-  `'off'` — a dev tree (`!app.isPackaged`), every `--job` run, and externally managed launches. (A *packaged* unsigned build —
+  `'managed'` — an externally managed launch that names a request file (below): the `'notify'` check,
+  and a click that hands the install to the manager;
+  `'off'` — a dev tree (`!app.isPackaged`), every `--job` run, and a managed launch without a request
+  file. (A *packaged* unsigned build —
   a contributor's own `pnpm package` — is `'inplace'` and checks; on macOS Squirrel then refuses
   the unsigned swap at install time, surfaced honestly as an 'error' status.)
 * **Flow.** A launch check (a few seconds after ready, gated by the `checkForUpdates` setting, silent
@@ -3430,8 +3433,16 @@ status-bar pill for as long as it stays true — and does nothing further until 
   above; electron-updater itself is loaded only in a packaged `'inplace'` build, by dynamic import.
 
 External installation managers set `TETRAVOX_MANAGED_BY` when launching their copy. That launch
-never checks, downloads or installs native updates; the Updates dialog identifies the manager.
-The manager owns version changes so the app cannot replace a pinned installation. Windows builds
+never downloads or installs anything itself: the manager owns the files and version changes, so the
+app cannot replace a pinned installation. A manager that also sets `TETRAVOX_MANAGED_UPDATE_REQUEST`
+to an absolute path gets `'managed'` mode (2026-09-22): the launch check, the skip and the Software
+Update dialog work as usual, and **Update to X** asks about unsaved edits, writes
+`{protocol: 1, action: "update", id, version, current}` to that path (a temporary file renamed into
+place), waits up to 15 s for `<path>.receipt.json` with the same `id`, and quits on `ok: true`. An
+`ok: false` receipt's `error` is shown and the app stays open; no receipt withdraws the request and
+says the manager did not answer. What gets installed is the manager's choice (it verifies and
+relaunches); the request is consent, not an instruction. Without the request variable the dialog only
+identifies the manager, as before — so a manager predating the handshake is unaffected. Windows builds
 include a portable x64 ZIP for manager-owned extraction as well as the ordinary NSIS installer;
 the ZIP avoids NSIS registry-driven replacement of an unrelated standalone installation.
 

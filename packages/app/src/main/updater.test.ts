@@ -10,7 +10,7 @@
  * exactly as `sample-data.test.ts` does.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,7 +31,13 @@ vi.mock('electron', () => ({
 
 import { readSettings, writeSettings } from './settings';
 import type { UpdateStatus, UpdaterImpl } from './updater';
-import { UpdaterService, feedVersion, plainNotes, updateMode } from './updater';
+import {
+  UpdaterService,
+  feedVersion,
+  plainNotes,
+  requestManagedUpdate,
+  updateMode,
+} from './updater';
 
 /** A controllable stand-in for electron-updater: the tests fire its events by hand. */
 function stubImpl(overrides: Partial<UpdaterImpl> = {}): UpdaterImpl & {
@@ -567,5 +573,170 @@ describe('external installation ownership', () => {
     expect((await service.install()).ok).toBe(false);
     expect(schedule).not.toHaveBeenCalled();
     expect(impl.calls).toEqual([]);
+  });
+});
+
+/**
+ * The managed handshake (§12.4, 2026-09-22): a manager that offers a request file gets the native
+ * popup and does the install itself. The "manager" here is the test answering the request file the
+ * way TI-Toolbox's main process does — a receipt beside it with the same id.
+ */
+describe('managed updates hand the install to the manager', () => {
+  const MANAGED = { packaged: true, isJob: false, platform: 'darwin' as const, version: '0.6.1' };
+  const feed = async (): Promise<Response> => new Response('version: 0.7.0\n');
+
+  /** Answer the next request written to `path` the way a manager would. */
+  function answer(path: string, reply: (request: { id: string }) => object): void {
+    const timer = setInterval(() => {
+      if (!existsSync(path)) return;
+      const request = JSON.parse(readFileSync(path, 'utf8')) as { id: string };
+      rmSync(path);
+      writeFileSync(
+        `${path}.receipt.json`,
+        JSON.stringify({ protocol: 1, id: request.id, ...reply(request) })
+      );
+      clearInterval(timer);
+    }, 20);
+  }
+
+  it('is managed only with both the manager name and an absolute request path', () => {
+    const base = { packaged: true, isJob: false, platform: 'darwin' as const, appImage: undefined };
+    expect(
+      updateMode({ ...base, managedBy: 'ti-toolbox', managedUpdateRequest: '/u/req.json' })
+    ).toBe('managed');
+    // A manager predating the handshake: today's behaviour, updates off.
+    expect(updateMode({ ...base, managedBy: 'ti-toolbox' })).toBe('off');
+    expect(updateMode({ ...base, managedBy: 'ti-toolbox', managedUpdateRequest: 'req.json' })).toBe(
+      'off'
+    );
+    // A request path without a manager is not a managed launch.
+    expect(updateMode({ ...base, managedUpdateRequest: '/u/req.json' })).toBe('inplace');
+    expect(
+      updateMode({ ...base, packaged: false, managedBy: 'x', managedUpdateRequest: '/u/r' })
+    ).toBe('off');
+    expect(updateMode({ ...base, isJob: true, managedBy: 'x', managedUpdateRequest: '/u/r' })).toBe(
+      'off'
+    );
+  });
+
+  it('the launch check runs and announces a newer release, never touching electron-updater', async () => {
+    const impl = stubImpl();
+    let scheduled: (() => void) | undefined;
+    const [svc, pushed] = service({
+      ...MANAGED,
+      managedBy: 'ti-toolbox',
+      managedUpdateRequest: join(dirs.home, 'request.json'),
+      impl,
+      fetchImpl: feed,
+      scheduleLaunchCheck: (run) => (scheduled = run),
+    });
+    svc.startLaunchCheck();
+    scheduled?.();
+    await vi.waitFor(() => expect(pushed.at(-1)?.phase).toBe('available'));
+    expect(pushed.at(-1)).toMatchObject({
+      mode: 'managed',
+      managedBy: 'ti-toolbox',
+      available: '0.7.0',
+      auto: true,
+    });
+    expect((await svc.download()).ok).toBe(false);
+    expect(impl.calls).toEqual([]);
+  });
+
+  it('a declined version stays declined on the next launch check', async () => {
+    const request = join(dirs.home, 'request.json');
+    const [first] = service({
+      ...MANAGED,
+      managedBy: 'ti-toolbox',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+    });
+    await first.check();
+    first.skip('0.7.0');
+    const [second] = service({
+      ...MANAGED,
+      managedBy: 'ti-toolbox',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+    });
+    expect((await second.check({ auto: true })).phase).toBe('idle');
+  });
+
+  it('install writes the request, waits for the receipt, then quits', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    let seen: Record<string, unknown> | undefined;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ti-toolbox',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    answer(request, (r) => ((seen = r as Record<string, unknown>), { ok: true }));
+    expect(await svc.install()).toEqual({ ok: true });
+    expect(seen).toMatchObject({
+      protocol: 1,
+      action: 'update',
+      version: '0.7.0',
+      current: '0.6.1',
+    });
+    expect(quits).toBe(1);
+    expect(existsSync(`${request}.receipt.json`)).toBe(false);
+  });
+
+  it('asks about unsaved edits first and writes nothing when the user keeps them', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ti-toolbox',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      confirmQuit: async () => false,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    expect((await svc.install()).ok).toBe(false);
+    expect(existsSync(request)).toBe(false);
+    expect(quits).toBe(0);
+  });
+
+  it('a refusal from the manager is shown and the app stays open', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ti-toolbox',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    answer(request, () => ({ ok: false, error: 'no package for this platform' }));
+    const result = await svc.install();
+    expect(result.ok).toBe(false);
+    expect(svc.current()).toMatchObject({
+      phase: 'error',
+      error: 'ti-toolbox: no package for this platform',
+    });
+    expect(quits).toBe(0);
+  });
+
+  it('with no manager listening, the request is withdrawn and the app stays open', async () => {
+    const request = join(dirs.home, 'request.json');
+    await expect(
+      requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 300)
+    ).rejects.toThrow('did not answer');
+    expect(existsSync(request)).toBe(false);
+  });
+
+  it('ignores a stale receipt that answers some other request', async () => {
+    const request = join(dirs.home, 'request.json');
+    writeFileSync(`${request}.receipt.json`, JSON.stringify({ protocol: 1, id: 'old', ok: true }));
+    await expect(
+      requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 300)
+    ).rejects.toThrow('did not answer');
   });
 });

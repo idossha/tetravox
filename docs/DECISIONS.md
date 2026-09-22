@@ -5820,3 +5820,27 @@ only that canonical `.tetravox.json` path; arbitrary renderer reads still grant 
 open followed by edited native Save changes the attached file, keeps datasets and the exported
 snapshot unchanged, and works in an isolated hidden packaged app. No caller-specific policy or
 protocol change is introduced.
+
+## 2026-09-22 — Managed copies offer updates and hand the install to their manager (§12.4)
+
+Amends 2026-09-13's "`TETRAVOX_MANAGED_BY` disables the updater". TI-Toolbox's maintainer asked that
+its managed copy be updatable from TetraVox's own popup as well as from TI's settings, while TI keeps
+owning the files. A new `'managed'` update mode applies when `TETRAVOX_MANAGED_BY` is set **and**
+`TETRAVOX_MANAGED_UPDATE_REQUEST` names an absolute path: the check is `'notify'`'s feed read, the
+dialog is the usual one, and the click writes a `{protocol: 1, action: "update", id, version,
+current}` request, waits for a same-id receipt and quits. electron-updater is never loaded in this
+mode, so nothing writes into the manager's directory.
+
+Why a file and a receipt: it works the same whether the manager started the app as a child process
+or through LaunchServices (`open -a`), needs no URL scheme, socket or listener, and mirrors the
+scene-request files the app already answers. The receipt keeps the app from quitting into nothing
+when the manager is gone or predates the handshake: no receipt in 15 s withdraws the request and
+leaves the app open with the error. Alternatives rejected: letting electron-updater replace the
+manager's copy (bypasses the manager's verification and identity checks); having the manager kill the
+app (loses unsaved edits — the app asks first); a URL scheme (per-OS registration). Absent the new
+variable, behaviour is 2026-09-13's. `updater.test.ts` "managed updates hand the install to the
+manager" pins the mode table, the popup, the per-version skip, the request/receipt exchange, the
+unsaved-edits refusal, a manager refusal and the no-listener withdrawal. Real check on macOS arm64,
+2026-09-22: a packaged unsigned `--dir` build of this branch relabelled 0.6.0, launched by TI-Toolbox's
+branch code in a scratch profile, showed the dialog, and its click led TI to install and relaunch the
+published 0.6.1.

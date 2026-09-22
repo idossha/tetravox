@@ -63,7 +63,7 @@ export function UpdatesDialog({
                 type="button"
                 data-testid="updates-download"
                 className="tvx-btn tvx-btn-on"
-                onClick={mode === 'notify' ? onInstall : onDownload}
+                onClick={mode === 'inplace' ? onDownload : onInstall}
               >
                 {mode === 'notify' ? 'Open Releases Page' : `Update to ${status?.available}`}
               </button>
@@ -137,6 +137,12 @@ export function UpdatesDialog({
               <strong className="font-semibold">Tetravox {status?.available}</strong>{' '}
               <span className="text-tvx-dim">is available — you have {status?.current}.</span>
             </p>
+            {mode === 'managed' && phase === 'available' && (
+              <p className="text-[10px] leading-relaxed text-tvx-dim" data-testid="updates-managed">
+                {status?.managedBy} installed this copy and installs its updates: Tetravox closes,{' '}
+                {status?.managedBy} downloads and verifies {status?.available}, then reopens it.
+              </p>
+            )}
             {mode === 'notify' && phase === 'available' && (
               <p className="text-[10px] leading-relaxed text-tvx-dim">
                 This install came from a <span className="font-mono">.deb</span> or{' '}
