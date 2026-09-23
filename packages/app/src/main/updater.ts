@@ -216,6 +216,8 @@ export class UpdaterService {
   private auto = false;
   /** `TETRAVOX_MANAGED_UPDATE_REQUEST`, trimmed exactly as {@link updateMode} judged it. */
   private readonly managedRequestPath: string;
+  /** The in-flight managed request: a second click joins it rather than racing it on disk. */
+  private requesting: Promise<UpdateActionResult> | null = null;
 
   constructor(deps: UpdaterDeps = {}) {
     this.deps = {
@@ -328,7 +330,11 @@ export class UpdaterService {
 
   /** The user's click on Restart — or on Open Releases Page, which is what a `'notify'` build has. */
   async install(): Promise<UpdateActionResult> {
-    if (this.mode === 'managed') return this.installManaged();
+    if (this.mode === 'managed') {
+      return (this.requesting ??= this.installManaged().finally(() => {
+        this.requesting = null;
+      }));
+    }
     if (this.mode === 'notify') {
       (this.deps.openReleases ?? (() => void shell.openExternal(RELEASES_URL)))();
       return { ok: true };
@@ -514,18 +520,21 @@ export async function requestManagedUpdate(
   };
   const receiptPath = `${path}.receipt.json`;
   await rm(receiptPath, { force: true });
-  await writeFile(`${path}.tmp`, JSON.stringify(request), { mode: 0o600 });
+  // Created fresh (`wx`), so `0600` holds even over a `.tmp` left by a crash, and a planted link
+  // there is refused rather than followed.
+  await rm(`${path}.tmp`, { force: true });
+  await writeFile(`${path}.tmp`, JSON.stringify(request), { mode: 0o600, flag: 'wx' });
   await rename(`${path}.tmp`, path);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 200));
-    let receipt: { protocol?: unknown; id?: unknown; ok?: unknown; error?: unknown };
+    let receipt: { protocol?: unknown; id?: unknown; ok?: unknown; error?: unknown } | null;
     try {
       receipt = JSON.parse(await readFile(receiptPath, 'utf8')) as typeof receipt;
     } catch {
       continue; // Not written yet, or caught mid-write: the next poll reads it whole.
     }
-    if (receipt.protocol !== 1 || receipt.id !== request.id) continue;
+    if (receipt?.protocol !== 1 || receipt.id !== request.id) continue;
     await rm(receiptPath, { force: true });
     if (receipt.ok !== true) {
       throw new Error(typeof receipt.error === 'string' ? receipt.error : 'the update was refused');

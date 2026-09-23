@@ -18,7 +18,7 @@ The current protocol is **v1**. Everything below marked *v1* is frozen: it chang
 | Protocol number | `1` |
 | Receipt deadline | 15 s after the request appears |
 | Recommended isolation | `--user-data-dir=<a directory the host owns>` |
-| Available since | `TETRAVOX_MANAGED_BY`: 0.5.0 · `TETRAVOX_MANAGED_UPDATE_REQUEST`: the first release after 0.6.1 |
+| Available since | `TETRAVOX_MANAGED_BY`: 0.5.0 · `TETRAVOX_MANAGED_UPDATE_REQUEST`: 0.6.2 |
 
 ## 1. What the host sets
 
@@ -90,9 +90,11 @@ Windows).
 ### Sequence
 
 1. The user clicks **Update to X**. If an extension has unsaved edits, TetraVox asks first; if the
-   user keeps them, nothing is written.
-2. TetraVox deletes any old `<path>.receipt.json`, writes the request to `<path>.tmp` (mode `0600`
-   on POSIX) and renames it to `<path>`. The request therefore appears whole; never read
+   user keeps them, nothing is written. A second click while a request is waiting joins that
+   request; it never writes another.
+2. TetraVox deletes any old `<path>.receipt.json`, writes the request to a freshly created
+   `<path>.tmp` (mode `0600` on POSIX; a leftover `<path>.tmp` is deleted first) and renames it to
+   `<path>`. The request therefore appears whole; never read
    `<path>.tmp`.
 3. TetraVox polls for `<path>.receipt.json` for up to **15 seconds**.
 4. The host reads the request, **deletes it**, validates it, and writes a receipt — atomically

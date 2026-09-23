@@ -742,9 +742,48 @@ describe('managed updates hand the install to the manager', () => {
     expect(existsSync(request)).toBe(false);
   });
 
+  it('a second click while the first request waits joins it: one request, one quit', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    let requests = 0;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    const first = svc.install();
+    const second = svc.install();
+    answer(request, () => ((requests += 1), { ok: true }));
+    expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }]);
+    // A second request would overwrite the first and delete its receipt: nobody would answer.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(existsSync(request)).toBe(false);
+    expect(requests).toBe(1);
+    expect(quits).toBe(1);
+  });
+
+  it('a receipt that is JSON but not an object is not an answer, and never throws', async () => {
+    const request = join(dirs.home, 'request.json');
+    const timer = setInterval(() => {
+      if (existsSync(request)) writeFileSync(`${request}.receipt.json`, 'null');
+    }, 20);
+    try {
+      await expect(
+        requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 400)
+      ).rejects.toThrow('did not answer');
+    } finally {
+      clearInterval(timer);
+    }
+    expect(existsSync(request)).toBe(false);
+  });
+
   it('ignores a stale receipt that answers some other request', async () => {
     const request = join(dirs.home, 'request.json');
-    writeFileSync(`${request}.receipt.json`, JSON.stringify({ protocol: 1, id: 'old', ok: true }));
+    // Written after the request lands, so only the id match — not the up-front delete — refuses it.
+    answer(request, () => ({ id: 'old', ok: true }));
     await expect(
       requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 300)
     ).rejects.toThrow('did not answer');
@@ -908,6 +947,15 @@ describe('managed mode public contract v1', () => {
     expect(existsSync(`${request}.tmp`)).toBe(false);
     expect(existsSync(`${request}.receipt.json`)).toBe(false);
     if (process.platform !== 'win32') expect(answered.mode()).toBe(0o600);
+  });
+
+  it('the request is 0600 even over a .tmp left behind by a crash', async () => {
+    if (process.platform === 'win32') return;
+    const request = join(dirs.home, 'request.json');
+    writeFileSync(`${request}.tmp`, 'half a request', { mode: 0o644 });
+    const answered = host(request, (r) => ({ protocol: 1, id: r['id'], ok: true }));
+    await requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' });
+    expect(answered.mode()).toBe(0o600);
   });
 
   it("each request gets a fresh id that matches the page's pattern", async () => {
