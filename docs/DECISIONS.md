@@ -5882,3 +5882,21 @@ v1" (env literals drive `UpdaterService`; activation table; page examples satisf
 written request satisfies the request schema and has no undocumented field; 0600; fresh ids; the
 page's refusal example is shown prefixed with the host name; a protocol-2 receipt is not an answer)
 — two planted regressions (dropping the trim, adding an undocumented `url` field) each turned it red.
+
+## 2026-09-22 — An agent may push a release tag the maintainer asked for (§12, `docs/RELEASING.md` §3)
+
+Supersedes the "never push a tag" rule in `AGENTS.md` and `docs/RELEASING.md` §3 ("`release.sh`
+does not push, and neither should an agent"). The maintainer asked that agents be able to cut a
+release end to end. An agent now pushes `main` and the `v*` tag **only when the maintainer has asked
+for that release**; without the request it still stops at the local tag and prints the two push
+commands. `scripts/release.sh` itself is unchanged — it still never pushes, so a mistaken run stays
+local — and every other guard stands: clean `main`, the §2 pre-cut checks, versions bumped only by
+the script, the CHANGELOG section, CI green on `main`, and `release.yml`'s `verify` as the only
+publisher.
+
+Alternatives rejected: letting `release.sh` push behind a `--push` flag (the push would then happen
+inside a script whose output an agent may not read before it lands; a separate `git push` keeps it a
+visible, deliberate step); allowing tag pushes unconditionally (a release is a decision the
+maintainer makes, not one an agent infers). Evidence: the wording in `AGENTS.md`, `CONTRIBUTING.md`,
+`docs/RELEASING.md` and `scripts/release.sh`'s header, which `grep -rn "push" -- AGENTS.md
+CONTRIBUTING.md docs/RELEASING.md scripts/release.sh` shows all say the same thing.

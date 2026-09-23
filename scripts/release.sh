@@ -6,7 +6,8 @@
 #   scripts/release.sh 0.2.0 --dry-run     # print what would change, touch nothing
 #
 # It does NOT push. Pushing the tag is what starts `.github/workflows/release.yml` and therefore what
-# publishes a draft Release, so it stays a deliberate act by a human on `main`: `docs/RELEASING.md` §3.
+# publishes a Release, so it stays a separate, deliberate act on `main` — by the maintainer, or by an
+# agent the maintainer asked to cut this release: `docs/RELEASING.md` §3.
 #
 # THE VERSION LIVES IN TWO KINDS OF PLACE and this script is the only thing that knows both:
 #

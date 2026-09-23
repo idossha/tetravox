@@ -8,7 +8,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Releases can be cut end to end by an agent the maintainer asks.** The release procedure now lets
+  an agent push the release commit and tag once the maintainer has asked for that version; every
+  other guard — clean `main`, the pre-cut checks, version bumps by `scripts/release.sh`, the
+  changelog section, green CI and the `verify` job — is unchanged. Nothing in the app changes.
 
 ## [0.6.2] - 2026-09-23
 

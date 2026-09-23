@@ -12,7 +12,7 @@ operator's manual for it, the way `docs/TESTING.md` is the operator's manual for
 
 | | |
 |---|---|
-| Bump versions, changelog, commit, tag | `scripts/release.sh <version>` — **never pushes** |
+| Bump versions, changelog, commit, tag | `scripts/release.sh <version>` — stops at a local commit and tag |
 | Build every artefact, publish the Release | `.github/workflows/release.yml`, on a `v*` tag |
 | Downloadable builds of `main` | `ci.yml`'s `package` job, every push to `main` |
 | macOS artefacts locally | `pnpm package` |
@@ -162,8 +162,12 @@ A partial bump is the failure this exists to prevent: `packages/app/package.json
 electron-builder reads for `${version}`, so a tree that is 0.2.0 everywhere except there ships
 `Tetravox-0.1.0-mac-arm64.dmg` out of a 0.2.0 release.
 
-**`release.sh` does not push, and neither should an agent.** Pushing the tag is what starts the
-release workflow and therefore what creates a Release, so it is a deliberate act:
+**`release.sh` does not push.** Pushing the tag is what starts the release workflow and therefore
+what creates a Release, so it is a deliberate act. **An agent may push `main` and the tag — running
+this section end to end — when the maintainer has asked for that release.** Every other guard still
+holds: a clean `main`, the §2 pre-cut checks green, the versions bumped by `release.sh` only, the
+CHANGELOG section written, CI green on `main` before the cut, and the workflow watched until `verify`
+publishes. Without the maintainer's request an agent stops at the local tag and hands over:
 
 ```sh
 git push origin main

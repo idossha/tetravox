@@ -14,7 +14,9 @@ and tests. `docs/ROADMAP.md` says what is open. `docs/DECISIONS.md` is append-on
 - `docs/RELEASING.md` is the operator's manual for packaging: `scripts/release.sh <version>` bumps
   every version in one place, `scripts/package-linux.sh` builds the Linux artefacts in Docker, and
   `scripts/smoke-artefact.mjs` launches a *packaged* binary with `--job` and asserts it rendered.
-  `CITATION.cff` is bumped by it too. **Never push a tag** — `release.sh` deliberately stops at a local commit and tag.
+  `CITATION.cff` is bumped by it too. `release.sh` stops at a local commit and tag; **an agent pushes
+  `main` and the tag only when the maintainer has asked for that release**, after every pre-cut check
+  in `docs/RELEASING.md` §2 is green on a clean `main` — never on its own initiative.
 
 ## Test data
 
