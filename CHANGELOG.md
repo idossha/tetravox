@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.6.2] - 2026-09-23
+
 ### Added
 
 - **Managed mode is a public, versioned API.** Any application can ship its own private Tetravox
