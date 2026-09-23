@@ -40,6 +40,7 @@ export default defineConfig({
     'src/developers/roadmap.md': 'developers/roadmap.md',
     'src/developers/contributing.md': 'developers/contributing.md',
     'src/developers/releasing.md': 'developers/releasing.md',
+    'src/developers/managed-mode.md': 'developers/managed-mode.md',
   },
 
   head: [
@@ -141,6 +142,7 @@ export default defineConfig({
           { text: 'Benchmarks', link: '/developers/benchmarks' },
           { text: 'Roadmap', link: '/developers/roadmap' },
           { text: 'Releasing', link: '/developers/releasing' },
+          { text: 'Managed mode', link: '/developers/managed-mode' },
           { text: 'Contributing', link: '/developers/contributing' },
         ],
       },

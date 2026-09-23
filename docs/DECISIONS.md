@@ -5844,3 +5844,41 @@ unsaved-edits refusal, a manager refusal and the no-listener withdrawal. Real ch
 2026-09-22: a packaged unsigned `--dir` build of this branch relabelled 0.6.0, launched by TI-Toolbox's
 branch code in a scratch profile, showed the dialog, and its click led TI to install and relaunch the
 published 0.6.1.
+
+## 2026-09-22 — Managed mode is a public, versioned API (§12.4, `docs/MANAGED-MODE.md`)
+
+Extends the same day's managed-update entry. The maintainer: "Do not make it specific to
+TI-Toolbox. Make sure managed-by is a public API so software like TI-Toolbox can manage separate
+copies. Make it generalized and public." Managed mode is therefore a contract with third parties,
+specified in `docs/MANAGED-MODE.md` (linked from the README, §12.4, AUTOMATION.md, RELEASING.md §10
+and the website's Developers section), not an integration with one host.
+
+**v1, frozen additively:** the names `TETRAVOX_MANAGED_BY` (display text only) and
+`TETRAVOX_MANAGED_UPDATE_REQUEST` (absolute, trimmed); the activation table (packaged, not `--job`,
+non-empty name; an absolute request path selects `'managed'`, anything else `'off'`); the request
+`{protocol: 1, action: "update", id, version, current}` written by temp-file rename with mode 0600;
+the receipt `<path>.receipt.json` `{protocol: 1, id, ok, error?}`; id matching; the 15 s deadline
+(`MANAGED_RECEIPT_TIMEOUT_MS`); withdrawal of an unanswered request. These are exactly the names,
+fields and file names the first adopter (TI-Toolbox, `desktop/src/main/tetravoxNative.ts` on its
+main, 2026-09-22) already sends and expects, so publishing them breaks nobody. Within v1 TetraVox
+may add optional request fields and environment variables, hosts ignore unknown request fields,
+TetraVox ignores unknown receipt fields, and a new `action` is admissible only because v1 hosts must
+refuse unknown actions with `ok: false`. A breaking change is a new protocol number offered only to
+a host that opts in through a new optional variable; v1 stays for at least two minor releases after
+a deprecation is announced in the changelog.
+
+Also fixed while making it public: the request path is trimmed once and the trimmed value is both
+judged and used (before, a padded path passed the absolute check but the write used the untrimmed
+string). `--user-data-dir` is documented as isolating `settings.json`, the single-instance lock and
+per-profile caches, but **not** `~/.tetravox` (rc file, installed extensions) — `TETRAVOX_HOME` is
+documented as the optional knob for that.
+
+Alternatives rejected: shipping the schemas as separate `*.schema.json` files (the repository has no
+JSON Schema convention; the schemas live in the page and the contract tests parse them from it, so
+the page a third party reads is the thing CI checks); renaming the variables to a neutral
+`TETRAVOX_HOST_*` (breaks the shipped adopter for no behavioural gain); adding a capability
+handshake now (YAGNI until a v2 exists). Evidence: `updater.test.ts` "managed mode public contract
+v1" (env literals drive `UpdaterService`; activation table; page examples satisfy page schemas; the
+written request satisfies the request schema and has no undocumented field; 0600; fresh ids; the
+page's refusal example is shown prefixed with the host name; a protocol-2 receipt is not an answer)
+— two planted regressions (dropping the trim, adding an undocumented `url` field) each turned it red.

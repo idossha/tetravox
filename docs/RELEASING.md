@@ -566,13 +566,10 @@ updater for that process and displays the manager in Updates; the manager must o
 Existing releases predating this behavior do not honor this environment variable.
 
 To let the user accept updates from TetraVox's own Software Update dialog, also set
-`TETRAVOX_MANAGED_UPDATE_REQUEST` to an absolute path the manager watches (releases after 0.6.1;
-ARCHITECTURE §12.4). On the user's click TetraVox writes
-`{"protocol":1,"action":"update","id":"<uuid>","version":"<offered>","current":"<running>"}` there,
-atomically, and polls for `<path>.receipt.json`. The manager consumes the request, writes
-`{"protocol":1,"id":"<same id>","ok":true}` (or `"ok":false,"error":"<shown to the user>"`)
-within 15 s, waits for TetraVox to quit — it does so on an `ok` receipt — installs the release it
-verifies itself and relaunches. The request names no URL or file and grants nothing: it records the
-user's consent. TI-Toolbox is the reference manager.
+`TETRAVOX_MANAGED_UPDATE_REQUEST` to an absolute path the manager watches (releases after 0.6.1).
+The environment variables, the update-request/receipt protocol v1 and the host's duties are a public
+API specified in [`MANAGED-MODE.md`](MANAGED-MODE.md); a release must not change them except
+additively. The release checklist has no managed-mode step: the contract tests in `updater.test.ts`
+fail CI when the code and that page disagree.
 
 The browser embed is retired; releases no longer build or require its tarball, schemas or checksums.

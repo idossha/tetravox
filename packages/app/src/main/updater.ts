@@ -7,7 +7,7 @@
  * here pushes bytes over IPC, and nothing installs without `tetravox:update-install` carrying a
  * user's click.
  *
- * Two modes, decided once per launch by {@link updateMode}:
+ * The modes, decided once per launch by {@link updateMode}:
  *
  *  * `'inplace'` — electron-updater can replace this install: macOS (the signed zip beside every
  *    dmg is the update artefact), Windows NSIS, and a Linux AppImage. `downloadUpdate` streams the
@@ -17,11 +17,13 @@
  *    so the app only checks the feed and offers the Releases page. The check reads the same
  *    `latest-linux.yml` electron-updater would, over `net.fetch`, so a catalogue answer and an
  *    updatable answer never disagree about what the newest version is.
- *  * `'managed'` — another application installed this copy (`TETRAVOX_MANAGED_BY`) and gave it a
+ *  * `'managed'` — a host application installed this copy (`TETRAVOX_MANAGED_BY`) and gave it a
  *    request file (`TETRAVOX_MANAGED_UPDATE_REQUEST`). The check is `'notify'`'s; the user's click
- *    hands the install to the manager through {@link requestManagedUpdate} and quits, because the
- *    manager owns the files, their verification and the relaunch. A manager that gives no request
- *    file gets `'off'`, exactly as before the handshake existed.
+ *    hands the install to the host through {@link requestManagedUpdate} and quits, because the
+ *    host owns the files, their verification and the relaunch. A host that gives no request file
+ *    gets `'off'`, exactly as before the handshake existed. This is a public, versioned contract:
+ *    `docs/MANAGED-MODE.md` is its specification and `updater.test.ts` "managed mode public
+ *    contract v1" pins it.
  *
  * Everything else is refusal: a dev tree (`!app.isPackaged`) never checks, a `--job` run never
  * checks (nobody is there to answer), the automatic launch check honours the `checkForUpdates`
@@ -104,9 +106,9 @@ export interface UpdaterDeps {
   managedBy?: string;
   /** `TETRAVOX_MANAGED_UPDATE_REQUEST`: where a managed copy asks its manager to update it. */
   managedUpdateRequest?: string;
-  /** How long a managed request waits for the manager's receipt before giving up. */
+  /** How long a managed request waits for the host's receipt; public default {@link MANAGED_RECEIPT_TIMEOUT_MS}. */
   managedReceiptTimeoutMs?: number;
-  /** Quits after the manager accepted a managed update. Defaults to `app.quit()`. */
+  /** Quits after the host accepted a managed update. Defaults to `app.quit()`. */
   quit?: () => void;
   version?: string;
   onStatus?: (status: UpdateStatus) => void;
@@ -212,6 +214,8 @@ export class UpdaterService {
   private checking: Promise<UpdateStatus> | null = null;
   /** What the in-flight or last check was: the launch check stays silent about a skipped version. */
   private auto = false;
+  /** `TETRAVOX_MANAGED_UPDATE_REQUEST`, trimmed exactly as {@link updateMode} judged it. */
+  private readonly managedRequestPath: string;
 
   constructor(deps: UpdaterDeps = {}) {
     this.deps = {
@@ -220,14 +224,18 @@ export class UpdaterService {
       platform: deps.platform ?? process.platform,
       ...deps,
     };
+    this.managedRequestPath = (
+      deps.managedUpdateRequest ??
+      process.env['TETRAVOX_MANAGED_UPDATE_REQUEST'] ??
+      ''
+    ).trim();
     this.mode = updateMode({
       packaged: this.deps.packaged,
       isJob: this.deps.isJob,
       platform: this.deps.platform,
       appImage: deps.appImage ?? process.env['APPIMAGE'],
       managedBy: deps.managedBy ?? process.env['TETRAVOX_MANAGED_BY'],
-      managedUpdateRequest:
-        deps.managedUpdateRequest ?? process.env['TETRAVOX_MANAGED_UPDATE_REQUEST'],
+      managedUpdateRequest: this.managedRequestPath,
     });
     this.impl = deps.impl ?? null;
     this.status = {
@@ -357,7 +365,7 @@ export class UpdaterService {
   // ----------------------------------------------------------------------------------------------
 
   /**
-   * The user's click on a managed copy: the manager installs, verifies and relaunches, so this only
+   * The user's click on a managed copy: the host installs, verifies and relaunches, so this only
    * asks — after the unsaved-edits question, because a yes ends with this process quitting.
    */
   private async installManaged(): Promise<UpdateActionResult> {
@@ -370,7 +378,7 @@ export class UpdaterService {
     }
     try {
       await requestManagedUpdate(
-        this.deps.managedUpdateRequest ?? process.env['TETRAVOX_MANAGED_UPDATE_REQUEST'] ?? '',
+        this.managedRequestPath,
         { version, current: this.status.current },
         this.deps.managedReceiptTimeoutMs
       );
@@ -472,27 +480,30 @@ export class UpdaterService {
   }
 }
 
-/** What a managed copy writes to `TETRAVOX_MANAGED_UPDATE_REQUEST` (docs/RELEASING.md §10). */
+/** Public v1 (`docs/MANAGED-MODE.md`): how long the host has to write its receipt. */
+export const MANAGED_RECEIPT_TIMEOUT_MS = 15_000;
+
+/** What a managed copy writes to `TETRAVOX_MANAGED_UPDATE_REQUEST` (public v1, `docs/MANAGED-MODE.md`). */
 export interface ManagedUpdateRequest {
   protocol: 1;
   action: 'update';
   id: string;
-  /** The version the user agreed to; the manager installs its own verified newest release. */
+  /** The version the user agreed to; the host installs its own verified newest release. */
   version: string;
   current: string;
 }
 
 /**
- * Ask the manager to update this copy and wait for its receipt. The request lands whole (a
- * temporary file renamed into place) so a manager polling the path never reads half of it; the
- * receipt is `<request>.receipt.json` carrying the same id. No receipt in time means no manager is
+ * Ask the host to update this copy and wait for its receipt. The request lands whole (a
+ * temporary file renamed into place) so a host polling the path never reads half of it; the
+ * receipt is `<request>.receipt.json` carrying the same id. No receipt in time means no host is
  * listening (it quit, or predates the handshake): the request is withdrawn so a later launch of the
- * manager does not act on a click nobody saw answered.
+ * host does not act on a click nobody saw answered.
  */
 export async function requestManagedUpdate(
   path: string,
   update: { version: string; current: string },
-  timeoutMs = 15_000
+  timeoutMs = MANAGED_RECEIPT_TIMEOUT_MS
 ): Promise<void> {
   if (!isAbsolute(path)) throw new Error('no update request path was provided');
   const request: ManagedUpdateRequest = {

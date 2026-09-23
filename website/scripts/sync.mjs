@@ -114,6 +114,7 @@ function rewriteLinks(body) {
   out = out.replaceAll('](ARCHITECTURE.md)', '](/developers/architecture)');
   out = out.replaceAll('](TESTING.md)', '](/developers/testing)');
   out = out.replaceAll('](AUTOMATION.md#native-scene-api)', '](/automation#native-scene-api)');
+  out = out.replaceAll('](MANAGED-MODE.md)', '](/developers/managed-mode)');
   // USER_GUIDE.md cross-links to its own other sections, once split into
   // one page per topic under /guide/ (see splitGuide() below).
   out = out.replace(/\{\{ site\.baseurl \}\}\/guide\/([a-z0-9-]+)\.html/g, '/guide/$1');
@@ -202,6 +203,7 @@ const DOC_PAGES = [
   { src: 'BENCHMARKS.md', out: 'developers/benchmarks.md', title: 'Benchmarks' },
   { src: 'ROADMAP.md', out: 'developers/roadmap.md', title: 'Roadmap' },
   { src: 'RELEASING.md', out: 'developers/releasing.md', title: 'Releasing' },
+  { src: 'MANAGED-MODE.md', out: 'developers/managed-mode.md', title: 'Managed mode' },
 ];
 
 for (const page of DOC_PAGES) {

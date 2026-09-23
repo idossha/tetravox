@@ -667,5 +667,6 @@ invalid/private-file checks may refuse a request without writing a receipt. Requ
 and must be read within 60 seconds. Renderer replies time out after 25 seconds. A timeout is not permission
 to overwrite or automatically repeat an action that may still be completing.
 
-The transport is local and has no listening port. Native updates remain TetraVox's responsibility.
+The transport is local and has no listening port. An application that ships its own TetraVox copy
+and owns its updates uses [managed mode](MANAGED-MODE.md), a separate public API.
 See [architecture](ARCHITECTURE.md) and [testing](TESTING.md) for the implementation contract and checks.
