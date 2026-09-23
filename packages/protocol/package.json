@@ -1,6 +1,6 @@
 {
   "name": "@tetravox/protocol",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "type": "module",
   "description": "Worker envelope and every op args/result type (ARCHITECTURE.md §6.5). FROZEN.",

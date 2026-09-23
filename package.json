@@ -1,6 +1,6 @@
 {
   "name": "tetravox",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "private": true,
   "type": "module",
   "description": "High-performance NIfTI + mesh viewer. See docs/ARCHITECTURE.md.",
