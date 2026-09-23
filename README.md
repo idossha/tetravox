@@ -28,4 +28,7 @@ organ labels or a lumbar MRI with per-vertebra segmentations opens exactly the s
 
 Tetravox is MIT licensed. 
 
+Applications can bundle and manage their own TetraVox copy through the public
+[managed-mode API](docs/MANAGED-MODE.md).
+
 Contributions are welcome; start with [`CONTRIBUTING.md`](CONTRIBUTING.md).

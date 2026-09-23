@@ -320,8 +320,8 @@ export interface UpdateStatus {
   received?: number;
   total?: number;
   error?: string;
-  /** `'inplace'` downloads and restarts; `'notify'` (`.deb`/`.tar.gz`) offers the Releases page; `'off'` is a dev build. */
-  mode: 'inplace' | 'notify' | 'off';
+  /** `'inplace'` downloads and restarts; `'notify'` (`.deb`/`.tar.gz`) offers the Releases page; `'managed'` hands the install to `managedBy`; `'off'` is a dev build or a manager without the handshake. */
+  mode: 'inplace' | 'notify' | 'managed' | 'off';
   managedBy?: string;
   /** True on statuses born from the launch check, so the renderer toasts instead of assuming a dialog. */
   auto?: boolean;

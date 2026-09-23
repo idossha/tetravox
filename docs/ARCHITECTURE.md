@@ -73,7 +73,7 @@ tetravox/
 ├── testdata/                     # synthetic fixtures from scripts/gen-fixtures.py + manifest.json (committed)
 ├── scripts/                      # build-wasm.sh, gen-fixtures.py, bench.ts, refvalues/, reference/
 ├── docs/                         # ARCHITECTURE.md (this), DECISIONS.md, ROADMAP.md, TESTING.md,
-│                                 #   BENCHMARKS.md, USER_GUIDE.md, AUTOMATION.md
+│                                 #   BENCHMARKS.md, USER_GUIDE.md, AUTOMATION.md, MANAGED-MODE.md
 └── .github/workflows/ci.yml      # the matrix in §12
 ```
 
@@ -3415,7 +3415,10 @@ status-bar pill for as long as it stays true — and does nothing further until 
   macOS (the signed zip beside each dmg is the update artefact; Squirrel.Mac also checks the code
   signature), Windows NSIS, Linux AppImage (`APPIMAGE` set); `'notify'` — a `.deb`/`.tar.gz` install,
   which only reads `latest-linux.yml` over `net.fetch`, compares, and offers the Releases page;
-  `'off'` — a dev tree (`!app.isPackaged`), every `--job` run, and externally managed launches. (A *packaged* unsigned build —
+  `'managed'` — a host-managed launch that names a request file (below): the `'notify'` check,
+  and a click that hands the install to the host;
+  `'off'` — a dev tree (`!app.isPackaged`), every `--job` run, and a managed launch without a request
+  file. (A *packaged* unsigned build —
   a contributor's own `pnpm package` — is `'inplace'` and checks; on macOS Squirrel then refuses
   the unsigned swap at install time, surfaced honestly as an 'error' status.)
 * **Flow.** A launch check (a few seconds after ready, gated by the `checkForUpdates` setting, silent
@@ -3429,9 +3432,25 @@ status-bar pill for as long as it stays true — and does nothing further until 
 * **Tests.** `updater.test.ts` injects the `UpdaterImpl`/`fetchImpl` seams and asserts the refusals
   above; electron-updater itself is loaded only in a packaged `'inplace'` build, by dynamic import.
 
-External installation managers set `TETRAVOX_MANAGED_BY` when launching their copy. That launch
-never checks, downloads or installs native updates; the Updates dialog identifies the manager.
-The manager owns version changes so the app cannot replace a pinned installation. Windows builds
+**Managed mode is a public, versioned API** (2026-09-22): any application (the *host*) may ship
+and manage its own private copy. [`docs/MANAGED-MODE.md`](MANAGED-MODE.md) is its specification —
+environment variables, activation table, the request/receipt protocol v1 with JSON Schemas, the
+host's duties, security and platform notes, and the stability promise — and this section only
+summarises it. A host sets `TETRAVOX_MANAGED_BY` (display text) when launching its copy. That launch
+never downloads or installs anything itself: the host owns the files and version changes, so the
+app cannot replace a pinned installation. A host that also sets `TETRAVOX_MANAGED_UPDATE_REQUEST`
+to an absolute path gets `'managed'` mode: the launch check, the skip and the Software Update dialog
+work as usual, and **Update to X** asks about unsaved edits, writes
+`{protocol: 1, action: "update", id, version, current}` to that path (a temporary file renamed into
+place), waits up to 15 s (`MANAGED_RECEIPT_TIMEOUT_MS`) for `<path>.receipt.json` with the same `id`,
+and quits on `ok: true`. An `ok: false` receipt's `error` is shown and the app stays open; no receipt
+withdraws the request and says the host did not answer. What gets installed is the host's choice (it
+verifies and relaunches); the request is consent, not an instruction. Without the request variable
+the dialog only identifies the host, as before — so a host predating the handshake is unaffected.
+Both variables, the activation rule, the request and receipt fields, `protocol: 1`, the receipt name
+and the 15 s deadline change only additively; a breaking change is a new protocol a host opts into.
+`updater.test.ts` "managed mode public contract v1" reads the schemas and examples out of
+MANAGED-MODE.md and holds the code to them. Windows builds
 include a portable x64 ZIP for manager-owned extraction as well as the ordinary NSIS installer;
 the ZIP avoids NSIS registry-driven replacement of an unrelated standalone installation.
 

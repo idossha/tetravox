@@ -7,7 +7,7 @@
  * here pushes bytes over IPC, and nothing installs without `tetravox:update-install` carrying a
  * user's click.
  *
- * Two modes, decided once per launch by {@link updateMode}:
+ * The modes, decided once per launch by {@link updateMode}:
  *
  *  * `'inplace'` — electron-updater can replace this install: macOS (the signed zip beside every
  *    dmg is the update artefact), Windows NSIS, and a Linux AppImage. `downloadUpdate` streams the
@@ -17,6 +17,13 @@
  *    so the app only checks the feed and offers the Releases page. The check reads the same
  *    `latest-linux.yml` electron-updater would, over `net.fetch`, so a catalogue answer and an
  *    updatable answer never disagree about what the newest version is.
+ *  * `'managed'` — a host application installed this copy (`TETRAVOX_MANAGED_BY`) and gave it a
+ *    request file (`TETRAVOX_MANAGED_UPDATE_REQUEST`). The check is `'notify'`'s; the user's click
+ *    hands the install to the host through {@link requestManagedUpdate} and quits, because the
+ *    host owns the files, their verification and the relaunch. A host that gives no request file
+ *    gets `'off'`, exactly as before the handshake existed. This is a public, versioned contract:
+ *    `docs/MANAGED-MODE.md` is its specification and `updater.test.ts` "managed mode public
+ *    contract v1" pins it.
  *
  * Everything else is refusal: a dev tree (`!app.isPackaged`) never checks, a `--job` run never
  * checks (nobody is there to answer), the automatic launch check honours the `checkForUpdates`
@@ -30,6 +37,9 @@
  * `FetchLike` (its header explains why the tests must run with no network).
  */
 
+import { randomUUID } from 'node:crypto';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
 import { app, net, shell } from 'electron';
 import { compareVersions } from './module-store';
 import { readSettings, writeSettings } from './settings';
@@ -56,8 +66,9 @@ export interface UpdateStatus {
   error?: string;
   /**
    * This launch's posture, so the dialog picks its buttons and its copy off the truth: `'inplace'`
-   * downloads and restarts, `'notify'` (a `.deb`/`.tar.gz`) offers the Releases page, `'off'` (a
-   * dev or `--job` build) says so instead of pretending to check.
+   * downloads and restarts, `'notify'` (a `.deb`/`.tar.gz`) offers the Releases page, `'managed'`
+   * hands the install to `managedBy`, `'off'` (a dev or `--job` build, or a manager with no request
+   * file) says so instead of pretending to check.
    */
   mode: UpdateMode;
   /** The external installer that owns updates for this launch. */
@@ -93,6 +104,12 @@ export interface UpdaterDeps {
   packaged?: boolean;
   isJob?: boolean;
   managedBy?: string;
+  /** `TETRAVOX_MANAGED_UPDATE_REQUEST`: where a managed copy asks its manager to update it. */
+  managedUpdateRequest?: string;
+  /** How long a managed request waits for the host's receipt; public default {@link MANAGED_RECEIPT_TIMEOUT_MS}. */
+  managedReceiptTimeoutMs?: number;
+  /** Quits after the host accepted a managed update. Defaults to `app.quit()`. */
+  quit?: () => void;
   version?: string;
   onStatus?: (status: UpdateStatus) => void;
   /** The launch check's grace delay, injectable so the tests need no clock. */
@@ -107,7 +124,7 @@ export interface UpdaterDeps {
   confirmQuit?: () => Promise<boolean>;
 }
 
-export type UpdateMode = 'inplace' | 'notify' | 'off';
+export type UpdateMode = 'inplace' | 'notify' | 'managed' | 'off';
 
 /** `{ ok, error? }` like every other action result on the bridge; it never throws. */
 export interface UpdateActionResult {
@@ -126,11 +143,17 @@ export function updateMode(opts: {
   platform: NodeJS.Platform;
   appImage: string | undefined;
   managedBy?: string;
+  managedUpdateRequest?: string;
 }): UpdateMode {
   // A dev tree has nothing an updater could replace, and a `--job` run has nobody to answer.
   // Deliberately NOT a signing check: a packaged-but-unsigned contributor build still checks (and
   // on macOS fails honestly at install, when Squirrel refuses the swap) — see the header.
-  if (!opts.packaged || opts.isJob || opts.managedBy?.trim()) return 'off';
+  if (!opts.packaged || opts.isJob) return 'off';
+  // A managed copy never replaces itself: its manager does, when it offered a request file.
+  if (opts.managedBy?.trim()) {
+    const request = opts.managedUpdateRequest?.trim();
+    return request && isAbsolute(request) ? 'managed' : 'off';
+  }
   if (opts.platform === 'linux' && (opts.appImage === undefined || opts.appImage === '')) {
     return 'notify';
   }
@@ -191,6 +214,10 @@ export class UpdaterService {
   private checking: Promise<UpdateStatus> | null = null;
   /** What the in-flight or last check was: the launch check stays silent about a skipped version. */
   private auto = false;
+  /** `TETRAVOX_MANAGED_UPDATE_REQUEST`, trimmed exactly as {@link updateMode} judged it. */
+  private readonly managedRequestPath: string;
+  /** The in-flight managed request: a second click joins it rather than racing it on disk. */
+  private requesting: Promise<UpdateActionResult> | null = null;
 
   constructor(deps: UpdaterDeps = {}) {
     this.deps = {
@@ -199,12 +226,18 @@ export class UpdaterService {
       platform: deps.platform ?? process.platform,
       ...deps,
     };
+    this.managedRequestPath = (
+      deps.managedUpdateRequest ??
+      process.env['TETRAVOX_MANAGED_UPDATE_REQUEST'] ??
+      ''
+    ).trim();
     this.mode = updateMode({
       packaged: this.deps.packaged,
       isJob: this.deps.isJob,
       platform: this.deps.platform,
       appImage: deps.appImage ?? process.env['APPIMAGE'],
       managedBy: deps.managedBy ?? process.env['TETRAVOX_MANAGED_BY'],
+      managedUpdateRequest: this.managedRequestPath,
     });
     this.impl = deps.impl ?? null;
     this.status = {
@@ -297,6 +330,11 @@ export class UpdaterService {
 
   /** The user's click on Restart — or on Open Releases Page, which is what a `'notify'` build has. */
   async install(): Promise<UpdateActionResult> {
+    if (this.mode === 'managed') {
+      return (this.requesting ??= this.installManaged().finally(() => {
+        this.requesting = null;
+      }));
+    }
     if (this.mode === 'notify') {
       (this.deps.openReleases ?? (() => void shell.openExternal(RELEASES_URL)))();
       return { ok: true };
@@ -331,6 +369,33 @@ export class UpdaterService {
   }
 
   // ----------------------------------------------------------------------------------------------
+
+  /**
+   * The user's click on a managed copy: the host installs, verifies and relaunches, so this only
+   * asks — after the unsaved-edits question, because a yes ends with this process quitting.
+   */
+  private async installManaged(): Promise<UpdateActionResult> {
+    const version = this.status.available;
+    if (this.status.phase !== 'available' || version === undefined) {
+      return { ok: false, error: 'no update is available' };
+    }
+    if (this.deps.confirmQuit !== undefined && !(await this.deps.confirmQuit())) {
+      return { ok: false, error: 'unsaved edits — save or discard them first' };
+    }
+    try {
+      await requestManagedUpdate(
+        this.managedRequestPath,
+        { version, current: this.status.current },
+        this.deps.managedReceiptTimeoutMs
+      );
+    } catch (err) {
+      const error = `${this.status.managedBy ?? 'The installing application'}: ${errorText(err)}`;
+      this.push({ phase: 'error', error });
+      return { ok: false, error };
+    }
+    (this.deps.quit ?? (() => app.quit()))();
+    return { ok: true };
+  }
 
   private async checkInPlace(): Promise<UpdateStatus> {
     try {
@@ -419,6 +484,65 @@ export class UpdaterService {
     this.deps.onStatus?.(this.status);
     return this.status;
   }
+}
+
+/** Public v1 (`docs/MANAGED-MODE.md`): how long the host has to write its receipt. */
+export const MANAGED_RECEIPT_TIMEOUT_MS = 15_000;
+
+/** What a managed copy writes to `TETRAVOX_MANAGED_UPDATE_REQUEST` (public v1, `docs/MANAGED-MODE.md`). */
+export interface ManagedUpdateRequest {
+  protocol: 1;
+  action: 'update';
+  id: string;
+  /** The version the user agreed to; the host installs its own verified newest release. */
+  version: string;
+  current: string;
+}
+
+/**
+ * Ask the host to update this copy and wait for its receipt. The request lands whole (a
+ * temporary file renamed into place) so a host polling the path never reads half of it; the
+ * receipt is `<request>.receipt.json` carrying the same id. No receipt in time means no host is
+ * listening (it quit, or predates the handshake): the request is withdrawn so a later launch of the
+ * host does not act on a click nobody saw answered.
+ */
+export async function requestManagedUpdate(
+  path: string,
+  update: { version: string; current: string },
+  timeoutMs = MANAGED_RECEIPT_TIMEOUT_MS
+): Promise<void> {
+  if (!isAbsolute(path)) throw new Error('no update request path was provided');
+  const request: ManagedUpdateRequest = {
+    protocol: 1,
+    action: 'update',
+    id: randomUUID(),
+    ...update,
+  };
+  const receiptPath = `${path}.receipt.json`;
+  await rm(receiptPath, { force: true });
+  // Created fresh (`wx`), so `0600` holds even over a `.tmp` left by a crash, and a planted link
+  // there is refused rather than followed.
+  await rm(`${path}.tmp`, { force: true });
+  await writeFile(`${path}.tmp`, JSON.stringify(request), { mode: 0o600, flag: 'wx' });
+  await rename(`${path}.tmp`, path);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    let receipt: { protocol?: unknown; id?: unknown; ok?: unknown; error?: unknown } | null;
+    try {
+      receipt = JSON.parse(await readFile(receiptPath, 'utf8')) as typeof receipt;
+    } catch {
+      continue; // Not written yet, or caught mid-write: the next poll reads it whole.
+    }
+    if (receipt?.protocol !== 1 || receipt.id !== request.id) continue;
+    await rm(receiptPath, { force: true });
+    if (receipt.ok !== true) {
+      throw new Error(typeof receipt.error === 'string' ? receipt.error : 'the update was refused');
+    }
+    return;
+  }
+  await rm(path, { force: true });
+  throw new Error('did not answer the update request — update TetraVox from that application');
 }
 
 /** The real electron-updater, loaded only in an `'inplace'` build and only on first use. */

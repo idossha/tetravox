@@ -8,7 +8,19 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Managed mode is a public, versioned API.** Any application can ship its own private Tetravox
+  copy, launch it with `TETRAVOX_MANAGED_BY` (its name) and `TETRAVOX_MANAGED_UPDATE_REQUEST` (an
+  absolute path it watches), and own that copy's updates. Such a copy now shows its own Software
+  Update window when a newer release exists: **Update to X** closes Tetravox and hands the install to
+  the application through a small request/receipt file protocol (v1), and that application
+  downloads, verifies and reopens it; **Skip This Version** and **Later** work as usual. The
+  specification — environment variables, when the mode applies, JSON Schemas, a reference host,
+  security and platform notes, and the promise that v1 only changes additively — is
+  [docs/MANAGED-MODE.md](docs/MANAGED-MODE.md). Standalone installs update exactly as before, and an
+  application that sets only `TETRAVOX_MANAGED_BY` keeps today's behaviour: updates stay off and
+  **File ▸ Check for Updates…** names it.
 
 ## [0.6.1] - 2026-09-20
 

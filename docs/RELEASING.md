@@ -565,4 +565,11 @@ manager name when launching. This disables the native
 updater for that process and displays the manager in Updates; the manager must own pinned-version upgrades.
 Existing releases predating this behavior do not honor this environment variable.
 
+To let the user accept updates from TetraVox's own Software Update dialog, also set
+`TETRAVOX_MANAGED_UPDATE_REQUEST` to an absolute path the manager watches (0.6.2 and later).
+The environment variables, the update-request/receipt protocol v1 and the host's duties are a public
+API specified in [`MANAGED-MODE.md`](MANAGED-MODE.md); a release must not change them except
+additively. The release checklist has no managed-mode step: the contract tests in `updater.test.ts`
+fail CI when the code and that page disagree.
+
 The browser embed is retired; releases no longer build or require its tarball, schemas or checksums.

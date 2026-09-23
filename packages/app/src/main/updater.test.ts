@@ -10,9 +10,18 @@
  * exactly as `sample-data.test.ts` does.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const dirs = vi.hoisted(() => ({ home: '' }));
@@ -31,7 +40,14 @@ vi.mock('electron', () => ({
 
 import { readSettings, writeSettings } from './settings';
 import type { UpdateStatus, UpdaterImpl } from './updater';
-import { UpdaterService, feedVersion, plainNotes, updateMode } from './updater';
+import {
+  MANAGED_RECEIPT_TIMEOUT_MS,
+  UpdaterService,
+  feedVersion,
+  plainNotes,
+  requestManagedUpdate,
+  updateMode,
+} from './updater';
 
 /** A controllable stand-in for electron-updater: the tests fire its events by hand. */
 function stubImpl(overrides: Partial<UpdaterImpl> = {}): UpdaterImpl & {
@@ -567,5 +583,421 @@ describe('external installation ownership', () => {
     expect((await service.install()).ok).toBe(false);
     expect(schedule).not.toHaveBeenCalled();
     expect(impl.calls).toEqual([]);
+  });
+});
+
+/**
+ * The managed handshake (§12.4, 2026-09-22): a host that offers a request file gets the native
+ * popup and does the install itself. The "host" here is the test answering the request file the
+ * way a host application does — a receipt beside it with the same id.
+ */
+describe('managed updates hand the install to the manager', () => {
+  const MANAGED = { packaged: true, isJob: false, platform: 'darwin' as const, version: '0.6.1' };
+  const feed = async (): Promise<Response> => new Response('version: 0.7.0\n');
+
+  /** Answer the next request written to `path` the way a manager would. */
+  function answer(path: string, reply: (request: { id: string }) => object): void {
+    const timer = setInterval(() => {
+      if (!existsSync(path)) return;
+      const request = JSON.parse(readFileSync(path, 'utf8')) as { id: string };
+      rmSync(path);
+      writeFileSync(
+        `${path}.receipt.json`,
+        JSON.stringify({ protocol: 1, id: request.id, ...reply(request) })
+      );
+      clearInterval(timer);
+    }, 20);
+  }
+
+  it('is managed only with both the manager name and an absolute request path', () => {
+    const base = { packaged: true, isJob: false, platform: 'darwin' as const, appImage: undefined };
+    expect(
+      updateMode({ ...base, managedBy: 'ExampleHost', managedUpdateRequest: '/u/req.json' })
+    ).toBe('managed');
+    // A manager predating the handshake: today's behaviour, updates off.
+    expect(updateMode({ ...base, managedBy: 'ExampleHost' })).toBe('off');
+    expect(
+      updateMode({ ...base, managedBy: 'ExampleHost', managedUpdateRequest: 'req.json' })
+    ).toBe('off');
+    // A request path without a manager is not a managed launch.
+    expect(updateMode({ ...base, managedUpdateRequest: '/u/req.json' })).toBe('inplace');
+    expect(
+      updateMode({ ...base, packaged: false, managedBy: 'x', managedUpdateRequest: '/u/r' })
+    ).toBe('off');
+    expect(updateMode({ ...base, isJob: true, managedBy: 'x', managedUpdateRequest: '/u/r' })).toBe(
+      'off'
+    );
+  });
+
+  it('the launch check runs and announces a newer release, never touching electron-updater', async () => {
+    const impl = stubImpl();
+    let scheduled: (() => void) | undefined;
+    const [svc, pushed] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: join(dirs.home, 'request.json'),
+      impl,
+      fetchImpl: feed,
+      scheduleLaunchCheck: (run) => (scheduled = run),
+    });
+    svc.startLaunchCheck();
+    scheduled?.();
+    await vi.waitFor(() => expect(pushed.at(-1)?.phase).toBe('available'));
+    expect(pushed.at(-1)).toMatchObject({
+      mode: 'managed',
+      managedBy: 'ExampleHost',
+      available: '0.7.0',
+      auto: true,
+    });
+    expect((await svc.download()).ok).toBe(false);
+    expect(impl.calls).toEqual([]);
+  });
+
+  it('a declined version stays declined on the next launch check', async () => {
+    const request = join(dirs.home, 'request.json');
+    const [first] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+    });
+    await first.check();
+    first.skip('0.7.0');
+    const [second] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+    });
+    expect((await second.check({ auto: true })).phase).toBe('idle');
+  });
+
+  it('install writes the request, waits for the receipt, then quits', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    let seen: Record<string, unknown> | undefined;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    answer(request, (r) => ((seen = r as Record<string, unknown>), { ok: true }));
+    expect(await svc.install()).toEqual({ ok: true });
+    expect(seen).toMatchObject({
+      protocol: 1,
+      action: 'update',
+      version: '0.7.0',
+      current: '0.6.1',
+    });
+    expect(quits).toBe(1);
+    expect(existsSync(`${request}.receipt.json`)).toBe(false);
+  });
+
+  it('asks about unsaved edits first and writes nothing when the user keeps them', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      confirmQuit: async () => false,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    expect((await svc.install()).ok).toBe(false);
+    expect(existsSync(request)).toBe(false);
+    expect(quits).toBe(0);
+  });
+
+  it('a refusal from the manager is shown and the app stays open', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    answer(request, () => ({ ok: false, error: 'no package for this platform' }));
+    const result = await svc.install();
+    expect(result.ok).toBe(false);
+    expect(svc.current()).toMatchObject({
+      phase: 'error',
+      error: 'ExampleHost: no package for this platform',
+    });
+    expect(quits).toBe(0);
+  });
+
+  it('with no manager listening, the request is withdrawn and the app stays open', async () => {
+    const request = join(dirs.home, 'request.json');
+    await expect(
+      requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 300)
+    ).rejects.toThrow('did not answer');
+    expect(existsSync(request)).toBe(false);
+  });
+
+  it('a second click while the first request waits joins it: one request, one quit', async () => {
+    const request = join(dirs.home, 'request.json');
+    let quits = 0;
+    let requests = 0;
+    const [svc] = service({
+      ...MANAGED,
+      managedBy: 'ExampleHost',
+      managedUpdateRequest: request,
+      fetchImpl: feed,
+      quit: () => (quits += 1),
+    });
+    await svc.check();
+    const first = svc.install();
+    const second = svc.install();
+    answer(request, () => ((requests += 1), { ok: true }));
+    expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }]);
+    // A second request would overwrite the first and delete its receipt: nobody would answer.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(existsSync(request)).toBe(false);
+    expect(requests).toBe(1);
+    expect(quits).toBe(1);
+  });
+
+  it('a receipt that is JSON but not an object is not an answer, and never throws', async () => {
+    const request = join(dirs.home, 'request.json');
+    const timer = setInterval(() => {
+      if (existsSync(request)) writeFileSync(`${request}.receipt.json`, 'null');
+    }, 20);
+    try {
+      await expect(
+        requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 400)
+      ).rejects.toThrow('did not answer');
+    } finally {
+      clearInterval(timer);
+    }
+    expect(existsSync(request)).toBe(false);
+  });
+
+  it('ignores a stale receipt that answers some other request', async () => {
+    const request = join(dirs.home, 'request.json');
+    // Written after the request lands, so only the id match — not the up-front delete — refuses it.
+    answer(request, () => ({ id: 'old', ok: true }));
+    await expect(
+      requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 300)
+    ).rejects.toThrow('did not answer');
+  });
+});
+
+/**
+ * The public managed-mode contract, v1 (`docs/MANAGED-MODE.md`). Third-party hosts implement
+ * against that page, not against this source, so these tests take their expectations from the page
+ * itself — its JSON Schemas and its examples — plus the literal environment-variable names and
+ * numbers it promises. Changing the code or the page alone fails here; a deliberate change edits
+ * both and follows the page's "Stability and versioning" rules (additive within v1).
+ */
+describe('managed mode public contract v1', () => {
+  const HOST = 'ExampleHost';
+  const MANAGED_ENV = ['TETRAVOX_MANAGED_BY', 'TETRAVOX_MANAGED_UPDATE_REQUEST'] as const;
+  const page = readFileSync(
+    fileURLToPath(new URL('../../../../docs/MANAGED-MODE.md', import.meta.url)),
+    'utf8'
+  );
+  const jsonBlocks = [...page.matchAll(/```json\n([\s\S]*?)```/g)].map(
+    (m) => JSON.parse(m[1] ?? '') as Record<string, unknown>
+  );
+  const schema = (id: string): Schema => {
+    const found = jsonBlocks.find((b) => b['$id'] === id);
+    if (found === undefined) throw new Error(`MANAGED-MODE.md has no schema ${id}`);
+    return found as unknown as Schema;
+  };
+  const example = (keys: object): Record<string, unknown> => {
+    const found = jsonBlocks.find(
+      (b) => b['$id'] === undefined && Object.entries(keys).every(([k, v]) => b[k] === v)
+    );
+    if (found === undefined)
+      throw new Error(`MANAGED-MODE.md has no example ${JSON.stringify(keys)}`);
+    return found;
+  };
+
+  interface Schema {
+    required: string[];
+    properties: Record<string, { const?: unknown; type?: string; pattern?: string }>;
+  }
+  /** The subset of JSON Schema the page uses: required, const, type, pattern. */
+  function violations(s: Schema, value: Record<string, unknown>): string[] {
+    const out = s.required.filter((k) => !(k in value)).map((k) => `missing ${k}`);
+    for (const [k, rule] of Object.entries(s.properties)) {
+      if (!(k in value)) continue;
+      const v = value[k];
+      if ('const' in rule && v !== rule.const) out.push(`${k} is not ${String(rule.const)}`);
+      if (rule.type !== undefined && typeof v !== rule.type) out.push(`${k} is not a ${rule.type}`);
+      if (rule.pattern !== undefined && !new RegExp(rule.pattern).test(String(v))) {
+        out.push(`${k} does not match ${rule.pattern}`);
+      }
+    }
+    return out;
+  }
+
+  const saved: Partial<Record<(typeof MANAGED_ENV)[number], string | undefined>> = {};
+  beforeEach(() => {
+    for (const name of MANAGED_ENV) saved[name] = process.env[name];
+  });
+  afterEach(() => {
+    for (const name of MANAGED_ENV) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  });
+
+  /** A host answering the next request at `path` with a receipt it builds from the request. */
+  function host(
+    path: string,
+    receipt: (request: Record<string, unknown>) => object
+  ): {
+    seen: () => Record<string, unknown> | undefined;
+    mode: () => number | undefined;
+  } {
+    let seen: Record<string, unknown> | undefined;
+    let mode: number | undefined;
+    const timer = setInterval(() => {
+      if (!existsSync(path)) return;
+      mode = statSync(path).mode & 0o777;
+      seen = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+      rmSync(path);
+      writeFileSync(`${path}.receipt.tmp`, JSON.stringify(receipt(seen)));
+      renameSync(`${path}.receipt.tmp`, `${path}.receipt.json`);
+      clearInterval(timer);
+    }, 20);
+    return { seen: () => seen, mode: () => mode };
+  }
+
+  it('is switched on by exactly these two environment variables, trimmed', async () => {
+    const request = join(dirs.home, 'request.json');
+    process.env['TETRAVOX_MANAGED_BY'] = `  ${HOST} `;
+    process.env['TETRAVOX_MANAGED_UPDATE_REQUEST'] = ` ${request}  `;
+    let quits = 0;
+    const [svc] = service({
+      packaged: true,
+      platform: 'linux',
+      version: '0.6.1',
+      fetchImpl: async () => new Response('version: 0.7.0\n'),
+      quit: () => (quits += 1),
+    });
+    expect(svc.current()).toMatchObject({ mode: 'managed', managedBy: HOST });
+    await svc.check();
+    const answered = host(request, (r) => ({ protocol: 1, id: r['id'], ok: true }));
+    expect(await svc.install()).toEqual({ ok: true });
+    expect(answered.seen()).toBeDefined();
+    expect(quits).toBe(1);
+  });
+
+  it('activates only as the page table says', () => {
+    const packagedApp = { packaged: true, isJob: false, platform: 'darwin' as const };
+    const mode = (o: object): string =>
+      updateMode({ ...packagedApp, appImage: undefined, ...o } as Parameters<typeof updateMode>[0]);
+    const abs = '/host/owned/request.json';
+    expect(mode({ packaged: false, managedBy: HOST, managedUpdateRequest: abs })).toBe('off');
+    expect(mode({ isJob: true, managedBy: HOST, managedUpdateRequest: abs })).toBe('off');
+    expect(mode({ managedBy: '   ', managedUpdateRequest: abs })).toBe('inplace');
+    expect(mode({ managedBy: HOST, managedUpdateRequest: abs })).toBe('managed');
+    expect(mode({ managedBy: HOST })).toBe('off');
+    expect(mode({ managedBy: HOST, managedUpdateRequest: '  ' })).toBe('off');
+    expect(mode({ managedBy: HOST, managedUpdateRequest: 'relative/request.json' })).toBe('off');
+    // Managed wins over every standalone posture, the AppImage and .deb ones included.
+    expect(
+      mode({
+        platform: 'linux',
+        appImage: '/a.AppImage',
+        managedBy: HOST,
+        managedUpdateRequest: abs,
+      })
+    ).toBe('managed');
+    expect(mode({ platform: 'linux', managedBy: HOST, managedUpdateRequest: abs })).toBe('managed');
+  });
+
+  it('the page promises protocol 1, a 15-second receipt deadline and <path>.receipt.json', () => {
+    expect(MANAGED_RECEIPT_TIMEOUT_MS).toBe(15_000);
+    expect(page).toContain('| Receipt deadline | 15 s after the request appears |');
+    expect(page).toContain('| Receipt file | `<request path>.receipt.json` |');
+    expect(page).toContain('| Protocol number | `1` |');
+    for (const name of MANAGED_ENV) expect(page).toContain(`\`${name}\``);
+  });
+
+  it('the page examples satisfy the page schemas', () => {
+    const req = schema('tetravox:managed-update-request/v1');
+    const rec = schema('tetravox:managed-update-receipt/v1');
+    expect(violations(req, example({ action: 'update' }))).toEqual([]);
+    expect(violations(rec, example({ ok: true }))).toEqual([]);
+    expect(violations(rec, example({ ok: false }))).toEqual([]);
+  });
+
+  it('the request written is atomic, private and valid against the request schema', async () => {
+    const request = join(dirs.home, 'request.json');
+    const answered = host(request, (r) => ({ protocol: 1, id: r['id'], ok: true }));
+    await requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' });
+    const written = answered.seen();
+    if (written === undefined) throw new Error('the host saw no request');
+    const req = schema('tetravox:managed-update-request/v1');
+    expect(violations(req, written)).toEqual([]);
+    // Nothing undocumented: additive fields arrive with the page, never before it.
+    expect(Object.keys(written).filter((k) => !(k in req.properties))).toEqual([]);
+    expect(written).toMatchObject({ version: '0.7.0', current: '0.6.1' });
+    expect(existsSync(`${request}.tmp`)).toBe(false);
+    expect(existsSync(`${request}.receipt.json`)).toBe(false);
+    if (process.platform !== 'win32') expect(answered.mode()).toBe(0o600);
+  });
+
+  it('the request is 0600 even over a .tmp left behind by a crash', async () => {
+    if (process.platform === 'win32') return;
+    const request = join(dirs.home, 'request.json');
+    writeFileSync(`${request}.tmp`, 'half a request', { mode: 0o644 });
+    const answered = host(request, (r) => ({ protocol: 1, id: r['id'], ok: true }));
+    await requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' });
+    expect(answered.mode()).toBe(0o600);
+  });
+
+  it("each request gets a fresh id that matches the page's pattern", async () => {
+    const request = join(dirs.home, 'request.json');
+    const ids: unknown[] = [];
+    for (let i = 0; i < 2; i += 1) {
+      const answered = host(request, (r) => ({ protocol: 1, id: r['id'], ok: true }));
+      await requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' });
+      ids.push(answered.seen()?.['id']);
+    }
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  it("the page's refusal example is shown prefixed with the host name", async () => {
+    const request = join(dirs.home, 'request.json');
+    const refusal = example({ ok: false });
+    const [svc] = service({
+      packaged: true,
+      platform: 'win32',
+      version: '0.6.1',
+      managedBy: HOST,
+      managedUpdateRequest: request,
+      fetchImpl: async () => new Response('version: 0.7.0\n'),
+      quit: () => {
+        throw new Error('a refused update must not quit');
+      },
+    });
+    await svc.check();
+    host(request, (r) => ({ ...refusal, id: r['id'] }));
+    expect((await svc.install()).ok).toBe(false);
+    expect(svc.current()).toMatchObject({
+      phase: 'error',
+      error: `${HOST}: ${String(refusal['error'])}`,
+    });
+  });
+
+  it('a receipt for another protocol is not an answer', async () => {
+    const request = join(dirs.home, 'request.json');
+    host(request, (r) => ({ protocol: 2, id: r['id'], ok: true }));
+    await expect(
+      requestManagedUpdate(request, { version: '0.7.0', current: '0.6.1' }, 400)
+    ).rejects.toThrow('did not answer');
+    expect(existsSync(request)).toBe(false);
   });
 });
