@@ -34,8 +34,8 @@ Rust is pinned by `rust-toolchain.toml`; Node ≥ 22 and pnpm (`packageManager` 
   an old one.
 - New file-format support needs a synthetic fixture in `testdata/` produced by
   `scripts/gen-fixtures.py`, with expected values read back by an independent library.
-- Do not bump versions or push tags in a PR; releases are cut by a maintainer per
-  `docs/RELEASING.md`.
+- Do not bump versions or push tags in a PR; releases are cut by a maintainer — or by an agent the
+  maintainer has asked to cut one — per `docs/RELEASING.md`.
 
 ## Adding an extension
 
