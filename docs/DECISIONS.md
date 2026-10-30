@@ -5947,3 +5947,20 @@ volume-bar and corner-info goldens, which need an ubuntu re-bless, for text that
 upper-casing units deliberately (still mega). Left folded: the glyph legend corner line
 (`E: … MM ARROWS`), whose units come from the dataset, which a `.msh` never sets. Evidence:
 `font.test.ts` ("keeps case and `_` only in exact text").
+
+## 2026-10-30 — Field labels take one subscript markup, `X_{sub}` (§4.4)
+
+TI-Toolbox wants `TI_max` shown as TI with subscript max while the saved name keeps its underscore, and
+will send `"label": "TI_{max}"` through `MeshLayer.fields`. Decision: `label` honours exactly `X_{sub}`
+(`derived/field-label.ts#labelParts`, the one parser); HTML surfaces (chips, the Field header, the probe
+readout) render `<sub>`, a native `<option>` shows `plainLabel` (`TI_max`), and the bitmap colour bar
+raises the base three font pixels over a same-size subscript on the title's line — raising, not
+lowering, because the line below holds the top tick. A bare name is never converted: `TI_max` without a
+`label` displays `TI_max`, since an implicit `_` → subscript would mangle names like `elm_gap`. Text with
+no subscript draws exactly as before, so no golden moves. `ProbeRow.fields[].label` (optional) carries
+the label to the readout. Alternatives rejected: a smaller subscript glyph (the 5×7 atlas is
+integer-magnified; a 0.6× quad drops pixels); Unicode subscript letters (no `q`, uneven fonts); full
+TeX. A 0.6.3 build reading such a scene carries `fields` on the layer as an inert property — no warning,
+no rejection — and re-saves it untouched (the §4.6 spread). Evidence: `field-label.test.ts`,
+`colorbar.test.ts` "exact text and §4.4 label markup", `multifield.spec.ts` (`<sub>` in chip, header
+and probe; a bare name has none).

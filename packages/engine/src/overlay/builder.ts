@@ -13,6 +13,10 @@
  */
 
 import { ATLAS_W, ATLAS_H, CELL_W, GLYPH_H, GLYPH_W, cellOf } from '../render/font';
+import { labelParts } from '../derived/field-label';
+
+/** How far a subscript sits below its base, in font pixels (of the glyph's 7). */
+const SUB_RAISE = 3;
 import type { vec4 } from '../scene/types';
 
 export const FLOATS_PER_VERTEX = 8;
@@ -95,10 +99,18 @@ export class OverlayBuilder {
     align: 'left' | 'center' | 'right' = 'left',
     exact = false
   ): void {
-    const totalW = text.length * CELL_W * scale;
+    // Exact text honours §4.4's `X_{sub}` label markup: the base is raised and the subscript keeps
+    // the line, so nothing drops into the line below. Text with no subscript draws exactly as before.
+    const parts = exact ? labelParts(text) : [{ text, sub: false }];
+    const raise = parts.some((p) => p.sub) ? SUB_RAISE * scale : 0;
+    const glyphs = parts.flatMap((p) =>
+      p.text.split('').map((ch) => ({ ch, dy: p.sub ? 0 : raise }))
+    );
+    const totalW = glyphs.length * CELL_W * scale;
     const x0 = align === 'left' ? x : align === 'center' ? x - totalW / 2 : x - totalW;
-    for (let i = 0; i < text.length; i += 1) {
-      const cell = cellOf(text[i] ?? ' ', exact);
+    for (let i = 0; i < glyphs.length; i += 1) {
+      const g = glyphs[i] as { ch: string; dy: number };
+      const cell = cellOf(g.ch, exact);
       const gx = x0 + i * CELL_W * scale;
       // Atlas texel rectangle for this glyph. v is flipped because the atlas rows run top-down
       // while pane pixels run bottom-up.
@@ -109,12 +121,12 @@ export class OverlayBuilder {
       const w = GLYPH_W * scale;
       const h = GLYPH_H * scale;
       const quad: [number, number, number, number][] = [
-        [gx, y, u0, v0],
-        [gx + w, y, u1, v0],
-        [gx + w, y + h, u1, v1],
-        [gx, y, u0, v0],
-        [gx + w, y + h, u1, v1],
-        [gx, y + h, u0, v1],
+        [gx, y + g.dy, u0, v0],
+        [gx + w, y + g.dy, u1, v0],
+        [gx + w, y + g.dy + h, u1, v1],
+        [gx, y + g.dy, u0, v0],
+        [gx + w, y + g.dy + h, u1, v1],
+        [gx, y + g.dy + h, u0, v1],
       ];
       for (const [px, py, u, v] of quad) this.#vertex(px, py, u, v, color);
     }

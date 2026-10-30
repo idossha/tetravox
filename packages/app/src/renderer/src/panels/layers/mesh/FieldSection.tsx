@@ -10,6 +10,8 @@
  */
 
 import type { ColormapName, MeshDataset, MeshLayer } from '@tetravox/engine';
+import { plainLabel } from '@tetravox/engine';
+import { FieldText } from '../../../ui/FieldText';
 import { ScalarDisplayControls } from '../../histogram/ScalarDisplayControls';
 import { useController, useUi } from '../../../ui/context';
 import { Pending, Row, Section, Select, Slider, Swatch, Toggle } from './controls';
@@ -142,7 +144,7 @@ export function FieldSection({
                   { value: '', label: '—' },
                   ...dataset.fields.map((f) => ({
                     value: fieldKey(f),
-                    label: `${fieldLabel(layer, f)} (${f.source}${f.ncomp > 1 ? `, ${f.ncomp}c` : ''})`,
+                    label: `${plainLabel(fieldLabel(layer, f))} (${f.source}${f.ncomp > 1 ? `, ${f.ncomp}c` : ''})`,
                   })),
                 ]}
                 onChange={(key) => {
@@ -150,6 +152,14 @@ export function FieldSection({
                 }}
               />
             )}
+            {chips && field !== null ? (
+              <span
+                data-testid={`mesh-field-active-${layer.id}`}
+                className="min-w-0 truncate font-mono text-[10px] text-tvx-text"
+              >
+                <FieldText label={fieldLabel(layer, field)} />
+              </span>
+            ) : null}
             {units !== undefined ? (
               <span
                 data-testid={`mesh-field-units-${layer.id}`}
@@ -190,7 +200,7 @@ export function FieldSection({
                       if (!active) void controller.selectMeshField(layer.id, key);
                     }}
                   >
-                    {fieldLabel(layer, f)}
+                    <FieldText label={fieldLabel(layer, f)} />
                     {twin ? ` · ${f.source}` : ''}
                   </button>
                 );

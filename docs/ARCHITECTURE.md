@@ -460,7 +460,8 @@ export interface MeshLayer extends LayerBase {
 }
 
 export interface MeshFieldDisplay {                     // every member optional
-  units?: string; label?: string;                       // display only; never guessed when absent
+  units?: string; label?: string;                       // display only; never guessed when absent.
+                                                        // label markup: `X_{sub}` = subscript, nothing else
   colormap?: ColormapName | string; colormapNegative?: ColormapName | string;
   scale?: Scale; threshold?: Threshold;                 // the field's own window, remembered
 }
@@ -578,11 +579,19 @@ block like any other layer field, in a scene file (§4.6) or a job's `set` patch
 
 ```json
 "fields": {
-  "TI_max":  { "units": "V/m" },
-  "hf_peak": { "units": "V/m" },
+  "TI_max":  { "units": "V/m", "label": "TI_{max}" },
+  "hf_peak": { "units": "V/m", "label": "HF_{peak}" },
   "hf_sar":  { "units": "(V/m)^2", "colormap": "viridis", "scale": { "kind": "linear", "lo": 0, "hi": 0.2 } }
 }
 ```
+
+**`label` has exactly one piece of markup: `X_{sub}`** — `"TI_{max}"` displays `TI` with subscript `max`
+(HTML `<sub>` in the picker, field header and probe readout; in the bitmap colour bar the base is raised
+three font pixels over a same-size subscript, because an integer-magnified 5×7 font has no smaller size).
+`derived/field-label.ts#labelParts` is the one parser. A `_` not followed by `{…}` is literal, so a bare
+field name such as `TI_max` — which is what shows when there is no `label` — is never turned into a
+subscript; a native `<option>` shows `plainLabel` (`TI_max`). `label` is display only: `fields` keys,
+`field.name` and the saved file keep the field's own name.
 
 Absent, nothing reads it and no patch writes it until the user switches fields, so no existing scene or
 golden changes. Pinned by `mesh/state.test.ts` ("per-field display state"), `mesh-colorbar.test.ts`,
@@ -909,7 +918,7 @@ export interface ProbeRow {
   voxel?: vec3; value?: number | vec3;
   labelId?: number; labelName?: string;
   elementId?: number; tag?: number; tagName?: string;
-  fields?: { name: string; value: number | number[]; units?: string }[];   // units: §4.4 `MeshLayer.fields`
+  fields?: { name: string; value: number | number[]; units?: string; label?: string }[];   // §4.4 `MeshLayer.fields`
   vertex?: number; vertexWorld?: vec3;                          // surfaces (§3)
   fsavgVertex?: number; fsavgWorld?: vec3; fsavgSpace?: string;
 }

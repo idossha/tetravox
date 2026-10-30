@@ -200,14 +200,22 @@ test.describe('one mesh, several fields (§4.4)', () => {
     // The `set` patch a job (or a saved scene's layer) delivers — §4.4's metadata block.
     await page.evaluate((layerId) => {
       window.__tetravox?.engine?.updateLayer(layerId, {
-        fields: { hf_sar: { units: '(V/m)^2', label: 'SAR proxy' }, TI_max: { units: 'V/m' } },
+        fields: {
+          hf_sar: { units: '(V/m)^2', label: 'SAR proxy' },
+          TI_max: { units: 'V/m', label: 'TI_{max}' },
+        },
       } as never);
     }, id);
     await expect.poll(() => bar(page, id)).toMatchObject({ title: 'SAR proxy', units: '(V/m)^2' });
     await expect(page.getByTestId(`mesh-field-units-${id}`)).toHaveText('(V/m)^2');
     await expect(page.getByTestId(chip(id, 'hf_sar'))).toHaveText('SAR proxy');
+    // §4.4's `X_{sub}` markup is a real subscript; a bare name is never converted.
+    await expect(page.getByTestId(chip(id, 'TI_max')).locator('sub')).toHaveText('max');
+    await expect(page.getByTestId(chip(id, 'hf_peak'))).toHaveText('hf_peak');
+    await expect(page.getByTestId(chip(id, 'hf_peak')).locator('sub')).toHaveCount(0);
     await page.click(`[data-testid="${chip(id, 'TI_max')}"]`);
-    await expect.poll(() => bar(page, id)).toMatchObject({ title: 'TI_max', units: 'V/m' });
+    await expect.poll(() => bar(page, id)).toMatchObject({ title: 'TI_{max}', units: 'V/m' });
+    await expect(page.getByTestId(`mesh-field-active-${id}`).locator('sub')).toHaveText('max');
     // Switching kept the host's metadata beside the remembered state.
     const kept = await page.evaluate(
       (layerId) =>
@@ -224,8 +232,13 @@ test.describe('one mesh, several fields (§4.4)', () => {
     // and none for the field that has no entry.
     await page.evaluate(() => window.__tetravox?.engine?.setCursor([1.5, 2.5, 3.5]));
     const lines = page.getByTestId('probe-field');
-    await expect(lines.filter({ hasText: /^TI_max = .* V\/m$/ }).first()).toBeVisible();
-    await expect(lines.filter({ hasText: /^hf_sar = .* \(V\/m\)\^2$/ }).first()).toBeVisible();
+    await expect(
+      lines
+        .filter({ hasText: /^TImax = .* V\/m$/ })
+        .first()
+        .locator('sub')
+    ).toHaveText('max');
+    await expect(lines.filter({ hasText: /^SAR proxy = .* \(V\/m\)\^2$/ }).first()).toBeVisible();
     await expect(lines.filter({ hasText: /^hf_peak = [-0-9.e]+$/ }).first()).toBeVisible();
   });
 });

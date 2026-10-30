@@ -708,17 +708,18 @@ export class MeshLayerRuntime implements LayerRuntime {
   // Internals
   // -----------------------------------------------------------------------------------------
 
-  /** One probe field, with its units (§4.4's `MeshLayer.fields` first, never guessed). */
+  /** One probe field, with its units and display label (§4.4's `MeshLayer.fields` first, never guessed). */
   #probeField(
     name: string,
     v: number[]
-  ): { name: string; value: number | number[]; units?: string } {
-    const units =
-      this.#layer.fields?.[name]?.units ?? this.#ds.fields.find((f) => f.name === name)?.units;
+  ): { name: string; value: number | number[]; units?: string; label?: string } {
+    const meta = this.#layer.fields?.[name];
+    const units = meta?.units ?? this.#ds.fields.find((f) => f.name === name)?.units;
     return {
       name,
       value: v.length === 1 ? (v[0] ?? 0) : v,
       ...(units === undefined ? {} : { units }),
+      ...(meta?.label === undefined ? {} : { label: meta.label }),
     };
   }
 

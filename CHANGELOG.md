@@ -18,8 +18,9 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   name and units appear in the field picker, the colour bar title and the probe readout. A `.msh`
   carries no units, so Tetravox shows none unless the scene says so: a mesh layer in a
   `.tetravox.json` scene or a job may carry an optional `fields` block, e.g.
-  `"fields": {"TI_max": {"units": "V/m"}, "hf_sar": {"units": "(V/m)^2"}}`, with an optional `label`,
-  `colormap`, `scale` and `threshold` per field. Scenes without it open exactly as before, and the
+  `"fields": {"TI_max": {"units": "V/m"}, "hf_sar": {"units": "(V/m)^2"}}`, with an optional `label`
+  (`"TI_{max}"` shows _max_ as a subscript; a name without a label is shown as is), `colormap`,
+  `scale` and `threshold` per field. Scenes without it open exactly as before, and the
   block is saved and reopened with the scene.
 
 ## [0.6.3] - 2026-09-23

@@ -188,6 +188,34 @@ describe('colorbarTitle', () => {
   });
 });
 
+describe('exact text and §4.4 label markup', () => {
+  /** The lowest pane-pixel y of each glyph quad, in a 100 px-high builder. */
+  function glyphBottoms(text: string, exact: boolean): number[] {
+    const b = new OverlayBuilder();
+    b.begin(100, 100);
+    b.text(text, 0, 10, 1, [1, 1, 1, 1], 'left', exact);
+    const v = b.build();
+    const out: number[] = [];
+    for (let q = 0; q < v.length / (6 * FLOATS_PER_VERTEX); q += 1) {
+      let lo = Infinity;
+      for (let k = 0; k < 6; k += 1) {
+        lo = Math.min(lo, (((v[(q * 6 + k) * FLOATS_PER_VERTEX + 1] ?? 0) + 1) / 2) * 100);
+      }
+      out.push(Math.round(lo));
+    }
+    return out;
+  }
+
+  it('`TI_{max}` draws five glyphs: the base raised three pixels over a subscript on the line', () => {
+    expect(glyphBottoms('TI_{max}', true)).toEqual([13, 13, 10, 10, 10]);
+  });
+
+  it('a bare name and folded text stay on one line, the braces drawn as written', () => {
+    expect(glyphBottoms('TI_max', true)).toEqual([10, 10, 10, 10, 10, 10]);
+    expect(glyphBottoms('TI_{max}', false)).toHaveLength(8);
+  });
+});
+
 describe('formatTick', () => {
   /** The 45 characters `render/font.ts` can draw. A glyph outside this set renders as a blank. */
   const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:-+/()';
