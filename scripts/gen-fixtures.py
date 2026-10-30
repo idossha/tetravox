@@ -1421,6 +1421,19 @@ def generate(out: Path) -> dict:
         "gapFieldRecords": int(len(gap_ids)),
     }
 
+    # several scalar element fields with distinct, non-overlapping ranges — TI-Toolbox's one
+    # `<montage>_TI.msh` per montage (ARCHITECTURE §4.4 `MeshLayer.fields`): the per-field window test
+    k = np.arange(len(tris) + len(tets), dtype=np.float64).reshape(-1, 1)
+    hf_peak = 2.0 + 0.03 * k
+    multi_fields = {
+        "TI_max": (1, 0.05 + 0.01 * k),
+        "hf_peak": (1, hf_peak),
+        "hf_sar": (1, 0.5 * hf_peak * hf_peak),
+    }
+    write_msh_v2_binary(
+        out / "mesh_multifield.msh", nodes, tris, tri_tags, tets, tet_tags, multi_fields
+    )
+
     # ---------------- surfaces ----------------
     verts, stris, squads = surface_patch()
     write_gifti_surface(out / "surf_gzipb64.surf.gii", verts, stris, "GZipBase64Binary")
@@ -2538,7 +2551,7 @@ def inspect_meshes(out: Path) -> dict:
     convert(src, out / "mesh_v41_binary.msh", 4.1, 1, True)
     convert(src, out / "mesh_v2_binary_gmsh.msh", 2.2, 1, True)
 
-    for name in ["mesh_v2_ascii.msh", "mesh_v2_binary.msh", "mesh_tetonly.msh"]:
+    for name in ["mesh_v2_ascii.msh", "mesh_v2_binary.msh", "mesh_tetonly.msh", "mesh_multifield.msh"]:
         rec = simnibs_rec(out / name)
         rec["gmsh"] = gmsh_rec(out / name, connectivity=True)
         res["msh"][name] = rec

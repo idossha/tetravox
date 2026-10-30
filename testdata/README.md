@@ -74,6 +74,7 @@ interior ones — §6.3's surface invariant at a size a human can check by hand.
 | `mesh_v41_ascii.msh`, `mesh_v41_binary.msh` | Gmsh 4.1, both encodings, written by Gmsh itself |
 | `mesh_tetonly.msh` | **0 triangles** — the `grey_Thalamus_TI.msh` case that renders empty without `extract_boundary` |
 | `mesh_noncontig.msh` | element numbers 10, 13, 16, … and node numbers 102, 104, …, plus an `elm_gap` field covering every *other* element: scatter-by-id, `NaN` gaps, `partial = true` (§6.2) |
+| `mesh_multifield.msh` | three scalar `$ElementData` fields (`TI_max`, `hf_peak`, `hf_sar`) with **distinct, non-overlapping ranges** in the SimNIBS binary dialect — the one-mesh-per-montage file TI-Toolbox writes. The only case that catches a window carried from one field to the next (§4.4 `MeshLayer.fields`) |
 | `mesh_v2_binary.msh.opt` | the §6.2 sidecar in SimNIBS's real syntax, `Hide "*"` / `Show {…}` included |
 | `mesh_v2_binary_LUT.txt` | the sibling `<mesh>_LUT.txt` |
 

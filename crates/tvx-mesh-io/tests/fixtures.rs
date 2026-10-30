@@ -22,10 +22,12 @@ use tvx_mesh_io::{
 mod common;
 use common as fx;
 
-const MSH_V2: [&str; 3] = [
+const MSH_V2: [&str; 4] = [
     "mesh_v2_ascii.msh",
     "mesh_v2_binary.msh",
     "mesh_tetonly.msh",
+    // several scalar element fields with distinct ranges (§4.4 `MeshLayer.fields`)
+    "mesh_multifield.msh",
 ];
 const MSH_ALL: [&str; 6] = [
     "mesh_v2_ascii.msh",
@@ -108,6 +110,7 @@ fn manifest_and_fixtures_are_present() {
         "mesh_v41_binary.msh",
         "mesh_tetonly.msh",
         "mesh_noncontig.msh",
+        "mesh_multifield.msh",
     ] {
         assert!(
             fx::section("msh").contains_key(required),
