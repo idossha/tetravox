@@ -92,12 +92,13 @@ export class OverlayBuilder {
     y: number,
     scale: number,
     color: vec4,
-    align: 'left' | 'center' | 'right' = 'left'
+    align: 'left' | 'center' | 'right' = 'left',
+    exact = false
   ): void {
     const totalW = text.length * CELL_W * scale;
     const x0 = align === 'left' ? x : align === 'center' ? x - totalW / 2 : x - totalW;
     for (let i = 0; i < text.length; i += 1) {
-      const cell = cellOf(text[i] ?? ' ');
+      const cell = cellOf(text[i] ?? ' ', exact);
       const gx = x0 + i * CELL_W * scale;
       // Atlas texel rectangle for this glyph. v is flipped because the atlas rows run top-down
       // while pane pixels run bottom-up.
@@ -131,7 +132,8 @@ export class OverlayBuilder {
     y: number,
     scale: number,
     color: vec4,
-    align: 'left' | 'center' | 'right' = 'left'
+    align: 'left' | 'center' | 'right' = 'left',
+    exact = false
   ): void {
     const h = this.#halo;
     const halo: vec4 = [h[0], h[1], h[2], Math.min(h[3], color[3])];
@@ -141,9 +143,9 @@ export class OverlayBuilder {
       [0, -scale],
       [0, scale],
     ] as [number, number][]) {
-      this.text(text, x + dx, y + dy, scale, halo, align);
+      this.text(text, x + dx, y + dy, scale, halo, align, exact);
     }
-    this.text(text, x, y, scale, color, align);
+    this.text(text, x, y, scale, color, align, exact);
   }
 
   get vertexCount(): number {

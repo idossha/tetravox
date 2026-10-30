@@ -35,6 +35,11 @@ export interface ColorbarSpec {
   title: string;
   /** From `Field.units` — NIfTI `xyz_units` / `intent_name`, or the Gmsh view name. */
   units?: string;
+  /**
+   * Draw the title with case and `_` kept (`TI_max (V/m)`), not folded (`TI MAX (V/M)`). Set by the
+   * mesh field bars (2026-10-30); absent keeps the folded chrome every existing golden pins.
+   */
+  exactTitle?: boolean;
   /** The baked 256×1 (or 512×1, when `negative === 'separate'`) RGBA8 ramp. */
   ramp: Uint8Array;
   /** Endpoints, and `mid` for `kind: 'heat'`. */
@@ -123,7 +128,15 @@ export function drawColorbar(
         tickAlign(tick.t)
       );
     }
-    b.labelWithHalo(title, x0, y0 + layout.thickness + 2 * m.scale, m.scale, textColor, 'left');
+    b.labelWithHalo(
+      title,
+      x0,
+      y0 + layout.thickness + 2 * m.scale,
+      m.scale,
+      textColor,
+      'left',
+      spec.exactTitle === true
+    );
     return;
   }
 
@@ -147,7 +160,15 @@ export function drawColorbar(
     const y = y0 + tick.t * (layout.length - glyphH);
     b.labelWithHalo(tick.label, x0 - 2 * m.scale, y, m.scale, textColor, 'right');
   }
-  b.labelWithHalo(title, x0 + layout.thickness, top + 2 * m.scale, m.scale, textColor, 'right');
+  b.labelWithHalo(
+    title,
+    x0 + layout.thickness,
+    top + 2 * m.scale,
+    m.scale,
+    textColor,
+    'right',
+    spec.exactTitle === true
+  );
 }
 
 /**

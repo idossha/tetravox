@@ -18,7 +18,7 @@ export const CELL_W = 6;
 export const CELL_H = 8;
 
 /** Every character the chrome can draw. Anything else renders as a blank cell. */
-const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:-+/()^';
+const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:-+/()^abcdefghijklmnopqrstuvwxyz_';
 
 // One string per glyph: 7 rows of 5 characters, '1' = on. Validated by `font.test.ts`.
 const BITS: string[] = [
@@ -68,6 +68,34 @@ const BITS: string[] = [
   '00010001000100001000010000010000010', // lparen
   '01000001000001000010000100010001000', // rparen
   '00100010101000100000000000000000000', // caret — `(V/m)^2` units (2026-10-30)
+  // Lower case and `_` (2026-10-30): drawn only by `exact` text — field names and units.
+  '00000000000111000001011111000101111', // a
+  '10000100001011011001100011000111110', // b
+  '00000000000111010000100001000101110', // c
+  '00001000010110110011100011000101111', // d
+  '00000000000111010001111111000001110', // e
+  '00110010010100011100010000100001000', // f
+  '00000011111000110001011110000101110', // g
+  '10000100001011011001100011000110001', // h
+  '00100000000110000100001000010001110', // i
+  '00010000000011000010000101001001100', // j
+  '10000100001001010100110001010010010', // k
+  '01100001000010000100001000010001110', // l
+  '00000000001101010101101011000110001', // m
+  '00000000001011011001100011000110001', // n
+  '00000000000111010001100011000101110', // o
+  '00000000001111010001111101000010000', // p
+  '00000000000110110011011110000100001', // q
+  '00000000001011011001100001000010000', // r
+  '00000000000111010000011100000111110', // s
+  '01000010001110001000010000100100110', // t
+  '00000000001000110001100011001101101', // u
+  '00000000001000110001100010101000100', // v
+  '00000000001000110001101011010101010', // w
+  '00000000001000101010001000101010001', // x
+  '00000000001000110001011110000101110', // y
+  '00000000001111100010001000100011111', // z
+  '00000000000000000000000000000011111', // underscore
 ];
 
 /** `char -> cell index`, built once. */
@@ -93,9 +121,16 @@ export function buildAtlas(): Uint8Array {
   return out;
 }
 
-/** Cell index for a character; `-1` when the font has no glyph (drawn as blank). */
-export function cellOf(ch: string): number {
-  return INDEX.get(ch.toUpperCase()) ?? INDEX.get(' ') ?? 0;
+/**
+ * Cell index for a character; a character the font has no glyph for draws as a blank.
+ *
+ * The chrome is folded — upper case, `_` blank — which is what every golden pins. `exact` text (a
+ * field name, its units) keeps case and `_`: `V/m` read as `V/M` is a different unit (mega).
+ */
+export function cellOf(ch: string, exact = false): number {
+  const blank = INDEX.get(' ') ?? 0;
+  if (exact) return INDEX.get(ch) ?? INDEX.get(ch.toUpperCase()) ?? blank;
+  return ch === '_' ? blank : (INDEX.get(ch.toUpperCase()) ?? blank);
 }
 
 /** Width in atlas pixels of `text` at scale 1. */

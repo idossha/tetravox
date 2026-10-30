@@ -23,8 +23,35 @@ describe('the bitmap font', () => {
   it('has one cell per supported character, and the atlas is exactly that wide', () => {
     expect(ATLAS_W).toBe(ATLAS_CELLS * CELL_W);
     expect(ATLAS_H).toBeGreaterThanOrEqual(GLYPH_H);
-    // A-Z, 0-9, space and nine punctuation marks (`^` appended 2026-10-30 for `(V/m)^2`).
-    expect(ATLAS_CELLS).toBe(46);
+    // A-Z, 0-9, space, nine punctuation marks (`^` appended 2026-10-30 for `(V/m)^2`), and
+    // a-z plus `_` (2026-10-30) for field names and units drawn exactly.
+    expect(ATLAS_CELLS).toBe(46 + 26 + 1);
+  });
+
+  it('keeps case and `_` only in exact text — the folded chrome every golden pins is unchanged', () => {
+    const blank = cellOf(' ');
+    // Folded (the default): lower case is upper case, and `_` is a blank, as before 2026-10-30.
+    expect(cellOf('m')).toBe(cellOf('M'));
+    expect(cellOf('_')).toBe(blank);
+    // Exact: `V/m` is not `V/M` (mega), and `TI_max` keeps its underscore.
+    expect(cellOf('m', true)).not.toBe(cellOf('M', true));
+    expect(cellOf('_', true)).not.toBe(blank);
+    expect(cellOf('V', true)).toBe(cellOf('V'));
+    expect(cellOf('~', true)).toBe(blank);
+    const atlas = buildAtlas();
+    for (const ch of 'abcdefghijklmnopqrstuvwxyz_') {
+      const cell = cellOf(ch, true);
+      let ink = 0;
+      for (let row = 0; row < ATLAS_H; row += 1) {
+        for (let col = 0; col < CELL_W; col += 1) {
+          if ((atlas[row * ATLAS_W + cell * CELL_W + col] ?? 0) === 0) continue;
+          ink += 1;
+          expect(col, `${ch} spills past its glyph box`).toBeLessThan(GLYPH_W);
+          expect(row, `${ch} spills past its glyph box`).toBeLessThan(GLYPH_H);
+        }
+      }
+      expect(ink, `${ch} has no ink`).toBeGreaterThan(0);
+    }
   });
 
   it('draws `^` as a caret: ink only in the top three rows, apex centred', () => {

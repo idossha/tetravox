@@ -5931,3 +5931,19 @@ through JSON), `crates/tvx-mesh-io/tests/fixtures.rs` (`mesh_multifield.msh` aga
 state, host units in picker, bar and probe). The manifest entry was spliced in from a full
 `gen-fixtures.py` run into a scratch directory, because this machine's python3 lacks meshio and nibabel
 stamps `lh.fixture.surf` with user/date — a full in-place regeneration would rewrite unrelated entries.
+
+## 2026-10-30 — Field names and units on a mesh colour bar keep their case (§4.4, §8)
+
+The bitmap font folds to upper case and draws `_` as a blank, so a mesh field bar read `TI MAX (V/M)` —
+and `M` is mega, a wrong unit in a scientific viewer. Decision: the font gains `a`–`z` and `_` (appended
+cells), and `cellOf(ch, exact)` / `OverlayBuilder.text(…, exact)` draw them only for **exact** text.
+`ColorbarSpec.exactTitle` is set by the mesh field and glyph bars, so their captions read
+`TI_max (V/m)`. Everything else — letters, badge, corner info, scale bar, volume bars — stays folded,
+which is what keeps every golden in place. Measured: `derived-mesh-colorbar`, the one golden that shows a
+mesh field bar (`node_scalar`), changes 289 of 589,824 pixels (0.049 %) between folded and exact on
+SwiftShader/macOS `[MEASURED]`, under the 0.2 % ubuntu ratio, so no golden was re-blessed; the full
+`chromium-swiftshader` suite passes (222). Alternatives rejected: case-exact for all chrome (moves the
+volume-bar and corner-info goldens, which need an ubuntu re-bless, for text that is not a unit);
+upper-casing units deliberately (still mega). Left folded: the glyph legend corner line
+(`E: … MM ARROWS`), whose units come from the dataset, which a `.msh` never sets. Evidence:
+`font.test.ts` ("keeps case and `_` only in exact text").

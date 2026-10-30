@@ -83,6 +83,7 @@ export function meshColorbarSpec(layer: MeshLayer, ds: MeshDataset): ColorbarSpe
     ticks,
     notches,
     position: 'right',
+    exactTitle: true,
   };
 }
 
@@ -136,5 +137,6 @@ export function glyphColorbarSpec(layer: MeshLayer, ds: MeshDataset): ColorbarSp
     ],
     notches: [],
     position: 'right',
+    exactTitle: true,
   };
 }

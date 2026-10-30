@@ -572,7 +572,7 @@ window is not the magnitude's), then restores the arriving field's entry, and a 
 threshold, keeping the layer's colormap. Entries are keyed by **field name**, so a node and an element
 field of one name share one (the units of a quantity do not depend on where it is sampled).
 `units` and `label` are **display only**: the field picker, §8's colour bar title (`label ?? name`, units
-after it) and §4.7's `ProbeRow.fields[].units` read them, falling back to `MeshFieldInfo.units` — which a
+after it, drawn **case- and `_`-exact** — `V/m` folded to `V/M` reads as mega) and §4.7's `ProbeRow.fields[].units` read them, falling back to `MeshFieldInfo.units` — which a
 `.msh` never sets — and otherwise to nothing; a unit is never inferred from a name. A host writes the
 block like any other layer field, in a scene file (§4.6) or a job's `set` patch:
 

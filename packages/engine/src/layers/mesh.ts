@@ -672,6 +672,7 @@ export class MeshLayerRuntime implements LayerRuntime {
       layerId: s.layerId,
       title: s.title,
       units: s.units,
+      exactTitle: true,
       ramp: s.ramp,
       ticks,
       notches,
