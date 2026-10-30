@@ -1732,7 +1732,7 @@ test.describe('visualisation scenario catalogue', () => {
       // ---- 9 · field colouring ---------------------------------------------------------------
       await openSection(page, `mesh-field-${full}`);
       await setControl(page, `mesh-colormode-${full}`, 'field');
-      await setControl(page, `mesh-fieldname-${full}`, 'elm:TI_max');
+      await page.click(`[data-testid="mesh-fieldname-${full}-elm:TI_max"]`);
       await waitForField(page, full, 'TI_max');
       await setControl(page, `mesh-colormap-${full}`, 'jet');
       // The field's own min…max is 1.09e-12 … 10.29 and its 99th percentile is two orders of
@@ -1902,7 +1902,7 @@ test.describe('visualisation scenario catalogue', () => {
       await page.click(`[data-testid="layer-eye-${grey}"]`);
       await openSection(page, `mesh-field-${grey}`);
       await setControl(page, `mesh-colormode-${grey}`, 'field');
-      await setControl(page, `mesh-fieldname-${grey}`, 'elm:TI_max');
+      await page.click(`[data-testid="mesh-fieldname-${grey}-elm:TI_max"]`);
       await waitForField(page, grey, 'TI_max');
       await setControl(page, `mesh-colormap-${grey}`, 'jet');
       await frame3d(page, '1');

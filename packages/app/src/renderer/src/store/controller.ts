@@ -111,6 +111,7 @@ import { bridge } from '../bridge';
 // A-PROPS, appended: the clip-plane 'follow cursor' arithmetic, kept pure and unit-tested beside the
 // editor that offers it (§8 forbids logic in React, not a pure function the controller calls).
 import {
+  adjacentFieldKey,
   anyPlaneFollowsCursor,
   fieldKey,
   planesThroughCursor,
@@ -790,9 +791,17 @@ export class ShellController {
     this.engine.setActiveLayer(ids[next] as LayerId);
   }
 
+  /** `,` / `.`: the 4D volume of the active volume layer, or the field of the active mesh layer. */
   stepVolumeIndex(delta: -1 | 1): void {
     const state = this.store.getState();
     const layer = activeLayer(state);
+    if (layer?.kind === 'mesh') {
+      const dataset = datasetOf(state, layer);
+      if (dataset?.kind !== 'mesh') return;
+      const key = adjacentFieldKey(dataset, layer, delta);
+      if (key !== null) void this.selectMeshField(layer.id, key);
+      return;
+    }
     if (layer === null || layer.kind !== 'volume') return;
     const dataset = datasetOf(state, layer);
     if (dataset === null || dataset.kind !== 'volume') return;
@@ -1756,6 +1765,24 @@ export class ShellController {
     } finally {
       this.setMeshPending(id, key, false);
     }
+  }
+
+  /**
+   * Switch a mesh layer's field (§4.4's per-field state rides `selectField`'s patch). §7.4: the first
+   * element field builds the de-indexed variant in the worker, so that one is the async switch.
+   */
+  async selectMeshField(id: LayerId, key: string): Promise<void> {
+    const state = this.store.getState();
+    const layer = state.layers.find((l) => l.id === id);
+    if (layer?.kind !== 'mesh') return;
+    const dataset = datasetOf(state, layer);
+    if (dataset?.kind !== 'mesh') return;
+    const next = selectField(dataset, layer, key);
+    if (next.field?.source === 'elm' && layer.field?.source !== 'elm') {
+      await this.patchLayerAsync<MeshLayer>(id, next, 'elmField');
+      return;
+    }
+    this.patchLayer(id, next);
   }
 
   private setMeshPending(id: LayerId, key: string, on: boolean): void {

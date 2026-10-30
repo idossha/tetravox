@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import type { CoordSpaceRef, Engine } from '@tetravox/engine';
+import type { CoordSpaceRef, Engine, MeshDataset, MeshLayer } from '@tetravox/engine';
 import { NoGlEngine } from '../engine/mockEngine';
 import { ShellController } from './controller';
 import { activeLayer, createUiStore } from './store';
@@ -238,6 +238,29 @@ describe('layers (§8 left panel, §7.5 keys)', () => {
     h.controller.runCommand({ kind: 'stepVolumeIndex', delta: 1 });
     expect((h.store.getState().layers[0] as { volumeIndex: number }).volumeIndex).toBe(2);
     expect(layerId).toBeTruthy();
+  });
+
+  it('`,` / `.` switch the active mesh layer’s field, each field keeping its own window (§4.4)', async () => {
+    const h = harness();
+    h.controller.open([pathRequest('/d/ernie.msh')]);
+    await settled(h.store);
+    const mesh = () => h.store.getState().layers[0] as MeshLayer;
+    const ds = h.store.getState().datasets[0] as MeshDataset;
+    expect(ds.fields.length).toBeGreaterThan(1);
+    // Coloured by tissue, the keys leave the field alone.
+    h.controller.runCommand({ kind: 'stepVolumeIndex', delta: 1 });
+    expect(mesh().field).toBeUndefined();
+
+    const [first, second] = ds.fields;
+    await h.controller.selectMeshField(mesh().id, `${first!.source}:${first!.name}`);
+    h.controller.patchLayer<MeshLayer>(mesh().id, { scale: { kind: 'linear', lo: 0.1, hi: 0.2 } });
+    h.controller.runCommand({ kind: 'stepVolumeIndex', delta: 1 });
+    await h.engine.whenSettled();
+    expect(mesh().field?.name).toBe(second!.name);
+    h.controller.runCommand({ kind: 'stepVolumeIndex', delta: -1 });
+    await h.engine.whenSettled();
+    expect(mesh().field?.name).toBe(first!.name);
+    expect(mesh().scale).toEqual({ kind: 'linear', lo: 0.1, hi: 0.2 });
   });
 });
 

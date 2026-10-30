@@ -20,11 +20,11 @@ function valueText(value: ProbeRow['value']): string {
   return value.map((c) => formatNumber(c, 3)).join(', ');
 }
 
-function fieldText(field: { name: string; value: number | number[] }): string {
+function fieldText(field: NonNullable<ProbeRow['fields']>[number]): string {
   const value = Array.isArray(field.value)
     ? field.value.map((c) => formatNumber(c, 3)).join(', ')
     : formatNumber(field.value, 4);
-  return `${field.name} = ${value}`;
+  return `${field.name} = ${value}${field.units === undefined ? '' : ` ${field.units}`}`;
 }
 
 /**

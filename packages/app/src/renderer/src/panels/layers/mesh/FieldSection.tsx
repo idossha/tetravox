@@ -16,11 +16,13 @@ import { Pending, Row, Section, Select, Slider, Swatch, Toggle } from './control
 import { clearPaintOverrides, paintOverrideCount } from '../../regions/regions';
 import {
   componentsOf,
+  FIELD_CHIP_MAX,
   fieldKey,
+  fieldLabel,
+  fieldUnits,
   findField,
   hexToVec4,
   patchThreshold,
-  selectField,
   setColorMode,
   setColormap,
   setEdgeColor,
@@ -60,6 +62,8 @@ export function FieldSection({
     Object.values(layer.tagStyle).some((style) => style.colorMode === 'field');
 
   const overrides = paintOverrideCount(layer, dataset);
+  const chips = dataset.fields.length <= FIELD_CHIP_MAX;
+  const units = field === null ? undefined : fieldUnits(layer, field);
 
   const colorModes: { value: MeshLayer['colorMode']; label: string }[] = [
     { value: 'tag', label: 'Tissue' },
@@ -87,13 +91,7 @@ export function FieldSection({
               return;
             }
             if (mode === 'field' && field === null && dataset.fields[0]) {
-              const next = {
-                ...selectField(dataset, layer, fieldKey(dataset.fields[0])),
-                colorMode: mode,
-              };
-              if (next.field?.source === 'elm') {
-                void controller.patchLayerAsync<MeshLayer>(layer.id, next, 'elmField');
-              } else patch(next);
+              void controller.selectMeshField(layer.id, fieldKey(dataset.fields[0]));
               return;
             }
             patch(setColorMode(layer, mode));
@@ -134,31 +132,71 @@ export function FieldSection({
       {showField && dataset.fields.length > 0 && (
         <>
           <Row label="Field">
-            <Select
-              testId={`mesh-fieldname-${layer.id}`}
-              value={layer.field === undefined ? '' : fieldKey(layer.field)}
-              options={[
-                { value: '', label: '—' },
-                ...dataset.fields.map((f) => ({
-                  value: fieldKey(f),
-                  label: `${f.name} (${f.source}${f.ncomp > 1 ? `, ${f.ncomp}c` : ''})`,
-                })),
-              ]}
-              onChange={(key) => {
-                if (key === '') return;
-                const next = selectField(dataset, layer, key);
-                // §7.4: the first element field builds the de-indexed variant in the worker.
-                if (next.field?.source === 'elm' && layer.field?.source !== 'elm') {
-                  void controller.patchLayerAsync<MeshLayer>(layer.id, next, 'elmField');
-                  return;
-                }
-                patch(next);
-              }}
-            />
+            {chips ? (
+              <span className="flex-1" />
+            ) : (
+              <Select
+                testId={`mesh-fieldname-${layer.id}`}
+                value={layer.field === undefined ? '' : fieldKey(layer.field)}
+                options={[
+                  { value: '', label: '—' },
+                  ...dataset.fields.map((f) => ({
+                    value: fieldKey(f),
+                    label: `${fieldLabel(layer, f)} (${f.source}${f.ncomp > 1 ? `, ${f.ncomp}c` : ''})`,
+                  })),
+                ]}
+                onChange={(key) => {
+                  if (key !== '') void controller.selectMeshField(layer.id, key);
+                }}
+              />
+            )}
+            {units !== undefined ? (
+              <span
+                data-testid={`mesh-field-units-${layer.id}`}
+                className="shrink-0 font-mono text-[10px] text-tvx-dim"
+              >
+                {units}
+              </span>
+            ) : null}
             {pending.includes('elmField') ? (
               <Pending testId={`mesh-pending-field-${layer.id}`} label="field" />
             ) : null}
           </Row>
+          {chips ? (
+            // A segmented control on its own full-width line: a handful of fields fit side by side.
+            <div
+              role="radiogroup"
+              aria-label="Field"
+              data-testid={`mesh-fieldname-${layer.id}`}
+              className="-mt-0.5 flex flex-wrap gap-0.5"
+            >
+              {dataset.fields.map((f) => {
+                const key = fieldKey(f);
+                const active = layer.field !== undefined && fieldKey(layer.field) === key;
+                // A node and an element field may share a name; only then does the source show.
+                const twin = dataset.fields.some((g) => g !== f && g.name === f.name);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    data-testid={`mesh-fieldname-${layer.id}-${key}`}
+                    title={`${f.name} (${f.source}${f.ncomp > 1 ? `, ${f.ncomp}c` : ''})`}
+                    className={`tvx-btn tvx-btn-sm max-w-full truncate font-mono ${
+                      active ? 'tvx-btn-on' : ''
+                    }`}
+                    onClick={() => {
+                      if (!active) void controller.selectMeshField(layer.id, key);
+                    }}
+                  >
+                    {fieldLabel(layer, f)}
+                    {twin ? ` · ${f.source}` : ''}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
 
           {field !== null && field.ncomp > 1 ? (
             <Row label="Component">
@@ -175,12 +213,6 @@ export function FieldSection({
                   patch(setFieldComponent(layer, component, field.stats));
                 }}
               />
-              <span
-                data-testid={`mesh-field-units-${layer.id}`}
-                className="shrink-0 font-mono text-[10px] text-tvx-dim"
-              >
-                {field.units ?? ''}
-              </span>
             </Row>
           ) : null}
         </>

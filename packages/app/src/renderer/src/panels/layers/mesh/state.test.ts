@@ -15,6 +15,10 @@ import type { MeshDataset, MeshLayer, SurfaceLayer, Stats, vec3, vec4 } from '@t
 import {
   MAX_CLIP_PLANES,
   addClipPlane,
+  adjacentFieldKey,
+  fieldLabel,
+  fieldUnits,
+  setColormap,
   asyncSwitchFor,
   clearIsolate,
   clearIsolateClause,
@@ -307,6 +311,117 @@ describe('the field selector', () => {
     expect(
       setEdges(meshLayer({ edges: { surface: false, caps: true } }), { surface: true }).edges
     ).toEqual({ surface: true, caps: true });
+  });
+});
+
+/**
+ * §4.4's `MeshLayer.fields` (2026-10-30): each field keeps its own colormap, window and threshold.
+ * The expectations are the user's edits played back, and the min…max a first view gets is the
+ * fixture `stats(...)` above — nothing here is computed by the code under test.
+ */
+describe('per-field display state', () => {
+  /** Apply a patch the way `Engine.updateLayer` does: a shallow merge. */
+  const apply = (layer: MeshLayer, patch: Partial<MeshLayer>): MeshLayer => ({
+    ...layer,
+    ...patch,
+  });
+  const OPEN = { lo: -Infinity, hi: Infinity, symmetric: false, mode: 'hide', softEdge: 0 };
+
+  it('restores the left field’s colormap, window and threshold when it comes back', () => {
+    const ds = dataset();
+    let layer = apply(meshLayer(), selectField(ds, meshLayer(), 'elm:TI_max'));
+    layer = apply(layer, setColormap(layer, 'hot'));
+    layer = apply(layer, setScaleBounds(layer, 0.2, 0.8));
+    layer = apply(layer, patchThreshold(layer, { lo: 0.3 }));
+
+    layer = apply(layer, selectField(ds, layer, 'node:curv'));
+    // First view of `curv`: its own min…max, no threshold, the colormap the layer already had.
+    expect(layer.scale).toEqual({ kind: 'linear', lo: -1, hi: 1 });
+    expect(layer.threshold).toEqual(OPEN);
+    expect(layer.colormap).toBe('hot');
+    layer = apply(layer, setColormap(layer, 'coolwarm'));
+
+    layer = apply(layer, selectField(ds, layer, 'elm:TI_max'));
+    expect(layer.colormap).toBe('hot');
+    expect(layer.scale).toEqual({ kind: 'linear', lo: 0.2, hi: 0.8 });
+    expect(layer.threshold).toMatchObject({ lo: 0.3, hi: Infinity });
+
+    layer = apply(layer, selectField(ds, layer, 'node:curv'));
+    expect(layer.colormap).toBe('coolwarm');
+    expect(layer.scale).toEqual({ kind: 'linear', lo: -1, hi: 1 });
+  });
+
+  it('keeps a host’s units and label beside the remembered state', () => {
+    const ds = dataset();
+    const fields = { TI_max: { units: 'V/m', label: 'TI max' }, curv: { units: 'mm' } };
+    const start = meshLayer({
+      colorMode: 'field',
+      field: { source: 'elm', name: 'TI_max', component: 'mag' },
+      fields,
+    });
+    const patch = selectField(ds, start, 'node:curv');
+    expect(patch.fields?.['TI_max']).toMatchObject({
+      units: 'V/m',
+      label: 'TI max',
+      colormap: 'viridis',
+    });
+    expect(patch.fields?.['curv']).toEqual({ units: 'mm' });
+    expect(fieldLabel(start, { name: 'TI_max' })).toBe('TI max');
+    expect(fieldLabel(start, { name: 'E' })).toBe('E');
+  });
+
+  it('a host-written entry seeds the first view; a field with none starts at its own range', () => {
+    const ds = dataset();
+    const start = meshLayer({
+      colorMode: 'field',
+      field: { source: 'elm', name: 'TI_max', component: 'mag' },
+      fields: { curv: { colormap: 'bone', scale: { kind: 'linear', lo: -0.5, hi: 0.5 } } },
+    });
+    const patch = selectField(ds, start, 'node:curv');
+    expect(patch.colormap).toBe('bone');
+    expect(patch.scale).toEqual({ kind: 'linear', lo: -0.5, hi: 0.5 });
+    expect(patch.threshold).toEqual(OPEN);
+    expect(selectField(ds, start, 'elm:E').scale).toEqual({ kind: 'linear', lo: 0, hi: 57.79 });
+  });
+
+  it('remembers only the magnitude view of a vector — a signed component’s window is not it', () => {
+    const ds = dataset();
+    const onX = meshLayer({
+      colorMode: 'field',
+      field: { source: 'elm', name: 'E', component: 0 },
+      scale: { kind: 'linear', lo: -57.79, hi: 57.79 },
+      colormap: 'coolwarm',
+    });
+    const entry = selectField(ds, onX, 'elm:TI_max').fields?.['E'];
+    expect(entry).toEqual({ colormap: 'coolwarm' });
+  });
+
+  it('absent `fields` and no active field emit no `fields` at all — the old patch exactly', () => {
+    expect('fields' in selectField(dataset(), meshLayer(), 'elm:TI_max')).toBe(false);
+  });
+
+  it('the units shown are the host’s, else the file’s, else none', () => {
+    const ds = dataset();
+    const [ti, , curv] = ds.fields;
+    const layer = meshLayer({ fields: { TI_max: { units: 'mV/mm' } } });
+    expect(fieldUnits(layer, ti!)).toBe('mV/mm');
+    expect(fieldUnits(meshLayer(), ti!)).toBe('V/m');
+    expect(fieldUnits(meshLayer(), curv!)).toBeUndefined();
+  });
+
+  it('`,` / `.` step through the fields in file order, wrapping, only while coloured by a field', () => {
+    const ds = dataset();
+    const on = meshLayer({
+      colorMode: 'field',
+      field: { source: 'elm', name: 'TI_max', component: 'mag' },
+    });
+    expect(adjacentFieldKey(ds, on, 1)).toBe('elm:E');
+    expect(adjacentFieldKey(ds, on, -1)).toBe('node:curv');
+    expect(
+      adjacentFieldKey(ds, { ...on, field: { source: 'node', name: 'curv', component: 'mag' } }, 1)
+    ).toBe('elm:TI_max');
+    expect(adjacentFieldKey(ds, { ...on, colorMode: 'tag' }, 1)).toBeNull();
+    expect(adjacentFieldKey(dataset({ fields: ds.fields.slice(0, 1) }), on, 1)).toBeNull();
   });
 });
 

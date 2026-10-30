@@ -17,6 +17,7 @@ import type {
   GlyphSpec,
   IsolateSpec,
   MeshDataset,
+  MeshFieldDisplay,
   MeshFieldInfo,
   MeshLayer,
   Stats,
@@ -150,26 +151,90 @@ export function setColorMode(
   return colorMode === 'field' ? { colorMode, showColorbar: true } : { colorMode };
 }
 
+const OPEN_THRESHOLD: Threshold = {
+  lo: -Infinity,
+  hi: Infinity,
+  mode: 'hide',
+  symmetric: false,
+  softEdge: 0,
+};
+
 /**
- * Selecting a field: `colorMode` follows, and the `Scale`/`Threshold` are re-seeded from **that field's**
- * `Stats` — a viridis ramp still pinned to the previous field's range is the same bug as an unset
- * window, and the user cannot see it in the colour bar until they know the other field's numbers.
+ * §4.4's `MeshLayer.fields` with the field being left remembered: its colormap, and its window and
+ * threshold when it is shown as a magnitude — a signed component's ±max window is not the
+ * magnitude's, so that view is not what comes back. Units and label written by a host are kept.
+ */
+function rememberActiveField(layer: MeshLayer): MeshLayer['fields'] {
+  const active = layer.field;
+  if (active === undefined) return layer.fields;
+  const entry: MeshFieldDisplay = { ...layer.fields?.[active.name], colormap: layer.colormap };
+  if (layer.colormapNegative !== undefined) entry.colormapNegative = layer.colormapNegative;
+  if (active.component === 'mag') {
+    entry.scale = layer.scale;
+    entry.threshold = layer.threshold;
+  }
+  return { ...layer.fields, [active.name]: entry };
+}
+
+/**
+ * Selecting a field: `colorMode` follows, and the field's **own** display state comes back (§4.4's
+ * `MeshLayer.fields`) — a V/m window left on a (V/m)² field is the same bug as an unset window. A field
+ * shown for the first time is seeded from **its** `Stats`, min…max with no threshold, exactly as every
+ * field was before per-field state existed; its colormap is whatever the layer has.
  * §7.6's `.msh.opt` seeding is `fromMeta`'s and is not undone here: this runs only on a user edit.
  */
 export function selectField(
   dataset: MeshDataset,
-  _layer: MeshLayer,
+  layer: MeshLayer,
   key: string
 ): Partial<MeshLayer> {
   const field = findField(dataset, key);
   if (field === null) return {};
+  const fields = rememberActiveField(layer);
+  const saved = fields?.[field.name];
   return {
     colorMode: 'field',
     showColorbar: true,
     field: { source: field.source, name: field.name, component: 'mag' },
-    scale: { kind: 'linear', ...normalizeWindow({ lo: field.stats.min, hi: field.stats.max }) },
-    threshold: { lo: -Infinity, hi: Infinity, mode: 'hide', symmetric: false, softEdge: 0 },
+    scale: saved?.scale ?? {
+      kind: 'linear',
+      ...normalizeWindow({ lo: field.stats.min, hi: field.stats.max }),
+    },
+    threshold: saved?.threshold ?? OPEN_THRESHOLD,
+    ...(saved?.colormap === undefined ? {} : { colormap: saved.colormap }),
+    ...(saved?.colormapNegative === undefined ? {} : { colormapNegative: saved.colormapNegative }),
+    ...(fields === undefined ? {} : { fields }),
   };
+}
+
+/** What a field is called on screen: the host's `label`, else its own name (§4.4). */
+export function fieldLabel(layer: MeshLayer, field: { name: string }): string {
+  return layer.fields?.[field.name]?.label ?? field.name;
+}
+
+/** A field's units: the host's metadata, else the file's. `undefined` is shown as nothing — never guessed. */
+export function fieldUnits(layer: MeshLayer, field: MeshFieldInfo): string | undefined {
+  return layer.fields?.[field.name]?.units ?? field.units;
+}
+
+/** Up to this many fields are offered as chips; more go in a dropdown. */
+export const FIELD_CHIP_MAX = 6;
+
+/**
+ * The key of the field `delta` steps from the active one, wrapping — the `,` / `.` keys (§8). `null`
+ * when the layer is not coloured by a field or there is nothing to step to.
+ */
+export function adjacentFieldKey(
+  dataset: MeshDataset,
+  layer: MeshLayer,
+  delta: -1 | 1
+): string | null {
+  if (layer.colorMode !== 'field' || layer.field === undefined || dataset.fields.length < 2) {
+    return null;
+  }
+  const keys = dataset.fields.map(fieldKey);
+  const at = keys.indexOf(fieldKey(layer.field));
+  return keys[(at + delta + keys.length) % keys.length] ?? null;
 }
 
 export function setFieldComponent(
@@ -186,7 +251,7 @@ export function setFieldComponent(
   return {
     field: { ...layer.field, component },
     scale: { kind: 'linear', ...normalizeWindow(window) },
-    threshold: { lo: -Infinity, hi: Infinity, mode: 'hide', symmetric: false, softEdge: 0 },
+    threshold: OPEN_THRESHOLD,
   };
 }
 

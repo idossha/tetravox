@@ -8,7 +8,19 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Each field of a mesh keeps its own colours and range.** A mesh with several fields — a TI-Toolbox
+  `<montage>_TI.msh` with `TI_max`, `hf_peak` and `hf_sar` — now shows them as buttons in the layer
+  editor's **Field & appearance ▸ Field** (a dropdown past six), and `,` / `.` step through them. Switching
+  remembers the colormap, range and threshold of the field you leave and restores them when you come
+  back; a field shown for the first time opens at its own min…max, as every field did before. Field
+  name and units appear in the field picker, the colour bar title and the probe readout. A `.msh`
+  carries no units, so Tetravox shows none unless the scene says so: a mesh layer in a
+  `.tetravox.json` scene or a job may carry an optional `fields` block, e.g.
+  `"fields": {"TI_max": {"units": "V/m"}, "hf_sar": {"units": "(V/m)^2"}}`, with an optional `label`,
+  `colormap`, `scale` and `threshold` per field. Scenes without it open exactly as before, and the
+  block is saved and reopened with the scene.
 
 ## [0.6.3] - 2026-09-23
 
