@@ -316,6 +316,23 @@ function runtimeThreshold(value: unknown): Threshold | undefined {
   };
 }
 
+/**
+ * `MeshLayer.fields` with each entry's `threshold` passed through `convert` and every other key
+ * verbatim. An entry that is not an object (a hand-edited scene) is dropped, not handed to the editor.
+ */
+function mapFieldThresholds(
+  fields: object,
+  convert: (t: unknown) => unknown
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [name, entry] of Object.entries(fields)) {
+    if (entry === null || typeof entry !== 'object') continue;
+    const { threshold } = entry as { threshold?: unknown };
+    out[name] = threshold == null ? entry : { ...entry, threshold: convert(threshold) };
+  }
+  return out;
+}
+
 export function serializableLayer(layer: Layer): SerializableLayer {
   const out = { ...layer } as Record<string, unknown>;
   if ('threshold' in layer) out.threshold = jsonThreshold(layer.threshold);
@@ -343,6 +360,10 @@ export function serializableLayer(layer: Layer): SerializableLayer {
       outlineWidthPx,
       ...(visibleLabels === undefined ? {} : { visibleLabels: [...visibleLabels] }),
     };
+  }
+  if (layer.kind === 'mesh' && layer.fields !== undefined) {
+    // §4.4's per-field entries carry a `Threshold` each, with the same ±Infinity JSON cannot hold.
+    out.fields = mapFieldThresholds(layer.fields, (t) => jsonThreshold(t as Threshold));
   }
   if (layer.kind === 'mesh' && layer.label !== undefined) {
     const { name, mode, outlineWidthPx, visibleLabels } = layer.label;
@@ -400,6 +421,10 @@ export function remapLayer(
     // Older hosts wrote null for a solid mesh's absent field. Canonical runtime layers use
     // undefined; passing null into the active mesh editor crashes the shell during loading.
     if (out.field === null) delete out.field;
+    const fields = out['fields'];
+    if (fields !== null && typeof fields === 'object') {
+      out.fields = mapFieldThresholds(fields, runtimeThreshold);
+    } else delete out.fields;
     // §4.6 does not serialise the `LabelTable`, so the spec's `label` has no `table` and cannot be
     // handed to `addLayer` as a `MeshLayer['label']`. It **is** carried, though: `mode`,
     // `outlineWidthPx` and `visibleLabels` are things the user set in the annotation editor, and

@@ -78,6 +78,17 @@ export function colorbarLayout(m: OverlayMetrics, position: 'right' | 'bottom'):
  * Pure and side-effect-free, like every other item in this directory, so §11 can assert the layout
  * without a GL context.
  */
+/**
+ * The bar's caption: the title, then the units in parentheses — unless the units already open with
+ * one (`(V/m)^2`), which would otherwise read `((V/m)^2)`.
+ */
+export function colorbarTitle(spec: Pick<ColorbarSpec, 'title' | 'units'>): string {
+  if (spec.units === undefined) return spec.title;
+  return spec.units.startsWith('(')
+    ? `${spec.title} ${spec.units}`
+    : `${spec.title} (${spec.units})`;
+}
+
 export function drawColorbar(
   b: OverlayBuilder,
   m: OverlayMetrics,
@@ -87,7 +98,7 @@ export function drawColorbar(
 ): void {
   const layout = colorbarLayout(m, spec.position);
   const glyphH = GLYPH_H * m.scale;
-  const title = spec.units === undefined ? spec.title : `${spec.title} (${spec.units})`;
+  const title = colorbarTitle(spec);
   const notchThickness = Math.max(1, m.scale);
 
   if (spec.position === 'bottom') {

@@ -73,10 +73,12 @@ export function meshColorbarSpec(layer: MeshLayer, ds: MeshDataset): ColorbarSpe
   if (Number.isFinite(t.lo)) notches.push(tickPosition(layer.scale, t.lo));
   if (Number.isFinite(t.hi)) notches.push(tickPosition(layer.scale, t.hi));
 
+  const meta = layer.fields?.[layer.field.name];
+  const units = meta?.units ?? info?.units;
   return {
     layerId: layer.id,
-    title: layer.field.name,
-    ...(info?.units !== undefined ? { units: info.units } : {}),
+    title: meta?.label ?? layer.field.name,
+    ...(units !== undefined ? { units } : {}),
     ramp: baked.rgba,
     ticks,
     notches,

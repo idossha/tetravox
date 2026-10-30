@@ -11,7 +11,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { OverlayBuilder, FLOATS_PER_VERTEX, overlayMetrics } from './builder';
-import { colorbarLayout, drawColorbar, formatTick, volumeColorbarSpec } from './colorbar';
+import {
+  colorbarLayout,
+  colorbarTitle,
+  drawColorbar,
+  formatTick,
+  volumeColorbarSpec,
+} from './colorbar';
 import { bakeScale } from '../color/colormaps';
 import { CELL_W } from '../render/font';
 import { defaultVolumeLayer } from '../scene/defaults';
@@ -171,6 +177,14 @@ describe('volumeColorbarSpec', () => {
   it('`showColorbar: false` means no bar', () => {
     const layer = layerWith({ kind: 'linear', lo: 0, hi: 1 }, { showColorbar: false });
     expect(volumeColorbarSpec(layer, volume(), bakeScale(layer.scale, 'gray'))).toBeNull();
+  });
+});
+
+describe('colorbarTitle', () => {
+  it('puts units in parentheses once — `(V/m)^2` is not wrapped again', () => {
+    expect(colorbarTitle({ title: 'TI_max' })).toBe('TI_max');
+    expect(colorbarTitle({ title: 'TI_max', units: 'V/m' })).toBe('TI_max (V/m)');
+    expect(colorbarTitle({ title: 'hf_sar', units: '(V/m)^2' })).toBe('hf_sar (V/m)^2');
   });
 });
 

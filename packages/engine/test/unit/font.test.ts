@@ -23,8 +23,20 @@ describe('the bitmap font', () => {
   it('has one cell per supported character, and the atlas is exactly that wide', () => {
     expect(ATLAS_W).toBe(ATLAS_CELLS * CELL_W);
     expect(ATLAS_H).toBeGreaterThanOrEqual(GLYPH_H);
-    // A-Z, 0-9, space and eight punctuation marks.
-    expect(ATLAS_CELLS).toBe(45);
+    // A-Z, 0-9, space and nine punctuation marks (`^` appended 2026-10-30 for `(V/m)^2`).
+    expect(ATLAS_CELLS).toBe(46);
+  });
+
+  it('draws `^` as a caret: ink only in the top three rows, apex centred', () => {
+    const atlas = buildAtlas();
+    const cell = cellOf('^');
+    const ink = (row: number, col: number): boolean =>
+      (atlas[row * ATLAS_W + cell * CELL_W + col] ?? 0) !== 0;
+    expect(ink(0, 2)).toBe(true);
+    expect(ink(2, 0) && ink(2, 4)).toBe(true);
+    for (let row = 3; row < GLYPH_H; row += 1) {
+      for (let col = 0; col < GLYPH_W; col += 1) expect(ink(row, col)).toBe(false);
+    }
   });
 
   it('renders every glyph inside its 5x7 box, and every letter has ink', () => {

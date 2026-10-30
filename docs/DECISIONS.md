@@ -5900,3 +5900,34 @@ visible, deliberate step); allowing tag pushes unconditionally (a release is a d
 maintainer makes, not one an agent infers). Evidence: the wording in `AGENTS.md`, `CONTRIBUTING.md`,
 `docs/RELEASING.md` and `scripts/release.sh`'s header, which `grep -rn "push" -- AGENTS.md
 CONTRIBUTING.md docs/RELEASING.md scripts/release.sh` shows all say the same thing.
+
+## 2026-10-30 — A mesh layer remembers each field's window; hosts may name units (§4.4, §4.6, §4.7, §8)
+
+TI-Toolbox now writes one volume mesh per montage, `<montage>_TI.msh`, with `TI_max` / `hf_peak`
+(V/m) and `hf_sar` ((V/m)²) — optional `TI_avg`, `hf_power_density`; `mTI_max` for mTI. `colormap`,
+`scale` and `threshold` are per layer, so switching `TI_max` → `hf_sar` kept a V/m window on a (V/m)²
+field. Decision: an optional `MeshLayer.fields: Record<name, MeshFieldDisplay>` (`units`, `label`,
+`colormap`, `colormapNegative`, `scale`, `threshold`, all optional). The layer's own three fields stay the
+**live** state of the active field; the app's `selectField` patch writes the left field's entry and
+restores the arriving one's, and a field without one gets the pre-existing min…max seeding. Keyed by
+**name**, not `source:name`, because a host knows field names and units belong to the quantity.
+`units` / `label` feed the picker, the colour-bar caption and a new optional `ProbeRow.fields[].units`;
+nothing infers a unit from a name. The caption no longer double-wraps units that open with `(`, and the
+§8 bitmap font gains a `^` glyph (appended cell; existing glyphs and goldens unmoved). Up to
+`FIELD_CHIP_MAX` = 6 fields are a segmented control on its own line, more a dropdown — six is
+TI-Toolbox's largest default-plus-optional set (`authored`). `,` / `.` — already "step the active
+layer's 4D frame" — step a field-coloured mesh's field, the same gesture for the same idea.
+
+Additive under §12.3: absent, nothing reads the block and no patch writes it until the user switches;
+`ViewSpec` stays version 2 because per-layer fields ride the spread (§4.6, 2026-08-30) and an older build
+carries the block through a re-save. Alternatives rejected: per-field state inside the engine on every
+`updateLayer({ field })` (changes what a job's existing `set` patch does); keying by `source:name` (a
+host would have to know Tetravox's key format); a `range: [lo, hi]` shorthand beside `scale` (two
+spellings of one window); bumping the ViewSpec version (nothing to migrate). Evidence:
+`mesh/state.test.ts` "per-field display state", `controller.test.ts` (`,` / `.` on a mesh),
+`mesh-colorbar.test.ts`, `colorbar.test.ts` `colorbarTitle`, `roundtrip.test.ts` (nested thresholds
+through JSON), `crates/tvx-mesh-io/tests/fixtures.rs` (`mesh_multifield.msh` against
+`simnibs.mesh_io.read_msh`'s statistics) and `e2e/multifield.spec.ts` (bar title/range per chip, restored
+state, host units in picker, bar and probe). The manifest entry was spliced in from a full
+`gen-fixtures.py` run into a scratch directory, because this machine's python3 lacks meshio and nibabel
+stamps `lh.fixture.surf` with user/date — a full in-place regeneration would rewrite unrelated entries.

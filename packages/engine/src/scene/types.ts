@@ -622,6 +622,23 @@ export interface MeshLayer extends LayerBase {
    * draws in a 2D pane and Freeview's answer to "which outline is which" is one colour per surface.
    */
   contourColor?: vec4;
+  /**
+   * §4.4 (2026-10-30): **per-field display state and metadata**, keyed by field name (a node and an
+   * element field of one name share an entry). Optional; absent is the behaviour before it existed.
+   * The layer's own `colormap` / `scale` / `threshold` are always what draws the ACTIVE field; an
+   * entry is read when its field becomes active and written for the field being left.
+   */
+  fields?: Record<string, MeshFieldDisplay>;
+}
+
+/** One field's entry in {@link MeshLayer.fields}. Every member is optional. */
+export interface MeshFieldDisplay {
+  units?: string; // shown beside the name; a `.msh` carries none, so absent shows the bare name
+  label?: string; // display name; absent = the field's own name
+  colormap?: ColormapName | string;
+  colormapNegative?: ColormapName | string;
+  scale?: Scale;
+  threshold?: Threshold;
 }
 
 export interface IsosurfaceLayer extends LayerBase {

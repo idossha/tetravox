@@ -18,7 +18,7 @@ export const CELL_W = 6;
 export const CELL_H = 8;
 
 /** Every character the chrome can draw. Anything else renders as a blank cell. */
-const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:-+/()';
+const CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,:-+/()^';
 
 // One string per glyph: 7 rows of 5 characters, '1' = on. Validated by `font.test.ts`.
 const BITS: string[] = [
@@ -67,6 +67,7 @@ const BITS: string[] = [
   '00001000100001000100010000100010000', // slash
   '00010001000100001000010000010000010', // lparen
   '01000001000001000010000100010001000', // rparen
+  '00100010101000100000000000000000000', // caret — `(V/m)^2` units (2026-10-30)
 ];
 
 /** `char -> cell index`, built once. */
