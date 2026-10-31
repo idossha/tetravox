@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.7.0] - 2026-10-31
+
 ### Added
 
 - **Each field of a mesh keeps its own colours and range.** A mesh with several fields — a TI-Toolbox
