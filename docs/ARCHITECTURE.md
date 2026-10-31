@@ -456,6 +456,14 @@ export interface MeshLayer extends LayerBase {
   glyphs?: GlyphSpec;
   contoursIn2D: boolean; contourWidthPx: number; fillIn2D: boolean;
   contourColor?: vec4;                                  // undefined = edgeColor; seeded per surface (§7.4)
+  fields?: Record<string, MeshFieldDisplay>;            // 2026-10-30, additive: per-field state, by NAME
+}
+
+export interface MeshFieldDisplay {                     // every member optional
+  units?: string; label?: string;                       // display only; never guessed when absent.
+                                                        // label markup: `X_{sub}` = subscript, nothing else
+  colormap?: ColormapName | string; colormapNegative?: ColormapName | string;
+  scale?: Scale; threshold?: Threshold;                 // the field's own window, remembered
 }
 
 export interface IsosurfaceLayer extends LayerBase {
@@ -551,6 +559,44 @@ table would be lost on the next open. `labelColors` is therefore an *override*: 
 readable underneath it, a per-row Reset is deleting a key, and "Save LUT…" writes the override merged over
 the table. `selectedLabels` is a plain `number[]`, unlike `visibleLabels`' `Uint32Array`: a selection is a
 handful of ids a panel edits click by click, not a filter over up to 65535 of them.
+
+**`MeshLayer.fields` — one mesh, several fields, each with its own window** (2026-10-30). A simulation
+mesh carries several element fields in different units — TI-Toolbox's `<montage>_TI.msh` holds `TI_max`
+(V/m), `hf_peak` (V/m) and `hf_sar` ((V/m)²) — and `colormap` / `scale` / `threshold` are one per layer, so
+before this a switch from `TI_max` to `hf_sar` either kept a V/m window on a (V/m)² field or threw the
+user's window away. The rule: **the layer's own `colormap`, `scale` and `threshold` always draw the active
+field** (`field.name`), exactly as before; `fields[name]` is read when that field becomes active and
+written for the field being left. The app's `selectField` patch is the only writer: it stores the left
+field's colormap (and, for its magnitude view only, its scale and threshold — a signed component's ±max
+window is not the magnitude's), then restores the arriving field's entry, and a field with no
+`scale`/`threshold` in its entry gets what every field got before — its own `Stats` min…max with no
+threshold, keeping the layer's colormap. Entries are keyed by **field name**, so a node and an element
+field of one name share one (the units of a quantity do not depend on where it is sampled).
+`units` and `label` are **display only**: the field picker, §8's colour bar title (`label ?? name`, units
+after it, drawn **case- and `_`-exact** — `V/m` folded to `V/M` reads as mega) and §4.7's `ProbeRow.fields[].units` read them, falling back to `MeshFieldInfo.units` — which a
+`.msh` never sets — and otherwise to nothing; a unit is never inferred from a name. A host writes the
+block like any other layer field, in a scene file (§4.6) or a job's `set` patch:
+
+```json
+"fields": {
+  "TI_max":  { "units": "V/m", "label": "TI_{max}" },
+  "hf_peak": { "units": "V/m", "label": "HF_{peak}" },
+  "hf_sar":  { "units": "(V/m)^2", "colormap": "viridis", "scale": { "kind": "linear", "lo": 0, "hi": 0.2 } }
+}
+```
+
+**`label` has exactly one piece of markup: `X_{sub}`** — `"TI_{max}"` displays `TI` with subscript `max`
+(HTML `<sub>` in the picker, field header and probe readout; in the bitmap colour bar the base is raised
+three font pixels over a same-size subscript, because an integer-magnified 5×7 font has no smaller size).
+`derived/field-label.ts#labelParts` is the one parser. A `_` not followed by `{…}` is literal, so a bare
+field name such as `TI_max` — which is what shows when there is no `label` — is never turned into a
+subscript; a native `<option>` shows `plainLabel` (`TI_max`). `label` is display only: `fields` keys,
+`field.name` and the saved file keep the field's own name.
+
+Absent, nothing reads it and no patch writes it until the user switches fields, so no existing scene or
+golden changes. Pinned by `mesh/state.test.ts` ("per-field display state"), `mesh-colorbar.test.ts`,
+`roundtrip.test.ts` (nested `threshold`s through JSON) and `e2e/multifield.spec.ts` on
+`testdata/mesh_multifield.msh`.
 
 **A points layer's eight §13 fields, and what "additive" guarantees here** (2026-08-30).
 `LayerBase.module`, `points[].id` / `.group` / `.ordinal`, `PointsLayer.offPlaneOpacity`, `.labelSource`,
@@ -749,6 +795,8 @@ export interface ViewSpec {
 
 **JSON has no infinity.** `Threshold.lo`/`.hi` default to `∓Infinity`, and `JSON.stringify` turns those into
 `null` without a word. They are written as `null` deliberately and read back as the bound the null stands for.
+The same holds one level down, for each `MeshLayer.fields[name].threshold` (§4.4, 2026-10-30); an entry
+that is not an object is dropped on load rather than handed to the editor.
 
 **What is not serialised, and why.** `LabelTable`s are re-derived from the dataset and its LUT on load. A
 points layer's `labels` and `lineSegments` are re-derived from the parsed `.geo` views (§6.2) — and
@@ -870,7 +918,7 @@ export interface ProbeRow {
   voxel?: vec3; value?: number | vec3;
   labelId?: number; labelName?: string;
   elementId?: number; tag?: number; tagName?: string;
-  fields?: { name: string; value: number | number[] }[];
+  fields?: { name: string; value: number | number[]; units?: string; label?: string }[];   // §4.4 `MeshLayer.fields`
   vertex?: number; vertexWorld?: vec3;                          // surfaces (§3)
   fsavgVertex?: number; fsavgWorld?: vec3; fsavgSpace?: string;
 }

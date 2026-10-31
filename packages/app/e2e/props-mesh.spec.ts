@@ -370,9 +370,9 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
 
   test('the field selector emits the field, and re-seeds the scale from its stats', async () => {
     await setControl(page, `mesh-colormode-${ids.mesh}`, 'field');
-    await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:E');
+    await page.click(`[data-testid="mesh-fieldname-${ids.mesh}-elm:E"]`);
     await record(page);
-    await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:TI_max');
+    await page.click(`[data-testid="mesh-fieldname-${ids.mesh}-elm:TI_max"]`);
     const patch = await onePatch(page);
     expect(patch.colorMode).toBe('field');
     expect(patch.field).toEqual({ source: 'elm', name: 'TI_max', component: 'mag' });
@@ -494,7 +494,7 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
   });
 
   test('vector components stay available and signed components reset stale contrast', async () => {
-    await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:E');
+    await page.click(`[data-testid="mesh-fieldname-${ids.mesh}-elm:E"]`);
     await expect(page.getByTestId(`mesh-component-${ids.mesh}`)).toBeVisible();
     await record(page);
     await setControl(page, `mesh-component-${ids.mesh}`, '0');
@@ -504,7 +504,7 @@ test.describe('the mesh / iso / points property editors (§8)', () => {
     expect(scale.lo).toBeLessThan(0);
     expect(scale.hi).toBe(-scale.lo);
     await expect(page.getByTestId(`mesh-threshold-enabled-${ids.mesh}`)).not.toBeChecked();
-    await setControl(page, `mesh-fieldname-${ids.mesh}`, 'elm:TI_max');
+    await page.click(`[data-testid="mesh-fieldname-${ids.mesh}-elm:TI_max"]`);
   });
 
   // ---- R4: the 2D cross-section ----------------------------------------------------------------

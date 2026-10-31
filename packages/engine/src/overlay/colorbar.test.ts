@@ -11,7 +11,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { OverlayBuilder, FLOATS_PER_VERTEX, overlayMetrics } from './builder';
-import { colorbarLayout, drawColorbar, formatTick, volumeColorbarSpec } from './colorbar';
+import {
+  colorbarLayout,
+  colorbarTitle,
+  drawColorbar,
+  formatTick,
+  volumeColorbarSpec,
+} from './colorbar';
 import { bakeScale } from '../color/colormaps';
 import { CELL_W } from '../render/font';
 import { defaultVolumeLayer } from '../scene/defaults';
@@ -171,6 +177,42 @@ describe('volumeColorbarSpec', () => {
   it('`showColorbar: false` means no bar', () => {
     const layer = layerWith({ kind: 'linear', lo: 0, hi: 1 }, { showColorbar: false });
     expect(volumeColorbarSpec(layer, volume(), bakeScale(layer.scale, 'gray'))).toBeNull();
+  });
+});
+
+describe('colorbarTitle', () => {
+  it('puts units in parentheses once — `(V/m)^2` is not wrapped again', () => {
+    expect(colorbarTitle({ title: 'TI_max' })).toBe('TI_max');
+    expect(colorbarTitle({ title: 'TI_max', units: 'V/m' })).toBe('TI_max (V/m)');
+    expect(colorbarTitle({ title: 'hf_sar', units: '(V/m)^2' })).toBe('hf_sar (V/m)^2');
+  });
+});
+
+describe('exact text and §4.4 label markup', () => {
+  /** The lowest pane-pixel y of each glyph quad, in a 100 px-high builder. */
+  function glyphBottoms(text: string, exact: boolean): number[] {
+    const b = new OverlayBuilder();
+    b.begin(100, 100);
+    b.text(text, 0, 10, 1, [1, 1, 1, 1], 'left', exact);
+    const v = b.build();
+    const out: number[] = [];
+    for (let q = 0; q < v.length / (6 * FLOATS_PER_VERTEX); q += 1) {
+      let lo = Infinity;
+      for (let k = 0; k < 6; k += 1) {
+        lo = Math.min(lo, (((v[(q * 6 + k) * FLOATS_PER_VERTEX + 1] ?? 0) + 1) / 2) * 100);
+      }
+      out.push(Math.round(lo));
+    }
+    return out;
+  }
+
+  it('`TI_{max}` draws five glyphs: the base raised three pixels over a subscript on the line', () => {
+    expect(glyphBottoms('TI_{max}', true)).toEqual([13, 13, 10, 10, 10]);
+  });
+
+  it('a bare name and folded text stay on one line, the braces drawn as written', () => {
+    expect(glyphBottoms('TI_max', true)).toEqual([10, 10, 10, 10, 10, 10]);
+    expect(glyphBottoms('TI_{max}', false)).toHaveLength(8);
   });
 });
 

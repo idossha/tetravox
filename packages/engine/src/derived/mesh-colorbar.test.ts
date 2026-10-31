@@ -106,6 +106,18 @@ describe('meshColorbarSpec', () => {
     expect(spec?.ticks.map((t) => t.label)).toEqual(['0', '0.5']);
   });
 
+  it('§4.4 `MeshLayer.fields`: the active field’s label and units title the bar, never guessed', () => {
+    const meta = { TI_max: { units: 'V/m', label: 'TI max' }, hf_sar: { units: '(V/m)^2' } };
+    const spec = meshColorbarSpec(layer({ fields: meta }), dataset());
+    expect(spec?.title).toBe('TI max');
+    expect(spec?.units).toBe('V/m');
+    // The metadata beats the dataset's own units; no entry and no dataset units shows the bare name.
+    expect(meshColorbarSpec(layer({ fields: meta }), dataset('mV'))?.units).toBe('V/m');
+    const bare = meshColorbarSpec(layer({ fields: { hf_sar: { units: '(V/m)^2' } } }), dataset());
+    expect(bare?.title).toBe('TI_max');
+    expect(bare?.units).toBeUndefined();
+  });
+
   it('adds the `mid` tick for a heat scale, and 512 texels for the separate negative branch', () => {
     const spec = meshColorbarSpec(
       layer({

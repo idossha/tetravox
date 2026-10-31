@@ -86,7 +86,11 @@ export interface ProbeRow {
   elementId?: number;
   tag?: number;
   tagName?: string;
-  fields?: { name: string; value: number | number[] }[];
+  /**
+   * `units`, `label` (2026-10-30, additive): from the layer's `MeshLayer.fields` entry (`units` else
+   * the dataset's). `label` may carry §4.4's `X_{sub}` markup.
+   */
+  fields?: { name: string; value: number | number[]; units?: string; label?: string }[];
 
   // -- surfaces: vertex identity (directed task 8; §3, `docs/DECISIONS.md` 2026-08-28) ----------
   /**

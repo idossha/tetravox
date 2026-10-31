@@ -13,6 +13,7 @@
 import type { ProbeResult, ProbeRow } from '@tetravox/engine';
 import { formatNumber, formatTriple } from '../../lib/coords';
 import { useController, useUi } from '../../ui/context';
+import { FieldText } from '../../ui/FieldText';
 
 function valueText(value: ProbeRow['value']): string {
   if (value === undefined) return '—';
@@ -20,11 +21,11 @@ function valueText(value: ProbeRow['value']): string {
   return value.map((c) => formatNumber(c, 3)).join(', ');
 }
 
-function fieldText(field: { name: string; value: number | number[] }): string {
+function fieldValue(field: NonNullable<ProbeRow['fields']>[number]): string {
   const value = Array.isArray(field.value)
     ? field.value.map((c) => formatNumber(c, 3)).join(', ')
     : formatNumber(field.value, 4);
-  return `${field.name} = ${value}`;
+  return `${value}${field.units === undefined ? '' : ` ${field.units}`}`;
 }
 
 /**
@@ -114,7 +115,7 @@ function Row({ row }: { row: ProbeRow }): React.JSX.Element {
         {row.fields !== undefined &&
           row.fields.map((field) => (
             <div key={field.name} className="col-span-2 truncate" data-testid="probe-field">
-              {fieldText(field)}
+              <FieldText label={field.label ?? field.name} /> = {fieldValue(field)}
             </div>
           ))}
       </dl>

@@ -104,6 +104,8 @@ export {
   glyphScalingWord,
   referenceMagnitude,
 } from './derived/glyph-scale';
+export { labelParts, plainLabel } from './derived/field-label';
+export type { LabelPart } from './derived/field-label';
 export type { GlyphInstance } from './derived/glyph-readback';
 
 /**

@@ -1952,6 +1952,328 @@
   }
  },
  "msh": {
+  "mesh_multifield.msh": {
+   "bbox": {
+    "max": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "min": [
+     -10.0,
+     -10.0,
+     -10.0
+    ]
+   },
+   "bytes": 7591,
+   "elements": 104,
+   "fields": [
+    {
+     "first": [
+      0.05
+     ],
+     "last": [
+      1.08
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "TI_max",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 1.08,
+      "mean": 0.565,
+      "min": 0.05,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 58.76
+     }
+    },
+    {
+     "first": [
+      2.0
+     ],
+     "last": [
+      5.09
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "hf_peak",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 5.09,
+      "mean": 3.545,
+      "min": 2.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 368.68
+     }
+    },
+    {
+     "first": [
+      2.0
+     ],
+     "last": [
+      12.95405
+     ],
+     "magnitudeStats": null,
+     "n": 104,
+     "name": "hf_sar",
+     "ncomp": 1,
+     "source": "elm",
+     "stats": {
+      "max": 12.95405,
+      "mean": 6.689075,
+      "min": 2.0,
+      "n": 104,
+      "nFinite": 104,
+      "sum": 695.6638
+     }
+    }
+   ],
+   "firstElementNodes": [
+    1,
+    5,
+    2
+   ],
+   "firstNode": [
+    -10.0,
+    -10.0,
+    -10.0
+   ],
+   "gmsh": {
+    "bbox": {
+     "max": [
+      10.0,
+      10.0,
+      10.0
+     ],
+     "min": [
+      -10.0,
+      -10.0,
+      -10.0
+     ]
+    },
+    "bytes": 7591,
+    "connectivity1Based": {
+     "2": {
+      "first": [
+       1,
+       5,
+       2
+      ],
+      "last": [
+       26,
+       23,
+       27
+      ]
+     },
+     "4": {
+      "first": [
+       1,
+       2,
+       5,
+       14
+      ],
+      "last": [
+       14,
+       24,
+       15,
+       27
+      ]
+     }
+    },
+    "elementNumbers": {
+     "contiguousFrom1": true,
+     "count": 104,
+     "first": 1,
+     "last": 104,
+     "sorted": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ]
+    },
+    "elementsByGmshType": {
+     "2": 56,
+     "4": 48
+    },
+    "fields": [
+     {
+      "first": [
+       0.05
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       104
+      ],
+      "last": [
+       1.08
+      ],
+      "magnitudeStats": null,
+      "n": 104,
+      "name": "TI_max",
+      "ncomp": 1,
+      "source": "elm",
+      "stats": {
+       "max": 1.08,
+       "mean": 0.565,
+       "min": 0.05,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 58.76
+      }
+     },
+     {
+      "first": [
+       2.0
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       104
+      ],
+      "last": [
+       5.09
+      ],
+      "magnitudeStats": null,
+      "n": 104,
+      "name": "hf_peak",
+      "ncomp": 1,
+      "source": "elm",
+      "stats": {
+       "max": 5.09,
+       "mean": 3.545,
+       "min": 2.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 368.68
+      }
+     },
+     {
+      "first": [
+       2.0
+      ],
+      "firstIds": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "gmshDataType": "ElementData",
+      "idRange": [
+       1,
+       104
+      ],
+      "last": [
+       12.95405
+      ],
+      "magnitudeStats": null,
+      "n": 104,
+      "name": "hf_sar",
+      "ncomp": 1,
+      "source": "elm",
+      "stats": {
+       "max": 12.95405,
+       "mean": 6.689075,
+       "min": 2.0,
+       "n": 104,
+       "nFinite": 104,
+       "sum": 695.6638
+      }
+     }
+    ],
+    "firstNodeByNumber": [
+     -10.0,
+     -10.0,
+     -10.0
+    ],
+    "lastNodeByNumber": [
+     10.0,
+     10.0,
+     10.0
+    ],
+    "nodeNumbers": {
+     "contiguousFrom1": true,
+     "first": 1,
+     "last": 27
+    },
+    "nodes": 27,
+    "physicalNames": [
+     [
+      2,
+      1001,
+      "Tissue_A_surface"
+     ],
+     [
+      2,
+      1002,
+      "Tissue_B_surface"
+     ],
+     [
+      3,
+      1,
+      "Tissue_A"
+     ],
+     [
+      3,
+      2,
+      "Tissue_B"
+     ]
+    ],
+    "physicalTagCountsDim2": {
+     "1001": 24,
+     "1002": 32
+    },
+    "physicalTagCountsDim3": {
+     "1": 24,
+     "2": 24
+    },
+    "reader": "gmsh 4.14.0 python api"
+   },
+   "hasTris": true,
+   "lastElementNodes": [
+    14,
+    24,
+    15,
+    27
+   ],
+   "lastNode": [
+    10.0,
+    10.0,
+    10.0
+   ],
+   "nodes": 27,
+   "reader": "simnibs.mesh_io.read_msh",
+   "tetTagCounts": {
+    "1": 24,
+    "2": 24
+   },
+   "tets": 48,
+   "triTagCounts": {
+    "1001": 24,
+    "1002": 32
+   },
+   "tris": 56,
+   "trisFirst": true
+  },
   "mesh_noncontig.msh": {
    "bbox": {
     "max": [
@@ -5354,7 +5676,7 @@
    "reader": "gmsh 4.14.0 python api"
   }
  },
- "totalFixtureBytes": 142225,
+ "totalFixtureBytes": 149816,
  "version": 1,
  "volumes": {
   "ct_shafts.nii.gz": {

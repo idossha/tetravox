@@ -550,14 +550,8 @@ export class MeshLayerRuntime implements LayerRuntime {
             tag: res.hit.tag,
             tagName: tag?.name,
             fields: [
-              ...Object.entries(res.hit.nodeValues).map(([name, v]) => ({
-                name,
-                value: v.length === 1 ? (v[0] ?? 0) : v,
-              })),
-              ...Object.entries(res.hit.elmValues).map(([name, v]) => ({
-                name,
-                value: v.length === 1 ? (v[0] ?? 0) : v,
-              })),
+              ...Object.entries(res.hit.nodeValues).map(([name, v]) => this.#probeField(name, v)),
+              ...Object.entries(res.hit.elmValues).map(([name, v]) => this.#probeField(name, v)),
             ],
           },
         };
@@ -637,10 +631,11 @@ export class MeshLayerRuntime implements LayerRuntime {
       colormapOf(layer.colormap),
       layer.colormapNegative !== undefined ? colormapOf(layer.colormapNegative) : undefined
     );
+    const meta = layer.fields?.[field.name];
     return {
       layerId: layer.id,
-      title: field.name,
-      units: info?.units,
+      title: meta?.label ?? field.name,
+      units: meta?.units ?? info?.units,
       scale: layer.scale,
       threshold: layer.threshold,
       colormap: layer.colormap,
@@ -677,6 +672,7 @@ export class MeshLayerRuntime implements LayerRuntime {
       layerId: s.layerId,
       title: s.title,
       units: s.units,
+      exactTitle: true,
       ramp: s.ramp,
       ticks,
       notches,
@@ -711,6 +707,21 @@ export class MeshLayerRuntime implements LayerRuntime {
   // -----------------------------------------------------------------------------------------
   // Internals
   // -----------------------------------------------------------------------------------------
+
+  /** One probe field, with its units and display label (§4.4's `MeshLayer.fields` first, never guessed). */
+  #probeField(
+    name: string,
+    v: number[]
+  ): { name: string; value: number | number[]; units?: string; label?: string } {
+    const meta = this.#layer.fields?.[name];
+    const units = meta?.units ?? this.#ds.fields.find((f) => f.name === name)?.units;
+    return {
+      name,
+      value: v.length === 1 ? (v[0] ?? 0) : v,
+      ...(units === undefined ? {} : { units }),
+      ...(meta?.label === undefined ? {} : { label: meta.label }),
+    };
+  }
 
   /**
    * §7.4's geometry cache key for this layer, *including the isolation mask*.

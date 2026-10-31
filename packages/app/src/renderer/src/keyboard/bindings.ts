@@ -138,13 +138,13 @@ const CANDIDATES: readonly {
     key: ',',
     label: ',',
     section: 'Layers',
-    description: 'Previous 4D volume of the active volume layer',
+    description: 'Previous 4D volume, or previous field of the active mesh layer',
   },
   {
     key: '.',
     label: '.',
     section: 'Layers',
-    description: 'Next 4D volume of the active volume layer',
+    description: 'Next 4D volume, or next field of the active mesh layer',
   },
   // Cursor
   {

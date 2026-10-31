@@ -105,6 +105,17 @@ function fullMeshLayer(): Layer {
     colormapNegative: 'bone',
     scale: { mode: 'window', lo: -3, hi: 9, gamma: 1 },
     threshold: { lo: 0.1, hi: 0.9, mode: 'clamp' },
+    // §4.4's per-field entries (2026-10-30): metadata only, and a remembered state whose threshold
+    // is unbounded on one side — the ±Infinity JSON cannot hold, nested one level down.
+    fields: {
+      E: { units: 'V/m', label: 'E-field' },
+      hf_sar: {
+        units: '(V/m)^2',
+        colormap: 'viridis',
+        scale: { kind: 'linear', lo: 0, hi: 0.4 },
+        threshold: { lo: 0.05, hi: Infinity, symmetric: false, mode: 'hide', softEdge: 0 },
+      },
+    },
     tagStyle: {
       2: { visible: false, opacity: 0.3, color: [0, 1, 0, 1] },
       5: { visible: true, opacity: 1 },

@@ -189,6 +189,11 @@ tags, a field range, a sphere, a box, or the regions of a label volume.
 
 A scalar field carried by the mesh — `TI_max`, an `E` magnitude from a tDCS run, a TMS E-field — colours the
 surface directly, with the colour bar reading that field's own units.
+A mesh with several fields (a TI-Toolbox `<montage>_TI.msh` carries `TI_max`, `hf_peak` and `hf_sar`)
+shows them as buttons under **Field** — a dropdown once there are more than six — and `,` / `.` step
+through them. Each field keeps its own colormap, range and threshold: switch away and back and the
+field returns as you left it, and a field shown for the first time opens at its own min…max. A `.msh`
+carries no units, so they appear only when the application that opened the file supplied them.
 
 ![TI_max on the grey-matter mesh, cut by the slices in 2D and whole in 3D](screenshots/2026-08-29/brain/brain-mesh-ti-max-2x2.png)
 

@@ -5900,3 +5900,67 @@ visible, deliberate step); allowing tag pushes unconditionally (a release is a d
 maintainer makes, not one an agent infers). Evidence: the wording in `AGENTS.md`, `CONTRIBUTING.md`,
 `docs/RELEASING.md` and `scripts/release.sh`'s header, which `grep -rn "push" -- AGENTS.md
 CONTRIBUTING.md docs/RELEASING.md scripts/release.sh` shows all say the same thing.
+
+## 2026-10-30 — A mesh layer remembers each field's window; hosts may name units (§4.4, §4.6, §4.7, §8)
+
+TI-Toolbox now writes one volume mesh per montage, `<montage>_TI.msh`, with `TI_max` / `hf_peak`
+(V/m) and `hf_sar` ((V/m)²) — optional `TI_avg`, `hf_power_density`; `mTI_max` for mTI. `colormap`,
+`scale` and `threshold` are per layer, so switching `TI_max` → `hf_sar` kept a V/m window on a (V/m)²
+field. Decision: an optional `MeshLayer.fields: Record<name, MeshFieldDisplay>` (`units`, `label`,
+`colormap`, `colormapNegative`, `scale`, `threshold`, all optional). The layer's own three fields stay the
+**live** state of the active field; the app's `selectField` patch writes the left field's entry and
+restores the arriving one's, and a field without one gets the pre-existing min…max seeding. Keyed by
+**name**, not `source:name`, because a host knows field names and units belong to the quantity.
+`units` / `label` feed the picker, the colour-bar caption and a new optional `ProbeRow.fields[].units`;
+nothing infers a unit from a name. The caption no longer double-wraps units that open with `(`, and the
+§8 bitmap font gains a `^` glyph (appended cell; existing glyphs and goldens unmoved). Up to
+`FIELD_CHIP_MAX` = 6 fields are a segmented control on its own line, more a dropdown — six is
+TI-Toolbox's largest default-plus-optional set (`authored`). `,` / `.` — already "step the active
+layer's 4D frame" — step a field-coloured mesh's field, the same gesture for the same idea.
+
+Additive under §12.3: absent, nothing reads the block and no patch writes it until the user switches;
+`ViewSpec` stays version 2 because per-layer fields ride the spread (§4.6, 2026-08-30) and an older build
+carries the block through a re-save. Alternatives rejected: per-field state inside the engine on every
+`updateLayer({ field })` (changes what a job's existing `set` patch does); keying by `source:name` (a
+host would have to know Tetravox's key format); a `range: [lo, hi]` shorthand beside `scale` (two
+spellings of one window); bumping the ViewSpec version (nothing to migrate). Evidence:
+`mesh/state.test.ts` "per-field display state", `controller.test.ts` (`,` / `.` on a mesh),
+`mesh-colorbar.test.ts`, `colorbar.test.ts` `colorbarTitle`, `roundtrip.test.ts` (nested thresholds
+through JSON), `crates/tvx-mesh-io/tests/fixtures.rs` (`mesh_multifield.msh` against
+`simnibs.mesh_io.read_msh`'s statistics) and `e2e/multifield.spec.ts` (bar title/range per chip, restored
+state, host units in picker, bar and probe). The manifest entry was spliced in from a full
+`gen-fixtures.py` run into a scratch directory, because this machine's python3 lacks meshio and nibabel
+stamps `lh.fixture.surf` with user/date — a full in-place regeneration would rewrite unrelated entries.
+
+## 2026-10-30 — Field names and units on a mesh colour bar keep their case (§4.4, §8)
+
+The bitmap font folds to upper case and draws `_` as a blank, so a mesh field bar read `TI MAX (V/M)` —
+and `M` is mega, a wrong unit in a scientific viewer. Decision: the font gains `a`–`z` and `_` (appended
+cells), and `cellOf(ch, exact)` / `OverlayBuilder.text(…, exact)` draw them only for **exact** text.
+`ColorbarSpec.exactTitle` is set by the mesh field and glyph bars, so their captions read
+`TI_max (V/m)`. Everything else — letters, badge, corner info, scale bar, volume bars — stays folded,
+which is what keeps every golden in place. Measured: `derived-mesh-colorbar`, the one golden that shows a
+mesh field bar (`node_scalar`), changes 289 of 589,824 pixels (0.049 %) between folded and exact on
+SwiftShader/macOS `[MEASURED]`, under the 0.2 % ubuntu ratio, so no golden was re-blessed; the full
+`chromium-swiftshader` suite passes (222). Alternatives rejected: case-exact for all chrome (moves the
+volume-bar and corner-info goldens, which need an ubuntu re-bless, for text that is not a unit);
+upper-casing units deliberately (still mega). Left folded: the glyph legend corner line
+(`E: … MM ARROWS`), whose units come from the dataset, which a `.msh` never sets. Evidence:
+`font.test.ts` ("keeps case and `_` only in exact text").
+
+## 2026-10-30 — Field labels take one subscript markup, `X_{sub}` (§4.4)
+
+TI-Toolbox wants `TI_max` shown as TI with subscript max while the saved name keeps its underscore, and
+will send `"label": "TI_{max}"` through `MeshLayer.fields`. Decision: `label` honours exactly `X_{sub}`
+(`derived/field-label.ts#labelParts`, the one parser); HTML surfaces (chips, the Field header, the probe
+readout) render `<sub>`, a native `<option>` shows `plainLabel` (`TI_max`), and the bitmap colour bar
+raises the base three font pixels over a same-size subscript on the title's line — raising, not
+lowering, because the line below holds the top tick. A bare name is never converted: `TI_max` without a
+`label` displays `TI_max`, since an implicit `_` → subscript would mangle names like `elm_gap`. Text with
+no subscript draws exactly as before, so no golden moves. `ProbeRow.fields[].label` (optional) carries
+the label to the readout. Alternatives rejected: a smaller subscript glyph (the 5×7 atlas is
+integer-magnified; a 0.6× quad drops pixels); Unicode subscript letters (no `q`, uneven fonts); full
+TeX. A 0.6.3 build reading such a scene carries `fields` on the layer as an inert property — no warning,
+no rejection — and re-saves it untouched (the §4.6 spread). Evidence: `field-label.test.ts`,
+`colorbar.test.ts` "exact text and §4.4 label markup", `multifield.spec.ts` (`<sub>` in chip, header
+and probe; a bare name has none).
