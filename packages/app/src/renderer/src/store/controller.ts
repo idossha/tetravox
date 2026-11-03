@@ -87,7 +87,7 @@ import { requestFromPath } from '../open/sources';
 import type { OpenRequest } from '../open/sources';
 import type { Command } from '../keyboard/keymap';
 import { LAYOUT_CYCLE, layoutCells, migrateSpecLayout, nextLayout } from '../lib/layout';
-import { savePanelPrefs } from '../lib/panels';
+import { clampPanelWidth, savePanelPrefs } from '../lib/panels';
 import { composeFigure, type FigureOptions, type FigurePanel } from '../lib/figure';
 import * as loads from '../lib/loads';
 import * as toasts from '../lib/toasts';
@@ -1258,7 +1258,20 @@ export class ShellController {
       leftPanelCollapsed: s.leftPanelCollapsed,
       rightPanelCollapsed: s.rightPanelCollapsed,
       mouseBlockCollapsed: s.mouseBlockCollapsed,
+      leftPanelWidth: s.leftPanelWidth,
+      rightPanelWidth: s.rightPanelWidth,
     });
+  }
+
+  /**
+   * Chrome only, like collapse. `persist: false` is the live drag — every pointer move updates the
+   * width, and only the pointer-up writes `localStorage`.
+   */
+  setPanelWidth(side: 'left' | 'right', px: number, persist = true): void {
+    const width = clampPanelWidth(side, px);
+    const key = side === 'left' ? 'leftPanelWidth' : 'rightPanelWidth';
+    if (this.store.getState()[key] !== width) this.store.setState({ [key]: width });
+    if (persist) this.savePanels();
   }
 
   setRightPanelCollapsed(collapsed: boolean): void {

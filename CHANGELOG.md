@@ -14,6 +14,8 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
   background shows through instead of a black box around the head. It is on by default for a volume with a
   padded background (such as a SimNIBS `T1.nii.gz`), and the checkbox and cut-off value are in the volume's
   editor.
+- The left and right sidebars can be resized by dragging their inner edge (arrow keys step it, a
+  double-click resets it). The width is remembered across launches, like the collapse state.
 
 ## [0.7.0] - 2026-10-31
 

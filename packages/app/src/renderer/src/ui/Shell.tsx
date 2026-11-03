@@ -44,7 +44,7 @@ import { Toasts } from './Toasts';
 import { Toolbar } from '../toolbar/Toolbar';
 import { ViewGrid } from './ViewGrid';
 import { Webgl2Error } from './Webgl2Error';
-import { NARROW_BREAKPOINT_PX } from '../lib/panels';
+import { NARROW_BREAKPOINT_PX, PANEL_WIDTH_LIMITS } from '../lib/panels';
 
 /**
  * A collapsed sidebar's thin rail — a chevron and nothing else, `data-testid` per side. §8 gives the
@@ -83,12 +83,78 @@ function PanelRail({
   );
 }
 
+/**
+ * The drag handle on an expanded sidebar's inner edge. Dragging sets the width live and persists it
+ * on release; arrow keys step it; a double-click restores the default.
+ */
+function PanelResizeHandle({
+  side,
+  width,
+  controller,
+}: {
+  side: 'left' | 'right';
+  width: number;
+  controller: ShellController;
+}): React.JSX.Element {
+  const drag = useRef<{ x: number; width: number; last: number } | null>(null);
+  const { min, max, default: fallback } = PANEL_WIDTH_LIMITS[side];
+  // Dragging toward the view grid widens the panel: rightward for the left one, leftward for the right.
+  const sign = side === 'left' ? 1 : -1;
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={side === 'left' ? 'Resize the layer panel' : 'Resize the info panel'}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      data-testid={`${side}-panel-resize`}
+      className={
+        'absolute inset-y-0 z-10 w-1.5 cursor-col-resize touch-none hover:bg-tvx-accent/40 ' +
+        'focus-visible:bg-tvx-accent/40 focus-visible:outline-none ' +
+        (side === 'left' ? '-right-0.5' : '-left-0.5')
+      }
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = { x: event.clientX, width, last: width };
+      }}
+      onPointerMove={(event) => {
+        const start = drag.current;
+        if (start === null) return;
+        start.last = start.width + sign * (event.clientX - start.x);
+        controller.setPanelWidth(side, start.last, false);
+      }}
+      onPointerUp={() => {
+        const start = drag.current;
+        if (start === null) return;
+        drag.current = null;
+        controller.setPanelWidth(side, start.last);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onDoubleClick={() => controller.setPanelWidth(side, fallback)}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 64 : 16;
+        if (event.key === 'ArrowRight') controller.setPanelWidth(side, width + sign * step);
+        else if (event.key === 'ArrowLeft') controller.setPanelWidth(side, width - sign * step);
+        else return;
+        event.preventDefault();
+      }}
+    />
+  );
+}
+
 /** The right `<aside>`, unchanged in content — only which container renders it moved. */
 function RightPanel({ onCollapse }: { onCollapse: () => void }): React.JSX.Element {
   return (
     <aside
       data-testid="right-panel"
-      className="flex w-80 min-w-64 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
+      className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
     >
       <div className="flex items-center justify-end border-b border-tvx-line px-1 py-0.5">
         <button
@@ -146,6 +212,8 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
   const hideChrome = jobMode;
   const leftPanelCollapsed = useStore(store, (s) => s.leftPanelCollapsed);
   const rightPanelCollapsed = useStore(store, (s) => s.rightPanelCollapsed);
+  const leftPanelWidth = useStore(store, (s) => s.leftPanelWidth);
+  const rightPanelWidth = useStore(store, (s) => s.rightPanelWidth);
   // §13.3's narrow-mode rule. Below `NARROW_BREAKPOINT_PX` the right aside normally becomes a
   // temporary overlay whose backdrop closes on **any** click — including a click in a pane, which is
   // exactly what a module asks the user for. While one is active the aside therefore stays in flow.
@@ -471,7 +539,14 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                       }
                     />
                   ) : (
-                    <LayerPanel />
+                    <div className="flex min-w-56" style={{ width: leftPanelWidth }}>
+                      <LayerPanel />
+                      <PanelResizeHandle
+                        side="left"
+                        width={leftPanelWidth}
+                        controller={controller}
+                      />
+                    </div>
                   )}
                   {narrow && leftOverlayOpen && (
                     <>
@@ -480,7 +555,10 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                         className="fixed inset-0 z-20 bg-black/30"
                         onClick={() => setLeftOverlayOpen(false)}
                       />
-                      <div className="absolute inset-y-0 left-0 z-30 shadow-xl">
+                      <div
+                        className="absolute inset-y-0 left-0 z-30 flex shadow-xl"
+                        style={{ width: leftPanelWidth }}
+                      >
                         <LayerPanel />
                       </div>
                     </>
@@ -502,7 +580,14 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                       }
                     />
                   ) : (
-                    <RightPanel onCollapse={() => controller.toggleRightPanel()} />
+                    <div className="flex min-w-64" style={{ width: rightPanelWidth }}>
+                      <RightPanel onCollapse={() => controller.toggleRightPanel()} />
+                      <PanelResizeHandle
+                        side="right"
+                        width={rightPanelWidth}
+                        controller={controller}
+                      />
+                    </div>
                   )}
                   {narrow && !moduleActive && rightOverlayOpen && (
                     <>
@@ -511,7 +596,10 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                         className="fixed inset-0 z-20 bg-black/30"
                         onClick={() => setRightOverlayOpen(false)}
                       />
-                      <div className="absolute inset-y-0 right-0 z-30 shadow-xl">
+                      <div
+                        className="absolute inset-y-0 right-0 z-30 flex shadow-xl"
+                        style={{ width: rightPanelWidth }}
+                      >
                         <RightPanel onCollapse={() => setRightOverlayOpen(false)} />
                       </div>
                     </>
