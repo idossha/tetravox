@@ -5964,3 +5964,23 @@ TeX. A 0.6.3 build reading such a scene carries `fields` on the layer as an iner
 no rejection — and re-saves it untouched (the §4.6 spread). Evidence: `field-label.test.ts`,
 `colorbar.test.ts` "exact text and §4.4 label markup", `multifield.spec.ts` (`<sub>` in chip, header
 and probe; a bare name has none).
+
+## 2026-11-02 — A volume's background can be cleared, and is by default when it has one (§4.4, §7.3)
+
+A zero-padded T1 drew its padding as the colormap's black — a black box inside the app's non-black pane
+background. Freeview avoids the box by defaulting its views to black and offers a per-volume *Clear
+background* checkbox (`LayerPropertyMRI.cpp`: alpha 0 at or below a value, the window minimum by default),
+off by default. Decision: `VolumeLayer.clearBackground?: { enabled, value? }` — absent is off, the
+previous picture — discarded in the slice shader before the threshold gate, so picking agrees with what
+is drawn. Unlike Freeview it is **on by default** when a volume has a low plateau (`p1 === p5`, ≥ 4 % of
+the voxels on one value), because our background is not black. The level is the plateau, not the
+minimum: ernie's `T1.nii.gz` has a minimum of −41.8 from 0.1 % ringing voxels and a 50 % zero plateau, so
+"clear the minimum" (the first draft) left the reported box in place, and on a z-map it would erase the
+single most negative voxel. Percentiles are already exact in `Stats`, so the rule costs no UI-thread scan
+and no new worker statistic. A scene saved before this change gets the default on restore, like any
+other `defaultLayerFor` field the file does not name. No existing fixture has a plateau, so no golden
+moved. Alternatives rejected: a black pane background (against the app's look); tinting the colormap's
+bottom to the background (shifts dark tissue); a new exact zero-count statistic from the worker (a §6
+signature change for what `p1`/`p5` already say). Evidence: `slice-clear.test.ts`,
+`slice-clear-background.spec.ts` (both §6.1 ladder rows, pick, `showIn3D`, golden),
+`slice-clear-background-realdata.spec.ts`, `props-volume.spec.ts`, `patches.test.ts`.

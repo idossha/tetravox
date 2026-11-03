@@ -336,7 +336,7 @@ const volumeDataset = (id: string): VolumeDataset =>
     id,
     name: `${id}.nii.gz`,
     isLabel: false,
-    stats: { percentiles: { '2': 10, '98': 90 }, min: 0, max: 100 },
+    stats: { percentiles: { '1': 5, '2': 10, '5': 20, '98': 90 }, min: 0, max: 100 },
   }) as unknown as VolumeDataset;
 
 const meshDataset = (id: string): MeshDataset =>

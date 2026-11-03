@@ -678,7 +678,12 @@ async function ladderBranch(page: Page, query: string, expectedFormat: string): 
       const layer = engine.addLayer({ datasetId: ds.id, kind: 'volume' });
       // NEAREST on both sides: the CPU probe is nearest-voxel, so linear filtering would compare a
       // GPU interpolation against a CPU point sample and disagree by design.
-      engine.updateLayer(layer.id, { interpolation: 'nearest' });
+      // This gate is the §6.1 ladder, `grey = LUT(value)` at every probe — including T1's zero
+      // padding, which §4.4's `clearBackground` would otherwise discard by default.
+      engine.updateLayer(layer.id, {
+        interpolation: 'nearest',
+        clearBackground: { enabled: false },
+      });
       engine.setLayout({ kind: '1x1', cells: ['axial'] });
       const b = 'bounds' in ds ? ds.bounds : { min: [0, 0, 0] as const, max: [0, 0, 0] as const };
       const mid = (k: 0 | 1 | 2): number => ((b.min[k] ?? 0) + (b.max[k] ?? 0)) / 2;

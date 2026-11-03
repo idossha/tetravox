@@ -32,10 +32,20 @@ import { collectDrawItems } from './pass';
 import type { DrawInput, FramePass, PassContext } from './pass';
 import { SLICE_FS, SLICE_VS } from '../../shaders';
 import { isSliceView } from '../../scene/store';
+import { backgroundLevel } from '../../scene/defaults';
 import { sliceBasis, sliceViewProj } from '../../view/geometry';
 import type { ViewportRect } from '../../view/layout';
 import type { VolumeDrawItem } from '../../layers/runtime';
-import type { mat4, Scene, SliceView, vec3, vec4, View } from '../../scene/types';
+import type {
+  mat4,
+  Scene,
+  SliceView,
+  vec3,
+  vec4,
+  View,
+  VolumeDataset,
+  VolumeLayer,
+} from '../../scene/types';
 
 /** The shared quad, exposed so the pick pass can draw the very same geometry (§7.2.3). */
 export interface SliceQuad {
@@ -70,6 +80,28 @@ const UNBOUNDED = 1e30;
 
 function finiteOr(v: number, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
+}
+
+/**
+ * `uClearBelow` for §4.4's `clearBackground`: the physical cut-off plus the most a stored value can
+ * drift from the true one on this layer's §6.1 payload, so "at or below" survives quantisation.
+ * Half a code on the normalised formats, where a value rounds to its nearest code; a relative ulp
+ * on the float ones. `-UNBOUNDED` (nothing passes `<=`) when the layer clears nothing.
+ */
+export function clearBelow(layer: VolumeLayer, ds: VolumeDataset): number {
+  const cb = layer.clearBackground;
+  if (cb === undefined || !cb.enabled || ds.isLabel || layer.tensor !== undefined)
+    return -UNBOUNDED;
+  const cut =
+    cb.value !== undefined && Number.isFinite(cb.value) ? cb.value : backgroundLevel(ds.stats);
+  const { format, scale } = ds.gpu;
+  const slack =
+    format === 'R8' || format === 'R16'
+      ? 0.5 * Math.abs(scale)
+      : format === 'R16F'
+        ? Math.abs(cut) * 2 ** -10
+        : Math.abs(cut) * 2 ** -22;
+  return cut + slack;
 }
 
 export class SlicePass implements FramePass {
@@ -287,6 +319,7 @@ export function bindSliceSampling(
   prog.float('uValueScale', gpu.valueScale);
   prog.float('uValueOffset', gpu.valueOffset);
 
+  prog.float('uClearBelow', clearBelow(layer, ds));
   const t = layer.threshold;
   prog.vec2('uThreshold', [finiteOr(t.lo, -UNBOUNDED), finiteOr(t.hi, UNBOUNDED)]);
   prog.float('uSoftEdge', Math.max(0, t.softEdge));

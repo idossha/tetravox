@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { backgroundLevel } from '@tetravox/engine';
 import type {
   Capabilities,
   Scale,
@@ -20,6 +21,8 @@ import type {
 import {
   COLORMAPS,
   clampOutlineWidth,
+  clearBackgroundValue,
+  patchClearBackground,
   colormapStops,
   effectiveInterpolation,
   forcedNearest,
@@ -238,5 +241,49 @@ describe('§8’s colormap strip', () => {
   it('returns nothing for a user .json colormap id, rather than painting the wrong one', () => {
     // §4.4 allows `colormap: string`; only the engine can resolve one, so the strip stays neutral.
     expect(colormapStops('my-custom-map')).toEqual([]);
+  });
+});
+
+describe('§4.4 clearBackground', () => {
+  it('turning it on from absent writes `{ enabled: true }` and no cut-off', () => {
+    expect(patchClearBackground(volumeLayer(), { enabled: true })).toEqual({
+      clearBackground: { enabled: true },
+    });
+  });
+
+  it('keeps the cut-off across off and on, so the toggle never loses what was typed', () => {
+    const on = volumeLayer({ clearBackground: { enabled: true, value: 40 } });
+    const off = patchClearBackground(on, { enabled: false });
+    expect(off).toEqual({ clearBackground: { enabled: false, value: 40 } });
+    expect(patchClearBackground({ ...on, ...off }, { enabled: true })).toEqual({
+      clearBackground: { enabled: true, value: 40 },
+    });
+  });
+
+  it('a typed value is written; a non-finite or cleared one falls back to the minimum', () => {
+    const on = volumeLayer({ clearBackground: { enabled: true, value: 40 } });
+    expect(patchClearBackground(on, { value: 12.5 })).toEqual({
+      clearBackground: { enabled: true, value: 12.5 },
+    });
+    for (const value of [NaN, Infinity, -Infinity, undefined]) {
+      const next = patchClearBackground(on, { value });
+      expect(next).toEqual({ clearBackground: { enabled: true } });
+      expect('value' in next.clearBackground!).toBe(false);
+    }
+  });
+
+  it('the field shows the cut-off the shader applies: the layer’s own, else the background level', () => {
+    const ds = volumeDataset();
+    const level = backgroundLevel(STATS);
+    expect(clearBackgroundValue(volumeLayer(), ds)).toBe(level);
+    expect(clearBackgroundValue(volumeLayer({ clearBackground: { enabled: true } }), ds)).toBe(
+      level
+    );
+    expect(
+      clearBackgroundValue(volumeLayer({ clearBackground: { enabled: true, value: 7 } }), ds)
+    ).toBe(7);
+    expect(
+      clearBackgroundValue(volumeLayer({ clearBackground: { enabled: true, value: NaN } }), ds)
+    ).toBe(level);
   });
 });

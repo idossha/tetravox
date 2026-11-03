@@ -39,6 +39,8 @@ export {
  * tests need the second.
  */
 export { defaultIso3d, derivedIsoLayers, iso3dLabels, iso3dLayerId } from './layers/iso3d';
+/** §4.4's `clearBackground` default rule, so the app's stand-in engine seeds layers the same way. */
+export { backgroundLevel, hasBackgroundFill } from './scene/defaults';
 
 /**
  * §4.6's sidecar resolution, for the host that owns the filesystem.

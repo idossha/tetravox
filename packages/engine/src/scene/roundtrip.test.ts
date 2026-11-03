@@ -83,6 +83,7 @@ function fullVolumeLayer(): Layer {
     showIn3D: true,
     precision: 'f32',
     iso3d: { enabled: true, iso: 0.5, color: [1, 0, 0, 1], opacity: 0.6, smooth: true },
+    clearBackground: { enabled: true, value: -1000.5 },
   } as unknown as Layer;
 }
 

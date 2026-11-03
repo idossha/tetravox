@@ -25,6 +25,7 @@ import type {
   mat4,
   vec3,
 } from '@tetravox/engine';
+import { hasBackgroundFill } from '@tetravox/engine';
 
 const PERCENTILE_KEYS: readonly PercentileKey[] = [
   '0.1',
@@ -522,6 +523,7 @@ export function defaultLayer(dataset: Dataset, layerId: LayerId): Layer {
       outlineWidthPx: 1,
       showIn3D: false,
       precision: 'auto',
+      ...(hasBackgroundFill(dataset) ? { clearBackground: { enabled: true } } : {}),
     };
   }
   if (dataset.nTets === 0 && dataset.hasTris) {

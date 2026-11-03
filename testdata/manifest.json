@@ -5676,7 +5676,7 @@
    "reader": "gmsh 4.14.0 python api"
   }
  },
- "totalFixtureBytes": 149816,
+ "totalFixtureBytes": 150293,
  "version": 1,
  "volumes": {
   "ct_shafts.nii.gz": {
@@ -9392,6 +9392,299 @@
     0.0,
     255.0
    ]
+  },
+  "vol_bgfill.nii.gz": {
+   "affine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -7.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -6.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -1.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "affineSource": "sform",
+   "allIntegralNonNegative": false,
+   "bytes": 477,
+   "datatypeCode": 4,
+   "dims": [
+    16,
+    14,
+    4
+   ],
+   "dtype": "i16",
+   "endian": "little",
+   "gzipped": true,
+   "intentCode": 0,
+   "maxAbsErrorDroppingQfac": 0.0,
+   "maxAbsSformQformDelta": 0.0,
+   "niftiVersion": 1,
+   "numpyDtype": "int16",
+   "nvols": 1,
+   "pixdim": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "qfac": 1.0,
+   "qformAffine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -7.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -6.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -1.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformAffineWithoutQfac": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -7.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -6.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -1.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "qformCode": 2,
+   "qoffset": [
+    -7.5,
+    -6.5,
+    -1.5
+   ],
+   "quatern": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sclInterOnDisk": 0.0,
+   "sclSlopeOnDisk": 1.0,
+   "sformAffine": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -7.5
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -6.5
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     -1.5
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "sformCode": 2,
+   "spacing": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "spotValues": [
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      0
+     ],
+     "world": [
+      -7.5,
+      -6.5,
+      -1.5,
+      1.0
+     ]
+    },
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      0,
+      0
+     ],
+     "world": [
+      -3.5,
+      -6.5,
+      -1.5,
+      1.0
+     ]
+    },
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      3,
+      0
+     ],
+     "world": [
+      -7.5,
+      -3.5,
+      -1.5,
+      1.0
+     ]
+    },
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      0,
+      0,
+      2
+     ],
+     "world": [
+      -7.5,
+      -6.5,
+      0.5,
+      1.0
+     ]
+    },
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      2,
+      1,
+      1
+     ],
+     "world": [
+      -5.5,
+      -5.5,
+      -0.5,
+      1.0
+     ]
+    },
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      4,
+      3,
+      2
+     ],
+     "world": [
+      -3.5,
+      -3.5,
+      0.5,
+      1.0
+     ]
+    },
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      3,
+      2,
+      0
+     ],
+     "world": [
+      -4.5,
+      -4.5,
+      -1.5,
+      1.0
+     ]
+    },
+    {
+     "physical": -1024.0,
+     "raw": -1024.0,
+     "volume": 0,
+     "voxel": [
+      1,
+      1,
+      2
+     ],
+     "world": [
+      -6.5,
+      -5.5,
+      0.5,
+      1.0
+     ]
+    }
+   ],
+   "stats": {
+    "max": 6617.0,
+    "mean": -205.214285714,
+    "min": -1024.0,
+    "n": 896,
+    "nFinite": 896,
+    "sum": -183872.0
+   },
+   "uniqueCount": 193
   },
   "vol_bigendian.nii": {
    "affine": [

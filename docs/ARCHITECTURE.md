@@ -392,6 +392,12 @@ export interface VolumeLayer extends LayerBase {
   showIn3D: boolean;
   precision: 'auto' | 'f32';                            // 'f32' forces R32F, guarded by caps.floatLinear
   iso3d?: VolumeIso3d;                                  // the volume's 3D SURFACE — additive, optional
+  clearBackground?: VolumeClearBackground;              // Freeview's "Clear background" — additive; absent = off
+}
+
+export interface VolumeClearBackground {
+  enabled: boolean;
+  value?: number;                                       // physical units; absent = backgroundLevel(stats)
 }
 
 export interface VolumeIso3d {
@@ -2541,6 +2547,15 @@ shaders declare `invariant gl_Position;`.
   `Threshold.softEdge`, §4.2's definition verbatim, so
   `alpha = smoothstep(lo, lo + softEdge*(hi-lo), v)` on the low edge and its mirror on the high edge — a
   fraction of the scalar range, not a count of histogram bins.
+* **`clearBackground`** (2026-11-02, Freeview's *Clear background*): a scalar fragment whose decoded `v` is
+  `<= uClearBelow` is discarded **before** the threshold gate, so the pane background shows through and the
+  pick pass (same body) cannot land on it. `uClearBelow` is the cut-off — `value`, else
+  `backgroundLevel(stats)`: the low plateau `p5` when `p1 === p5`, else `min`, plus one fine-histogram bin
+  `(max − min)/65536` because a float-path percentile is its bin's lower edge — plus the payload's slack:
+  half a code on R8/R16, `|cut|·2⁻¹⁰` on R16F, `|cut|·2⁻²²` on R32F. Off, absent, labels and tensors send
+  `−1e30`. `defaultVolumeLayer` seeds `{ enabled: true }` exactly when `hasBackgroundFill` (a non-label,
+  non-RGB, non-constant volume with `p1 === p5`): ernie's `T1.nii.gz` (minimum −41.8 from 0.1 % ringing,
+  50 % exactly 0) qualifies; a z-map or a ramp does not.
 * **Label outlines — normative formula.** Let `duv = (inverseAffine · dFdx(worldPos)) / dims` and
   `dvv = (inverseAffine · dFdy(worldPos)) / dims` (the texture-space extent of one screen pixel). Sample the
   label at `texcoord ± 0.5 · outlineWidthPx · duv` and `± 0.5 · outlineWidthPx · dvv`, clamped to `[0,1]³`;
