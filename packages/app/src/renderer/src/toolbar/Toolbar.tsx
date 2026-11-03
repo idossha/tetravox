@@ -40,6 +40,8 @@ export function Toolbar(): React.JSX.Element {
   const colorbars = useUi((s) => s.colorbars);
   const leftPanelCollapsed = useUi((s) => s.leftPanelCollapsed);
   const rightPanelCollapsed = useUi((s) => s.rightPanelCollapsed);
+  const leftPanelWidth = useUi((s) => s.leftPanelWidth);
+  const rightPanelWidth = useUi((s) => s.rightPanelWidth);
   const measureMode = useUi((s) => s.measureMode);
   const scaleBar = useUi((s) => s.scaleBar);
   const orientationCube = useUi((s) => s.orientationCube);
@@ -100,8 +102,8 @@ export function Toolbar(): React.JSX.Element {
     },
   ];
 
-  // Three columns whose outer two are the sidebars' widths (`ui/Shell.tsx`: `w-72` left, `w-80`
-  // right, a `w-6` rail when collapsed), so the controls in the middle column are centred over the
+  // Three columns whose outer two are the sidebars' widths (`ui/Shell.tsx`: the dragged
+  // `leftPanelWidth` / `rightPanelWidth`, a `w-6` rail when collapsed), so the controls in the middle column are centred over the
   // **view grid** rather than over the window — which is where a user looking at the panes expects
   // the layout, crosshair and screenshot buttons to be. The columns follow the collapse state, so a
   // collapsed panel slides the cluster over with the grid.
@@ -110,8 +112,8 @@ export function Toolbar(): React.JSX.Element {
   // then does the centre wrap. The 1e6 : 1 shrink ratio is what makes "first" exact: at 1000 : 1
   // the centre's share was still 0.05 px, enough to tip its last button onto a second row.
   // `items-start`: a centred outer column would float into the centre's wrapped second row.
-  const leftCol = leftPanelCollapsed ? '1.5rem' : '18rem';
-  const rightCol = rightPanelCollapsed ? '1.5rem' : '20rem';
+  const leftCol = leftPanelCollapsed ? '1.5rem' : `${leftPanelWidth}px`;
+  const rightCol = rightPanelCollapsed ? '1.5rem' : `${rightPanelWidth}px`;
   return (
     <header
       data-testid="toolbar"

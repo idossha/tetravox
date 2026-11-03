@@ -24,6 +24,22 @@ export const NARROW_BREAKPOINT_PX = 1000;
 
 const STORAGE_KEY = 'tetravox.panels.v1';
 
+/**
+ * Drag-resize bounds for an expanded sidebar, in CSS px. The floors are the widths below which the
+ * layer rows and the info panel's two-column blocks start truncating every label; the ceiling keeps
+ * a 1000 px window's view grid from being squeezed to nothing by one generous drag.
+ */
+export const PANEL_WIDTH_LIMITS = {
+  left: { min: 224, max: 640, default: 288 },
+  right: { min: 256, max: 640, default: 320 },
+} as const;
+
+export function clampPanelWidth(side: 'left' | 'right', px: number): number {
+  const { min, max, default: fallback } = PANEL_WIDTH_LIMITS[side];
+  if (!Number.isFinite(px)) return fallback;
+  return Math.round(Math.min(max, Math.max(min, px)));
+}
+
 export interface PanelPrefs {
   leftPanelCollapsed: boolean;
   rightPanelCollapsed: boolean;
@@ -33,6 +49,9 @@ export interface PanelPrefs {
    * not churn under them. One click on its header opens it, and that choice is remembered here.
    */
   mouseBlockCollapsed: boolean;
+  /** Expanded widths in CSS px, set by dragging the sidebar's inner edge. */
+  leftPanelWidth: number;
+  rightPanelWidth: number;
 }
 
 /**
@@ -73,6 +92,8 @@ export const DEFAULT_PANEL_PREFS: PanelPrefs = {
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
   mouseBlockCollapsed: true,
+  leftPanelWidth: PANEL_WIDTH_LIMITS.left.default,
+  rightPanelWidth: PANEL_WIDTH_LIMITS.right.default,
 };
 
 export function loadPanelPrefs(): PanelPrefs {
@@ -88,6 +109,11 @@ export function loadPanelPrefs(): PanelPrefs {
       rightPanelCollapsed: p.rightPanelCollapsed === true,
       // Absent (a pref written before the block was collapsible) means the default, not `false`.
       mouseBlockCollapsed: p.mouseBlockCollapsed !== false,
+      leftPanelWidth: clampPanelWidth('left', p.leftPanelWidth ?? PANEL_WIDTH_LIMITS.left.default),
+      rightPanelWidth: clampPanelWidth(
+        'right',
+        p.rightPanelWidth ?? PANEL_WIDTH_LIMITS.right.default
+      ),
     };
   } catch {
     return DEFAULT_PANEL_PREFS;

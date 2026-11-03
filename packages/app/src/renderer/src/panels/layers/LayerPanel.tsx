@@ -189,7 +189,7 @@ export function LayerPanel(): React.JSX.Element {
   return (
     <aside
       data-testid="layer-panel"
-      className="flex w-72 min-w-56 flex-col overflow-hidden border-r border-tvx-line bg-tvx-panel/40"
+      className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-tvx-line bg-tvx-panel/40"
     >
       <h2 className="flex items-center gap-2 border-b border-tvx-line px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
         Layers

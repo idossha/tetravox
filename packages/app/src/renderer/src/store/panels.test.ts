@@ -11,6 +11,7 @@ import { createUiStore } from './store';
 import type { UiStore } from './store';
 import {
   DEFAULT_PANEL_PREFS,
+  PANEL_WIDTH_LIMITS,
   loadPanelPrefs,
   savePanelPrefs,
   type PanelPrefs,
@@ -136,10 +137,10 @@ describe('lib/panels persistence', () => {
   });
 
   it('round-trips a saved preference', () => {
-    const a = { leftPanelCollapsed: true, rightPanelCollapsed: false, mouseBlockCollapsed: false };
+    const a = { ...DEFAULT_PANEL_PREFS, leftPanelCollapsed: true, mouseBlockCollapsed: false };
     savePanelPrefs(a);
     expect(loadPanelPrefs()).toEqual(a);
-    const b = { leftPanelCollapsed: false, rightPanelCollapsed: true, mouseBlockCollapsed: true };
+    const b = { ...DEFAULT_PANEL_PREFS, rightPanelCollapsed: true, leftPanelWidth: 400 };
     savePanelPrefs(b);
     expect(loadPanelPrefs()).toEqual(b);
   });
@@ -152,6 +153,38 @@ describe('lib/panels persistence', () => {
       leftPanelCollapsed: true,
       rightPanelCollapsed: false,
       mouseBlockCollapsed: true,
+      leftPanelWidth: PANEL_WIDTH_LIMITS.left.default,
+      rightPanelWidth: PANEL_WIDTH_LIMITS.right.default,
+    });
+  });
+
+  it('clamps a stored width into bounds and replaces a non-number with the default', () => {
+    savePanelPrefs({
+      ...DEFAULT_PANEL_PREFS,
+      leftPanelWidth: 10,
+      rightPanelWidth: 'wide' as unknown as number,
+    });
+    const loaded = loadPanelPrefs();
+    expect(loaded.leftPanelWidth).toBe(PANEL_WIDTH_LIMITS.left.min);
+    expect(loaded.rightPanelWidth).toBe(PANEL_WIDTH_LIMITS.right.default);
+  });
+});
+
+describe('sidebar width', () => {
+  it('starts at the defaults, clamps, and persists only when asked', () => {
+    const { store, controller } = harness();
+    expect(store.getState().leftPanelWidth).toBe(PANEL_WIDTH_LIMITS.left.default);
+    expect(store.getState().rightPanelWidth).toBe(PANEL_WIDTH_LIMITS.right.default);
+
+    controller.setPanelWidth('left', 9999, false);
+    expect(store.getState().leftPanelWidth).toBe(PANEL_WIDTH_LIMITS.left.max);
+    expect(loadPanelPrefs().leftPanelWidth).toBe(PANEL_WIDTH_LIMITS.left.default);
+
+    controller.setPanelWidth('right', 0);
+    expect(store.getState().rightPanelWidth).toBe(PANEL_WIDTH_LIMITS.right.min);
+    expect(loadPanelPrefs()).toMatchObject({
+      leftPanelWidth: PANEL_WIDTH_LIMITS.left.max,
+      rightPanelWidth: PANEL_WIDTH_LIMITS.right.min,
     });
   });
 });
