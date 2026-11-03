@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.7.1] - 2026-11-03
+
 ### Added
 
 - **Clear background** for volumes, as in Freeview: voxels at or below a value draw nothing, so the view
