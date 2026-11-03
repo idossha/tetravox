@@ -24,6 +24,7 @@ import type {
   Scale,
   Scene,
   SliceMode,
+  Stats,
   SliceView,
   SurfaceLayer,
   Threshold,
@@ -127,6 +128,31 @@ export function defaultWindow(ds: VolumeDataset): { lo: number; hi: number } {
     : { lo: ds.stats.min, hi: ds.stats.max > ds.stats.min ? ds.stats.max : ds.stats.min + 1 };
 }
 
+/**
+ * The level `clearBackground` clears at or below when the layer names no `value` (§4.4).
+ *
+ * A **low plateau** — `p1 === p5`, at least 4 % of the voxels on one value — is the background; a
+ * volume with none falls back to its minimum. ernie's `T1.nii.gz` is why the minimum alone is wrong:
+ * its minimum is −41.8 (0.1 % ringing voxels) and its background is the 50 % that are exactly 0.
+ * One fine-histogram bin is added because on float data §6.1 reports a percentile as its bin's
+ * **lower edge** (ernie's zero plateau reads −0.78); on the integral path the bin is under one unit
+ * wide, so the next stored value is never reached.
+ */
+export function backgroundLevel(stats: Stats): number {
+  const p = stats.percentiles;
+  const base = p['1'] === p['5'] ? p['5'] : stats.min;
+  return base + (stats.max - stats.min) / 65536;
+}
+
+/**
+ * True when a scalar volume has a background plateau, so `defaultVolumeLayer` clears it: a padded
+ * T1 or CT qualifies, a z-map or a smooth ramp does not.
+ */
+export function hasBackgroundFill(ds: VolumeDataset): boolean {
+  const { min, max, percentiles: p } = ds.stats;
+  return !ds.isLabel && max > min && p['1'] === p['5'] && ds.gpu.format !== 'RGBA8';
+}
+
 export function defaultVolumeLayer(id: string, ds: VolumeDataset): VolumeLayer {
   const w = defaultWindow(ds);
   return {
@@ -148,6 +174,7 @@ export function defaultVolumeLayer(id: string, ds: VolumeDataset): VolumeLayer {
     outlineWidthPx: 1,
     showIn3D: false,
     precision: 'auto',
+    ...(hasBackgroundFill(ds) ? { clearBackground: { enabled: true } } : {}),
   };
 }
 

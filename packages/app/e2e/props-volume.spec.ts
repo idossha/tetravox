@@ -372,6 +372,47 @@ test.describe('the §8 volume property editor', () => {
     expect((await layerState(page, fourD))['showIn3D']).toBe(true);
   });
 
+  test('Clear background: seeded by the default rule, toggled and cut in one patch each', async () => {
+    const stats = await datasetStats(page, fourD);
+    const box = page.getByTestId(`volume-clear-background-${fourD}`);
+    const value = page.getByTestId(`volume-clear-background-value-${fourD}`);
+    // §4.4's default is "a low plateau, p1 === p5"; derive it rather than assume it.
+    const seeded = stats.percentiles['1'] === stats.percentiles['5'];
+    // ...and the level the field shows with no typed value: the plateau, else the minimum, plus a bin.
+    const level = (seeded ? stats.percentiles['5']! : stats.min) + (stats.max - stats.min) / 65536;
+    expect((await layerState(page, fourD))['clearBackground']).toEqual(
+      seeded ? { enabled: true } : undefined
+    );
+    if (seeded) await box.uncheck();
+    await expect(box).not.toBeChecked();
+    await expect(value).toHaveCount(0);
+
+    await box.check();
+    expect((await layerState(page, fourD))['clearBackground']).toEqual({ enabled: true });
+    await expect(value).toHaveValue(String(level));
+
+    const cut = stats.min + (stats.max - stats.min) / 4;
+    await commitNumber(value, String(cut));
+    expect((await layerState(page, fourD))['clearBackground']).toEqual({
+      enabled: true,
+      value: cut,
+    });
+
+    // Off keeps the typed cut-off, so turning it back on restores it.
+    await box.uncheck();
+    expect((await layerState(page, fourD))['clearBackground']).toEqual({
+      enabled: false,
+      value: cut,
+    });
+    await expect(value).toHaveCount(0);
+    await box.check();
+    await expect(value).toHaveValue(String(cut));
+  });
+
+  test('a label volume has no Clear background control — its id 0 is already transparent', async () => {
+    await expect(page.getByTestId(`volume-clear-background-${labels}`)).toHaveCount(0);
+  });
+
   test('the 4D spinner steps the frame and disables itself at the ends (audit P2-05)', async () => {
     await expect(page.getByTestId(`volume-frame-prev-${fourD}`)).toBeDisabled();
     await page.getByTestId(`volume-frame-next-${fourD}`).click();

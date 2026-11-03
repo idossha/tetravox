@@ -27,9 +27,12 @@ import {
   patchIso3d,
   toggleIso3d,
 } from './iso3d';
+import { NumberField } from '../mesh/controls';
 import {
   LABEL_MODES,
   clampOutlineWidth,
+  clearBackgroundValue,
+  patchClearBackground,
   effectiveInterpolation,
   forcedNearest,
   patchThreshold,
@@ -103,6 +106,37 @@ export function VolumeProperties({
             })
           }
         />
+      )}
+
+      {/* ---- §4.4 clearBackground: Freeview's "Clear background" ------------------------------ */}
+      {!ds.isLabel && vl.tensor === undefined && (
+        <div className="flex items-center gap-1.5 text-[10px] text-tvx-dim">
+          <label
+            className="flex items-center gap-1.5 text-[11px] text-tvx-text"
+            title="Voxels at or below this value draw nothing, so the view background shows through"
+          >
+            <input
+              type="checkbox"
+              data-testid={`volume-clear-background-${vl.id}`}
+              checked={vl.clearBackground?.enabled === true}
+              className="accent-tvx-accent"
+              onChange={(e) =>
+                patch(patchClearBackground(vl, { enabled: e.currentTarget.checked }))
+              }
+            />
+            Clear background
+          </label>
+          {vl.clearBackground?.enabled === true && (
+            <span className="ml-auto flex items-center gap-1">
+              ≤
+              <NumberField
+                testId={`volume-clear-background-value-${vl.id}`}
+                value={clearBackgroundValue(vl, ds)}
+                onCommit={(value) => patch(patchClearBackground(vl, { value }))}
+              />
+            </span>
+          )}
+        </div>
       )}
 
       {/* ---- interpolation, and §7.1's forced-nearest flag (audit P2-08) ------------------------ */}

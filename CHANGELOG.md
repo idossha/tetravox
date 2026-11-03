@@ -8,7 +8,12 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Clear background** for volumes, as in Freeview: voxels at or below a value draw nothing, so the view
+  background shows through instead of a black box around the head. It is on by default for a volume with a
+  padded background (such as a SimNIBS `T1.nii.gz`), and the checkbox and cut-off value are in the volume's
+  editor.
 
 ## [0.7.0] - 2026-10-31
 

@@ -102,7 +102,7 @@ function volumeDataset(isLabel = false): VolumeDataset {
     labelTable: isLabel
       ? { byId: new Map([[3, { id: 3, name: 'three', color: [1, 0, 0, 1] }]]), entries: [] }
       : undefined,
-    stats: { min: 0, max: 3, percentiles: { '2': 0, '98': 3 } },
+    stats: { min: 0, max: 3, percentiles: { '1': 0, '2': 0, '5': 1, '98': 3 } },
     bounds: { min: [0, 0, 0], max: [3, 3, 3] },
     spacing: [1, 1, 1],
   } as unknown as VolumeDataset;

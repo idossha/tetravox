@@ -443,6 +443,21 @@ export interface VolumeLayer extends LayerBase {
    * colour (`labelColors` first), so neither field is read.
    */
   iso3d?: VolumeIso3d;
+  /**
+   * Freeview's "Clear background" (§7.3, 2026-11-02): scalar voxels whose physical value is at or
+   * below `value` draw nothing, so the pane background shows through instead of the colormap's
+   * bottom colour. `value` absent = the volume's background level (`backgroundLevel`: its low
+   * plateau, else its minimum). **Absent = off**, the previous picture. `defaultVolumeLayer` turns it
+   * on for a volume that has a low plateau (`hasBackgroundFill`).
+   * Ignored for label volumes and tensor glyphs.
+   */
+  clearBackground?: VolumeClearBackground;
+}
+
+/** §4.4's `VolumeLayer.clearBackground`. Plain JSON. */
+export interface VolumeClearBackground {
+  enabled: boolean;
+  value?: number;
 }
 
 /** §4.4's `VolumeLayer.iso3d`. Plain JSON, so `SerializableLayer` needs no new `Omit`. */

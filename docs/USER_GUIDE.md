@@ -92,7 +92,10 @@ threshold handles and presets (`min–max`, `2–98 %`, `p50–p99.9`, `symmetri
 whether the data is an MRI, a CT (where the presets stand in for the usual bone / soft-tissue / lung windows)
 or a scalar field.
 
-
+**Clear background** (in the same editor) hides every voxel at or below a value, so the view background
+shows through instead of the scan's black padding. It is on by default when a volume has a padded background
+— most of a SimNIBS `T1.nii.gz` outside the head is exactly 0 — and the value starts at that background
+level. Raise it to also hide low noise outside the head; untick it to see the padding again.
 
 An overlay of a **simulated field** — tES (`TI_max`, a tDCS or tACS magnitude) or a TMS E-field — is an
 ordinary volume layer on a `hot` scale with its threshold set from its own percentiles, drawn over the

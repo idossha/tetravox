@@ -49,7 +49,8 @@ uniform vec3 uDims;`;
  * The engine sends **finite sentinels** rather than `±Infinity` (`render/passes/slice.ts`), so
  * nothing here has to reason about `inf - inf`.
  */
-export const VALUE_GATE_UNIFORMS = `uniform vec2 uThreshold;     // (lo, hi), physical units
+export const VALUE_GATE_UNIFORMS = `uniform float uClearBelow;   // §4.4 clearBackground: v <= this is discarded
+uniform vec2 uThreshold;     // (lo, hi), physical units
 uniform float uSoftEdge;     // fraction of (hi - lo); 0 = hard discard
 uniform int uThresholdMode;  // 0 = clamp, 1 = hide
 uniform int uSymmetric;      // 1 => compare |v|
@@ -62,7 +63,8 @@ uniform float uClipMax;      // heat truncate: |v| > uClipMax is discarded`;
  * never discards — which is why the ramp lives only on the `'hide'` branch: the ramp **is** the soft
  * form of the discard, and a clamped fragment was never going to be dropped.
  */
-export const VALUE_GATE = `float gateValue = uSymmetric == 1 ? abs(v) : v;
+export const VALUE_GATE = `if (v <= uClearBelow) discard;
+  float gateValue = uSymmetric == 1 ? abs(v) : v;
   float gateAlpha = 1.0;
   if (uThresholdMode == 1) {
     float ramp = uSoftEdge * (uThreshold.y - uThreshold.x);

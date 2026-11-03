@@ -1340,6 +1340,18 @@ def generate(out: Path) -> dict:
         scl=(1.0, -1024.0),
     )
 
+    # §4.4's `clearBackground` (2026-11-02): a CT-like slab whose minimum is its *background*. A
+    # 4-voxel ring of -1024 padding (78 % of the voxels, so p5 == min and the default turns the clear
+    # on) around an 8 x 6 interior of distinct values. The interior's first voxel is -1023, one above
+    # the padding, so a cut-off slack wider than half a code would clear it too; the minimum is
+    # negative, so the volume is never classified as labels.
+    bg = np.full((16, 14, 4), -1024, dtype=np.int16)
+    ii, jj, kk = np.meshgrid(np.arange(8), np.arange(6), np.arange(4), indexing="ij")
+    bg[4:12, 4:10, :] = (-1023 + 40 * (ii + 8 * jj + 48 * kk)).astype(np.int16)
+    aff_bg = np.eye(4)
+    aff_bg[:3, 3] = (-7.5, -6.5, -1.5)
+    write_nifti(out / "vol_bgfill.nii.gz", bg, aff_bg, gzip_it=True)
+
     # §13's electrode tables (2026-08-30): the contacts of the CT phantom above, missed by a
     # deterministic sub-millimetre offset so a snap has something to find, plus one deliberately
     # awkward table for the reader's tolerance.  Both are text and together under 2 kB.

@@ -15,10 +15,11 @@ import type {
   ColormapName,
   Scale,
   Threshold,
+  VolumeClearBackground,
   VolumeDataset,
   VolumeLayer,
 } from '@tetravox/engine';
-import { isColormapName, sampleColormap } from '@tetravox/engine';
+import { backgroundLevel, isColormapName, sampleColormap } from '@tetravox/engine';
 import type { ValueWindow } from '../../histogram/presets';
 import { normalizeWindow } from '../../histogram/presets';
 
@@ -84,6 +85,25 @@ export function patchThreshold(threshold: Threshold, patch: Partial<Threshold>):
   else if (next.hi < next.lo) next.hi = next.lo;
   next.softEdge = Math.min(1, Math.max(0, next.softEdge));
   return next;
+}
+
+/**
+ * §4.4's `clearBackground` toggle and cut-off. A layer with the field absent is off; a non-finite
+ * cut-off is dropped, which means "the background level" rather than a NaN in a uniform.
+ */
+export function patchClearBackground(
+  layer: VolumeLayer,
+  patch: Partial<VolumeClearBackground>
+): Pick<VolumeLayer, 'clearBackground'> {
+  const next: VolumeClearBackground = { enabled: false, ...layer.clearBackground, ...patch };
+  if (next.value === undefined || !Number.isFinite(next.value)) delete next.value;
+  return { clearBackground: next };
+}
+
+/** The cut-off the shader applies: the layer's own, else the volume's background level. */
+export function clearBackgroundValue(layer: VolumeLayer, ds: VolumeDataset): number {
+  const v = layer.clearBackground?.value;
+  return v !== undefined && Number.isFinite(v) ? v : backgroundLevel(ds.stats);
 }
 
 /** The threshold window the histogram draws handles for. */
