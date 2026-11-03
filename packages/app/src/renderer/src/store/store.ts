@@ -51,7 +51,7 @@ import { EMPTY_METRICS } from '../lib/metrics';
 import type { EngineImpl } from '../engine/factory';
 import type { ThemeChoice } from '../theme/theme';
 import type { ThemeName } from '../theme/tokens';
-import { loadPanelPrefs } from '../lib/panels';
+import { loadPanelPrefs, PANEL_WIDTH_LIMITS } from '../lib/panels';
 // Modules (2026-08-30, §13). Types only — the store holds a module's *record*, never its code.
 import type { ModuleId } from '../../../modules/manifest-types';
 import type { ExtensionBlock, ModulePlacement } from '../modules/host';
@@ -301,6 +301,9 @@ export interface UiState {
   rightPanelCollapsed: boolean;
   /** The info panel's `Mouse` block, collapsed by default (`lib/panels.ts`). Same persistence. */
   mouseBlockCollapsed: boolean;
+  /** Expanded sidebar widths in CSS px, dragged at the inner edge (`lib/panels.ts`). Same persistence. */
+  leftPanelWidth: number;
+  rightPanelWidth: number;
 
   // -- Modules (2026-08-30; ARCHITECTURE.md §13) -------------------------------------------------
   /**
@@ -509,6 +512,8 @@ export const INITIAL_UI: UiState = {
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
   mouseBlockCollapsed: true,
+  leftPanelWidth: PANEL_WIDTH_LIMITS.left.default,
+  rightPanelWidth: PANEL_WIDTH_LIMITS.right.default,
   // Modules (2026-08-30, §13). Every one of these is empty in a build with no module active, which
   // is what makes "the DOM is byte-identical while the slot is idle" true.
   activeModule: null,

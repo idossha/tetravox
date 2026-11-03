@@ -8,7 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- The left and right sidebars can be resized by dragging their inner edge (arrow keys step it, a
+  double-click resets it). The width is remembered across launches, like the collapse state.
 
 ## [0.7.0] - 2026-10-31
 

@@ -680,7 +680,7 @@ the app, grouped in tabs by what each binding acts on.
 | `v` | Toggle the active layer's visibility |
 | `Ctrl+↑` / `Ctrl+↓` (or `⌘↑`/`⌘↓`) | Reorder the active layer |
 | `,` / `.` | Step the active volume layer's 4D frame |
-| `Ctrl+[` / `Ctrl+]` (or `⌘[`/`⌘]`) | Collapse/expand the left / right sidebar |
+| `Ctrl+[` / `Ctrl+]` (or `⌘[`/`⌘]`) | Collapse/expand the left / right sidebar (drag a sidebar's inner edge to resize it; double-click the edge to reset) |
 | `Home` | Reset every pane, cursor to world origin, cancel any in-progress measurement |
 
 **Cursor and slices**

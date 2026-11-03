@@ -116,6 +116,41 @@ test.describe('collapsible sidebars (stand-in engine)', () => {
     await expect(page.locator('[data-testid="keyboard-help"]')).toHaveCount(0);
   });
 
+  test('dragging a sidebar edge resizes it and the view grid by the same amount', async () => {
+    const layer = page.locator('[data-testid="layer-panel"]');
+    const panelBefore = (await layer.boundingBox())!.width;
+    const gridBefore = await gridWidth(page);
+    const handle = (await page.locator('[data-testid="left-panel-resize"]').boundingBox())!;
+    const x = handle.x + handle.width / 2;
+    const y = handle.y + handle.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 60, y, { steps: 4 });
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await layer.boundingBox())!.width)
+      .toBeCloseTo(panelBefore + 60, 0);
+    expect(await gridWidth(page)).toBeCloseTo(gridBefore - 60, 0);
+
+    // The right edge widens toward the grid too, i.e. leftward.
+    const right = page.locator('[data-testid="right-panel"]');
+    const rightBefore = (await right.boundingBox())!.width;
+    const rh = (await page.locator('[data-testid="right-panel-resize"]').boundingBox())!;
+    await page.mouse.move(rh.x + rh.width / 2, rh.y + rh.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rh.x + rh.width / 2 - 40, rh.y + rh.height / 2, { steps: 4 });
+    await page.mouse.up();
+    await expect
+      .poll(async () => (await right.boundingBox())!.width)
+      .toBeCloseTo(rightBefore + 40, 0);
+
+    // Double-click restores both defaults, leaving the next tests the layout they expect.
+    await page.dblclick('[data-testid="left-panel-resize"]');
+    await page.dblclick('[data-testid="right-panel-resize"]');
+    await expect.poll(async () => (await layer.boundingBox())!.width).toBeCloseTo(panelBefore, 0);
+    expect(await gridWidth(page)).toBeCloseTo(gridBefore, 0);
+  });
+
   test('the preference survives a relaunch — it lives in localStorage, not the scene', async () => {
     // Every ordinary E2E launch gets a **fresh** `--user-data-dir` (`fixtures.ts`, and the same
     // reason `docs/ARCHITECTURE.md` §8 keeps `theme` out of `localStorage`), so this test asks for
