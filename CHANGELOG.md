@@ -8,7 +8,15 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Tractograms.** Open TRX, MRtrix TCK and TrackVis TRK files from anywhere. They overlay your volumes and
+  meshes in world millimetres, coloured by direction, a solid colour, any per-vertex or per-streamline field,
+  or a group, with a window, threshold, streamline filter and group list. Files of millions of streamlines open
+  as a labelled, uniform subset: "displaying N of M", with Load full.
+- **Sample onto tracts** makes a new per-vertex field from any open volume, 3-frame vector volume or tet mesh,
+  including `|v·t|` and `|v×t|` against the streamline's direction. Saved scenes re-sample when reopened.
+- Clicking a streamline reads its index in the file and every field and group at that point.
 
 ## [0.7.1] - 2026-11-03
 

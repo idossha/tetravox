@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<p align="center"><b>A fast desktop viewer for medical volumes and meshes — MRI, CT, segmentations, simulation meshes.</b></p>
+<p align="center"><b>A fast desktop viewer for medical volumes, meshes and tractograms — MRI, CT, segmentations, simulation meshes, streamlines.</b></p>
 
 <p align="center">
   <a href="https://github.com/idossha/tetravox/releases/latest"><img src="https://img.shields.io/github/v/release/idossha/tetravox?style=flat" alt="Latest release"></a>
@@ -18,7 +18,7 @@
 
 ---
 
-Tetravox is an advanced high-performance medical viewer that can handle both voxelized volumes and finite-element meshes. It reads MRI and CT, label maps and atlases, cortical surfaces and tetrahedral meshes, and renders them with its own Rust-and-WebGL2 engine, so large meshes and 4D volumees renders instantenously.
+Tetravox is an advanced high-performance medical viewer that can handle both voxelized volumes and finite-element meshes. It reads MRI and CT, label maps and atlases, cortical surfaces, tetrahedral meshes and tractograms (TRX, TCK, TRK), and renders them with its own Rust-and-WebGL2 engine, so large meshes and 4D volumees renders instantenously.
 
 It was built for neuroimaging first — segmented head models, atlases, and simulated tES or TMS fields
 checked against the anatomy they were computed on — but nothing in it is head-specific. A chest CT with

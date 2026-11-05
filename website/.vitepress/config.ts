@@ -104,6 +104,7 @@ export default defineConfig({
               { text: 'Volume layers', link: '/guide/volume-layers' },
               { text: 'Atlases & regions', link: '/guide/atlases-regions' },
               { text: 'Meshes', link: '/guide/meshes' },
+              { text: 'Tractograms', link: '/guide/tractograms' },
               { text: 'Surfaces & annotations', link: '/guide/surfaces-annotations' },
               { text: 'Isosurfaces', link: '/guide/isosurfaces' },
               { text: 'Vector fields', link: '/guide/vector-fields' },

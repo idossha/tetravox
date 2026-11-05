@@ -119,6 +119,12 @@ describe('requestFromPath', () => {
     expect(stub.allowed).toContain('/d/m2m_ernie/final_tissues_LUT.txt');
   });
 
+  it('a tractogram goes through with no sidecars, wherever it lives', async () => {
+    stubBridge(['/anywhere/my tracts.trk']);
+    const request = await requestFromPath('/anywhere/my tracts.trk');
+    expect(request?.source).toEqual({ kind: 'path', path: '/anywhere/my tracts.trk' });
+  });
+
   it('picks up a `.msh.opt` for a mesh (§6.2, §7.6)', async () => {
     stubBridge(['/d/ernie.msh', '/d/ernie.msh.opt', '/d/ernie_LUT.txt']);
     const request = await requestFromPath('/d/ernie.msh');

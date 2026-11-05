@@ -35,11 +35,15 @@ import type {
   ScreenshotOptions,
   SurfaceLayer,
   TemplateSpace,
+  TractSampleSpec,
+  TractsLayer,
+  TractStyleInfo,
   vec3,
   ViewId,
   ViewSpec,
   VolumeLayer,
 } from '@tetravox/engine';
+import { tractFieldScale } from '@tetravox/engine';
 import {
   measurementFocus,
   parseTextAffine,
@@ -468,6 +472,38 @@ export class ShellController {
    * an overlay *is* asking to see it; the open-time seeding leaves `colorMode` alone because there
    * the user asked to see the surface, not its table.
    */
+  /** §6.3.1: sample, then show the new field on the layer that asked. */
+  async sampleTracts(
+    spec: TractSampleSpec,
+    layerId: LayerId,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<void> {
+    try {
+      const field = await this.engine.sampleTracts(spec, onProgress);
+      this.store.setState({ datasets: [...this.engine.scene.datasets.values()] });
+      this.engine.updateLayer<TractsLayer>(layerId, {
+        colorMode: 'vertex',
+        field: field.name,
+        scale: tractFieldScale(field),
+      });
+    } catch (error: unknown) {
+      this.toast('parse', spec.name ?? 'sample', errorMessage(error));
+    }
+  }
+
+  async setTractBudget(id: DatasetId, maxPoints: number | null): Promise<void> {
+    try {
+      await this.engine.setTractBudget(id, maxPoints);
+      this.store.setState({ datasets: [...this.engine.scene.datasets.values()] });
+    } catch (error: unknown) {
+      this.toast('parse', id, errorMessage(error));
+    }
+  }
+
+  tractStyleInfo(layerId: LayerId): TractStyleInfo | null {
+    return this.engine.tractStyleInfo(layerId);
+  }
+
   private async attachSurfaceData(request: OpenRequest, target: DatasetId | null): Promise<void> {
     const state = this.store.getState();
     // Every mesh can take one — the worker checks the node count, and a tet mesh's node field is
@@ -3660,6 +3696,7 @@ function timestamp(): string {
  */
 export function layerKindsFor(dataset: Dataset): Layer['kind'][] {
   if (dataset.kind === 'volume') return ['volume'];
+  if (dataset.kind === 'tractogram') return ['tracts'];
   // R1 (2026-09-06): a triangle sheet with no tets is a surface, its own kind.
   const own: Layer['kind'] = dataset.nTets === 0 && dataset.hasTris ? 'surface' : 'mesh';
   const geo = dataset.geo;

@@ -64,6 +64,20 @@ test pinning those could only ever be run by whoever generated them. Its synthet
 `modules/seeg-fixtures.test.ts` — is where the numbers live, and they come from numpy
 (`scripts/gen-fixtures.py`, the `seeg` block).
 
+### Tractograms
+
+`crates/tvx-tract/tests/fixtures.rs` holds the parsers to nibabel and to zipfile + numpy reading
+`testdata/tract_*` back. `packages/engine/test/e2e/tracts.spec.ts` is §7.4.1's analytic pixels, and
+`packages/app/e2e/tracts.spec.ts` the app's open paths and scene. Set `TETRAVOX_TRACT_TESTDATA=<tract_network_dev>` for the crate's real-data test, a
+separate variable because this data is not under `TETRAVOX_TESTDATA`. Two more checks need the real data and are run by
+hand, read-only:
+
+```sh
+python3 scripts/reference/tract_reference.py --data <tract_network_dev> --out <scratch>   # sampler vs scipy, TRK, TRX dpv
+TETRAVOX_TRACT_DATA=<tract_network_dev> TETRAVOX_TRACT_SCREENS=<dir> \
+  pnpm --filter @tetravox/app exec playwright test --project=dev tracts-screens           # captures, timings-*.json
+```
+
 ### Where each kind of test lives
 
 ```

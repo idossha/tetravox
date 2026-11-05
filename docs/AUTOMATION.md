@@ -622,6 +622,46 @@ is distinct from clipping that surface.
 
 ---
 
+## Tractograms in a scene
+
+A scene names a tractogram like any other dataset, with `kind: "tractogram"` and any tracts layer. The
+optional `tract` block holds the budget and the sampling recipe. Nothing in it depends on a toolbox's file
+names, and a host decides its own field names. The app package advertises support with
+`tractLayerProtocol: 1`: read it before sending a tractogram, because a build without it reports that dataset
+as failed.
+
+```json
+{
+  "datasets": [
+    { "id": "fa", "kind": "volume", "name": "fa.nii.gz", "path": "/data/fa.nii.gz", "fingerprint": "" },
+    {
+      "id": "t", "kind": "tractogram", "name": "tracks.tck", "path": "/data/tracks.tck", "fingerprint": "",
+      "tract": {
+        "maxPoints": 8000000,
+        "seed": 1,
+        "samples": [{ "tractogramId": "t", "sourceId": "fa", "op": "value", "name": "FA" }]
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "l1", "datasetId": "t", "kind": "tracts", "name": "tracts", "visible": true, "opacity": 1,
+      "pickable": true, "showColorbar": true, "colorMode": "vertex", "field": "FA",
+      "solidColor": [1, 1, 1, 1], "colormap": "viridis",
+      "scale": { "kind": "linear", "lo": 0.1, "hi": 0.9 },
+      "threshold": { "lo": null, "hi": null, "symmetric": false, "mode": "clamp", "softEdge": 0 },
+      "lineWidthPx": 1, "slabMm": 1
+    }
+  ]
+}
+```
+
+`maxPoints: null` is Load full. `samples` replays in order after every dataset has loaded, so a layer may name a
+sampled field. A vector source takes `op` `magnitude`, `dot`, `abs-dot` or `abs-cross`; a mesh source also takes
+`field: { "source": "elm", "name": "E" }`.
+
+---
+
 ## Native scene API
 
 External applications can load `.tetravox.json` files and save the current edited view without embedding

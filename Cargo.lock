@@ -637,7 +637,9 @@ dependencies = [
  "flate2",
  "serde_json",
  "tvx-core",
+ "tvx-geom",
  "tvx-mesh-io",
+ "tvx-nifti",
 ]
 
 [[package]]

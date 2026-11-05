@@ -1988,7 +1988,7 @@ Rules:
 
 ### 6.3.1 `tvx-tract` — tractograms (2026-11-05)
 
-Depends on `tvx-core`, `tvx-mesh-io` (for `field_stats`), `flate2` and `serde_json` only: no zip crate (§12.3). Every format is a **push parser**,
+Depends on the workspace's `tvx-core`, `tvx-mesh-io`, `tvx-nifti` and `tvx-geom`, plus `flate2` and `serde_json` only: no zip crate (§12.3). Every format is a **push parser**,
 fed chunks so a file larger than wasm32's address space can still be scanned; bytes are dropped as they are read.
 
 ```rust
@@ -2017,6 +2017,8 @@ impl Loader {
 pub fn tangents_into(positions: &[f32], offsets: &[u32], first: usize, out: &mut [f32]);   // central; one-sided at ends
 pub enum SampleOp { Value, Magnitude, Dot, AbsDot, AbsCross }
 pub fn reduce_vector(op: SampleOp, v: [f32; 3], t: [f32; 3]) -> f32;   // NaN in => NaN out
+pub fn sample_volume(v: &Volume, points: &[f32], tangents: Option<&[f32]>, frame: usize, op: SampleOp, voxel_basis: bool) -> Result<(Vec<f32>, u32)>;
+pub fn sample_mesh(mesh: &Mesh, sampler: &TetSampler, points: &[f32], tangents: Option<&[f32]>, source: &str, name: &str, op: SampleOp) -> Result<(Vec<f32>, u32)>;
 pub struct GpuGeometry { pub vertices: Vec<u8>, pub streamline_ids: Vec<u32>, pub indices: Vec<u32>,
                          pub origin: [f32; 3], pub quantum: f32 }
 pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
@@ -2886,7 +2888,8 @@ streamline, rewritten without re-uploading a vertex.
 
 **Colour.** `direction`: `|tangent|` as RGB, so R is L-R, G is A-P, B is S-I, in world axes. `solid`: `solidColor`.
 `vertex` and `streamline`: the §7.6 LUT under `scale`, with `threshold` as §7.4's gate; a streamline value is expanded
-to its points by the worker, so both are one shader path. `group`: the table's rgb. No lighting and no depth cue: a
+to its points by the worker, so both are one shader path. Only a threshold or a heat scale compiles in `discard`: at this overdraw it costs
+early-Z, measured at 105 ms of a 112 ms frame over 8 M points on ANGLE/Metal. `group`: the table's rgb. No lighting and no depth cue: a
 pixel is a function of the data alone, which is what lets §11 assert it. A segment touching a NaN point is **neutral
 grey** `(128,128,128)` under no threshold; an active threshold hides it, because a missing value passes no test.
 
@@ -2896,8 +2899,9 @@ one instance per consecutive point pair, collapsed when the pair's `streamlineId
 
 **Passes.** Opaque tracts draw in §7.2 pass 1 after the slices and before `MeshPass`, depth writes on, so an opaque or a
 translucent mesh composites correctly around them. `opacity < 1` draws after the derived pass, depth-tested with writes
-off, unsorted. In a 2D pane a tracts layer takes its place in §7.3's layer order, depth off, and a fragment further than
-`slabMm` from the pane's plane is discarded; `slabMm: 0` draws nothing. 3D clip planes do not apply in v1.
+off, unsorted. In a 2D pane a tracts layer takes its place in §7.3's layer order, depth off, and the plane distance over
+`slabMm` is written to clip-space z, so the rasteriser clips to the slab with no `discard` and no extension;
+`slabMm: 0` draws nothing. 3D clip planes do not apply in v1.
 
 **Picking.** §7.2.3's payload, with the element field holding the **held** streamline index (at most 16,777,215, far
 above the point budget's streamline count) and `kindBit` 0. It reproduces the threshold and the style table's
@@ -3324,6 +3328,11 @@ sum of our own allocations — WebGL2 has no memory-query extension); last load 
 dataset.
 
 ---
+
+**Tractograms in the shell** (2026-11-05). `.trx`, `.tck` and `.trk` take the ordinary open paths: File ▸ Open, a
+drop, argv and a scene. The per-kind editor is `panels/layers/tracts/`. It states "displaying N of M" whenever N < M,
+offers Load full, and offers Sample onto tracts for any open volume or tet mesh, naming only what the source can
+answer. §8's info panel adds the streamline's index in the file, its groups and its per-streamline values.
 
 ## 9. Performance & memory budgets
 

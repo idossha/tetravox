@@ -106,6 +106,16 @@ function Row({ row }: { row: ProbeRow }): React.JSX.Element {
             {row.vertexWorld === undefined ? '' : ` · RAS ${formatTriple(row.vertexWorld)}`}
           </Line>
         )}
+        {row.streamline !== undefined && (
+          <Line label="streamline" testId="probe-streamline">
+            {row.streamline}
+          </Line>
+        )}
+        {row.groups !== undefined && row.groups.length > 0 && (
+          <Line label="groups" testId="probe-groups">
+            {row.groups.join(', ')}
+          </Line>
+        )}
         {row.fsavgVertex !== undefined && (
           <Line label={row.fsavgSpace ?? 'fsaverage'} testId="probe-fsavg">
             vertex {row.fsavgVertex}
@@ -116,6 +126,16 @@ function Row({ row }: { row: ProbeRow }): React.JSX.Element {
           row.fields.map((field) => (
             <div key={field.name} className="col-span-2 truncate" data-testid="probe-field">
               <FieldText label={field.label ?? field.name} /> = {fieldValue(field)}
+            </div>
+          ))}
+        {row.streamlineFields !== undefined &&
+          row.streamlineFields.map((field) => (
+            <div
+              key={field.name}
+              className="col-span-2 truncate text-tvx-dim"
+              data-testid="probe-streamline-field"
+            >
+              <FieldText label={field.name} /> = {fieldValue(field)}
             </div>
           ))}
       </dl>
