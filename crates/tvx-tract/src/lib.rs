@@ -4,6 +4,7 @@
 
 mod builder;
 mod gpu;
+mod query;
 mod tck;
 mod trk;
 mod trx;
@@ -11,6 +12,9 @@ mod trx;
 use tvx_core::{Aabb, Error, FieldStats, Result};
 
 pub use gpu::{gpu_geometry, tangents_into, GpuGeometry};
+pub use query::{
+    probe, scalar_u16, style, write_field_chunk, GroupRow, ProbeHit, ScalarU16, Style, StyleSpec,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TractFormat {

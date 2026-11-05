@@ -18,9 +18,10 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use tvx_core::{BitMask, Error, LabelTable, Result};
-use tvx_geom::{PointLocator, TetBlocks, TetTopology};
+use tvx_geom::{PointLocator, TetBlocks, TetSampler, TetTopology};
 use tvx_mesh_io::{Mesh, MshOptions};
 use tvx_nifti::Volume;
+use tvx_tract::Tractogram;
 
 /// One isolation mask, tagged with the `generation` at which it was produced. A `maskId` from an
 /// older generation is `Error::Parse`, never a silent stale draw (§6.5 lifecycle rules).
@@ -37,6 +38,8 @@ pub struct MeshState {
     pub locator: Option<PointLocator>,
     /// Set by the `buildTopology` op; `extract_boundary` uses it when present.
     pub topo: Option<TetTopology>,
+    /// §6.3.1: built by the first `meshSample`, never by a load that does not sample.
+    pub sampler: Option<TetSampler>,
     pub generation: u32,
     next_mask: u32,
     masks: BTreeMap<u32, MaskEntry>,
@@ -57,6 +60,7 @@ impl MeshState {
             blocks: None,
             locator: None,
             topo: None,
+            sampler: None,
             generation: 0,
             next_mask: 1,
             masks: BTreeMap::new(),
@@ -103,9 +107,16 @@ impl MeshState {
     }
 }
 
+/// A tractogram, and the visibility its last `tractStyle` left for `tractProbe` (§6.5.2).
+pub struct TractState {
+    pub tract: Tractogram,
+    pub visible: Option<Vec<bool>>,
+}
+
 pub enum Dataset {
     Volume(Box<Volume>),
     Mesh(Box<MeshState>),
+    Tract(Box<TractState>),
 }
 
 #[derive(Default)]
@@ -141,7 +152,7 @@ fn missing(handle: u32) -> Error {
 pub fn with_volume<R>(handle: u32, f: impl FnOnce(&Volume) -> Result<R>) -> Result<R> {
     REG.with(|r| match r.borrow().map.get(&handle) {
         Some(Dataset::Volume(v)) => f(v),
-        Some(Dataset::Mesh(_)) => Err(Error::Parse(format!("handle {handle} is a mesh"))),
+        Some(_) => Err(Error::Parse(format!("handle {handle} is not a volume"))),
         None => Err(missing(handle)),
     })
 }
@@ -149,7 +160,7 @@ pub fn with_volume<R>(handle: u32, f: impl FnOnce(&Volume) -> Result<R>) -> Resu
 pub fn with_mesh<R>(handle: u32, f: impl FnOnce(&MeshState) -> Result<R>) -> Result<R> {
     REG.with(|r| match r.borrow().map.get(&handle) {
         Some(Dataset::Mesh(m)) => f(m),
-        Some(Dataset::Volume(_)) => Err(Error::Parse(format!("handle {handle} is a volume"))),
+        Some(_) => Err(Error::Parse(format!("handle {handle} is not a mesh"))),
         None => Err(missing(handle)),
     })
 }
@@ -157,7 +168,15 @@ pub fn with_mesh<R>(handle: u32, f: impl FnOnce(&MeshState) -> Result<R>) -> Res
 pub fn with_mesh_mut<R>(handle: u32, f: impl FnOnce(&mut MeshState) -> Result<R>) -> Result<R> {
     REG.with(|r| match r.borrow_mut().map.get_mut(&handle) {
         Some(Dataset::Mesh(m)) => f(m),
-        Some(Dataset::Volume(_)) => Err(Error::Parse(format!("handle {handle} is a volume"))),
+        Some(_) => Err(Error::Parse(format!("handle {handle} is not a mesh"))),
+        None => Err(missing(handle)),
+    })
+}
+
+pub fn with_tract_mut<R>(handle: u32, f: impl FnOnce(&mut TractState) -> Result<R>) -> Result<R> {
+    REG.with(|r| match r.borrow_mut().map.get_mut(&handle) {
+        Some(Dataset::Tract(t)) => f(t),
+        Some(_) => Err(Error::Parse(format!("handle {handle} is not a tractogram"))),
         None => Err(missing(handle)),
     })
 }

@@ -278,7 +278,7 @@ pub(crate) fn gpu_payload(
 
 /// Invert the 4x4 affine, which is always `[[R, t], [0, 0, 0, 1]]`, by inverting `R` and
 /// back-substituting `t`. Returns `None` for a singular `R`.
-fn inverse_affine(m: &[[f64; 4]; 4]) -> Option<[[f64; 4]; 4]> {
+pub(crate) fn inverse_affine(m: &[[f64; 4]; 4]) -> Option<[[f64; 4]; 4]> {
     let a = [
         [m[0][0], m[0][1], m[0][2]],
         [m[1][0], m[1][1], m[1][2]],

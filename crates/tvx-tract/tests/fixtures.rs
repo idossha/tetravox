@@ -376,11 +376,11 @@ fn gpu_buffers_round_trip_position_and_axis_tangents() {
         t.n_streamlines()
     );
     for (i, p) in t.positions.chunks_exact(3).enumerate() {
-        for c in 0..3 {
+        for (c, want) in p.iter().enumerate() {
             let b = &g.vertices[i * 8 + c * 2..];
             let q = f32::from(i16::from_le_bytes([b[0], b[1]]));
             assert!(
-                (g.origin[c] + q * g.quantum - p[c]).abs() <= g.quantum,
+                (g.origin[c] + q * g.quantum - want).abs() <= g.quantum,
                 "{i} {c}"
             );
         }

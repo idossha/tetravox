@@ -27,6 +27,7 @@ tvx-core.workspace = true
 tvx-nifti.workspace = true
 tvx-mesh-io.workspace = true
 tvx-geom.workspace = true
+tvx-tract.workspace = true
 # Pinned EXACTLY (§2): wasm-pack's version is pinned in scripts/build-wasm.sh to match.
 wasm-bindgen.workspace = true
 js-sys.workspace = true
