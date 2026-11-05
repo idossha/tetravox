@@ -3885,7 +3885,7 @@ extends is bounded.
 
 **`scene.tracts` — what a tract extension is built from** (appended 2026-11-06, additive at `hostApi: 1`).
 `structure`, `points` and `field` read a tractogram in chunks of at most `TRACT_READ_CHUNK`; `sample` is §6.3.1's;
-`setStreamlineField` and `removeField` write one value per held streamline, which colours, filters and groups like a
+`setStreamlineField` (which takes the array, leaving the caller's empty) and `removeField` write one value per held streamline, which colours, filters and groups like a
 file's own, and `TractsLayer.keepField` hides by it without taking the user's filter away. The platform never learns
 why a streamline was selected: regions, connectomes and statistics are an extension's (`docs/DECISIONS.md`). Such a
 field is not saved, so the recipe goes in the scene block, and `TractogramDataset.generation` says when to recompute.

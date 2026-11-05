@@ -155,7 +155,8 @@ export interface ModuleTracts {
     count: number
   ): Promise<Float32Array>;
   /**
-   * One value per held streamline. It colours, filters and groups like a file's own, and sets
+   * One value per held streamline, and `values` is transferred: the array is empty afterwards.
+   * It colours, filters and groups like a file's own, and sets
    * `TractsLayer.keepField`'s selection. It is not saved: put the recipe in a scene block, and
    * recompute when `TractogramDataset.generation` changes, because a budget change drops it.
    */

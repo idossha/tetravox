@@ -922,8 +922,13 @@ export class TetravoxEngine implements Engine, PointerHost {
       })
     );
     const keep = (f: TractFieldInfo): boolean => f.name !== name || f.builtin === true;
-    if (kind === 'vertex') ds.vertexFields = ds.vertexFields.filter(keep);
-    else ds.streamlineFields = ds.streamlineFields.filter(keep);
+    if (kind === 'vertex') {
+      ds.vertexFields = ds.vertexFields.filter(keep);
+      // Or a saved scene would sample it again.
+      ds.samples = ds.samples.filter((s) => s.name !== name);
+    } else {
+      ds.streamlineFields = ds.streamlineFields.filter(keep);
+    }
     ds.fieldRevision += 1;
     this.#tractDatasetChanged(datasetId);
   }

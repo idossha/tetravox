@@ -423,6 +423,13 @@ test('sampling a mesh: barycentric on a node field, constant on an element field
     [fixture('mesh_v2_binary.msh'), datasetId, layerId] as const
   );
   expect(got.refused).toContain('3 components');
+  const removed = await page.evaluate(async (tract) => {
+    const engine = window.__tvxEngine!;
+    await engine.removeTractField(tract, 'vertex', 'element');
+    const ds = engine.scene.datasets.get(tract);
+    return ds?.kind === 'tractogram' ? ds.samples.map((s) => s.name) : null;
+  }, datasetId);
+  expect(removed).not.toContain('element');
   // node_scalar = 0.1x + 0.01y + 0.001z is affine, so barycentric reproduces it exactly.
   const scalar = got.row?.fields?.find((f) => f.name === 'mesh_v2_binary:node_scalar:value');
   expect(scalar?.value as number).toBeCloseTo(0.5, 4);
