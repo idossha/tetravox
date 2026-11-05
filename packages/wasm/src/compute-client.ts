@@ -38,6 +38,7 @@ import type {
   Res,
   WorkerError,
 } from '@tetravox/protocol';
+import { donatedBuffers } from './dispatch';
 import { isProgress } from '@tetravox/protocol';
 
 export interface ComputeClientOptions {
@@ -272,8 +273,15 @@ export class ComputeClient {
 
   #post(message: Req | Cancel): void {
     if (this.#dead) return;
-    // No transfer list, ever: §5 rule 2 — no §6.5.2 op marks an argument as donated, and
-    // transferring `isolate`'s `labelVolume` would detach the UI thread's probe array.
+    // Only §6.5.2's donated arguments ever transfer (§5 rule 2): `isolate`'s `labelVolume`
+    // must not, or it would detach the UI thread's probe array.
+    if ('op' in message) {
+      const transfer = donatedBuffers(message.op, message.args);
+      if (transfer.length > 0) {
+        this.#worker.postMessage(message, transfer);
+        return;
+      }
+    }
     this.#worker.postMessage(message);
   }
 

@@ -26,7 +26,6 @@ import type {
   Layout,
   Measurement,
   MeasurementId,
-  MeshDataset,
   Scene,
   SliceView,
   vec3,
@@ -106,7 +105,7 @@ export class SceneStore {
   // Datasets
   // -------------------------------------------------------------------------------------------
 
-  addDataset(ds: VolumeDataset | MeshDataset): void {
+  addDataset(ds: Dataset): void {
     this.#scene.datasets.set(ds.id, ds);
   }
 

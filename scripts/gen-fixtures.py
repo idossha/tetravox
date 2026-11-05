@@ -2940,7 +2940,16 @@ def inspect_tracts(out: Path) -> dict:
     )
     ijk = nib.affines.apply_affine(np.linalg.inv(scalar.affine), pts.astype("float64")).T
     sample = lambda a: map_coordinates(a, ijk, order=1, mode="constant", cval=np.nan)
+    with zipfile.ZipFile(out / "tract_f32_stored.trx") as z:
+        on_tract = np.frombuffer(z.read("positions.3.float32"), "float32").reshape(-1, 3)
+    ijk_tract = nib.affines.apply_affine(
+        np.linalg.inv(scalar.affine), on_tract.astype("float64")
+    ).T
+    along_tract = map_coordinates(
+        np.asarray(scalar.dataobj), ijk_tract, order=1, mode="constant", cval=np.nan
+    )
     res["sample"] = {
+        "onTract": [None if np.isnan(v) else float(v) for v in along_tract],
         "points": pts.ravel().astype("float64").tolist(),
         "scalar": [None if np.isnan(v) else float(v) for v in sample(np.asarray(scalar.dataobj))],
         "vector": [

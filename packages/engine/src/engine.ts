@@ -22,6 +22,8 @@ import type {
   MeshMeta,
   SurfacePayload,
   VolumeMeta,
+  LoadSource,
+  TractFormatSel,
 } from '@tetravox/protocol';
 import type {
   CoordSpaceOption,
@@ -42,6 +44,7 @@ import type {
   ProbeResult,
   ProbeRow,
   ScreenshotOptions,
+  TractStyleInfo,
 } from './api';
 import { applyForcedCaps } from './gl/caps';
 import type { Capabilities } from './gl/caps';
@@ -68,6 +71,7 @@ import { SurfaceLayerRuntime } from './layers/surface';
 import { meshView } from './scene/surface';
 import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
+import { tractFieldOf, TractsLayerRuntime } from './layers/tracts';
 import { createIso3dRuntime, derivedIsoLayers } from './layers/iso3d';
 import type { Iso3dLayerRuntime } from './layers/iso3d';
 import { DerivedStore } from './derived/store';
@@ -147,6 +151,8 @@ import {
   labelTablesFromWire,
   meshDatasetFromMeta,
   volumeDatasetFromMeta,
+  tractFieldFromWire,
+  tractogramDatasetFromMeta,
 } from './scene/fromMeta';
 import {
   defaultLayerFor,
@@ -154,6 +160,10 @@ import {
   seedSurfaceLayerFromOpt,
   surfaceContourColor,
   VIEW3D_ID,
+  TRACT_DEFAULT_MAX_POINTS,
+  TRACT_DEFAULT_SEED,
+  TRACT_FULL_MAX_POINTS,
+  tractFieldScale,
 } from './scene/defaults';
 import type { MshOptSeed } from './scene/defaults';
 import { SceneStore, isSliceView } from './scene/store';
@@ -168,7 +178,14 @@ import {
   toViewSpec,
 } from './scene/serialize';
 import type { SidecarPaths } from './scene/serialize';
-import { looksLikeVolume, meshFormatFor, sourceName, toLoadSource } from './datasets/source';
+import {
+  looksLikeVolume,
+  meshFormatFor,
+  sourceName,
+  toLoadSource,
+  tractFormatFor,
+} from './datasets/source';
+import { runTractSample, tractSampleName } from './compute/tract-sample';
 import type {
   Annotations,
   Dataset,
@@ -198,6 +215,10 @@ import type {
   VolumeDataset,
   VolumeLayer,
   PointsLayer,
+  TractBudget,
+  TractFieldInfo,
+  TractogramDataset,
+  TractSampleSpec,
 } from './scene/types';
 
 type Listener = (payload: never) => void;
@@ -299,6 +320,10 @@ export class TetravoxEngine implements Engine, PointerHost {
   #cancelSceneLoad: (() => void) | null = null;
   /** §7.2's `interacting` (P2-02): the flag, its 120 ms settle timer, and the one re-render. */
   readonly #interaction: InteractionState;
+  /** What `setTractBudget` re-reads, kept because a `File` source has no path to re-open. */
+  readonly #tractSources = new Map<DatasetId, { source: LoadSource; format: TractFormatSel }>();
+  /** The budget a scene's `DatasetRef.tract` asks of the next load of that path. */
+  readonly #tractBudgets = new Map<string, TractBudget>();
   /** §7.5's pointer layer (P2-01). Bound to the canvas for the engine's whole life. */
   readonly #pointer: PointerLayer | null;
   /** The level to go back to when `interacting` clears — `reduced` survives a drag. */
@@ -445,6 +470,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       // Directed task 8: an async row landed. Re-emitted as `probe`, never as `cursor`, so a probe
       // arriving cannot clear what the user is typing into the coordinate bar.
       probeLanded: (world: vec3) => this.#onProbeLanded(world),
+      layerChanged: () => this.#emit('layers', [...this.#scene.layers]),
       // Directed task 8: the fsaverage vertex a subject vertex maps to, when one has been built.
       // Synchronous by construction — `attachFsaverage` did the worker round trips up front, so the
       // probe path stays a lookup and §8's ≤ 50 ms mesh hover is untouched.
@@ -616,6 +642,10 @@ export class TetravoxEngine implements Engine, PointerHost {
     }
 
     try {
+      const tractFormat = tractFormatFor(name);
+      if (tractFormat !== null) {
+        return await this.#loadTractogram(id, runtime, source, tractFormat, path);
+      }
       if (looksLikeVolume(name)) {
         const req = client.start(`load:${id}`, 'loadVolume', {
           source,
@@ -660,6 +690,135 @@ export class TetravoxEngine implements Engine, PointerHost {
       this.#teardown(id);
       throw err;
     }
+  }
+
+  async #loadTractogram(
+    id: DatasetId,
+    runtime: DatasetRuntime,
+    source: LoadSource,
+    format: TractFormatSel,
+    path: string | undefined
+  ): Promise<TractogramDataset> {
+    const budget = (path !== undefined ? this.#tractBudgets.get(path) : undefined) ?? {
+      maxPoints: TRACT_DEFAULT_MAX_POINTS,
+      seed: TRACT_DEFAULT_SEED,
+    };
+    if (path !== undefined) this.#tractBudgets.delete(path);
+    const req = runtime.client.start(`load:${id}`, 'loadTractogram', {
+      source,
+      format,
+      maxPoints: budget.maxPoints ?? TRACT_FULL_MAX_POINTS,
+      seed: budget.seed,
+    });
+    runtime.loadId = req.id;
+    const res = await this.#track(req.promise);
+    runtime.loadId = null;
+    if (runtime.cancelled || this.#destroyed || this.#workers.get(id) !== runtime)
+      throw new Error('cancelled');
+    const ds = tractogramDatasetFromMeta(id, res.meta, { id: this.#nextId }, path, budget);
+    this.#tractSources.set(id, { source, format });
+    this.#fingerprints.set(id, res.meta.fingerprint);
+    this.#store.addDataset(ds);
+    this.#emit('datasets', [...this.#scene.datasets.values()]);
+    this.#onFirstDataset();
+    return ds;
+  }
+
+  async sampleTracts(
+    spec: TractSampleSpec,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<TractFieldInfo> {
+    const tract = this.#scene.datasets.get(spec.tractogramId);
+    const source = this.#scene.datasets.get(spec.sourceId);
+    if (tract?.kind !== 'tractogram') throw new Error('sampleTracts: not a tractogram');
+    if (source === undefined || source.kind === 'tractogram') {
+      throw new Error('sampleTracts: the source must be a loaded volume or mesh');
+    }
+    if (source.kind === 'mesh' && spec.field === undefined) {
+      throw new Error('sampleTracts: a mesh source needs a field');
+    }
+    if (source.kind === 'mesh' && !isIdentity(source.transform)) {
+      throw new Error(`${source.name} has a user transform: reset it before sampling onto tracts`);
+    }
+    const tractClient = this.#workers.get(tract.id)?.client;
+    const sourceClient = this.#workers.get(source.id)?.client;
+    if (tractClient === undefined || sourceClient === undefined) {
+      throw new Error('sampleTracts: a dataset worker is gone');
+    }
+    const name = spec.name ?? tractSampleName(spec, source.name);
+    const units =
+      source.kind === 'volume'
+        ? source.units
+        : (this.#scene.layers.flatMap((l) =>
+            l.kind === 'mesh' && l.datasetId === source.id
+              ? [l.fields?.[spec.field?.name ?? '']?.units]
+              : []
+          )[0] ?? source.fields.find((f) => f.name === spec.field?.name)?.units);
+    const field = await this.#track(
+      runTractSample({
+        tract: tractClient,
+        tractHandle: tract.handle,
+        source: sourceClient,
+        sourceHandle: source.handle,
+        sourceKind: source.kind,
+        nPoints: tract.nPoints,
+        spec,
+        name,
+        ...(units === undefined ? {} : { units }),
+        ...(onProgress === undefined ? {} : { onProgress }),
+      })
+    );
+    const info = tractFieldFromWire(field);
+    tract.vertexFields = [...tract.vertexFields.filter((f) => f.name !== name), info];
+    tract.samples = [...tract.samples.filter((f) => (f.name ?? '') !== name), { ...spec, name }];
+    this.#tractDatasetChanged(tract.id);
+    return info;
+  }
+
+  async setTractBudget(id: DatasetId, maxPoints: number | null): Promise<TractogramDataset> {
+    const ds = this.#scene.datasets.get(id);
+    const rt = this.#workers.get(id);
+    const from = this.#tractSources.get(id);
+    if (ds?.kind !== 'tractogram' || rt === undefined || from === undefined) {
+      throw new Error('setTractBudget: not a loaded tractogram');
+    }
+    await this.#track(rt.client.call(`free:${id}`, 'free', { handle: ds.handle }));
+    const res = await this.#track(
+      rt.client.call(`load:${id}`, 'loadTractogram', {
+        source: from.source,
+        format: from.format,
+        maxPoints: maxPoints ?? TRACT_FULL_MAX_POINTS,
+        seed: ds.budget.seed,
+      })
+    );
+    const next = tractogramDatasetFromMeta(
+      id,
+      res.meta,
+      ds.worker,
+      ds.path,
+      { maxPoints, seed: ds.budget.seed },
+      ds.generation + 1
+    );
+    const samples = ds.samples;
+    // Replaced in place, because layers and the panel hold this object.
+    Object.assign(ds, next, { samples: [] });
+    this.#fingerprints.set(id, res.meta.fingerprint);
+    this.#tractDatasetChanged(id);
+    for (const sample of samples) await this.sampleTracts(sample);
+    return ds;
+  }
+
+  tractStyleInfo(layerId: LayerId): TractStyleInfo | null {
+    const rt = this.#layers.get(layerId);
+    return rt instanceof TractsLayerRuntime ? rt.styleInfo() : null;
+  }
+
+  #tractDatasetChanged(id: DatasetId): void {
+    for (const layer of this.#scene.layers) {
+      if (layer.datasetId === id) this.#layers.get(layer.id)?.datasetChanged?.();
+    }
+    this.#emit('datasets', [...this.#scene.datasets.values()]);
+    this.requestRender();
   }
 
   #track<T>(p: Promise<T>): Promise<T> {
@@ -780,6 +939,8 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#fingerprints.delete(id);
     this.#sidecars.delete(id);
     this.#gpu.dropMeshTables(id);
+    this.#gpu.dropTractGeometry(id);
+    this.#tractSources.delete(id);
     this.#derived.dropDataset(id);
     this.#cuts.releaseDataset(id);
     for (const key of [...this.#labelCentroids.keys()]) {
@@ -850,6 +1011,11 @@ export class TetravoxEngine implements Engine, PointerHost {
             }
           : base;
     const layer = { ...seeded, ...spec, id, datasetId: ds.id, kind: base.kind } as Layer;
+    // A host may name a field without a window: open it at the field's own percentile window (§7.4.1).
+    if (layer.kind === 'tracts' && ds.kind === 'tractogram' && !('scale' in spec)) {
+      const field = tractFieldOf(layer, ds);
+      if (field !== null) layer.scale = tractFieldScale(field.info);
+    }
     // §4.6 does not serialise a `LabelTable`, so a `label` that arrives from a scene file carries
     // the user's `mode` / `outlineWidthPx` / `visibleLabels` and **no table**. The table is the one
     // part of it that is re-derived, so it is taken from the layer this dataset seeded — without
@@ -1563,6 +1729,9 @@ export class TetravoxEngine implements Engine, PointerHost {
   setCursorFromPick(viewId: ViewId, px: number, py: number): boolean {
     const hit = this.pick(viewId, px, py);
     if (hit === null) return false;
+    if (hit.elementKind === 'streamline') {
+      this.#layers.get(hit.layerId)?.notePick?.(hit.world, hit.elementId);
+    }
     this.setCursor(hit.world);
     return true;
   }
@@ -3434,6 +3603,14 @@ export class TetravoxEngine implements Engine, PointerHost {
             ? (serialized as unknown as MeshLayer).isolate?.labelVolume?.datasetId
             : undefined;
         if (!final && dependency !== undefined && !idMap.has(dependency)) continue;
+        // A tracts layer may name a sampled field, which exists only once `samples` have replayed.
+        if (
+          !final &&
+          serialized.kind === 'tracts' &&
+          (spec.datasets.find((r) => r.id === serialized.datasetId)?.tract?.samples?.length ?? 0) >
+            0
+        )
+          continue;
         const patch = remapLayer(serialized, idMap);
         if (patch === null) continue;
         const seeded =
@@ -3488,6 +3665,13 @@ export class TetravoxEngine implements Engine, PointerHost {
           // addDataset registers this worker synchronously before its first await. Keep pending
           // workers too, since they are not yet present in scene.datasets when New is pressed.
           owned.add(`ds${this.#nextId}`);
+          if (ref.kind === 'tractogram') {
+            this.#tractBudgets.set(path, {
+              maxPoints:
+                ref.tract?.maxPoints === undefined ? TRACT_DEFAULT_MAX_POINTS : ref.tract.maxPoints,
+              seed: ref.tract?.seed ?? TRACT_DEFAULT_SEED,
+            });
+          }
           const ds = await this.addDataset(
             Object.keys(cars).length > 0
               ? { kind: 'path', path, sidecars: cars }
@@ -3509,6 +3693,28 @@ export class TetravoxEngine implements Engine, PointerHost {
         })
       );
       check();
+      const sampleFailures: string[] = [];
+      for (const ref of spec.datasets) {
+        const tractogramId = idMap.get(ref.id);
+        if (ref.kind !== 'tractogram' || tractogramId === undefined) continue;
+        for (const sample of ref.tract?.samples ?? []) {
+          check();
+          const sourceId = idMap.get(sample.sourceId);
+          if (sourceId === undefined) {
+            sampleFailures.push(`${ref.name}: ${sample.name ?? 'a sampled field'} has no source`);
+            continue;
+          }
+          const held = this.#scene.datasets.get(tractogramId);
+          if (held?.kind === 'tractogram' && held.samples.some((s) => s.name === sample.name))
+            continue;
+          try {
+            await this.sampleTracts({ ...sample, tractogramId, sourceId });
+          } catch (e) {
+            sampleFailures.push(`${ref.name}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      }
+      check();
       attachReady(true);
       this.#emit('measurements', [...this.#scene.measurements]);
       this.#emit('cursor', this.#scene.cursor);
@@ -3519,6 +3725,7 @@ export class TetravoxEngine implements Engine, PointerHost {
             ]
           : []
       );
+      failures.push(...sampleFailures);
       if (failures.length > 0) throw new Error(failures.join('; '));
     } finally {
       signal?.removeEventListener('abort', cancel);
@@ -3559,6 +3766,10 @@ function hasProbeContent(row: ProbeRow): boolean {
     row.elementId !== undefined ||
     row.labelId !== undefined
   );
+}
+
+function isIdentity(m: mat4): boolean {
+  return m.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-9);
 }
 
 function dist3(a: vec3, b: vec3): number {

@@ -9,7 +9,8 @@
  * (§7.2.3, §7.4) rather than a per-vertex attribute.
  */
 
-import type { SurfacePayload } from '@tetravox/protocol';
+import type { OpResult, SurfacePayload } from '@tetravox/protocol';
+import { TractGeometry } from './tract-gpu';
 import { Buffer, VertexArray } from '../gl/buffer';
 import { bytesPerVoxel, createAlpha2D, createLut, createTexture3D } from '../gl/texture';
 import { bakeScale } from '../color/colormaps';
@@ -344,7 +345,12 @@ export class GpuStore {
   readonly #caps = new Map<string, CapEntry>();
   #atlas: WebGLTexture | null = null;
 
+  readonly gl: WebGL2RenderingContext;
+  /** §7.4.1: dataset geometry, keyed `${datasetId}|${generation}`, shared by that dataset's layers. */
+  readonly #tracts = new Map<string, TractGeometry>();
+
   constructor(gl: WebGL2RenderingContext) {
+    this.gl = gl;
     this.#gl = gl;
   }
 
@@ -872,8 +878,30 @@ export class GpuStore {
     return this.#volumes.has(key);
   }
 
+  uploadTractGeometry(id: DatasetId, generation: number, p: OpResult['tractGeometry']): void {
+    const key = `${id}|${generation}`;
+    if (this.#tracts.has(key)) return;
+    this.dropTractGeometry(id);
+    this.#tracts.set(key, new TractGeometry(this.#gl, p));
+  }
+
+  tractGeometry(id: DatasetId, generation: number): TractGeometry | undefined {
+    return this.#tracts.get(`${id}|${generation}`);
+  }
+
+  dropTractGeometry(id: DatasetId): void {
+    for (const [k, g] of [...this.#tracts]) {
+      if (k.startsWith(`${id}|`)) {
+        g.dispose();
+        this.#tracts.delete(k);
+      }
+    }
+  }
+
   dispose(): void {
     const gl = this.#gl;
+    for (const g of this.#tracts.values()) g.dispose();
+    this.#tracts.clear();
     for (const s of this.#labelStyles.values()) {
       gl.deleteTexture(s.palette);
       gl.deleteTexture(s.attrs);

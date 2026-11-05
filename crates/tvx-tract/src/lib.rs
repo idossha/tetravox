@@ -90,6 +90,8 @@ pub struct Tractogram {
     pub streamline_fields: Vec<TractField>,
     pub groups: Vec<TractGroup>,
     pub bounds: Aabb,
+    /// Per streamline `[min xyz, max xyz]`: what keeps a probe from reading every point.
+    pub streamline_boxes: Vec<[f32; 6]>,
     pub notes: Vec<String>,
     pub header_json: String,
     pub fingerprint: String,

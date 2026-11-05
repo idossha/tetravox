@@ -207,6 +207,15 @@ pub fn probe(
     let mut best: Option<(u32, usize, f32)> = None;
     let mut limit = radius_mm * radius_mm;
     let mut scan = |s: u32, w: &[u32]| {
+        let b = &t.streamline_boxes[s as usize];
+        let mut gap = 0.0f32;
+        for c in 0..3 {
+            let d = (b[c] - world[c]).max(world[c] - b[c + 3]).max(0.0);
+            gap += d * d;
+        }
+        if gap > limit {
+            return;
+        }
         for i in w[0] as usize..w[1] as usize {
             let p = &t.positions[i * 3..i * 3 + 3];
             let d = [p[0] - world[0], p[1] - world[1], p[2] - world[2]];

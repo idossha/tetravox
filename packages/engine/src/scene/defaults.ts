@@ -14,6 +14,7 @@
 import { identity4 } from '../view/m4';
 import { presetNormal, presetUp } from '../view/geometry';
 import type {
+  Dataset,
   ColormapName,
   IsosurfaceLayer,
   Layer,
@@ -28,6 +29,9 @@ import type {
   SliceView,
   SurfaceLayer,
   Threshold,
+  TractFieldInfo,
+  TractogramDataset,
+  TractsLayer,
   vec4,
   View3D,
   VolumeDataset,
@@ -393,8 +397,43 @@ export function defaultIsoLayer(id: string, ds: VolumeDataset | MeshDataset): Is
   };
 }
 
+/** §9.2: the display budget a tractogram opens at, and the most §9.2's GPU bar admits. */
+export const TRACT_DEFAULT_MAX_POINTS = 8_000_000;
+export const TRACT_FULL_MAX_POINTS = 25_000_000;
+export const TRACT_DEFAULT_SEED = 1;
+
+/** A field's opening window: the normal percentile window, with no threshold. */
+export function tractFieldScale(info: TractFieldInfo): Scale {
+  const lo = info.stats.percentiles['2'];
+  const hi = info.stats.percentiles['98'];
+  return hi > lo
+    ? { kind: 'linear', lo, hi }
+    : { kind: 'linear', lo: info.stats.min, hi: info.stats.max };
+}
+
+/** §4.4's `TractsLayer`: direction RGB until the user asks for anything else. */
+export function defaultTractsLayer(id: string, ds: TractogramDataset): TractsLayer {
+  return {
+    id,
+    datasetId: ds.id,
+    name: ds.name,
+    visible: true,
+    opacity: 1,
+    pickable: true,
+    showColorbar: true,
+    kind: 'tracts',
+    colorMode: 'direction',
+    solidColor: [0.9, 0.85, 0.4, 1],
+    colormap: 'viridis',
+    scale: { kind: 'linear', lo: 0, hi: 1 },
+    threshold: NO_THRESHOLD,
+    lineWidthPx: 1,
+    slabMm: 1,
+  };
+}
+
 /** §4.4's `PointsLayer` (E-DERIVED, appended). The points arrive with the layer, not with a worker. */
-export function defaultPointsLayer(id: string, ds: VolumeDataset | MeshDataset): PointsLayer {
+export function defaultPointsLayer(id: string, ds: Dataset): PointsLayer {
   return {
     id,
     datasetId: ds.id,
@@ -429,7 +468,7 @@ export function defaultPointsLayer(id: string, ds: VolumeDataset | MeshDataset):
  * and a nearest-anchor match would be the thing that silently mislabels a dense net. When they do
  * not match the labels still draw, from their own anchors; only the probe row goes unnamed.
  */
-function geoSeed(ds: VolumeDataset | MeshDataset): Partial<PointsLayer> {
+function geoSeed(ds: Dataset): Partial<PointsLayer> {
   if (ds.kind !== 'mesh' || ds.geo === undefined) return {};
   const geo = ds.geo;
   const paired = geo.labels.length === geo.points.length;
@@ -467,15 +506,14 @@ function geoSeed(ds: VolumeDataset | MeshDataset): Partial<PointsLayer> {
  * from this function and then re-imposes `base.kind`, so a caller-requested kind this function never
  * produced was silently replaced by the dataset's own.
  */
-export function defaultLayerFor(
-  id: string,
-  ds: VolumeDataset | MeshDataset,
-  kind?: Layer['kind']
-): Layer {
+export function defaultLayerFor(id: string, ds: Dataset, kind?: Layer['kind']): Layer {
   // A parsed view with no triangles (every SimNIBS electrode net) is points, not a mesh: its
   // default mesh layer would be an empty surface and the file would look like it failed to open.
   // R1 (2026-09-06): a triangle sheet with no tets is a **surface**, its own kind; a tet mesh is
   // a mesh. `isSurfaceMesh` is the same test §7.4 and `derived/store.ts` already branch on.
+  if (ds.kind === 'tractogram') {
+    return kind === 'points' ? defaultPointsLayer(id, ds) : defaultTractsLayer(id, ds);
+  }
   const own =
     ds.kind === 'volume'
       ? 'volume'
@@ -498,6 +536,8 @@ export function defaultLayerFor(
       return defaultIsoLayer(id, ds);
     case 'points':
       return defaultPointsLayer(id, ds);
+    case 'tracts':
+      throw new Error('a tracts layer needs a tractogram dataset');
   }
 }
 

@@ -53,7 +53,16 @@ impl Builder {
             f.builtin = true;
             streamline_fields.push(f);
         }
+        let streamline_boxes = self
+            .offsets
+            .windows(2)
+            .map(|w| {
+                let b = bounds_of(&self.positions[w[0] as usize * 3..w[1] as usize * 3]);
+                [b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]]
+            })
+            .collect();
         Tractogram {
+            streamline_boxes,
             positions: self.positions,
             offsets: self.offsets,
             source_index: self.source_index,

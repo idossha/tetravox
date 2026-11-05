@@ -31,6 +31,9 @@ import type { DrawInput, Pass, PassContext } from './pass';
 import { bindSliceSampling } from './slice';
 import type { SliceQuad } from './slice';
 import { MESH_PICK_VS, PICK_FS, SLICE_PICK_GATED_FS, SLICE_PICK_VS } from '../../shaders';
+import { TRACTS_FS, TRACTS_VS } from '../../shaders/tracts';
+import type { TractsDrawItem } from '../../layers/runtime';
+import { bindTractUniforms, drawTractGeometry } from './tracts';
 import { invert4, transformPoint } from '../../view/m4';
 import { sliceBasis } from '../../view/geometry';
 import type { mat4, SliceView, View } from '../../scene/types';
@@ -86,6 +89,7 @@ export class PickPass implements Pass {
    * AABB discard, which was all Phase 1 drew.
    */
   readonly #slice: ProgramVariants;
+  readonly #tracts: ProgramVariants;
   #fbo: Framebuffer | null = null;
   #readFormat: GLenum;
   #readType: GLenum;
@@ -94,6 +98,7 @@ export class PickPass implements Pass {
     this.#gl = gl;
     this.#state = state;
     this.#mesh = new ProgramVariants(gl, MESH_PICK_VS, PICK_FS);
+    this.#tracts = new ProgramVariants(gl, TRACTS_VS, TRACTS_FS);
     this.#slice = new ProgramVariants(gl, SLICE_PICK_VS, SLICE_PICK_GATED_FS);
     // §7.2.3: "read the enum, do not hardcode". The implementation-defined pair is
     // RED_INTEGER/UNSIGNED_INT on ANGLE/Metal *and* SwiftShader, but the spec-guaranteed fallback is
@@ -151,7 +156,9 @@ export class PickPass implements Pass {
     gl.clearBufferfi(gl.DEPTH_STENCIL, 0, 1, 0);
 
     for (const { item, layerIndex } of collectPickItems(input, view)) {
-      if (item.kind === 'mesh') {
+      if (item.kind === 'tracts') {
+        this.#drawTracts(item, layerIndex, viewProj, input, rect);
+      } else if (item.kind === 'mesh') {
         this.#drawMesh(item, layerIndex, viewProj, input);
         this.#drawMeshCaps(item, layerIndex, viewProj, input);
       } else this.#drawSliceQuad(item, layerIndex, view, viewProj, input, quad, quadHalf);
@@ -207,10 +214,38 @@ export class PickPass implements Pass {
       layerId: layer.id,
       datasetId: layer.datasetId,
       elementId: un.elementId,
-      elementKind: layer.kind === 'volume' ? 'slice' : un.kindBit === 1 ? 'tet' : 'tri',
+      elementKind:
+        layer.kind === 'volume'
+          ? 'slice'
+          : layer.kind === 'tracts'
+            ? 'streamline'
+            : un.kindBit === 1
+              ? 'tet'
+              : 'tri',
       world,
       depth: z,
     };
+  }
+
+  /** §7.4.1: the same uniforms as the frame's draw, so a threshold or a filter discards here too. */
+  #drawTracts(
+    item: TractsDrawItem,
+    layerIndex: number,
+    viewProj: mat4,
+    input: DrawInput,
+    rect: ViewportRect
+  ): void {
+    const gl = this.#gl;
+    const quads = item.layer.lineWidthPx > 1 ? 1 : 0;
+    const prog = this.#tracts.get({ TRACT_QUADS: quads, TRACT_PICK: 1 });
+    prog.use();
+    bindTractUniforms(gl, prog, item, input, viewProj);
+    prog.vec4('uPlane', new Float32Array(4));
+    prog.float('uSlab', -1);
+    const loc = prog.loc('uLayerBits');
+    if (loc !== null) gl.uniform1ui(loc, packId(layerIndex, 0, 0) >>> 0);
+    this.#state.cull('none');
+    drawTractGeometry(gl, prog, item, rect, input.uiScale);
   }
 
   /**
@@ -335,6 +370,7 @@ export class PickPass implements Pass {
   }
 
   dispose(): void {
+    this.#tracts.dispose();
     this.#mesh.dispose();
     this.#slice.dispose();
     this.#fbo?.dispose();

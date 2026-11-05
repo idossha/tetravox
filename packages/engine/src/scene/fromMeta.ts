@@ -12,8 +12,19 @@
 
 import { asGl, identity4 } from '../view/m4';
 import { mat4 as glMat4 } from 'gl-matrix';
-import type { GeoPayloadT, LabelEntryT, MeshMeta, StatsT, VolumeMeta } from '@tetravox/protocol';
 import type {
+  GeoPayloadT,
+  LabelEntryT,
+  MeshMeta,
+  StatsT,
+  TractFieldMeta,
+  TractogramMeta,
+  VolumeMeta,
+} from '@tetravox/protocol';
+import type {
+  TractBudget,
+  TractFieldInfo,
+  TractogramDataset,
   Aabb,
   DatasetId,
   GeoData,
@@ -310,6 +321,56 @@ export function meshDatasetFromMeta(
       flippedComponents: meta.orient.flippedComponents,
     },
     topologyBuilt: false,
+    worker,
+    handle: meta.handle,
+  };
+}
+
+export function tractFieldFromWire(f: TractFieldMeta): TractFieldInfo {
+  return {
+    name: f.name,
+    ...(f.units === undefined ? {} : { units: f.units }),
+    stats: statsFromWire(f.stats),
+    nanCount: f.nanCount,
+    ...(f.builtin === true ? { builtin: true } : {}),
+    ...(f.categorical === true ? { categorical: true } : {}),
+    ...(f.sampled === true ? { sampled: true } : {}),
+  };
+}
+
+/** §4.3. Group colours arrive 0..255 like every wire colour (§4.1). */
+export function tractogramDatasetFromMeta(
+  id: DatasetId,
+  meta: TractogramMeta,
+  worker: WorkerRef,
+  path: string | undefined,
+  budget: TractBudget,
+  generation = 0
+): TractogramDataset {
+  return {
+    kind: 'tractogram',
+    id,
+    name: meta.name,
+    ...(path === undefined ? {} : { path }),
+    format: meta.format,
+    nStreamlines: meta.nStreamlines,
+    nPoints: meta.nPoints,
+    sourceStreamlines: meta.sourceStreamlines,
+    sourcePoints: meta.sourcePoints,
+    budget,
+    bounds: { min: [...meta.bounds.min], max: [...meta.bounds.max] },
+    vertexFields: meta.vertexFields.map(tractFieldFromWire),
+    streamlineFields: meta.streamlineFields.map(tractFieldFromWire),
+    groups: meta.groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      count: g.count,
+      ...(g.color === undefined ? {} : { color: colorFromWire([...g.color, 255]) }),
+    })),
+    samples: [],
+    generation,
+    notes: meta.notes,
+    headerJson: meta.headerJson,
     worker,
     handle: meta.handle,
   };

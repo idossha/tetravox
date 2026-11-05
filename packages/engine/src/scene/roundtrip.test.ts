@@ -311,6 +311,39 @@ describe('the §4.6 round trip on a full scene', () => {
     expect(out['labelSource']).toBe('names');
   });
 
+  it('keeps every field of a fully-set tracts layer, an open threshold included', () => {
+    const layer = {
+      id: 'lt',
+      datasetId: 'dt',
+      name: 'tracts',
+      visible: true,
+      opacity: 0.8,
+      pickable: true,
+      showColorbar: true,
+      kind: 'tracts',
+      colorMode: 'vertex',
+      solidColor: [1, 0.5, 0, 1],
+      field: 'fa:vol0:value',
+      colormap: 'viridis',
+      colormapNegative: 'blue-cyan',
+      scale: { kind: 'linear', lo: 0.1, hi: 0.9 },
+      threshold: { lo: 0.2, hi: Infinity, symmetric: false, mode: 'hide', softEdge: 0 },
+      streamlineFilter: { field: 'length_mm', lo: 20, hi: null },
+      groupField: 'edge_id',
+      visibleGroups: [3, 7],
+      lineWidthPx: 2,
+      slabMm: 1.5,
+    } as Layer;
+    const out = roundTrip(layer);
+    for (const key of Object.keys(layer)) {
+      if (key === 'threshold') continue;
+      expect(out[key], key).toEqual((layer as unknown as Record<string, unknown>)[key]);
+    }
+    const t = out['threshold'] as { lo: number; hi: number };
+    expect(t.lo).toBe(0.2);
+    expect(t.hi).toBe(Infinity);
+  });
+
   it('never writes `extensions` from the engine — §4.6 says the app does', () => {
     const store = new SceneStore();
     store.addLayer(fullPointsLayer());

@@ -29,6 +29,7 @@ import type { ComputeClient } from '@tetravox/wasm';
 import type { ProbeRow } from '../api';
 import type { ColorbarSpec } from '../overlay/colorbar';
 import type { CutManager } from '../compute/cut-manager';
+import type { TractLayerGpu } from '../render/tract-gpu';
 import type {
   CapGeometry,
   GpuStore,
@@ -47,6 +48,7 @@ import type {
   MeshLayer,
   SliceView,
   PointsLayer,
+  TractsLayer,
   vec3,
   View,
   VolumeDataset,
@@ -113,6 +115,8 @@ export interface LayerRuntimeContext {
    * has nothing to announce.
    */
   probeLanded?(world: vec3): void;
+  /** Something the panel reads off this layer landed from a worker (`Engine.tractStyleInfo`). */
+  layerChanged?(id: LayerId): void;
   fsaverageFor?(
     id: DatasetId,
     vertex: number
@@ -222,7 +226,15 @@ export interface PointsDrawItem {
   layer: PointsLayer;
 }
 
-export type DrawItem = VolumeDrawItem | MeshDrawItem | IsoDrawItem | PointsDrawItem;
+/** A tracts layer's whole draw (§7.4.1). */
+export interface TractsDrawItem {
+  kind: 'tracts';
+  layer: TractsLayer;
+  gpu: TractLayerGpu;
+}
+
+export type DrawItem =
+  VolumeDrawItem | MeshDrawItem | IsoDrawItem | PointsDrawItem | TractsDrawItem;
 
 /** The slice quad of a volume layer, which participates in picking (§7.2.3). */
 export interface VolumePickItem {
@@ -256,7 +268,7 @@ export interface MeshPickItem {
   caps?: CapGeometry;
 }
 
-export type PickItem = VolumePickItem | MeshPickItem;
+export type PickItem = VolumePickItem | MeshPickItem | TractsDrawItem;
 
 export interface LayerRuntime {
   readonly kind: Layer['kind'];
@@ -298,6 +310,11 @@ export interface LayerRuntime {
    * layer. Optional, so a runtime with no bar says nothing rather than returning `null` five times.
    */
   colorbarSpec?(position?: 'right' | 'bottom'): ColorbarSpec | null;
+
+  /** A tracts layer's dataset gained a field or replaced its arrays. */
+  datasetChanged?(): void;
+  /** §7.2.3 named a held streamline at this point (tracts only). */
+  notePick?(world: vec3, held: number): void;
 
   /** Release anything this runtime owns that the `GpuStore` does not key by dataset. */
   dispose(): void;

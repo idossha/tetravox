@@ -139,6 +139,63 @@ export async function readStream(
   return drain(rest.pipeThrough(gunzip), 'inflate', 0, onProgress);
 }
 
+/** A source as a fresh stream, inflated when it is gzip. `length` is null when it cannot be known. */
+export async function openStream(
+  source: LoadSource
+): Promise<{ stream: ReadableStream<Uint8Array>; length: number | null }> {
+  const name = sourceName(source);
+  let body: ReadableStream<Uint8Array>;
+  let length: number | null;
+  if (source.kind === 'url') {
+    let response: Response;
+    try {
+      response = await fetch(source.url);
+    } catch (cause) {
+      throw ioError(`${source.url}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+    if (!response.ok) {
+      throw ioError(`${source.url} -> ${response.status} ${response.statusText}`);
+    }
+    const declared = Number(response.headers.get('content-length') ?? Number.NaN);
+    // `Content-Length` is the length on the wire, not of what `fetch` decodes.
+    const encoded = response.headers.get('content-encoding') !== null;
+    length = Number.isFinite(declared) && !encoded ? declared : null;
+    body = response.body ?? blobStream(await response.arrayBuffer());
+  } else if (source.kind === 'file') {
+    body = source.file.stream();
+    length = source.file.size;
+  } else {
+    body = blobStream(source.bytes);
+    length = source.bytes.byteLength;
+  }
+  if (!name.toLowerCase().endsWith('.gz')) return { stream: body, length };
+  const reader = body.getReader();
+  const first = await reader.read();
+  const head: Uint8Array = first.value ?? new Uint8Array(0);
+  const rest = new ReadableStream<Uint8Array>({
+    start(controller) {
+      if (head.byteLength > 0) controller.enqueue(head);
+      if (first.done) controller.close();
+    },
+    async pull(controller) {
+      const step = await reader.read();
+      if (step.done) controller.close();
+      else controller.enqueue(step.value);
+    },
+    cancel(reason) {
+      void reader.cancel(reason);
+    },
+  });
+  if (!(head.byteLength >= 2 && head[0] === 0x1f && head[1] === 0x8b)) {
+    return { stream: rest, length };
+  }
+  const gunzip = new DecompressionStream('gzip') as unknown as ReadableWritablePair<
+    Uint8Array,
+    Uint8Array
+  >;
+  return { stream: rest.pipeThrough(gunzip), length: null };
+}
+
 async function fetchBytes(url: string, onProgress?: ReadProgress): Promise<Uint8Array> {
   let response: Response;
   try {

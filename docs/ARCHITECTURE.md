@@ -1098,6 +1098,7 @@ export interface Engine {
                onProgress?: (done: number, total: number) => void): Promise<TractFieldInfo>;
   setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset>;
                                                 //   re-reads the file at that budget and replays `samples`
+  tractStyleInfo(layerId: LayerId): TractStyleInfo | null;   // visible count + group rows; null until landed
   attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;   // 2026-09-06: §6.5.2's
                                                 //   `attachField` on that dataset's worker; grows `fields` /
                                                 //   `labelTables` in place, changes no layer, remembers the path
@@ -2002,7 +2003,8 @@ pub struct Tractogram {
     pub source_index: Vec<u32>,     // S: this streamline's index in the file
     pub source_streamlines: u64, pub source_points: u64,
     pub vertex_fields: Vec<TractField>, pub streamline_fields: Vec<TractField>, pub groups: Vec<TractGroup>,
-    pub bounds: Aabb, pub notes: Vec<String>, pub header_json: String, pub fingerprint: String,
+    pub bounds: Aabb, pub streamline_boxes: Vec<[f32; 6]>,   // per streamline, keeps a probe off most points
+    pub notes: Vec<String>, pub header_json: String, pub fingerprint: String,
 }
 pub fn format_for_name(name: &str) -> Option<TractFormat>;
 pub struct Loader;

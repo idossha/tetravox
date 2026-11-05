@@ -13,6 +13,7 @@ import { IsoLayerRuntime } from './iso';
 import { MeshLayerRuntime } from './mesh';
 import { PointsLayerRuntime } from './points';
 import { SurfaceLayerRuntime } from './surface';
+import { TractsLayerRuntime } from './tracts';
 import type { LayerRuntime, LayerRuntimeContext } from './runtime';
 import { VolumeLayerRuntime } from './volume';
 import type {
@@ -23,6 +24,7 @@ import type {
   MeshLayer,
   PointsLayer,
   SurfaceLayer,
+  TractsLayer,
   VolumeDataset,
   VolumeLayer,
 } from '../scene/types';
@@ -38,6 +40,7 @@ const REGISTRY: Record<Layer['kind'], Factory> = {
   // R5 (2026-09-06): the mesh runtime behind `scene/surface.ts`'s projection.
   surface: (layer, ds, ctx) =>
     new SurfaceLayerRuntime(layer as SurfaceLayer, ds as MeshDataset, ctx),
+  tracts: (layer, ds, ctx) => new TractsLayerRuntime(layer as TractsLayer, ds, ctx),
 };
 
 /** Every layer kind the engine can instantiate — §4.4's four, in declaration order. */
