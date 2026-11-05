@@ -10,12 +10,17 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import { APP_ROOT, clickAppMenu, launchApp } from './fixtures';
+import { APP_ROOT, clickAppMenu, launchApp, packagedUnavailable } from './fixtures';
 import type { LaunchTarget } from './fixtures';
 
 const DATA = resolve(APP_ROOT, '../../testdata');
 const TRX = join(DATA, 'tract_f32_stored.trx');
 const SCALAR = join(DATA, 'tract_sample_scalar.nii');
+
+test.beforeEach(({}, info) => {
+  const blocked = info.project.name === 'packaged' ? packagedUnavailable() : null;
+  test.skip(blocked !== null, blocked ?? '');
+});
 
 async function ready(app: ElectronApplication): Promise<Page> {
   const page = await app.firstWindow();
