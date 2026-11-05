@@ -104,9 +104,65 @@ pub fn fingerprint(bytes: &[u8]) -> String {
     format!("{TAG}-{len:016x}-{:016x}", fmix64(h))
 }
 
+/// [`fingerprint`] of a file seen as a stream, for a loader that never holds it whole (§4.6). The
+/// length must be known first, because it decides where the windows fall.
+pub struct Streaming {
+    len: u64,
+    h: u64,
+    at: u64,
+    ranges: Vec<std::ops::Range<u64>>,
+}
+
+impl Streaming {
+    pub fn new(len: u64) -> Self {
+        let ranges = sample_ranges(len as usize)
+            .into_iter()
+            .map(|r| r.start as u64..r.end as u64)
+            .collect();
+        Self {
+            len,
+            h: fnv1a(FNV_OFFSET, &len.to_le_bytes()),
+            at: 0,
+            ranges,
+        }
+    }
+
+    pub fn update(&mut self, chunk: &[u8]) {
+        let end = self.at + chunk.len() as u64;
+        for r in &self.ranges {
+            let (a, b) = (r.start.max(self.at), r.end.min(end));
+            if a < b {
+                self.h = fnv1a(
+                    self.h,
+                    &chunk[(a - self.at) as usize..(b - self.at) as usize],
+                );
+            }
+        }
+        self.at = end;
+    }
+
+    pub fn finish(self) -> String {
+        format!("{TAG}-{:016x}-{:016x}", self.len, fmix64(self.h))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_agrees_with_the_whole_slice() {
+        for len in [0usize, 13, FULL_LIMIT, FULL_LIMIT + 1, 3 * FULL_LIMIT + 17] {
+            let bytes: Vec<u8> = (0..len).map(|i| (i.wrapping_mul(31) >> 3) as u8).collect();
+            for size in [1 << 13, 65_537] {
+                let mut s = Streaming::new(len as u64);
+                for c in bytes.chunks(size) {
+                    s.update(c);
+                }
+                assert_eq!(s.finish(), fingerprint(&bytes), "len {len} chunk {size}");
+            }
+        }
+    }
 
     /// The cross-build pin. Computed independently in Python from the spec in the module header
     /// (FNV-1a-64 over `len` little-endian followed by the bytes, then `fmix64`), not read back out

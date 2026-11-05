@@ -631,6 +631,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tvx-tract"
+version = "0.7.1"
+dependencies = [
+ "flate2",
+ "serde_json",
+ "tvx-core",
+ "tvx-mesh-io",
+]
+
+[[package]]
 name = "tvx-wasm"
 version = "0.7.1"
 dependencies = [

@@ -4,7 +4,7 @@
     python3 scripts/gen-fixtures.py [--outdir testdata] [--no-verify]
     python3 scripts/gen-fixtures.py --inspect <outdir> <json-out>   # internal, runs under simnibs_python
 
-Requires only python3 + numpy + nibabel for the *writing* half.  The *verification*
+Requires only python3 + numpy + nibabel for the *writing* half, and scipy for the tract sampling reference.  The *verification*
 half re-executes this file under `simnibs_python` (SimNIBS 4.6) so that every Gmsh
 `.msh`, `.stl`, `.ply` and `.obj` number in the manifest comes from an independent
 reader — `simnibs.mesh_io.read_msh` and the Gmsh 4.14 Python API — and never from
@@ -28,11 +28,13 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import io
 import json
 import os
 import struct
 import subprocess
 import sys
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -1356,6 +1358,7 @@ def generate(out: Path) -> dict:
     # deterministic sub-millimetre offset so a snap has something to find, plus one deliberately
     # awkward table for the reader's tolerance.  Both are text and together under 2 kB.
     write_seeg_tables(out)
+    write_tract_fixtures(out)
 
     # ---------------- MGH / NRRD / MetaImage (§6.1's other voxel formats) ----------------
     # Same ramps, same oblique affine, so a reader that gets an axis or a sign wrong is caught by
@@ -2694,6 +2697,260 @@ SCHEMA = {
 }
 
 
+
+# ---------------------------------------------------------------------------------------------
+# Tractograms (§6.3.1). Written by hand so voxel order, endianness and zip layout are controlled;
+# expected values come from nibabel.streamlines and from zipfile + numpy reading the files back.
+# ---------------------------------------------------------------------------------------------
+
+TRACT_LINES = [
+    [[-10.0 + i, 0.0, 0.0] for i in range(21)],  # along +x
+    [[0.0, -5.0 + i, 1.0] for i in range(11)],  # along +y
+    [[2.0, 2.0, -3.0 + i] for i in range(7)],  # along +z
+    [[1.0 + i * i * 0.25, -1.0 - i, 2.0 + 0.5 * i] for i in range(5)],  # oblique and curved
+]
+
+
+def _tck_bytes(lines, datatype="Float32LE", terminated=True) -> bytes:
+    fmt = "<f" if datatype.endswith("LE") else ">f"
+    head = f"mrtrix tracks\ncount: {len(lines)}\ndatatype: {datatype}\nfile: . "
+    offset = 128
+    header = (head + f"{offset}\nEND\n").encode().ljust(offset, b"\0")
+    body = bytearray()
+    for line in lines:
+        for point in line:
+            body += b"".join(struct.pack(fmt, c) for c in point)
+        body += struct.pack(fmt, float("nan")) * 3
+    if terminated:
+        body += struct.pack(fmt, float("inf")) * 3
+    return header + bytes(body)
+
+
+def _trk_bytes(
+    lines,
+    *,
+    order=b"RAS",
+    affine=None,
+    voxel=(2.0, 2.0, 2.0),
+    dims=(64, 64, 64),
+    version=2,
+    big=False,
+    scalars=None,
+    properties=None,
+    scalar_names=(),
+    property_names=(),
+) -> bytes:
+    e = ">" if big else "<"
+    if affine is None:
+        affine = np.array(
+            [[voxel[0], 0, 0, -30], [0, voxel[1], 0, -40], [0, 0, voxel[2], -50], [0, 0, 0, 1]],
+            dtype=float,
+        )
+    h = bytearray(1000)
+    h[0:6] = b"TRACK\0"
+    h[6:12] = struct.pack(e + "3h", *dims)
+    h[12:24] = struct.pack(e + "3f", *voxel)
+    ns = scalars[0].shape[1] if scalars else 0
+    np_ = properties.shape[1] if properties is not None else 0
+    h[36:38] = struct.pack(e + "h", ns)
+    for i, n in enumerate(scalar_names):
+        h[38 + 20 * i : 38 + 20 * i + len(n)] = n
+    h[238:240] = struct.pack(e + "h", np_)
+    for i, n in enumerate(property_names):
+        h[240 + 20 * i : 240 + 20 * i + len(n)] = n
+    h[440:504] = struct.pack(e + "16f", *np.asarray(affine, dtype=float).ravel())
+    h[948:952] = order.ljust(4, b"\0")
+    h[988:992] = struct.pack(e + "i", len(lines))
+    h[992:996] = struct.pack(e + "i", version)
+    h[996:1000] = struct.pack(e + "i", 1000)
+    body = bytearray()
+    for li, line in enumerate(lines):
+        body += struct.pack(e + "i", len(line))
+        for pi, point in enumerate(line):
+            body += struct.pack(e + "3f", *point)
+            if scalars:
+                body += struct.pack(e + f"{ns}f", *scalars[li][pi])
+        if np_:
+            body += struct.pack(e + f"{np_}f", *properties[li])
+    return bytes(h) + bytes(body)
+
+
+def _zip_entry(z, name, data, method):
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = method
+    info.create_system = 3
+    z.writestr(info, data)
+
+
+def _trx_arrays(ptype="float32", otype="uint32"):
+    pts = np.array([p for line in TRACT_LINES for p in line])
+    lens = np.array([len(line) for line in TRACT_LINES])
+    offsets = np.concatenate([[0], np.cumsum(lens)])
+    dpv_x = pts[:, 0].astype("float32")
+    dpv_h = (pts[:, 1] * 0.5).astype("float16")
+    dpv_v = pts.astype("float32")
+    entries = [
+        ("header.json", json.dumps({
+            "DIMENSIONS": [64, 64, 64],
+            "VOXEL_TO_RASMM": [[2, 0, 0, -30], [0, 2, 0, -40], [0, 0, 2, -50], [0, 0, 0, 1]],
+            "NB_VERTICES": int(len(pts)),
+            "NB_STREAMLINES": int(len(TRACT_LINES)),
+        }).encode()),
+        (f"offsets.{otype}", offsets.astype(otype).tobytes()),
+        (f"positions.3.{ptype}", pts.astype(ptype).tobytes()),
+        ("dpv/along.float32", dpv_x.tobytes()),
+        ("dpv/half.float16", dpv_h.tobytes()),
+        ("dpv/vec.3.float32", dpv_v.tobytes()),
+        ("dps/weight.float64", np.array([0.5, 1.5, 2.5, 3.5]).tobytes()),
+        ("dps/edge_id.int32", np.array([7, 7, 9, -1], dtype="int32").tobytes()),
+        ("groups/left.uint32", np.array([0, 2], dtype="uint32").tobytes()),
+        ("groups/both.uint16", np.array([1, 2], dtype="uint16").tobytes()),
+    ]
+    return entries
+
+
+def write_tract_fixtures(out: Path) -> None:
+    (out / "tract_f32.tck").write_bytes(_tck_bytes(TRACT_LINES))
+    (out / "tract_be.tck").write_bytes(_tck_bytes(TRACT_LINES, "Float32BE"))
+
+    voxel = (2.0, 2.0, 2.0)
+    origin = np.array([-30.0, -40.0, -50.0])
+    # A point at world w is voxmm (w - origin) + voxel / 2 under this RAS affine.
+    voxmm = [[list(np.array(p) - origin + np.array(voxel) / 2) for p in line] for line in TRACT_LINES]
+    scalars = [
+        np.array([[p[0], p[1] * 2, p[2] * 3] for p in line], dtype="float32") for line in TRACT_LINES
+    ]
+    props = np.array([[10.0, 7.0], [20.0, 7.0], [30.0, 9.0], [40.0, 11.0]], dtype="float32")
+    kw = dict(
+        scalars=scalars,
+        properties=props,
+        scalar_names=[b"xval", b"mix\x002"],
+        property_names=[b"weight", b"bundle"],
+    )
+    (out / "tract_ras.trk").write_bytes(_trk_bytes(voxmm, **kw))
+    (out / "tract_ras_be.trk").write_bytes(_trk_bytes(voxmm, big=True, **kw))
+    # Header says LPS while the affine implies RAS, so x and y are flipped about the volume centre.
+    (out / "tract_lps.trk").write_bytes(_trk_bytes(voxmm, order=b"LPS", **kw))
+    # Permuted: the affine's first axis is anterior.
+    swapped = np.array([[0, 0, 2, -30], [2, 0, 0, -40], [0, 2, 0, -50], [0, 0, 0, 1]], dtype=float)
+    (out / "tract_permuted.trk").write_bytes(_trk_bytes(voxmm, order=b"ASR", affine=swapped, **kw))
+    (out / "tract_no_affine.trk").write_bytes(
+        _trk_bytes(voxmm, affine=np.zeros((4, 4)), version=1, order=b"")
+    )
+
+    def trx(name, entries, method):
+        with zipfile.ZipFile(out / name, "w") as z:
+            for n, data in entries:
+                _zip_entry(z, n, data, method)
+
+    trx("tract_f32_stored.trx", _trx_arrays("float32", "uint32"), zipfile.ZIP_STORED)
+    trx("tract_f32_deflated.trx", _trx_arrays("float32", "uint64"), zipfile.ZIP_DEFLATED)
+    trx("tract_f16_stored.trx", _trx_arrays("float16", "uint64"), zipfile.ZIP_STORED)
+    trx("tract_f16_deflated.trx", _trx_arrays("float16", "uint32"), zipfile.ZIP_DEFLATED)
+    trx("tract_f64_int64.trx", _trx_arrays("float64", "int64"), zipfile.ZIP_STORED)
+    reordered = sorted(_trx_arrays(), key=lambda e: 0 if e[0].startswith(("dpv", "positions")) else 1)
+    trx("tract_positions_first.trx", reordered, zipfile.ZIP_DEFLATED)
+
+    # A zip written to a pipe: deflated entries with data descriptors and no sizes up front.
+    class Unseekable(io.RawIOBase):
+        def __init__(self):
+            self.buf = bytearray()
+
+        def writable(self):
+            return True
+
+        def seekable(self):
+            return False
+
+        def write(self, b):
+            self.buf += bytes(b)
+            return len(b)
+
+    pipe = Unseekable()
+    with zipfile.ZipFile(pipe, "w") as z:
+        for n, data in _trx_arrays():
+            _zip_entry(z, n, data, zipfile.ZIP_DEFLATED)
+    (out / "tract_streamed.trx").write_bytes(bytes(pipe.buf))
+
+    # Sampling references: non-trivial affine, one scalar and one 3-frame vector volume.
+    affine = np.array(
+        [[1.5, 0.3, 0.0, -6.0], [-0.2, 1.4, 0.1, -7.0], [0.0, -0.1, 1.6, -8.0], [0, 0, 0, 1]],
+        dtype="float64",
+    )
+    rng = np.random.default_rng(20261105)
+    scalar = rng.normal(size=(9, 10, 11)).astype("float32")
+    vector = rng.normal(size=(9, 10, 11, 3)).astype("float32")
+    for name, arr in (("tract_sample_scalar.nii", scalar), ("tract_sample_vector.nii", vector)):
+        img = nib.Nifti1Image(arr, affine)
+        img.header.set_sform(affine, code=1)
+        img.header.set_qform(affine, code=1)
+        nib.save(img, out / name)
+
+
+def inspect_tracts(out: Path) -> dict:
+    res: dict = {"tck": {}, "trk": {}, "trx": {}}
+    for p in sorted(out.glob("tract_*.tck")):
+        t = nib.streamlines.load(p)
+        res["tck"][p.name] = {
+            "offsets": [0, *np.cumsum([len(s) for s in t.streamlines]).tolist()],
+            "positions": np.concatenate(list(t.streamlines)).ravel().tolist(),
+        }
+    for p in sorted(out.glob("tract_*.trk")):
+        if p.name == "tract_no_affine.trk":
+            continue
+        t = nib.streamlines.load(p)
+        data = t.tractogram
+        res["trk"][p.name] = {
+            "offsets": [0, *np.cumsum([len(s) for s in t.streamlines]).tolist()],
+            "positions": np.concatenate(list(t.streamlines)).ravel().tolist(),
+            "dpv": {
+                k: np.concatenate([np.asarray(v) for v in vals]).tolist()
+                for k, vals in data.data_per_point.items()
+            },
+            "dps": {k: np.asarray(v).tolist() for k, v in data.data_per_streamline.items()},
+        }
+    for p in sorted(out.glob("tract_*.trx")):
+        with zipfile.ZipFile(p) as z:
+            infos = {i.filename: i for i in z.infolist()}
+            header = json.loads(z.read("header.json"))
+            names = list(infos)
+            pname = next(n for n in names if n.startswith("positions."))
+            oname = next(n for n in names if n.startswith("offsets."))
+            positions = np.frombuffer(z.read(pname), dtype=pname.split(".")[-1])
+            offsets = np.frombuffer(z.read(oname), dtype=oname.split(".")[-1])
+            res["trx"][p.name] = {
+                "nbVertices": header["NB_VERTICES"],
+                "nbStreamlines": header["NB_STREAMLINES"],
+                "positions": positions.astype("float64").tolist(),
+                "offsets": offsets.astype("int64").tolist(),
+                "along": np.frombuffer(z.read("dpv/along.float32"), "float32").tolist(),
+                "half": np.frombuffer(z.read("dpv/half.float16"), "float16").astype("float64").tolist(),
+                "weight": np.frombuffer(z.read("dps/weight.float64"), "float64").tolist(),
+                "edgeId": np.frombuffer(z.read("dps/edge_id.int32"), "int32").tolist(),
+                "groupLeft": np.frombuffer(z.read("groups/left.uint32"), "uint32").tolist(),
+            }
+    # Trilinear reference: scipy, at points inside, on the border and outside.
+    from scipy.ndimage import map_coordinates
+
+    scalar = nib.load(out / "tract_sample_scalar.nii")
+    vector = nib.load(out / "tract_sample_vector.nii")
+    pts = np.array(
+        [[0.5, 0.25, 0.1], [2.0, -1.0, 3.5], [-4.0, 2.0, 1.0], [1.0, 3.0, -2.0], [300.0, 0.0, 0.0]],
+        dtype="float32",
+    )
+    ijk = nib.affines.apply_affine(np.linalg.inv(scalar.affine), pts.astype("float64")).T
+    sample = lambda a: map_coordinates(a, ijk, order=1, mode="constant", cval=np.nan)
+    res["sample"] = {
+        "points": pts.ravel().astype("float64").tolist(),
+        "scalar": [None if np.isnan(v) else float(v) for v in sample(np.asarray(scalar.dataobj))],
+        "vector": [
+            [None if np.isnan(v) else float(v) for v in sample(np.asarray(vector.dataobj)[..., c])]
+            for c in range(3)
+        ],
+    }
+    return res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--outdir", default=None)
@@ -2726,6 +2983,7 @@ def main() -> int:
     manifest["gifti"] = {p.name: inspect_gifti(p) for p in sorted(out.glob("*.gii"))}
     manifest["voxelBox"] = inspect_voxel_box(out)
     manifest["seeg"] = inspect_seeg(out)
+    manifest["tracts"] = inspect_tracts(out)
     manifest["freesurfer"] = inspect_fs(out)
 
     tmp = out / ".mesh-inspect.json"

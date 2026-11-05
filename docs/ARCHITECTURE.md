@@ -1987,7 +1987,7 @@ Rules:
 
 ### 6.3.1 `tvx-tract` — tractograms (2026-11-05)
 
-Depends on `tvx-core`, `flate2` and `serde_json` only: no zip crate (§12.3). Every format is a **push parser**,
+Depends on `tvx-core`, `tvx-mesh-io` (for `field_stats`), `flate2` and `serde_json` only: no zip crate (§12.3). Every format is a **push parser**,
 fed chunks so a file larger than wasm32's address space can still be scanned; bytes are dropped as they are read.
 
 ```rust
@@ -2002,7 +2002,7 @@ pub struct Tractogram {
     pub source_index: Vec<u32>,     // S: this streamline's index in the file
     pub source_streamlines: u64, pub source_points: u64,
     pub vertex_fields: Vec<TractField>, pub streamline_fields: Vec<TractField>, pub groups: Vec<TractGroup>,
-    pub bounds: Aabb, pub notes: Vec<String>, pub header_json: String,
+    pub bounds: Aabb, pub notes: Vec<String>, pub header_json: String, pub fingerprint: String,
 }
 pub fn format_for_name(name: &str) -> Option<TractFormat>;
 pub struct Loader;
