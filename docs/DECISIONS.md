@@ -6042,3 +6042,14 @@ point is in the neighbour. Both tets are right to within the rounding. Widening 
 array that §9.2 budgets to the byte, for a field that is discontinuous across that face anyway, so the residual stands and is
 documented.
 
+## 2026-11-05 — What an audit before release changed (§6.3.1)
+
+An independent review of the tract code, run before cutting 0.8.0, found three wrong behaviours the reference comparisons had not reached, because each compared only the case they were built on.
+
+**A label volume was interpolated**, so a point between ids 3 and 42 read 22.5. It now reads the nearest voxel, the rule its display already follows.
+
+**A vector volume's frame was assumed to be world.** That is right for the MRtrix `v1.nii.gz` the references use and wrong for `dtifit`'s `V1`, where |v·t| can read 0 for a perfectly aligned streamline. The file does not record its frame, and guessing from a name is what §6.1 refused for tensors, so the user states it, through the same rule tensors use. The default stays `world`, so a scene without `basis` samples as before.
+
+**A TRX with `offsets` before `header.json` was refused**, against the reader's own claim that zip order is free. trx-python zips in `os.walk` order, so this depends on the filesystem that wrote the file. Offsets now defer like every other entry.
+
+Dropped entries (`dpg/`, `bit`), rounded integers, empty TCK streamlines and a wrong TCK `count` now reach `notes`, which the panel shows, so a file is never read differently from how it looks without saying so.

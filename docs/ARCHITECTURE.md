@@ -343,7 +343,7 @@ export interface TractSampleSpec {
   field?: { source: 'node' | 'elm'; name: string };    // mesh sources; absent for a volume
   volumeIndex?: number;                                // scalar volumes; default 0
   op: 'value' | 'magnitude' | 'dot' | 'abs-dot' | 'abs-cross';   // anything but 'value' needs a 3-vector
-  basis?: 'world' | 'voxel';                           // a 3-frame volume's components; default 'world'
+  basis?: 'world' | 'voxel' | 'fsl';                   // the frame a 3-frame volume is stored in; default 'world'
   name?: string;                                       // default `<source>:<field>:<op>`
 }
 
@@ -2017,7 +2017,7 @@ impl Loader {
 pub fn tangents_into(positions: &[f32], offsets: &[u32], first: usize, out: &mut [f32]);   // central; one-sided at ends
 pub enum SampleOp { Value, Magnitude, Dot, AbsDot, AbsCross }
 pub fn reduce_vector(op: SampleOp, v: [f32; 3], t: [f32; 3]) -> f32;   // NaN in => NaN out
-pub fn sample_volume(v: &Volume, points: &[f32], tangents: Option<&[f32]>, frame: usize, op: SampleOp, voxel_basis: bool) -> Result<(Vec<f32>, u32)>;
+pub fn sample_volume(v: &Volume, points: &[f32], tangents: Option<&[f32]>, frame: usize, op: SampleOp, basis: bool) -> Result<(Vec<f32>, u32)>;
 pub fn sample_mesh(mesh: &Mesh, sampler: &TetSampler, points: &[f32], tangents: Option<&[f32]>, source: &str, name: &str, op: SampleOp) -> Result<(Vec<f32>, u32)>;
 pub struct GpuGeometry { pub vertices: Vec<u8>, pub streamline_ids: Vec<u32>, pub indices: Vec<u32>,
                          pub origin: [f32; 3], pub quantum: f32 }
@@ -2029,13 +2029,17 @@ pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
   `DIMENSIONS`; positions are `positions.3.{float16,float32,float64}`; offsets are
   `offsets.{uint32,uint64,int32,int64}` with S or S + 1 entries; `dpv/` and `dps/` take every numeric dtype, and
   a multi-component field `name.3.float32` becomes `name[0]`, `name[1]`, `name[2]`. `groups/*` are named index
-  lists; a streamline may be in several. `dpg/` is carried in neither direction. Zip order is not fixed, so an
-  array met before `offsets` is skipped and read on the **second pass** `end_pass` asks for. A stored entry with a
-  data descriptor has no findable end when read forward, so it is refused by name.
+  lists; a streamline may be in several. `dpg/` and any field entry with a dtype outside that list (`bit`) are not
+  read, and `notes` names them. Fields are `f32`, so an integer above 2²⁴ is rounded, and `notes` says so. Zip
+  order is not fixed, so an entry met before what it depends on is skipped and read on a **later pass** `end_pass`
+  asks for: `offsets` needs `header.json`, and `positions` and `dpv/` need `offsets`, so at most three passes. A
+  stored entry with a data descriptor has no findable end when read forward, so it is refused by name. The zip form
+  only: an unzipped TRX directory is not a file a dataset source can name.
 * **TCK** — `mrtrix tracks`, `key: value` lines to `END`, `datatype` Float32LE/BE or Float64LE/BE, `file: . <offset>`
   in the same file only. NaN triplet ends a streamline, inf ends the file; a truncated file keeps the streamlines
-  that completed and says so in `notes`.
-* **TRK** — TrackVis v1 and v2, either endianness. World = `vox_to_ras · reorder · (voxmm ÷ voxel_size − ½)`, where
+  that completed and says so in `notes`. So does a `count` that disagrees with the data, which wins, and empty
+  streamlines, which are dropped as nibabel drops them, so indices count the rest.
+* **TRK** — TrackVis v2, either endianness; v1 has no `vox_to_ras`, so it is refused as unplaceable. World = `vox_to_ras · reorder · (voxmm ÷ voxel_size − ½)`, where
   `reorder` maps `voxel_order` onto the axes `vox_to_ras` implies, matching nibabel's
   `get_affine_trackvis_to_rasmm` (the independent reference). Per-point scalars and per-track properties become
   dpv and dps, with nibabel's multi-value name encoding honoured. An all-zero or `[3][3] == 0` `vox_to_ras` is
@@ -2047,8 +2051,12 @@ pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
   **nested**: a larger budget keeps a superset, so a sampled scene's subset does not shuffle under a reload.
   `max_points` is therefore honoured in expectation, never exceeded by more than sampling noise.
 * **Sampling.** `tvx_nifti::VolumeSampler` is trilinear on physical values, NaN outside `[0, n−1]` on any axis (the
-  `sampleVolumeAt` rule, §4.3, and scipy `map_coordinates(order=1, mode='constant', cval=nan)`). A 3-frame volume is a
-  vector, each component interpolated separately, with no sign alignment. `tvx_geom::TetSampler` is exact
+  `sampleVolumeAt` rule, §4.3, and scipy `map_coordinates(order=1, mode='constant', cval=nan)`). A label volume reads
+  its nearest voxel, as its display does, because a blend of two ids is not a label. A 3-frame volume is a
+  vector, each component interpolated separately, with no sign alignment. Its storage frame is not in the file, so
+  `basis` states it, under the tensor rule in §6.1 (`tensor::basis_rotation`): `world` for MRtrix, `fsl` for dtifit's
+  `V1`, `voxel` for the affine's columns. `dot`, `abs-dot` and `abs-cross` use it, and a sheared affine refuses the
+  two voxel frames. `tvx_geom::TetSampler` is exact
   point-in-tet with a lazily built AABB-bucket grid; an element field is piecewise constant, a node field
   barycentric, tris are not sampled. No maths anywhere names a stimulation quantity. Units follow the source: a mesh field's own, or the
   `MeshLayer.fields` entry a host wrote. A volume's are not carried, because NIfTI's `xyzt_units` say what a voxel's

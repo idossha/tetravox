@@ -104,6 +104,7 @@ macOS, with the packaging matrix carried in the workflow.
 - ROI filtering of streamlines through a loaded label volume.
 - Ribbons and pseudo-tubes.
 - TRX export carrying sampled fields.
+- Reading an unzipped TRX directory, and `dpg/`.
 - VTK and DSI Studio readers.
 - 3D clip planes on a tracts layer.
 

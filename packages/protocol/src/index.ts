@@ -609,7 +609,7 @@ export interface OpArgs {
     tangents?: Float32Array;
     volumeIndex: number;
     op: TractSampleOpT;
-    basis: 'world' | 'voxel';
+    basis: 'world' | 'voxel' | 'fsl';
   };
   /** `points` and `tangents` are donated (§5 rule 2). */
   meshSample: {

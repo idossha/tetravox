@@ -397,6 +397,13 @@ test('sampling a mesh: barycentric on a node field, constant on an element field
         op: 'abs-dot',
         name: 'absdot',
       });
+      await engine.sampleTracts({
+        tractogramId: tract as string,
+        sourceId: mesh.id,
+        field: { source: 'elm', name: 'elm_scalar' },
+        op: 'value',
+        name: 'element',
+      });
       const refused = await engine
         .sampleTracts({
           tractogramId: tract as string,
@@ -419,7 +426,34 @@ test('sampling a mesh: barycentric on a node field, constant on an element field
   // node_scalar = 0.1x + 0.01y + 0.001z is affine, so barycentric reproduces it exactly.
   const scalar = got.row?.fields?.find((f) => f.name === 'mesh_v2_binary:node_scalar:value');
   expect(scalar?.value as number).toBeCloseTo(0.5, 4);
-  expect(got.row?.fields?.some((f) => f.name === 'absdot')).toBe(true);
+  // node_vector.x = 0.5x is affine and the line runs along +x, so |v·t| at x = 5 is 2.5.
+  expect(got.row?.fields?.find((f) => f.name === 'absdot')?.value as number).toBeCloseTo(2.5, 4);
+  // elm_scalar = 0.5k − 3 for element k: constant per tet, so always a whole k, never a blend.
+  const element = got.row?.fields?.find((f) => f.name === 'element')?.value as number;
+  expect(Number.isInteger((element + 3) * 2)).toBe(true);
+});
+
+test('a vector volume answers in the frame the user says it is stored in', async ({ page }) => {
+  const { datasetId, layerId } = await open(page, 'tract_f32_stored.trx', {});
+  const got = await page.evaluate(
+    async ([url, tract, id]) => {
+      const engine = window.__tvxEngine!;
+      const vol = await engine.addDataset({ kind: 'path', path: url as string });
+      const base = { tractogramId: tract as string, sourceId: vol.id, op: 'dot' } as const;
+      const world = await engine.sampleTracts({ ...base });
+      const fsl = await engine.sampleTracts({ ...base, basis: 'fsl' });
+      engine.setCursor([5, 0, 0]);
+      await engine.whenSettled();
+      const row = engine.probe([5, 0, 0]).rows.find((r) => r.layerId === id);
+      const read = (name: string) => row?.fields?.find((f) => f.name === name)?.value;
+      return { world: read(world.name), fsl: read(fsl.name), names: [world.name, fsl.name] };
+    },
+    [fixture('tract_sample_plus_x.nii'), datasetId, layerId] as const
+  );
+  // Stored +x on a positive-determinant grid is +x in world and −x in FSL's frame; the line runs +x.
+  expect(got.world as number).toBeCloseTo(1, 5);
+  expect(got.fsl as number).toBeCloseTo(-1, 5);
+  expect(new Set(got.names).size).toBe(2);
 });
 
 test('a scene with a tractogram, a volume and a sample step reproduces on reload', async ({

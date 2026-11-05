@@ -3,10 +3,13 @@ import type { Dataset, TractFieldInfo, TractogramDataset, TractsLayer } from '@t
 import {
   displayedText,
   groupSources,
+  offersMode,
   sampleChoices,
   selectMode,
+  takesBasis,
   toggleGroup,
   tractsSummary,
+  VECTOR_BASES,
 } from './state';
 
 const percentiles = {
@@ -108,5 +111,36 @@ describe('the tracts editor', () => {
     expect(rows.find((c) => c.spec.field?.name === 'TI_max')?.spec.op).toBe('value');
     const sheet = { kind: 'mesh', id: 's', nTets: 0, fields: [] } as unknown as Dataset;
     expect(sampleChoices(sheet)).toEqual([]);
+  });
+});
+
+describe('sampling frames and modes', () => {
+  const volume = (nvols: number, isLabel = false) =>
+    ({ kind: 'volume', id: 'v', nvols, isLabel }) as unknown as Dataset;
+
+  it('asks for a basis only where the frame changes the answer', () => {
+    const rows = sampleChoices(volume(3));
+    const of = (key: string) => rows.find((r) => r.key === key)!.spec;
+    expect(takesBasis(of('vec-abs-dot'))).toBe(true);
+    expect(takesBasis(of('vec-dot'))).toBe(true);
+    expect(takesBasis(of('vec-abs-cross'))).toBe(true);
+    expect(takesBasis(of('vec-magnitude'))).toBe(false);
+    expect(takesBasis(of('v0'))).toBe(false);
+    expect(VECTOR_BASES.map((b) => b.value)).toEqual(['world', 'fsl', 'voxel']);
+  });
+
+  it('calls a label volume what it reads', () => {
+    expect(sampleChoices(volume(1, true))[0]?.label).toBe('label (nearest)');
+    expect(sampleChoices(volume(1))[0]?.label).toBe('value');
+  });
+
+  it('offers group colour only when something can name a group', () => {
+    const none = { groups: [], streamlineFields: [] } as unknown as TractogramDataset;
+    const named = { groups: [{ id: 0 }], streamlineFields: [] } as unknown as TractogramDataset;
+    const direction = { colorMode: 'direction' } as TractsLayer;
+    expect(offersMode(none, direction, 'group')).toBe(false);
+    expect(offersMode(none, direction, 'solid')).toBe(true);
+    expect(offersMode(named, direction, 'group')).toBe(true);
+    expect(offersMode(none, { colorMode: 'group' } as TractsLayer, 'group')).toBe(true);
   });
 });

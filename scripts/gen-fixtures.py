@@ -2712,7 +2712,7 @@ TRACT_LINES = [
 
 
 def _tck_bytes(lines, datatype="Float32LE", terminated=True) -> bytes:
-    fmt = "<f" if datatype.endswith("LE") else ">f"
+    fmt = ("<" if datatype.endswith("LE") else ">") + ("d" if "64" in datatype else "f")
     head = f"mrtrix tracks\ncount: {len(lines)}\ndatatype: {datatype}\nfile: . "
     offset = 128
     header = (head + f"{offset}\nEND\n").encode().ljust(offset, b"\0")
@@ -2812,6 +2812,8 @@ def _trx_arrays(ptype="float32", otype="uint32"):
 def write_tract_fixtures(out: Path) -> None:
     (out / "tract_f32.tck").write_bytes(_tck_bytes(TRACT_LINES))
     (out / "tract_be.tck").write_bytes(_tck_bytes(TRACT_LINES, "Float32BE"))
+    (out / "tract_f64.tck").write_bytes(_tck_bytes(TRACT_LINES, "Float64LE"))
+    (out / "tract_f64_be.tck").write_bytes(_tck_bytes(TRACT_LINES, "Float64BE"))
 
     voxel = (2.0, 2.0, 2.0)
     origin = np.array([-30.0, -40.0, -50.0])
@@ -2835,8 +2837,9 @@ def write_tract_fixtures(out: Path) -> None:
     swapped = np.array([[0, 0, 2, -30], [2, 0, 0, -40], [0, 2, 0, -50], [0, 0, 0, 1]], dtype=float)
     (out / "tract_permuted.trk").write_bytes(_trk_bytes(voxmm, order=b"ASR", affine=swapped, **kw))
     (out / "tract_no_affine.trk").write_bytes(
-        _trk_bytes(voxmm, affine=np.zeros((4, 4)), version=1, order=b"")
+        _trk_bytes(voxmm, affine=np.zeros((4, 4)), order=b"")
     )
+    (out / "tract_v1.trk").write_bytes(_trk_bytes(voxmm, version=1))
 
     def trx(name, entries, method):
         with zipfile.ZipFile(out / name, "w") as z:
@@ -2850,6 +2853,33 @@ def write_tract_fixtures(out: Path) -> None:
     trx("tract_f64_int64.trx", _trx_arrays("float64", "int64"), zipfile.ZIP_STORED)
     reordered = sorted(_trx_arrays(), key=lambda e: 0 if e[0].startswith(("dpv", "positions")) else 1)
     trx("tract_positions_first.trx", reordered, zipfile.ZIP_DEFLATED)
+    # trx-python zips in os.walk order, so nothing fixes where header.json lands. This is the worst case.
+    rank = lambda e: 0 if e[0].startswith("positions") else 1 if e[0].startswith("offsets") else 3 if e[0] == "header.json" else 2
+    trx("tract_header_last.trx", sorted(_trx_arrays(), key=rank), zipfile.ZIP_STORED)
+    trx(
+        "tract_no_sentinel.trx",
+        [
+            (n, d[: -np.dtype("uint32").itemsize] if n.startswith("offsets") else d)
+            for n, d in _trx_arrays()
+        ],
+        zipfile.ZIP_DEFLATED,
+    )
+    with zipfile.ZipFile(out / "tract_zip64.trx", "w") as z:
+        for n, data in _trx_arrays():
+            info = zipfile.ZipInfo(n, date_time=(1980, 1, 1, 0, 0, 0))
+            info.create_system = 3
+            with z.open(info, "w", force_zip64=True) as f:
+                f.write(data)
+    trx(
+        "tract_unread_entries.trx",
+        [
+            *_trx_arrays(),
+            ("dpv/mask.bit", bytes(len(_trx_arrays()[2][1]) // 12)),
+            ("dpg/left/mean.float32", np.array([1.0], dtype="float32").tobytes()),
+            ("dps/big_id.int64", np.array([20000000, 20000001, 3, 4], dtype="int64").tobytes()),
+        ],
+        zipfile.ZIP_STORED,
+    )
 
     # A zip written to a pipe: deflated entries with data descriptors and no sizes up front.
     class Unseekable(io.RawIOBase):
@@ -2885,18 +2915,30 @@ def write_tract_fixtures(out: Path) -> None:
         img.header.set_sform(affine, code=1)
         img.header.set_qform(affine, code=1)
         nib.save(img, out / name)
+    # Constant +x components on an orthogonal RAS grid: FSL's frame flips them, the world frame does not.
+    grid = np.diag([2.0, 2.0, 2.0, 1.0])
+    grid[:3, 3] = -4.0
+    plus_x = np.zeros((12, 6, 6, 3), dtype="float32")
+    plus_x[..., 0] = 1.0
+    img = nib.Nifti1Image(plus_x, grid)
+    img.header.set_sform(grid, code=1)
+    img.header.set_qform(grid, code=1)
+    nib.save(img, out / "tract_sample_plus_x.nii")
 
 
 def inspect_tracts(out: Path) -> dict:
     res: dict = {"tck": {}, "trk": {}, "trx": {}}
     for p in sorted(out.glob("tract_*.tck")):
+        # nibabel refuses Float64 TCK; those two are pinned to their Float32 twin.
+        if "f64" in p.name:
+            continue
         t = nib.streamlines.load(p)
         res["tck"][p.name] = {
             "offsets": [0, *np.cumsum([len(s) for s in t.streamlines]).tolist()],
             "positions": np.concatenate(list(t.streamlines)).ravel().tolist(),
         }
     for p in sorted(out.glob("tract_*.trk")):
-        if p.name == "tract_no_affine.trk":
+        if p.name in ("tract_no_affine.trk", "tract_v1.trk"):
             continue
         t = nib.streamlines.load(p)
         data = t.tractogram
@@ -2918,6 +2960,9 @@ def inspect_tracts(out: Path) -> dict:
             oname = next(n for n in names if n.startswith("offsets."))
             positions = np.frombuffer(z.read(pname), dtype=pname.split(".")[-1])
             offsets = np.frombuffer(z.read(oname), dtype=oname.split(".")[-1])
+            # The sentinel is optional in the spec; the reader always has one.
+            if len(offsets) == header["NB_STREAMLINES"]:
+                offsets = np.append(offsets, header["NB_VERTICES"])
             res["trx"][p.name] = {
                 "nbVertices": header["NB_VERTICES"],
                 "nbStreamlines": header["NB_STREAMLINES"],

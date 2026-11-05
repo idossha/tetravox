@@ -1,21 +1,28 @@
 //! Trilinear reads at world points (§6.3.1). NaN outside `[0, n−1]` on any axis, the same rule as
-//! `sampleVolumeAt` and scipy `map_coordinates(order=1, mode='constant', cval=nan)`.
+//! `sampleVolumeAt` and scipy `map_coordinates(order=1, mode='constant', cval=nan)`. A label volume
+//! reads its nearest voxel, because a value between two ids is not a label (§7.3's display rule).
 
 use tvx_core::{Error, Result};
 
 use crate::payload::inverse_affine;
+use crate::tensor::{basis_rotation, TensorBasis};
 use crate::{Volume, VolumeData};
 
 pub struct VolumeSampler<'a> {
     v: &'a Volume,
     inv: [[f64; 4]; 4],
     per: usize,
-    /// Voxel-axis components to world: the affine's columns, normalised.
-    rot: [[f64; 3]; 3],
+    /// A vector's components to world; `None` when they already are.
+    rot: Option<[[f64; 3]; 3]>,
 }
 
 impl<'a> VolumeSampler<'a> {
     pub fn new(v: &'a Volume) -> Result<Self> {
+        Self::with_basis(v, TensorBasis::World)
+    }
+
+    /// `basis` is the frame a 3-frame volume's components are stored in.
+    pub fn with_basis(v: &'a Volume, basis: TensorBasis) -> Result<Self> {
         if v.datatype.is_color() {
             return Err(Error::Unsupported(
                 "sampling an RGB volume, which has no scalar value".into(),
@@ -23,16 +30,10 @@ impl<'a> VolumeSampler<'a> {
         }
         let inv = inverse_affine(&v.affine)
             .ok_or_else(|| Error::Parse("this volume's affine is singular".into()))?;
-        let mut rot = [[0.0; 3]; 3];
-        for col in 0..3 {
-            let n = (0..3)
-                .map(|r| v.affine[r][col] * v.affine[r][col])
-                .sum::<f64>()
-                .sqrt();
-            for (r, row) in rot.iter_mut().enumerate() {
-                row[col] = if n > 0.0 { v.affine[r][col] / n } else { 0.0 };
-            }
-        }
+        let rot = match basis {
+            TensorBasis::World => None,
+            other => Some(basis_rotation(&v.affine, other)?),
+        };
         Ok(Self {
             v,
             inv,
@@ -93,21 +94,29 @@ impl<'a> VolumeSampler<'a> {
 
     /// Physical value of `frame`, or NaN outside.
     pub fn scalar(&self, frame: usize, world: [f32; 3]) -> f32 {
-        self.voxel(world)
-            .map_or(f32::NAN, |c| self.interp(frame, c))
+        let Some(c) = self.voxel(world) else {
+            return f32::NAN;
+        };
+        if !self.v.is_label {
+            return self.interp(frame, c);
+        }
+        let [nx, ny, _] = self.v.dims;
+        let [i, j, k] = c.map(|x| x.round() as usize);
+        let raw = self.raw(frame * self.per + i + nx * (j + ny * k));
+        (raw * f64::from(self.v.scl_slope) + f64::from(self.v.scl_inter)) as f32
     }
 
     /// Frames 0, 1, 2 as a vector, or `None` outside. Each component interpolates separately.
-    pub fn vector(&self, world: [f32; 3], voxel_basis: bool) -> Option<[f32; 3]> {
+    pub fn vector(&self, world: [f32; 3]) -> Option<[f32; 3]> {
         let c = self.voxel(world)?;
         let v = [self.interp(0, c), self.interp(1, c), self.interp(2, c)];
-        if !voxel_basis {
+        let Some(rot) = &self.rot else {
             return Some(v);
-        }
+        };
         let d = v.map(f64::from);
         let mut out = [0.0f32; 3];
         for (r, o) in out.iter_mut().enumerate() {
-            *o = (self.rot[r][0] * d[0] + self.rot[r][1] * d[1] + self.rot[r][2] * d[2]) as f32;
+            *o = (rot[r][0] * d[0] + rot[r][1] * d[1] + rot[r][2] * d[2]) as f32;
         }
         Some(out)
     }

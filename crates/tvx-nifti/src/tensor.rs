@@ -135,6 +135,47 @@ fn glyph(c: [f64; 6], rotation: [[f64; 3]; 3]) -> [f32; 8] {
 
 /// §6.1: derive a bounded regular glyph grid in the dataset worker, never on the UI thread.
 #[allow(clippy::needless_range_loop)]
+/// Voxel-frame components to world, per §6.1's basis rule. Shared by tensors and sampled vectors.
+pub fn basis_rotation(affine: &[[f64; 4]; 4], basis: TensorBasis) -> Result<[[f64; 3]; 3]> {
+    let mut rotation = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
+    if !matches!(basis, TensorBasis::World) {
+        for j in 0..3 {
+            let length = (0..3).map(|i| affine[i][j].powi(2)).sum::<f64>().sqrt();
+            if !length.is_finite() || length <= 0. {
+                return Err(Error::Parse("this affine has a degenerate axis".into()));
+            }
+            for i in 0..3 {
+                rotation[i][j] = affine[i][j] / length;
+            }
+        }
+        // A sheared basis is not an orthonormal frame; reject rather than silently distort directions.
+        for i in 0..3 {
+            for j in i + 1..3 {
+                if (0..3)
+                    .map(|k| rotation[k][i] * rotation[k][j])
+                    .sum::<f64>()
+                    .abs()
+                    > 1e-4
+                {
+                    return Err(Error::Unsupported(
+                        "voxel axes are sheared; use a resampled image or the world basis".into(),
+                    ));
+                }
+            }
+        }
+        let r = rotation;
+        let det = r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
+            - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
+            + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0]);
+        if matches!(basis, TensorBasis::Fsl) && det > 0. {
+            for row in &mut rotation {
+                row[0] *= -1.;
+            }
+        }
+    }
+    Ok(rotation)
+}
+
 pub fn tensor_payload(
     v: &Volume,
     order: TensorOrder,
@@ -159,40 +200,7 @@ pub fn tensor_payload(
             "tensor glyph grid exceeds texture/memory limits; increase glyph spacing".into(),
         ));
     }
-    let mut rotation = [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]];
-    if !matches!(basis, TensorBasis::World) {
-        for j in 0..3 {
-            let length = (0..3).map(|i| v.affine[i][j].powi(2)).sum::<f64>().sqrt();
-            if !length.is_finite() || length <= 0. {
-                return Err(Error::Parse("tensor affine has a degenerate axis".into()));
-            }
-            for i in 0..3 {
-                rotation[i][j] = v.affine[i][j] / length;
-            }
-        }
-        // A sheared basis is not an orthonormal frame; reject rather than silently distort tensors.
-        for i in 0..3 {
-            for j in i + 1..3 {
-                if (0..3)
-                    .map(|k| rotation[k][i] * rotation[k][j])
-                    .sum::<f64>()
-                    .abs()
-                    > 1e-4
-                {
-                    return Err(Error::Unsupported("tensor voxel axes are sheared; use a resampled image or world-basis tensors".into()));
-                }
-            }
-        }
-        let r = rotation;
-        let det = r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
-            - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
-            + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0]);
-        if matches!(basis, TensorBasis::Fsl) && det > 0. {
-            for row in &mut rotation {
-                row[0] *= -1.;
-            }
-        }
-    }
+    let rotation = basis_rotation(&v.affine, basis)?;
     let per = v.dims.iter().product::<usize>();
     let mut data = vec![0.; n * 8];
     for z in 0..dims[2] {

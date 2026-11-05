@@ -26,6 +26,8 @@ pub(crate) struct TckParser {
     index: u64,
     open_points: u64,
     terminated: bool,
+    declared: Option<u64>,
+    empty: u64,
 }
 
 impl TckParser {
@@ -42,6 +44,8 @@ impl TckParser {
             index: 0,
             open_points: 0,
             terminated: false,
+            declared: None,
+            empty: 0,
         }
     }
 
@@ -63,6 +67,7 @@ impl TckParser {
             let (k, v) = (k.trim(), v.trim());
             match k {
                 "datatype" => datatype = Some(v.to_string()),
+                "count" => self.declared = v.parse().ok(),
                 "file" => {
                     let mut it = v.split_whitespace();
                     if it.next() != Some(".") {
@@ -97,6 +102,7 @@ impl TckParser {
 
     fn triplet(&mut self, x: f64, y: f64, z: f64) {
         if x.is_nan() {
+            self.empty += u64::from(self.open_points == 0);
             self.close();
         } else if x.is_infinite() {
             self.close();
@@ -232,6 +238,21 @@ impl TckParser {
             self.b.notes.push(format!(
                 "TCK has no end marker: truncated? kept the {} complete streamlines",
                 self.b.source_streamlines
+            ));
+        }
+        if self.empty > 0 {
+            self.b.notes.push(format!(
+                "TCK has {} empty streamlines, which are dropped; indices here count the others",
+                self.empty
+            ));
+        }
+        let found = self.b.source_streamlines;
+        if let Some(count) = self
+            .declared
+            .filter(|c| *c != found && *c != found + self.empty)
+        {
+            self.b.notes.push(format!(
+                "TCK header says count {count}; the file holds {found} streamlines, which is what is shown"
             ));
         }
         Ok(())

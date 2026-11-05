@@ -4,6 +4,7 @@
 use tvx_core::{Error, Result};
 use tvx_geom::TetSampler;
 use tvx_mesh_io::Mesh;
+use tvx_nifti::tensor::TensorBasis;
 use tvx_nifti::{Volume, VolumeSampler};
 
 use crate::{reduce_vector, SampleOp};
@@ -34,10 +35,16 @@ pub fn sample_volume(
     tangents: Option<&[f32]>,
     frame: usize,
     op: SampleOp,
-    voxel_basis: bool,
+    basis: TensorBasis,
 ) -> Result<(Vec<f32>, u32)> {
     let n = check_sizes(points, tangents, op)?;
-    let s = VolumeSampler::new(v)?;
+    // Only an op that compares against a direction depends on the frame.
+    let basis = if op.needs_tangent() {
+        basis
+    } else {
+        TensorBasis::World
+    };
+    let s = VolumeSampler::with_basis(v, basis)?;
     let mut values = vec![f32::NAN; n];
     let mut outside = 0u32;
     if op == SampleOp::Value {
@@ -60,7 +67,7 @@ pub fn sample_volume(
         )));
     }
     for (i, p) in points.chunks_exact(3).enumerate() {
-        match s.vector([p[0], p[1], p[2]], voxel_basis) {
+        match s.vector([p[0], p[1], p[2]]) {
             Some(d) => values[i] = reduce_vector(op, d, tangent(tangents, i)),
             None => outside += 1,
         }

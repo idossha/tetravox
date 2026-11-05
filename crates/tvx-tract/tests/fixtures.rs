@@ -121,9 +121,101 @@ fn trk_without_a_usable_affine_is_refused_by_name() {
 }
 
 #[test]
+fn a_float64_tck_reads_like_its_float32_twin() {
+    let want = load("tract_f32.tck");
+    for name in ["tract_f64.tck", "tract_f64_be.tck"] {
+        let t = load(name);
+        assert_eq!(t.offsets, want.offsets, "{name}");
+        assert_eq!(t.positions, want.positions, "{name}");
+    }
+}
+
+#[test]
+fn every_trk_v1_is_refused_because_the_format_has_no_affine() {
+    let bytes = std::fs::read(dir().join("tract_v1.trk")).unwrap();
+    let e = load_bytes(TractFormat::Trk, &bytes, ALL)
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("cannot place") && e.contains("version 1"), "{e}");
+}
+
+#[test]
+fn trk_n_count_zero_means_read_to_the_end() {
+    let want = load("tract_ras.trk");
+    let mut bytes = std::fs::read(dir().join("tract_ras.trk")).unwrap();
+    bytes[988..992].fill(0);
+    let t = load_bytes(TractFormat::Trk, &bytes, ALL).unwrap();
+    assert_eq!(t.offsets, want.offsets);
+    assert_eq!(t.positions, want.positions);
+}
+
+#[test]
+fn trk_cut_mid_streamline_keeps_what_completed_and_says_so() {
+    let mut bytes = std::fs::read(dir().join("tract_ras.trk")).unwrap();
+    bytes.truncate(bytes.len() - 10);
+    let t = load_bytes(TractFormat::Trk, &bytes, ALL).unwrap();
+    assert_eq!(t.n_streamlines(), 3);
+    assert!(!t.notes.is_empty());
+}
+
+#[test]
+fn a_tck_count_that_disagrees_with_the_data_is_noted_and_the_data_wins() {
+    let want = load("tract_f32.tck");
+    let bytes = std::fs::read(dir().join("tract_f32.tck")).unwrap();
+    let at = bytes.windows(8).position(|w| w == b"count: 4").unwrap();
+    let mut wrong = bytes.clone();
+    wrong[at + 7] = b'9';
+    let t = load_bytes(TractFormat::Tck, &wrong, ALL).unwrap();
+    assert_eq!(t.positions, want.positions);
+    assert!(
+        t.notes.iter().any(|n| n.contains("count 9")),
+        "{:?}",
+        t.notes
+    );
+}
+
+#[test]
+fn empty_tck_streamlines_are_dropped_and_noted() {
+    let mut bytes = b"mrtrix tracks\ncount: 3\ndatatype: Float32LE\nfile: . 64\nEND\n".to_vec();
+    bytes.resize(64, 0);
+    let mut put = |v: [f32; 3]| {
+        v.iter()
+            .for_each(|c| bytes.extend_from_slice(&c.to_le_bytes()))
+    };
+    put([0.0, 0.0, 0.0]);
+    put([1.0, 0.0, 0.0]);
+    put([f32::NAN; 3]);
+    put([f32::NAN; 3]); // the empty one
+    put([2.0, 0.0, 0.0]);
+    put([3.0, 0.0, 0.0]);
+    put([f32::NAN; 3]);
+    put([f32::INFINITY; 3]);
+    let t = load_bytes(TractFormat::Tck, &bytes, ALL).unwrap();
+    assert_eq!(t.n_streamlines(), 2);
+    assert_eq!(t.notes.len(), 1, "{:?}", t.notes);
+    assert!(t.notes[0].contains("1 empty"), "{:?}", t.notes);
+}
+
+#[test]
+fn trx_says_what_it_did_not_read_and_what_it_rounded() {
+    let t = load("tract_unread_entries.trx");
+    let unread = t.notes.iter().find(|n| n.contains("not read")).unwrap();
+    assert!(unread.contains("dpv/mask.bit"), "{unread}");
+    assert!(unread.contains("dpg/left/mean.float32"), "{unread}");
+    assert!(
+        t.notes
+            .iter()
+            .any(|n| n.contains("dps/big_id.int64") && n.contains("2^24")),
+        "{:?}",
+        t.notes
+    );
+    assert!(load("tract_f32_stored.trx").notes.is_empty());
+}
+
+#[test]
 fn trx_variants_match_an_independent_read() {
     let want = manifest()["tracts"]["trx"].as_object().unwrap();
-    assert_eq!(want.len(), 7);
+    assert_eq!(want.len(), 11);
     for (name, w) in want {
         let t = load(name);
         assert_eq!(t.source_points, w["nbVertices"].as_u64().unwrap(), "{name}");
@@ -198,6 +290,7 @@ fn chunk_boundaries_do_not_change_the_result() {
         "tract_f16_deflated.trx",
         "tract_streamed.trx",
         "tract_positions_first.trx",
+        "tract_header_last.trx",
     ] {
         let bytes = std::fs::read(dir().join(name)).unwrap();
         let whole = load_bytes(format_for_name(name).unwrap(), &bytes, ALL).unwrap();

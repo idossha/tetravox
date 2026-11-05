@@ -94,6 +94,39 @@ test('File ▸ Open: a tractogram gets a panel, and sampling from it colours the
   }
 });
 
+test('sampling a vector volume asks what frame it is stored in, and the answer changes the name', async ({}, info) => {
+  const app = await launchApp(info.project.name as LaunchTarget, { search: 'engine=real' });
+  try {
+    const page = await ready(app);
+    await openFiles(app, page, [join(DATA, 'tract_sample_plus_x.nii'), TRX]);
+    const id = await page.evaluate(() => {
+      const state = window.__tetravox!.store.getState();
+      const layer = state.layers.find((l) => l.kind === 'tracts')!;
+      window.__tetravox!.engine!.setActiveLayer(layer.id);
+      return layer.id;
+    });
+    await settled(page);
+    await page.getByTestId(`tracts-sample-${id}`).locator('button, summary').first().click();
+    const field = page.getByTestId(`tracts-sample-field-${id}`);
+    const basis = page.getByTestId(`tracts-sample-basis-${id}`);
+    await field.selectOption('vec-magnitude');
+    await expect(basis).toHaveCount(0);
+    await field.selectOption('vec-dot');
+    await basis.selectOption('fsl');
+    await page.getByTestId(`tracts-sample-run-${id}`).click();
+    await page.waitForFunction(
+      (l) =>
+        (
+          window.__tetravox!.store.getState().layers.find((x) => x.id === l) as
+            { field?: string } | undefined
+        )?.field === 'tract_sample_plus_x:vector-fsl:dot',
+      id
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test('the command line opens a tractogram, and the capability is advertised', async ({}, info) => {
   const app = await launchApp(info.project.name as LaunchTarget, {
     search: 'engine=real',

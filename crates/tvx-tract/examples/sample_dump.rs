@@ -81,7 +81,15 @@ fn main() {
         let bytes = std::fs::read(path).unwrap();
         let (values, outside) = if kind == "volume" {
             let v = tvx_nifti::read_volume(bytes, None, &mut NoProgress).unwrap();
-            sample_volume(&v, &t.positions, Some(&tangents), 0, op, false).unwrap()
+            sample_volume(
+                &v,
+                &t.positions,
+                Some(&tangents),
+                0,
+                op,
+                tvx_nifti::tensor::TensorBasis::World,
+            )
+            .unwrap()
         } else {
             let mut mesh = tvx_mesh_io::read_msh(bytes, &mut NoProgress).unwrap();
             mesh.tet_perm = tvx_geom::morton_reorder(&mut mesh);

@@ -104,6 +104,30 @@ const VECTOR_OPS: { op: TractSampleSpec['op']; label: string }[] = [
   { op: 'abs-cross', label: '|v×t|' },
 ];
 
+/** A vector volume's storage frame cannot be read from the file, so the user states it. */
+export const VECTOR_BASES: { value: NonNullable<TractSampleSpec['basis']>; label: string }[] = [
+  { value: 'world', label: 'world (MRtrix tensor2metric)' },
+  { value: 'fsl', label: 'FSL (dtifit V1)' },
+  { value: 'voxel', label: 'voxel axes' },
+];
+
+/** The basis changes the answer only for ops that compare against a direction. */
+export function takesBasis(spec: SampleChoice['spec']): boolean {
+  return (
+    spec.field === undefined &&
+    (spec.op === 'dot' || spec.op === 'abs-dot' || spec.op === 'abs-cross')
+  );
+}
+
+/** `group` is offered only when something can name groups, or the layer is already in it. */
+export function offersMode(
+  ds: TractogramDataset,
+  layer: TractsLayer,
+  mode: TractsLayer['colorMode']
+): boolean {
+  return mode !== 'group' || layer.colorMode === 'group' || groupSources(ds).length > 0;
+}
+
 export function sampleChoices(source: Dataset): SampleChoice[] {
   if (source.kind === 'volume') {
     const rows: SampleChoice[] = [];
@@ -111,7 +135,7 @@ export function sampleChoices(source: Dataset): SampleChoice[] {
     for (let i = 0; i < frames; i += 1) {
       rows.push({
         key: `v${i}`,
-        label: source.nvols > 1 ? `frame ${i}` : 'value',
+        label: source.isLabel ? 'label (nearest)' : source.nvols > 1 ? `frame ${i}` : 'value',
         spec: { sourceId: source.id, volumeIndex: i, op: 'value' },
       });
     }

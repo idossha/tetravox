@@ -382,8 +382,8 @@ export interface TractSampleSpec {
   volumeIndex?: number;
   /** Anything but `'value'` needs a 3-vector. */
   op: 'value' | 'magnitude' | 'dot' | 'abs-dot' | 'abs-cross';
-  /** A 3-frame volume's components; default `'world'`. */
-  basis?: 'world' | 'voxel';
+  /** The frame a 3-frame volume's components are stored in, as for a tensor layer; default `'world'`. */
+  basis?: 'world' | 'voxel' | 'fsl';
   /** Default `<source>:<field>:<op>`. */
   name?: string;
 }

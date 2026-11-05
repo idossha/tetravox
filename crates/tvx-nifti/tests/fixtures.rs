@@ -828,7 +828,7 @@ fn volume_sampler_matches_scipy_on_a_rotated_affine() {
     let vector = read("tract_sample_vector.nii");
     let sampler = tvx_nifti::VolumeSampler::new(&vector).unwrap();
     for (i, p) in pts.chunks_exact(3).enumerate() {
-        let v = sampler.vector([p[0], p[1], p[2]], false);
+        let v = sampler.vector([p[0], p[1], p[2]]);
         for c in 0..3 {
             close(v.map_or(f32::NAN, |d| d[c]), &s["vector"][c][i], "vector");
         }

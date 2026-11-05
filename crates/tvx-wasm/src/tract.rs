@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use tvx_nifti::tensor::TensorBasis;
 
 use tvx_core::{Error, Result};
 use tvx_geom::TetSampler;
@@ -354,14 +355,15 @@ pub fn volume_sample(
     basis: &str,
 ) -> Result<JsValue> {
     let op = op_of(op)?;
-    let voxel_basis = match basis {
-        "world" | "" => false,
-        "voxel" => true,
+    let basis = match basis {
+        "world" | "" => TensorBasis::World,
+        "voxel" => TensorBasis::Voxel,
+        "fsl" => TensorBasis::Fsl,
         other => return Err(Error::Parse(format!("unknown vector basis {other}"))),
     };
     handles::with_volume(handle, |v| {
         let (values, outside) =
-            tvx_tract::sample_volume(v, points, tangents, volume_index as usize, op, voxel_basis)?;
+            tvx_tract::sample_volume(v, points, tangents, volume_index as usize, op, basis)?;
         Ok(result(values, outside))
     })
 }

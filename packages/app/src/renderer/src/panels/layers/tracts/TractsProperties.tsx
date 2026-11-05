@@ -1,7 +1,7 @@
 /** The `tracts` layer's editor (§4.4): colour, window, filter, groups, sampling and the budget. */
 
 import { useMemo, useState } from 'react';
-import type { Dataset, TractogramDataset, TractsLayer } from '@tetravox/engine';
+import type { Dataset, TractogramDataset, TractSampleSpec, TractsLayer } from '@tetravox/engine';
 import { TRACT_FULL_MAX_POINTS } from '@tetravox/engine';
 import type { LayerPropertiesProps } from '../properties';
 import { useController, useUi } from '../../../ui/context';
@@ -12,7 +12,10 @@ import {
   displayedText,
   fieldsFor,
   groupSources,
+  offersMode,
   sampleChoices,
+  takesBasis,
+  VECTOR_BASES,
   selectField,
   selectMode,
   toggleGroup,
@@ -68,7 +71,7 @@ function TractsEditor({
           <Select
             testId={`tracts-mode-${id}`}
             value={layer.colorMode}
-            options={MODES}
+            options={MODES.filter((m) => offersMode(dataset, layer, m.value))}
             onChange={(mode) => patch(selectMode(layer, dataset, mode))}
           />
           {layer.colorMode === 'solid' && (
@@ -334,6 +337,7 @@ function SampleSection({
   const choices = useMemo(() => (source === undefined ? [] : sampleChoices(source)), [source]);
   const [key, setKey] = useState<string>('');
   const choice = choices.find((c) => c.key === key) ?? choices[0];
+  const [basis, setBasis] = useState<NonNullable<TractSampleSpec['basis']>>('world');
   const [progress, setProgress] = useState<string | null>(null);
   const id = layer.id;
   return (
@@ -358,6 +362,16 @@ function SampleSection({
               onChange={setKey}
             />
           </Row>
+          {takesBasis(choice.spec) && (
+            <Row label="Stored in">
+              <Select
+                testId={`tracts-sample-basis-${id}`}
+                value={basis}
+                options={VECTOR_BASES}
+                onChange={setBasis}
+              />
+            </Row>
+          )}
           <button
             type="button"
             data-testid={`tracts-sample-run-${id}`}
@@ -367,7 +381,11 @@ function SampleSection({
               setProgress('0 %');
               void controller
                 .sampleTracts(
-                  { ...choice.spec, tractogramId: dataset.id },
+                  {
+                    ...choice.spec,
+                    ...(takesBasis(choice.spec) ? { basis } : {}),
+                    tractogramId: dataset.id,
+                  },
                   layer.id,
                   (done, total) => setProgress(`${Math.round((100 * done) / Math.max(1, total))} %`)
                 )

@@ -16,8 +16,9 @@ export function needsTangent(op: TractSampleOpT): boolean {
 /** `<source>:<field>:<op>`, where a volume's field is `vol<i>` or `vector`. */
 export function tractSampleName(spec: TractSampleSpec, sourceName: string): string {
   const source = sourceName.replace(/\.(nii\.gz|nii|mgz|mgh|nrrd|mha|msh|vtu|vtk)$/i, '');
-  const field =
-    spec.field?.name ?? (spec.op === 'value' ? `vol${spec.volumeIndex ?? 0}` : 'vector');
+  const vector =
+    spec.basis === undefined || spec.basis === 'world' ? 'vector' : `vector-${spec.basis}`;
+  const field = spec.field?.name ?? (spec.op === 'value' ? `vol${spec.volumeIndex ?? 0}` : vector);
   return `${source}:${field}:${spec.op}`;
 }
 

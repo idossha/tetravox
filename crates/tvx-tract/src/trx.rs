@@ -1,5 +1,5 @@
 //! TRX: a zip of raw arrays, read forward. Zip order is not fixed, so an array met before what it
-//! depends on (`header.json`, then `offsets`) is deferred to a second pass.
+//! depends on (`header.json`, then `offsets`) is deferred to a later pass; at most three are needed.
 
 use std::collections::BTreeSet;
 
@@ -13,6 +13,8 @@ const LOCAL: u32 = 0x0403_4b50;
 const CENTRAL: u32 = 0x0201_4b50;
 const END: u32 = 0x0605_4b50;
 const ZIP64_END: u32 = 0x0606_4b50;
+/// Fields are `f32` (§6.3.1), which holds every integer up to this and not all beyond it.
+const F32_EXACT_INT: f64 = 16_777_216.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Dtype {
@@ -45,6 +47,9 @@ impl Dtype {
             "float64" => Self::F64,
             _ => return None,
         })
+    }
+    fn is_int(self) -> bool {
+        !matches!(self, Self::F16 | Self::F32 | Self::F64)
     }
     fn width(self) -> usize {
         match self {
@@ -156,6 +161,8 @@ struct ArraySink {
     per_streamline: bool,
     cursor: usize,
     name: String,
+    /// An integer above 2^24 was rounded on its way to `f32`.
+    rounded: bool,
 }
 
 enum Body {
@@ -196,6 +203,8 @@ pub(crate) struct TrxParser {
     deferred: u32,
     saw_local: bool,
     got_points: u64,
+    /// Field entries this reader has no place for, reported in `notes`.
+    unread: Vec<String>,
 }
 
 fn u16_at(b: &[u8], at: usize) -> u16 {
@@ -227,6 +236,7 @@ impl TrxParser {
             deferred: 0,
             saw_local: false,
             got_points: 0,
+            unread: Vec::new(),
         }
     }
 
@@ -362,6 +372,15 @@ impl TrxParser {
             }
         };
         let role = role_of(&name);
+        if role == Role::Skip
+            && self.pass == 0
+            && !name.ends_with('/')
+            && ["dpv/", "dps/", "dpg/", "groups/"]
+                .iter()
+                .any(|p| name.starts_with(p))
+        {
+            self.unread.push(name.clone());
+        }
         let sink = self.sink_for(&role, &name)?;
         let left = if streamed { None } else { Some(csize) };
         Ok(Stage::Entry {
@@ -379,7 +398,14 @@ impl TrxParser {
         }
         Ok(match role {
             Role::Skip => Sink::Discard,
-            Role::Header | Role::Offsets(_) => Sink::Buffer(Vec::new()),
+            Role::Header => Sink::Buffer(Vec::new()),
+            Role::Offsets(_) => {
+                if self.keep.is_none() {
+                    self.deferred += 1;
+                    return Ok(Sink::Discard);
+                }
+                Sink::Buffer(Vec::new())
+            }
             Role::Positions(d, n) => {
                 if *n != 3 {
                     return Err(Error::Parse(format!(
@@ -400,6 +426,7 @@ impl TrxParser {
                     per_streamline: false,
                     cursor: 0,
                     name: name.to_string(),
+                    rounded: false,
                 })
             }
             Role::Dpv(field, n, d) => {
@@ -417,6 +444,7 @@ impl TrxParser {
                     per_streamline: false,
                     cursor: 0,
                     name: name.to_string(),
+                    rounded: false,
                 })
             }
             Role::Dps(field, n, d) => {
@@ -434,6 +462,7 @@ impl TrxParser {
                     per_streamline: true,
                     cursor: 0,
                     name: name.to_string(),
+                    rounded: false,
                 })
             }
             Role::Group(_, _) => {
@@ -622,7 +651,9 @@ impl TrxParser {
                     &mut self.b.vertex_fields
                 };
                 for (c, f) in fields.iter().enumerate() {
-                    list[*f].1.push(a.dtype.f64_at(&rec[c * w..]) as f32);
+                    let value = a.dtype.f64_at(&rec[c * w..]);
+                    a.rounded |= a.dtype.is_int() && value.abs() > F32_EXACT_INT;
+                    list[*f].1.push(value as f32);
                 }
             }
         }
@@ -661,6 +692,12 @@ impl TrxParser {
                 if a.fields.is_none() {
                     self.positions_done = true;
                 }
+                if a.rounded {
+                    self.b.notes.push(format!(
+                        "TRX entry {} holds integers above 2^24; they are rounded here, so nearby ids can merge",
+                        a.name
+                    ));
+                }
                 self.done.insert(name.to_string());
             }
         }
@@ -697,11 +734,6 @@ impl TrxParser {
     }
 
     fn read_offsets(&mut self, bytes: &[u8], d: Dtype) -> Result<()> {
-        if self.keep.is_none() {
-            return Err(Error::Parse(
-                "TRX offsets precede header.json on the second pass".into(),
-            ));
-        }
         let w = d.width();
         let n = bytes.len() / w;
         let s = self.nb_streamlines as usize;
@@ -798,7 +830,19 @@ impl TrxParser {
         Ok(false)
     }
 
-    pub fn finish(self) -> Result<Tractogram> {
+    pub fn finish(mut self) -> Result<Tractogram> {
+        if !self.unread.is_empty() {
+            let shown = self.unread.iter().take(5).cloned().collect::<Vec<_>>();
+            let more = self.unread.len() - shown.len();
+            let tail = if more > 0 {
+                format!(" and {more} more")
+            } else {
+                String::new()
+            };
+            self.b
+                .notes
+                .push(format!("TRX entries not read: {}{tail}", shown.join(", ")));
+        }
         Ok(self.b.finish())
     }
 }
