@@ -6053,3 +6053,5 @@ An independent review of the tract code, run before cutting 0.8.0, found three w
 **A TRX with `offsets` before `header.json` was refused**, against the reader's own claim that zip order is free. trx-python zips in `os.walk` order, so this depends on the filesystem that wrote the file. Offsets now defer like every other entry.
 
 Dropped entries (`dpg/`, `bit`), rounded integers, empty TCK streamlines and a wrong TCK `count` now reach `notes`, which the panel shows, so a file is never read differently from how it looks without saying so.
+
+The first CI run of that work then exposed a fourth, which the goldens had hidden. Building a new LUT unbinds the active texture unit, and the tract pass bound its style table first, so the first frame after a new colormap or scale drew only streamline 0 until something redrew. The goldens had been blessed from that frame, and the pixel assertions missed it because `readCanvasRect` redraws before it reads. A tract test now reads the drawing buffer as it stands.

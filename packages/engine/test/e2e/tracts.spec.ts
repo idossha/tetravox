@@ -551,6 +551,37 @@ test('a file that cannot be placed is refused by name', async ({ page }) => {
   expect(message).toContain('cannot place');
 });
 
+test('the frame on screen after a colour change is complete, with no extra redraw', async ({
+  page,
+}) => {
+  const { layerId } = await open(page, 'tract_f32_stored.trx', { lineWidthPx: 3 });
+  // Reads the drawing buffer as it stands: `readCanvasRect` would draw first, and hide a bad frame.
+  const shown = (x: number, y: number) =>
+    page.evaluate(
+      ([cx, cy]) => {
+        const canvas = document.querySelector<HTMLCanvasElement>('#gl')!;
+        const gl = canvas.getContext('webgl2')!;
+        const out = new Uint8Array(4);
+        gl.readPixels(cx!, canvas.height - cy! - 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
+        return [...out];
+      },
+      [x, y]
+    );
+  expect(await shown(px(0), py(3))).toEqual([0, 255, 0, 255]);
+  await settle(page, layerId, {
+    colorMode: 'vertex',
+    field: 'along',
+    colormap: 'viridis',
+    scale: { kind: 'linear', lo: -10, hi: 10 },
+  });
+  // x = 0 on the +y line, so along = 0 is the table's middle.
+  const [r, g, b] = sampleColormap('viridis', 0.5);
+  const got = await shown(px(0), py(3));
+  for (const [i, want] of [r, g, b].entries()) {
+    expect(Math.abs((got[i] as number) - want)).toBeLessThanOrEqual(3);
+  }
+});
+
 test('golden: direction RGB and a sampled scalar', async ({ page }) => {
   const { layerId } = await open(page, 'tract_f32_stored.trx', { lineWidthPx: 3 });
   await expectGolden(page, 'tracts-direction');

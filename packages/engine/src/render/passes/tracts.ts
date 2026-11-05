@@ -70,11 +70,12 @@ export function bindTractUniforms(
   prog.float('uScalarHi', gpu.scalarHi);
   prog.float('uOpacity', layer.opacity);
   prog.int('uStyleWidth', gpu.styleWidth);
+  // First: building a new LUT unbinds whatever texture unit is active.
+  const lut = input.store.lut(layer.scale, layer.colormap, layer.colormapNegative);
   gl.activeTexture(gl.TEXTURE0 + UNIT.style);
   gl.bindTexture(gl.TEXTURE_2D, gpu.style);
   prog.int('uStyle', UNIT.style);
 
-  const lut = input.store.lut(layer.scale, layer.colormap, layer.colormapNegative);
   gl.activeTexture(gl.TEXTURE0 + UNIT.lut);
   gl.bindTexture(gl.TEXTURE_2D, lut.texture);
   prog.int('uLut', UNIT.lut);
