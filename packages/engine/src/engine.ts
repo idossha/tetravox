@@ -3765,6 +3765,7 @@ function hasProbeContent(row: ProbeRow): boolean {
     row.value !== undefined ||
     row.voxel !== undefined ||
     row.elementId !== undefined ||
+    row.streamline !== undefined ||
     row.labelId !== undefined
   );
 }

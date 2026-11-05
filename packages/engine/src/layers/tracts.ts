@@ -130,7 +130,7 @@ export class TractsLayerRuntime implements LayerRuntime {
     this.#geometryPending = true;
     void this.#ctx
       .track(
-        client.call(`geometry:${this.datasetId}:${generation}`, 'tractGeometry', {
+        client.call(`${this.id}:tract-geometry`, 'tractGeometry', {
           handle: ds.handle,
         })
       )
@@ -257,7 +257,6 @@ export class TractsLayerRuntime implements LayerRuntime {
     const unitsOf = (list: TractFieldInfo[], name: string, own?: string): string | undefined =>
       own ?? list.find((f) => f.name === name)?.units;
     const ds = this.#ds;
-    row.elementId = h.hit.held;
     row.streamline = h.hit.streamline;
     row.vertex = h.hit.vertex;
     row.vertexWorld = h.hit.world;

@@ -9,6 +9,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { sampleColormap } from '../../src/color/colormaps';
 import { expectGolden, expectPixel, readCanvasRect } from '../helpers/pixels';
 
 const REPO = fileURLToPath(new URL('../../../..', import.meta.url));
@@ -154,6 +155,20 @@ test('a vertex scalar shows colormap(u) along the line, interpolated between poi
   for (const x of [-7.5, -2.25, 0.5, 4.5, 9]) {
     const v = Math.round((((x + 10) / 20) * 255 * 256) / 256);
     await expectPixel(page, px(x), py(0), [v, v, v, 255], 4);
+  }
+});
+
+test('viridis under a linear scale is the table’s colour at u @angle', async ({ page }) => {
+  await open(page, 'tract_f32_stored.trx', {
+    lineWidthPx: 5,
+    colorMode: 'vertex',
+    field: 'along',
+    colormap: 'viridis',
+    scale: { kind: 'linear', lo: -10, hi: 10 },
+  });
+  for (const x of [-6, 0, 7]) {
+    const [r, g, b] = sampleColormap('viridis', (x + 10) / 20);
+    await expectPixel(page, px(x), py(0), [r, g, b, 255], 3);
   }
 });
 

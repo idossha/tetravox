@@ -137,8 +137,8 @@ void main() {
 `;
 
 /**
- * `TRACT_GATE` is compile-time so that only a threshold or a heat scale pays for `discard`: at this
- * overdraw it costs early-Z, which on ANGLE/Metal was 105 ms of a 112 ms frame over 8 M points.
+ * `flat` is in the pick variant only: on ANGLE/Metal a flat varying on a `LINE_STRIP` measured 103 ms
+ * against 7 ms over 8 M points, while a `discard` added under 1 ms.
  */
 export const TRACTS_FS = `${VERSION}
 ${PRECISION_FLOAT}
@@ -160,13 +160,11 @@ in float vNan;
 uniform sampler2D uLut;
 uniform float uLutLo;
 uniform float uLutHi;
-#if TRACT_GATE
 uniform int uThreshMode;
 uniform float uThreshLo;
 uniform float uThreshHi;
 uniform float uThreshSoft;
 uniform float uClipMax;
-#endif
 const vec3 NEUTRAL = vec3(128.0 / 255.0);
 #endif
 
@@ -175,16 +173,13 @@ void main() {
   float alpha = uSolidAlpha * uOpacity;
 #if TRACT_SCALAR
   if (vNan > 0.0) {
-#if TRACT_GATE
     // A missing value passes no test, so an active threshold hides it (§7.4.1).
     if (uThreshMode != 0) discard;
-#endif
     rgb = NEUTRAL;
   } else {
     float t = (vScalar - uLutLo) / (uLutHi - uLutLo);
     vec4 base = texture(uLut, vec2(clamp(t, 0.0, 1.0), 0.5));
     rgb = base.rgb;
-#if TRACT_GATE
     if (vScalar > uClipMax) discard;
     alpha *= base.a;
     if (uThreshMode != 0) {
@@ -193,7 +188,6 @@ void main() {
       alpha *= 1.0 - smoothstep(uThreshHi - uThreshSoft, uThreshHi, tv);
     }
     if (alpha <= 0.0) discard;
-#endif
   }
 #endif
 #if TRACT_PICK

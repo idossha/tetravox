@@ -33,11 +33,6 @@ export function tractDefines(item: TractsDrawItem, pick: 0 | 1, slab: 0 | 1): Sh
     TRACT_PICK: pick,
     TRACT_SLAB: slab,
     TRACT_SCALAR: scalar ? 1 : 0,
-    // A heat scale's LUT can carry alpha 0 and a `truncate` clip, so it gates like a threshold does.
-    TRACT_GATE:
-      scalar && (tractThresholdMode(item.layer.threshold) !== 0 || item.layer.scale.kind === 'heat')
-        ? 1
-        : 0,
   };
 }
 

@@ -2050,7 +2050,10 @@ pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
   `sampleVolumeAt` rule, §4.3, and scipy `map_coordinates(order=1, mode='constant', cval=nan)`). A 3-frame volume is a
   vector, each component interpolated separately, with no sign alignment. `tvx_geom::TetSampler` is exact
   point-in-tet with a lazily built AABB-bucket grid; an element field is piecewise constant, a node field
-  barycentric, tris are not sampled. No maths anywhere names a stimulation quantity.
+  barycentric, tris are not sampled. No maths anywhere names a stimulation quantity. Units follow the source: a mesh field's own, or the
+  `MeshLayer.fields` entry a host wrote. A volume's are not carried, because NIfTI's `xyzt_units` say what a voxel's
+  *size* is in and not what its value is in, and `mm` on FA would be wrong. The nodes are `f32` (§6.2), so a point
+  within one rounding of a shared face can land in the neighbouring tet.
 
 ### 6.4 `tvx-wasm` — worker-side exports
 
@@ -2888,8 +2891,7 @@ streamline, rewritten without re-uploading a vertex.
 
 **Colour.** `direction`: `|tangent|` as RGB, so R is L-R, G is A-P, B is S-I, in world axes. `solid`: `solidColor`.
 `vertex` and `streamline`: the §7.6 LUT under `scale`, with `threshold` as §7.4's gate; a streamline value is expanded
-to its points by the worker, so both are one shader path. Only a threshold or a heat scale compiles in `discard`: at this overdraw it costs
-early-Z, measured at 105 ms of a 112 ms frame over 8 M points on ANGLE/Metal. `group`: the table's rgb. No lighting and no depth cue: a
+to its points by the worker, so both are one shader path. `group`: the table's rgb. No lighting and no depth cue: a
 pixel is a function of the data alone, which is what lets §11 assert it. A segment touching a NaN point is **neutral
 grey** `(128,128,128)` under no threshold; an active threshold hides it, because a missing value passes no test.
 
@@ -2904,7 +2906,9 @@ off, unsorted. In a 2D pane a tracts layer takes its place in §7.3's layer orde
 `slabMm: 0` draws nothing. 3D clip planes do not apply in v1.
 
 **Picking.** §7.2.3's payload, with the element field holding the **held** streamline index (at most 16,777,215, far
-above the point budget's streamline count) and `kindBit` 0. It reproduces the threshold and the style table's
+above the point budget's streamline count) and `kindBit` 0. The id reaches the fragment as a `flat` varying in the pick variant **only**: on
+ANGLE/Metal a flat varying on a `LINE_STRIP` measured 103 ms against 7 ms over 8 M points, so the frame's program must not
+carry one. A pick is on demand and outside the frame budget (§7.2.3). It reproduces the threshold and the style table's
 visibility. `PickResult.elementKind` is `'streamline'`, and `elementId` is that held index; `ProbeRow.streamline` is
 the file's index, which survives a budget change. A 2D pane has no GPU pick (§7.2.3): `tractProbe` finds the nearest
 visible point within `radiusMm` of the cursor.

@@ -99,7 +99,7 @@ export interface ProbeRow {
    * the dataset's). `label` may carry §4.4's `X_{sub}` markup.
    */
   fields?: { name: string; value: number | number[]; units?: string; label?: string }[];
-  /** Tracts: the index in the file (§7.4.1); `elementId` is the held one, `fields` the dpv. */
+  /** Tracts: the index in the file (§7.4.1); `fields` holds the dpv. */
   streamline?: number;
   streamlineFields?: { name: string; value: number; units?: string }[];
   groups?: string[];

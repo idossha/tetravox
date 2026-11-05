@@ -181,6 +181,14 @@ test('throughput against §9', async ({}, info) => {
       'default points': tract.nPoints,
       'default orbit ms (2x2, all panes)': await orbit(),
     };
+    const r = canvas.getBoundingClientRect();
+    const picks: number[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const s = performance.now();
+      engine.pick('view3d', r.width / 4 + i, r.height / 4);
+      picks.push(performance.now() - s);
+    }
+    out['pick ms (on demand)'] = median(picks);
     let t = performance.now();
     await engine.sampleTracts({ tractogramId: tract.id, sourceId: fa.id, op: 'value' });
     out['sample FA default ms'] = performance.now() - t;

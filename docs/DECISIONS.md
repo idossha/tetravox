@@ -6024,3 +6024,21 @@ Capability: `"tractLayerProtocol": 1` in `packages/app/package.json`, read like 
 tractogram to a build that cannot show it. Deferred to `docs/ROADMAP.md`: ROI filtering through a loaded label volume, ribbons
 and pseudo-tubes, TRX export with sampled fields, VTK and DSI Studio readers, 3D clip planes on tracts.
 
+## 2026-11-05 — What measuring tractograms changed (§6.3.1, §7.4.1)
+
+The first draw took 424 ms per frame over 8 M points in a 2×2 layout on ANGLE/Metal, against 7 ms for a bare `LINE_STRIP` of that
+size. Primitive restart was the first suspect and was cleared (7.7 ms, against 4.7 ms for indexed `LINES` and 8.7 ms for
+`WEBGL_multi_draw`). `discard` was the second, and commit 0299f62 says it was the cause; **that message is wrong**. That commit also
+removed a `flat uint` varying, and isolating each on the same geometry gives: neither 7.3 ms, `discard` alone 7.9 ms, `flat` alone 102.9
+ms, both 103.7 ms. So `flat` lives only in the pick variant, whose cost is on demand, and the frame is now 11.9 ms. The 2D slab
+writes plane distance to clip-space z, which needs no varying and no extension. Rejected: indexed `LINES`, which would save 3 ms and
+cost 4 more bytes per point, the difference at the 25 M cap between fitting §9.2 and not.
+
+A sampled field does not carry a volume's `units`: they are `xyzt_units`, and `(mm)` on FA is wrong.
+
+One point in 348,789 of the reference TRX differs from its producer's stored value (|E·t| 0.0508 against 0.0382). It is 3e-8 in
+barycentric weight from a shared face. With `f64` nodes SimNIBS and the producer say one tet, and with this reader's `f32` nodes the
+point is in the neighbour. Both tets are right to within the rounding. Widening `Mesh::nodes` to `f64` would double a retained
+array that §9.2 budgets to the byte, for a field that is discontinuous across that face anyway, so the residual stands and is
+documented.
+
