@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.8.0] - 2026-11-05
+
 ### Added
 
 - **Tractograms.** Open TRX, MRtrix TCK and TrackVis TRK files from anywhere. They overlay your volumes and
