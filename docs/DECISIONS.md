@@ -5984,3 +5984,43 @@ bottom to the background (shifts dark tissue); a new exact zero-count statistic 
 signature change for what `p1`/`p5` already say). Evidence: `slice-clear.test.ts`,
 `slice-clear-background.spec.ts` (both §6.1 ladder rows, pick, `showIn3D`, golden),
 `slice-clear-background-realdata.spec.ts`, `props-volume.spec.ts`, `patches.test.ts`.
+
+## 2026-11-05 — Tractogram display enters the core; tractography stays out (§1, §4.3, §4.4, §6.3.1, §7.4.1)
+
+Requirement, from the user: "build it in a way that of course cater to the ti-toolbox but is not JUST for the
+ti-toolbox. meaning, other users coming with other file organizations should be able to load data and be able to show
+tracts and potentially map fields on those." So nothing here reads a folder layout, a file name or a field name, and
+TI-Toolbox is one caller among many.
+
+Decision: narrow the §1 non-goal to *displaying, filtering, probing and field-mapping precomputed tractograms*. Tracking,
+streamline editing or virtual-dissection drawing, and connectome computation remain non-goals. Formats are TRX, TCK and TRK;
+VTK and DSI Studio are deferred. A core dataset and layer kind rather than an extension, because §13's extensions own no
+dataset kind, no GPU pass and no worker op.
+
+**No new dependency.** TRX is a zip, and the reader is a small forward parser over the existing `flate2`: a zip crate would
+want the whole archive or random access, and the worker has neither for a file past wasm32's address space. `tvx-tract` is a
+new workspace crate of ours and adds no third-party code.
+
+**Push parsers rather than whole-file bytes**, the one departure from §5 rule 5's "copied into WASM once": a 1–10 M streamline
+file can exceed 4 GiB, so bytes pass through and only kept points are retained.
+
+**The subset is `fmix32(index ^ seed) < p`.** Alternatives rejected: reservoir sampling needs the count first and is not
+nested; every-Nth aliases with any ordering a tracker or a bundling tool wrote; length-weighted selection is a metric choice
+the viewer has no business making. Being nested means a larger budget only adds streamlines.
+
+**Sampling keeps §5 rule 2.** Rather than a utility worker, the UI thread relays bounded chunks between two workers, each op on
+one dataset, the `sphereMap` shape. This introduces the first donated op arguments, because the relay holds nothing afterwards.
+
+**Quantised vertices (18 B/point) rather than `f32`.** 12 B positions would put the 33 M point reference file at 800 MB against
+§9.2's 500. `i16` at 0.01 mm is 100× finer than any tracker's step. The design note's 16 B/point had no tangent, which direction
+RGB cannot do without.
+
+**A file that cannot be placed is refused**, so a TRK with no usable `vox_to_ras` is an error where nibabel warns and assumes
+identity: drawing tracts in the wrong place over someone's anatomy looks like a result. NaN from a sample is neutral and is
+excluded from every statistic and scale, so a streamline leaving a field cannot move the window. Sampled names are neutral,
+`<source>:<field>:<op>`, with no "recommended" labelling and no stimulation-specific maths.
+
+Capability: `"tractLayerProtocol": 1` in `packages/app/package.json`, read like `sceneApiProtocol`, so a host never sends a
+tractogram to a build that cannot show it. Deferred to `docs/ROADMAP.md`: ROI filtering through a loaded label volume, ribbons
+and pseudo-tubes, TRX export with sampled fields, VTK and DSI Studio readers, 3D clip planes on tracts.
+

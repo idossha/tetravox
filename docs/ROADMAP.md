@@ -99,6 +99,14 @@ macOS, with the packaging matrix carried in the workflow.
 
 ## What is next
 
+### Tractograms, after v1 (§7.4.1, DECISIONS 2026-11-05)
+
+- ROI filtering of streamlines through a loaded label volume.
+- Ribbons and pseudo-tubes.
+- TRX export carrying sampled fields.
+- VTK and DSI Studio readers.
+- 3D clip planes on a tracts layer.
+
 **Correctness and coverage**
 - §11's **Transparency (ii)** — a CPU per-fragment-sorted reference render of a mesh scene. The Python
   reference renderer covers volume slices only; §5 keeps a mesh's triangles out of a spec's reach, so this

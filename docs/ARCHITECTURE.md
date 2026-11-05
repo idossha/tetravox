@@ -7,8 +7,9 @@ nav_order: 7
 
 # Tetravox — Architecture Contract
 
-> Desktop viewer for **voxel volumes** (NIfTI, FreeSurfer MGH/MGZ, NRRD, MetaImage) and **finite-element /
-> surface meshes** (Gmsh `.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ) with a linked **3D view + sagittal/axial/coronal 2D slices**. macOS + Linux.
+> Desktop viewer for **voxel volumes** (NIfTI, FreeSurfer MGH/MGZ, NRRD, MetaImage), **finite-element /
+> surface meshes** (Gmsh `.msh`, GIfTI, FreeSurfer, STL/PLY/OBJ) and **precomputed tractograms** (TRX, MRtrix
+> TCK, TrackVis TRK) with a linked **3D view + sagittal/axial/coronal 2D slices**. macOS + Linux.
 
 This file is the **contract**. Deviating from it requires editing this file in the same commit and appending
 an entry to `docs/DECISIONS.md`. Section numbers are cited from code comments and tests — do not renumber.
@@ -39,9 +40,12 @@ the number is the reason for a rule.
 
 **Non-goals:** WebGPU, DICOM, 4D playback (loading a 4D NIfTI and picking a volume index *is* in
 scope), **third-party runtime-loaded plugins** (first-party extensions, downloaded
-through File ▸ Extensions…, are §13), tractography, wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
+through File ▸ Extensions…, are §13), computing tractography (tracking, streamline editing or
+virtual-dissection drawing, connectome computation), wasm64, wasm threads, two-file `.hdr`/`.img`. (Auto-update left
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
-and *unattended* download-and-install stays a non-goal.)
+and *unattended* download-and-install stays a non-goal. **Tractography was narrowed on 2026-11-05**:
+*displaying, filtering, probing and field-mapping precomputed tractograms* is in scope, §4.3, §4.4, §6.3.1 and
+§7.4.1. No layout, file name or field name of any particular toolbox may be assumed.)
 
 **Native-only integration (2026-09-13).** The browser embed and postMessage contract are retired.
 External applications open local `.tetravox.json` files through the native executable; batch rendering
@@ -63,6 +67,7 @@ tetravox/
 │   ├── tvx-mesh-io/              # Gmsh .msh v2/v4.1, .msh.opt, .geo/.pos views, GIfTI, FreeSurfer, STL/PLY/OBJ, VTK, OFF, MEDIT
 │   ├── tvx-geom/                 # surfaces, boundary extraction, Morton order, tet blocks, plane cut, isolation,
 │   │                             #   marching cubes/tets, elm↔node, contours, point location, orientation
+│   ├── tvx-tract/                # TRX, TCK, TRK stream parsers; display budget; GPU packing; tangents (§6.3.1)
 │   └── tvx-wasm/                 # wasm-bindgen bindings (handle-based) → packages/wasm/pkg (git-ignored)
 ├── packages/
 │   ├── protocol/                 # @tetravox/protocol — worker envelope + every op args/result type (§6.5). FROZEN.
@@ -109,6 +114,9 @@ Rules:
   `LabelVolumeCriteria.world_to_voxel` is `[f64; 16]` for that reason.
 * `scl_slope`/`scl_inter` are **not** folded into the samples (§6.1); they are carried and applied in the
   shader and in the CPU probe path.
+* **Tractograms are delivered in world RAS mm, whatever the file stored** (§6.3.1), so they overlay any
+  loaded volume or mesh in the same frame. TRX `positions` and TCK points already are; TRK `voxmm` goes through
+  `vox_to_ras` honouring `voxel_order`. A file that cannot be placed is refused, never drawn at a guess.
 * Gmsh/SimNIBS meshes are already in the subject's world mm; loaded as-is. GIfTI applies
   `CoordinateSystemTransformMatrix` when `TransformedSpace == NIFTI_XFORM_SCANNER_ANAT`. FreeSurfer binary
   surfaces are in *tkr-RAS*; with a companion volume apply `vox2ras · inv(vox2ras-tkr)`, else load as-is.
@@ -317,12 +325,56 @@ export interface MeshDataset {
   worker: WorkerRef; handle: Handle;
 }
 
-export type Dataset = VolumeDataset | MeshDataset;
+// §4.3 tractograms (2026-11-05). Bulk arrays stay in the worker, exactly as a mesh's do.
+export interface TractFieldInfo {
+  name: string;                       // the file's own name, or `<source>:<field>:<op>` when sampled
+  units?: string;                     // carried from the source; never inferred from a name
+  stats: Stats;                       // finite samples only: a NaN is excluded from every statistic
+  nanCount: number;                   // samples with no value (outside the sampled source)
+  builtin?: boolean;                  // `length_mm`, computed at load; a file's own field of that name wins
+  categorical?: boolean;              // dps only: integral with <= 4096 distinct values, offered as a group source
+  sampled?: boolean;                  // came from `Engine.sampleTracts`, recorded in `samples`
+}
+export interface TractGroupInfo { id: number; name: string; count: number; color?: vec4 }
+export interface TractBudget { maxPoints: number | null; seed: number }   // null = up to TRACT_FULL_MAX_POINTS
+
+export interface TractSampleSpec {
+  tractogramId: DatasetId; sourceId: DatasetId;
+  field?: { source: 'node' | 'elm'; name: string };    // mesh sources; absent for a volume
+  volumeIndex?: number;                                // scalar volumes; default 0
+  op: 'value' | 'magnitude' | 'dot' | 'abs-dot' | 'abs-cross';   // anything but 'value' needs a 3-vector
+  basis?: 'world' | 'voxel';                           // a 3-frame volume's components; default 'world'
+  name?: string;                                       // default `<source>:<field>:<op>`
+}
+
+export interface TractogramDataset {
+  kind: 'tractogram'; id: DatasetId; name: string; path?: string;
+  format: 'trx' | 'tck' | 'trk';
+  nStreamlines: number; nPoints: number;               // what this copy holds, after the budget
+  sourceStreamlines: number; sourcePoints: number;     // what the file holds
+  budget: TractBudget;
+  bounds: Aabb;
+  vertexFields: TractFieldInfo[];                      // dpv: one value per point
+  streamlineFields: TractFieldInfo[];                  // dps: one value per streamline
+  groups: TractGroupInfo[];                            // the file's own named groups (TRX `groups/`)
+  samples: TractSampleSpec[];                          // every `sampleTracts` that produced a field, in order
+  generation: number;                                  // bumped when the worker's arrays are replaced
+  notes: string[];                                     // non-fatal facts about placement, e.g. an assumed voxel order
+  headerJson: string;
+  worker: WorkerRef; handle: Handle;
+}
+
+export type Dataset = VolumeDataset | MeshDataset | TractogramDataset;
 ```
 
 **`MeshDataset.transform` is never already in the vertices.** The loader bakes the file's own transform into
 the node coordinates and reports it in `appliedTransform`; `transform` is an *additional* one the user may
 edit, applied on top by the engine's model matrix and serialised in `ViewSpec`.
+
+**A tractogram's bulk arrays never reach the UI thread either.** Positions, offsets and fields stay in its
+worker; the UI thread sees the §7.4.1 draw buffers (uploaded, then dropped), per-streamline style bytes, probe
+results, and the bounded relay chunks of §5 rule 2. A tractogram has no user transform in v1: sampling and the
+overlay both depend on it being in the one world frame.
 
 **Mesh bulk arrays never reach the UI thread.** Nodes/tets/tris/fields stay in the dataset's worker; the UI
 thread sees only draw-ready buffers (uploaded to GL, then dropped) and probe results.
@@ -536,7 +588,23 @@ export interface SurfaceLayer extends LayerBase {
   contoursIn2D: boolean; contourWidthPx: number; contourColor: vec4;   // its whole 2D presence
 }
 
-export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer | SurfaceLayer;
+// §7.4.1 (2026-11-05). `field` names a dpv for 'vertex' and a dps for 'streamline'. `threshold` gates
+// fragments in those two modes only; `streamlineFilter` and `visibleGroups` hide whole streamlines in all.
+export interface TractsLayer extends LayerBase {
+  kind: 'tracts';
+  colorMode: 'direction' | 'solid' | 'vertex' | 'streamline' | 'group';
+  solidColor: vec4;
+  field?: string;
+  colormap: ColormapName | string; colormapNegative?: ColormapName | string;
+  scale: Scale; threshold: Threshold;
+  streamlineFilter?: { field: string; lo: number | null; hi: number | null };   // inclusive; null = open
+  groupField?: string;                                  // a categorical dps; absent = the file's `groups`
+  visibleGroups?: number[];                             // group ids; absent = all
+  lineWidthPx: number;                                  // CSS px; <= 1 is the LINE_STRIP fast path
+  slabMm: number;                                       // half-thickness drawn in a 2D pane; 0 = not drawn
+}
+
+export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer | SurfaceLayer | TractsLayer;
 ```
 
 Layers are ordered bottom→top and appear in every view unless a view's `layerVisibility` says otherwise.
@@ -771,11 +839,13 @@ export interface SidecarRef {
   absPath?: string;                 // fallback when the relative path misses
 }
 export interface DatasetRef {
-  id: DatasetId; kind: 'volume' | 'mesh'; name: string;
+  id: DatasetId; kind: 'volume' | 'mesh' | 'tractogram'; name: string;
   path: string;                     // relative to the scene file
   absPath?: string;
   fingerprint: string;              // `tvxfp1-<len:16hex>-<hash:16hex>` — see below
   sidecars?: { lut?: SidecarRef; opt?: SidecarRef; fields?: SidecarRef[] };   // `fields` appended 2026-09-06
+  tract?: { maxPoints?: number | null; seed?: number;   // 2026-11-05, tractogram refs only; absent = defaults
+            samples?: TractSampleSpec[] };              // sourceId names another DatasetRef.id in this file
 }
 export type SerializableLayer =
   Omit<Layer, 'visibleLabels'> & { visibleLabels?: number[]; label?: { name: string; mode: string;
@@ -845,6 +915,13 @@ path would not. `Engine.load` re-attaches them best-effort, in order, before the
 `MeshLayer.label.name` that names one of them finds its table again (`addLayer` looks the table up **by that
 name** first, and only then falls back to the seeded first table). Absent from every scene saved before it.
 
+**`tract` — what makes a sampled field a saved one** (2026-11-05). A sampled field's values are not in the scene
+file; its recipe is. `Engine.load` loads every dataset, then replays `samples` in order against the remapped
+ids, and only then attaches a layer naming the result, so a scene with a tractogram, a volume and a sample step
+reopens to the same picture. The budget and seed reproduce the same subset of streamlines, because selection is a
+pure function of them (§6.3.1). A sample whose source is missing is reported in the load's failure list, and the
+rest of the scene still opens. A build predating this field reports the dataset as failed and loads the others.
+
 **`fingerprint` — `tvxfp1`, normative.** The producer is `tvx_core::fingerprint` (§6.0), called by
 `load_volume` / `load_mesh` over the bytes the loader was handed and **before** the parser frees them (§5
 rule 5). §5 rule 3 forbids the UI thread from ever seeing those bytes, so it cannot be computed anywhere else.
@@ -869,7 +946,8 @@ files of different length always differ. An edit to a file larger than 8 MiB tha
 windows is **not** detected — the accepted price of not reading 180 MB twice for a dialog. The digest is of
 the bytes the loader was handed, i.e. **after** `.gz` inflation, so a `.nii` and a `.nii.gz` of one volume
 share a fingerprint. Sidecars are **not** digested: recolouring a tissue must not make the file look
-different.
+different. A tractogram is hashed while it streams (`tvx_core::fingerprint::Streaming`, §6.3.1), to the same
+string `fingerprint(&bytes)` gives, because a 10 GB file is never whole in memory.
 
 ### 4.7 Engine facade
 
@@ -915,8 +993,9 @@ export interface FsaverageSpec {
 
 export interface PickResult {
   layerId: LayerId; datasetId: DatasetId;
-  elementId: number;                            // Gmsh element number (§6.2), or plane index for slice quads
-  elementKind: 'tri' | 'tet' | 'slice';         // 'slice' from the layer kind; 'tri' vs 'tet' from payload bit 24
+  elementId: number;                            // Gmsh element number (§6.2), plane index for slice quads, or
+                                                //   a held streamline's index for tracts (§7.4.1)
+  elementKind: 'tri' | 'tet' | 'slice' | 'streamline';   // 'slice'/'streamline' from the layer kind; else bit 24
   world: vec3; depth: number;
 }
 export interface ProbeRow {
@@ -927,6 +1006,9 @@ export interface ProbeRow {
   fields?: { name: string; value: number | number[]; units?: string; label?: string }[];   // §4.4 `MeshLayer.fields`
   vertex?: number; vertexWorld?: vec3;                          // surfaces (§3)
   fsavgVertex?: number; fsavgWorld?: vec3; fsavgSpace?: string;
+  streamline?: number;                                          // tracts: the index IN THE FILE (§7.4.1)
+  streamlineFields?: { name: string; value: number; units?: string }[];  // dps; `fields` holds the dpv
+  groups?: string[];                                            // every group holding this streamline
 }
 export interface ProbeResult { world: vec3; mni?: vec3; tkr?: vec3; tkrVolume?: string;
                                mniNonlinear?: vec3; rows: ProbeRow[] }
@@ -1012,6 +1094,10 @@ export interface Engine {
   fromSpace(ref: CoordSpaceRef, value: vec3): vec3 | null;
   setTemplateSpace(datasetId: DatasetId, space: TemplateSpace | null): void;
   attachFsaverage(spec: FsaverageSpec | { surfaceId: DatasetId; clear: true }): Promise<boolean>;
+  sampleTracts(spec: TractSampleSpec,           // 2026-11-05: a new per-vertex field on the tractogram (§6.3.1)
+               onProgress?: (done: number, total: number) => void): Promise<TractFieldInfo>;
+  setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset>;
+                                                //   re-reads the file at that budget and replays `samples`
   attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;   // 2026-09-06: §6.5.2's
                                                 //   `attachField` on that dataset's worker; grows `fields` /
                                                 //   `labelTables` in place, changes no layer, remembers the path
@@ -1132,10 +1218,16 @@ Rules:
    the *mesh* worker from a copy of the label volume the UI thread already holds for probes (27 MB) — cheaper
    than shipping 4.7 M tet centroids (56 MB) the other way. A second cross-dataset op gets the utility
    worker, and that is an ARCHITECTURE.md edit.
+   **Sampling onto a tractogram is not such an op, and needs no utility worker** (2026-11-05). Each step runs on
+   one dataset's worker, as `sphereMap` does: `tractPoints` reads a chunk of at most `TRACT_SAMPLE_CHUNK`
+   (1,000,000) points from the tractogram's worker, `volumeSample` or `meshSample` evaluates it in the source's
+   worker, and `tractFieldChunk` writes the values back. The UI thread only relays one bounded chunk at a time and
+   never computes on it (AGENTS rule 6). Those three ops' `points`, `tangents` and `values` are **donated** in the
+   §6.5.2 table, because nothing on the UI thread keeps them.
    **That copy is structured-cloned, never transferred.** `VolumeDataset.data` is retained on the UI thread
    for probes; putting it in a transfer list detaches it and every subsequent probe throws or reads garbage.
    **General rule: `Req.args` buffers are never added to a transfer list unless the §6.5.2 op table marks the
-   argument as donated.** No op currently does.
+   argument as donated.** Only rule 2's three sampling ops do.
 3. **Bytes never cross IPC and never touch the UI thread.** Electron IPC *copies* ArrayBuffers; only
    `MessagePort` transfers across processes. IPC carries dialogs, menus, paths and CLI args. The worker
    fetches `tetravox://file/…` itself.
@@ -1893,6 +1985,69 @@ Rules:
   non-portable` and excluded from cross-build golden tests. No `HashMap` iteration order appears in any
   output.
 
+### 6.3.1 `tvx-tract` — tractograms (2026-11-05)
+
+Depends on `tvx-core`, `flate2` and `serde_json` only: no zip crate (§12.3). Every format is a **push parser**,
+fed chunks so a file larger than wasm32's address space can still be scanned; bytes are dropped as they are read.
+
+```rust
+pub enum TractFormat { Trx, Tck, Trk }
+pub struct LoadOptions { pub max_points: Option<u64>, pub seed: u32 }   // None = keep everything
+pub struct TractField { pub name: String, pub values: Vec<f32>, pub units: Option<String>, pub stats: FieldStats,
+                        pub nan_count: u64, pub builtin: bool, pub categorical: bool, pub sampled: bool }
+pub struct TractGroup { pub id: u32, pub name: String, pub streamlines: Vec<u32>, pub color: Option<[u8; 3]> }
+pub struct Tractogram {
+    pub positions: Vec<f32>,        // 3/point, world RAS mm
+    pub offsets: Vec<u32>,          // S + 1
+    pub source_index: Vec<u32>,     // S: this streamline's index in the file
+    pub source_streamlines: u64, pub source_points: u64,
+    pub vertex_fields: Vec<TractField>, pub streamline_fields: Vec<TractField>, pub groups: Vec<TractGroup>,
+    pub bounds: Aabb, pub notes: Vec<String>, pub header_json: String,
+}
+pub fn format_for_name(name: &str) -> Option<TractFormat>;
+pub struct Loader;
+impl Loader {
+    pub fn new(format: TractFormat, total_len: u64, options: LoadOptions) -> Result<Self>;
+    pub fn push(&mut self, chunk: &[u8]) -> Result<()>;
+    pub fn end_pass(&mut self) -> Result<bool>;   // true = feed the file from the start once more
+    pub fn finish(self) -> Result<Tractogram>;
+}
+pub fn tangents_into(positions: &[f32], offsets: &[u32], first: usize, out: &mut [f32]);   // central; one-sided at ends
+pub enum SampleOp { Value, Magnitude, Dot, AbsDot, AbsCross }
+pub fn reduce_vector(op: SampleOp, v: [f32; 3], t: [f32; 3]) -> f32;   // NaN in => NaN out
+pub struct GpuGeometry { pub vertices: Vec<u8>, pub streamline_ids: Vec<u32>, pub indices: Vec<u32>,
+                         pub origin: [f32; 3], pub quantum: f32 }
+pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
+```
+
+* **TRX** — a forward zip reader, stored and deflated (raw `flate2::Decompress`), zip64 local sizes and data
+  descriptors on deflated entries. `header.json` needs `NB_VERTICES`, `NB_STREAMLINES`, `VOXEL_TO_RASMM`,
+  `DIMENSIONS`; positions are `positions.3.{float16,float32,float64}`; offsets are
+  `offsets.{uint32,uint64,int32,int64}` with S or S + 1 entries; `dpv/` and `dps/` take every numeric dtype, and
+  a multi-component field `name.3.float32` becomes `name[0]`, `name[1]`, `name[2]`. `groups/*` are named index
+  lists; a streamline may be in several. `dpg/` is carried in neither direction. Zip order is not fixed, so an
+  array met before `offsets` is skipped and read on the **second pass** `end_pass` asks for. A stored entry with a
+  data descriptor has no findable end when read forward, so it is refused by name.
+* **TCK** — `mrtrix tracks`, `key: value` lines to `END`, `datatype` Float32LE/BE or Float64LE/BE, `file: . <offset>`
+  in the same file only. NaN triplet ends a streamline, inf ends the file; a truncated file keeps the streamlines
+  that completed and says so in `notes`.
+* **TRK** — TrackVis v1 and v2, either endianness. World = `vox_to_ras · reorder · (voxmm ÷ voxel_size − ½)`, where
+  `reorder` maps `voxel_order` onto the axes `vox_to_ras` implies, matching nibabel's
+  `get_affine_trackvis_to_rasmm` (the independent reference). Per-point scalars and per-track properties become
+  dpv and dps, with nibabel's multi-value name encoding honoured. An all-zero or `[3][3] == 0` `vox_to_ras` is
+  **refused**: such a file cannot be placed. An empty `voxel_order` assumes `LPS`, TrackVis's own default, and
+  says so in `notes`.
+* **Budget.** A streamline is kept when `fmix32(index ^ seed) < p · 2³²`, `p = min(1, max_points ÷ estimate)`, where
+  `estimate` is an upper bound on the file's points (exact for TRX, derived from the length for TCK and TRK). So
+  selection is **uniform and metric-neutral** (it reads no field and no length), **deterministic** for a seed, and
+  **nested**: a larger budget keeps a superset, so a sampled scene's subset does not shuffle under a reload.
+  `max_points` is therefore honoured in expectation, never exceeded by more than sampling noise.
+* **Sampling.** `tvx_nifti::VolumeSampler` is trilinear on physical values, NaN outside `[0, n−1]` on any axis (the
+  `sampleVolumeAt` rule, §4.3, and scipy `map_coordinates(order=1, mode='constant', cval=nan)`). A 3-frame volume is a
+  vector, each component interpolated separately, with no sign alignment. `tvx_geom::TetSampler` is exact
+  point-in-tet with a lazily built AABB-bucket grid; an element field is piecewise constant, a node field
+  barycentric, tris are not sampled. No maths anywhere names a stimulation quantity.
+
 ### 6.4 `tvx-wasm` — worker-side exports
 
 **No export takes an abort argument.** Cancellation is `worker.terminate()` (§1, §5 rule 6); `on_progress`
@@ -1962,6 +2117,19 @@ is present wherever an op can exceed one frame, and is called at section boundar
 #[wasm_bindgen] pub fn volume_label_centroids(handle: u32, vol_index: u32) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_centroids(handle: u32, mask_id: Option<u32>, stride: u32,
                                       tags: Option<Vec<i32>>) -> Result<JsValue, JsValue>;
+// §6.3.1 (2026-11-05). `loadTractogram` drives the first four from the worker's own stream loop.
+#[wasm_bindgen] pub fn tract_stream_begin(format: &str, total_len: f64, max_points: Option<f64>, seed: u32) -> Result<u32, JsValue>;
+#[wasm_bindgen] pub fn tract_stream_push(stream: u32, chunk: &[u8]) -> Result<(), JsValue>;
+#[wasm_bindgen] pub fn tract_stream_end_pass(stream: u32) -> Result<bool, JsValue>;
+#[wasm_bindgen] pub fn tract_stream_finish(stream: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_geometry(handle: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_scalar(handle: u32, kind: &str, name: &str) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_style(handle: u32, spec_json: &str) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_probe(handle: u32, x: f32, y: f32, z: f32, radius_mm: f32, streamline: Option<u32>) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_points(handle: u32, first: u32, count: u32, tangents: bool) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_field_chunk(handle: u32, name: &str, units: Option<String>, first: u32, values: &[f32], done: bool) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn volume_sample(handle: u32, points: &[f32], tangents: Option<Vec<f32>>, volume_index: u32, op: &str, basis: &str) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn mesh_sample(handle: u32, points: &[f32], tangents: Option<Vec<f32>>, source: &str, name: &str, op: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn free(handle: u32);
 #[wasm_bindgen] pub fn free_mask(handle: u32, mask_id: u32);
 #[wasm_bindgen] pub fn wasm_heap_bytes() -> u32;      // stamped onto every Res (§6.5), backs the §9 memory bar
@@ -2043,7 +2211,9 @@ export type OpName =
   | 'loadVolume' | 'loadMesh' | 'volumeFrame' | 'surface' | 'boundary' | 'buildTopology' | 'cut' | 'isolate'
   | 'field' | 'elmToNode' | 'locate' | 'marchingCubes' | 'marchingCubesLabel' | 'marchingTets' | 'contours'
   | 'labelCentroids' | 'meshCentroids' | 'nearestVertex' | 'vertices' | 'sphereMap' | 'attachField'
-  | 'free' | 'freeMask';                                           // 23 ops (`attachField` appended 2026-09-06)
+  | 'free' | 'freeMask'                                            // 23 ops (`attachField` appended 2026-09-06)
+  | 'loadTractogram' | 'tractGeometry' | 'tractScalar' | 'tractStyle' | 'tractProbe' | 'tractPoints'
+  | 'tractFieldChunk' | 'volumeSample' | 'meshSample';             // appended 2026-11-05: §6.3.1
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -2186,6 +2356,15 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `vertices` | `{ handle; indices?: Uint32Array }` | `{ positions: Float32Array }` | `indices` omitted = **every** node in file order, which is how one surface's coordinates reach another dataset's worker. An index past the end is `Error::Parse`, never a zeroed coordinate |
 | `sphereMap` | `{ handle; target: Float32Array }` | `{ map: Uint32Array }` | subject `sphere.reg` vertex → nearest fsaverage `sphere` vertex. `handle` is the **subject's** sphere; `target` is the fsaverage sphere's flat xyz triples, read from its own worker with `vertices` — not two handles, because §5 rule 1 gives one worker one dataset. **Cloned, not transferred**: the caller keeps the directions for the other hemisphere |
 | `attachField` | `{ handle; source: LoadSource }` | `{ fields: MeshFieldMeta[]; labelTables? }` | (2026-09-06) per-vertex data from a **second file** onto the surface `handle` holds — a `.annot`, a morph file, a data-only GIfTI (§6.2 `read_node_data`). The worker fetches `source` itself, as for `loadMesh`; the vertex count is checked before anything is kept, a mismatch is `parse` naming both counts, and the reply is the **additions only**, keyed as §6.5.1 keys `labelTables`. `source.sidecars` is ignored |
+| `loadTractogram` | `{ source: LoadSource; format: 'trx'\|'tck'\|'trk'; maxPoints: number \| null; seed }` | `{ meta: TractogramMeta }` | (2026-11-05) worker streams `source` through `tract_stream_*`; `.gz` and an unknown length cost one extra pass for the length. `maxPoints` null means `TRACT_FULL_MAX_POINTS`, chosen by the engine. Cancellation is `terminate()` |
+| `tractGeometry` | `{ handle }` | `{ vertices: Uint8Array; streamlineIds: Uint32Array; indices: Uint32Array; origin; quantum }` | §7.4.1's draw buffers |
+| `tractScalar` | `{ handle; kind: 'vertex' \| 'streamline'; name }` | `{ values: Uint16Array; lo; hi }` | one per **point** either way; `65535` = NaN, `lo`/`hi` the 0…65534 range |
+| `tractStyle` | `{ handle; spec: { filter?; groupField?; visibleGroups?; groupColors? } }` | `{ rgba: Uint8Array; visibleStreamlines: number; groups: { id; name; count; color }[] }` | 4/streamline: group colour plus visibility. The worker keeps the visibility for `tractProbe` |
+| `tractProbe` | `{ handle; world; radiusMm; streamline? }` | `{ hit: { streamline; held; vertex; world; distanceMm; vertexFields; streamlineFields; groups } \| null }` | `streamline` restricts to the held streamline a pick named; otherwise the nearest visible point within `radiusMm`. Linear in points, latest-wins |
+| `tractPoints` | `{ handle; first; count; tangents }` | `{ positions: Float32Array; tangents?: Float32Array }` | §5 rule 2's relay, count ≤ `TRACT_SAMPLE_CHUNK` |
+| `tractFieldChunk` | `{ handle; name; units?; first; values /* donated */; done }` | `{ field?: TractFieldMeta }` | creates the field on `first: 0`, replaces one of that name; `done` computes the stats |
+| `volumeSample` | `{ handle; points /* donated */; tangents? /* donated */; volumeIndex; op; basis }` | `{ values: Float32Array; outside: number }` | §6.3.1 |
+| `meshSample` | `{ handle; points /* donated */; tangents? /* donated */; source; name; op }` | `{ values: Float32Array; outside: number }` | §6.3.1. The first call builds the grid |
 | `free` | `{ handle }` | `{}` | the client then calls `worker.terminate()` |
 | `freeMask` | `{ handle; maskId }` | `{}` | masks are also dropped when the mesh handle is freed |
 
@@ -2693,6 +2872,37 @@ implicitly, even when a SYMMATRIX header provides an order hint: a volume count 
     `stride`. Every tet tag hidden is an **empty request the engine does not make**: an absent `tags` means
     "no filter" to the op, so the draw is skipped instead.
 
+### 7.4.1 Tract lines (2026-11-05)
+
+**GPU layout, 18 bytes per point.** A `vertices` buffer of 8 bytes per point: position as `i16 × 3` at `quantum` mm
+about `origin` (0.01 mm, widened only for an extent past ±327 mm), plus the unit tangent as octahedral `i8 × 2`. `streamlineIds`, 4
+bytes: the held index, used for picking and the style lookup. `indices`, 4 bytes: LINE_STRIP with **primitive
+restart**, always on in WebGL2, `0xFFFFFFFF` between streamlines. `scalar`, 2 bytes, present only in a scalar mode:
+`u16` normalised over the field's own range, `65535` = NaN. One scalar is on the GPU at a time and switching one
+touches nothing else. Per-streamline style is an `RGBA8` table (rgb group colour, a visibility), 4 bytes per
+streamline, rewritten without re-uploading a vertex.
+
+**Colour.** `direction`: `|tangent|` as RGB, so R is L-R, G is A-P, B is S-I, in world axes. `solid`: `solidColor`.
+`vertex` and `streamline`: the §7.6 LUT under `scale`, with `threshold` as §7.4's gate; a streamline value is expanded
+to its points by the worker, so both are one shader path. `group`: the table's rgb. No lighting and no depth cue: a
+pixel is a function of the data alone, which is what lets §11 assert it. A segment touching a NaN point is **neutral
+grey** `(128,128,128)` under no threshold; an active threshold hides it, because a missing value passes no test.
+
+**Width.** `lineWidthPx ≤ 1` is one device-pixel-rule `LINE_STRIP`, the only form cheap enough at 10⁷ segments. Above
+that, `gl.lineWidth` being a no-op, it is instanced screen-space quads over the same buffers with attribute divisors,
+one instance per consecutive point pair, collapsed when the pair's `streamlineIds` differ. No second vertex buffer.
+
+**Passes.** Opaque tracts draw in §7.2 pass 1 after the slices and before `MeshPass`, depth writes on, so an opaque or a
+translucent mesh composites correctly around them. `opacity < 1` draws after the derived pass, depth-tested with writes
+off, unsorted. In a 2D pane a tracts layer takes its place in §7.3's layer order, depth off, and a fragment further than
+`slabMm` from the pane's plane is discarded; `slabMm: 0` draws nothing. 3D clip planes do not apply in v1.
+
+**Picking.** §7.2.3's payload, with the element field holding the **held** streamline index (at most 16,777,215, far
+above the point budget's streamline count) and `kindBit` 0. It reproduces the threshold and the style table's
+visibility. `PickResult.elementKind` is `'streamline'`, and `elementId` is that held index; `ProbeRow.streamline` is
+the file's index, which survives a budget change. A 2D pane has no GPU pick (§7.2.3): `tractProbe` finds the nearest
+visible point within `radiusMm` of the cursor.
+
 ### 7.5 Views & interaction
 
 Layouts: `1x1`, `1x3`, `1x3-horizontal`, `2x2`, `3d-only`, `1+3`, `3d+1`; `mosaic` is out of scope.
@@ -3145,6 +3355,9 @@ targets.
 | 18 | `marching_cubes` 256×256×208 | < 1 s |
 | 19 | Boundary extraction from `grey_Thalamus_TI.msh` (1,340,029 tets, 0 tris) | < 1.5 s WASM |
 | 20 | Pointer-to-photon latency, orbit and slice scrub | ≤ 2 frames at the pinned cadence |
+| 21 | `tracks_ifod2_200k.tck` (396 MB, 200 k streamlines, 33 M points) at the default budget, open to first frame | < 8 s (A) |
+| 22 | Orbit 8 M tract points at 1 px, 2×DPR | ≤ 16 ms (A); `lineWidthPx > 1` is a user's choice and not held to this |
+| 23 | `meshSample` on a head mesh, per million points | < 10 s; `volumeSample` < 500 ms |
 
 `scripts/bench.ts` pins `QualityLevel` to **full** so adaptive fallback cannot silently satisfy a bar it was
 meant to be measured against, runs the cut at 20 offsets along the normal, and reports the indexed and
@@ -3168,6 +3381,7 @@ before `read_msh` returns) and the `buildTopology` path (retained `Mesh` + count
 | **`buildTopology` path**, per dataset worker | **< 3.2 × file size** *live* — ≤ 600 MB live / ≤ 960 MB resident for `ernie.msh`, ≤ 1.6 GB live / ≤ 2.1 GB resident for either SEEG mesh |
 | Renderer JS heap (ernie scene) | ≤ 400 MB; **no single ArrayBuffer > 1 GB** |
 | GPU (ernie scene) | ≤ 500 MB |
+| **Tractogram worker** | holds `12 B × kept points` + fields, never the file. `TRACT_DEFAULT_MAX_POINTS` = **8,000,000** (146 MB GPU at §7.4.1's 18 B/point). "Load full" asks for `TRACT_FULL_MAX_POINTS` = **25,000,000** (450 MB GPU), the most §9.2's 500 MB admits; a larger file stays a labelled subset, never a silent one. The UI always reads "displaying N of M" while N < M |
 
 **Live bytes and resident bytes are two different numbers, and `wasm_heap_bytes()` reports the second.**
 Because linear memory never shrinks, when the topology path allocates, the load path's freed input block is
@@ -3446,7 +3660,7 @@ incidental one, and it needs a line in `docs/DECISIONS.md`.
 | `quick-xml`, `base64` | GIfTI |
 | `byteorder` | endian-explicit reads (Gmsh binary, FreeSurfer big-endian) |
 | `wasm-bindgen` (exact), `js-sys` | `tvx-wasm` |
-| `serde`, `serde_json` | meta/criteria JSON across the boundary |
+| `serde`, `serde_json` | meta/criteria JSON across the boundary; TRX `header.json` |
 | `criterion` (dev) | benches |
 
 | Node | Purpose |
