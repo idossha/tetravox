@@ -37,6 +37,8 @@ export function tractStyleSpec(layer: TractsLayer): TractStyleSpecT {
   if (layer.streamlineFilter !== undefined) spec.filter = layer.streamlineFilter;
   if (layer.groupField !== undefined) spec.groupField = layer.groupField;
   if (layer.visibleGroups !== undefined) spec.visibleGroups = layer.visibleGroups;
+  if (layer.keepField !== undefined) spec.keepField = layer.keepField;
+  if (layer.colorMode === 'ends') spec.ends = true;
   return spec;
 }
 
@@ -162,7 +164,7 @@ export class TractsLayerRuntime implements LayerRuntime {
 
   #syncStyle(ds: TractogramDataset): void {
     const spec = tractStyleSpec(this.#layer);
-    const key = JSON.stringify(spec);
+    const key = `${ds.fieldRevision}|${JSON.stringify(spec)}`;
     if (key === this.#styleKey) return;
     const client = this.#ctx.client(this.datasetId);
     if (client === undefined) return;
@@ -191,7 +193,7 @@ export class TractsLayerRuntime implements LayerRuntime {
       return;
     }
     // A re-sampled field keeps its name and changes its values: the statistics tell them apart.
-    const stamp = `${field.kind}|${field.info.name}|${field.info.stats.min}|${field.info.stats.max}|${field.info.stats.mean}`;
+    const stamp = `${ds.fieldRevision}|${field.kind}|${field.info.name}|${field.info.stats.min}|${field.info.stats.max}|${field.info.stats.mean}`;
     if (stamp === this.#scalarKey || stamp === this.#scalarWanted) return;
     const client = this.#ctx.client(this.datasetId);
     if (client === undefined) return;

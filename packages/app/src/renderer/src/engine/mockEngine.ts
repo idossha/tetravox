@@ -65,6 +65,7 @@ import type {
   TemplateSpace,
   TractFieldInfo,
   TractogramDataset,
+  TractStructure,
   TractSampleSpec,
   vec3,
   vec4,
@@ -1132,6 +1133,30 @@ export class NoGlEngine implements Engine {
 
   setTractBudget(datasetId: DatasetId): Promise<TractogramDataset> {
     void datasetId;
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  attachTractFile(): Promise<TractFieldInfo[]> {
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  tractStructure(): Promise<TractStructure> {
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  tractPoints(): Promise<Float32Array> {
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  tractFieldValues(): Promise<Float32Array> {
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  setTractStreamlineField(): Promise<TractFieldInfo> {
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  removeTractField(): Promise<void> {
     return Promise.reject(new Error('the no-GL engine has no tractograms'));
   }
 

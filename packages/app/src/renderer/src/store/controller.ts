@@ -98,7 +98,7 @@ import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
 import { formatTriple, parseTriple } from '../lib/coords';
 import { readPngInfo } from '../lib/png';
-import { baseName, hemisphereOf, isSurfaceDataName } from '../lib/sidecars';
+import { baseName, hemisphereOf, isSurfaceDataName, isTractDataName } from '../lib/sidecars';
 import {
   defaultScenePath,
   dirName,
@@ -153,6 +153,7 @@ import type {
   ModuleInstance,
   ModulePlacement,
   ModuleSceneEvent,
+  ModuleTracts,
 } from '../modules/host';
 import { resolveModuleKey } from '../modules/keys';
 import type { ModuleKeyEvent } from '../modules/keys';
@@ -209,6 +210,7 @@ export class ShellController {
   private queue: QueuedRequest[] = [];
   /** Per-vertex files waiting for the surfaces queued ahead of them (`open`). */
   private readonly deferredSurfaceData: OpenRequest[] = [];
+  private readonly deferredTractData: OpenRequest[] = [];
   private draining = false;
   private inflight: { ticket: number; datasetId: DatasetId | null } | null = null;
   /** Directed task 8: what main found beside each volume, so the warps can be loaded on demand. */
@@ -431,7 +433,8 @@ export class ShellController {
     // `lh.ernie_DK40.annot` both selected — or both on argv — must attach the second to the first,
     // which has not loaded yet when this runs.
     this.deferredSurfaceData.push(...requests.filter((r) => isSurfaceDataName(r.name)));
-    requests = requests.filter((r) => !isSurfaceDataName(r.name));
+    this.deferredTractData.push(...requests.filter((r) => isTractDataName(r.name)));
+    requests = requests.filter((r) => !isSurfaceDataName(r.name) && !isTractDataName(r.name));
     if (requests.length === 0) {
       void this.drain();
       return;
@@ -502,6 +505,47 @@ export class ShellController {
 
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null {
     return this.engine.tractStyleInfo(layerId);
+  }
+
+  /** The tract panel's "Attach file…": data for **this** layer's tractogram. */
+  async chooseTractData(layerId: LayerId): Promise<void> {
+    const layer = this.store.getState().layers.find((l) => l.id === layerId);
+    if (layer === undefined) return;
+    const opened = await bridge().openTractDataDialog();
+    for (const item of opened) {
+      const request = await requestFromPath(item.path);
+      if (request !== null) await this.attachTractData(request, layer.datasetId);
+    }
+  }
+
+  /**
+   * One sidecar. With a `target`, that tractogram; without one, the active layer's first and then
+   * whichever open tractogram it fits. The worker checks every streamline's length, so a `.tsf` from
+   * another tractogram is refused rather than painted on the wrong streamlines.
+   */
+  private async attachTractData(request: OpenRequest, target: DatasetId | null): Promise<void> {
+    const state = this.store.getState();
+    const active = activeLayer(state)?.datasetId;
+    const tracts = state.datasets
+      .filter((d) => d.kind === 'tractogram' && (target === null || d.id === target))
+      .sort((a, b) => Number(b.id === active) - Number(a.id === active));
+    if (tracts.length === 0) {
+      this.toast('unsupported', request.name, 'open the tractogram it belongs to first');
+      return;
+    }
+    let lastError = '';
+    for (const ds of tracts) {
+      try {
+        const added = await this.engine.attachTractFile(ds.id, request.source);
+        this.store.setState({ datasets: [...this.engine.scene.datasets.values()] });
+        const names = added.map((f) => f.name).join(', ');
+        this.toast('info', request.name, `Attached ${names} to ${ds.name}`);
+        return;
+      } catch (error: unknown) {
+        lastError = errorMessage(error);
+      }
+    }
+    this.toast('parse', request.name, lastError);
   }
 
   private async attachSurfaceData(request: OpenRequest, target: DatasetId | null): Promise<void> {
@@ -647,6 +691,10 @@ export class ShellController {
       while (this.deferredSurfaceData.length > 0) {
         const request = this.deferredSurfaceData.shift() as OpenRequest;
         await this.attachSurfaceData(request, null);
+      }
+      while (this.deferredTractData.length > 0) {
+        const request = this.deferredTractData.shift() as OpenRequest;
+        await this.attachTractData(request, null);
       }
     } finally {
       this.draining = false;
@@ -2784,6 +2832,7 @@ export class ShellController {
           // gate below can ask "is this extension still live" (2026-09-03).
           sampleVolume: (datasetId, worldPoints, opts) =>
             this.moduleSampleVolume(datasetId, worldPoints, opts),
+          tracts: this.moduleTracts(),
           capture: {
             setView: (preset, opts) => this.moduleSetView(registration.manifest.id, preset, opts),
             screenshot: (opts) => this.moduleScreenshot(registration.manifest.id, opts),
@@ -3101,6 +3150,31 @@ export class ShellController {
 
   private emitPointTool(event: PointToolEvent): void {
     for (const listener of [...this.pointToolListeners]) listener(event);
+  }
+
+  /** `host.scene.tracts`: the engine's calls, unchanged, so a progress card or a sample behaves alike. */
+  private moduleTracts(): ModuleTracts {
+    const engine = this.engine;
+    return {
+      structure: (id) => engine.tractStructure(id),
+      points: (id, first, count) => engine.tractPoints(id, first, count),
+      field: (id, kind, name, first, count) =>
+        engine.tractFieldValues(id, kind, name, first, count),
+      setStreamlineField: async (id, field) => {
+        const info = await engine.setTractStreamlineField(id, field);
+        this.store.setState({ datasets: [...engine.scene.datasets.values()] });
+        return info;
+      },
+      removeField: async (id, kind, name) => {
+        await engine.removeTractField(id, kind, name);
+        this.store.setState({ datasets: [...engine.scene.datasets.values()] });
+      },
+      sample: async (spec) => {
+        const info = await engine.sampleTracts(spec);
+        this.store.setState({ datasets: [...engine.scene.datasets.values()] });
+        return info;
+      },
+    };
   }
 
   /**

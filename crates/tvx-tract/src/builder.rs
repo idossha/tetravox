@@ -114,7 +114,7 @@ fn lengths_of(positions: &[f32], offsets: &[u32]) -> Vec<f32> {
         .collect()
 }
 
-fn is_categorical(values: &[f32]) -> bool {
+pub(crate) fn is_categorical(values: &[f32]) -> bool {
     let mut seen = BTreeSet::new();
     for v in values {
         if !v.is_finite() || v.fract() != 0.0 {

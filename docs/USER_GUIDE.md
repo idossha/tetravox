@@ -230,6 +230,13 @@ always available. **Groups** come from a TRX file's `groups/`, or from any whole
 such as a bundle id; each has a show box and an *only* button. **Width** is in pixels: 1 px is by far the
 fastest. **2D slab** sets how far from a slice a streamline still draws.
 
+**Coming from MRtrix3.** A `.tck` usually keeps its data in separate files, and those attach to it. Open a
+`.tsf` from File ▸ Open, or use **Attach file…** in the panel for a `.txt` or `.csv`, such as `tcksift2`
+weights or `tck2connectome -out_assignments`. Values line up with the streamlines you are displaying even
+when the file is shown as a subset, and a file from a different tractogram is refused. **End to end** colours
+a whole streamline by its overall direction, where **direction** follows it point by point. Selecting by
+region, and connectome browsing, are in the Tract tools extension (File ▸ Extensions…).
+
 **Sample onto tracts** makes a new per-vertex field from anything open: a NIfTI volume (trilinear, or the
 nearest voxel for a label volume), a 3-frame volume as a vector, or a tet mesh's element field (constant per tet) or node field (interpolated).
 For a vector, choose its magnitude, `v·t`, `|v·t|` or `|v×t|`, where `t` is the streamline's tangent. A

@@ -590,6 +590,52 @@ pub fn tract_points(
 }
 
 #[wasm_bindgen]
+pub fn tract_attach_begin(handle: u32, name: &str) -> Result<u32, JsValue> {
+    tract::attach_begin(handle, name).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_attach_push(handle: u32, stream: u32, chunk: &[u8]) -> Result<(), JsValue> {
+    tract::attach_push(handle, stream, chunk).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_attach_finish(handle: u32, stream: u32) -> Result<JsValue, JsValue> {
+    tract::attach_finish(handle, stream).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_structure(handle: u32) -> Result<JsValue, JsValue> {
+    tract::structure(handle).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_field_values(
+    handle: u32,
+    kind: &str,
+    name: &str,
+    first: u32,
+    count: u32,
+) -> Result<JsValue, JsValue> {
+    tract::field_values(handle, kind, name, first, count).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_set_field(
+    handle: u32,
+    name: &str,
+    units: Option<String>,
+    values: &[f32],
+) -> Result<JsValue, JsValue> {
+    tract::set_field(handle, name, units, values).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_remove_field(handle: u32, kind: &str, name: &str) -> Result<JsValue, JsValue> {
+    tract::remove_field(handle, kind, name).map_err(err::map)
+}
+
+#[wasm_bindgen]
 pub fn tract_field_chunk(
     handle: u32,
     name: &str,

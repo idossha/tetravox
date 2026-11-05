@@ -101,7 +101,7 @@ macOS, with the packaging matrix carried in the workflow.
 
 ### Tractograms, after v1 (§7.4.1, DECISIONS 2026-11-05)
 
-- ROI filtering of streamlines through a loaded label volume.
+- ROI selection and connectome browsing are the `tetravox.tract-tools` extension, in its own repository.
 - Ribbons and pseudo-tubes.
 - TRX export carrying sampled fields.
 - Reading an unzipped TRX directory, and `dpg/`.

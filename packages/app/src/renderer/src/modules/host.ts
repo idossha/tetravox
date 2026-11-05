@@ -35,6 +35,9 @@ import type {
   PointToolEvent,
   PointToolSpec,
   ProbeResult,
+  TractFieldInfo,
+  TractSampleSpec,
+  TractStructure,
   vec3,
 } from '@tetravox/engine';
 import type { ModuleId } from '../../../modules/manifest-types';
@@ -137,6 +140,34 @@ export interface ModuleHistory<T> {
   canRedo(): boolean;
 }
 
+/** See {@link ModuleHost}'s `scene.tracts`. Arrays are copies, read in chunks off the worker. */
+export interface ModuleTracts {
+  /** `offsets` has one more entry than held streamlines; `sourceIndex` is each one's index in the file. */
+  structure(datasetId: DatasetId): Promise<TractStructure>;
+  /** `xyz` triples in world mm. At most `TRACT_READ_CHUNK` points per call. */
+  points(datasetId: DatasetId, first: number, count: number): Promise<Float32Array>;
+  /** At most `TRACT_READ_CHUNK` values per call. */
+  field(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string,
+    first: number,
+    count: number
+  ): Promise<Float32Array>;
+  /**
+   * One value per held streamline. It colours, filters and groups like a file's own, and sets
+   * `TractsLayer.keepField`'s selection. It is not saved: put the recipe in a scene block, and
+   * recompute when `TractogramDataset.generation` changes, because a budget change drops it.
+   */
+  setStreamlineField(
+    datasetId: DatasetId,
+    field: { name: string; values: Float32Array; units?: string }
+  ): Promise<TractFieldInfo>;
+  removeField(datasetId: DatasetId, kind: 'vertex' | 'streamline', name: string): Promise<void>;
+  /** §6.3.1's sampling: a label volume reads whole labels. The new field is one value per point. */
+  sample(spec: TractSampleSpec): Promise<TractFieldInfo>;
+}
+
 export interface ModuleHost {
   readonly id: ModuleId;
 
@@ -181,6 +212,12 @@ export interface ModuleHost {
       worldPoints: Float32Array,
       opts?: { order?: 0 | 1; volumeIndex?: number }
     ): Promise<Float32Array>;
+    /**
+     * Tractograms (appended 2026-11-06, additively): what lets an extension select, group or
+     * summarise streamlines without the platform knowing why. A build without it has no such member,
+     * so an extension checks for it and says which Tetravox it needs.
+     */
+    tracts: ModuleTracts;
     /** This module's scene block (§13.2), or null. `≤ 256 KiB` of JSON. */
     block<T>(): T | null;
     setBlock<T>(data: T | null): void;

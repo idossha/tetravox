@@ -6,7 +6,9 @@ use tvx_nifti::tensor::TensorBasis;
 
 use tvx_core::{Error, Result};
 use tvx_geom::TetSampler;
-use tvx_tract::{LoadOptions, Loader, SampleOp, StyleSpec, TractField, TractFormat, Tractogram};
+use tvx_tract::{
+    LoadOptions, Loader, SampleOp, SidecarLoader, StyleSpec, TractField, TractFormat, Tractogram,
+};
 use wasm_bindgen::prelude::*;
 
 use crate::handles::{self, Dataset, TractState};
@@ -14,6 +16,7 @@ use crate::jsv;
 
 thread_local! {
     static STREAMS: RefCell<BTreeMap<u32, Loader>> = const { RefCell::new(BTreeMap::new()) };
+    static ATTACHES: RefCell<BTreeMap<u32, SidecarLoader>> = const { RefCell::new(BTreeMap::new()) };
     static NEXT: RefCell<u32> = const { RefCell::new(1) };
 }
 
@@ -205,6 +208,14 @@ pub fn style(handle: u32, spec_json: &str) -> Result<JsValue> {
             .get("visibleGroups")
             .and_then(|g| g.as_array())
             .map(|a| a.iter().filter_map(serde_json::Value::as_i64).collect()),
+        keep_field: v
+            .get("keepField")
+            .and_then(|g| g.as_str())
+            .map(str::to_string),
+        ends: v
+            .get("ends")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
     };
     handles::with_tract_mut(handle, |s| {
         let st = tvx_tract::style(&s.tract, &spec)?;
@@ -280,6 +291,125 @@ pub fn probe(
             }
         }
         Ok(o.into())
+    })
+}
+
+fn per_streamline(kind: &str) -> Result<bool> {
+    match kind {
+        "vertex" => Ok(false),
+        "streamline" => Ok(true),
+        other => Err(Error::Parse(format!("unknown tract field kind {other}"))),
+    }
+}
+
+pub fn attach_begin(handle: u32, name: &str) -> Result<u32> {
+    let loader = handles::with_tract_mut(handle, |s| SidecarLoader::new(name, &s.tract))?;
+    let id = NEXT.with(|n| {
+        let mut n = n.borrow_mut();
+        *n += 1;
+        *n - 1
+    });
+    ATTACHES.with(|a| a.borrow_mut().insert(id, loader));
+    Ok(id)
+}
+
+pub fn attach_push(handle: u32, id: u32, chunk: &[u8]) -> Result<()> {
+    handles::with_tract_mut(handle, |s| {
+        ATTACHES.with(|a| match a.borrow_mut().get_mut(&id) {
+            Some(l) => l.push(&s.tract, chunk),
+            None => Err(Error::Parse(format!("tract attachment {id} is not open"))),
+        })
+    })
+}
+
+pub fn attach_finish(handle: u32, id: u32) -> Result<JsValue> {
+    let loader = ATTACHES
+        .with(|a| a.borrow_mut().remove(&id))
+        .ok_or_else(|| Error::Parse(format!("tract attachment {id} is not open")))?;
+    handles::with_tract_mut(handle, |s| {
+        let attached = loader.finish(&s.tract)?;
+        let names: Vec<String> = attached.fields.iter().map(|f| f.name.clone()).collect();
+        let per_point = attached.per_point;
+        tvx_tract::apply_attached(&mut s.tract, attached);
+        let list = if per_point {
+            &s.tract.vertex_fields
+        } else {
+            &s.tract.streamline_fields
+        };
+        let fields = js_sys::Array::new();
+        for f in list.iter().filter(|f| names.contains(&f.name)) {
+            fields.push(&field_meta(f));
+        }
+        let notes = js_sys::Array::new();
+        for n in &s.tract.notes {
+            notes.push(&JsValue::from_str(n));
+        }
+        let o = jsv::obj();
+        jsv::set_str(&o, "kind", if per_point { "vertex" } else { "streamline" });
+        jsv::set(&o, "fields", &fields.into());
+        jsv::set(&o, "notes", &notes.into());
+        Ok(o.into())
+    })
+}
+
+pub fn structure(handle: u32) -> Result<JsValue> {
+    handles::with_tract_mut(handle, |s| {
+        let o = jsv::obj();
+        jsv::set(
+            &o,
+            "offsets",
+            &js_sys::Uint32Array::from(s.tract.offsets.as_slice()).into(),
+        );
+        jsv::set(
+            &o,
+            "sourceIndex",
+            &js_sys::Uint32Array::from(s.tract.source_index.as_slice()).into(),
+        );
+        Ok(o.into())
+    })
+}
+
+pub fn field_values(
+    handle: u32,
+    kind: &str,
+    name: &str,
+    first: u32,
+    count: u32,
+) -> Result<JsValue> {
+    let by_streamline = per_streamline(kind)?;
+    handles::with_tract_mut(handle, |s| {
+        let v = tvx_tract::field_values(
+            &s.tract,
+            by_streamline,
+            name,
+            first as usize,
+            count as usize,
+        )?;
+        let o = jsv::obj();
+        jsv::set(&o, "values", &js_sys::Float32Array::from(v).into());
+        Ok(o.into())
+    })
+}
+
+pub fn set_field(
+    handle: u32,
+    name: &str,
+    units: Option<String>,
+    values: &[f32],
+) -> Result<JsValue> {
+    handles::with_tract_mut(handle, |s| {
+        let f = tvx_tract::set_streamline_field(&mut s.tract, name, values.to_vec(), units)?;
+        let o = jsv::obj();
+        jsv::set(&o, "field", &field_meta(f).into());
+        Ok(o.into())
+    })
+}
+
+pub fn remove_field(handle: u32, kind: &str, name: &str) -> Result<JsValue> {
+    let by_streamline = per_streamline(kind)?;
+    handles::with_tract_mut(handle, |s| {
+        tvx_tract::remove_field(&mut s.tract, by_streamline, name);
+        Ok(jsv::obj().into())
     })
 }
 

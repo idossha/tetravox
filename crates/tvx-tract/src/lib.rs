@@ -6,6 +6,7 @@ mod builder;
 mod gpu;
 mod query;
 mod sample;
+mod sidecar;
 mod tck;
 mod trk;
 mod trx;
@@ -17,6 +18,10 @@ pub use query::{
     probe, scalar_u16, style, write_field_chunk, GroupRow, ProbeHit, ScalarU16, Style, StyleSpec,
 };
 pub use sample::{sample_mesh, sample_volume};
+pub use sidecar::{
+    apply_attached, field_values, is_tract_sidecar_name, remove_field, set_streamline_field,
+    Attached, SidecarLoader,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TractFormat {

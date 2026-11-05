@@ -203,7 +203,15 @@ export function mesh_vertices(handle: number, indices?: Uint32Array | null): any
  */
 export function surface_sphere_map(handle: number, target: Float32Array): any;
 
+export function tract_attach_begin(handle: number, name: string): number;
+
+export function tract_attach_finish(handle: number, stream: number): any;
+
+export function tract_attach_push(handle: number, stream: number, chunk: Uint8Array): void;
+
 export function tract_field_chunk(handle: number, name: string, units: string | null | undefined, first: number, values: Float32Array, done: boolean): any;
+
+export function tract_field_values(handle: number, kind: string, name: string, first: number, count: number): any;
 
 export function tract_geometry(handle: number): any;
 
@@ -211,7 +219,11 @@ export function tract_points(handle: number, first: number, count: number, tange
 
 export function tract_probe(handle: number, x: number, y: number, z: number, radius_mm: number, streamline?: number | null): any;
 
+export function tract_remove_field(handle: number, kind: string, name: string): any;
+
 export function tract_scalar(handle: number, kind: string, name: string): any;
+
+export function tract_set_field(handle: number, name: string, units: string | null | undefined, values: Float32Array): any;
 
 export function tract_stream_begin(format: string, total_len: number, max_points: number | null | undefined, seed: number): number;
 
@@ -220,6 +232,8 @@ export function tract_stream_end_pass(stream: number): boolean;
 export function tract_stream_finish(stream: number): any;
 
 export function tract_stream_push(stream: number, chunk: Uint8Array): void;
+
+export function tract_structure(handle: number): any;
 
 export function tract_style(handle: number, spec_json: string): any;
 
@@ -317,15 +331,22 @@ export interface InitOutput {
     readonly mesh_surface: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly mesh_vertices: (a: number, b: number, c: number) => [number, number, number];
     readonly surface_sphere_map: (a: number, b: number, c: number) => [number, number, number];
+    readonly tract_attach_begin: (a: number, b: number, c: number) => [number, number, number];
+    readonly tract_attach_finish: (a: number, b: number) => [number, number, number];
+    readonly tract_attach_push: (a: number, b: number, c: number, d: number) => [number, number];
     readonly tract_field_chunk: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly tract_field_values: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly tract_geometry: (a: number) => [number, number, number];
     readonly tract_points: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly tract_probe: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly tract_remove_field: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly tract_scalar: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly tract_set_field: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly tract_stream_begin: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly tract_stream_end_pass: (a: number) => [number, number, number];
     readonly tract_stream_finish: (a: number) => [number, number, number];
     readonly tract_stream_push: (a: number, b: number, c: number) => [number, number];
+    readonly tract_structure: (a: number) => [number, number, number];
     readonly tract_style: (a: number, b: number, c: number) => [number, number, number];
     readonly tvx_ping: (a: number) => number;
     readonly tvx_ping_bytes: (a: number, b: number) => number;

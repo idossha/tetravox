@@ -75,6 +75,11 @@ const MORPH_EXTENSIONS = ['.curv', '.sulc', '.thickness', '.area', '.volume', '.
  * attached to an open surface (`Engine.attachSurfaceData`) rather than opened on its own — opened
  * on its own, a `.annot` is "unrecognised mesh format" and a `.func.gii` an empty mesh.
  */
+/** `.tsf` says what it is. A `.txt` or `.csv` does not, so only the panel's Attach file… reads those. */
+export function isTractDataName(path: string): boolean {
+  return baseName(path).toLowerCase().endsWith('.tsf');
+}
+
 export function isSurfaceDataName(path: string): boolean {
   const lower = baseName(path).toLowerCase();
   if (lower.endsWith('.annot')) return true;

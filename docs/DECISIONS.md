@@ -6055,3 +6055,22 @@ An independent review of the tract code, run before cutting 0.8.0, found three w
 Dropped entries (`dpg/`, `bit`), rounded integers, empty TCK streamlines and a wrong TCK `count` now reach `notes`, which the panel shows, so a file is never read differently from how it looks without saying so.
 
 The first CI run of that work then exposed a fourth, which the goldens had hidden. Building a new LUT unbinds the active texture unit, and the tract pass bound its style table first, so the first frame after a new colormap or scale drew only streamline 0 until something redrew. The goldens had been blessed from that frame, and the pixel assertions missed it because `readCanvasRect` redraws before it reads. A tract test now reads the drawing buffer as it stands.
+
+## 2026-11-06 — Tractography past v1: what is the platform's, what is an extension's, and what is nobody's (§6.3.1, §13.1)
+
+The test for the platform: **would two unrelated tract tools both need it, and can it be stated without saying why?** Reading a format passes, and so does hiding a streamline. "This streamline reaches the thalamus" does not, because it is one analysis among many, with its own recipe, naming and export, and it should be able to change without a Tetravox release. That is the same reasoning that put sEEG contacts in their own repository.
+
+| What | Where | Why |
+|---|---|---|
+| `.tsf`, `tcksift2` weights, `-out_assignments`, any per-streamline table | core | A migration blocker. A `.tck` carries geometry only, so without this an MRtrix user's data has nowhere to land. Parsing belongs in the worker |
+| End-to-end colour | core | `mrview` offers it, and it is one flag on a style table that already exists |
+| `scene.tracts`, `keepField` | core | Every selection tool needs them. They name no region |
+| ROI include, exclude and endpoint selection | `tetravox.tract-tools` | `tckedit`'s test, made live: a count as you change it, not a file per attempt. A segment that crosses a small region counts, where a point test depends on the step size |
+| Connectome from a parcellation | `tetravox.tract-tools` | `tck2connectome`'s matrix is a means to `connectome2tck`'s question: which streamlines are in this edge? Clicking a cell answers it in place |
+| Per-streamline mean, min and max | `tetravox.tract-tools` | `tcksample -stat_tck`, and the mean is length-weighted as MRtrix's is |
+| Tracking, SIFT, resampling, transforms, density maps | nobody here | Pipeline steps, done better by the tools that own them. A density map is already a volume Tetravox opens |
+| 3D node-and-edge graph, along-tract profiles | not yet | Real uses, and both can be built on what is here once someone needs them |
+
+**`.txt` and `.csv` are not claimed by File ▸ Open**, because they are too generic. `.tsf` is. `keepField` sits beside `streamlineFilter` rather than reusing it so an extension's selection cannot take the user's filter away. The fields an extension writes are not saved, for the reason a scene does not carry sampled values: the recipe is the record, and it goes in the scene block. Extending `hostApi: 1` additively means an extension on an older build finds `scene.tracts` undefined, so it checks and names the build it needs.
+
+**No version moved.** At the maintainer's request this sits on top of 0.8.0 without a new version. `[Unreleased]` in the changelog is what the shipped 0.8.0 does not yet contain.

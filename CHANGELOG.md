@@ -8,7 +8,13 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Attach MRtrix data to a tractogram.** Open a `.tsf`, or use Attach file… for `tcksift2` weights,
+  `tck2connectome -out_assignments` or any `.txt` or `.csv` with one row per streamline. Values follow the
+  streamlines on display, and a file from a different tractogram is refused.
+- **End-to-end colour** gives a whole streamline one colour, by its overall direction.
+- Extensions can now read streamlines and select them, which is what the Tract tools extension is built on.
 
 ## [0.8.0] - 2026-11-05
 

@@ -132,6 +132,28 @@ test('sampling a vector volume asks what frame it is stored in, and the answer c
   }
 });
 
+test('a .tsf from File ▸ Open attaches to the tractogram it fits, and another is refused', async ({}, info) => {
+  const app = await launchApp(info.project.name as LaunchTarget, { search: 'engine=real' });
+  try {
+    const page = await ready(app);
+    await openFiles(app, page, [join(DATA, 'mrtrix_small.tck')]);
+    await openFiles(app, page, [join(DATA, 'mrtrix_small_fa.tsf')]);
+    await page.waitForFunction(() =>
+      (window.__tetravox?.store.getState().datasets ?? []).some(
+        (d) => d.kind === 'tractogram' && d.vertexFields.some((f) => f.name === 'mrtrix_small_fa')
+      )
+    );
+    const state = await page.evaluate(() => {
+      const s = window.__tetravox!.store.getState();
+      return { datasets: s.datasets.length, layers: s.layers.length };
+    });
+    // Attached, not opened: no dataset or layer of its own.
+    expect(state).toEqual({ datasets: 1, layers: 1 });
+  } finally {
+    await app.close();
+  }
+});
+
 test('the command line opens a tractogram, and the capability is advertised', async ({}, info) => {
   const app = await launchApp(info.project.name as LaunchTarget, {
     search: 'engine=real',

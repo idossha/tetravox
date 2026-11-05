@@ -52,6 +52,8 @@ export interface TetravoxBridge {
    * data-only GIfTI) for one open surface. Paths, allow-listed, never bytes.
    */
   openSurfaceDataDialog(): Promise<OpenedPath[]>;
+  /** The tract panel's "Attach file…". Paths, allow-listed, never bytes. */
+  openTractDataDialog(): Promise<OpenedPath[]>;
   /**
    * The absolute path behind a dropped `File`, or `''` when it has none (§8 fallback).
    *
@@ -534,6 +536,7 @@ export interface ModuleProgress {
 const bridge: TetravoxBridge = {
   openDialog: () => ipcRenderer.invoke('tetravox:open-dialog'),
   openSurfaceDataDialog: () => ipcRenderer.invoke('tetravox:open-surface-data-dialog'),
+  openTractDataDialog: () => ipcRenderer.invoke('tetravox:open-tract-data-dialog'),
   getDroppedFilePath: (file) => {
     const path = webUtils.getPathForFile(file);
     // The drop gesture, reported to main. Only preload can produce this path, so this send is the

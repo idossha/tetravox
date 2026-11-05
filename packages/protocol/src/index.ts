@@ -59,6 +59,11 @@ export type OpName =
   | 'tractProbe'
   | 'tractPoints'
   | 'tractFieldChunk'
+  | 'tractAttach'
+  | 'tractStructure'
+  | 'tractFieldValues'
+  | 'tractSetField'
+  | 'tractRemoveField'
   | 'volumeSample'
   | 'meshSample'; // 23 ops
 
@@ -458,6 +463,8 @@ export interface TractStyleSpecT {
   filter?: { field: string; lo: number | null; hi: number | null };
   groupField?: string;
   visibleGroups?: number[];
+  keepField?: string;
+  ends?: boolean;
 }
 export interface TractGroupRowT {
   id: number;
@@ -602,6 +609,19 @@ export interface OpArgs {
     values: Float32Array;
     done: boolean;
   };
+  /** A sidecar's bytes stay in this worker (§5 rule 3). */
+  tractAttach: { handle: number; source: LoadSource };
+  tractStructure: { handle: number };
+  tractFieldValues: {
+    handle: number;
+    kind: 'vertex' | 'streamline';
+    name: string;
+    first: number;
+    count: number;
+  };
+  /** `values` is donated (§5 rule 2). */
+  tractSetField: { handle: number; name: string; units?: string; values: Float32Array };
+  tractRemoveField: { handle: number; kind: 'vertex' | 'streamline'; name: string };
   /** `points` and `tangents` are donated (§5 rule 2). */
   volumeSample: {
     handle: number;
@@ -709,6 +729,11 @@ export interface OpResult {
   tractPoints: { positions: Float32Array; tangents?: Float32Array };
   /** `field` is present on the chunk with `done: true`. */
   tractFieldChunk: { field?: TractFieldMeta };
+  tractAttach: { kind: 'vertex' | 'streamline'; fields: TractFieldMeta[]; notes: string[] };
+  tractStructure: { offsets: Uint32Array; sourceIndex: Uint32Array };
+  tractFieldValues: { values: Float32Array };
+  tractSetField: { field: TractFieldMeta };
+  tractRemoveField: Record<string, never>;
   volumeSample: { values: Float32Array; outside: number };
   meshSample: { values: Float32Array; outside: number };
 }
@@ -749,6 +774,11 @@ export const OP_NAMES = [
   'tractProbe',
   'tractPoints',
   'tractFieldChunk',
+  'tractAttach',
+  'tractStructure',
+  'tractFieldValues',
+  'tractSetField',
+  'tractRemoveField',
   'volumeSample',
   'meshSample',
 ] as const satisfies readonly OpName[];
@@ -789,6 +819,11 @@ export const OP_TO_EXPORT = {
   tractProbe: 'tract_probe',
   tractPoints: 'tract_points',
   tractFieldChunk: 'tract_field_chunk',
+  tractAttach: 'tract_attach_begin',
+  tractStructure: 'tract_structure',
+  tractFieldValues: 'tract_field_values',
+  tractSetField: 'tract_set_field',
+  tractRemoveField: 'tract_remove_field',
   volumeSample: 'volume_sample',
   meshSample: 'mesh_sample',
 } as const satisfies Record<OpName, string>;

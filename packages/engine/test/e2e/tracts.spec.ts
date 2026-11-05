@@ -551,6 +551,113 @@ test('a file that cannot be placed is refused by name', async ({ page }) => {
   expect(message).toContain('cannot place');
 });
 
+test('end-to-end colour is one colour for a whole streamline, by |last − first|', async ({
+  page,
+}) => {
+  await open(page, 'tract_f32_stored.trx', { lineWidthPx: 5, colorMode: 'ends' });
+  await expectPixel(page, px(5), py(0), [255, 0, 0, 255]);
+  await expectPixel(page, px(0), py(3), [0, 255, 0, 255]);
+  // The curved streamline: local tangent changes along it, its end-to-end colour does not.
+  const last = [1 + 16 * 0.25, -5, 4];
+  const first = [1, -1, 2];
+  const d = last.map((v, i) => Math.abs(v - (first[i] as number)));
+  const n = Math.hypot(...d);
+  const want = d.map((v) => Math.round((v / n) * 255));
+  await expectPixel(page, px(1.25), py(-2), [want[0]!, want[1]!, want[2]!, 255], 2);
+  await expectPixel(page, px(3.25), py(-4), [want[0]!, want[1]!, want[2]!, 255], 2);
+});
+
+test('an extension reads streamlines, writes a field, and the keep field hides by it', async ({
+  page,
+}) => {
+  const { datasetId, layerId } = await open(page, 'tract_f32_stored.trx', { lineWidthPx: 5 });
+  const got = await page.evaluate(
+    async ([id, layer]) => {
+      const engine = window.__tvxEngine!;
+      const ds = id as string;
+      const structure = await engine.tractStructure(ds);
+      const points = await engine.tractPoints(ds, 0, 2);
+      const along = await engine.tractFieldValues(ds, 'vertex', 'along', 0, 3);
+      await engine.setTractStreamlineField(ds, {
+        name: 'selected',
+        values: new Float32Array([0, 1, 1, 1]),
+      });
+      engine.updateLayer(layer as string, { keepField: 'selected' } as never);
+      await engine.whenSettled();
+      const visible = engine.tractStyleInfo(layer as string)?.visibleStreamlines;
+      // The same name with new values must take effect: the layer's own spec has not changed.
+      await engine.setTractStreamlineField(ds, {
+        name: 'selected',
+        values: new Float32Array([1, 0, 0, 0]),
+      });
+      await engine.whenSettled();
+      const after = engine.tractStyleInfo(layer as string)?.visibleStreamlines;
+      const tooMany = await engine.tractPoints(ds, 0, 2_000_000).then(
+        () => '',
+        (e: Error) => e.message
+      );
+      return {
+        offsets: [...structure.offsets],
+        source: [...structure.sourceIndex],
+        points: [...points],
+        along: [...along],
+        visible,
+        after,
+        tooMany,
+      };
+    },
+    [datasetId, layerId] as const
+  );
+  expect(got.offsets).toEqual([0, 21, 32, 39, 44]);
+  expect(got.source).toEqual([0, 1, 2, 3]);
+  expect(got.points).toEqual([-10, 0, 0, -9, 0, 0]);
+  expect(got.along).toEqual([-10, -9, -8]);
+  expect(got.visible).toBe(3);
+  expect(got.after).toBe(1);
+  expect(got.tooMany).toContain('at most');
+  // Only streamline 0 is left: the +x line draws, and the +y line does not.
+  await expectPixel(page, px(5), py(0), [255, 0, 0, 255]);
+  await expectPixel(page, px(0), py(3), BG);
+});
+
+test('a .tsf attaches per point, survives a budget change, and returns in a saved scene', async ({
+  page,
+}) => {
+  await page.goto('/test/pages/scene.html');
+  await page.waitForFunction(() => window.__tvxEngine !== undefined);
+  const got = await page.evaluate(
+    async ([tck, tsf, table]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({ kind: 'path', path: tck as string });
+      if (ds.kind !== 'tractogram') throw new Error('not a tractogram');
+      const added = await engine.attachTractFile(ds.id, { kind: 'path', path: tsf as string });
+      const rows = await engine.attachTractFile(ds.id, { kind: 'path', path: table as string });
+      const first = await engine.tractFieldValues(ds.id, 'vertex', added[0]!.name, 0, 1);
+      const spec = engine.serialize();
+      await engine.setTractBudget(ds.id, ds.nPoints);
+      return {
+        name: added[0]!.name,
+        rows: rows.map((f) => f.name),
+        points: ds.nPoints,
+        value: first[0],
+        fields: ds.vertexFields.map((f) => f.name),
+        sidecars: spec.datasets[0]?.sidecars?.fields?.length,
+      };
+    },
+    [
+      fixture('mrtrix_small.tck'),
+      fixture('mrtrix_small_fa.tsf'),
+      fixture('mrtrix_small_fa_mean.txt'),
+    ] as const
+  );
+  expect(got.name).toBe('mrtrix_small_fa');
+  expect(got.rows).toEqual(['mrtrix_small_fa_mean']);
+  expect(got.value as number).toBeGreaterThan(0);
+  expect(got.value as number).toBeLessThan(1);
+  expect(got.fields).toContain('mrtrix_small_fa');
+  expect(got.sidecars).toBe(2);
+});
+
 test('the frame on screen after a colour change is complete, with no extra redraw', async ({
   page,
 }) => {

@@ -36,6 +36,7 @@ import type {
   ModuleSceneEvent,
   PointSelection,
   PointToolSpec,
+  ModuleTracts,
 } from './host';
 import { ModuleHostError } from './host';
 
@@ -59,6 +60,7 @@ export interface ModuleHostDeps {
   peakCentroid?: ModuleHost['scene']['peakCentroid'];
   /** §4.3's point sampler over the dataset the module names (2026-09-03). Absent: it rejects. */
   sampleVolume?: ModuleHost['scene']['sampleVolume'];
+  tracts?: ModuleTracts;
   /** The engine's §4.7 screenshot, gated on the module being live. Absent: it rejects. */
   capture?: ModuleHost['capture'];
 }
@@ -71,6 +73,19 @@ const DEFAULT_HISTORY_LIMIT = 50;
 
 /** Teardown callbacks per host, so `ModuleHost` itself keeps the shape §13.1 publishes. */
 const DISPOSERS = new WeakMap<ModuleHost, (() => void)[]>();
+
+function unavailableTracts(): ModuleTracts {
+  const refuse = (): Promise<never> =>
+    Promise.reject(new ModuleHostError('tractogram access is not available in this build'));
+  return {
+    structure: refuse,
+    points: refuse,
+    field: refuse,
+    setStreamlineField: refuse,
+    removeField: refuse,
+    sample: refuse,
+  };
+}
 
 function unavailable(what: string): never {
   throw new ModuleHostError(`${what} is not available in this build`);
@@ -249,6 +264,7 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
               'the volume sampler (`scene.sampleVolume`) is not available in this build'
             )
           )),
+      tracts: deps.tracts ?? unavailableTracts(),
 
       block: <T>(): T | null => {
         const block = controller.moduleBlock(id);

@@ -70,9 +70,11 @@ export const OPEN_FILTERS = [
       'trx',
       'tck',
       'trk',
+      'tsf',
     ],
   },
   { name: 'Tractogram', extensions: ['trx', 'tck', 'trk', 'gz'] },
+  { name: 'Track scalars', extensions: ['tsf'] },
   { name: 'NIfTI volume', extensions: ['nii', 'nii.gz'] },
   { name: 'FreeSurfer volume', extensions: ['mgh', 'mgz'] },
   { name: 'NRRD / MetaImage volume', extensions: ['nrrd', 'mha'] },
@@ -144,6 +146,21 @@ export async function showOpenDialog(win: BrowserWindow | null): Promise<OpenedP
  * The layer panel's "Annotation…" button: per-vertex files for one surface, allow-listed like
  * anything the Open dialog returns. The renderer attaches them to the layer that asked.
  */
+export async function showOpenTractDataDialog(win: BrowserWindow | null): Promise<OpenedPath[]> {
+  const options: OpenDialogOptions = {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Track data (tsf, txt, csv)', extensions: ['tsf', 'txt', 'csv', 'tsv'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled) return [];
+  return toOpened(result.filePaths);
+}
+
 export async function showOpenSurfaceDataDialog(win: BrowserWindow | null): Promise<OpenedPath[]> {
   const options: OpenDialogOptions = {
     properties: ['openFile', 'multiSelections'],

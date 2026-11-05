@@ -369,6 +369,7 @@ export function tractogramDatasetFromMeta(
     })),
     samples: [],
     generation,
+    fieldRevision: 0,
     notes: meta.notes,
     headerJson: meta.headerJson,
     worker,

@@ -159,6 +159,14 @@ async function loadTractogram(
   return result;
 }
 
+async function attachTractFile(a: OpArgs['tractAttach']): Promise<OpResult['tractAttach']> {
+  const stream = tvx.tract_attach_begin(a.handle, sourceName(a.source));
+  await readAll(a.source, (chunk) => {
+    tvx.tract_attach_push(a.handle, stream, chunk);
+  });
+  return tvx.tract_attach_finish(a.handle, stream) as OpResult['tractAttach'];
+}
+
 // ---------------------------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------------------------
@@ -235,6 +243,26 @@ async function runOp<K extends OpName>(
     case 'tractFieldChunk': {
       const a = args as OpArgs['tractFieldChunk'];
       return call(a.handle, a.name, a.units, a.first, a.values, a.done) as OpResult[K];
+    }
+    case 'tractAttach': {
+      const a = args as OpArgs['tractAttach'];
+      return (await attachTractFile(a)) as OpResult[K];
+    }
+    case 'tractStructure': {
+      const a = args as OpArgs['tractStructure'];
+      return call(a.handle) as OpResult[K];
+    }
+    case 'tractFieldValues': {
+      const a = args as OpArgs['tractFieldValues'];
+      return call(a.handle, a.kind, a.name, a.first, a.count) as OpResult[K];
+    }
+    case 'tractSetField': {
+      const a = args as OpArgs['tractSetField'];
+      return call(a.handle, a.name, a.units, a.values) as OpResult[K];
+    }
+    case 'tractRemoveField': {
+      const a = args as OpArgs['tractRemoveField'];
+      return call(a.handle, a.kind, a.name) as OpResult[K];
     }
     case 'volumeSample': {
       const a = args as OpArgs['volumeSample'];

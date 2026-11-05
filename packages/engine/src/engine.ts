@@ -163,6 +163,7 @@ import {
   TRACT_DEFAULT_MAX_POINTS,
   TRACT_DEFAULT_SEED,
   TRACT_FULL_MAX_POINTS,
+  TRACT_READ_CHUNK,
   tractFieldScale,
 } from './scene/defaults';
 import type { MshOptSeed } from './scene/defaults';
@@ -218,6 +219,7 @@ import type {
   TractBudget,
   TractFieldInfo,
   TractogramDataset,
+  TractStructure,
   TractSampleSpec,
 } from './scene/types';
 
@@ -322,6 +324,8 @@ export class TetravoxEngine implements Engine, PointerHost {
   readonly #interaction: InteractionState;
   /** What `setTractBudget` re-reads, kept because a `File` source has no path to re-open. */
   readonly #tractSources = new Map<DatasetId, { source: LoadSource; format: TractFormatSel }>();
+  /** What `setTractBudget` attaches again, kept for the same reason. */
+  readonly #tractAttachments = new Map<DatasetId, DatasetSource[]>();
   /** The budget a scene's `DatasetRef.tract` asks of the next load of that path. */
   readonly #tractBudgets = new Map<string, TractBudget>();
   /** §7.5's pointer layer (P2-01). Bound to the canvas for the engine's whole life. */
@@ -805,8 +809,123 @@ export class TetravoxEngine implements Engine, PointerHost {
     Object.assign(ds, next, { samples: [] });
     this.#fingerprints.set(id, res.meta.fingerprint);
     this.#tractDatasetChanged(id);
+    for (const src of this.#tractAttachments.get(id) ?? []) await this.attachTractFile(id, src);
     for (const sample of samples) await this.sampleTracts(sample);
     return ds;
+  }
+
+  #tractOf(id: DatasetId): { ds: TractogramDataset; client: ComputeClient } {
+    const ds = this.#scene.datasets.get(id);
+    const client = this.#workers.get(id)?.client;
+    if (ds?.kind !== 'tractogram' || client === undefined) {
+      throw new Error(`not a loaded tractogram: ${id}`);
+    }
+    return { ds, client };
+  }
+
+  async attachTractFile(datasetId: DatasetId, src: DatasetSource): Promise<TractFieldInfo[]> {
+    const { ds, client } = this.#tractOf(datasetId);
+    const res = await this.#track(
+      client.call(`attach:${datasetId}:${sourceName(src)}`, 'tractAttach', {
+        handle: ds.handle,
+        source: toLoadSource(src),
+      })
+    );
+    const added = res.fields.map(tractFieldFromWire);
+    const names = new Set(added.map((f) => f.name));
+    if (res.kind === 'vertex') {
+      ds.vertexFields = [...ds.vertexFields.filter((f) => !names.has(f.name)), ...added];
+    } else {
+      ds.streamlineFields = [...ds.streamlineFields.filter((f) => !names.has(f.name)), ...added];
+    }
+    ds.notes = res.notes;
+    ds.fieldRevision += 1;
+    const sources = this.#tractAttachments.get(datasetId) ?? [];
+    const key = sourceName(src);
+    this.#tractAttachments.set(datasetId, [...sources.filter((s) => sourceName(s) !== key), src]);
+    if (src.kind === 'path') {
+      const cars = this.#sidecars.get(datasetId) ?? {};
+      const fields = (cars.fields ?? []).filter((p) => p !== src.path);
+      this.#sidecars.set(datasetId, { ...cars, fields: [...fields, src.path] });
+    }
+    this.#tractDatasetChanged(datasetId);
+    return added;
+  }
+
+  tractStructure(datasetId: DatasetId): Promise<TractStructure> {
+    const { ds, client } = this.#tractOf(datasetId);
+    return client.call(`structure:${datasetId}`, 'tractStructure', { handle: ds.handle });
+  }
+
+  async tractPoints(datasetId: DatasetId, first: number, count: number): Promise<Float32Array> {
+    const { ds, client } = this.#tractOf(datasetId);
+    if (count > TRACT_READ_CHUNK) throw new Error(`at most ${TRACT_READ_CHUNK} points per read`);
+    const res = await client.call(`points:${datasetId}:${first}`, 'tractPoints', {
+      handle: ds.handle,
+      first,
+      count,
+      tangents: false,
+    });
+    return res.positions;
+  }
+
+  async tractFieldValues(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string,
+    first: number,
+    count: number
+  ): Promise<Float32Array> {
+    const { ds, client } = this.#tractOf(datasetId);
+    if (count > TRACT_READ_CHUNK) throw new Error(`at most ${TRACT_READ_CHUNK} values per read`);
+    const res = await client.call(`field:${datasetId}:${name}:${first}`, 'tractFieldValues', {
+      handle: ds.handle,
+      kind,
+      name,
+      first,
+      count,
+    });
+    return res.values;
+  }
+
+  async setTractStreamlineField(
+    datasetId: DatasetId,
+    field: { name: string; values: Float32Array; units?: string }
+  ): Promise<TractFieldInfo> {
+    const { ds, client } = this.#tractOf(datasetId);
+    const res = await this.#track(
+      client.call(`set-field:${datasetId}:${field.name}`, 'tractSetField', {
+        handle: ds.handle,
+        name: field.name,
+        values: field.values,
+        ...(field.units === undefined ? {} : { units: field.units }),
+      })
+    );
+    const info = tractFieldFromWire(res.field);
+    ds.streamlineFields = [...ds.streamlineFields.filter((f) => f.name !== field.name), info];
+    ds.fieldRevision += 1;
+    this.#tractDatasetChanged(datasetId);
+    return info;
+  }
+
+  async removeTractField(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string
+  ): Promise<void> {
+    const { ds, client } = this.#tractOf(datasetId);
+    await this.#track(
+      client.call(`remove-field:${datasetId}:${name}`, 'tractRemoveField', {
+        handle: ds.handle,
+        kind,
+        name,
+      })
+    );
+    const keep = (f: TractFieldInfo): boolean => f.name !== name || f.builtin === true;
+    if (kind === 'vertex') ds.vertexFields = ds.vertexFields.filter(keep);
+    else ds.streamlineFields = ds.streamlineFields.filter(keep);
+    ds.fieldRevision += 1;
+    this.#tractDatasetChanged(datasetId);
   }
 
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null {
@@ -3680,9 +3799,13 @@ export class TetravoxEngine implements Engine, PointerHost {
           );
           check();
           for (const field of fields ?? []) {
-            if (ds.kind !== 'mesh') break;
+            if (ds.kind === 'volume') break;
             try {
-              await this.attachSurfaceData(ds.id, { kind: 'path', path: field });
+              if (ds.kind === 'mesh') {
+                await this.attachSurfaceData(ds.id, { kind: 'path', path: field });
+              } else {
+                await this.attachTractFile(ds.id, { kind: 'path', path: field });
+              }
             } catch {
               /* Optional sidecars remain best-effort. */
             }

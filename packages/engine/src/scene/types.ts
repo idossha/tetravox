@@ -388,6 +388,12 @@ export interface TractSampleSpec {
   name?: string;
 }
 
+/** `offsets` has one more entry than held streamlines; `sourceIndex` is each one's index in the file. */
+export interface TractStructure {
+  offsets: Uint32Array;
+  sourceIndex: Uint32Array;
+}
+
 export interface TractogramDataset {
   kind: 'tractogram';
   id: DatasetId;
@@ -410,8 +416,10 @@ export interface TractogramDataset {
   groups: TractGroupInfo[];
   /** Every `sampleTracts` that produced a field, in order. */
   samples: TractSampleSpec[];
-  /** Bumped when the worker's arrays are replaced. */
+  /** Bumped when the worker's arrays are replaced; every field not in `samples` is then gone. */
   generation: number;
+  /** Bumped when a field's values change in place. */
+  fieldRevision: number;
   /** Non-fatal facts about placement, e.g. an assumed voxel order. */
   notes: string[];
   headerJson: string;
@@ -1016,7 +1024,8 @@ export interface SurfaceLayer extends LayerBase {
  */
 export interface TractsLayer extends LayerBase {
   kind: 'tracts';
-  colorMode: 'direction' | 'solid' | 'vertex' | 'streamline' | 'group';
+  /** `direction` is the local tangent, `ends` the whole streamline's |last − first|. */
+  colorMode: 'direction' | 'ends' | 'solid' | 'vertex' | 'streamline' | 'group';
   solidColor: vec4;
   field?: string;
   colormap: ColormapName | string;
@@ -1029,6 +1038,12 @@ export interface TractsLayer extends LayerBase {
   groupField?: string;
   /** Group ids; absent = all. */
   visibleGroups?: number[];
+  /**
+   * A streamline field: only streamlines where it is finite and above 0 draw. Combines with
+   * `streamlineFilter`, so an extension's selection does not take the user's filter away. A field the
+   * dataset does not hold hides nothing.
+   */
+  keepField?: string;
   /** CSS px; at most 1 is the LINE_STRIP fast path. */
   lineWidthPx: number;
   /** Half-thickness drawn in a 2D pane; 0 = not drawn. */

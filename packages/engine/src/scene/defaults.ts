@@ -399,6 +399,8 @@ export function defaultIsoLayer(id: string, ds: VolumeDataset | MeshDataset): Is
 
 /** §9.2: the display budget a tractogram opens at, and the most §9.2's GPU bar admits. */
 export const TRACT_DEFAULT_MAX_POINTS = 8_000_000;
+/** The most points or values one `tractPoints` / `tractFieldValues` call answers. */
+export const TRACT_READ_CHUNK = 1_000_000;
 export const TRACT_FULL_MAX_POINTS = 25_000_000;
 export const TRACT_DEFAULT_SEED = 1;
 

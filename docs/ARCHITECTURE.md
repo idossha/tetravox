@@ -45,7 +45,8 @@ virtual-dissection drawing, connectome computation), wasm64, wasm threads, two-f
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
 and *unattended* download-and-install stays a non-goal. **Tractography was narrowed on 2026-11-05**:
 *displaying, filtering, probing and field-mapping precomputed tractograms* is in scope, §4.3, §4.4, §6.3.1 and
-§7.4.1. No layout, file name or field name of any particular toolbox may be assumed.)
+§7.4.1. No layout, file name or field name of any particular toolbox may be assumed. Selecting streamlines by
+region and browsing a connectome are extensions on `scene.tracts`, §13.1, and stay out of the application.)
 
 **Native-only integration (2026-09-13).** The browser embed and postMessage contract are retired.
 External applications open local `.tetravox.json` files through the native executable; batch rendering
@@ -358,11 +359,14 @@ export interface TractogramDataset {
   streamlineFields: TractFieldInfo[];                  // dps: one value per streamline
   groups: TractGroupInfo[];                            // the file's own named groups (TRX `groups/`)
   samples: TractSampleSpec[];                          // every `sampleTracts` that produced a field, in order
-  generation: number;                                  // bumped when the worker's arrays are replaced
+  generation: number;                                  // bumped when the worker's arrays are replaced; only `samples` and attachments return
+  fieldRevision: number;                               // bumped when a field's values change in place
   notes: string[];                                     // non-fatal facts about placement, e.g. an assumed voxel order
   headerJson: string;
   worker: WorkerRef; handle: Handle;
 }
+
+export interface TractStructure { offsets: Uint32Array; sourceIndex: Uint32Array }  // offsets: held + 1 entries
 
 export type Dataset = VolumeDataset | MeshDataset | TractogramDataset;
 ```
@@ -592,7 +596,7 @@ export interface SurfaceLayer extends LayerBase {
 // fragments in those two modes only; `streamlineFilter` and `visibleGroups` hide whole streamlines in all.
 export interface TractsLayer extends LayerBase {
   kind: 'tracts';
-  colorMode: 'direction' | 'solid' | 'vertex' | 'streamline' | 'group';
+  colorMode: 'direction' | 'ends' | 'solid' | 'vertex' | 'streamline' | 'group';  // direction = local tangent; ends = |last − first|
   solidColor: vec4;
   field?: string;
   colormap: ColormapName | string; colormapNegative?: ColormapName | string;
@@ -600,6 +604,7 @@ export interface TractsLayer extends LayerBase {
   streamlineFilter?: { field: string; lo: number | null; hi: number | null };   // inclusive; null = open
   groupField?: string;                                  // a categorical dps; absent = the file's `groups`
   visibleGroups?: number[];                             // group ids; absent = all
+  keepField?: string;                                   // a dps: draw only where finite and > 0, on top of the filter; missing hides nothing
   lineWidthPx: number;                                  // CSS px; <= 1 is the LINE_STRIP fast path
   slabMm: number;                                       // half-thickness drawn in a 2D pane; 0 = not drawn
 }
@@ -1098,6 +1103,12 @@ export interface Engine {
                onProgress?: (done: number, total: number) => void): Promise<TractFieldInfo>;
   setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset>;
                                                 //   re-reads the file at that budget and replays `samples`
+  attachTractFile(datasetId: DatasetId, src: DatasetSource): Promise<TractFieldInfo[]>;  // §6.3.1; a sidecar in `ViewSpec`
+  tractStructure(datasetId: DatasetId): Promise<TractStructure>;
+  tractPoints(datasetId: DatasetId, first: number, count: number): Promise<Float32Array>;  // <= TRACT_READ_CHUNK
+  tractFieldValues(datasetId: DatasetId, kind: 'vertex' | 'streamline', name: string, first: number, count: number): Promise<Float32Array>;  // <= TRACT_READ_CHUNK
+  setTractStreamlineField(datasetId: DatasetId, field: { name: string; values: Float32Array; units?: string }): Promise<TractFieldInfo>;  // not saved
+  removeTractField(datasetId: DatasetId, kind: 'vertex' | 'streamline', name: string): Promise<void>;
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null;   // visible count + group rows; null until landed
   attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;   // 2026-09-06: §6.5.2's
                                                 //   `attachField` on that dataset's worker; grows `fields` /
@@ -2017,7 +2028,7 @@ impl Loader {
 pub fn tangents_into(positions: &[f32], offsets: &[u32], first: usize, out: &mut [f32]);   // central; one-sided at ends
 pub enum SampleOp { Value, Magnitude, Dot, AbsDot, AbsCross }
 pub fn reduce_vector(op: SampleOp, v: [f32; 3], t: [f32; 3]) -> f32;   // NaN in => NaN out
-pub fn sample_volume(v: &Volume, points: &[f32], tangents: Option<&[f32]>, frame: usize, op: SampleOp, basis: bool) -> Result<(Vec<f32>, u32)>;
+pub fn sample_volume(v: &Volume, points: &[f32], tangents: Option<&[f32]>, frame: usize, op: SampleOp, basis: TensorBasis) -> Result<(Vec<f32>, u32)>;
 pub fn sample_mesh(mesh: &Mesh, sampler: &TetSampler, points: &[f32], tangents: Option<&[f32]>, source: &str, name: &str, op: SampleOp) -> Result<(Vec<f32>, u32)>;
 pub struct GpuGeometry { pub vertices: Vec<u8>, pub streamline_ids: Vec<u32>, pub indices: Vec<u32>,
                          pub origin: [f32; 3], pub quantum: f32 }
@@ -2045,6 +2056,15 @@ pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
   dpv and dps, with nibabel's multi-value name encoding honoured. An all-zero or `[3][3] == 0` `vox_to_ras` is
   **refused**: such a file cannot be placed. An empty `voxel_order` assumes `LPS`, TrackVis's own default, and
   says so in `notes`.
+* **Sidecars** (`SidecarLoader`, 2026-11-06). Data a tractogram keeps beside itself, read forward and aligned through
+  `source_index`, so a budgeted copy takes only its own streamlines. A **`.tsf`** (`mrtrix track scalars`, the same
+  datatypes and delimiters as TCK) is one value per point; every held streamline's length is checked and the totals
+  must equal the file's, so one from another tractogram is refused, while a differing `timestamp` alone is a note. A
+  **`.txt`, `.csv` or `.tsv`** is per streamline: one row of S (`tcksift2`), S rows of one, or S rows of up to 64
+  columns (`tck2connectome -out_assignments`), with `#` comments and an optional header row. Rows of unequal length are
+  refused and pointed at `.tsf`. Names are the file's stem, `stem[c]` or the header's. Empty TCK streamlines are skipped
+  on both sides, so the two stay aligned. Only `.tsf` is routed from File ▸ Open; the others are too generic to claim,
+  and come through the panel's Attach file…. Testing them against the format's own writer: `testdata/mrtrix_small*`.
 * **Budget.** A streamline is kept when `fmix32(index ^ seed) < p · 2³²`, `p = min(1, max_points ÷ estimate)`, where
   `estimate` is an upper bound on the file's points (exact for TRX, derived from the length for TCK and TRK). So
   selection is **uniform and metric-neutral** (it reads no field and no length), **deterministic** for a seed, and
@@ -2142,6 +2162,13 @@ is present wherever an op can exceed one frame, and is called at section boundar
 #[wasm_bindgen] pub fn tract_style(handle: u32, spec_json: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn tract_probe(handle: u32, x: f32, y: f32, z: f32, radius_mm: f32, streamline: Option<u32>) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn tract_points(handle: u32, first: u32, count: u32, tangents: bool) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_attach_begin(handle: u32, name: &str) -> Result<u32, JsValue>;
+#[wasm_bindgen] pub fn tract_attach_push(handle: u32, stream: u32, chunk: &[u8]) -> Result<(), JsValue>;
+#[wasm_bindgen] pub fn tract_attach_finish(handle: u32, stream: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_structure(handle: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_field_values(handle: u32, kind: &str, name: &str, first: u32, count: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_set_field(handle: u32, name: &str, units: Option<String>, values: &[f32]) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_remove_field(handle: u32, kind: &str, name: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn tract_field_chunk(handle: u32, name: &str, units: Option<String>, first: u32, values: &[f32], done: bool) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn volume_sample(handle: u32, points: &[f32], tangents: Option<Vec<f32>>, volume_index: u32, op: &str, basis: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_sample(handle: u32, points: &[f32], tangents: Option<Vec<f32>>, source: &str, name: &str, op: &str) -> Result<JsValue, JsValue>;
@@ -2228,7 +2255,8 @@ export type OpName =
   | 'labelCentroids' | 'meshCentroids' | 'nearestVertex' | 'vertices' | 'sphereMap' | 'attachField'
   | 'free' | 'freeMask'                                            // 23 ops (`attachField` appended 2026-09-06)
   | 'loadTractogram' | 'tractGeometry' | 'tractScalar' | 'tractStyle' | 'tractProbe' | 'tractPoints'
-  | 'tractFieldChunk' | 'volumeSample' | 'meshSample';             // appended 2026-11-05: §6.3.1
+  | 'tractFieldChunk' | 'volumeSample' | 'meshSample'              // appended 2026-11-05: §6.3.1
+  | 'tractAttach' | 'tractStructure' | 'tractFieldValues' | 'tractSetField' | 'tractRemoveField';   // appended 2026-11-06
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -2374,10 +2402,15 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `loadTractogram` | `{ source: LoadSource; format: 'trx'\|'tck'\|'trk'; maxPoints: number \| null; seed }` | `{ meta: TractogramMeta }` | (2026-11-05) worker streams `source` through `tract_stream_*`; `.gz` and an unknown length cost one extra pass for the length. `maxPoints` null means `TRACT_FULL_MAX_POINTS`, chosen by the engine. Cancellation is `terminate()` |
 | `tractGeometry` | `{ handle }` | `{ vertices: Uint8Array; streamlineIds: Uint32Array; indices: Uint32Array; origin; quantum }` | §7.4.1's draw buffers |
 | `tractScalar` | `{ handle; kind: 'vertex' \| 'streamline'; name }` | `{ values: Uint16Array; lo; hi }` | one per **point** either way; `65535` = NaN, `lo`/`hi` the 0…65534 range |
-| `tractStyle` | `{ handle; spec: { filter?; groupField?; visibleGroups?; groupColors? } }` | `{ rgba: Uint8Array; visibleStreamlines: number; groups: { id; name; count; color }[] }` | 4/streamline: group colour plus visibility. The worker keeps the visibility for `tractProbe` |
+| `tractStyle` | `{ handle; spec: { filter?; groupField?; visibleGroups?; keepField?; ends? } }` | `{ rgba: Uint8Array; visibleStreamlines: number; groups: { id; name; count; color }[] }` | 4/streamline: group colour plus visibility. The worker keeps the visibility for `tractProbe` |
 | `tractProbe` | `{ handle; world; radiusMm; streamline? }` | `{ hit: { streamline; held; vertex; world; distanceMm; vertexFields; streamlineFields; groups } \| null }` | `streamline` restricts to the held streamline a pick named; otherwise the nearest visible point within `radiusMm`. Linear in points, latest-wins |
 | `tractPoints` | `{ handle; first; count; tangents }` | `{ positions: Float32Array; tangents?: Float32Array }` | §5 rule 2's relay, count ≤ `TRACT_SAMPLE_CHUNK` |
 | `tractFieldChunk` | `{ handle; name; units?; first; values /* donated */; done }` | `{ field?: TractFieldMeta }` | creates the field on `first: 0`, replaces one of that name; `done` computes the stats |
+| `tractAttach` | `{ handle; source }` | `{ kind: 'vertex' \| 'streamline'; fields: TractFieldMeta[]; notes: string[] }` | streams the file (`tract_attach_begin/push/finish`) |
+| `tractStructure` | `{ handle }` | `{ offsets: Uint32Array; sourceIndex: Uint32Array }` | |
+| `tractFieldValues` | `{ handle; kind; name; first; count }` | `{ values: Float32Array }` | |
+| `tractSetField` | `{ handle; name; units?; values /* donated */ }` | `{ field: TractFieldMeta }` | one value per held streamline |
+| `tractRemoveField` | `{ handle; kind; name }` | `{}` | a built-in stays |
 | `volumeSample` | `{ handle; points /* donated */; tangents? /* donated */; volumeIndex; op; basis }` | `{ values: Float32Array; outside: number }` | §6.3.1 |
 | `meshSample` | `{ handle; points /* donated */; tangents? /* donated */; source; name; op }` | `{ values: Float32Array; outside: number }` | §6.3.1. The first call builds the grid |
 | `free` | `{ handle }` | `{}` | the client then calls `worker.terminate()` |
@@ -3849,6 +3882,14 @@ extends is bounded.
   window is live and answers `false` to `ui.isActive()`. The gate is about who is on screen rather than about
   the picture — a capture reads whatever the user has open, including datasets this extension never loaded.
   Every §4.7 annotation is off except the convention badge, which §8 says is not optional.
+
+**`scene.tracts` — what a tract extension is built from** (appended 2026-11-06, additive at `hostApi: 1`).
+`structure`, `points` and `field` read a tractogram in chunks of at most `TRACT_READ_CHUNK`; `sample` is §6.3.1's;
+`setStreamlineField` and `removeField` write one value per held streamline, which colours, filters and groups like a
+file's own, and `TractsLayer.keepField` hides by it without taking the user's filter away. The platform never learns
+why a streamline was selected: regions, connectomes and statistics are an extension's (`docs/DECISIONS.md`). Such a
+field is not saved, so the recipe goes in the scene block, and `TractogramDataset.generation` says when to recompute.
+An extension running on a build without this member finds it undefined, and says which Tetravox it needs.
 
 **`scene.activePlane()` is the one view fact an extension is given** (appended 2026-08-30). It answers
 `{ normal, point }` for the active 2-D pane — the view's normal through the cursor, which is §7.5's own

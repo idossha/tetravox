@@ -49,6 +49,7 @@ const DEFAULT_SCREENSHOT_DEFAULTS: ScreenshotDefaults = {
 const ABSENT: TetravoxBridge = {
   openDialog: async () => [],
   openSurfaceDataDialog: async () => [],
+  openTractDataDialog: async () => [],
   getDroppedFilePath: () => '',
   allowPath: async () => null,
   startupPaths: async () => [],

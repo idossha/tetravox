@@ -55,6 +55,9 @@ describe('§6.4 wasm export surface', () => {
       'tract_stream_push',
       'tract_stream_end_pass',
       'tract_stream_finish',
+      // The same for `tractAttach`.
+      'tract_attach_push',
+      'tract_attach_finish',
       'initSync',
       'wasm_heap_bytes',
       'tvx_version',
