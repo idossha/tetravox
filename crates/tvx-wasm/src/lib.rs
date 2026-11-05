@@ -60,6 +60,7 @@ pub mod mesh;
 pub mod progress;
 pub mod stats;
 pub mod surface;
+pub mod tract;
 pub mod volume;
 
 use progress::JsProgress;
@@ -522,4 +523,105 @@ pub fn volume_tensor(
     max_3d: u32,
 ) -> Result<JsValue, JsValue> {
     volume::tensor(handle, order, basis, stride as usize, max_3d as usize).map_err(err::map)
+}
+
+// §6.3.1, §6.5.2 (2026-11-05): tractograms, and sampling onto them.
+
+#[wasm_bindgen]
+pub fn tract_stream_begin(
+    format: &str,
+    total_len: f64,
+    max_points: Option<f64>,
+    seed: u32,
+) -> Result<u32, JsValue> {
+    tract::stream_begin(format, total_len, max_points, seed).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_stream_push(stream: u32, chunk: &[u8]) -> Result<(), JsValue> {
+    tract::stream_push(stream, chunk).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_stream_end_pass(stream: u32) -> Result<bool, JsValue> {
+    tract::stream_end_pass(stream).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_stream_finish(stream: u32) -> Result<JsValue, JsValue> {
+    tract::stream_finish(stream).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_geometry(handle: u32) -> Result<JsValue, JsValue> {
+    tract::geometry(handle).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scalar(handle: u32, kind: &str, name: &str) -> Result<JsValue, JsValue> {
+    tract::scalar(handle, kind, name).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_style(handle: u32, spec_json: &str) -> Result<JsValue, JsValue> {
+    tract::style(handle, spec_json).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_probe(
+    handle: u32,
+    x: f32,
+    y: f32,
+    z: f32,
+    radius_mm: f32,
+    streamline: Option<u32>,
+) -> Result<JsValue, JsValue> {
+    tract::probe(handle, [x, y, z], radius_mm, streamline).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_points(
+    handle: u32,
+    first: u32,
+    count: u32,
+    tangents: bool,
+) -> Result<JsValue, JsValue> {
+    tract::points(handle, first, count, tangents).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_field_chunk(
+    handle: u32,
+    name: &str,
+    units: Option<String>,
+    first: u32,
+    values: &[f32],
+    done: bool,
+) -> Result<JsValue, JsValue> {
+    tract::field_chunk(handle, name, units, first, values, done).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn volume_sample(
+    handle: u32,
+    points: &[f32],
+    tangents: Option<Vec<f32>>,
+    volume_index: u32,
+    op: &str,
+    basis: &str,
+) -> Result<JsValue, JsValue> {
+    tract::volume_sample(handle, points, tangents.as_deref(), volume_index, op, basis)
+        .map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn mesh_sample(
+    handle: u32,
+    points: &[f32],
+    tangents: Option<Vec<f32>>,
+    source: &str,
+    name: &str,
+    op: &str,
+) -> Result<JsValue, JsValue> {
+    tract::mesh_sample(handle, points, tangents.as_deref(), source, name, op).map_err(err::map)
 }

@@ -343,7 +343,83 @@ export interface MeshDataset {
   handle: Handle;
 }
 
-export type Dataset = VolumeDataset | MeshDataset;
+/** §4.3 tractograms (2026-11-05). Bulk arrays stay in the worker, as a mesh's do. */
+export interface TractFieldInfo {
+  /** The file's own name, or `<source>:<field>:<op>` when sampled. */
+  name: string;
+  units?: string;
+  /** Finite samples only: a NaN is excluded from every statistic. */
+  stats: Stats;
+  /** Samples with no value, e.g. outside the sampled source. */
+  nanCount: number;
+  /** `length_mm`, computed at load; a file's own field of that name wins. */
+  builtin?: boolean;
+  /** dps only: integral with at most 4096 distinct values, offered as a group source. */
+  categorical?: boolean;
+  /** Came from `Engine.sampleTracts`, recorded in `TractogramDataset.samples`. */
+  sampled?: boolean;
+}
+
+export interface TractGroupInfo {
+  id: number;
+  name: string;
+  count: number;
+  color?: vec4;
+}
+
+/** `maxPoints: null` asks for `TRACT_FULL_MAX_POINTS` (§9.2). */
+export interface TractBudget {
+  maxPoints: number | null;
+  seed: number;
+}
+
+export interface TractSampleSpec {
+  tractogramId: DatasetId;
+  sourceId: DatasetId;
+  /** Mesh sources; absent for a volume. */
+  field?: { source: 'node' | 'elm'; name: string };
+  /** Scalar volumes; default 0. */
+  volumeIndex?: number;
+  /** Anything but `'value'` needs a 3-vector. */
+  op: 'value' | 'magnitude' | 'dot' | 'abs-dot' | 'abs-cross';
+  /** The frame a 3-frame volume's components are stored in, as for a tensor layer; default `'world'`. */
+  basis?: 'world' | 'voxel' | 'fsl';
+  /** Default `<source>:<field>:<op>`. */
+  name?: string;
+}
+
+export interface TractogramDataset {
+  kind: 'tractogram';
+  id: DatasetId;
+  name: string;
+  path?: string;
+  format: 'trx' | 'tck' | 'trk';
+  /** What this copy holds, after the budget. */
+  nStreamlines: number;
+  nPoints: number;
+  /** What the file holds. */
+  sourceStreamlines: number;
+  sourcePoints: number;
+  budget: TractBudget;
+  bounds: Aabb;
+  /** dpv: one value per point. */
+  vertexFields: TractFieldInfo[];
+  /** dps: one value per streamline. */
+  streamlineFields: TractFieldInfo[];
+  /** The file's own named groups (TRX `groups/`). */
+  groups: TractGroupInfo[];
+  /** Every `sampleTracts` that produced a field, in order. */
+  samples: TractSampleSpec[];
+  /** Bumped when the worker's arrays are replaced. */
+  generation: number;
+  /** Non-fatal facts about placement, e.g. an assumed voxel order. */
+  notes: string[];
+  headerJson: string;
+  worker: WorkerRef;
+  handle: Handle;
+}
+
+export type Dataset = VolumeDataset | MeshDataset | TractogramDataset;
 
 // **Mesh bulk arrays never reach the UI thread.** Nodes/tets/tris/fields stay in the dataset's
 // worker; the UI thread sees only draw-ready buffers (uploaded to GL, then dropped) and probe results.
@@ -933,7 +1009,34 @@ export interface SurfaceLayer extends LayerBase {
   contourColor: vec4;
 }
 
-export type Layer = VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer | SurfaceLayer;
+/**
+ * §7.4.1 (2026-11-05). `field` names a dpv for `'vertex'` and a dps for `'streamline'`. `threshold`
+ * gates fragments in those two modes only; `streamlineFilter` and `visibleGroups` hide whole
+ * streamlines in every mode.
+ */
+export interface TractsLayer extends LayerBase {
+  kind: 'tracts';
+  colorMode: 'direction' | 'solid' | 'vertex' | 'streamline' | 'group';
+  solidColor: vec4;
+  field?: string;
+  colormap: ColormapName | string;
+  colormapNegative?: ColormapName | string;
+  scale: Scale;
+  threshold: Threshold;
+  /** Inclusive; `null` is an open bound. */
+  streamlineFilter?: { field: string; lo: number | null; hi: number | null };
+  /** A categorical dps; absent = the file's `groups`. */
+  groupField?: string;
+  /** Group ids; absent = all. */
+  visibleGroups?: number[];
+  /** CSS px; at most 1 is the LINE_STRIP fast path. */
+  lineWidthPx: number;
+  /** Half-thickness drawn in a 2D pane; 0 = not drawn. */
+  slabMm: number;
+}
+
+export type Layer =
+  VolumeLayer | MeshLayer | IsosurfaceLayer | PointsLayer | SurfaceLayer | TractsLayer;
 
 // Layers are ordered bottom→top and appear in every view unless `SliceView.layerVisibility` /
 // `View3D.layerVisibility` says otherwise.
@@ -1147,7 +1250,7 @@ export interface SidecarRef {
 
 export interface DatasetRef {
   id: DatasetId;
-  kind: 'volume' | 'mesh';
+  kind: 'volume' | 'mesh' | 'tractogram';
   name: string;
   /** Relative to the scene file. */
   path: string;
@@ -1178,6 +1281,8 @@ export interface DatasetRef {
      */
     fields?: SidecarRef[];
   };
+  /** 2026-11-05, tractogram refs only; absent = defaults. `samples[].sourceId` names a `DatasetRef.id`. */
+  tract?: { maxPoints?: number | null; seed?: number; samples?: TractSampleSpec[] };
 }
 
 /**

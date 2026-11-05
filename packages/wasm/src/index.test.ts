@@ -51,6 +51,10 @@ describe('§6.4 wasm export surface', () => {
     // yet). They are listed one by one rather than matched by prefix, so a fourth unwired export is
     // still a failure.
     const notOpReachable = new Set([
+      // Driven by `loadTractogram` itself, chunk by chunk (§6.4); the op names `tract_stream_begin`.
+      'tract_stream_push',
+      'tract_stream_end_pass',
+      'tract_stream_finish',
       'initSync',
       'wasm_heap_bytes',
       'tvx_version',
@@ -79,7 +83,7 @@ describe('§6.5.2 loadMesh carries the parsed-view format', () => {
     // some fixed size: an unrelated feature may legitimately add one, and pinning the count here
     // made this a tripwire that fires on somebody else's work while saying nothing about this one.
     expect(OP_TO_EXPORT.loadMesh).toBe('load_mesh');
-    const geoOps = OP_NAMES.filter((op) => /geo|\.pos|parsedview/i.test(op));
+    const geoOps = OP_NAMES.filter((op) => /^geo|\.pos|parsedview/i.test(op));
     expect(geoOps, 'a parsed view is loaded through `loadMesh`, never its own op').toEqual([]);
   });
 

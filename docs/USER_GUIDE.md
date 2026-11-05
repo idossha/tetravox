@@ -31,7 +31,8 @@ it. The same list, with sizes and download links, is on the website's Sample dat
 
 Formats read: NIfTI-1/2 (`.nii`, `.nii.gz`, including 4D), Gmsh `.msh` v2.2 and v4.1, Gmsh parsed views
 (`.geo` / `.pos` — SimNIBS electrode nets), GIfTI (`.gii`, `.func.gii`, `.shape.gii`, `.label.gii`),
-FreeSurfer surfaces / `curv` / `.annot`, STL, PLY, OBJ.
+FreeSurfer surfaces / `curv` / `.annot`, STL, PLY, OBJ, and tractograms (`.trx`, `.tck`, `.trk`, see
+[Tractograms](#tractograms)).
 
 Sidecars beside a file are picked up automatically and matter more than they look:
 
@@ -205,6 +206,42 @@ it sweeps with the slice, with or without a volume loaded. See [Surfaces & annot
 for how surface meshes appear in the 2D panes.
 
 ![A mesh's cross-section in the slice panes, filled by its field with the tissue boundaries outlined](screenshots/2026-08-29/brain/brain-mesh-tdcs-magne-2x2.png)
+
+## Tractograms
+
+Open a precomputed tractogram like any other file: File ▸ Open, drag and drop, or the command line.
+Tetravox reads **TRX**, **MRtrix TCK** and **TrackVis TRK** from wherever they are, with no particular
+folder layout or field names, and draws them in world millimetres so they overlay any volume or mesh you
+have open. A TRK whose header has no usable `vox_to_ras` is refused, because its points have no known
+position. Tracking, editing streamlines and computing connectomes are out of scope; bring a tractogram
+made elsewhere.
+
+**Large files** open as a labelled subset: "displaying 48,300 of 200,000 streamlines". The subset is
+uniform and takes no notice of length or any field, and the same scene reopens to the same streamlines.
+**Load full** reads up to 25 million points, which is what the graphics memory budget allows; a larger file
+stays a labelled subset.
+
+**Colour** is by direction (red left-right, green front-back, blue up-down) until you choose otherwise:
+one solid colour, any per-vertex field, any per-streamline field, or a group. With a field you get the usual
+colormap, window and threshold. A threshold hides parts of a streamline.
+
+**Filter streamlines** hides whole streamlines by any per-streamline field, including `length_mm`, which is
+always available. **Groups** come from a TRX file's `groups/`, or from any whole-number per-streamline field
+such as a bundle id; each has a show box and an *only* button. **Width** is in pixels: 1 px is by far the
+fastest. **2D slab** sets how far from a slice a streamline still draws.
+
+**Sample onto tracts** makes a new per-vertex field from anything open: a NIfTI volume (trilinear, or the
+nearest voxel for a label volume), a 3-frame volume as a vector, or a tet mesh's element field (constant per tet) or node field (interpolated).
+For a vector, choose its magnitude, `v·t`, `|v·t|` or `|v×t|`, where `t` is the streamline's tangent. A
+3-frame volume does not record its frame, so for the `t` choices **Stored in** asks: *world* for MRtrix's
+`tensor2metric`, *FSL* for `dtifit`'s `V1`, whose x is flipped on most images and gives wrong numbers under
+*world*, or *voxel axes*. A point outside the source
+has no value: it draws neutral grey, is left out of every statistic, and the panel reports how many there
+were. Fields are named `source:field:op`, and a saved scene records the recipe, not the values, so it samples
+again when reopened.
+
+Double-click a streamline in the 3D pane, or put the cursor on one in any pane, to read the streamline's
+index in the file, the nearest vertex, every per-vertex and per-streamline value, and its groups.
 
 ## Surfaces & annotations
 

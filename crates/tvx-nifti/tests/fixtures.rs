@@ -796,3 +796,41 @@ fn malformed_other_formats_fail_by_name() {
     b[23] = 6;
     unsupported("mgh tensor", read_mgh(b, &mut NoProgress), "tensor");
 }
+
+/// §6.3.1: trilinear against scipy's `map_coordinates(order=1, mode='constant', cval=nan)`.
+#[test]
+fn volume_sampler_matches_scipy_on_a_rotated_affine() {
+    let m = common::manifest();
+    let s = &m["tracts"]["sample"];
+    let pts: Vec<f32> = s["points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap() as f32)
+        .collect();
+    let read = |name: &str| {
+        let bytes = std::fs::read(common::dir().join(name)).unwrap();
+        tvx_nifti::read_volume(bytes, None, &mut tvx_core::NoProgress).unwrap()
+    };
+    let close = |got: f32, want: &serde_json::Value, what: &str| match want.as_f64() {
+        Some(w) => assert!((f64::from(got) - w).abs() < 1e-5, "{what}: {got} vs {w}"),
+        None => assert!(got.is_nan(), "{what}: expected NaN, got {got}"),
+    };
+    let scalar = read("tract_sample_scalar.nii");
+    let sampler = tvx_nifti::VolumeSampler::new(&scalar).unwrap();
+    for (i, p) in pts.chunks_exact(3).enumerate() {
+        close(
+            sampler.scalar(0, [p[0], p[1], p[2]]),
+            &s["scalar"][i],
+            "scalar",
+        );
+    }
+    let vector = read("tract_sample_vector.nii");
+    let sampler = tvx_nifti::VolumeSampler::new(&vector).unwrap();
+    for (i, p) in pts.chunks_exact(3).enumerate() {
+        let v = sampler.vector([p[0], p[1], p[2]]);
+        for c in 0..3 {
+            close(v.map_or(f32::NAN, |d| d[c]), &s["vector"][c][i], "vector");
+        }
+    }
+}

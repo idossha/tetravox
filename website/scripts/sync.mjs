@@ -229,6 +229,7 @@ const GUIDE_PAGES = [
   { heading: 'Volume layers', slug: 'volume-layers' },
   { heading: 'Atlases & regions', slug: 'atlases-regions' },
   { heading: 'Meshes', slug: 'meshes' },
+  { heading: 'Tractograms', slug: 'tractograms' },
   { heading: 'Surfaces & annotations', slug: 'surfaces-annotations' },
   { heading: 'Isosurfaces', slug: 'isosurfaces' },
   { heading: 'Vector fields', slug: 'vector-fields' },

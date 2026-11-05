@@ -30,6 +30,9 @@ import type {
   Measurement,
   MeasurementId,
   MeshDataset,
+  TractFieldInfo,
+  TractogramDataset,
+  TractSampleSpec,
   QualityLevel,
   Scene,
   SliceView,
@@ -70,9 +73,14 @@ export interface PickResult {
    * `'slice'` from the layer kind; `'tri'` vs `'tet'` from payload bit 24, written by the shader
    * (§7.2.3).
    */
-  elementKind: 'tri' | 'tet' | 'slice';
+  elementKind: 'tri' | 'tet' | 'slice' | 'streamline';
   world: vec3;
   depth: number;
+}
+
+export interface TractStyleInfo {
+  visibleStreamlines: number;
+  groups: { id: number; name: string; count: number; color: [number, number, number] }[];
 }
 
 export interface ProbeRow {
@@ -91,6 +99,10 @@ export interface ProbeRow {
    * the dataset's). `label` may carry §4.4's `X_{sub}` markup.
    */
   fields?: { name: string; value: number | number[]; units?: string; label?: string }[];
+  /** Tracts: the index in the file (§7.4.1); `fields` holds the dpv. */
+  streamline?: number;
+  streamlineFields?: { name: string; value: number; units?: string }[];
+  groups?: string[];
 
   // -- surfaces: vertex identity (directed task 8; §3, `docs/DECISIONS.md` 2026-08-28) ----------
   /**
@@ -652,6 +664,15 @@ export interface Engine {
    * as a `DatasetRef.sidecars.fields` entry, so `serialize()` / `load()` bring it back.
    */
   attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;
+  /** §6.3.1: a new per-vertex field on a tractogram, sampled from any loaded dataset. */
+  sampleTracts(
+    spec: TractSampleSpec,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<TractFieldInfo>;
+  /** Re-reads the file at that budget and replays `samples`. `null` = `TRACT_FULL_MAX_POINTS`. */
+  setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset>;
+  /** What a tracts layer's last style left: visible count and group rows. `null` before it lands. */
+  tractStyleInfo(layerId: LayerId): TractStyleInfo | null;
 
   /**
    * §8's region panel: every label of a label-volume layer, with its voxel count and world centroid
@@ -914,6 +935,23 @@ export class MockEngine implements Engine {
     void datasetId;
     void src;
     throw new Error('phase 1');
+  }
+  sampleTracts(
+    spec: TractSampleSpec,
+    onProgress?: (done: number, total: number) => void
+  ): Promise<TractFieldInfo> {
+    void spec;
+    void onProgress;
+    throw new Error('phase 1');
+  }
+  setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset> {
+    void datasetId;
+    void maxPoints;
+    throw new Error('phase 1');
+  }
+  tractStyleInfo(layerId: LayerId): TractStyleInfo | null {
+    void layerId;
+    return null;
   }
   labelCentroids(layerId: LayerId): Promise<LabelCentroid[]> {
     void layerId;

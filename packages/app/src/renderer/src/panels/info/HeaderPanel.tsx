@@ -57,6 +57,21 @@ function headerValueText(value: unknown): string {
   return String(value);
 }
 
+/** A tractogram's census, then the file's own header fields. */
+function tractRows(dataset: Extract<Dataset, { kind: 'tractogram' }>): HeaderRow[] {
+  return [
+    { key: 'format', value: dataset.format },
+    { key: 'streamlines in file', value: dataset.sourceStreamlines.toLocaleString() },
+    { key: 'points in file', value: dataset.sourcePoints.toLocaleString() },
+    { key: 'streamlines held', value: dataset.nStreamlines.toLocaleString() },
+    { key: 'points held', value: dataset.nPoints.toLocaleString() },
+    { key: 'per vertex', value: dataset.vertexFields.map((f) => f.name).join(', ') || '—' },
+    { key: 'per streamline', value: dataset.streamlineFields.map((f) => f.name).join(', ') || '—' },
+    { key: 'groups', value: dataset.groups.map((g) => g.name).join(', ') || '—' },
+    { key: 'header', value: dataset.headerJson },
+  ];
+}
+
 /** The §4.3 census a mesh has instead of a header. */
 function meshRows(dataset: Extract<Dataset, { kind: 'mesh' }>): HeaderRow[] {
   const rows: HeaderRow[] = [
@@ -107,8 +122,10 @@ export function HeaderPanel(): React.JSX.Element {
 
   const rows = useMemo(() => {
     if (dataset === null) return [];
+    if (dataset.kind === 'tractogram') return tractRows(dataset);
     return dataset.kind === 'volume' ? headerRows(dataset.headerJson) : meshRows(dataset);
-  }, [dataset]);
+    // A tractogram's fields grow in place when one is sampled, so the object alone does not say.
+  }, [dataset, dataset?.kind === 'tractogram' ? dataset.vertexFields : null]);
 
   const needle = query.trim().toLowerCase();
   const shown =

@@ -5,6 +5,7 @@ members = [
     "crates/tvx-nifti",
     "crates/tvx-mesh-io",
     "crates/tvx-geom",
+    "crates/tvx-tract",
     "crates/tvx-wasm",
 ]
 
@@ -22,6 +23,7 @@ tvx-core = { path = "crates/tvx-core" }
 tvx-nifti = { path = "crates/tvx-nifti" }
 tvx-mesh-io = { path = "crates/tvx-mesh-io" }
 tvx-geom = { path = "crates/tvx-geom" }
+tvx-tract = { path = "crates/tvx-tract" }
 
 thiserror = "2.0"
 # gzip AND zlib inflate — GIfTI GZipBase64Binary is zlib (§6.2). Pure-Rust backend: no cc, wasm-clean.

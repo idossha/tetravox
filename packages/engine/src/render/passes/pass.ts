@@ -156,7 +156,7 @@ export interface PassContext {
   input: DrawInput;
 }
 
-export type PassName = 'slice' | 'mesh' | 'overlay' | 'pick' | 'derived';
+export type PassName = 'slice' | 'mesh' | 'overlay' | 'pick' | 'derived' | 'tracts';
 
 export interface Pass {
   readonly name: PassName;

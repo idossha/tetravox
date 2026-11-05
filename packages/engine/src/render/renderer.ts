@@ -26,6 +26,7 @@ import { MeshPass } from './passes/mesh';
 import { OverlayPass } from './passes/overlay';
 import { PickPass } from './passes/pick';
 import { SlicePass, sliceCamera } from './passes/slice';
+import { TractsPass } from './passes/tracts';
 import type { SliceQuad } from './passes/slice';
 import type { DrawInput, PassContext } from './passes/pass';
 import { isSliceView } from '../scene/store';
@@ -48,6 +49,7 @@ export class Renderer {
    * which §7.2 forbids. No existing entry moves.
    */
   readonly #derived: DerivedPass;
+  readonly #tracts: TractsPass;
   readonly #overlay: OverlayPass;
   readonly #pick: PickPass;
 
@@ -58,6 +60,7 @@ export class Renderer {
     this.#slice = new SlicePass(gl, this.#state);
     this.#mesh = new MeshPass(gl, this.#state);
     this.#derived = new DerivedPass(gl, this.#state);
+    this.#tracts = new TractsPass(gl, this.#state);
     this.#overlay = new OverlayPass(gl, this.#state);
     this.#pick = new PickPass(gl, this.#state);
   }
@@ -107,6 +110,8 @@ export class Renderer {
           for (const item of volumes) if (item.layer.id === layer.id) this.#slice.draw2D(ctx, item);
         } else if (layer.kind === 'mesh' || layer.kind === 'surface') {
           this.#derived.drawFill2D(ctx, layer.id);
+        } else if (layer.kind === 'tracts') {
+          this.#tracts.draw2D(ctx, layer.id);
         }
       }
       this.#derived.finish2D(ctx);
@@ -114,8 +119,10 @@ export class Renderer {
     } else {
       // §7.2's order. Each pass is a no-op in the pane kind it does not apply to.
       this.#slice.run(ctx);
+      this.#tracts.runOpaque(ctx);
       this.#mesh.run(ctx);
       this.#derived.run(ctx);
+      this.#tracts.runTranslucent(ctx);
       this.#overlay.run(ctx);
     }
 
@@ -169,6 +176,7 @@ export class Renderer {
     this.#derived.dispose();
     this.#overlay.dispose();
     this.#pick.dispose();
+    this.#tracts.dispose();
   }
 }
 

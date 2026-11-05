@@ -61,6 +61,21 @@ icon: build/icon.png
 # §8: registered by the installer. BIDS/SimNIBS neuroimaging inputs; `.nii.gz` is a compound
 # extension, which macOS treats as a distinct UTI and Linux as its own MIME type.
 fileAssociations:
+  - ext: trx
+    name: TRX tractogram
+    description: TRX tractogram
+    role: Viewer
+    rank: Alternate
+  - ext: tck
+    name: MRtrix tractogram
+    description: MRtrix TCK tractogram
+    role: Viewer
+    rank: Alternate
+  - ext: trk
+    name: TrackVis tractogram
+    description: TrackVis TRK tractogram
+    role: Viewer
+    rank: Alternate
   - ext: nii
     name: NIfTI volume
     description: NIfTI-1/2 volume

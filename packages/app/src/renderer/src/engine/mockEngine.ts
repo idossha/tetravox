@@ -63,6 +63,9 @@ import type {
   ScreenshotOptions,
   SliceView,
   TemplateSpace,
+  TractFieldInfo,
+  TractogramDataset,
+  TractSampleSpec,
   vec3,
   vec4,
   View,
@@ -1121,6 +1124,21 @@ export class NoGlEngine implements Engine {
    * The vertex-count refusal is modelled on the name too — a `rh.` file onto an `lh.` surface —
    * so the controller's candidate walk has something to walk past.
    */
+  /** The no-GL engine opens no tractogram, so there is nothing for these to act on (§8). */
+  sampleTracts(spec: TractSampleSpec): Promise<TractFieldInfo> {
+    void spec;
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  setTractBudget(datasetId: DatasetId): Promise<TractogramDataset> {
+    void datasetId;
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
+  tractStyleInfo(): null {
+    return null;
+  }
+
   async attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset> {
     const ds = this.state.datasets.get(datasetId);
     if (ds === undefined || ds.kind !== 'mesh') {

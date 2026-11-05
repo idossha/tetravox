@@ -5984,3 +5984,74 @@ bottom to the background (shifts dark tissue); a new exact zero-count statistic 
 signature change for what `p1`/`p5` already say). Evidence: `slice-clear.test.ts`,
 `slice-clear-background.spec.ts` (both §6.1 ladder rows, pick, `showIn3D`, golden),
 `slice-clear-background-realdata.spec.ts`, `props-volume.spec.ts`, `patches.test.ts`.
+
+## 2026-11-05 — Tractogram display enters the core; tractography stays out (§1, §4.3, §4.4, §6.3.1, §7.4.1)
+
+Requirement, from the user: "build it in a way that of course cater to the ti-toolbox but is not JUST for the
+ti-toolbox. meaning, other users coming with other file organizations should be able to load data and be able to show
+tracts and potentially map fields on those." So nothing here reads a folder layout, a file name or a field name, and
+TI-Toolbox is one caller among many.
+
+Decision: narrow the §1 non-goal to *displaying, filtering, probing and field-mapping precomputed tractograms*. Tracking,
+streamline editing or virtual-dissection drawing, and connectome computation remain non-goals. Formats are TRX, TCK and TRK;
+VTK and DSI Studio are deferred. A core dataset and layer kind rather than an extension, because §13's extensions own no
+dataset kind, no GPU pass and no worker op.
+
+**No new dependency.** TRX is a zip, and the reader is a small forward parser over the existing `flate2`: a zip crate would
+want the whole archive or random access, and the worker has neither for a file past wasm32's address space. `tvx-tract` is a
+new workspace crate of ours and adds no third-party code.
+
+**Push parsers rather than whole-file bytes**, the one departure from §5 rule 5's "copied into WASM once": a 1–10 M streamline
+file can exceed 4 GiB, so bytes pass through and only kept points are retained.
+
+**The subset is `fmix32(index ^ seed) < p`.** Alternatives rejected: reservoir sampling needs the count first and is not
+nested; every-Nth aliases with any ordering a tracker or a bundling tool wrote; length-weighted selection is a metric choice
+the viewer has no business making. Being nested means a larger budget only adds streamlines.
+
+**Sampling keeps §5 rule 2.** Rather than a utility worker, the UI thread relays bounded chunks between two workers, each op on
+one dataset, the `sphereMap` shape. This introduces the first donated op arguments, because the relay holds nothing afterwards.
+
+**Quantised vertices (18 B/point) rather than `f32`.** 12 B positions would put the 33 M point reference file at 800 MB against
+§9.2's 500. `i16` at 0.01 mm is 100× finer than any tracker's step. The design note's 16 B/point had no tangent, which direction
+RGB cannot do without.
+
+**A file that cannot be placed is refused**, so a TRK with no usable `vox_to_ras` is an error where nibabel warns and assumes
+identity: drawing tracts in the wrong place over someone's anatomy looks like a result. NaN from a sample is neutral and is
+excluded from every statistic and scale, so a streamline leaving a field cannot move the window. Sampled names are neutral,
+`<source>:<field>:<op>`, with no "recommended" labelling and no stimulation-specific maths.
+
+Capability: `"tractLayerProtocol": 1` in `packages/app/package.json`, read like `sceneApiProtocol`, so a host never sends a
+tractogram to a build that cannot show it. Deferred to `docs/ROADMAP.md`: ROI filtering through a loaded label volume, ribbons
+and pseudo-tubes, TRX export with sampled fields, VTK and DSI Studio readers, 3D clip planes on tracts.
+
+## 2026-11-05 — What measuring tractograms changed (§6.3.1, §7.4.1)
+
+The first draw took 424 ms per frame over 8 M points in a 2×2 layout on ANGLE/Metal, against 7 ms for a bare `LINE_STRIP` of that
+size. Primitive restart was the first suspect and was cleared (7.7 ms, against 4.7 ms for indexed `LINES` and 8.7 ms for
+`WEBGL_multi_draw`). `discard` was the second, and commit 0299f62 says it was the cause; **that message is wrong**. That commit also
+removed a `flat uint` varying, and isolating each on the same geometry gives: neither 7.3 ms, `discard` alone 7.9 ms, `flat` alone 102.9
+ms, both 103.7 ms. So `flat` lives only in the pick variant, whose cost is on demand, and the frame is now 11.9 ms. The 2D slab
+writes plane distance to clip-space z, which needs no varying and no extension. Rejected: indexed `LINES`, which would save 3 ms and
+cost 4 more bytes per point, the difference at the 25 M cap between fitting §9.2 and not.
+
+A sampled field does not carry a volume's `units`: they are `xyzt_units`, and `(mm)` on FA is wrong.
+
+One point in 348,789 of the reference TRX differs from its producer's stored value (|E·t| 0.0508 against 0.0382). It is 3e-8 in
+barycentric weight from a shared face. With `f64` nodes SimNIBS and the producer say one tet, and with this reader's `f32` nodes the
+point is in the neighbour. Both tets are right to within the rounding. Widening `Mesh::nodes` to `f64` would double a retained
+array that §9.2 budgets to the byte, for a field that is discontinuous across that face anyway, so the residual stands and is
+documented.
+
+## 2026-11-05 — What an audit before release changed (§6.3.1)
+
+An independent review of the tract code, run before cutting 0.8.0, found three wrong behaviours the reference comparisons had not reached, because each compared only the case they were built on.
+
+**A label volume was interpolated**, so a point between ids 3 and 42 read 22.5. It now reads the nearest voxel, the rule its display already follows.
+
+**A vector volume's frame was assumed to be world.** That is right for the MRtrix `v1.nii.gz` the references use and wrong for `dtifit`'s `V1`, where |v·t| can read 0 for a perfectly aligned streamline. The file does not record its frame, and guessing from a name is what §6.1 refused for tensors, so the user states it, through the same rule tensors use. The default stays `world`, so a scene without `basis` samples as before.
+
+**A TRX with `offsets` before `header.json` was refused**, against the reader's own claim that zip order is free. trx-python zips in `os.walk` order, so this depends on the filesystem that wrote the file. Offsets now defer like every other entry.
+
+Dropped entries (`dpg/`, `bit`), rounded integers, empty TCK streamlines and a wrong TCK `count` now reach `notes`, which the panel shows, so a file is never read differently from how it looks without saying so.
+
+The first CI run of that work then exposed a fourth, which the goldens had hidden. Building a new LUT unbinds the active texture unit, and the tract pass bound its style table first, so the first frame after a new colormap or scale drew only streamline 0 until something redrew. The goldens had been blessed from that frame, and the pixel assertions missed it because `readCanvasRect` redraws before it reads. A tract test now reads the drawing buffer as it stands.

@@ -49,7 +49,7 @@ import init, { CutOut } from '../pkg/tvx_wasm.js';
 import * as tvx from '../pkg/tvx_wasm.js';
 import type { Pool } from './dispatch';
 import { collectTransfers, grownPool, makePool, requiredFrom, toWorkerError } from './dispatch';
-import { ioError, loadSource } from './sources';
+import { ioError, loadSource, openStream, sourceName } from './sources';
 
 export { collectTransfers, makePool, requiredFrom, toWorkerError } from './dispatch';
 
@@ -109,6 +109,57 @@ function capsOf(caps: GpuCapsT): [boolean, boolean, number] {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Tractogram load: bytes pass through the §6.3.1 push parser and only kept points are retained.
+// ---------------------------------------------------------------------------------------------
+
+async function readAll(
+  source: OpArgs['loadTractogram']['source'],
+  onChunk: (chunk: Uint8Array) => void
+): Promise<number> {
+  const { stream } = await openStream(source);
+  const reader = stream.getReader();
+  let seen = 0;
+  for (;;) {
+    const step = await reader.read();
+    if (step.done) return seen;
+    seen += step.value.byteLength;
+    onChunk(step.value);
+  }
+}
+
+async function loadTractogram(
+  a: OpArgs['loadTractogram'],
+  read: (phase: Progress['phase'], done: number, total: number) => void
+): Promise<OpResult['loadTractogram']> {
+  // The budget and the fingerprint both need the length, so a stream that cannot state one pays
+  // one extra pass to count it.
+  const opened = await openStream(a.source);
+  let total = opened.length;
+  await opened.stream.cancel();
+  if (total === null) total = await readAll(a.source, () => {});
+
+  const stream = tvx.tract_stream_begin(a.format, total, a.maxPoints ?? undefined, a.seed);
+  let reported = 0;
+  for (;;) {
+    let done = 0;
+    await readAll(a.source, (chunk) => {
+      tvx.tract_stream_push(stream, chunk);
+      done += chunk.byteLength;
+      if (done - reported >= 4 << 20 || done === total) {
+        reported = done;
+        read('parse', done, total);
+      }
+    });
+    reported = 0;
+    if (!tvx.tract_stream_end_pass(stream)) break;
+  }
+  const result = tvx.tract_stream_finish(stream) as OpResult['loadTractogram'];
+  result.meta.name = sourceName(a.source);
+  result.meta.format = a.format;
+  return result;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------------------------
 
@@ -155,6 +206,43 @@ async function runOp<K extends OpName>(
       ) as OpResult['loadMesh'];
       (result.meta as MeshMeta).name = loaded.name;
       return result as OpResult[K];
+    }
+    case 'loadTractogram': {
+      const a = args as OpArgs['loadTractogram'];
+      return (await loadTractogram(a, read)) as OpResult[K];
+    }
+    case 'tractGeometry': {
+      const a = args as OpArgs['tractGeometry'];
+      return call(a.handle) as OpResult[K];
+    }
+    case 'tractScalar': {
+      const a = args as OpArgs['tractScalar'];
+      return call(a.handle, a.kind, a.name) as OpResult[K];
+    }
+    case 'tractStyle': {
+      const a = args as OpArgs['tractStyle'];
+      return call(a.handle, JSON.stringify(a.spec)) as OpResult[K];
+    }
+    case 'tractProbe': {
+      const a = args as OpArgs['tractProbe'];
+      const [x, y, z] = a.world;
+      return call(a.handle, x, y, z, a.radiusMm, a.streamline) as OpResult[K];
+    }
+    case 'tractPoints': {
+      const a = args as OpArgs['tractPoints'];
+      return call(a.handle, a.first, a.count, a.tangents) as OpResult[K];
+    }
+    case 'tractFieldChunk': {
+      const a = args as OpArgs['tractFieldChunk'];
+      return call(a.handle, a.name, a.units, a.first, a.values, a.done) as OpResult[K];
+    }
+    case 'volumeSample': {
+      const a = args as OpArgs['volumeSample'];
+      return call(a.handle, a.points, a.tangents, a.volumeIndex, a.op, a.basis) as OpResult[K];
+    }
+    case 'meshSample': {
+      const a = args as OpArgs['meshSample'];
+      return call(a.handle, a.points, a.tangents, a.source, a.name, a.op) as OpResult[K];
     }
     case 'attachField': {
       // The file is fetched here for the same reason `loadMesh`'s is: its bytes stay in this worker

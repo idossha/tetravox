@@ -57,6 +57,7 @@ mod mgh;
 mod nrrd;
 mod payload;
 mod read;
+mod sample;
 mod scan;
 mod stats;
 pub mod tensor;
@@ -66,6 +67,7 @@ pub use metaimage::read_metaimage;
 pub use mgh::read_mgh;
 pub use nrrd::read_nrrd;
 pub use read::read_nifti;
+pub use sample::VolumeSampler;
 
 use tvx_core::{FieldStats, NoProgress, Result};
 

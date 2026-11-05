@@ -526,6 +526,7 @@ export function defaultLayer(dataset: Dataset, layerId: LayerId): Layer {
       ...(hasBackgroundFill(dataset) ? { clearBackground: { enabled: true } } : {}),
     };
   }
+  if (dataset.kind === 'tractogram') throw new Error('the no-GL engine has no tractograms');
   if (dataset.nTets === 0 && dataset.hasTris) {
     return {
       ...base,

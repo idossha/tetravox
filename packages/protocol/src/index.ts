@@ -50,7 +50,17 @@ export type OpName =
   // read onto a surface that is already loaded (`docs/DECISIONS.md`).
   | 'attachField'
   | 'free'
-  | 'freeMask'; // 23 ops
+  | 'freeMask'
+  // Appended 2026-11-05: precomputed tractograms and sampling onto them (§6.3.1).
+  | 'loadTractogram'
+  | 'tractGeometry'
+  | 'tractScalar'
+  | 'tractStyle'
+  | 'tractProbe'
+  | 'tractPoints'
+  | 'tractFieldChunk'
+  | 'volumeSample'
+  | 'meshSample'; // 23 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -416,6 +426,57 @@ export interface GeoPayloadT {
   bounds: { min: [number, number, number]; max: [number, number, number] };
 }
 
+// §6.3.1 tractograms (2026-11-05).
+export type TractFormatSel = 'trx' | 'tck' | 'trk';
+export type TractSampleOpT = 'value' | 'magnitude' | 'dot' | 'abs-dot' | 'abs-cross';
+export interface TractFieldMeta {
+  name: string;
+  units?: string;
+  stats: StatsT;
+  nanCount: number;
+  builtin?: boolean;
+  categorical?: boolean;
+  sampled?: boolean;
+}
+export interface TractogramMeta {
+  handle: number;
+  name: string;
+  format: TractFormatSel;
+  fingerprint: string;
+  nStreamlines: number;
+  nPoints: number;
+  sourceStreamlines: number;
+  sourcePoints: number;
+  bounds: { min: [number, number, number]; max: [number, number, number] };
+  vertexFields: TractFieldMeta[];
+  streamlineFields: TractFieldMeta[];
+  groups: { id: number; name: string; count: number; color?: [number, number, number] }[];
+  notes: string[];
+  headerJson: string;
+}
+export interface TractStyleSpecT {
+  filter?: { field: string; lo: number | null; hi: number | null };
+  groupField?: string;
+  visibleGroups?: number[];
+}
+export interface TractGroupRowT {
+  id: number;
+  name: string;
+  count: number;
+  color: [number, number, number];
+}
+export interface TractProbeHitT {
+  /** Held index; `streamline` is the file's. */
+  held: number;
+  streamline: number;
+  vertex: number;
+  world: [number, number, number];
+  distanceMm: number;
+  vertexFields: { name: string; value: number; units?: string }[];
+  streamlineFields: { name: string; value: number; units?: string }[];
+  groups: string[];
+}
+
 export interface OpArgs {
   volumeTensor: {
     handle: number;
@@ -514,6 +575,51 @@ export interface OpArgs {
   meshCentroids: { handle: number; maskId?: number; stride: number; tags?: number[] };
   free: { handle: number };
   freeMask: { handle: number; maskId: number };
+  /** `maxPoints: null` keeps every point. The engine chooses the number (§9.2). */
+  loadTractogram: {
+    source: LoadSource;
+    format: TractFormatSel;
+    maxPoints: number | null;
+    seed: number;
+  };
+  tractGeometry: { handle: number };
+  tractScalar: { handle: number; kind: 'vertex' | 'streamline'; name: string };
+  tractStyle: { handle: number; spec: TractStyleSpecT };
+  /** `streamline` restricts to the held streamline a pick named (§7.4.1). */
+  tractProbe: {
+    handle: number;
+    world: [number, number, number];
+    radiusMm: number;
+    streamline?: number;
+  };
+  tractPoints: { handle: number; first: number; count: number; tangents: boolean };
+  /** `values` is donated (§5 rule 2). */
+  tractFieldChunk: {
+    handle: number;
+    name: string;
+    units?: string;
+    first: number;
+    values: Float32Array;
+    done: boolean;
+  };
+  /** `points` and `tangents` are donated (§5 rule 2). */
+  volumeSample: {
+    handle: number;
+    points: Float32Array;
+    tangents?: Float32Array;
+    volumeIndex: number;
+    op: TractSampleOpT;
+    basis: 'world' | 'voxel' | 'fsl';
+  };
+  /** `points` and `tangents` are donated (§5 rule 2). */
+  meshSample: {
+    handle: number;
+    points: Float32Array;
+    tangents?: Float32Array;
+    source: FieldSource;
+    name: string;
+    op: TractSampleOpT;
+  };
 }
 
 export interface OpResult {
@@ -586,6 +692,25 @@ export interface OpResult {
   free: Record<string, never>;
   /** Masks are also dropped when the mesh handle is freed. */
   freeMask: Record<string, never>;
+  loadTractogram: { meta: TractogramMeta };
+  /** §7.4.1's draw buffers. `vertices` is 8 bytes per point. */
+  tractGeometry: {
+    vertices: Uint8Array;
+    streamlineIds: Uint32Array;
+    indices: Uint32Array;
+    origin: [number, number, number];
+    quantum: number;
+  };
+  /** One per point either way; 65535 = NaN, and 0…65534 spans `lo…hi`. */
+  tractScalar: { values: Uint16Array; lo: number; hi: number };
+  /** 4 bytes per streamline: group rgb, alpha 255 when visible. */
+  tractStyle: { rgba: Uint8Array; visibleStreamlines: number; groups: TractGroupRowT[] };
+  tractProbe: { hit: TractProbeHitT | null };
+  tractPoints: { positions: Float32Array; tangents?: Float32Array };
+  /** `field` is present on the chunk with `done: true`. */
+  tractFieldChunk: { field?: TractFieldMeta };
+  volumeSample: { values: Float32Array; outside: number };
+  meshSample: { values: Float32Array; outside: number };
 }
 
 /**
@@ -617,6 +742,15 @@ export const OP_NAMES = [
   'attachField',
   'free',
   'freeMask',
+  'loadTractogram',
+  'tractGeometry',
+  'tractScalar',
+  'tractStyle',
+  'tractProbe',
+  'tractPoints',
+  'tractFieldChunk',
+  'volumeSample',
+  'meshSample',
 ] as const satisfies readonly OpName[];
 
 /**
@@ -648,6 +782,15 @@ export const OP_TO_EXPORT = {
   attachField: 'mesh_attach_field',
   free: 'free',
   freeMask: 'free_mask',
+  loadTractogram: 'tract_stream_begin',
+  tractGeometry: 'tract_geometry',
+  tractScalar: 'tract_scalar',
+  tractStyle: 'tract_style',
+  tractProbe: 'tract_probe',
+  tractPoints: 'tract_points',
+  tractFieldChunk: 'tract_field_chunk',
+  volumeSample: 'volume_sample',
+  meshSample: 'mesh_sample',
 } as const satisfies Record<OpName, string>;
 
 // ---------------------------------------------------------------------------------------------

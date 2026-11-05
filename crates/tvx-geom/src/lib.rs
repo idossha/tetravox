@@ -50,6 +50,7 @@ mod morton;
 mod normals;
 mod spheremap;
 mod surface;
+mod tet_sampler;
 mod util;
 mod voxel;
 
@@ -64,6 +65,7 @@ pub use morton::{build_tet_blocks, morton_reorder};
 pub use normals::{face_normals, orient_surface, vertex_normals};
 pub use spheremap::{nearest_vertex, sphere_map};
 pub use surface::{build_topology, extract_boundary, tag_surfaces};
+pub use tet_sampler::{TetHit, TetSampler};
 
 use tvx_core::Aabb;
 

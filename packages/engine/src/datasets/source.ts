@@ -7,7 +7,7 @@
  * tests and for a caller that already holds bytes — it is not the drop path (§8).
  */
 
-import type { LoadSource, MeshFormatSel } from '@tetravox/protocol';
+import type { LoadSource, MeshFormatSel, TractFormatSel } from '@tetravox/protocol';
 import type { DatasetSource } from '../api';
 
 /**
@@ -37,6 +37,12 @@ export function looksLikeGeoView(name: string): boolean {
 /** The `loadMesh` format for a file name: explicit for a parsed view, `'auto'` for everything else. */
 export function meshFormatFor(name: string): MeshFormatSel {
   return looksLikeGeoView(name) ? 'geo' : 'auto';
+}
+
+/** A tractogram by name (§6.3.1), or `null`. `.trk.gz` is common enough to be spelled. */
+export function tractFormatFor(name: string): TractFormatSel | null {
+  const m = /\.(trx|tck|trk)(\.gz)?$/i.exec(name);
+  return m === null ? null : ((m[1] ?? '').toLowerCase() as TractFormatSel);
 }
 
 export function sourceName(src: DatasetSource): string {

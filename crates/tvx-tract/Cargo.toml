@@ -1,0 +1,19 @@
+[package]
+name = "tvx-tract"
+description = "TRX, MRtrix TCK and TrackVis TRK push parsers, display budget and GPU packing (ARCHITECTURE.md §6.3.1)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tvx-core.workspace = true
+tvx-mesh-io.workspace = true
+tvx-nifti.workspace = true
+tvx-geom.workspace = true
+flate2.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

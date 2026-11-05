@@ -233,12 +233,19 @@ export function datasetRefs(scene: Scene, opts: SerializeOptions = {}): DatasetR
     const absPath = ds.path ?? '';
     const ref: DatasetRef = {
       id: ds.id,
-      kind: ds.kind === 'volume' ? 'volume' : 'mesh',
+      kind: ds.kind,
       name: ds.name,
       path: relativePath(dir, absPath),
       fingerprint: opts.fingerprints?.get(ds.id) ?? '',
     };
     if (absPath !== '') ref.absPath = absPath;
+    if (ds.kind === 'tractogram') {
+      ref.tract = {
+        maxPoints: ds.budget.maxPoints,
+        seed: ds.budget.seed,
+        ...(ds.samples.length === 0 ? {} : { samples: ds.samples }),
+      };
+    }
     const cars = opts.sidecars?.get(ds.id);
     if (cars !== undefined && absPath !== '') {
       const sidecars: NonNullable<DatasetRef['sidecars']> = {};
@@ -512,7 +519,8 @@ export function isRestorableKind(kind: Layer['kind']): boolean {
     kind === 'mesh' ||
     kind === 'iso' ||
     kind === 'points' ||
-    kind === 'surface'
+    kind === 'surface' ||
+    kind === 'tracts'
   );
 }
 

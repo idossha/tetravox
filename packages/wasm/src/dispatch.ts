@@ -66,6 +66,18 @@ export function collectTransfers(op: OpName, result: unknown): ArrayBuffer[] {
   return [...found];
 }
 
+/** §5 rule 2's donated arguments: the relay chunks of sampling, which the UI thread does not keep. */
+export function donatedBuffers(op: OpName, args: unknown): ArrayBuffer[] {
+  const a = args as { points?: Float32Array; tangents?: Float32Array; values?: Float32Array };
+  const arrays =
+    op === 'volumeSample' || op === 'meshSample'
+      ? [a.points, a.tangents]
+      : op === 'tractFieldChunk'
+        ? [a.values]
+        : [];
+  return arrays.flatMap((v) => (v?.buffer instanceof ArrayBuffer ? [v.buffer] : []));
+}
+
 /** The nine typed arrays a `CutOut` wraps. The pool is these; the wrapper is rebuilt per call. */
 export interface Pool {
   positions: Float32Array;

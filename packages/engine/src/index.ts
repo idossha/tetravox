@@ -7,6 +7,7 @@
 
 export * from './scene/types';
 export * from './api';
+export { tractFieldScale, TRACT_DEFAULT_MAX_POINTS, TRACT_FULL_MAX_POINTS } from './scene/defaults';
 export type { Capabilities } from './gl/caps';
 export { probeCapabilities } from './gl/caps';
 

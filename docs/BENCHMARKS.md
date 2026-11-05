@@ -93,6 +93,25 @@ the cut source drops the repeat, which is what keeps three panes from costing th
 Orbiting ernie's tag surfaces: plain 1.18 M-tri pass 2.32 ms, with the wireframe 2.24 ms.
 Six clip planes: `discard` 2.89 ms vs `gl_ClipDistance` 2.07 ms.
 
+## Tractograms — §9.1 rows 21–23
+
+`tracks_ifod2_200k.tck` (396 MB, 200,000 streamlines, 32.8 M points), offscreen on ANGLE/Metal, 1500 × 950, DPR 1.
+Reproduce with `tracts-screens.spec.ts` (`docs/TESTING.md`).
+
+| | Measured | Bar |
+|---|---|---|
+| Open FA + TCK at the default budget, to settled (held 7,911,744 points) | 1.8 s | < 8 s |
+| Orbit, 2×2 layout, 1 px, direction | 12.3 ms | ≤ 16 ms |
+| Orbit, per-vertex scalar | 12.5 ms | |
+| Orbit, per-vertex scalar + threshold | 12.5 ms | |
+| One pick, on demand | 107 ms | outside the frame budget (§7.2.3) |
+| `volumeSample` FA, whole held set | 352 ms | < 500 ms per M points |
+| Load full, with replay (24,757,968 points, 151,273 streamlines) | 3.2 s | |
+| Orbit at load full | 34.6 ms | not held to row 22 |
+
+Scale: a synthetic 4.58 GiB TCK of 10 M streamlines, past wasm32's address space, opened in 11.9 s with a 348 MB worker heap,
+holding 195,199 streamlines. `meshSample` on the CHN head: 0.89 s for 348,789 points native, including the mesh read and the grid.
+
 ## Responsiveness — §9.1 row 6
 
 | | Measured | Budget |

@@ -114,8 +114,8 @@ function volumeLayer(ds: VolumeDataset): Layer {
 
 describe('the layer registry', () => {
   it('covers every §4.4 layer kind, and each runtime reports its own', () => {
-    // R5 (2026-09-06): exactly these five, `surface` last.
-    expect([...LAYER_KINDS]).toEqual(['volume', 'mesh', 'iso', 'points', 'surface']);
+    // R5 (2026-09-06): these six, `tracts` last.
+    expect([...LAYER_KINDS]).toEqual(['volume', 'mesh', 'iso', 'points', 'surface', 'tracts']);
 
     const ds = volumeDataset();
     const volume = createLayerRuntime(volumeLayer(ds), ds, EMPTY_CONTEXT);
