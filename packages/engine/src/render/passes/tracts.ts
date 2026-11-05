@@ -25,6 +25,22 @@ export function tractThresholdMode(t: Threshold): 0 | 1 | 2 {
   return t.symmetric ? 2 : 1;
 }
 
+/** The program a draw needs (`shaders/tracts.ts`). */
+export function tractDefines(item: TractsDrawItem, pick: 0 | 1, slab: 0 | 1): ShaderDefines {
+  const scalar = usesScalar(item.layer) && item.gpu.hasScalar;
+  return {
+    TRACT_QUADS: item.layer.lineWidthPx > 1 ? 1 : 0,
+    TRACT_PICK: pick,
+    TRACT_SLAB: slab,
+    TRACT_SCALAR: scalar ? 1 : 0,
+    // A heat scale's LUT can carry alpha 0 and a `truncate` clip, so it gates like a threshold does.
+    TRACT_GATE:
+      scalar && (tractThresholdMode(item.layer.threshold) !== 0 || item.layer.scale.kind === 'heat')
+        ? 1
+        : 0,
+  };
+}
+
 export function usesScalar(layer: TractsLayer): boolean {
   return (
     (layer.colorMode === 'vertex' || layer.colorMode === 'streamline') && layer.field !== undefined
@@ -44,11 +60,9 @@ export function bindTractUniforms(
   prog.mat4('uViewProj', viewProj);
   prog.vec3('uOrigin', g.origin);
   prog.float('uQuantum', g.quantum);
-  const scalar = usesScalar(layer) && gpu.hasScalar;
   const waiting = usesScalar(layer) && !gpu.hasScalar;
-  const mode = scalar
-    ? TRACT_MODE.scalar
-    : layer.colorMode === 'direction'
+  const mode =
+    layer.colorMode === 'direction'
       ? TRACT_MODE.direction
       : layer.colorMode === 'group'
         ? TRACT_MODE.group
@@ -111,11 +125,6 @@ export class TractsPass implements Pass {
     this.#programs = new ProgramVariants(gl, TRACTS_VS, TRACTS_FS);
   }
 
-  #program(layer: TractsLayer): Program {
-    const quads = layer.lineWidthPx > 1 ? 1 : 0;
-    return this.#programs.get({ TRACT_QUADS: quads, TRACT_PICK: 0 } as unknown as ShaderDefines);
-  }
-
   #draw(
     ctx: PassContext,
     item: TractsDrawItem,
@@ -123,11 +132,13 @@ export class TractsPass implements Pass {
     slab: number
   ): void {
     const gl = this.#gl;
-    const prog = this.#program(item.layer);
+    const prog = this.#programs.get(tractDefines(item, 0, slab >= 0 ? 1 : 0));
     prog.use();
     bindTractUniforms(gl, prog, item, ctx.input, ctx.viewProj);
-    prog.vec4('uPlane', new Float32Array(plane));
-    prog.float('uSlab', slab);
+    if (slab >= 0) {
+      prog.vec4('uPlane', new Float32Array(plane));
+      prog.float('uSlab', slab);
+    }
     drawTractGeometry(gl, prog, item, ctx.rect, ctx.input.uiScale);
   }
 

@@ -33,7 +33,7 @@ import type { SliceQuad } from './slice';
 import { MESH_PICK_VS, PICK_FS, SLICE_PICK_GATED_FS, SLICE_PICK_VS } from '../../shaders';
 import { TRACTS_FS, TRACTS_VS } from '../../shaders/tracts';
 import type { TractsDrawItem } from '../../layers/runtime';
-import { bindTractUniforms, drawTractGeometry } from './tracts';
+import { bindTractUniforms, drawTractGeometry, tractDefines } from './tracts';
 import { invert4, transformPoint } from '../../view/m4';
 import { sliceBasis } from '../../view/geometry';
 import type { mat4, SliceView, View } from '../../scene/types';
@@ -236,12 +236,9 @@ export class PickPass implements Pass {
     rect: ViewportRect
   ): void {
     const gl = this.#gl;
-    const quads = item.layer.lineWidthPx > 1 ? 1 : 0;
-    const prog = this.#tracts.get({ TRACT_QUADS: quads, TRACT_PICK: 1 });
+    const prog = this.#tracts.get(tractDefines(item, 1, 0));
     prog.use();
     bindTractUniforms(gl, prog, item, input, viewProj);
-    prog.vec4('uPlane', new Float32Array(4));
-    prog.float('uSlab', -1);
     const loc = prog.loc('uLayerBits');
     if (loc !== null) gl.uniform1ui(loc, packId(layerIndex, 0, 0) >>> 0);
     this.#state.cull('none');

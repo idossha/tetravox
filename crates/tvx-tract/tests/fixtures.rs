@@ -430,4 +430,18 @@ fn real_tractograms_when_present() {
     assert_eq!(t.source_streamlines, 200_000);
     assert!((t.n_points() as u64) < 8_800_000);
     assert!(t.notes.is_empty(), "{:?}", t.notes);
+
+    let trx = root.join(
+        "project/derivatives/SimNIBS/sub-CHN/Simulations/thalamus/tract/thalamocortical_lh.trx",
+    );
+    let t = load_bytes(TractFormat::Trx, &std::fs::read(trx).unwrap(), ALL).unwrap();
+    assert_eq!((t.n_streamlines(), t.n_points()), (2624, 348_789));
+    assert!(t.vertex_fields.iter().any(|f| f.name == "ti_along"));
+    assert!(
+        t.streamline_fields
+            .iter()
+            .find(|f| f.name == "edge_id")
+            .unwrap()
+            .categorical
+    );
 }

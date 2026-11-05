@@ -748,7 +748,8 @@ export class TetravoxEngine implements Engine, PointerHost {
     const name = spec.name ?? tractSampleName(spec, source.name);
     const units =
       source.kind === 'volume'
-        ? source.units
+        ? // NIfTI's only units are `xyzt_units`: what a voxel's size is in, not what its value is in.
+          undefined
         : (this.#scene.layers.flatMap((l) =>
             l.kind === 'mesh' && l.datasetId === source.id
               ? [l.fields?.[spec.field?.name ?? '']?.units]

@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 tvx-core.workspace = true
 tvx-mesh-io.workspace = true
+tvx-nifti.workspace = true
+tvx-geom.workspace = true
 flate2.workspace = true
 serde_json.workspace = true
 

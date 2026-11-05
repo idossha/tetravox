@@ -112,7 +112,7 @@ test('a tractogram opens at world coordinates with its fields, and is a tracts l
   expect(got?.groups).toEqual(expect.arrayContaining([['left', 2]]));
 });
 
-test('axis-aligned direction RGB is pure R, G and B', async ({ page }) => {
+test('axis-aligned direction RGB is pure R, G and B @angle', async ({ page }) => {
   const { layerId } = await open(page, 'tract_f32_stored.trx', { lineWidthPx: 5 });
   await expectPixel(page, px(5), py(0), [255, 0, 0, 255]);
   await expectPixel(page, px(-3), py(3) + 0, BG);
@@ -134,14 +134,14 @@ test('a 1 px line is one pixel wide, and depth-tested', async ({ page }) => {
   expect(red).toBe(1);
 });
 
-test('lineWidthPx is measured in pixels across the line', async ({ page }) => {
+test('lineWidthPx is measured in pixels across the line @angle', async ({ page }) => {
   await open(page, 'tract_f32_stored.trx', { lineWidthPx: 7 });
   const col = await readCanvasRect(page, px(5), py(0) - 10, 1, 21);
   const red = [...col].filter((_, i) => i % 4 === 0 && col[i] === 255).length;
   expect(Math.abs(red - 7)).toBeLessThanOrEqual(1);
 });
 
-test('a vertex scalar shows colormap(u) along the line, interpolated between points', async ({
+test('a vertex scalar shows colormap(u) along the line, interpolated between points @angle', async ({
   page,
 }) => {
   await open(page, 'tract_f32_stored.trx', {
@@ -157,7 +157,7 @@ test('a vertex scalar shows colormap(u) along the line, interpolated between poi
   }
 });
 
-test('a thresholded segment is background, and a streamline scalar is one colour', async ({
+test('a thresholded segment is background, and a streamline scalar is one colour @angle', async ({
   page,
 }) => {
   const { layerId } = await open(page, 'tract_f32_stored.trx', {
@@ -182,7 +182,7 @@ test('a thresholded segment is background, and a streamline scalar is one colour
   await expectPixel(page, px(5), py(0), [128, 128, 128, 255], 2);
 });
 
-test('a filter and a hidden group remove whole streamlines, and the pick agrees', async ({
+test('a filter and a hidden group remove whole streamlines, and the pick agrees @angle', async ({
   page,
 }) => {
   const { layerId } = await open(page, 'tract_f32_stored.trx', { lineWidthPx: 5 });
@@ -236,7 +236,7 @@ test('a group colour is the table’s, and the same for the whole group', async 
   expect(a[2]).toBe(seven?.color[2]);
 });
 
-test('a 2D pane draws only what is inside the slab', async ({ page }) => {
+test('a 2D pane draws only what is inside the slab @angle', async ({ page }) => {
   const { layerId } = await open(page, 'tract_f32_stored.trx', { lineWidthPx: 5, slabMm: 0.5 });
   await page.evaluate(async () => {
     const engine = window.__tvxEngine!;
@@ -442,8 +442,9 @@ test('a scene with a tractogram, a volume and a sample step reproduces on reload
     async ([json, urls]) => {
       const engine = window.__tvxEngine!;
       const parsed = JSON.parse(json as string);
+      const [tract, volume] = urls as unknown as [string, string];
       await engine.load(parsed, (r: { kind: string }) =>
-        r.kind === 'tractogram' ? (urls as string[])[0]! : (urls as string[])[1]!
+        r.kind === 'tractogram' ? tract : volume
       );
       await engine.whenSettled();
       const ds = [...engine.scene.datasets.values()].find((d) => d.kind === 'tractogram');

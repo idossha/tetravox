@@ -5,9 +5,7 @@ use std::collections::BTreeMap;
 
 use tvx_core::{Error, Result};
 use tvx_geom::TetSampler;
-use tvx_tract::{
-    reduce_vector, LoadOptions, Loader, SampleOp, StyleSpec, TractField, TractFormat, Tractogram,
-};
+use tvx_tract::{LoadOptions, Loader, SampleOp, StyleSpec, TractField, TractFormat, Tractogram};
 use wasm_bindgen::prelude::*;
 
 use crate::handles::{self, Dataset, TractState};
@@ -336,21 +334,6 @@ fn op_of(op: &str) -> Result<SampleOp> {
     SampleOp::parse(op).ok_or_else(|| Error::Parse(format!("unknown sample op {op}")))
 }
 
-fn check_sizes(points: &[f32], tangents: Option<&[f32]>, op: SampleOp) -> Result<usize> {
-    if !points.len().is_multiple_of(3) {
-        return Err(Error::Parse(format!(
-            "{} floats is not whole xyz triples",
-            points.len()
-        )));
-    }
-    if op.needs_tangent() && tangents.map(<[f32]>::len) != Some(points.len()) {
-        return Err(Error::Parse(
-            "this sample op needs one tangent per point".into(),
-        ));
-    }
-    Ok(points.len() / 3)
-}
-
 fn result(values: Vec<f32>, outside: u32) -> JsValue {
     let o = jsv::obj();
     jsv::set(
@@ -371,43 +354,14 @@ pub fn volume_sample(
     basis: &str,
 ) -> Result<JsValue> {
     let op = op_of(op)?;
-    let n = check_sizes(points, tangents, op)?;
     let voxel_basis = match basis {
         "world" | "" => false,
         "voxel" => true,
         other => return Err(Error::Parse(format!("unknown vector basis {other}"))),
     };
     handles::with_volume(handle, |v| {
-        let s = tvx_nifti::VolumeSampler::new(v)?;
-        let mut values = vec![f32::NAN; n];
-        let mut outside = 0u32;
-        if op == SampleOp::Value {
-            if volume_index as usize >= v.nvols {
-                return Err(Error::Parse(format!(
-                    "volume index {volume_index} of a volume with {} frames",
-                    v.nvols
-                )));
-            }
-            for (i, p) in points.chunks_exact(3).enumerate() {
-                values[i] = s.scalar(volume_index as usize, [p[0], p[1], p[2]]);
-                outside += u32::from(values[i].is_nan());
-            }
-        } else {
-            if v.nvols != 3 {
-                return Err(Error::Parse(format!(
-                    "a vector op needs a 3-frame volume; this one has {}",
-                    v.nvols
-                )));
-            }
-            let zero = [0.0f32; 3];
-            for (i, p) in points.chunks_exact(3).enumerate() {
-                let t = tangents.map_or(zero, |t| [t[i * 3], t[i * 3 + 1], t[i * 3 + 2]]);
-                match s.vector([p[0], p[1], p[2]], voxel_basis) {
-                    Some(d) => values[i] = reduce_vector(op, d, t),
-                    None => outside += 1,
-                }
-            }
-        }
+        let (values, outside) =
+            tvx_tract::sample_volume(v, points, tangents, volume_index as usize, op, voxel_basis)?;
         Ok(result(values, outside))
     })
 }
@@ -421,75 +375,13 @@ pub fn mesh_sample(
     op: &str,
 ) -> Result<JsValue> {
     let op = op_of(op)?;
-    let n = check_sizes(points, tangents, op)?;
     handles::with_mesh_mut(handle, |m| {
-        if m.mesh.tets.is_empty() {
-            return Err(Error::Parse("this mesh has no tets to sample".into()));
-        }
         if m.sampler.is_none() {
             m.sampler = Some(TetSampler::new(&m.mesh));
         }
-        let mesh = &m.mesh;
         let sampler = m.sampler.as_ref().expect("built above");
-        enum Src<'a> {
-            Node(&'a [f32]),
-            Elm(&'a [f32]),
-        }
-        let (src, ncomp) = match source {
-            "node" => {
-                let f = mesh.node_fields.iter().find(|f| f.name == name);
-                let f = f.ok_or_else(|| Error::Parse(format!("no node field {name}")))?;
-                (Src::Node(&f.data), f.ncomp)
-            }
-            "elm" => {
-                let f = mesh.elm_fields.iter().find(|f| f.name == name);
-                let f = f.ok_or_else(|| Error::Parse(format!("no element field {name}")))?;
-                (Src::Elm(&f.tet), f.ncomp)
-            }
-            other => return Err(Error::Parse(format!("unknown field source {other}"))),
-        };
-        match (op, ncomp) {
-            (SampleOp::Value, 1) => {}
-            (SampleOp::Value, c) => {
-                return Err(Error::Parse(format!(
-                    "{name} has {c} components: choose a vector op, not value"
-                )));
-            }
-            (_, 3) => {}
-            (_, c) => {
-                return Err(Error::Parse(format!(
-                    "a vector op needs a 3-component field; {name} has {c}"
-                )));
-            }
-        }
-        let mut values = vec![f32::NAN; n];
-        let mut outside = 0u32;
-        let mut hint = None;
-        let mut comp = [0.0f32; 3];
-        for (i, p) in points.chunks_exact(3).enumerate() {
-            let Some(hit) = sampler.locate(mesh, [p[0], p[1], p[2]], &mut hint) else {
-                outside += 1;
-                continue;
-            };
-            let tet = mesh.tets[hit.tet as usize];
-            for (c, slot) in comp.iter_mut().enumerate().take(ncomp) {
-                *slot = match src {
-                    Src::Elm(d) => d
-                        .get(hit.tet as usize * ncomp + c)
-                        .copied()
-                        .unwrap_or(f32::NAN),
-                    Src::Node(d) => (0..4)
-                        .map(|k| hit.weights[k] * d[tet[k] as usize * ncomp + c])
-                        .sum(),
-                };
-            }
-            values[i] = if ncomp == 1 {
-                comp[0]
-            } else {
-                let t = tangents.map_or([0.0; 3], |t| [t[i * 3], t[i * 3 + 1], t[i * 3 + 2]]);
-                reduce_vector(op, comp, t)
-            };
-        }
+        let (values, outside) =
+            tvx_tract::sample_mesh(&m.mesh, sampler, points, tangents, source, name, op)?;
         Ok(result(values, outside))
     })
 }

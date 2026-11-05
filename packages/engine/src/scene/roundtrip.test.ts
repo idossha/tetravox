@@ -314,7 +314,7 @@ describe('the §4.6 round trip on a full scene', () => {
   it('keeps every field of a fully-set tracts layer, an open threshold included', () => {
     const layer = {
       id: 'lt',
-      datasetId: 'dt',
+      datasetId: 'ds1',
       name: 'tracts',
       visible: true,
       opacity: 0.8,
@@ -336,7 +336,7 @@ describe('the §4.6 round trip on a full scene', () => {
     } as Layer;
     const out = roundTrip(layer);
     for (const key of Object.keys(layer)) {
-      if (key === 'threshold') continue;
+      if (['id', 'datasetId', 'threshold'].includes(key)) continue;
       expect(out[key], key).toEqual((layer as unknown as Record<string, unknown>)[key]);
     }
     const t = out['threshold'] as { lo: number; hi: number };

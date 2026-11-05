@@ -5,6 +5,7 @@
 mod builder;
 mod gpu;
 mod query;
+mod sample;
 mod tck;
 mod trk;
 mod trx;
@@ -15,6 +16,7 @@ pub use gpu::{gpu_geometry, tangents_into, GpuGeometry};
 pub use query::{
     probe, scalar_u16, style, write_field_chunk, GroupRow, ProbeHit, ScalarU16, Style, StyleSpec,
 };
+pub use sample::{sample_mesh, sample_volume};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TractFormat {
