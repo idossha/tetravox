@@ -1,7 +1,7 @@
 {
   "$comment": "The extensions catalogue: what File ▸ Extensions… offers. This is the copy the build ships, so the dialog is correct offline; the live index lives in `idossha/tetravox-extensions` and a release refreshes this file. Files are content-addressed — `url` is the file's own sha256 on the module repository's release, the same SlicerDataStore layout `sample-catalog.json` uses — and `packages/app/src/main/module-store.ts` refuses a mismatch. `permissions` is a redundant copy of what the manifest implies, so a card can be drawn without downloading anything; the consent sheet always shows the *installed* manifest's derived list.",
   "schema": 1,
-  "generated": "2026-09-04T05:16:03.383Z",
+  "generated": "2026-11-06T21:21:09.910Z",
   "modules": [
     {
       "id": "tetravox.seeg",
@@ -319,6 +319,83 @@
             "Write {stem}_editlog.json beside the file you save",
             "Bind the keys Delete, Shift+s, Shift+z, a, d, g, n, p, s, t, z while it is active",
             "Run from a job file: delete, export-qc, extend, flip-tip, ghost, load, renumber, revert, save, size, snap, stats, wire",
+            "Store its own data inside a saved scene"
+          ]
+        },
+        {
+          "version": "0.2.3",
+          "tag": "v0.2.3",
+          "hostApi": 1,
+          "published": "2026-11-06",
+          "files": [
+            {
+              "name": "index.js",
+              "bytes": 338333,
+              "sha256": "ad3aabfe16bafb05be693a83227e81c36599217cd23db9d223dab4e0e51df2c7",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.3/ad3aabfe16bafb05be693a83227e81c36599217cd23db9d223dab4e0e51df2c7"
+            },
+            {
+              "name": "manifest.json",
+              "bytes": 6132,
+              "sha256": "8dc1a8e0556213811289332397e3862cba065e907cda0da4d8c755371a8f3190",
+              "url": "https://github.com/idossha/tetravox-seeg/releases/download/v0.2.3/8dc1a8e0556213811289332397e3862cba065e907cda0da4d8c755371a8f3190"
+            }
+          ],
+          "permissions": [
+            "Read .csv, .fcsv, .tsv files you choose",
+            "Discover and read files named near a file you open",
+            "Write .pdf, .tsv files you name in a Save sheet",
+            "Write sub-{id}_desc-implant3d_qc.pdf beside the file you save",
+            "Write sub-{id}_desc-implant3d_qc.png beside the file you save",
+            "Write sub-{id}_desc-reslice_qc.png beside the file you save",
+            "Write derivatives/tetravox/dataset_description.json in the dataset's derivatives folder",
+            "Write {name}.{stamp}.bak beside the file you save",
+            "Write {stem}-implant3d.pdf beside the file you save",
+            "Write {stem}-implant3d.png beside the file you save",
+            "Write {stem}.png beside the file you save",
+            "Write {stem}_editlog.json beside the file you save",
+            "Bind the keys Delete, Shift+s, Shift+z, a, d, g, n, p, s, t, z while it is active",
+            "Run from a job file: delete, export-qc, extend, flip-tip, ghost, load, renumber, revert, save, size, snap, stats, wire",
+            "Store its own data inside a saved scene"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tetravox.tract-tools",
+      "title": "Tract tools",
+      "summary": "Choose a network between regions of a tractogram, see its connectivity matrix and tables, and export plain files. Every number covers every streamline in the file.",
+      "description": "Open a tractogram and an atlas, then choose connections From some regions To others, in a searchable table or by clicking the matrix. Matrices by streamline count, mean length, total weight or the mean of a value, with values sampled along streamlines from any open image. Exports matrices, tables, a figure, MRtrix .tck files and a methods note to one folder. Counts agree with MRtrix tck2connectome and tckedit. Needs Tetravox 0.8.1 or later.",
+      "repo": "https://github.com/idossha/tetravox-tract-tools",
+      "author": "idossha",
+      "licence": "MIT",
+      "docs": "https://github.com/idossha/tetravox-tract-tools#readme",
+      "screenshots": ["tract-tools-network.png"],
+      "versions": [
+        {
+          "version": "0.1.0",
+          "tag": "v0.1.0",
+          "hostApi": 1,
+          "published": "2026-11-06",
+          "files": [
+            {
+              "name": "index.js",
+              "bytes": 170278,
+              "sha256": "17879a8ef85d38f4921636564500a33ca5f066932168b65ed01bb4194eb8896d",
+              "url": "https://github.com/idossha/tetravox-tract-tools/releases/download/v0.1.0/17879a8ef85d38f4921636564500a33ca5f066932168b65ed01bb4194eb8896d"
+            },
+            {
+              "name": "manifest.json",
+              "bytes": 5116,
+              "sha256": "b156178580dce860a89ca48ecdd334f12afcf6ae27d43455a9497d968e647020",
+              "url": "https://github.com/idossha/tetravox-tract-tools/releases/download/v0.1.0/b156178580dce860a89ca48ecdd334f12afcf6ae27d43455a9497d968e647020"
+            }
+          ],
+          "permissions": [
+            "Read .csv, .gz, .mgh, .mgz, .nii, .tsf, .tsv, .txt files you choose",
+            "Write .csv, .txt files you name in a Save sheet",
+            "Write .csv, .json, .png, .svg, .tck, .txt files of its own naming into a folder you choose",
+            "Run from a job file: add-connection, add-region, add-sphere, apply-tract, attach, clear, clear-edge, connectome, delete-tract, export-file, export-matrix, export-selection, load-names, open-roi, remove-rule, rename-tract, save-tract, select-edge, set-length, set-value, set-weights, stats",
             "Store its own data inside a saved scene"
           ]
         }

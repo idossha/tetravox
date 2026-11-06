@@ -224,32 +224,34 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     await expect(page.locator('[data-testid="seeg-banner"]')).toContainText('2026-08-14');
   });
 
-  test('the contact list shows a status, an off-plane distance and a tip marker', async () => {
+  test('the contact list shows a status, the distance from the previous contact and a tip marker', async () => {
     await expect(page.locator('[data-testid="seeg-list"] > li')).toHaveCount(6);
     const row = page.locator('[data-testid="seeg-row-A01"]');
     await expect(row).toHaveAttribute('data-status', 'located');
-    await expect(row).toContainText('mm');
+    // The first contact has no previous one; the column has been this 3-D distance since 0.2.0.
+    await expect(row).toContainText('—');
     // The tip marker names one contact of the electrode, and only one.
     await expect(page.locator('[data-testid="seeg-tip"]')).toHaveText(/^A0\d$/);
     await expect(page.locator('[data-testid="seeg-stats"]')).toContainText('rms');
   });
 
-  test('a jump puts the crosshair on the contact, and its own off-plane distance is zero', async () => {
+  test('a jump puts the crosshair on the contact, and its row states the 3-D distance from the last', async () => {
     await page.click('[data-testid="seeg-jump-A04"]');
     const cursor = await page.evaluate(() => window.__tetravox?.store.getState().cursor);
-    const contact = await page.evaluate((id) => {
+    const named = await page.evaluate((id) => {
       const layer = (window.__tetravox?.store.getState().layers ?? []).find((l) => l.module === id);
       const points = (layer as unknown as { points: { name?: string; position: number[] }[] })
         .points;
-      return points.find((p) => p.name === 'A04')?.position ?? null;
+      return {
+        a03: points.find((p) => p.name === 'A03')?.position ?? null,
+        a04: points.find((p) => p.name === 'A04')?.position ?? null,
+      };
     }, SEEG);
-    expect(cursor).toEqual(contact);
-
-    // §13.1's `activePlane`: the column is the distance from the plane the active pane is showing,
-    // which passes through the crosshair — so the contact the crosshair is now on reads 0.0 mm, and
-    // the ones further along an oblique shaft do not.
-    await expect(page.locator('[data-testid="seeg-row-A04"]')).toContainText('0.0 mm');
-    await expect(page.locator('[data-testid="seeg-row-A01"]')).not.toContainText('0.0 mm');
+    expect(cursor).toEqual(named.a04);
+    const gap = Math.hypot(...named.a04!.map((v, i) => v - named.a03![i]!));
+    await expect(page.locator('[data-testid="seeg-row-A04"]')).toContainText(
+      `${gap.toFixed(1)} mm`
+    );
   });
 
   test('the selected contact is marked in the list and in the shaft sketch', async () => {
@@ -417,7 +419,7 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     expect(await mode()).toBe('select');
   });
 
-  test('a drag is one undo step, and a re-fit straightens the shaft', async () => {
+  test('a drag is one undo step', async () => {
     const id = await layerId(page);
     await page.evaluate((layer) => {
       const engine = window.__tetravox?.engine as unknown as {
@@ -435,8 +437,18 @@ test.describe('the sEEG contact editor (stand-in engine, real files)', () => {
     }, id);
     await expect(page.locator('[data-testid="module-dirty"]')).toBeVisible();
 
-    await page.click('[data-testid="seeg-refit"]');
-    await expect(page.locator('[data-testid="seeg-stats"]')).toContainText('rms 0.0 mm');
+    const positions = (): Promise<number[][]> =>
+      page.evaluate((layer) => {
+        const found = window.__tetravox?.store.getState().layers.find((l) => l.id === layer);
+        return (found as unknown as { points: { position: number[] }[] }).points.map(
+          (p) => p.position
+        );
+      }, id);
+    const dragged = await positions();
+    await page.click('[data-testid="seeg-undo"]');
+    await expect.poll(positions).not.toEqual(dragged);
+    await page.click('[data-testid="seeg-redo"]');
+    await expect.poll(positions).toEqual(dragged);
   });
 
   test('clicking a contact moves the electrode dropdown, with nothing armed by hand', async () => {

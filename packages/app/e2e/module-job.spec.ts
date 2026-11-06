@@ -516,8 +516,9 @@ test.describe('a module that writes, from a job', () => {
     };
     expect(result.reslice.ok, result.reslice.detail).toBe(true);
     expect(result.implant3d.ok, result.implant3d.detail).toBe(true);
-    // Three electrodes in the fixture, one page each.
-    expect(result.reslice.detail).toContain('3 pages');
+    // Three electrodes in the fixture, one tile each on a single sheet, and a PNG of it beside the PDF.
+    expect(result.reslice.detail).toContain('3 electrodes');
+    expect(result.reslice.detail).toContain('sub-P076_desc-reslice_qc.png');
 
     for (const path of [reslice, implant]) {
       const bytes = readFileSync(path);
@@ -541,7 +542,9 @@ test.describe('a module that writes, from a job', () => {
     expect(readdirSync(outcome.outDir).sort()).toEqual([
       'job-result.json',
       'sub-P076_desc-implant3d_qc.pdf',
+      'sub-P076_desc-implant3d_qc.png',
       'sub-P076_desc-reslice_qc.pdf',
+      'sub-P076_desc-reslice_qc.png',
     ]);
   });
 
