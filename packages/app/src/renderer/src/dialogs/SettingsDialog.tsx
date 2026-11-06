@@ -32,6 +32,8 @@ export interface SettingsDialogProps {
   /** What `themeChoice` resolves to right now — `theme-group`'s `data-theme-resolved` (§8). */
   theme: ThemeName;
   onThemeChoice(choice: ThemeChoice): void;
+  oneLayerOpen: boolean;
+  onOneLayerOpen(on: boolean): void;
 
   // -- Capture --
   screenshotDefaults: ScreenshotDefaults;
@@ -75,6 +77,8 @@ export function SettingsDialog({
   themeChoice,
   theme,
   onThemeChoice,
+  oneLayerOpen,
+  onOneLayerOpen,
   screenshotDefaults,
   onScreenshotDefaults,
   subjectsDir,
@@ -169,6 +173,20 @@ export function SettingsDialog({
           <p className="text-[10px] leading-relaxed text-tvx-dim">
             System follows the operating system’s light/dark setting; the other two pin it.
           </p>
+          <span className="mt-2 text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">
+            Layer panel
+          </span>
+          <Field
+            label="Show one layer at a time"
+            hint="Opening a layer closes the others, so the list stays short"
+          >
+            <input
+              type="checkbox"
+              data-testid="settings-one-layer-open"
+              checked={oneLayerOpen}
+              onChange={(e) => onOneLayerOpen(e.currentTarget.checked)}
+            />
+          </Field>
         </div>
       )}
 

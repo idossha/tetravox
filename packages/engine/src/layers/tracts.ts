@@ -32,6 +32,9 @@ export const TRACT_PROBE_RADIUS_MM = 2;
 const PICKED_RADIUS_MM = 1000;
 
 /** The worker's view of a layer's style: changing anything else must not re-run it. */
+/** `TractogramDataset.handle` between a budget change's free and its new copy: nothing to ask. */
+export const TRACT_RELOADING = -1;
+
 export function tractStyleSpec(layer: TractsLayer): TractStyleSpecT {
   const spec: TractStyleSpecT = {};
   if (layer.streamlineFilter !== undefined) spec.filter = layer.streamlineFilter;
@@ -109,6 +112,7 @@ export class TractsLayerRuntime implements LayerRuntime {
   #sync(): void {
     const ds = this.#ds;
     if (ds === null || this.#disposed) return;
+    if (ds.handle === TRACT_RELOADING) return;
     if (this.#generation !== ds.generation) {
       if (this.#geometryPending) return;
       this.#loadGeometry(ds);
@@ -233,6 +237,7 @@ export class TractsLayerRuntime implements LayerRuntime {
     const ds = this.#ds;
     const client = this.#ctx.client(this.datasetId);
     if (ds === null || client === undefined || this.#generation !== ds.generation) return;
+    if (ds.handle === TRACT_RELOADING) return;
     const p = this.#picked;
     const picked = p !== null && dist(p.world, world) < 1e-4 ? p.held : undefined;
     void this.#ctx

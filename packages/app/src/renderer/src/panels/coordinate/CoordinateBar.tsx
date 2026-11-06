@@ -37,7 +37,10 @@ function Readout({ options }: { options: CoordSpaceOption[] }): React.JSX.Elemen
         const value = option.enabled ? controller.coordInSpace(option.ref) : null;
         return (
           <div key={spaceKey(option.ref)} className="flex items-baseline gap-1.5">
-            <span className="min-w-[8.5rem] shrink-0 text-[10px] uppercase tracking-wider text-tvx-dim">
+            <span
+              title={option.label}
+              className="min-w-0 flex-1 truncate text-[10px] uppercase tracking-wider text-tvx-dim"
+            >
               {option.label}
             </span>
             <span
@@ -45,7 +48,7 @@ function Readout({ options }: { options: CoordSpaceOption[] }): React.JSX.Elemen
               data-space={option.ref.space}
               title={option.reason}
               className={
-                'truncate font-mono text-[11px] ' +
+                'max-w-[60%] shrink-0 truncate font-mono text-[11px] ' +
                 (value === null ? 'text-tvx-dim/60' : 'text-tvx-text')
               }
             >

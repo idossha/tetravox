@@ -174,7 +174,15 @@ export interface VolumeDataset {
   labelIds?: Uint32Array;
   /** id -> dense index (0..labelIds.length-1), present iff `isLabel`. */
   denseIndexOf?: Uint32Array;
+  /**
+   * §7.6's names, in precedence order: a lookup file, the built-in FreeSurfer table when
+   * `assumedLabelTable` holds it, else absent (numbers).
+   */
   labelTable?: LabelTable;
+  /** Present iff no file named the ids and they pass §7.6's safety test. Absent: nothing assumed. */
+  assumedLabelTable?: LabelTable;
+  /** The base name of the lookup file behind `labelTable`. Absent: none, or not known to be a file. */
+  labelTableFile?: string;
   stats: Stats;
   units?: string;
   /** GPU *description*; the `WebGLTexture` lives in engine-private `GpuResources`. */
@@ -389,6 +397,25 @@ export interface TractSampleSpec {
 }
 
 /** `offsets` has one more entry than held streamlines; `sourceIndex` is each one's index in the file. */
+/** §6.3.1: one piece of `Engine.tractScan`, whole streamlines in file order. */
+export interface TractScanChunk {
+  /** File index of this chunk's first streamline. Chunks arrive in file order with no gaps. */
+  firstSource: number;
+  /** count + 1 entries, starting at 0. */
+  offsets: Uint32Array;
+  /** xyz triples, world RAS mm, the same frame as `tractPoints`. */
+  positions: Float32Array;
+  /** One value per streamline in this chunk: the file's own per-streamline fields and attached tables. */
+  streamlineFields: Record<string, Float32Array>;
+  /** One value per point in this chunk: TRK scalars and an attached `.tsf`. Not TRX `dpv/`: requesting one rejects. */
+  vertexFields: Record<string, Float32Array>;
+}
+export interface TractScanOptions {
+  signal?: AbortSignal;
+  /** Names to deliver; absent or empty is geometry only. A name that cannot cover every streamline rejects. */
+  fields?: string[];
+}
+
 export interface TractStructure {
   offsets: Uint32Array;
   sourceIndex: Uint32Array;
@@ -501,6 +528,8 @@ export interface VolumeLayer extends LayerBase {
    * what makes a per-row Reset possible at all.
    */
   labelColors?: Record<number, vec4>;
+  /** `'numbers'` declines §7.6's assumed FreeSurfer names. Absent: they apply when they pass. */
+  labelNames?: 'numbers';
   /**
    * R5's selection: the labels drawn with the outline emphasis (added 2026-08-27, as above).
    *

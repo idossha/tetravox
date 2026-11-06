@@ -185,12 +185,30 @@ enum Stage {
     Tail,
 }
 
+/// What a scan (§6.3.1) holds instead of a kept set: the small per-streamline arrays, whole, so the
+/// positions can stream past with no buffering.
+#[derive(Default)]
+struct TrxScan {
+    /// Requested names that are not an attached sidecar's.
+    fields: BTreeSet<String>,
+    /// Those not yet found; positions wait for them, because a chunk must carry its fields.
+    missing: BTreeSet<String>,
+    /// A `dps/` was skipped for want of `header.json`, so this pass cannot call a name absent.
+    dps_skipped: bool,
+    lengths: Vec<u32>,
+    first_point: u64,
+    cursor: usize,
+    open: u32,
+    whole: Vec<(String, Vec<f32>)>,
+}
+
 pub(crate) struct TrxParser {
+    scan: Option<TrxScan>,
     options: LoadOptions,
     pass: u32,
     stage: Stage,
     sig: Vec<u8>,
-    b: Builder,
+    pub(crate) b: Builder,
     keep: Option<Keep>,
     nb_vertices: u64,
     nb_streamlines: u64,
@@ -220,6 +238,7 @@ fn u64_at(b: &[u8], at: usize) -> u64 {
 impl TrxParser {
     pub fn new(options: LoadOptions) -> Self {
         Self {
+            scan: None,
             options,
             pass: 0,
             stage: Stage::Signature,
@@ -237,6 +256,120 @@ impl TrxParser {
             saw_local: false,
             got_points: 0,
             unread: Vec::new(),
+        }
+    }
+
+    pub fn start_scan(&mut self) {
+        self.scan = Some(TrxScan::default());
+    }
+
+    pub fn set_scan_fields(&mut self, fields: BTreeSet<String>) {
+        if let Some(scan) = &mut self.scan {
+            scan.missing = fields.clone();
+            scan.fields = fields;
+        }
+    }
+
+    /// The `dps/` arrays read so far, handed over once each.
+    pub fn take_scan_whole(&mut self) -> Vec<(String, Vec<f32>)> {
+        self.scan
+            .as_mut()
+            .map_or_else(Vec::new, |s| std::mem::take(&mut s.whole))
+    }
+
+    /// Closes every streamline the points read so far complete, including empty ones.
+    fn scan_close_ready(&mut self) {
+        let scan = self.scan.as_mut().expect("scanning");
+        while scan.lengths.get(scan.cursor) == Some(&scan.open) {
+            self.b.close_kept(scan.cursor as u64);
+            scan.cursor += 1;
+            scan.open = 0;
+        }
+    }
+
+    /// `None` when the role is read as it is on a load.
+    fn scan_sink(&mut self, role: &Role, name: &str) -> Result<Option<Sink>> {
+        let scan = self.scan.as_mut().expect("scanning");
+        let component_names = |field: &str, n: usize| -> Vec<String> {
+            if n == 1 {
+                return vec![field.to_string()];
+            }
+            (0..n).map(|c| format!("{field}[{c}]")).collect()
+        };
+        Ok(Some(match role {
+            Role::Group(_, _) => Sink::Discard,
+            Role::Dpv(field, n, _) => {
+                if let Some(f) = component_names(field, *n)
+                    .iter()
+                    .find(|f| scan.fields.contains(*f))
+                {
+                    return Err(Error::Unsupported(format!(
+                        "a scan cannot deliver TRX per-point field {f}: {name} is a separate zip member, \
+                         which could not stay in step with the positions without holding it whole"
+                    )));
+                }
+                Sink::Discard
+            }
+            Role::Dps(field, n, d) => {
+                if self.keep.is_none() {
+                    scan.dps_skipped = true;
+                    self.deferred += 1;
+                    return Ok(Some(Sink::Discard));
+                }
+                let wanted = component_names(field, *n)
+                    .iter()
+                    .any(|f| scan.fields.contains(f));
+                if !wanted {
+                    return Ok(Some(Sink::Discard));
+                }
+                let fields = self.add_fields(field, *n, true);
+                Sink::Array(ArraySink {
+                    dtype: *d,
+                    ncomp: *n,
+                    carry: Vec::new(),
+                    elem: 0,
+                    fields: Some(fields),
+                    per_streamline: true,
+                    cursor: 0,
+                    name: name.to_string(),
+                    rounded: false,
+                })
+            }
+            Role::Positions(d, n) => {
+                if *n != 3 {
+                    return Err(Error::Parse(format!(
+                        "TRX positions have {n} components, expected 3"
+                    )));
+                }
+                if !self.offsets_seen || !scan.missing.is_empty() {
+                    self.deferred += 1;
+                    return Ok(Some(Sink::Discard));
+                }
+                self.scan_close_ready();
+                Sink::Array(ArraySink {
+                    dtype: *d,
+                    ncomp: 3,
+                    carry: Vec::new(),
+                    elem: 0,
+                    fields: None,
+                    per_streamline: false,
+                    cursor: 0,
+                    name: name.to_string(),
+                    rounded: false,
+                })
+            }
+            _ => return Ok(None),
+        }))
+    }
+
+    /// One whole `dps/` member out of the builder and into `whole`.
+    fn scan_keep_dps(&mut self) {
+        let scan = self.scan.as_mut().expect("scanning");
+        for (name, values) in self.b.streamline_fields.drain(..) {
+            scan.missing.remove(&name);
+            if scan.fields.contains(&name) {
+                scan.whole.push((name, values));
+            }
         }
     }
 
@@ -395,6 +528,11 @@ impl TrxParser {
     fn sink_for(&mut self, role: &Role, name: &str) -> Result<Sink> {
         if self.done.contains(name) {
             return Ok(Sink::Discard);
+        }
+        if self.scan.is_some() {
+            if let Some(sink) = self.scan_sink(role, name)? {
+                return Ok(sink);
+            }
         }
         Ok(match role {
             Role::Skip => Sink::Discard,
@@ -620,6 +758,17 @@ impl TrxParser {
     fn element(&mut self, a: &mut ArraySink, rec: &[u8]) {
         let i = a.elem;
         a.elem += 1;
+        if let (None, Some(scan)) = (&a.fields, self.scan.as_mut()) {
+            if i >= scan.first_point && scan.cursor < scan.lengths.len() {
+                let w = a.dtype.width();
+                for c in 0..3 {
+                    self.b.positions.push(a.dtype.f64_at(&rec[c * w..]) as f32);
+                }
+                scan.open += 1;
+                self.scan_close_ready();
+            }
+            return;
+        }
         let kept = if a.per_streamline {
             let keep = self.keep.expect("known before dps are read");
             keep.keep(i)
@@ -691,6 +840,8 @@ impl TrxParser {
                 }
                 if a.fields.is_none() {
                     self.positions_done = true;
+                } else if a.per_streamline && self.scan.is_some() {
+                    self.scan_keep_dps();
                 }
                 if a.rounded {
                     self.b.notes.push(format!(
@@ -725,10 +876,12 @@ impl TrxParser {
         self.b.source_streamlines = self.nb_streamlines;
         self.b.source_points = self.nb_vertices;
         let keep = Keep::new(self.options, self.nb_vertices);
-        self.kept_mask = (0..self.nb_streamlines)
-            .filter(|i| keep.keep(*i))
-            .map(|i| i as u32)
-            .collect();
+        if self.scan.is_none() {
+            self.kept_mask = (0..self.nb_streamlines)
+                .filter(|i| keep.keep(*i))
+                .map(|i| i as u32)
+                .collect();
+        }
         self.keep = Some(keep);
         Ok(())
     }
@@ -750,6 +903,23 @@ impl TrxParser {
                 self.nb_vertices
             }
         };
+        if let Some(scan) = &mut self.scan {
+            scan.first_point = at(0);
+            scan.lengths.reserve_exact(s);
+            for i in 0..s {
+                let (a, b) = (at(i), at(i + 1));
+                if b < a || b > self.nb_vertices {
+                    return Err(Error::Parse(format!(
+                        "TRX offsets are not monotonic at streamline {i}"
+                    )));
+                }
+                scan.lengths.push(u32::try_from(b - a).map_err(|_| {
+                    Error::OutOfMemory(format!("streamline {i} has more than 2^32 points"))
+                })?);
+            }
+            self.offsets_seen = true;
+            return Ok(());
+        }
         let mut ranges = Vec::with_capacity(self.kept_mask.len());
         let mut count: u32 = 0;
         for &source in &self.kept_mask {
@@ -804,6 +974,18 @@ impl TrxParser {
             return Err(Error::Parse(
                 "TRX zip ends inside an entry: truncated".into(),
             ));
+        }
+        if let Some(scan) = &mut self.scan {
+            if self.keep.is_some() && !scan.dps_skipped {
+                // `length_mm` is computed when the file has none, as a load does.
+                scan.missing.remove("length_mm");
+                if let Some(f) = scan.missing.first() {
+                    return Err(Error::Parse(format!(
+                        "this TRX file has no per-streamline field {f}, so a scan cannot deliver it"
+                    )));
+                }
+            }
+            scan.dps_skipped = false;
         }
         self.pass += 1;
         let again = self.deferred > 0;

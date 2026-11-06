@@ -2,6 +2,8 @@
 //! and text tables such as `tcksift2` weights or `tck2connectome -out_assignments`. Both are read
 //! forward, because a `.tsf` can be larger than the budgeted tractogram it belongs to.
 
+use std::collections::VecDeque;
+
 use tvx_core::{Error, Result};
 
 use crate::builder::is_categorical;
@@ -50,6 +52,9 @@ struct Tsf {
     empty: u64,
     cursor: usize,
     values: Vec<f32>,
+    /// A scan's lockstep read: points not yet delivered go in `values`, and lengths of streamlines
+    /// that finished but are not yet delivered here, rather than being placed through `source_index`.
+    lockstep: Option<VecDeque<u32>>,
 }
 
 struct Table {
@@ -95,6 +100,7 @@ impl SidecarLoader {
                 empty: 0,
                 cursor: 0,
                 values: vec![f32::NAN; t.n_points()],
+                lockstep: None,
             }))
         } else {
             Kind::Table(Box::new(Table {
@@ -126,6 +132,83 @@ impl SidecarLoader {
         match self.kind {
             Kind::Tsf(p) => p.finish(&self.name, t),
             Kind::Table(p) => p.finish(&self.name, t),
+        }
+    }
+
+    /// For a scan: a `.tsf` is read in step with the tractogram, retaining nothing delivered.
+    pub(crate) fn for_scan(name: &str, t: &Tractogram) -> Result<Self> {
+        let mut loader = Self::new(name, t)?;
+        if let Kind::Tsf(p) = &mut loader.kind {
+            p.values = Vec::new();
+            p.lockstep = Some(VecDeque::new());
+        }
+        Ok(loader)
+    }
+
+    pub(crate) fn is_lockstep(&self) -> bool {
+        matches!(self.kind, Kind::Tsf(_))
+    }
+
+    /// The field a lockstep `.tsf` delivers.
+    pub(crate) fn field_name(&self) -> String {
+        stem_of(&self.name)
+    }
+
+    /// Can a `.tsf` still finish fewer than `streamlines` non-empty streamlines?
+    pub(crate) fn lockstep_short(&self, streamlines: usize) -> bool {
+        match &self.kind {
+            Kind::Tsf(p) => {
+                !matches!(p.stage, TsfStage::Done)
+                    && p.lockstep.as_ref().map_or(0, VecDeque::len) < streamlines
+            }
+            Kind::Table(_) => false,
+        }
+    }
+
+    /// The next streamlines' values, each length checked the way a load checks it.
+    pub(crate) fn lockstep_take(&mut self, first_source: u64, lengths: &[u32]) -> Result<Vec<f32>> {
+        let Kind::Tsf(p) = &mut self.kind else {
+            return Err(Error::Parse(format!("{} is not per-point", self.name)));
+        };
+        let queue = p.lockstep.as_mut().expect("for_scan");
+        let mut points = 0usize;
+        for (i, want) in lengths.iter().enumerate().filter(|(_, n)| **n > 0) {
+            let source = first_source + i as u64;
+            let Some(got) = queue.pop_front() else {
+                return Err(Error::Parse(format!(
+                    "{} ends before streamline {source}: it was not made from this tractogram",
+                    self.name
+                )));
+            };
+            if got != *want {
+                return Err(Error::Parse(format!(
+                    "{} has {got} values for streamline {source}, which has {want} points: it was not made from this tractogram",
+                    self.name
+                )));
+            }
+            points += got as usize;
+        }
+        Ok(p.values.drain(..points).collect())
+    }
+
+    /// A scan's end: nothing may be left over, and nothing may be cut short.
+    pub(crate) fn lockstep_finish(&self) -> Result<()> {
+        if let Kind::Tsf(p) = &self.kind {
+            if p.open > 0 || p.lockstep.as_ref().is_some_and(|q| !q.is_empty()) {
+                return Err(Error::Parse(format!(
+                    "{} holds more values than this tractogram has points: it was not made from this tractogram",
+                    self.name
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// A table's columns over every streamline in the file, not only the held ones.
+    pub(crate) fn finish_whole(self, t: &Tractogram) -> Result<Vec<(String, Vec<f32>)>> {
+        match self.kind {
+            Kind::Table(p) => p.finish_whole(&self.name, t),
+            Kind::Tsf(_) => Ok(Vec::new()),
         }
     }
 }
@@ -181,6 +264,12 @@ impl Tsf {
             self.empty += 1;
             return Ok(());
         }
+        if let Some(queue) = &mut self.lockstep {
+            queue.push_back(self.open as u32);
+            self.index += 1;
+            self.open = 0;
+            return Ok(());
+        }
         if t.source_index.get(self.cursor).map(|i| u64::from(*i)) == Some(self.index) {
             let (a, b) = (t.offsets[self.cursor], t.offsets[self.cursor + 1]);
             if u64::from(b - a) != self.open {
@@ -207,6 +296,12 @@ impl Tsf {
                 self.close(name, t)?;
             }
             self.stage = TsfStage::Done;
+            return Ok(());
+        }
+        if self.lockstep.is_some() {
+            self.values.push(v as f32);
+            self.open += 1;
+            self.points += 1;
             return Ok(());
         }
         if t.source_index.get(self.cursor).map(|i| u64::from(*i)) == Some(self.index) {
@@ -415,9 +510,9 @@ impl Table {
         Ok(())
     }
 
-    fn finish(mut self, name: &str, t: &Tractogram) -> Result<Attached> {
+    /// `(columns, one value per row)`, refusing a shape that does not fit `s` streamlines.
+    fn shape(&mut self, name: &str, s: u64) -> Result<(usize, bool)> {
         self.end_row(name)?;
-        let s = t.source_streamlines;
         if self.uneven {
             return Err(Error::Parse(format!(
                 "{name} has rows of different lengths; per-point values belong in a .tsf (MRtrix: `tcksample out.tsf`)"
@@ -434,17 +529,38 @@ impl Table {
                 self.rows
             )));
         };
+        Ok((columns, self.rows == s))
+    }
+
+    fn label(&self, name: &str, columns: usize, c: usize) -> String {
         let stem = stem_of(name);
-        let names = self.names.filter(|n| n.len() == columns);
-        let by_row = self.rows == s;
+        match self.names.as_ref().filter(|n| n.len() == columns) {
+            Some(n) => n[c].clone(),
+            None if columns == 1 => stem,
+            None => format!("{stem}[{c}]"),
+        }
+    }
+
+    fn finish_whole(mut self, name: &str, t: &Tractogram) -> Result<Vec<(String, Vec<f32>)>> {
+        let s = t.source_streamlines as usize;
+        let (columns, by_row) = self.shape(name, t.source_streamlines)?;
+        if !by_row {
+            return Ok(vec![(self.label(name, 1, 0), self.values)]);
+        }
+        Ok((0..columns)
+            .map(|c| {
+                let values = (0..s).map(|i| self.values[i * columns + c]).collect();
+                (self.label(name, columns, c), values)
+            })
+            .collect())
+    }
+
+    fn finish(mut self, name: &str, t: &Tractogram) -> Result<Attached> {
+        let (columns, by_row) = self.shape(name, t.source_streamlines)?;
         let held = t.n_streamlines();
         let fields = (0..columns)
             .map(|c| {
-                let label = match &names {
-                    Some(n) => n[c].clone(),
-                    None if columns == 1 => stem.clone(),
-                    None => format!("{stem}[{c}]"),
-                };
+                let label = self.label(name, columns, c);
                 let mut out = Vec::with_capacity(held);
                 for i in &t.source_index {
                     let i = *i as usize;

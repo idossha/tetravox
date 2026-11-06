@@ -38,7 +38,9 @@ retype a number from memory or from an older revision:
 python3 scripts/refvalues/nifti_refvalues.py
 python3 scripts/refvalues/contour_refvalues.py
 python3 scripts/refvalues/mni_refvalues.py
+python3 scripts/refvalues/label_ids_refvalues.py > scripts/refvalues/label_ids_refvalues.json
 python3 scripts/refvalues/mgz_refvalues.py > scripts/refvalues/mgz_refvalues.json   # TETRAVOX_MGZ; see its docstring
+python3 scripts/refvalues/tract_refvalues.py <Dataset 000> > scripts/refvalues/tract_refvalues.json   # TETRAVOX_TRACT_TESTDATA
 ```
 
 The files that matter and why:
@@ -54,6 +56,7 @@ The files that matter and why:
 | `m2m_ernie/ernie_seeg.msh` / `m2m_ernie-seeg/ernie-seeg.msh` | **two different files**, both over 2²¹ nodes, so both break a 3×21-bit packed face key. Either is the face-key-width test |
 | `m2m_ernie/surfaces/lh.pial.gii` | GIfTI `GZipBase64Binary` (a **zlib** stream — `ZlibDecoder`, not `GzDecoder`); the contour reference |
 | `m2m_ernie/eeg_positions/GSN-HydroCel-185.geo` | a Gmsh parsed view: 187 `SP` points + 187 `T3` labels |
+| `~/datasets/000/derivatives/qsiprep/sub-CHN/anat/sub-CHN_space-ACPC_desc-aseg_dseg.nii.gz`, `…_dseg.nii.gz` | a real aseg (32 ids, no lookup file) and a 3-tissue dseg: §7.6's FreeSurfer safety test has to name the first and refuse the second. `scripts/refvalues/label_ids_refvalues.py` regenerates their ids |
 
 Also on this machine: `~/Applications/SimNIBS-4.6/bin/gmsh` (the only local way to make Gmsh 4.1 fixtures),
 and `simnibs/mesh_tools/mesh_io.py` as a **read-only** cross-check — note its element-block skip arithmetic
@@ -112,6 +115,7 @@ is wrong (it hard-codes 2 tags into a 3); §6.2 has the correct layout.
   electrode/gel tags in the 101/501/1101/2101 ranges. Code that assumes `1..10` is wrong.
 - **`scl_slope` is not NaN on disk** for any reference volume; `nib.load(p).header` reports NaN because
   nibabel hands scaling to the array proxy. Read the raw 348-byte header.
-- **Cancellation is `worker.terminate()`**, always. There is no `SharedArrayBuffer` to poll (§1, §5 rule 6).
+- **Cancellation is `worker.terminate()`**, except a tract scan, which runs beside a dataset that must live
+  (`tractScanClose`, §6.4). There is no `SharedArrayBuffer` to poll (§1, §5 rule 6).
 - **`VolumeDataset.data` is cloned, never transferred**, when a label volume goes to a mesh worker.
   Transferring it detaches the array every probe reads.

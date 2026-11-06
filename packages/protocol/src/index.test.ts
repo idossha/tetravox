@@ -3,19 +3,19 @@ import type { MeshMeta, OpName, Res, VolumeMeta } from './index';
 import { OP_NAMES, OP_TO_EXPORT, isCancel, isOk, isProgress, isReq, isRes } from './index';
 
 describe('§6.5.2 op table', () => {
-  it('has exactly the 38 ops §6.5 declares', () => {
+  it('has exactly the 41 ops §6.5 declares', () => {
     // 17 through Phase 1; `meshCentroids` is the eighteenth (§6.5.2, W-WASM Phase-2 gap 2), and
     // `marchingCubesLabel` the nineteenth (2026-08-28, for §4.4's `VolumeLayer.iso3d`).
-    expect(OP_NAMES).toHaveLength(38);
-    expect(new Set(OP_NAMES).size).toBe(38);
+    expect(OP_NAMES).toHaveLength(42);
+    expect(new Set(OP_NAMES).size).toBe(42);
   });
 
   it('maps every op to a §6.4 wasm export, one-to-one and exhaustive', () => {
     // `satisfies Record<OpName, string>` already makes a missing op a compile error; this pins the
     // other direction — no export is reused, and no op is silently pointed at the wrong one.
     const exports = OP_NAMES.map((op) => OP_TO_EXPORT[op]);
-    expect(exports).toHaveLength(38);
-    expect(new Set(exports).size).toBe(38);
+    expect(exports).toHaveLength(42);
+    expect(new Set(exports).size).toBe(42);
     expect(OP_TO_EXPORT.elmToNode).toBe('mesh_convert_field');
     expect(OP_TO_EXPORT.marchingCubes).toBe('volume_marching_cubes');
     // Two volume-isosurface ops, two different exports: a level set of the ids is not a region.

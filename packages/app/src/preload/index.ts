@@ -54,6 +54,7 @@ export interface TetravoxBridge {
   openSurfaceDataDialog(): Promise<OpenedPath[]>;
   /** The tract panel's "Attach file…". Paths, allow-listed, never bytes. */
   openTractDataDialog(): Promise<OpenedPath[]>;
+  openLabelNamesDialog(): Promise<OpenedPath[]>;
   /**
    * The absolute path behind a dropped `File`, or `''` when it has none (§8 fallback).
    *
@@ -240,6 +241,30 @@ export interface TetravoxBridge {
    * preload beside a newer renderer) is still one; the renderer calls it with `?.`.
    */
   moduleClearWrites?(moduleId: string): void;
+  /** §5 rule 11's folder channel (2026-11-05). Null when the user cancelled. */
+  moduleChooseFolder?(
+    moduleId: string,
+    opts: { writerId: string; suggestedName?: string }
+  ): Promise<{ ok: true; token: string; path: string } | { ok: false; error: string } | null>;
+  moduleFolderCreate?(
+    moduleId: string,
+    folder: string,
+    name: string,
+    opts: { overwrite: boolean }
+  ): Promise<{ ok: true; token: string } | { ok: false; error: string }>;
+  moduleFolderWrite?(
+    moduleId: string,
+    writer: string,
+    bytes: Uint8Array
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
+  moduleFolderClose?(
+    moduleId: string,
+    writer: string
+  ): Promise<{ ok: true; path: string; bytes: number } | { ok: false; error: string }>;
+  moduleFolderAbort?(
+    moduleId: string,
+    writer: string
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
 
   // -- Extensions (§13, `main/module-store.ts`, 2026-08-30) --------------------------------------
   // The Sample Data members again, for code instead of data. Main owns the network, the hashing, the
@@ -537,6 +562,7 @@ const bridge: TetravoxBridge = {
   openDialog: () => ipcRenderer.invoke('tetravox:open-dialog'),
   openSurfaceDataDialog: () => ipcRenderer.invoke('tetravox:open-surface-data-dialog'),
   openTractDataDialog: () => ipcRenderer.invoke('tetravox:open-tract-data-dialog'),
+  openLabelNamesDialog: () => ipcRenderer.invoke('tetravox:open-label-names-dialog'),
   getDroppedFilePath: (file) => {
     const path = webUtils.getPathForFile(file);
     // The drop gesture, reported to main. Only preload can produce this path, so this send is the
@@ -640,6 +666,16 @@ const bridge: TetravoxBridge = {
     ipcRenderer.invoke('tetravox:module-write-binary', moduleId, path, bytes, opts),
   setDocumentEdited: (edited) => ipcRenderer.send('tetravox:set-document-edited', edited),
   moduleClearWrites: (moduleId) => ipcRenderer.send('tetravox:module-clear-writes', moduleId),
+  moduleChooseFolder: (moduleId, opts) =>
+    ipcRenderer.invoke('tetravox:module-choose-folder', moduleId, opts),
+  moduleFolderCreate: (moduleId, folder, name, opts) =>
+    ipcRenderer.invoke('tetravox:module-folder-create', moduleId, folder, name, opts),
+  moduleFolderWrite: (moduleId, writer, bytes) =>
+    ipcRenderer.invoke('tetravox:module-folder-write', moduleId, writer, bytes),
+  moduleFolderClose: (moduleId, writer) =>
+    ipcRenderer.invoke('tetravox:module-folder-close', moduleId, writer),
+  moduleFolderAbort: (moduleId, writer) =>
+    ipcRenderer.invoke('tetravox:module-folder-abort', moduleId, writer),
   // Extensions (§13, 2026-08-30). Ids and card states only — never a path, never a byte.
   moduleCatalog: () => ipcRenderer.invoke('tetravox:module-catalog'),
   moduleStatuses: () => ipcRenderer.invoke('tetravox:module-statuses'),

@@ -1,0 +1,10 @@
+{
+  "generated": "2026-11-05",
+  "reader": "numpy over the raw TCK body; np.loadtxt for the weights",
+  "tck_200k": {
+    "streamlines": 200000,
+    "points": 32799983,
+    "sum_x": -20025407.056862995,
+    "sum_sift2": 152444.41416276246
+  }
+}

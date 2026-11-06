@@ -212,6 +212,8 @@ test.describe('the Phase-2 toolbar and dialogs (§8)', () => {
     // The defect this pins: the engine's pointer layer `preventDefault()`s `pointerdown` (§7.5
     // needs it for capture), which suppresses the browser's own focus change, so after typing in
     // any field the whole §7.5 key map was dead and every shortcut was typed into that field.
+    // Closed by default (§8); it stays open for the header tests below.
+    await page.click('[data-testid="header-toggle"]');
     const search = page.locator('[data-testid="header-search"]');
     await search.click();
     await search.fill('scl');

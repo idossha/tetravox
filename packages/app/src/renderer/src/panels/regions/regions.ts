@@ -334,6 +334,26 @@ export function regionSourceFor(
   return null;
 }
 
+/** The Regions section's line saying where the names came from: §7.6 says it is never silent. */
+export interface NamesProvenance {
+  text: string;
+  /** `'numbers'` offers Use numbers, `'names'` offers the way back, `null` neither. */
+  offer: 'numbers' | 'names' | null;
+}
+
+export function namesProvenance(ds: VolumeDataset): NamesProvenance {
+  if (ds.assumedLabelTable !== undefined && ds.labelTable === ds.assumedLabelTable) {
+    return { text: 'Names: FreeSurfer, assumed from label ids', offer: 'numbers' };
+  }
+  if (ds.labelTable === undefined) {
+    return {
+      text: ds.assumedLabelTable === undefined ? 'No names in this file' : 'Names: numbers',
+      offer: ds.assumedLabelTable === undefined ? null : 'names',
+    };
+  }
+  return { text: `Names: ${ds.labelTableFile ?? 'lookup table'}`, offer: null };
+}
+
 // ------------------------------------------------------------------------------------------------
 // Search
 // ------------------------------------------------------------------------------------------------

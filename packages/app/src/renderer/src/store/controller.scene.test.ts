@@ -90,6 +90,7 @@ function fakeFs(files: Record<string, string> = {}): FakeFs {
     openDialog: async () => [],
     openSurfaceDataDialog: async () => [],
     openTractDataDialog: async () => [],
+    openLabelNamesDialog: async () => [],
     getDroppedFilePath: () => '',
     // The existence check and the allow-list are one call, as in the real bridge (§5 rule 9).
     allowPath: async (path: string) =>

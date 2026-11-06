@@ -15,8 +15,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { TetravoxBridge } from '../../../preload/index';
 import { NoGlEngine } from '../engine/mockEngine';
 import { ShellController } from '../store/controller';
-import { anyModuleDirty, createUiStore, dirtyModuleIds } from '../store/store';
+import { anyModuleDirty, createUiStore, dirtyModuleIds, rightPanelWidthNow } from '../store/store';
 import type { UiStore } from '../store/store';
+import { DEFAULT_PANEL_PREFS, MODULE_PANEL_WIDTH_PX, savePanelPrefs } from '../lib/panels';
 import { parseScene, sceneExtensions } from '../lib/scene';
 import type { Dataset, PointToolEvent, ProbeResult, vec3 } from '@tetravox/engine';
 import type { ModuleHost } from './host';
@@ -491,6 +492,7 @@ describe('the host’s unwired members', () => {
           saveDialog: async () => null,
           writeText: async () => ({ ok: true as const, backupPath: null }),
           writeBinary: async () => ({ ok: true as const, backupPath: null }),
+          chooseFolder: async () => null,
         },
       },
       helloManifest
@@ -863,6 +865,19 @@ describe('the wired host (§13.1)', () => {
    * the page rather than a value this code produced. What this test adds over that one is the
    * *wiring* — the dataset lookup, the cap, the chunked loop, and the promise.
    */
+  it('opens a file for a module and answers its dataset; a build without it rejects', async () => {
+    const { store, controller } = harness();
+    const unwired = createModuleHost({ controller, store }, helloManifest);
+    await expect(unwired.scene.openFile('/x/roi.nii.gz')).rejects.toThrow(/not available/);
+    await expect(unwired.scene.tracts.attachFile('d', '/x/w.txt')).rejects.toThrow(/not available/);
+    const dataset = { id: 'ds-roi', kind: 'volume' } as unknown as Dataset;
+    const wired = createModuleHost(
+      { controller, store, openFile: async () => dataset },
+      helloManifest
+    );
+    await expect(wired.scene.openFile('/x/roi.nii.gz')).resolves.toBe(dataset);
+  });
+
   it('samples a volume at arbitrary world points, and refuses what it cannot answer', async () => {
     const { engine, controller } = harness();
     await controller.activateModule(HELLO);
@@ -1098,6 +1113,150 @@ async function withSecond(controller: ShellController): Promise<ModuleManifest> 
   ]);
   return manifest;
 }
+
+describe('panel tabs (§13.3, 2026-11-05)', () => {
+  const TABBED: ModuleManifest = {
+    ...helloManifest,
+    id: 'test.tabbed',
+    title: 'Tabbed',
+    ui: {
+      panelTabs: [
+        { id: 'one', label: 'One' },
+        { id: 'two', label: 'Two' },
+      ],
+    },
+  };
+  let host: ModuleHost;
+
+  function install(activate?: (h: ModuleHost) => void): void {
+    setInstalledModules([
+      {
+        manifest: TABBED,
+        load: async () => ({
+          activate: (h: ModuleHost) => {
+            host = h;
+            activate?.(h);
+            return {
+              Panel: () => null,
+              runCommand: () => undefined,
+              dirty: () => false,
+              dispose: () => undefined,
+            };
+          },
+        }),
+      },
+    ]);
+  }
+
+  afterEach(() => setInstalledModules([]));
+
+  it('every member refuses in a build that does not wire them', () => {
+    const { store, controller } = harness();
+    const h = createModuleHost({ controller, store }, helloManifest);
+    expect(() => h.ui.panelTab()).toThrow(ModuleHostError);
+    expect(() => h.ui.setPanelTab('x')).toThrow(/not available in this build/);
+    expect(() => h.ui.onPanelTab(() => undefined)).toThrow(ModuleHostError);
+  });
+
+  it('a module with no declared tabs answers null and refuses an id', async () => {
+    const { controller } = harness();
+    await controller.activateModule(HELLO);
+    const hello = controller.moduleHost(HELLO) as ModuleHost;
+    expect(hello.ui.panelTab()).toBeNull();
+    expect(() => hello.ui.setPanelTab('one')).toThrow(/declares no panel tab "one"/);
+  });
+
+  it('starts on the first tab, tells a listener once per change, and refuses an unknown id', async () => {
+    install();
+    const { controller } = harness();
+    await controller.activateModule(TABBED.id);
+    expect(host.ui.panelTab()).toBe('one');
+    const seen: string[] = [];
+    const off = host.ui.onPanelTab((id) => seen.push(id));
+    host.ui.setPanelTab('two');
+    host.ui.setPanelTab('two');
+    controller.setModulePanelTab(TABBED.id, 'one');
+    expect(seen).toEqual(['two', 'one']);
+    expect(() => host.ui.setPanelTab('three')).toThrow(ModuleHostError);
+    off();
+    host.ui.setPanelTab('two');
+    expect(seen).toEqual(['two', 'one']);
+  });
+
+  it('Inspect leaves the reported tab alone, and setPanelTab leaves Inspect', async () => {
+    install();
+    const { store, controller } = harness();
+    await controller.activateModule(TABBED.id);
+    host.ui.setPanelTab('two');
+    const seen: string[] = [];
+    host.ui.onPanelTab((id) => seen.push(id));
+    controller.showInspectTab();
+    expect(store.getState().inspectTabSelected).toBe(true);
+    expect(host.ui.panelTab()).toBe('two');
+    expect(seen).toEqual([]);
+    host.ui.setPanelTab('one');
+    expect(store.getState().inspectTabSelected).toBe(false);
+  });
+
+  it('the chosen tab survives closing and reopening the module', async () => {
+    install();
+    const { controller } = harness();
+    await controller.activateModule(TABBED.id);
+    host.ui.setPanelTab('two');
+    controller.deactivateModule(TABBED.id);
+    await controller.activateModule(TABBED.id);
+    expect(host.ui.panelTab()).toBe('two');
+  });
+
+  it('a module in its own window reports its tab without taking the row from another', async () => {
+    install();
+    const { store, controller } = harness();
+    await controller.activateModule(HELLO);
+    await controller.activateModule(TABBED.id, 'window');
+    controller.showInspectTab();
+    host.ui.setPanelTab('two');
+    expect(host.ui.panelTab()).toBe('two');
+    expect(store.getState().activeModule).toBe(HELLO);
+    expect(store.getState().inspectTabSelected).toBe(true);
+  });
+
+  it('opening its file or choosing it shows the module; only a second choice closes it', async () => {
+    const { store, controller } = harness();
+    await controller.activateModule(HELLO);
+    controller.showInspectTab();
+    await controller.activateModule(HELLO);
+    expect(store.getState().inspectTabSelected).toBe(false);
+
+    controller.showInspectTab();
+    await controller.toggleModule(HELLO);
+    expect(store.getState().inspectTabSelected).toBe(false);
+    expect(store.getState().activeModule).toBe(HELLO);
+    await controller.toggleModule(HELLO);
+    expect(store.getState().activeModule).toBeNull();
+  });
+
+  it('nothing the engine does takes the row off Inspect', async () => {
+    const { store, controller } = harness();
+    await controller.activateModule(HELLO);
+    controller.showInspectTab();
+    controller.setCursorWorld([1, 2, 3]);
+    expect(store.getState().inspectTabSelected).toBe(true);
+  });
+
+  it('dragging with a module docked sets its width and leaves the saved one alone', async () => {
+    const { store, controller } = harness();
+    const saved = store.getState().rightPanelWidth;
+    expect(rightPanelWidthNow(store.getState())).toBe(saved);
+    await controller.activateModule(HELLO);
+    expect(rightPanelWidthNow(store.getState())).toBe(MODULE_PANEL_WIDTH_PX);
+    controller.setPanelWidth('right', 500);
+    expect(rightPanelWidthNow(store.getState())).toBe(500);
+    expect(store.getState().rightPanelWidth).toBe(saved);
+    controller.deactivateModule(HELLO);
+    expect(rightPanelWidthNow(store.getState())).toBe(saved);
+    savePanelPrefs(DEFAULT_PANEL_PREFS);
+  });
+});
 
 describe('placement and concurrency (§13.10)', () => {
   afterEach(() => setInstalledModules([]));

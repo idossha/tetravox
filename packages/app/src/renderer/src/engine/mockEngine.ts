@@ -69,6 +69,7 @@ import type {
   TractSampleSpec,
   vec3,
   vec4,
+  VolumeDataset,
   View,
   View3D,
   ViewId,
@@ -1140,6 +1141,10 @@ export class NoGlEngine implements Engine {
     return Promise.reject(new Error('the no-GL engine has no tractograms'));
   }
 
+  tractScan(): Promise<{ streamlines: number; points: number }> {
+    return Promise.reject(new Error('the no-GL engine has no tractograms'));
+  }
+
   tractStructure(): Promise<TractStructure> {
     return Promise.reject(new Error('the no-GL engine has no tractograms'));
   }
@@ -1162,6 +1167,24 @@ export class NoGlEngine implements Engine {
 
   tractStyleInfo(): null {
     return null;
+  }
+
+  /** §4.7's `attachLabelNames`: the stand-in names every id after the file, which is all a UI test reads. */
+  async attachLabelNames(datasetId: DatasetId, src: DatasetSource): Promise<VolumeDataset> {
+    const ds = this.state.datasets.get(datasetId);
+    if (ds === undefined || ds.kind !== 'volume') {
+      throw new EngineError('parse', `no such label volume: ${datasetId}`);
+    }
+    const { name } = this.sourceName(src);
+    const entries = [...(ds.labelIds ?? [])].map((id) => ({
+      id,
+      name: `${name} ${id}`,
+      color: [0.5, 0.5, 0.5, 1] as vec4,
+    }));
+    ds.labelTable = { entries, byId: new Map(entries.map((e) => [e.id, e])) };
+    ds.labelTableFile = name;
+    this.emit('datasets', [...this.state.datasets.values()]);
+    return ds;
   }
 
   async attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset> {

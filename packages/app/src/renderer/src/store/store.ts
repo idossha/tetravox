@@ -51,9 +51,9 @@ import { EMPTY_METRICS } from '../lib/metrics';
 import type { EngineImpl } from '../engine/factory';
 import type { ThemeChoice } from '../theme/theme';
 import type { ThemeName } from '../theme/tokens';
-import { loadPanelPrefs, PANEL_WIDTH_LIMITS } from '../lib/panels';
+import { loadPanelPrefs, MODULE_PANEL_WIDTH_PX, PANEL_WIDTH_LIMITS } from '../lib/panels';
 // Modules (2026-08-30, §13). Types only — the store holds a module's *record*, never its code.
-import type { ModuleId } from '../../../modules/manifest-types';
+import type { ModuleId, ModuleManifest } from '../../../modules/manifest-types';
 import type { ExtensionBlock, ModulePlacement } from '../modules/host';
 
 /**
@@ -301,14 +301,20 @@ export interface UiState {
   rightPanelCollapsed: boolean;
   /** The info panel's `Mouse` block, collapsed by default (`lib/panels.ts`). Same persistence. */
   mouseBlockCollapsed: boolean;
+  /** Settings ▸ Appearance: only the active layer's editor shows. Same persistence. */
+  oneLayerOpen: boolean;
+  /** Inspect's raw header, closed by default (`lib/panels.ts`). Same persistence. */
+  headerBlockCollapsed: boolean;
   /** Expanded sidebar widths in CSS px, dragged at the inner edge (`lib/panels.ts`). Same persistence. */
   leftPanelWidth: number;
   rightPanelWidth: number;
+  /** The right panel with a module docked; see {@link rightPanelWidthNow}. Same persistence. */
+  rightModuleWidth: number;
 
   // -- Modules (2026-08-30; ARCHITECTURE.md §13) -------------------------------------------------
   /**
-   * The module **in the slot**, or null. Still one at a time (§13.3): the slot is one section of a
-   * 20 rem column, and two modules in it would be two editors fighting for the same clicks in the
+   * The module **in the slot**, or null. Still one at a time (§13.3): the slot is one tab of the
+   * right panel, and two modules in it would be two editors fighting for the same clicks in the
    * panes. Since 2026-08-31 that is a fact about the *slot* and not about the app — a module popped
    * out to its own window is live and is not this field (§13.10, {@link modulePlacement}).
    *
@@ -339,6 +345,10 @@ export interface UiState {
    * contacts were edited". The title's `•` is the OR of the two; the discard guard reads only this.
    */
   moduleDirty: Record<string, boolean>;
+  /** The right panel's row is on Inspect rather than on the docked module (§13.3). */
+  inspectTabSelected: boolean;
+  /** Per module, the declared panel tab last chosen. Outlives a deactivation, for this session. */
+  modulePanelTabs: Record<string, string>;
   /**
    * Every module block the current scene carries — this build's modules and, verbatim, the ones it
    * has never heard of (§13.2). `serialiseScene` writes the whole map back out, which is what makes
@@ -512,14 +522,19 @@ export const INITIAL_UI: UiState = {
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
   mouseBlockCollapsed: true,
+  oneLayerOpen: false,
+  headerBlockCollapsed: true,
   leftPanelWidth: PANEL_WIDTH_LIMITS.left.default,
   rightPanelWidth: PANEL_WIDTH_LIMITS.right.default,
+  rightModuleWidth: MODULE_PANEL_WIDTH_PX,
   // Modules (2026-08-30, §13). Every one of these is empty in a build with no module active, which
   // is what makes "the DOM is byte-identical while the slot is idle" true.
   activeModule: null,
   modulePlacement: {},
   moduleStatus: {},
   moduleDirty: {},
+  inspectTabSelected: false,
+  modulePanelTabs: {},
   moduleBlocks: {},
   confirm: null,
   // Extensions (2026-08-30). Empty until the dialog opens, and an empty catalogue is a dialog that
@@ -617,8 +632,13 @@ export function activeMeshDataset(state: UiState): Extract<Dataset, { kind: 'mes
 
 // -- A-COLLAPSE (appended) -----------------------------------------------------------------------
 
-/** Is this row collapsed? Absent from the map means expanded (§ new layers start expanded). */
+/**
+ * Is this row collapsed? Absent from the map means expanded (§ new layers start expanded). With
+ * `oneLayerOpen`, every row but the active one is shut too, without touching the map, so turning the
+ * setting off gives back what the user had.
+ */
 export function isLayerCollapsed(state: UiState, id: LayerId): boolean {
+  if (state.oneLayerOpen && state.activeLayerId !== id) return true;
   return state.collapsedLayers[id] === true;
 }
 
@@ -650,6 +670,18 @@ export function pruneCollapsed(
   const out: Record<LayerId, boolean> = {};
   for (const id of keys) if (live.has(id)) out[id] = collapsed[id] as boolean;
   return out;
+}
+
+/** The declared tab a module renders; null when it declares none. A stale stored id falls back. */
+export function selectedPanelTab(state: UiState, manifest: ModuleManifest): string | null {
+  const tabs = manifest.ui?.panelTabs ?? [];
+  const stored = state.modulePanelTabs[manifest.id];
+  return tabs.find((t) => t.id === stored)?.id ?? tabs[0]?.id ?? null;
+}
+
+/** How wide the right panel is right now: a docked module has its own remembered width (§13.3). */
+export function rightPanelWidthNow(state: UiState): number {
+  return state.activeModule === null ? state.rightPanelWidth : state.rightModuleWidth;
 }
 
 // -- Modules (2026-08-30, §13) -------------------------------------------------------------------

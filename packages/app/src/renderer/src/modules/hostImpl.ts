@@ -16,6 +16,7 @@
  */
 
 import type {
+  Dataset,
   Camera3D,
   CoordSpaceRef,
   Layer,
@@ -61,8 +62,12 @@ export interface ModuleHostDeps {
   /** §4.3's point sampler over the dataset the module names (2026-09-03). Absent: it rejects. */
   sampleVolume?: ModuleHost['scene']['sampleVolume'];
   tracts?: ModuleTracts;
+  /** §13.1's `scene.openFile`. Absent: it rejects. */
+  openFile?: ModuleHost['scene']['openFile'];
   /** The engine's §4.7 screenshot, gated on the module being live. Absent: it rejects. */
   capture?: ModuleHost['capture'];
+  /** §13.3's tab row. Absent: every member throws. */
+  panels?: Pick<ModuleHost['ui'], 'panelTab' | 'setPanelTab' | 'onPanelTab'>;
 }
 
 /** §13.2's cap. A block is a *record*, not a copy of the data — 256 KiB is generous for one. */
@@ -84,6 +89,8 @@ function unavailableTracts(): ModuleTracts {
     setStreamlineField: refuse,
     removeField: refuse,
     sample: refuse,
+    scan: refuse,
+    attachFile: refuse,
   };
 }
 
@@ -112,6 +119,7 @@ function stubFiles(): ModuleHost['files'] {
     saveDialog: () => no('the save dialog'),
     writeText: () => no('writing files'),
     writeBinary: () => no('writing files'),
+    chooseFolder: () => no('writing files'),
   };
 }
 
@@ -123,6 +131,12 @@ function stubCapture(): ModuleHost['capture'] {
     setView: () => no('the camera presets'),
     screenshot: () => no('screenshots'),
   };
+}
+
+/** The panel surface when unwired: every member throws. */
+function stubPanels(): NonNullable<ModuleHostDeps['panels']> {
+  const no = (): never => unavailable('the panel tabs');
+  return { panelTab: no, setPanelTab: no, onPanelTab: no };
 }
 
 /**
@@ -265,6 +279,10 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
             )
           )),
       tracts: deps.tracts ?? unavailableTracts(),
+      openFile:
+        deps.openFile ??
+        ((): Promise<Dataset> =>
+          Promise.reject(new ModuleHostError('opening a file is not available in this build'))),
 
       block: <T>(): T | null => {
         const block = controller.moduleBlock(id);
@@ -319,8 +337,8 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
       status: (text: string | null): void => controller.setModuleStatus(id, text),
       // "Am I the module in the slot" — which since §13.10 is no longer the same question as "am I
       // live", and deliberately keeps its original meaning: `isActive` is what a module gates its
-      // *slot* chrome on, and a popped-out module answering `true` here would draw the fold caret
-      // and the aside-width layout inside its own window.
+      // *slot* chrome on, and a popped-out module answering `true` here would draw the aside-width
+      // layout inside its own window.
       isActive: (): boolean => store.getState().activeModule === id,
 
       // -- Pop-out (§13.10, 2026-08-31), appended --------------------------------------------
@@ -340,6 +358,7 @@ export function createModuleHost(deps: ModuleHostDeps, manifest: ModuleManifest)
           cb(next);
         });
       },
+      ...(deps.panels ?? stubPanels()),
     },
 
     history: <T>(limit?: number): ModuleHistory<T> => createHistory<T>(limit),

@@ -10,11 +10,43 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **FreeSurfer atlases show names by default.** An aseg or aparc with no lookup file now has real region names and
+  FreeSurfer's colours everywhere: the Regions list, the crosshair read-out, search, and extensions. Tetravox assumes
+  this only when the ids pass a safety test, so masks, tissue maps and atlases numbered 1 to N keep their numbers, and
+  the Regions section always says where its names came from, with **Use numbers** and **Load names…** beside it. A
+  file you load always wins, and existing lookup files work as before.
+
 - **Attach MRtrix data to a tractogram.** Open a `.tsf`, or use Attach file… for `tcksift2` weights,
   `tck2connectome -out_assignments` or any `.txt` or `.csv` with one row per streamline. Values follow the
   streamlines on display, and a file from a different tractogram is refused.
 - **End-to-end colour** gives a whole streamline one colour, by its overall direction.
 - Extensions can now read streamlines and select them, which is what the Tract tools extension is built on.
+- **Extensions can analyse every streamline in a file, not just the ones on screen.** The display budget stays as it
+  was and still decides what is drawn, but a connectome or a filter count can now cover a file of any size without
+  loading it. Attached weights and `.tsf` values come along; TRX per-point fields are refused by name for now.
+- **Extensions can open an ROI file or attach a weights file for you**, from their own panel, through the same checks as
+  File ▸ Open and Attach file….
+- **Extensions can export a folder of files.** You choose one folder once, and the extension writes its tables and
+  tractograms into it, of any size. Nothing appears under its final name until it is complete, and the extension can
+  only create the file types its permissions list. Existing files are replaced only if it asks.
+- **Extensions can have tabs in the right panel.**
+
+### Changed
+
+- **The right panel shows one thing at a time.** Inspect holds the coordinates, measurements, read-out and the file
+  header, which now stays closed until you open it. An open extension gets the panel's full height, at 400 px, with its
+  own tabs and an **Inspect** button in the toolbar beside the switcher; your saved panel width is untouched when no
+  extension is open. Extensions that worked before keep working.
+- **An optional one-layer-at-a-time layer panel.** Settings ▸ Appearance ▸ **Show one layer at a time**: opening a layer
+  closes the others. Off by default; the layer panel otherwise works as before.
+
+### Fixed
+
+- **Load full could fail with "handle is not live in this worker".** Moving the crosshair or changing a tract layer while a
+  tractogram reloaded asked for the copy just freed. The layer now waits for the new copy, and so does anything an
+  extension asks for.
+- **A FreeSurfer lookup file no longer hides its regions.** Its fourth column is 0 for opaque, and it was read as
+  fully transparent.
 
 ## [0.8.0] - 2026-11-05
 

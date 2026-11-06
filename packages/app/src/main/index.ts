@@ -29,6 +29,7 @@ import {
   splitScenes,
   toOpened,
   showOpenSurfaceDataDialog,
+  showOpenLabelNamesDialog,
   showOpenTractDataDialog,
 } from './menu';
 import type { OpenedPath } from './menu';
@@ -520,6 +521,9 @@ if (!isJobRun() && !app.requestSingleInstanceLock()) {
   ipcMain.handle('tetravox:open-dialog', async () => showOpenDialog(getWindow()));
   ipcMain.handle('tetravox:open-surface-data-dialog', async () =>
     showOpenSurfaceDataDialog(getWindow())
+  );
+  ipcMain.handle('tetravox:open-label-names-dialog', async () =>
+    showOpenLabelNamesDialog(getWindow())
   );
   ipcMain.handle('tetravox:open-tract-data-dialog', async () =>
     showOpenTractDataDialog(getWindow())

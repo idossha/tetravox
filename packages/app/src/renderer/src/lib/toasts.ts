@@ -24,6 +24,8 @@ const TITLES: Record<string, string> = {
   io: 'Could not read the file',
   oom: 'Out of memory',
   panic: 'The loader crashed',
+  // `reportError` from a layer's worker call: the file is open, and a layer could not update.
+  TENSOR: 'Could not update the layer',
 };
 
 /** The human title for a protocol `ErrorCode`, falling back to the code itself. */

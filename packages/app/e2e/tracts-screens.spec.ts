@@ -1,6 +1,6 @@
 /**
  * Offscreen real-app captures of tractograms, opt-in behind `TETRAVOX_TRACT_SCREENS=<dir>` because the
- * data is gigabytes. `TETRAVOX_TRACT_DATA` is the `tract_network_dev` root, read-only. What the pixels
+ * data is gigabytes. `TETRAVOX_TRACT_DATA` is the Dataset 000 root, read-only. What the pixels
  * mean is asserted in `packages/engine/test/e2e/tracts.spec.ts`; here the numbers are the timings, and
  * the panels are the point of the picture.
  */
@@ -17,8 +17,8 @@ import type { LaunchTarget } from './fixtures';
 const OUT = process.env['TETRAVOX_TRACT_SCREENS'] ?? '';
 const ROOT = process.env['TETRAVOX_TRACT_DATA'] ?? '';
 const WINDOW = { width: 1500, height: 950 };
-const MR = join(ROOT, 'validation/mrtrix_ref');
-const CHN = join(ROOT, 'project/derivatives/SimNIBS/sub-CHN');
+const MR = join(ROOT, 'derivatives/ti-toolbox/tract_validation/mrtrix_ref');
+const CHN = join(ROOT, 'derivatives/SimNIBS/sub-CHN');
 
 test.describe.configure({ mode: 'serial' });
 test.setTimeout(1_800_000);
@@ -228,7 +228,7 @@ test('TI scenario: TRX coloured by a dpv over T1 and a mesh, and the probe panel
     [
       join(CHN, 'm2m_CHN/T1.nii.gz'),
       join(sim, 'TI/mesh/thalamus_TI.msh'),
-      join(sim, 'tract/thalamocortical_lh.trx'),
+      join(ROOT, 'derivatives/ti-toolbox/tract_validation/thalamus_tract/thalamocortical_lh.trx'),
     ],
     3
   );

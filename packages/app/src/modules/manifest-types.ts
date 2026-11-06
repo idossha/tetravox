@@ -187,6 +187,12 @@ export interface ModuleWriter {
    */
   siblings: string[];
   backup?: 'timestamped';
+  /**
+   * `host.files.chooseFolder` (2026-11-05): one folder sheet, then any number of new files in it
+   * whose extensions are this writer's `filters`. `siblings` must then be empty. Absent, the writer
+   * is a Save sheet and `chooseFolder` refuses it.
+   */
+  directory?: true;
 }
 
 export interface ModuleOperation {
@@ -212,6 +218,11 @@ export interface ModuleUi {
   /** CSS px the popped-out window opens at. Clamped by the shell to something a screen can hold. */
   windowWidth?: number;
   windowHeight?: number;
+  /**
+   * The module's tabs in the right panel's row, in order, before Inspect (§13.3, appended 2026-11-05).
+   * Absent: one tab, named by the title. Core draws the row; `host.ui.panelTab()` says which is chosen.
+   */
+  panelTabs?: { id: string; label: string }[];
 }
 
 export interface ModuleManifest {

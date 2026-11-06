@@ -61,6 +61,7 @@ function stubBridge(existing: readonly string[], droppedPath = ''): Stub {
       openDialog: async () => [],
       openSurfaceDataDialog: async () => [],
       openTractDataDialog: async () => [],
+      openLabelNamesDialog: async () => [],
       getDroppedFilePath: () => stub.droppedPath,
       allowPath: async (path: string) => {
         if (!existing.includes(path)) return null;

@@ -213,6 +213,14 @@ export const POINTER_GESTURES: readonly { title: string; gestures: PointerGestur
       { chord: 'Double-click', description: 'Pick, and move the cursor to the hit point' },
     ],
   },
+  {
+    title: 'Regions list',
+    gestures: [
+      { chord: 'Click', description: 'Select the region (⇧/⌘-click for several)' },
+      { chord: 'Alt-click', description: 'Solo: hide every other region' },
+      { chord: 'Double-click', description: 'Move the cursor to the region’s centroid' },
+    ],
+  },
 ];
 
 /**

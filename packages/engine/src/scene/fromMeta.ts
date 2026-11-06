@@ -11,6 +11,7 @@
  */
 
 import { asGl, identity4 } from '../view/m4';
+import { assumedLabelTable } from './labelNames';
 import { mat4 as glMat4 } from 'gl-matrix';
 import type {
   GeoPayloadT,
@@ -68,6 +69,21 @@ export function statsFromWire(s: StatsT): Stats {
 export function labelTableFromWire(entries: LabelEntryT[]): LabelTable {
   const list = entries.map((e) => ({ id: e.id, name: e.name, color: colorFromWire(e.color) }));
   return { entries: list, byId: new Map(list.map((e) => [e.id, e])) };
+}
+
+/**
+ * A volume's lookup file, read as §7.6 says. FreeSurfer's fourth column is `255 - alpha`, so its table
+ * is nearly all zeros and taken literally would hide every region; id 0 stays background either way.
+ */
+export function volumeLabelTable(entries: LabelEntryT[]): LabelTable {
+  const rows = entries.filter((e) => e.id !== 0);
+  const inverted = rows.filter((e) => e.color[3] === 0).length * 2 > rows.length;
+  if (!inverted) return labelTableFromWire(entries);
+  return labelTableFromWire(
+    entries.map((e) =>
+      e.id === 0 ? e : { ...e, color: [e.color[0], e.color[1], e.color[2], 255 - e.color[3]] }
+    )
+  );
 }
 
 function typedArrayFor(dtype: VolumeMeta['dtype'], data: ArrayBuffer): TypedArray {
@@ -171,6 +187,11 @@ export function volumeDatasetFromMeta(
   const inverseAffine = identity4();
   glMat4.invert(asGl(inverseAffine), asGl(affine));
   const toTemplate = toTemplateFromHeader(meta.headerJson);
+  // `labelIds` is frame 0's, so a 4D label volume never assumes from one frame.
+  const assumed =
+    meta.labelTable === undefined && meta.nvols === 1 && labelIds !== undefined
+      ? assumedLabelTable(labelIds)
+      : null;
   return {
     kind: 'volume',
     id,
@@ -189,7 +210,9 @@ export function volumeDatasetFromMeta(
     isLabel: meta.isLabel,
     labelIds,
     denseIndexOf,
-    labelTable: meta.labelTable !== undefined ? labelTableFromWire(meta.labelTable) : undefined,
+    labelTable:
+      meta.labelTable !== undefined ? volumeLabelTable(meta.labelTable) : (assumed ?? undefined),
+    ...(assumed === null ? {} : { assumedLabelTable: assumed }),
     stats: statsFromWire(meta.stats),
     units: meta.units,
     gpu: meta.gpu,

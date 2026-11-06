@@ -252,10 +252,51 @@ test.describe('downloadable extensions', () => {
     // computed from `CONTACT_PALETTE[0]`, not copied off a screen.
     await expect(page.locator('[data-testid="fixture-swatch-0"]')).toHaveText(SWATCH_0);
 
+    // ---- the folder channel, through the real preload and main ------------------------------------
+    const exportDir = temp('export');
+    await app.evaluate(async ({ dialog }, dir) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: [dir],
+      })) as typeof dialog.showOpenDialog;
+    }, exportDir);
+    const exported = await page.evaluate(async (id) => {
+      const b = window.tetravox!;
+      const folder = await b.moduleChooseFolder!(id, { writerId: 'export' });
+      if (folder === null || !folder.ok) throw new Error(JSON.stringify(folder));
+      const escape = await b.moduleFolderCreate!(id, folder.token, '../evil.tsv', {
+        overwrite: true,
+      });
+      const made = await b.moduleFolderCreate!(id, folder.token, 'a.tsv', { overwrite: false });
+      if (!made.ok) throw new Error(made.error);
+      await b.moduleFolderWrite!(id, made.token, new Uint8Array([97, 10]));
+      const closed = await b.moduleFolderClose!(id, made.token);
+      const left = await b.moduleFolderCreate!(id, folder.token, 'open.tsv', { overwrite: false });
+      if (!left.ok) throw new Error(left.error);
+      return { escapeOk: escape.ok, closed, folder: folder.token, left: left.token };
+    }, FIXTURE_ID);
+    expect(exported.escapeOk).toBe(false);
+    expect(exported.closed).toMatchObject({ ok: true, bytes: 2 });
+    expect(readFileSync(join(exportDir, 'a.tsv'), 'utf8')).toBe('a\n');
+    expect(readdirSync(exportDir).sort()).toEqual(['a.tsv', 'open.tsv.part']);
+
     // ---- disable: out of the slot, out of the switcher, off the map --------------------------------
     await openExtensionsDialog(page);
     await page.click(`[data-testid="extension-disable-${FIXTURE_ID}"]`);
     await expect(card).toHaveAttribute('data-state', 'installed');
+    // Disabling revokes in main, so the half-written file is gone and the handles are dead.
+    expect(readdirSync(exportDir)).toEqual(['a.tsv']);
+    const foldersAfterDisable = await page.evaluate(
+      async ([id, folder, writer]) => {
+        const b = window.tetravox!;
+        return [
+          (await b.moduleFolderCreate!(id!, folder!, 'b.tsv', { overwrite: false })).ok,
+          (await b.moduleFolderWrite!(id!, writer!, new Uint8Array(1))).ok,
+        ];
+      },
+      [FIXTURE_ID, exported.folder, exported.left]
+    );
+    expect(foldersAfterDisable).toEqual([false, false]);
     await page.click('[data-testid="extensions-close"]');
     await expect(slot).toBeHidden();
     await page.click('[data-testid="module-switcher"]');

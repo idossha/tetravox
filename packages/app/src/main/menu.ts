@@ -161,6 +161,22 @@ export async function showOpenTractDataDialog(win: BrowserWindow | null): Promis
   return toOpened(result.filePaths);
 }
 
+/** The Regions section's "Load names…": one lookup table for the label volume that asked. */
+export async function showOpenLabelNamesDialog(win: BrowserWindow | null): Promise<OpenedPath[]> {
+  const options: OpenDialogOptions = {
+    properties: ['openFile'],
+    filters: [
+      { name: 'Lookup table (txt, lut, ctbl)', extensions: ['txt', 'lut', 'ctbl', 'label'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled) return [];
+  return toOpened(result.filePaths);
+}
+
 export async function showOpenSurfaceDataDialog(win: BrowserWindow | null): Promise<OpenedPath[]> {
   const options: OpenDialogOptions = {
     properties: ['openFile', 'multiSelections'],

@@ -444,6 +444,10 @@ one such extension (§13.8). **This section is generated** from the manifests by
 |---|---|
 | `echo` | `text` a string |
 
+#### `tetravox.tabs` — Tabs 1.0.0
+
+This module declares no job operations.
+
 ---
 
 ## 3. The Python client

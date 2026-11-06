@@ -190,6 +190,69 @@ test.describe('the layer disclosure (stand-in engine)', () => {
   });
 });
 
+test.describe('one layer open at a time (stand-in engine)', () => {
+  let app: ElectronApplication;
+  let page: Page;
+  let ids: string[];
+
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeAll(async ({}, workerInfo) => {
+    const target = workerInfo.project.name as LaunchTarget;
+    const blocked = target === 'packaged' ? packagedUnavailable() : null;
+    test.skip(blocked !== null, blocked ?? '');
+    app = await launchApp(target, { search: 'engine=mock', args: [VOLUME, LABELS] });
+    page = await app.firstWindow();
+    await page.waitForSelector('[data-testid="shell"][data-ready="true"]', { timeout: 60_000 });
+    await expect(page.locator('[data-testid="layer-list"] > li')).toHaveCount(2);
+    ids = await layerIds(page);
+  });
+
+  test.afterAll(async () => {
+    await app?.close();
+  });
+
+  const body = (id: string) => page.locator(`[data-testid="layer-body-${id}"]`);
+
+  test('by default both layers can be open, and the setting is off', async () => {
+    await expect(body(ids[0]!)).toBeVisible();
+    await expect(body(ids[1]!)).toBeVisible();
+    await page.click('[data-testid="settings-button"]');
+    await page.click('[data-testid="settings-tab-appearance"]');
+    await expect(page.locator('[data-testid="settings-one-layer-open"]')).not.toBeChecked();
+  });
+
+  test('turned on, a click opens one layer and closes the other', async () => {
+    await page.check('[data-testid="settings-one-layer-open"]');
+    await page.click('[data-testid="settings-close"]');
+    await expect(page.locator('[data-testid="layer-collapse-all"]')).toHaveCount(0);
+
+    await page.click(`[data-testid="layer-name-${ids[0]}"]`);
+    await expect(body(ids[0]!)).toBeVisible();
+    await expect(body(ids[1]!)).toHaveCount(0);
+
+    // The chevron of a closed row opens it, rather than opening and shutting it in one click.
+    await page.click(`[data-testid="layer-disclosure-${ids[1]}"]`);
+    await expect(body(ids[1]!)).toBeVisible();
+    await expect(body(ids[0]!)).toHaveCount(0);
+
+    // And the open row's own chevron shuts it.
+    await page.click(`[data-testid="layer-disclosure-${ids[1]}"]`);
+    await expect(body(ids[1]!)).toHaveCount(0);
+  });
+
+  test('turned off, every layer is back as it was', async () => {
+    await page.click(`[data-testid="layer-disclosure-${ids[1]}"]`);
+    await page.click('[data-testid="settings-button"]');
+    await page.click('[data-testid="settings-tab-appearance"]');
+    await page.uncheck('[data-testid="settings-one-layer-open"]');
+    await page.click('[data-testid="settings-close"]');
+    await expect(body(ids[0]!)).toBeVisible();
+    await expect(body(ids[1]!)).toBeVisible();
+    await expect(page.locator('[data-testid="layer-collapse-all"]')).toBeVisible();
+  });
+});
+
 // -------------------------------------------------------------------------------------------------
 // Real data — the region panel, and the picture
 // -------------------------------------------------------------------------------------------------

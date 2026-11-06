@@ -34,6 +34,12 @@ export const PANEL_WIDTH_LIMITS = {
   right: { min: 256, max: 640, default: 320 },
 } as const;
 
+/** The right panel's width while a module is docked, until the user drags it (§13.3). */
+export const MODULE_PANEL_WIDTH_PX = 400;
+
+/** However wide a saved right panel is, the views keep at least this much. */
+export const MIN_VIEWS_PX = 320;
+
 export function clampPanelWidth(side: 'left' | 'right', px: number): number {
   const { min, max, default: fallback } = PANEL_WIDTH_LIMITS[side];
   if (!Number.isFinite(px)) return fallback;
@@ -49,9 +55,15 @@ export interface PanelPrefs {
    * not churn under them. One click on its header opens it, and that choice is remembered here.
    */
   mouseBlockCollapsed: boolean;
+  /** Show only the active layer's editor in the layer panel. Off unless asked for. */
+  oneLayerOpen: boolean;
+  /** Inspect's raw header, closed until asked for: most sessions never read it. */
+  headerBlockCollapsed: boolean;
   /** Expanded widths in CSS px, set by dragging the sidebar's inner edge. */
   leftPanelWidth: number;
   rightPanelWidth: number;
+  /** The right panel with a module docked. Dragging it leaves {@link rightPanelWidth} alone. */
+  rightModuleWidth: number;
 }
 
 /**
@@ -92,8 +104,11 @@ export const DEFAULT_PANEL_PREFS: PanelPrefs = {
   leftPanelCollapsed: false,
   rightPanelCollapsed: false,
   mouseBlockCollapsed: true,
+  oneLayerOpen: false,
+  headerBlockCollapsed: true,
   leftPanelWidth: PANEL_WIDTH_LIMITS.left.default,
   rightPanelWidth: PANEL_WIDTH_LIMITS.right.default,
+  rightModuleWidth: MODULE_PANEL_WIDTH_PX,
 };
 
 export function loadPanelPrefs(): PanelPrefs {
@@ -104,15 +119,23 @@ export function loadPanelPrefs(): PanelPrefs {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null) return DEFAULT_PANEL_PREFS;
     const p = parsed as Partial<PanelPrefs>;
+    const rightPanelWidth = clampPanelWidth(
+      'right',
+      p.rightPanelWidth ?? PANEL_WIDTH_LIMITS.right.default
+    );
     return {
       leftPanelCollapsed: p.leftPanelCollapsed === true,
       rightPanelCollapsed: p.rightPanelCollapsed === true,
       // Absent (a pref written before the block was collapsible) means the default, not `false`.
       mouseBlockCollapsed: p.mouseBlockCollapsed !== false,
+      oneLayerOpen: p.oneLayerOpen === true,
+      headerBlockCollapsed: p.headerBlockCollapsed !== false,
       leftPanelWidth: clampPanelWidth('left', p.leftPanelWidth ?? PANEL_WIDTH_LIMITS.left.default),
-      rightPanelWidth: clampPanelWidth(
+      rightPanelWidth,
+      // Absent: someone who widened the panel past 400 px before this existed keeps that width.
+      rightModuleWidth: clampPanelWidth(
         'right',
-        p.rightPanelWidth ?? PANEL_WIDTH_LIMITS.right.default
+        p.rightModuleWidth ?? Math.max(MODULE_PANEL_WIDTH_PX, rightPanelWidth)
       ),
     };
   } catch {

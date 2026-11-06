@@ -84,7 +84,9 @@ element id, tissue tag and every field value at that point.
 ## Volume layers
 
 One row per volume layer, bottom to top, each with an eye, an opacity slider and a disclosure triangle for
-its editor. The active layer has an accent border and is what `Shift+drag`, right-drag and the keyboard act
+its editor. To see one layer at a time, turn on **Show one layer at a time** in Settings ▸ Appearance: opening a
+layer then closes the others, and turning it off brings back what you had open.
+The active layer has an accent border and is what `Shift+drag`, right-drag and the keyboard act
 on; `[` / `]` cycle which layer is active, `v` toggles its visibility, `Ctrl+↑/↓` reorders it.
 
 Each volume layer has a colormap and a negative-branch colormap, `linear` or `heat` scaling, a threshold with
@@ -156,6 +158,12 @@ annotations — with the same rows: eye, colour swatch, name, id, count. Search 
 and emphasise, ⇧/⌘-click for several, **Alt-click to solo** (mute all others), and double-click to jump the
 crosshair to that region's centroid. Show all / Hide all / Invert are at the top. Clicking a labelled voxel
 or tissue in a pane selects its row.
+
+**Names by default.** A file with no lookup table of its own but with FreeSurfer's numbering (an aseg, or an aparc)
+shows FreeSurfer's names and colours. Tetravox assumes this only when every id is in FreeSurfer's table, the ids
+hold left/right pairs such as 10 and 49, and they do not simply run 1 to N, so a tissue map, a mask or a Schaefer
+atlas keeps its numbers. The line at the top of the region panel says so: *Names: FreeSurfer, assumed from label ids*. **Use numbers**
+turns it off for this scene, and **Load names…** takes your own table, which always wins.
 
 ![One region soloed, every other label muted, and the same region as a 3D surface](screenshots/2026-08-29/brain/brain-t1-thalamus.png)
 
@@ -366,18 +374,22 @@ in: every extension arrives the same way, through **File ▸ Extensions…**. On
 in the panel; any number can be open at once in **their own windows** (below).
 
 **The switcher** is the `▾` button in the toolbar's right cluster, beside `?` and `⚙`. It lists every
-extension this machine carries; picking one opens its panel, picking it again closes it. The panel
-itself is the **slot**: a section in the right column, above the Info panel, so the crosshair
-read-out stays visible while you work — that is the feedback most extension actions are judged by.
-The slot never takes more than a bit over half the column and scrolls inside itself; with no
-extension active it is not there at all.
+extension this machine carries; picking one opens its panel, picking it again closes it (if you were on
+**Inspect**, the first pick brings it back instead).
 
-**Its own window.** The `⧉` in the slot's header — and the `⧉` beside any row in the switcher — opens
+**The right panel shows one tab at a time.** With no extension open it is just **Inspect**: the coordinates,
+measurements, the crosshair read-out, and the file header behind its own arrow. With one open, a row across the top
+holds the extension's tabs, then its `⧉` and `✕` and the arrow that folds the panel, and an **Inspect** button appears
+in the toolbar beside the switcher. Press it for Inspect, and again for the extension's last tab. Switching loses
+nothing, and clicking in a pane never changes what is showing. The panel opens at 400 px with an
+extension in it, and remembers its own width with and without one: drag its edge to change it.
+
+**Its own window.** The `⧉` in that row — and the `⧉` beside any row in the switcher — opens
 that extension in a window of its own, which you can move to a second monitor and make as large as
 the work needs. Nothing is unloaded by the move: the same editor, the same undo history, the same
 unsaved edits, and closing the window brings it straight back to the panel. It is what makes several
 extensions usable at once — one in the panel, the rest in windows — and what gives an extension with
-a lot to show more than a 320 px column. A window's keys belong to the extension in it, and the
+a lot to show more than a side panel. A window's keys belong to the extension in it, and the
 panel's keys to the extension in the panel, so two open extensions never fight over a key. Opening a
 second extension into the panel moves the first one to a window rather than closing it. (An
 extension whose panel only makes sense beside the crosshair read-out can decline the button.)

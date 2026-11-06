@@ -673,7 +673,7 @@ fn real_tractograms_when_present() {
         return;
     };
     let root = PathBuf::from(root);
-    let tck = root.join("validation/mrtrix_ref/tracks_ifod2_200k.tck");
+    let tck = root.join("derivatives/ti-toolbox/tract_validation/mrtrix_ref/tracks_ifod2_200k.tck");
     let opts = LoadOptions {
         max_points: Some(8_000_000),
         seed: 1,
@@ -696,9 +696,8 @@ fn real_tractograms_when_present() {
     assert!((t.n_points() as u64) < 8_800_000);
     assert!(t.notes.is_empty(), "{:?}", t.notes);
 
-    let trx = root.join(
-        "project/derivatives/SimNIBS/sub-CHN/Simulations/thalamus/tract/thalamocortical_lh.trx",
-    );
+    let trx =
+        root.join("derivatives/ti-toolbox/tract_validation/thalamus_tract/thalamocortical_lh.trx");
     let t = load_bytes(TractFormat::Trx, &std::fs::read(trx).unwrap(), ALL).unwrap();
     assert_eq!((t.n_streamlines(), t.n_points()), (2624, 348_789));
     assert!(t.vertex_fields.iter().any(|f| f.name == "ti_along"));

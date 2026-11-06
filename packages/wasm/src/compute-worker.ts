@@ -16,6 +16,8 @@
  * * The `CutOut` pool for the recycled `cut` path, grown by doubling on `truncated: true` and
  *   re-called (§6.4). A partially-filled pool is never returned, so grow-and-retry is always safe.
  * * `wasm_heap_bytes()` is read after every call and stamped onto the `Res`.
+ * * The one exception is a tract scan (§6.3.1): a session here between `tractScanNext` calls, closed by
+ *   `tractScanClose` or `free`, because the dataset it runs beside must survive its cancellation.
  * * One request runs at a time, so a `Cancel` can still drop a **queued** one. There is no abort
  *   flag: `SharedArrayBuffer` is `undefined` here (not cross-origin isolated, §1), and while a
  *   synchronous wasm call runs the worker's event loop cannot process a `Cancel` anyway — an
@@ -33,6 +35,7 @@ import type {
   Cancel,
   FromWorker,
   GpuCapsT,
+  LoadSource,
   MeshMeta,
   OpArgs,
   OpName,
@@ -41,6 +44,7 @@ import type {
   Req,
   Res,
   ToWorker,
+  TractScanChunkT,
   VolumeMeta,
 } from '@tetravox/protocol';
 import { OP_TO_EXPORT, isCancel } from '@tetravox/protocol';
@@ -168,6 +172,147 @@ async function attachTractFile(a: OpArgs['tractAttach']): Promise<OpResult['trac
 }
 
 // ---------------------------------------------------------------------------------------------
+// §6.3.1's scan: a session between calls, so other ops on this dataset run between chunks.
+// ---------------------------------------------------------------------------------------------
+
+/** Most bytes into a parser between looks at it: what bounds a chunk's overshoot, and the heap's. */
+const SCAN_PUSH_BYTES = 1 << 18;
+/** Most bytes read in one `tractScanNext` that has no chunk to show, as on a TRX's first pass. */
+const SCAN_YIELD_BYTES = 64 << 20;
+
+/** A file read forward in pieces of at most `SCAN_PUSH_BYTES`. */
+class ScanFeed {
+  #reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  #rest: Uint8Array | null = null;
+
+  constructor(readonly source: LoadSource) {}
+
+  /** `null` at the end of the file, and the next call starts it again. */
+  async next(): Promise<Uint8Array | null> {
+    if (this.#rest === null) {
+      try {
+        this.#reader ??= (await openStream(this.source)).stream.getReader();
+        const step = await this.#reader.read();
+        if (step.done) {
+          this.#reader = null;
+          return null;
+        }
+        this.#rest = step.value;
+      } catch (cause) {
+        // A read that fails is `io`, not the `panic` that would tear this dataset's worker down.
+        if ((cause as { code?: unknown }).code === 'io') throw cause;
+        throw ioError(`${sourceName(this.source)}: ${String(cause)}`);
+      }
+    }
+    const piece = this.#rest.subarray(0, SCAN_PUSH_BYTES);
+    this.#rest =
+      this.#rest.byteLength > SCAN_PUSH_BYTES ? this.#rest.subarray(SCAN_PUSH_BYTES) : null;
+    return piece;
+  }
+
+  cancel(): void {
+    void this.#reader?.cancel().catch(() => {});
+    this.#reader = null;
+    this.#rest = null;
+  }
+}
+
+interface ScanSession {
+  handle: number;
+  main: ScanFeed;
+  sidecars: { at: number; feed: ScanFeed }[];
+  ended: boolean;
+}
+
+const scans = new Map<number, ScanSession>();
+
+function closeScan(scan: number): void {
+  const session = scans.get(scan);
+  if (session === undefined) return;
+  scans.delete(scan);
+  session.main.cancel();
+  for (const car of session.sidecars) car.feed.cancel();
+  tvx.tract_scan_close(scan);
+}
+
+async function feedScanSidecars(scan: number, session: ScanSession): Promise<void> {
+  for (const { at, feed } of session.sidecars) {
+    while (tvx.tract_scan_attach_hungry(scan, at)) {
+      const piece = await feed.next();
+      if (piece === null) tvx.tract_scan_attach_end(scan, at);
+      else tvx.tract_scan_attach_push(scan, at, piece);
+    }
+  }
+}
+
+async function openTractScan(a: OpArgs['tractScanOpen']): Promise<OpResult['tractScanOpen']> {
+  // The same length rule as a load, because the same check reads it.
+  const opened = await openStream(a.source);
+  let total = opened.length;
+  await opened.stream.cancel();
+  if (total === null) total = await readAll(a.source, () => {});
+  const scan = tvx.tract_scan_begin(
+    a.handle,
+    a.format,
+    total,
+    JSON.stringify(a.fields),
+    a.chunkPoints
+  );
+  const session: ScanSession = {
+    handle: a.handle,
+    main: new ScanFeed(a.source),
+    sidecars: [],
+    ended: false,
+  };
+  scans.set(scan, session);
+  try {
+    for (const source of a.sidecars) {
+      const at = tvx.tract_scan_attach_begin(scan, sourceName(source));
+      session.sidecars.push({ at, feed: new ScanFeed(source) });
+    }
+    await feedScanSidecars(scan, session);
+  } catch (cause) {
+    closeScan(scan);
+    throw cause;
+  }
+  return { scan };
+}
+
+async function nextTractScan(a: OpArgs['tractScanNext']): Promise<OpResult['tractScanNext']> {
+  const session = scans.get(a.scan);
+  if (session === undefined) throw toScanClosed(a.scan);
+  let read = 0;
+  while (read < SCAN_YIELD_BYTES) {
+    if (tvx.tract_scan_ready(a.scan)) {
+      await feedScanSidecars(a.scan, session);
+      return { chunk: tvx.tract_scan_take(a.scan) as TractScanChunkT };
+    }
+    if (session.ended) {
+      await feedScanSidecars(a.scan, session);
+      const done = tvx.tract_scan_finish(a.scan) as { streamlines: number; points: number };
+      closeScan(a.scan);
+      return { done };
+    }
+    const piece = await session.main.next();
+    if (piece === null) session.ended = !tvx.tract_scan_end_pass(a.scan);
+    else {
+      tvx.tract_scan_push(a.scan, piece);
+      read += piece.byteLength;
+    }
+  }
+  return {};
+}
+
+function toScanClosed(scan: number): Error & { code: 'cancelled' } {
+  return Object.assign(
+    new Error(`tract scan ${scan} is closed: its dataset was freed or re-read`),
+    {
+      code: 'cancelled' as const,
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------------------------
 
@@ -264,6 +409,16 @@ async function runOp<K extends OpName>(
       const a = args as OpArgs['tractRemoveField'];
       return call(a.handle, a.kind, a.name) as OpResult[K];
     }
+    case 'tractScanOpen': {
+      return (await openTractScan(args as OpArgs['tractScanOpen'])) as OpResult[K];
+    }
+    case 'tractScanNext': {
+      return (await nextTractScan(args as OpArgs['tractScanNext'])) as OpResult[K];
+    }
+    case 'tractScanClose': {
+      closeScan((args as OpArgs['tractScanClose']).scan);
+      return {} as OpResult[K];
+    }
     case 'volumeSample': {
       const a = args as OpArgs['volumeSample'];
       return call(a.handle, a.points, a.tangents, a.volumeIndex, a.op, a.basis) as OpResult[K];
@@ -279,6 +434,11 @@ async function runOp<K extends OpName>(
       const a = args as OpArgs['attachField'];
       const loaded = await loadSource(a.source, read);
       return call(a.handle, loaded.bytes, loaded.name) as OpResult[K];
+    }
+    case 'parseLut': {
+      const a = args as OpArgs['parseLut'];
+      const loaded = await loadSource(a.source, read);
+      return call(loaded.bytes) as OpResult[K];
     }
     case 'volumeTensor': {
       const a = args as OpArgs['volumeTensor'];
@@ -404,6 +564,9 @@ async function runOp<K extends OpName>(
     }
     case 'free': {
       const a = args as OpArgs['free'];
+      for (const [scan, session] of scans) {
+        if (session.handle === a.handle) closeScan(scan);
+      }
       call(a.handle);
       return {} as OpResult[K];
     }

@@ -31,6 +31,7 @@ import {
   colorPatch,
   filterRows,
   fromHex,
+  namesProvenance,
   opacityPatch,
   paintOverrideCount,
   paintPatch,
@@ -165,6 +166,26 @@ describe('one panel, three sources (R5)', () => {
       'Label 3',
       'Scalp',
     ]);
+  });
+
+  it('says where the names came from', () => {
+    const assumed = LABELS;
+    const ds = labelVolume();
+    expect(namesProvenance({ ...ds, labelTable: assumed, assumedLabelTable: assumed })).toEqual({
+      text: 'Names: FreeSurfer, assumed from label ids',
+      offer: 'numbers',
+    });
+    expect(namesProvenance({ ...ds, labelTable: undefined, assumedLabelTable: assumed })).toEqual({
+      text: 'Names: numbers',
+      offer: 'names',
+    });
+    expect(namesProvenance({ ...ds, labelTable: undefined })).toEqual({
+      text: 'No names in this file',
+      offer: null,
+    });
+    expect(namesProvenance({ ...ds, labelTableFile: 'aseg_LUT.txt' }).text).toBe(
+      'Names: aseg_LUT.txt'
+    );
   });
 
   it('leaves an unnamed label’s colour null rather than inventing one the pane will not paint', () => {

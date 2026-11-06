@@ -10,16 +10,21 @@
  * `properties.tsx`. What ships here is the row itself.
  */
 
+import { useRef } from 'react';
 import type { Layer } from '@tetravox/engine';
 import { LoadCards } from './LoadCards';
 import { LayerProperties } from './properties';
+import { isLayerCollapsed } from '../../store/store';
 import { useController, useUi } from '../../ui/context';
 
 function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
   const controller = useController();
   const active = useUi((s) => s.activeLayerId === layer.id);
   const dataset = useUi((s) => s.datasets.find((d) => d.id === layer.datasetId));
-  const collapsed = useUi((s) => s.collapsedLayers[layer.id] === true);
+  const oneOpen = useUi((s) => s.oneLayerOpen);
+  const collapsed = useUi((s) => isLayerCollapsed(s, layer.id));
+
+  const pressedWhileActive = useRef(false);
 
   return (
     <li
@@ -33,6 +38,8 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
         (active ? 'border-tvx-accent bg-tvx-panel' : 'border-transparent hover:bg-tvx-panel/60')
       }
       onPointerDown={(e) => {
+        // Choosing a row is how it opens when only one may be: a row the user shut earlier too.
+        if (oneOpen && !active) controller.setLayerCollapsed(layer.id, false);
         controller.setActiveLayer(layer.id);
         // Take the focus so the ←/→ binding below is reachable without a Tab — but only when the
         // press was on the row itself. A press on the eye, the slider or anything inside the editor
@@ -75,9 +82,13 @@ function LayerRow({ layer }: { layer: Layer }): React.JSX.Element {
           aria-label={collapsed ? 'Expand layer' : 'Collapse layer'}
           title={collapsed ? 'Expand this layer (→)' : 'Collapse this layer (←)'}
           className="tvx-btn tvx-btn-sm w-5 shrink-0"
+          // The row's press has already opened a row that was not active; a toggle would shut it.
+          onPointerDown={() => {
+            pressedWhileActive.current = active;
+          }}
           onClick={(e) => {
             e.stopPropagation();
-            controller.toggleLayerCollapsed(layer.id);
+            if (!oneOpen || pressedWhileActive.current) controller.toggleLayerCollapsed(layer.id);
           }}
         >
           {collapsed ? '▸' : '▾'}
@@ -186,6 +197,7 @@ export function LayerPanel(): React.JSX.Element {
   const collapsedLayers = useUi((s) => s.collapsedLayers);
   const shown = [...layers].reverse();
   const anyExpanded = layers.some((l) => collapsedLayers[l.id] !== true);
+  const oneOpen = useUi((s) => s.oneLayerOpen);
   return (
     <aside
       data-testid="layer-panel"
@@ -203,18 +215,20 @@ export function LayerPanel(): React.JSX.Element {
         >
           ‹
         </button>
-        <button
-          type="button"
-          data-testid="layer-collapse-all"
-          data-action={anyExpanded ? 'collapse' : 'expand'}
-          aria-label={anyExpanded ? 'Collapse all layers' : 'Expand all layers'}
-          title={anyExpanded ? 'Collapse every layer' : 'Expand every layer'}
-          disabled={layers.length === 0}
-          className="tvx-btn tvx-btn-sm ml-auto disabled:opacity-40"
-          onClick={() => controller.setAllLayersCollapsed(anyExpanded)}
-        >
-          {anyExpanded ? '⌃' : '⌄'}
-        </button>
+        {oneOpen ? null : (
+          <button
+            type="button"
+            data-testid="layer-collapse-all"
+            data-action={anyExpanded ? 'collapse' : 'expand'}
+            aria-label={anyExpanded ? 'Collapse all layers' : 'Expand all layers'}
+            title={anyExpanded ? 'Collapse every layer' : 'Expand every layer'}
+            disabled={layers.length === 0}
+            className="tvx-btn tvx-btn-sm ml-auto disabled:opacity-40"
+            onClick={() => controller.setAllLayersCollapsed(anyExpanded)}
+          >
+            {anyExpanded ? '⌃' : '⌄'}
+          </button>
+        )}
       </h2>
       <LoadCards />
       {shown.length === 0 ? (

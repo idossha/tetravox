@@ -513,6 +513,36 @@ test('a scene with a tractogram, a volume and a sample step reproduces on reload
   expect([...again]).toEqual([...before]);
 });
 
+test('nothing asked of a tractogram while its budget changes reaches the freed copy', async ({
+  page,
+}) => {
+  const { datasetId, layerId } = await open(page, 'tract_f32_stored.trx', { lineWidthPx: 5 });
+  const got = await page.evaluate(
+    async ([tract, id]) => {
+      const engine = window.__tvxEngine!;
+      const errors: string[] = [];
+      engine.on('error', (e) => errors.push(e.message));
+      const reload = engine.setTractBudget(tract as string, 22);
+      // All of this lands after the free has been posted and before the new copy exists.
+      engine.setCursor([1, 2, 3]);
+      engine.updateLayer(id as string, { lineWidthPx: 3, colorBy: { kind: 'solid' } } as never);
+      const structure = engine.tractStructure(tract as string);
+      const points = engine.tractPoints(tract as string, 0, 1);
+      await reload;
+      const during = await structure;
+      await points;
+      await engine.whenSettled();
+      const ds = engine.scene.datasets.get(tract as string) as { nPoints: number; handle: number };
+      return { errors, offsets: during.offsets.length, n: ds.nPoints, handle: ds.handle };
+    },
+    [datasetId, layerId] as const
+  );
+  expect(got.errors).toEqual([]);
+  expect(got.n).toBeLessThan(44);
+  expect(got.handle).toBeGreaterThan(0);
+  expect(got.offsets).toBeGreaterThan(0);
+});
+
 test('a budget shows a labelled subset, and load-full replaces the arrays and replays samples', async ({
   page,
 }) => {
@@ -663,6 +693,101 @@ test('a .tsf attaches per point, survives a budget change, and returns in a save
   expect(got.value as number).toBeLessThan(1);
   expect(got.fields).toContain('mrtrix_small_fa');
   expect(got.sidecars).toBe(2);
+});
+
+test('a scan reads the whole file on a thinned dataset, waits for its consumer, and aborts', async ({
+  page,
+}) => {
+  await page.goto('/test/pages/scene.html');
+  await page.waitForFunction(() => window.__tvxEngine !== undefined);
+  const got = await page.evaluate(
+    async ([tck, table]) => {
+      const engine = window.__tvxEngine!;
+      const ds = await engine.addDataset({ kind: 'path', path: tck as string });
+      if (ds.kind !== 'tractogram') throw new Error('not a tractogram');
+      await engine.attachTractFile(ds.id, { kind: 'path', path: table as string });
+      await engine.setTractBudget(ds.id, 40);
+      const held = ds.nStreamlines;
+
+      let streamlines = 0;
+      let points = 0;
+      let weights = 0;
+      let concurrent = 0;
+      let overlapped = false;
+      const totals = await engine.tractScan(
+        ds.id,
+        async (chunk) => {
+          overlapped ||= concurrent > 0;
+          concurrent += 1;
+          streamlines += chunk.offsets.length - 1;
+          points += chunk.positions.length / 3;
+          weights += chunk.streamlineFields['mrtrix_small_fa_mean']?.length ?? 0;
+          await engine.tractStructure(ds.id);
+          concurrent -= 1;
+        },
+        { fields: ['mrtrix_small_fa_mean'] }
+      );
+
+      const controller = new AbortController();
+      let chunksBeforeAbort = 0;
+      const aborted = await engine
+        .tractScan(
+          ds.id,
+          () => {
+            chunksBeforeAbort += 1;
+            controller.abort();
+          },
+          { signal: controller.signal }
+        )
+        .then(
+          () => 'resolved',
+          (e: Error) => e.name
+        );
+      const preAborted = await engine
+        .tractScan(ds.id, () => {}, { signal: controller.signal })
+        .then(
+          () => 'resolved',
+          (e: Error) => e.name
+        );
+      const refused = await engine
+        .tractScan(ds.id, () => {}, { fields: ['nope'] })
+        .then(
+          () => '',
+          (e: Error) => e.message
+        );
+      // The dataset outlives all of it, and a scan after an abort is whole.
+      const again = await engine.tractScan(ds.id, () => {});
+      return {
+        held,
+        source: ds.sourceStreamlines,
+        sourcePoints: ds.sourcePoints,
+        totals,
+        streamlines,
+        points,
+        weights,
+        overlapped,
+        aborted,
+        chunksBeforeAbort,
+        preAborted,
+        refused,
+        again,
+        structure: (await engine.tractStructure(ds.id)).sourceIndex.length,
+      };
+    },
+    [fixture('mrtrix_small.tck'), fixture('mrtrix_small_fa_mean.txt')] as const
+  );
+  expect(got.held, 'the budget thinned it').toBeLessThan(got.source);
+  expect(got.totals).toEqual({ streamlines: got.source, points: got.sourcePoints });
+  expect(got.streamlines).toBe(got.source);
+  expect(got.points).toBe(got.sourcePoints);
+  expect(got.weights).toBe(got.source);
+  expect(got.overlapped, 'a chunk waits for the last one').toBe(false);
+  expect(got.aborted).toBe('AbortError');
+  expect(got.chunksBeforeAbort).toBe(1);
+  expect(got.preAborted).toBe('AbortError');
+  expect(got.refused).toContain('nope');
+  expect(got.again).toEqual(got.totals);
+  expect(got.structure).toBe(got.held);
 });
 
 test('the frame on screen after a colour change is complete, with no extra redraw', async ({

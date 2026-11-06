@@ -303,6 +303,7 @@ test.describe('scene save/load on ernie (§4.6, §8)', () => {
 
       // The header panel is on real data now: §6.1 reads the raw 348-byte header, so `scl_slope`
       // is the **on-disk 1.0** and not the NaN `nib.load(p).header` reports (AGENTS.md).
+      await page.click('[data-testid="header-toggle"]');
       await expect(page.locator('[data-testid="header-value-scl_slope"]')).toHaveText('1');
       // A SimNIBS m2m T1 is `sform_code = 2`, not 4, so the *header* puts nothing in a template
       // space — the MNI entries here come from the `toMNI/` folder beside it (directed task 8),

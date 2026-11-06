@@ -133,6 +133,15 @@ pub fn mesh_attach_field(handle: u32, bytes: Vec<u8>, name: &str) -> Result<JsVa
     mesh::attach_field(handle, bytes, name).map_err(err::map)
 }
 
+/// A lookup file onto a label volume already open (§6.5.2, `parseLut`). Returns `{ entries }`.
+#[wasm_bindgen]
+pub fn parse_lut(bytes: Vec<u8>) -> Result<JsValue, JsValue> {
+    let table = lut::parse(&String::from_utf8_lossy(&bytes)).map_err(err::map)?;
+    let o = jsv::obj();
+    jsv::set(&o, "entries", &jsv::label_entries(&table).into());
+    Ok(o.into())
+}
+
 /// The **only** way to display a 4D index ≠ 0 (§6.5.2). Returns `VolumeFrameT`.
 #[wasm_bindgen]
 pub fn volume_frame(
@@ -602,6 +611,68 @@ pub fn tract_attach_push(handle: u32, stream: u32, chunk: &[u8]) -> Result<(), J
 #[wasm_bindgen]
 pub fn tract_attach_finish(handle: u32, stream: u32) -> Result<JsValue, JsValue> {
     tract::attach_finish(handle, stream).map_err(err::map)
+}
+
+// §6.3.1's scan (2026-11-05): `tractScanOpen` names the first, `tractScanNext` `tract_scan_take`.
+#[wasm_bindgen]
+pub fn tract_scan_begin(
+    handle: u32,
+    format: &str,
+    total_len: f64,
+    fields_json: &str,
+    chunk_points: u32,
+) -> Result<u32, JsValue> {
+    tract::scan_begin(handle, format, total_len, fields_json, chunk_points).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_attach_begin(scan: u32, name: &str) -> Result<u32, JsValue> {
+    tract::scan_attach_begin(scan, name).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_attach_hungry(scan: u32, at: u32) -> Result<bool, JsValue> {
+    tract::scan_attach_hungry(scan, at).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_attach_push(scan: u32, at: u32, chunk: &[u8]) -> Result<(), JsValue> {
+    tract::scan_attach_push(scan, at, chunk).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_attach_end(scan: u32, at: u32) -> Result<(), JsValue> {
+    tract::scan_attach_end(scan, at).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_push(scan: u32, chunk: &[u8]) -> Result<(), JsValue> {
+    tract::scan_push(scan, chunk).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_end_pass(scan: u32) -> Result<bool, JsValue> {
+    tract::scan_end_pass(scan).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_ready(scan: u32) -> Result<bool, JsValue> {
+    tract::scan_ready(scan).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_take(scan: u32) -> Result<JsValue, JsValue> {
+    tract::scan_take(scan).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_finish(scan: u32) -> Result<JsValue, JsValue> {
+    tract::scan_finish(scan).map_err(err::map)
+}
+
+#[wasm_bindgen]
+pub fn tract_scan_close(scan: u32) {
+    tract::scan_close(scan);
 }
 
 #[wasm_bindgen]
