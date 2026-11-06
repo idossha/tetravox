@@ -22,7 +22,7 @@ pub(crate) struct TckParser {
     double: bool,
     carry: Vec<u8>,
     keep: Option<Keep>,
-    b: Builder,
+    pub(crate) b: Builder,
     index: u64,
     open_points: u64,
     terminated: bool,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare what Tetravox's tractogram parsers and samplers answer with independent readers.
 
-    python3 scripts/reference/tract_reference.py --data <tract_network_dev> --out <scratch dir>
+    python3 scripts/reference/tract_reference.py --data <Dataset 000> --out <scratch dir>
 
 Reads the data, writes only under --out. `crates/tvx-tract/examples/sample_dump.rs` is the same parser
 and sampler code the worker runs. References: nibabel.streamlines for geometry, scipy map_coordinates
@@ -68,7 +68,7 @@ def voxels(img, p: np.ndarray) -> np.ndarray:
 
 
 def generic(data: Path, out: Path) -> dict:
-    mr = data / "validation/mrtrix_ref"
+    mr = data / "derivatives/ti-toolbox/tract_validation/mrtrix_ref"
     work = out / "generic"
     dump(
         mr / "tracks_ifod2_200k.tck", "8000000", work,
@@ -103,7 +103,7 @@ def generic(data: Path, out: Path) -> dict:
 
 def trk_overlay(data: Path, out: Path) -> dict:
     """A TRK made from the TCK by nibabel must land on the TCK's own points."""
-    mr = data / "validation/mrtrix_ref"
+    mr = data / "derivatives/ti-toolbox/tract_validation/mrtrix_ref"
     work = out / "trk"
     work.mkdir(parents=True, exist_ok=True)
     fa = nib.load(mr / "fa.nii.gz")
@@ -138,10 +138,10 @@ def trk_overlay(data: Path, out: Path) -> dict:
 
 
 def ti(data: Path, out: Path) -> dict:
-    sim = data / "project/derivatives/SimNIBS/sub-CHN/Simulations/thalamus"
+    sim = data / "derivatives/SimNIBS/sub-CHN/Simulations/thalamus"
     work = out / "ti"
     dump(
-        sim / "tract/thalamocortical_lh.trx", "all", work,
+        data / "derivatives/ti-toolbox/tract_validation/thalamus_tract/thalamocortical_lh.trx", "all", work,
         "mesh", str(sim / "TI/mesh/thalamus_TI.msh"), "value", "elm:TI_max", "TI_max",
         "mesh", str(sim / "high_Frequency/mesh/CHN_TDCS_1_scalar.msh"), "abs-dot", "elm:E", "E_absdot",
     )  # fmt: skip

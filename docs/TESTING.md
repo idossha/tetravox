@@ -68,13 +68,13 @@ test pinning those could only ever be run by whoever generated them. Its synthet
 
 `crates/tvx-tract/tests/fixtures.rs` holds the parsers to nibabel and to zipfile + numpy reading
 `testdata/tract_*` back. `packages/engine/test/e2e/tracts.spec.ts` is §7.4.1's analytic pixels, and
-`packages/app/e2e/tracts.spec.ts` the app's open paths and scene. Set `TETRAVOX_TRACT_TESTDATA=<tract_network_dev>` for the crate's real-data test, a
+`packages/app/e2e/tracts.spec.ts` the app's open paths and scene. `crates/tvx-tract/tests/scan.rs` holds §6.3.1's scan to a full load byte for byte and to numpy's totals (`scripts/refvalues/tract_refvalues.py`), and `packages/wasm/e2e/scan.spec.ts` runs it through the real worker and prints its wall time and heap on the real file. Set `TETRAVOX_TRACT_TESTDATA=<Dataset 000>` for the crate's real-data test, a
 separate variable because this data is not under `TETRAVOX_TESTDATA`. Two more checks need the real data and are run by
 hand, read-only:
 
 ```sh
-python3 scripts/reference/tract_reference.py --data <tract_network_dev> --out <scratch>   # sampler vs scipy, TRK, TRX dpv
-TETRAVOX_TRACT_DATA=<tract_network_dev> TETRAVOX_TRACT_SCREENS=<dir> \
+python3 scripts/reference/tract_reference.py --data <Dataset 000> --out <scratch>   # sampler vs scipy, TRK, TRX dpv
+TETRAVOX_TRACT_DATA=<Dataset 000> TETRAVOX_TRACT_SCREENS=<dir> \
   pnpm --filter @tetravox/app exec playwright test --project=dev tracts-screens           # captures, timings-*.json
 ```
 

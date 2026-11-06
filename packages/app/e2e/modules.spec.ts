@@ -2,7 +2,7 @@
  * The module surface in the running app (ARCHITECTURE.md §13.3, §13.4).
  *
  * `vitest` runs under `environment: 'node'`, so every claim §13.3 makes about *layout* — the slot's
- * height cap, the toolbar not wrapping, the aside staying in flow at 960 px — can only be asserted
+ * height, the toolbar not wrapping, the aside staying in flow at 960 px — can only be asserted
  * here, against a real window. `hostImpl.test.ts` covers the state; this covers the pixels those
  * states are supposed to produce.
  *
@@ -153,34 +153,18 @@ test.describe('the module surface (stand-in engine)', () => {
     expect(opened).toBe(true);
   });
 
-  test('the slot sits between the measurement strip and the Info panel, and caps its own height', async () => {
-    const info = await page.locator('[data-testid="right-panel"] >> text=Cursor').first();
-    await expect(info).toBeVisible();
+  test('the slot has the panel under the row, with Inspect one tab away', async () => {
+    const aside = (await page.locator('[data-testid="right-panel"]').boundingBox())!;
+    const slot = (await page.locator('[data-testid="module-slot"]').boundingBox())!;
+    // No cap any more: one tab at a time, so the slot gets everything under the row.
+    expect(slot.y + slot.height).toBeCloseTo(aside.y + aside.height, 0);
+    expect(slot.height).toBeGreaterThan(aside.height * 0.9);
 
-    const aside = await page.locator('[data-testid="right-panel"]').boundingBox();
-    const slot = await page.locator('[data-testid="module-slot"]').boundingBox();
-    expect(aside).not.toBeNull();
-    expect(slot).not.toBeNull();
-    // The hard cap. It is `max-h-[55%]` and the slot is outside the Info scroller, so this holds
-    // however tall a module's panel is — the alternative squeezes the Info panel to zero.
-    expect((slot as { height: number }).height).toBeLessThanOrEqual(
-      (aside as { height: number }).height * 0.56
-    );
-    // …and it really is above the Info panel, not below it.
-    const infoBox = await page.locator('[data-testid="right-panel"]').boundingBox();
-    expect((slot as { y: number }).y).toBeGreaterThan((infoBox as { y: number }).y);
-  });
-
-  test('the fold arrow hides the body and keeps the module active', async () => {
-    await expect(page.locator('[data-testid="module-slot-body"]')).toBeVisible();
-    await page.click('[data-testid="module-slot-fold"]');
-    // Folded: no body, but the module is still the active one — nothing was unloaded.
-    await expect(page.locator('[data-testid="module-slot-body"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="module-slot"]')).toBeVisible();
-    expect(await page.evaluate(() => window.__tetravox?.store.getState().activeModule)).toBe(HELLO);
-
-    await page.click('[data-testid="module-slot-fold"]');
-    await expect(page.locator('[data-testid="module-slot-body"]')).toBeVisible();
+    await expect(page.locator('[data-testid="right-panel"] >> text=Cursor').first()).toBeHidden();
+    await page.click('[data-testid="inspect-toggle"]');
+    await expect(page.locator('[data-testid="right-panel"] >> text=Cursor').first()).toBeVisible();
+    await expect(page.locator('[data-testid="module-slot"]')).toBeHidden();
+    await page.click('[data-testid="inspect-toggle"]');
   });
 
   test('the toolbar is exactly as tall as it was, at 1440×900', async () => {

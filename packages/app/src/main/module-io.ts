@@ -1,5 +1,5 @@
 /**
- * File IO for §13 modules (§5 rule 11): five channels, registered from here the way
+ * File IO for §13 modules (§5 rule 11): the channels below, registered from here the way
  * `registerJobIpc()` registers the `--job` group, plus §5 rule 12's unsaved-edits close guard.
  *
  * The shape is the one A-SHELL's decision 1 (DECISIONS 2026-08-27) laid down for scene IO, applied
@@ -25,11 +25,15 @@
  * no admission-policy gain over that; `renderer/src/modules/hostFiles.ts` does it that way.
  */
 
+import { randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
+  promises as fsp,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -465,11 +469,13 @@ export function isModuleWritable(moduleId: string, candidate: string): boolean {
  */
 export function revokeModuleWrites(moduleId: unknown): boolean {
   if (typeof moduleId !== 'string' || moduleId === '') return false;
+  revokeFolders((g) => g.moduleId === moduleId);
   return writeLists.delete(moduleId);
 }
 
 /** Every module's admissions at once: a new or newly-opened document is a new editing session. */
 export function revokeAllModuleWrites(): void {
+  revokeFolders(() => true);
   writeLists.clear();
 }
 
@@ -776,6 +782,299 @@ function writeAdmitted(
 }
 
 // ------------------------------------------------------------------------------------------------
+// The folder channel (2026-11-05)
+// ------------------------------------------------------------------------------------------------
+
+/** Per `write`: the most one IPC message may carry. A file has no limit. */
+export const MAX_MODULE_FOLDER_CHUNK_BYTES = 64 * 1024 * 1024;
+/** Across every module: each open writer holds a descriptor and a `.part`. */
+export const MAX_MODULE_FOLDER_WRITERS = 32;
+/** Never creatable, whatever a manifest declares: the temp suffix, and files a double-click runs. */
+const REFUSED_FOLDER_EXTENSIONS = new Set(
+  'part app bat cmd com command cpl desktop dll dylib exe js jse lnk msi pif ps1 reg scr sh so url vbe vbs wsf'.split(
+    ' '
+  )
+);
+const DOS_DEVICE = /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i;
+
+interface FolderGrant {
+  moduleId: string;
+  senderId: number;
+  root: string;
+  extensions: string[];
+}
+
+interface FolderWriter {
+  grant: FolderGrant;
+  path: string;
+  part: string;
+  overwrite: boolean;
+  file: fsp.FileHandle;
+  bytes: number;
+  /** IPC handlers interleave at each `await`, and one file's writes must not. */
+  queue: Promise<unknown>;
+  /** `write` failed or `abort` ran: the `.part` is gone and later calls refuse. */
+  dead: boolean;
+}
+
+export type ModuleFolderResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
+
+const folderGrants = new Map<string, FolderGrant>();
+const folderWriters = new Map<string, FolderWriter>();
+
+function failure(error: unknown): { ok: false; error: string } {
+  return { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
+
+/** What a folder writer may create: its manifest's extensions, minus the refused ones. */
+export function folderExtensions(writer: ModuleWriter): string[] {
+  return writer.filters
+    .flatMap((f) => f.extensions)
+    .map((e) => e.toLowerCase())
+    .filter((e) => /^[a-z0-9]{1,16}$/.test(e) && !REFUSED_FOLDER_EXTENSIONS.has(e));
+}
+
+/** Why `name` may not be created in a folder, or null. The whole guard against leaving it. */
+export function folderNameProblem(name: unknown, extensions: readonly string[]): string | null {
+  if (typeof name !== 'string') return 'a file name must be a string';
+  if (!SIBLING_NAME.test(name) || name.includes('..') || name.startsWith('.')) {
+    return `${JSON.stringify(name)} is not one plain file name (A-Z a-z 0-9 _ . -, at most 96)`;
+  }
+  if (DOS_DEVICE.test(name)) return `${name} is a reserved device name on Windows`;
+  const lower = name.toLowerCase();
+  if (!extensions.some((e) => lower.endsWith(`.${e}`) && lower.length > e.length + 1)) {
+    return `${name} does not end in one of the writer's extensions: ${extensions.join(' ')}`;
+  }
+  return null;
+}
+
+/** Admit a folder for this module and window. Canonical now, so a later symlink swap is visible. */
+export function grantModuleFolder(
+  moduleId: string,
+  senderId: number,
+  chosen: string,
+  extensions: string[]
+): { ok: true; token: string; path: string } {
+  const root = realpathSync(chosen);
+  const token = randomUUID();
+  folderGrants.set(token, { moduleId, senderId, root, extensions });
+  return { ok: true, token, path: root };
+}
+
+/**
+ * `tetravox:module-choose-folder`: the manifest's writer is the only source of extensions, and an
+ * unknown module has none. Refused in a `--job` run, which has no one to answer a sheet.
+ */
+export async function moduleChooseFolder(
+  win: BrowserWindow | null,
+  senderId: number,
+  moduleId: unknown,
+  raw: unknown,
+  isJob = false
+): Promise<ModuleFolderResult<{ token: string; path: string }> | null> {
+  if (typeof moduleId !== 'string' || moduleId === '') {
+    return { ok: false, error: 'not an extension' };
+  }
+  const { writerId, suggestedName } = (raw ?? {}) as {
+    writerId?: unknown;
+    suggestedName?: unknown;
+  };
+  const writer = writerOf(moduleId, writerId);
+  if (writer?.directory !== true) {
+    return { ok: false, error: `${String(writerId)} is not a directory writer in the manifest` };
+  }
+  if (isJob) return { ok: false, error: 'a job run has no one to answer a folder sheet' };
+  const options: Electron.OpenDialogOptions = {
+    title: coerceTitle(writer.title, 'Choose a folder'),
+    properties: ['openDirectory', 'createDirectory'],
+    ...(typeof suggestedName === 'string' && SIBLING_NAME.test(suggestedName)
+      ? { message: `Suggested: ${suggestedName}` }
+      : {}),
+  };
+  const result = win
+    ? await dialog.showOpenDialog(win, options)
+    : await dialog.showOpenDialog(options);
+  const chosen = result.filePaths[0];
+  if (result.canceled || chosen === undefined) return null;
+  try {
+    return grantModuleFolder(moduleId, senderId, chosen, folderExtensions(writer));
+  } catch (error: unknown) {
+    return failure(error);
+  }
+}
+
+/** The grant's root must still be itself, and `path` not a link or a directory. */
+function folderTargetProblem(grant: FolderGrant, path: string, overwrite: boolean): string | null {
+  if (realpathSync(grant.root) !== grant.root) return 'the folder has moved since it was chosen';
+  let existing;
+  try {
+    existing = lstatSync(path);
+  } catch {
+    return null;
+  }
+  if (!existing.isFile()) return `${basename(path)} exists and is not a plain file`;
+  return overwrite ? null : `${basename(path)} exists; pass overwrite to replace it`;
+}
+
+/** `tetravox:module-folder-create`: a new `<name>.part`, which only `close` can give its name. */
+export async function moduleFolderCreate(
+  moduleId: unknown,
+  senderId: number,
+  folder: unknown,
+  name: unknown,
+  raw: unknown
+): Promise<ModuleFolderResult<{ token: string }>> {
+  const grant = typeof folder === 'string' ? folderGrants.get(folder) : undefined;
+  if (grant === undefined || grant.moduleId !== moduleId || grant.senderId !== senderId) {
+    return { ok: false, error: 'this folder is not open for this extension' };
+  }
+  const problem = folderNameProblem(name, grant.extensions);
+  if (problem !== null) return { ok: false, error: problem };
+  if (folderWriters.size >= MAX_MODULE_FOLDER_WRITERS) {
+    return { ok: false, error: `at most ${MAX_MODULE_FOLDER_WRITERS} files may be open at once` };
+  }
+  const path = join(grant.root, name as string);
+  const open = [...folderWriters.values()].some((w) => w.path.toLowerCase() === path.toLowerCase());
+  if (open) return { ok: false, error: `${name as string} is already being written` };
+  const overwrite = (raw as { overwrite?: unknown } | null)?.overwrite === true;
+  try {
+    const refused = folderTargetProblem(grant, path, overwrite);
+    if (refused !== null) return { ok: false, error: refused };
+    const part = `${path}.part`;
+    // A crash's leftover, or a planted link: gone, not followed, and `wx` would not follow one either.
+    rmSync(part, { force: true });
+    const file = await fsp.open(part, 'wx', 0o644);
+    const token = randomUUID();
+    folderWriters.set(token, {
+      grant,
+      path,
+      part,
+      overwrite,
+      file,
+      bytes: 0,
+      queue: Promise.resolve(),
+      dead: false,
+    });
+    return { ok: true, token };
+  } catch (error: unknown) {
+    return failure(error);
+  }
+}
+
+function writerFor(moduleId: unknown, senderId: number, token: unknown): FolderWriter | null {
+  const w = typeof token === 'string' ? folderWriters.get(token) : undefined;
+  return w !== undefined && w.grant.moduleId === moduleId && w.grant.senderId === senderId
+    ? w
+    : null;
+}
+
+/** Stops a writer now: the `.part` goes before anything can wait, so a closing window leaves none. */
+function killWriter(token: string, w: FolderWriter): Promise<unknown> {
+  folderWriters.delete(token);
+  w.dead = true;
+  try {
+    rmSync(w.part, { force: true });
+  } catch {
+    // Windows will not unlink an open file; the removal after the close below is then the one.
+  }
+  w.queue = w.queue
+    .catch(() => {})
+    .then(() => w.file.close())
+    .catch(() => {})
+    .then(() => rmSync(w.part, { force: true }))
+    .catch(() => {});
+  return w.queue;
+}
+
+function enqueue<T>(w: FolderWriter, step: () => Promise<T>): Promise<T> {
+  const next = w.queue.then(step);
+  w.queue = next.catch(() => {});
+  return next;
+}
+
+export async function moduleFolderWrite(
+  moduleId: unknown,
+  senderId: number,
+  token: unknown,
+  bytes: unknown
+): Promise<ModuleFolderResult> {
+  const w = writerFor(moduleId, senderId, token);
+  if (w === null) return { ok: false, error: 'this file is not open for this extension' };
+  if (!ArrayBuffer.isView(bytes)) return { ok: false, error: 'not bytes' };
+  const view = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.byteLength > MAX_MODULE_FOLDER_CHUNK_BYTES) {
+    return {
+      ok: false,
+      error: `${view.byteLength} bytes exceeds the ${MAX_MODULE_FOLDER_CHUNK_BYTES}-byte chunk cap`,
+    };
+  }
+  try {
+    await enqueue(w, async () => {
+      if (w.dead) throw new Error('this file was aborted');
+      for (let at = 0; at < view.byteLength;) {
+        at += (await w.file.write(view, at, view.byteLength - at)).bytesWritten;
+      }
+      w.bytes += view.byteLength;
+    });
+    return { ok: true };
+  } catch (error: unknown) {
+    // A short file under its final name would be worse than none.
+    if (!w.dead) void killWriter(token as string, w);
+    return failure(error);
+  }
+}
+
+/** Rename into place, re-checking what `create` checked: the folder has had minutes to change. */
+export async function moduleFolderClose(
+  moduleId: unknown,
+  senderId: number,
+  token: unknown
+): Promise<ModuleFolderResult<{ path: string; bytes: number }>> {
+  const w = writerFor(moduleId, senderId, token);
+  if (w === null) return { ok: false, error: 'this file is not open for this extension' };
+  try {
+    return await enqueue(w, async () => {
+      if (w.dead) throw new Error('this file was aborted');
+      folderWriters.delete(token as string);
+      await w.file.sync();
+      await w.file.close();
+      const refused = folderTargetProblem(w.grant, w.path, w.overwrite);
+      if (refused !== null) throw new Error(refused);
+      renameSync(w.part, w.path);
+      allowPath(w.path);
+      return { ok: true as const, path: w.path, bytes: w.bytes };
+    });
+  } catch (error: unknown) {
+    w.dead = true;
+    await w.file.close().catch(() => {});
+    rmSync(w.part, { force: true });
+    return failure(error);
+  }
+}
+
+export async function moduleFolderAbort(
+  moduleId: unknown,
+  senderId: number,
+  token: unknown
+): Promise<ModuleFolderResult> {
+  const w = writerFor(moduleId, senderId, token);
+  if (w === null) return { ok: false, error: 'this file is not open for this extension' };
+  await killWriter(token as string, w);
+  return { ok: true };
+}
+
+/** Drop matching grants and abort their writers. Resolves when every descriptor is closed. */
+export function revokeFolders(match: (g: FolderGrant) => boolean): Promise<unknown> {
+  for (const [token, grant] of folderGrants) {
+    if (match(grant)) folderGrants.delete(token);
+  }
+  const closing = [...folderWriters]
+    .filter(([, w]) => match(w.grant))
+    .map(([token, w]) => killWriter(token, w));
+  return Promise.all(closing);
+}
+
+// ------------------------------------------------------------------------------------------------
 // Unsaved module edits and the window's close guard
 // ------------------------------------------------------------------------------------------------
 
@@ -942,6 +1241,43 @@ export function registerModuleIpc(opts: { isJob?: boolean } = {}): void {
     'tetravox:module-write-binary',
     (_event, moduleId: unknown, path: unknown, bytes: unknown, opts: unknown) =>
       moduleWriteBinary(moduleId, path, bytes, opts)
+  );
+  // A window that closes or crashes takes its folders and half-written files with it.
+  const watched = new Set<number>();
+  const watchSender = (sender: Electron.WebContents): void => {
+    if (watched.has(sender.id)) return;
+    watched.add(sender.id);
+    const release = (): void => {
+      void revokeFolders((g) => g.senderId === sender.id);
+    };
+    sender.once('destroyed', () => {
+      watched.delete(sender.id);
+      release();
+    });
+    sender.on('render-process-gone', release);
+  };
+  ipcMain.handle(
+    'tetravox:module-choose-folder',
+    async (event, moduleId: unknown, raw: unknown) => {
+      watchSender(event.sender);
+      return moduleChooseFolder(windowOf(event), event.sender.id, moduleId, raw, opts.isJob);
+    }
+  );
+  ipcMain.handle(
+    'tetravox:module-folder-create',
+    (event, moduleId: unknown, folder: unknown, name: unknown, raw: unknown) =>
+      moduleFolderCreate(moduleId, event.sender.id, folder, name, raw)
+  );
+  ipcMain.handle(
+    'tetravox:module-folder-write',
+    (event, moduleId: unknown, writer: unknown, bytes: unknown) =>
+      moduleFolderWrite(moduleId, event.sender.id, writer, bytes)
+  );
+  ipcMain.handle('tetravox:module-folder-close', (event, moduleId: unknown, writer: unknown) =>
+    moduleFolderClose(moduleId, event.sender.id, writer)
+  );
+  ipcMain.handle('tetravox:module-folder-abort', (event, moduleId: unknown, writer: unknown) =>
+    moduleFolderAbort(moduleId, event.sender.id, writer)
   );
   ipcMain.on('tetravox:set-document-edited', (event, edited: unknown) =>
     setDocumentEdited(windowOf(event), edited)

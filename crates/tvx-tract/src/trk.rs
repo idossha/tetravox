@@ -24,7 +24,7 @@ pub(crate) struct TrkParser {
     np: usize,
     m: [[f64; 4]; 3],
     keep: Option<Keep>,
-    b: Builder,
+    pub(crate) b: Builder,
     index: u64,
     kept: bool,
     declared: i64,

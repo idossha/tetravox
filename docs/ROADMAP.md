@@ -101,7 +101,8 @@ macOS, with the packaging matrix carried in the workflow.
 
 ### Tractograms, after v1 (§7.4.1, DECISIONS 2026-11-05)
 
-- ROI filtering of streamlines through a loaded label volume.
+- ROI selection and connectome browsing are the `tetravox.tract-tools` extension, in its own repository.
+- TRX `dpv/` in a scan (§6.3.1) rejects by name; delivering one needs a second forward zip reader per field.
 - Ribbons and pseudo-tubes.
 - TRX export carrying sampled fields.
 - Reading an unzipped TRX directory, and `dpg/`.
@@ -141,9 +142,6 @@ macOS, with the packaging matrix carried in the workflow.
   renumbering, an editlog beside the table and a `.bak` of what it replaced.
 - Job-file operations (`{"type":"module", …}`) and their Python wrappers, so every panel action is reachable
   headlessly.
-- A **resizable right aside**. The column is 320 px and the slot lives in it; there is no splitter primitive
-  in the shell, and an extension with a long list wants one. A `wide` manifest hint was considered and dropped —
-  widening the aside shrinks the toolbar's centre column below what its controls need, which wraps the row.
 - **`host.scene.sampleVolume` as a §6.5 op** (2026-09-03). It is bounded at 2,000,000 points and chunked so it
   never blocks the UI thread, but it still reads `VolumeDataset.data` on that thread; the volume is already in
   the dataset's wasm worker, so the honest home for it is a Rust op beside `labelCentroids`. The host member is

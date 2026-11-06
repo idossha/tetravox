@@ -132,6 +132,53 @@ test('sampling a vector volume asks what frame it is stored in, and the answer c
   }
 });
 
+test('a .tsf from File ▸ Open attaches to the tractogram it fits, and another is refused', async ({}, info) => {
+  const app = await launchApp(info.project.name as LaunchTarget, { search: 'engine=real' });
+  try {
+    const page = await ready(app);
+    await openFiles(app, page, [join(DATA, 'mrtrix_small.tck')]);
+    await openFiles(app, page, [join(DATA, 'mrtrix_small_fa.tsf')]);
+    await page.waitForFunction(() =>
+      (window.__tetravox?.store.getState().datasets ?? []).some(
+        (d) => d.kind === 'tractogram' && d.vertexFields.some((f) => f.name === 'mrtrix_small_fa')
+      )
+    );
+    const state = await page.evaluate(() => {
+      const s = window.__tetravox!.store.getState();
+      return { datasets: s.datasets.length, layers: s.layers.length };
+    });
+    // Attached, not opened: no dataset or layer of its own.
+    expect(state).toEqual({ datasets: 1, layers: 1 });
+  } finally {
+    await app.close();
+  }
+});
+
+test('a scan over the real scheme reads every streamline of a thinned tractogram', async ({}, info) => {
+  const app = await launchApp(info.project.name as LaunchTarget, { search: 'engine=real' });
+  try {
+    const page = await ready(app);
+    await openFiles(app, page, [join(DATA, 'mrtrix_small.tck')]);
+    const got = await page.evaluate(async () => {
+      const engine = window.__tetravox!.engine!;
+      const ds = [...engine.scene.datasets.values()][0]!;
+      if (ds.kind !== 'tractogram') throw new Error('not a tractogram');
+      await engine.setTractBudget(ds.id, 40);
+      let streamlines = 0;
+      const totals = await engine.tractScan(ds.id, (chunk) => {
+        streamlines += chunk.offsets.length - 1;
+      });
+      return { held: ds.nStreamlines, source: ds.sourceStreamlines, totals, streamlines };
+    });
+    expect(got.held).toBeLessThan(got.source);
+    expect(got.streamlines).toBe(got.source);
+    // `scripts/reference/make_mrtrix_fixtures.sh` asks `tckedit` for 40.
+    expect(got.totals.streamlines).toBe(40);
+  } finally {
+    await app.close();
+  }
+});
+
 test('the command line opens a tractogram, and the capability is advertised', async ({}, info) => {
   const app = await launchApp(info.project.name as LaunchTarget, {
     search: 'engine=real',

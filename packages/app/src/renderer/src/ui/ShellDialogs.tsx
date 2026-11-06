@@ -36,6 +36,7 @@ export function ShellDialogs(): React.JSX.Element | null {
   const reopenLastScene = useUi((s) => s.reopenLastScene);
   const settingsTab = useUi((s) => s.settingsTab);
   const themeChoice = useUi((s) => s.themeChoice);
+  const oneLayerOpen = useUi((s) => s.oneLayerOpen);
   const theme = useUi((s) => s.theme);
   const screenshotDefaults = useUi((s) => s.screenshotDefaults);
   const configPath = useUi((s) => s.configPath);
@@ -124,6 +125,8 @@ export function ShellDialogs(): React.JSX.Element | null {
         themeChoice={themeChoice}
         theme={theme}
         onThemeChoice={(choice) => controller.setThemeChoice(choice)}
+        oneLayerOpen={oneLayerOpen}
+        onOneLayerOpen={(on) => controller.setOneLayerOpen(on)}
         screenshotDefaults={screenshotDefaults}
         onScreenshotDefaults={(patch) => void controller.setScreenshotDefaults(patch)}
         subjectsDir={subjectsDir}

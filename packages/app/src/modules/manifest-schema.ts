@@ -24,7 +24,7 @@
  */
 
 import { MODULE_KEY_POOL } from './manifest-types';
-import type { ArgType, InstalledManifest, ModuleKey } from './manifest-types';
+import type { ArgType, InstalledManifest, ModuleKey, ModuleWriter } from './manifest-types';
 
 /** `<vendor>.<name>`, the same shape `modules.test.ts` asserts over the compiled-in barrel. */
 export const MANIFEST_ID = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/;
@@ -279,7 +279,7 @@ function validateWriters(raw: unknown, errors: Errors): void {
       errors.push(path, 'must be an object');
       continue;
     }
-    errors.keys(path, entry, ['id', 'title', 'filters', 'siblings', 'backup']);
+    errors.keys(path, entry, ['id', 'title', 'filters', 'siblings', 'backup', 'directory']);
     validateContributedId(`${path}.id`, entry['id'], ids, errors);
     errors.text(`${path}.title`, entry['title']);
     const filters = entry['filters'];
@@ -316,6 +316,13 @@ function validateWriters(raw: unknown, errors: Errors): void {
     const backup = entry['backup'];
     if (backup !== undefined && backup !== 'timestamped') {
       errors.push(`${path}.backup`, 'must be "timestamped" when present');
+    }
+    const directory = entry['directory'];
+    if (directory !== undefined && directory !== true) {
+      errors.push(`${path}.directory`, 'must be true when present');
+    }
+    if (directory === true && Array.isArray(siblings) && siblings.length > 0) {
+      errors.push(`${path}.siblings`, 'must be empty on a directory writer');
     }
   }
 }
@@ -360,10 +367,10 @@ function validateOperations(raw: unknown, errors: Errors): void {
 function validateUi(raw: unknown, errors: Errors): void {
   if (raw === undefined) return;
   if (!isBag(raw)) {
-    errors.push('ui', 'must be { popout?, windowWidth?, windowHeight? }');
+    errors.push('ui', 'must be { popout?, windowWidth?, windowHeight?, panelTabs? }');
     return;
   }
-  errors.keys('ui', raw, ['popout', 'windowWidth', 'windowHeight']);
+  errors.keys('ui', raw, ['popout', 'windowWidth', 'windowHeight', 'panelTabs']);
   const popout = raw['popout'];
   if (popout !== undefined && !POPOUT_MODES.includes(popout as string)) {
     errors.push('ui.popout', `must be one of ${POPOUT_MODES.join(', ')}`);
@@ -374,6 +381,31 @@ function validateUi(raw: unknown, errors: Errors): void {
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 240 || value > 4096) {
       errors.push(`ui.${key}`, 'must be an integer between 240 and 4096 CSS px');
     }
+  }
+  validatePanelTabs(raw['panelTabs'], errors);
+}
+
+/** Core's row has to fit beside Inspect and the module's own buttons in a 400 px panel. */
+const MAX_PANEL_TABS = 6;
+const MAX_PANEL_TAB_LABEL = 24;
+
+function validatePanelTabs(raw: unknown, errors: Errors): void {
+  if (raw === undefined) return;
+  if (!errors.array('ui.panelTabs', raw)) return;
+  if (raw.length === 0 || raw.length > MAX_PANEL_TABS) {
+    errors.push('ui.panelTabs', `must have 1 to ${MAX_PANEL_TABS} entries, or be left out`);
+  }
+  const ids = new Set<string>();
+  for (const [i, tab] of raw.entries()) {
+    const path = `ui.panelTabs[${i}]`;
+    if (!isBag(tab)) {
+      errors.push(path, 'must be { id, label }');
+      continue;
+    }
+    errors.keys(path, tab, ['id', 'label']);
+    validateContributedId(`${path}.id`, tab['id'], ids, errors);
+    if (tab['id'] === 'inspect') errors.push(`${path}.id`, '"inspect" is the core tab');
+    errors.text(`${path}.label`, tab['label'], MAX_PANEL_TAB_LABEL);
   }
 }
 
@@ -488,12 +520,22 @@ export function derivePermissions(manifest: InstalledManifest): string[] {
     out.push('Discover and read files named near a file you open');
   }
   const writes = [...new Set((manifest.writers ?? []).flatMap((w) => w.siblings))].sort();
-  if ((manifest.writers ?? []).length > 0) {
+  const writeSentence = (writers: ModuleWriter[], where: string): void => {
+    if (writers.length === 0) return;
     const filters = [
-      ...new Set((manifest.writers ?? []).flatMap((w) => w.filters.flatMap((f) => f.extensions))),
+      ...new Set(writers.flatMap((w) => w.filters.flatMap((f) => f.extensions))),
     ].sort();
-    out.push(`Write ${filters.map((e) => `.${e}`).join(', ')} files you name in a Save sheet`);
-  }
+    out.push(`Write ${filters.map((e) => `.${e}`).join(', ')} files ${where}`);
+  };
+  const writers = manifest.writers ?? [];
+  writeSentence(
+    writers.filter((w) => w.directory !== true),
+    'you name in a Save sheet'
+  );
+  writeSentence(
+    writers.filter((w) => w.directory === true),
+    'of its own naming into a folder you choose'
+  );
   // A `{derivatives}` target is **not** beside the file you save, and saying so would understate
   // what the manifest grants — the same failure the `siblings` line above exists to prevent. It is
   // written into the dataset's own `derivatives/` tree, which is what the sentence has to say.

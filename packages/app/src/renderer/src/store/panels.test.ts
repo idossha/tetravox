@@ -1,6 +1,5 @@
 /**
- * The §8 sidebar collapse state — a different disclosure from `collapse.test.ts`'s per-layer-row
- * one. This is "is the whole left/right panel shown at all", chrome that is never serialised into a
+ * The §8 sidebar collapse state: "is the whole left/right panel shown at all", chrome that is never serialised into a
  * `ViewSpec` and is persisted in `localStorage` (`lib/panels.ts`) rather than in the scene.
  */
 
@@ -11,6 +10,7 @@ import { createUiStore } from './store';
 import type { UiStore } from './store';
 import {
   DEFAULT_PANEL_PREFS,
+  MODULE_PANEL_WIDTH_PX,
   PANEL_WIDTH_LIMITS,
   loadPanelPrefs,
   savePanelPrefs,
@@ -153,9 +153,35 @@ describe('lib/panels persistence', () => {
       leftPanelCollapsed: true,
       rightPanelCollapsed: false,
       mouseBlockCollapsed: true,
+      oneLayerOpen: false,
+      headerBlockCollapsed: true,
       leftPanelWidth: PANEL_WIDTH_LIMITS.left.default,
       rightPanelWidth: PANEL_WIDTH_LIMITS.right.default,
+      rightModuleWidth: MODULE_PANEL_WIDTH_PX,
     });
+  });
+
+  it('a saved width above 400 px carries over to the docked width; a smaller one does not', () => {
+    savePanelPrefs({ rightPanelWidth: 520 } as PanelPrefs);
+    expect(loadPanelPrefs().rightPanelWidth).toBe(520);
+    expect(loadPanelPrefs().rightModuleWidth).toBe(520);
+    savePanelPrefs({ rightPanelWidth: 300 } as PanelPrefs);
+    expect(loadPanelPrefs().rightPanelWidth).toBe(300);
+    expect(loadPanelPrefs().rightModuleWidth).toBe(MODULE_PANEL_WIDTH_PX);
+  });
+
+  it('ignores a key this build no longer has', () => {
+    savePanelPrefs({ centerShare: 0.5, collapsedLayers: { a: true } } as unknown as PanelPrefs);
+    expect(loadPanelPrefs()).not.toHaveProperty('centerShare');
+    expect(loadPanelPrefs()).not.toHaveProperty('collapsedLayers');
+  });
+
+  it('the header starts closed, and opening it is remembered', () => {
+    const { store, controller } = harness();
+    expect(store.getState().headerBlockCollapsed).toBe(true);
+    controller.toggleHeaderBlock();
+    expect(store.getState().headerBlockCollapsed).toBe(false);
+    expect(loadPanelPrefs().headerBlockCollapsed).toBe(false);
   });
 
   it('clamps a stored width into bounds and replaces a non-number with the default', () => {

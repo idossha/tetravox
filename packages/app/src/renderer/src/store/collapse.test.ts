@@ -10,6 +10,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { NoGlEngine } from '../engine/mockEngine';
 import { ShellController } from './controller';
+import { loadPanelPrefs } from '../lib/panels';
 import { collapseAllAction, createUiStore, isLayerCollapsed, pruneCollapsed } from './store';
 import type { UiStore } from './store';
 import type { OpenRequest } from '../open/sources';
@@ -133,5 +134,40 @@ describe('the layer disclosure', () => {
     controller.setAllLayersCollapsed(true);
     expect(JSON.stringify(store.getState().collapsedLayers)).not.toBe('{}');
     expect(JSON.stringify(engine.serialize())).not.toContain('collapsed');
+  });
+});
+
+describe('one layer open at a time (Settings ▸ Appearance)', () => {
+  it('shuts every row but the active one, without touching what the user had set', async () => {
+    const { store, controller } = await twoLayers();
+    const [first, second] = store.getState().layers;
+    controller.setActiveLayer(second!.id);
+    controller.setLayerCollapsed(second!.id, false);
+    expect(isLayerCollapsed(store.getState(), first!.id)).toBe(false);
+
+    controller.setOneLayerOpen(true);
+    expect(isLayerCollapsed(store.getState(), first!.id)).toBe(true);
+    expect(isLayerCollapsed(store.getState(), second!.id)).toBe(false);
+    expect(store.getState().collapsedLayers).toEqual({});
+
+    controller.setActiveLayer(first!.id);
+    expect(isLayerCollapsed(store.getState(), first!.id)).toBe(false);
+    expect(isLayerCollapsed(store.getState(), second!.id)).toBe(true);
+
+    // The active row can still be shut.
+    controller.toggleLayerCollapsed(first!.id);
+    expect(isLayerCollapsed(store.getState(), first!.id)).toBe(true);
+
+    controller.setOneLayerOpen(false);
+    expect(isLayerCollapsed(store.getState(), second!.id)).toBe(false);
+  });
+
+  it('is off by default and is remembered with the panel prefs', async () => {
+    const { store, controller } = await twoLayers();
+    expect(store.getState().oneLayerOpen).toBe(false);
+    controller.setOneLayerOpen(true);
+    expect(loadPanelPrefs().oneLayerOpen).toBe(true);
+    controller.setOneLayerOpen(false);
+    expect(loadPanelPrefs().oneLayerOpen).toBe(false);
   });
 });

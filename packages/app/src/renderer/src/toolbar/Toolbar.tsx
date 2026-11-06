@@ -26,6 +26,7 @@
 import { useCallback } from 'react';
 import { LAYOUT_LABEL } from '../lib/layout';
 import { KEYMAP_HELP } from '../keyboard/keymap';
+import { rightPanelWidthNow } from '../store/store';
 import { useController, useUi } from '../ui/context';
 import { ModuleSwitcher } from '../modules/ModuleSwitcher';
 import { AppMenu } from './AppMenu';
@@ -41,7 +42,7 @@ export function Toolbar(): React.JSX.Element {
   const leftPanelCollapsed = useUi((s) => s.leftPanelCollapsed);
   const rightPanelCollapsed = useUi((s) => s.rightPanelCollapsed);
   const leftPanelWidth = useUi((s) => s.leftPanelWidth);
-  const rightPanelWidth = useUi((s) => s.rightPanelWidth);
+  const rightPanelWidth = useUi(rightPanelWidthNow);
   const measureMode = useUi((s) => s.measureMode);
   const scaleBar = useUi((s) => s.scaleBar);
   const orientationCube = useUi((s) => s.orientationCube);
@@ -49,6 +50,8 @@ export function Toolbar(): React.JSX.Element {
   const sceneError = useUi((s) => s.sceneError);
   const dialog = useUi((s) => s.dialog);
   const hasContent = useUi((s) => s.layers.length > 0 || s.datasets.length > 0);
+  const moduleDocked = useUi((s) => s.activeModule !== null);
+  const inspect = useUi((s) => s.inspectTabSelected);
 
   const onOpen = useCallback(() => void controller.openDialog(), [controller]);
   const onScreenshot = useCallback(() => {
@@ -103,7 +106,7 @@ export function Toolbar(): React.JSX.Element {
   ];
 
   // Three columns whose outer two are the sidebars' widths (`ui/Shell.tsx`: the dragged
-  // `leftPanelWidth` / `rightPanelWidth`, a `w-6` rail when collapsed), so the controls in the middle column are centred over the
+  // `leftPanelWidth` / `rightPanelWidthNow`, a `w-6` rail when collapsed), so the controls in the middle column are centred over the
   // **view grid** rather than over the window — which is where a user looking at the panes expects
   // the layout, crosshair and screenshot buttons to be. The columns follow the collapse state, so a
   // collapsed panel slides the cluster over with the grid.
@@ -294,6 +297,20 @@ export function Toolbar(): React.JSX.Element {
         {/* §13.3: one switcher, never a button per module. Always present: with nothing installed
           its menu is the door to installing. */}
         <ModuleSwitcher />
+
+        {/* With no module docked the panel just is Inspect, so there is nothing to toggle. */}
+        {moduleDocked && (
+          <button
+            type="button"
+            data-testid="inspect-toggle"
+            aria-pressed={inspect}
+            className={inspect ? 'tvx-btn tvx-btn-on shrink-0' : 'tvx-btn shrink-0'}
+            title="Inspect: the coordinates, the crosshair read-out and the file header. The extension stays open behind it."
+            onClick={() => controller.toggleInspect()}
+          >
+            Inspect
+          </button>
+        )}
 
         <button
           type="button"

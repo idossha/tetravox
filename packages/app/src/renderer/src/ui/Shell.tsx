@@ -21,7 +21,7 @@ import { useStore } from 'zustand';
 import type { Engine } from '@tetravox/engine';
 import { createEngine, engineImpl, webgl2Available } from '../engine/factory';
 import { ShellController } from '../store/controller';
-import { uiStore } from '../store/store';
+import { rightPanelWidthNow, uiStore } from '../store/store';
 import type { UiStore } from '../store/store';
 import { isEditableTarget, resolveKey } from '../keyboard/keymap';
 import { requestFromDroppedFile, requestFromPath } from '../open/sources';
@@ -29,13 +29,13 @@ import { isScenePath } from '../lib/scene';
 import type { OpenRequest } from '../open/sources';
 import { bridge } from '../bridge';
 import { maybeRunJob } from '../automation/run';
-import { ShellContext } from './context';
+import { ShellContext, useUi } from './context';
 import { CoordinateBar } from '../panels/coordinate/CoordinateBar';
 import { HeaderPanel } from '../panels/info/HeaderPanel';
 import { InfoPanel } from '../panels/info/InfoPanel';
 import { LayerPanel } from '../panels/layers/LayerPanel';
 import { MeasurePanel } from '../panels/measure/MeasurePanel';
-import { ModuleSlot } from '../modules/ModuleSlot';
+import { ModuleSlot, PanelTabRow } from '../modules/ModuleSlot';
 import { ModuleWindows } from '../modules/ModuleWindows';
 import { MshOptChip } from './MshOptChip';
 import { ShellDialogs } from './ShellDialogs';
@@ -44,7 +44,12 @@ import { Toasts } from './Toasts';
 import { Toolbar } from '../toolbar/Toolbar';
 import { ViewGrid } from './ViewGrid';
 import { Webgl2Error } from './Webgl2Error';
-import { NARROW_BREAKPOINT_PX, PANEL_WIDTH_LIMITS } from '../lib/panels';
+import {
+  MIN_VIEWS_PX,
+  MODULE_PANEL_WIDTH_PX,
+  NARROW_BREAKPOINT_PX,
+  PANEL_WIDTH_LIMITS,
+} from '../lib/panels';
 
 /**
  * A collapsed sidebar's thin rail — a chevron and nothing else, `data-testid` per side. §8 gives the
@@ -97,7 +102,10 @@ function PanelResizeHandle({
   controller: ShellController;
 }): React.JSX.Element {
   const drag = useRef<{ x: number; width: number; last: number } | null>(null);
-  const { min, max, default: fallback } = PANEL_WIDTH_LIMITS[side];
+  const { min, max } = PANEL_WIDTH_LIMITS[side];
+  const moduleDocked = useUi((s) => s.activeModule !== null);
+  const fallback =
+    side === 'right' && moduleDocked ? MODULE_PANEL_WIDTH_PX : PANEL_WIDTH_LIMITS[side].default;
   // Dragging toward the view grid widens the panel: rightward for the left one, leftward for the right.
   const sign = side === 'left' ? 1 : -1;
   return (
@@ -149,43 +157,34 @@ function PanelResizeHandle({
   );
 }
 
-/** The right `<aside>`, unchanged in content — only which container renders it moved. */
+/** The right `<aside>`: Inspect alone, or the docked module with Inspect a toolbar toggle (§13.3). */
 function RightPanel({ onCollapse }: { onCollapse: () => void }): React.JSX.Element {
+  const inspectShown = useUi((s) => s.activeModule === null || s.inspectTabSelected);
   return (
     <aside
       data-testid="right-panel"
       className="flex min-w-0 flex-1 flex-col overflow-hidden border-l border-tvx-line bg-tvx-panel/40"
     >
-      <div className="flex items-center justify-end border-b border-tvx-line px-1 py-0.5">
-        <button
-          type="button"
-          data-testid="right-panel-collapse"
-          aria-label="Collapse the info panel"
-          title="Collapse the info panel (⌃])"
-          className="tvx-btn tvx-btn-sm"
-          onClick={onCollapse}
-        >
-          ›
-        </button>
-      </div>
-      <CoordinateBar />
-      {/* §7.6's chip is mounted here rather than inside the mesh property editor, which
-        is A-PROPS's directory. It renders nothing unless the active layer is a mesh
-        that had a `.msh.opt` beside it — see `MshOptChip.tsx`. */}
-      <MshOptChip />
-      {/* Directed task 11: the measurement list, above the info panel — it is about
-        the picture rather than about the layer under the cursor, and it renders
-        nothing at all while the mode is off and nothing has been placed. */}
-      <MeasurePanel />
-      {/* §13.3: the module slot, between the measurement strip and the Info scroller. It renders
-        nothing at all with no module active — `MeasurePanel`'s idiom — so the DOM is unchanged
-        while it is idle, and it sits **outside** the scroller below so its `max-h-[55%]` is a hard
-        cap rather than a suggestion. */}
+      <PanelTabRow onCollapse={onCollapse} />
       <ModuleSlot />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <InfoPanel />
-        <div className="border-t border-tvx-line" />
-        <HeaderPanel />
+      <div
+        data-testid="panel-inspect"
+        className={`min-h-0 flex-1 flex-col ${inspectShown ? 'flex' : 'hidden'}`}
+      >
+        <CoordinateBar />
+        {/* §7.6's chip is mounted here rather than inside the mesh property editor, which
+          is A-PROPS's directory. It renders nothing unless the active layer is a mesh
+          that had a `.msh.opt` beside it — see `MshOptChip.tsx`. */}
+        <MshOptChip />
+        {/* Directed task 11: the measurement list, above the info panel — it is about
+          the picture rather than about the layer under the cursor, and it renders
+          nothing at all while the mode is off and nothing has been placed. */}
+        <MeasurePanel />
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <InfoPanel />
+          <div className="border-t border-tvx-line" />
+          <HeaderPanel />
+        </div>
       </div>
     </aside>
   );
@@ -213,7 +212,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
   const leftPanelCollapsed = useStore(store, (s) => s.leftPanelCollapsed);
   const rightPanelCollapsed = useStore(store, (s) => s.rightPanelCollapsed);
   const leftPanelWidth = useStore(store, (s) => s.leftPanelWidth);
-  const rightPanelWidth = useStore(store, (s) => s.rightPanelWidth);
+  const rightPanelWidth = useStore(store, rightPanelWidthNow);
   // §13.3's narrow-mode rule. Below `NARROW_BREAKPOINT_PX` the right aside normally becomes a
   // temporary overlay whose backdrop closes on **any** click — including a click in a pane, which is
   // exactly what a module asks the user for. While one is active the aside therefore stays in flow.
@@ -556,7 +555,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                         onClick={() => setLeftOverlayOpen(false)}
                       />
                       <div
-                        className="absolute inset-y-0 left-0 z-30 flex shadow-xl"
+                        className="absolute inset-y-0 left-0 z-30 flex bg-tvx-panel shadow-xl"
                         style={{ width: leftPanelWidth }}
                       >
                         <LayerPanel />
@@ -580,7 +579,13 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                       }
                     />
                   ) : (
-                    <div className="flex min-w-64" style={{ width: rightPanelWidth }}>
+                    <div
+                      className="flex min-w-64"
+                      // Whatever width was saved, the views keep room.
+                      style={{
+                        width: `min(${rightPanelWidth}px, calc(100vw - ${narrow || leftPanelCollapsed ? '1.5rem' : `${leftPanelWidth}px`} - ${MIN_VIEWS_PX}px))`,
+                      }}
+                    >
                       <RightPanel onCollapse={() => controller.toggleRightPanel()} />
                       <PanelResizeHandle
                         side="right"
@@ -597,7 +602,7 @@ export function Shell({ store = uiStore }: ShellProps): React.JSX.Element {
                         onClick={() => setRightOverlayOpen(false)}
                       />
                       <div
-                        className="absolute inset-y-0 right-0 z-30 flex shadow-xl"
+                        className="absolute inset-y-0 right-0 z-30 flex bg-tvx-panel shadow-xl"
                         style={{ width: rightPanelWidth }}
                       >
                         <RightPanel onCollapse={() => setRightOverlayOpen(false)} />

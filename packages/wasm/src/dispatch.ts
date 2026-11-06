@@ -72,7 +72,7 @@ export function donatedBuffers(op: OpName, args: unknown): ArrayBuffer[] {
   const arrays =
     op === 'volumeSample' || op === 'meshSample'
       ? [a.points, a.tangents]
-      : op === 'tractFieldChunk'
+      : op === 'tractFieldChunk' || op === 'tractSetField'
         ? [a.values]
         : [];
   return arrays.flatMap((v) => (v?.buffer instanceof ArrayBuffer ? [v.buffer] : []));

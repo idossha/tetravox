@@ -8,6 +8,14 @@ use crate::{make_field, TractField, TractGroup, Tractogram};
 
 const MAX_CATEGORIES: usize = 4096;
 
+/// The leading closed streamlines a scan took out of a [`Builder`].
+pub(crate) struct Drained {
+    pub positions: Vec<f32>,
+    pub offsets: Vec<u32>,
+    pub vertex_fields: Vec<(String, Vec<f32>)>,
+    pub streamline_fields: Vec<(String, Vec<f32>)>,
+}
+
 #[derive(Default)]
 pub(crate) struct Builder {
     pub positions: Vec<f32>,
@@ -34,6 +42,51 @@ impl Builder {
     pub fn close_kept(&mut self, source: u64) {
         self.offsets.push((self.positions.len() / 3) as u32);
         self.source_index.push(source as u32);
+    }
+
+    pub fn closed_streamlines(&self) -> usize {
+        self.offsets.len() - 1
+    }
+
+    pub fn closed_points(&self) -> u32 {
+        *self.offsets.last().expect("starts with 0")
+    }
+
+    /// Moves out the fewest leading closed streamlines holding `min_points`, or all of them. A
+    /// streamline still open stays, and what remains starts again at offset 0.
+    pub fn drain_closed(&mut self, min_points: u32) -> Drained {
+        let end = self
+            .offsets
+            .partition_point(|o| *o < min_points)
+            .min(self.closed_streamlines());
+        let points = self.offsets[end];
+        let offsets = self.offsets[..=end].to_vec();
+        self.offsets.drain(..end);
+        for o in &mut self.offsets {
+            *o -= points;
+        }
+        self.source_index.drain(..end);
+        let take = |list: &mut Vec<(String, Vec<f32>)>, n: usize| {
+            list.iter_mut()
+                .map(|(name, v)| (name.clone(), v.drain(..n).collect()))
+                .collect()
+        };
+        Drained {
+            positions: self.positions.drain(..points as usize * 3).collect(),
+            offsets,
+            vertex_fields: take(&mut self.vertex_fields, points as usize),
+            streamline_fields: take(&mut self.streamline_fields, end),
+        }
+    }
+
+    /// Bytes of working capacity a scan keeps between chunks.
+    pub fn retained_bytes(&self) -> usize {
+        let fields = |list: &[(String, Vec<f32>)]| -> usize {
+            list.iter().map(|(_, v)| v.capacity() * 4).sum()
+        };
+        (self.positions.capacity() + self.offsets.capacity() + self.source_index.capacity()) * 4
+            + fields(&self.vertex_fields)
+            + fields(&self.streamline_fields)
     }
 
     pub fn finish(mut self) -> Tractogram {
@@ -99,7 +152,7 @@ fn bounds_of(positions: &[f32]) -> Aabb {
     Aabb { min, max }
 }
 
-fn lengths_of(positions: &[f32], offsets: &[u32]) -> Vec<f32> {
+pub(crate) fn lengths_of(positions: &[f32], offsets: &[u32]) -> Vec<f32> {
     offsets
         .windows(2)
         .map(|w| {
@@ -114,7 +167,7 @@ fn lengths_of(positions: &[f32], offsets: &[u32]) -> Vec<f32> {
         .collect()
 }
 
-fn is_categorical(values: &[f32]) -> bool {
+pub(crate) fn is_categorical(values: &[f32]) -> bool {
     let mut seen = BTreeSet::new();
     for v in values {
         if !v.is_finite() || v.fract() != 0.0 {

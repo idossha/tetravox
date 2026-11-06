@@ -71,7 +71,7 @@ import { SurfaceLayerRuntime } from './layers/surface';
 import { meshView } from './scene/surface';
 import type { MeshEmphasis, MeshScaleInfo } from './layers/mesh';
 import { createLayerRuntime } from './layers/registry';
-import { tractFieldOf, TractsLayerRuntime } from './layers/tracts';
+import { TRACT_RELOADING, tractFieldOf, TractsLayerRuntime } from './layers/tracts';
 import { createIso3dRuntime, derivedIsoLayers } from './layers/iso3d';
 import type { Iso3dLayerRuntime } from './layers/iso3d';
 import { DerivedStore } from './derived/store';
@@ -149,6 +149,7 @@ import {
   applyAffine,
   fieldFromWire,
   labelTablesFromWire,
+  volumeLabelTable,
   meshDatasetFromMeta,
   volumeDatasetFromMeta,
   tractFieldFromWire,
@@ -163,6 +164,7 @@ import {
   TRACT_DEFAULT_MAX_POINTS,
   TRACT_DEFAULT_SEED,
   TRACT_FULL_MAX_POINTS,
+  TRACT_READ_CHUNK,
   tractFieldScale,
 } from './scene/defaults';
 import type { MshOptSeed } from './scene/defaults';
@@ -218,6 +220,9 @@ import type {
   TractBudget,
   TractFieldInfo,
   TractogramDataset,
+  TractScanChunk,
+  TractScanOptions,
+  TractStructure,
   TractSampleSpec,
 } from './scene/types';
 
@@ -322,6 +327,13 @@ export class TetravoxEngine implements Engine, PointerHost {
   readonly #interaction: InteractionState;
   /** What `setTractBudget` re-reads, kept because a `File` source has no path to re-open. */
   readonly #tractSources = new Map<DatasetId, { source: LoadSource; format: TractFormatSel }>();
+  /** What `setTractBudget` attaches again, kept for the same reason. */
+  readonly #tractAttachments = new Map<DatasetId, DatasetSource[]>();
+  /** Settles once a budget change has its new copy (`setTractBudget`). */
+  readonly #tractReloads = new Map<DatasetId, Promise<void>>();
+  /** Which attached file a field came from, for `tractScan`, which reads that file again. */
+  readonly #tractAttachedFields = new Map<DatasetId, Map<string, LoadSource>>();
+  #scanKeys = 0;
   /** The budget a scene's `DatasetRef.tract` asks of the next load of that path. */
   readonly #tractBudgets = new Map<string, TractBudget>();
   /** §7.5's pointer layer (P2-01). Bound to the canvas for the engine's whole life. */
@@ -728,6 +740,13 @@ export class TetravoxEngine implements Engine, PointerHost {
     spec: TractSampleSpec,
     onProgress?: (done: number, total: number) => void
   ): Promise<TractFieldInfo> {
+    for (
+      let p = this.#tractReloads.get(spec.tractogramId);
+      p !== undefined;
+      p = this.#tractReloads.get(spec.tractogramId)
+    ) {
+      await p;
+    }
     const tract = this.#scene.datasets.get(spec.tractogramId);
     const source = this.#scene.datasets.get(spec.sourceId);
     if (tract?.kind !== 'tractogram') throw new Error('sampleTracts: not a tractogram');
@@ -783,30 +802,208 @@ export class TetravoxEngine implements Engine, PointerHost {
     if (ds?.kind !== 'tractogram' || rt === undefined || from === undefined) {
       throw new Error('setTractBudget: not a loaded tractogram');
     }
-    await this.#track(rt.client.call(`free:${id}`, 'free', { handle: ds.handle }));
-    const res = await this.#track(
-      rt.client.call(`load:${id}`, 'loadTractogram', {
-        source: from.source,
-        format: from.format,
-        maxPoints: maxPoints ?? TRACT_FULL_MAX_POINTS,
-        seed: ds.budget.seed,
-      })
-    );
-    const next = tractogramDatasetFromMeta(
-      id,
-      res.meta,
-      ds.worker,
-      ds.path,
-      { maxPoints, seed: ds.budget.seed },
-      ds.generation + 1
-    );
-    const samples = ds.samples;
-    // Replaced in place, because layers and the panel hold this object.
-    Object.assign(ds, next, { samples: [] });
-    this.#fingerprints.set(id, res.meta.fingerprint);
+    for (let p = this.#tractReloads.get(id); p !== undefined; p = this.#tractReloads.get(id))
+      await p;
+    // The old copy goes first, because two at once may not fit. Until the new one exists the layer
+    // leaves the handle alone and `#tractOf` waits, so nothing can name what was just freed.
+    let reloaded = (): void => undefined;
+    this.#tractReloads.set(id, new Promise((resolve) => (reloaded = resolve)));
+    const freed = rt.client.call(`free:${id}`, 'free', { handle: ds.handle });
+    ds.handle = TRACT_RELOADING;
+    let samples: typeof ds.samples;
+    try {
+      await this.#track(freed);
+      const res = await this.#track(
+        rt.client.call(`load:${id}`, 'loadTractogram', {
+          source: from.source,
+          format: from.format,
+          maxPoints: maxPoints ?? TRACT_FULL_MAX_POINTS,
+          seed: ds.budget.seed,
+        })
+      );
+      const next = tractogramDatasetFromMeta(
+        id,
+        res.meta,
+        ds.worker,
+        ds.path,
+        { maxPoints, seed: ds.budget.seed },
+        ds.generation + 1
+      );
+      samples = ds.samples;
+      // Replaced in place, because layers and the panel hold this object.
+      Object.assign(ds, next, { samples: [] });
+      this.#fingerprints.set(id, res.meta.fingerprint);
+    } finally {
+      this.#tractReloads.delete(id);
+      reloaded();
+    }
     this.#tractDatasetChanged(id);
+    for (const src of this.#tractAttachments.get(id) ?? []) await this.attachTractFile(id, src);
     for (const sample of samples) await this.sampleTracts(sample);
     return ds;
+  }
+
+  async #tractOf(id: DatasetId): Promise<{ ds: TractogramDataset; client: ComputeClient }> {
+    // No `await` when nothing is reloading: a yield here could let a reload start behind this read.
+    for (let p = this.#tractReloads.get(id); p !== undefined; p = this.#tractReloads.get(id))
+      await p;
+    const ds = this.#scene.datasets.get(id);
+    const client = this.#workers.get(id)?.client;
+    if (ds?.kind !== 'tractogram' || client === undefined) {
+      throw new Error(`not a loaded tractogram: ${id}`);
+    }
+    return { ds, client };
+  }
+
+  async attachTractFile(datasetId: DatasetId, src: DatasetSource): Promise<TractFieldInfo[]> {
+    const { ds, client } = await this.#tractOf(datasetId);
+    const res = await this.#track(
+      client.call(`attach:${datasetId}:${sourceName(src)}`, 'tractAttach', {
+        handle: ds.handle,
+        source: toLoadSource(src),
+      })
+    );
+    const added = res.fields.map(tractFieldFromWire);
+    const names = new Set(added.map((f) => f.name));
+    const origins = this.#tractAttachedFields.get(datasetId) ?? new Map<string, LoadSource>();
+    const origin = toLoadSource(src);
+    for (const name of names) origins.set(name, origin);
+    this.#tractAttachedFields.set(datasetId, origins);
+    if (res.kind === 'vertex') {
+      ds.vertexFields = [...ds.vertexFields.filter((f) => !names.has(f.name)), ...added];
+    } else {
+      ds.streamlineFields = [...ds.streamlineFields.filter((f) => !names.has(f.name)), ...added];
+    }
+    ds.notes = res.notes;
+    ds.fieldRevision += 1;
+    const sources = this.#tractAttachments.get(datasetId) ?? [];
+    const key = sourceName(src);
+    this.#tractAttachments.set(datasetId, [...sources.filter((s) => sourceName(s) !== key), src]);
+    if (src.kind === 'path') {
+      const cars = this.#sidecars.get(datasetId) ?? {};
+      const fields = (cars.fields ?? []).filter((p) => p !== src.path);
+      this.#sidecars.set(datasetId, { ...cars, fields: [...fields, src.path] });
+    }
+    this.#tractDatasetChanged(datasetId);
+    return added;
+  }
+
+  async tractScan(
+    datasetId: DatasetId,
+    onChunk: (chunk: TractScanChunk) => void | Promise<void>,
+    opts: TractScanOptions = {}
+  ): Promise<{ streamlines: number; points: number }> {
+    const { ds, client } = await this.#tractOf(datasetId);
+    const from = this.#tractSources.get(datasetId);
+    if (from === undefined) throw new Error(`not a loaded tractogram: ${datasetId}`);
+    const { signal } = opts;
+    signal?.throwIfAborted();
+    const fields = opts.fields ?? [];
+    const attached = this.#tractAttachedFields.get(datasetId);
+    const sidecars = new Set(fields.flatMap((f) => attached?.get(f) ?? []));
+    this.#scanKeys += 1;
+    const { scan } = await client.call(`scan-open:${this.#scanKeys}`, 'tractScanOpen', {
+      handle: ds.handle,
+      source: from.source,
+      format: from.format,
+      fields,
+      sidecars: [...sidecars],
+      chunkPoints: TRACT_READ_CHUNK,
+    });
+    try {
+      for (;;) {
+        signal?.throwIfAborted();
+        const next = await client.call(`scan:${scan}`, 'tractScanNext', { scan });
+        if (next.done !== undefined) return next.done;
+        if (next.chunk !== undefined) await onChunk(next.chunk);
+      }
+    } finally {
+      // A worker that is gone took the session with it.
+      await client.call(`scan-close:${scan}`, 'tractScanClose', { scan }).catch(() => {});
+    }
+  }
+
+  async tractStructure(datasetId: DatasetId): Promise<TractStructure> {
+    const { ds, client } = await this.#tractOf(datasetId);
+    return client.call(`structure:${datasetId}`, 'tractStructure', { handle: ds.handle });
+  }
+
+  async tractPoints(datasetId: DatasetId, first: number, count: number): Promise<Float32Array> {
+    const { ds, client } = await this.#tractOf(datasetId);
+    if (count > TRACT_READ_CHUNK) throw new Error(`at most ${TRACT_READ_CHUNK} points per read`);
+    const res = await client.call(`points:${datasetId}:${first}`, 'tractPoints', {
+      handle: ds.handle,
+      first,
+      count,
+      tangents: false,
+    });
+    return res.positions;
+  }
+
+  async tractFieldValues(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string,
+    first: number,
+    count: number
+  ): Promise<Float32Array> {
+    const { ds, client } = await this.#tractOf(datasetId);
+    if (count > TRACT_READ_CHUNK) throw new Error(`at most ${TRACT_READ_CHUNK} values per read`);
+    const res = await client.call(`field:${datasetId}:${name}:${first}`, 'tractFieldValues', {
+      handle: ds.handle,
+      kind,
+      name,
+      first,
+      count,
+    });
+    return res.values;
+  }
+
+  async setTractStreamlineField(
+    datasetId: DatasetId,
+    field: { name: string; values: Float32Array; units?: string }
+  ): Promise<TractFieldInfo> {
+    const { ds, client } = await this.#tractOf(datasetId);
+    const res = await this.#track(
+      client.call(`set-field:${datasetId}:${field.name}`, 'tractSetField', {
+        handle: ds.handle,
+        name: field.name,
+        values: field.values,
+        ...(field.units === undefined ? {} : { units: field.units }),
+      })
+    );
+    const info = tractFieldFromWire(res.field);
+    this.#tractAttachedFields.get(datasetId)?.delete(field.name);
+    ds.streamlineFields = [...ds.streamlineFields.filter((f) => f.name !== field.name), info];
+    ds.fieldRevision += 1;
+    this.#tractDatasetChanged(datasetId);
+    return info;
+  }
+
+  async removeTractField(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string
+  ): Promise<void> {
+    const { ds, client } = await this.#tractOf(datasetId);
+    await this.#track(
+      client.call(`remove-field:${datasetId}:${name}`, 'tractRemoveField', {
+        handle: ds.handle,
+        kind,
+        name,
+      })
+    );
+    this.#tractAttachedFields.get(datasetId)?.delete(name);
+    const keep = (f: TractFieldInfo): boolean => f.name !== name || f.builtin === true;
+    if (kind === 'vertex') {
+      ds.vertexFields = ds.vertexFields.filter(keep);
+      // Or a saved scene would sample it again.
+      ds.samples = ds.samples.filter((s) => s.name !== name);
+    } else {
+      ds.streamlineFields = ds.streamlineFields.filter(keep);
+    }
+    ds.fieldRevision += 1;
+    this.#tractDatasetChanged(datasetId);
   }
 
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null {
@@ -849,6 +1046,9 @@ export class TetravoxEngine implements Engine, PointerHost {
       labelIds,
       denseIndexOf
     );
+    const lut = this.#sidecars.get(id)?.lut;
+    if (meta.labelTable !== undefined && lut !== undefined)
+      ds.labelTableFile = lut.split(/[/\\]/).pop() as string;
     // §7.3's label path — the dense index remap and its `N x 1 RGBA8` palette (`layers/volume.ts`).
     const palette = buildLabelPalette(ds, labelIds);
     this.#gpu.uploadVolume(`${id}|0`, ds, gpuBytes, meta.gpu, !ds.isLabel, palette);
@@ -942,6 +1142,7 @@ export class TetravoxEngine implements Engine, PointerHost {
     this.#gpu.dropMeshTables(id);
     this.#gpu.dropTractGeometry(id);
     this.#tractSources.delete(id);
+    this.#tractAttachedFields.delete(id);
     this.#derived.dropDataset(id);
     this.#cuts.releaseDataset(id);
     for (const key of [...this.#labelCentroids.keys()]) {
@@ -1048,6 +1249,7 @@ export class TetravoxEngine implements Engine, PointerHost {
       } else layer.annotation = { ...layer.annotation, table: seeded.table };
     }
     this.#store.addLayer(layer);
+    this.#syncLabelNames(layer);
     // The runtime is what makes the layer's kind mean anything (`layers/registry.ts`).
     this.#layers.set(id, createLayerRuntime(layer, ds, this.#layerContext));
     this.#reconcileIso3d(layer);
@@ -1086,6 +1288,7 @@ export class TetravoxEngine implements Engine, PointerHost {
 
   updateLayer<T extends Layer>(id: LayerId, patch: Partial<T>): void {
     const next = this.#store.updateLayer(id, patch);
+    if (next !== undefined) this.#syncLabelNames(next);
     if (next !== undefined) this.#layers.get(id)?.applyPatch(next);
     if (next !== undefined) this.#reconcileIso3d(next);
     this.#emit('layers', [...this.#scene.layers]);
@@ -1094,6 +1297,18 @@ export class TetravoxEngine implements Engine, PointerHost {
     // `#reconcilePointSelection`.
     this.#reconcilePointSelection();
     this.requestRender();
+  }
+
+  /** §7.6: `VolumeLayer.labelNames` over the dataset's assumed table. A lookup file is never touched. */
+  #syncLabelNames(layer: Layer): void {
+    if (layer.kind !== 'volume') return;
+    const ds = this.#scene.datasets.get(layer.datasetId);
+    if (ds?.kind !== 'volume' || ds.assumedLabelTable === undefined) return;
+    if (ds.labelTable !== undefined && ds.labelTable !== ds.assumedLabelTable) return;
+    const wanted = layer.labelNames === 'numbers' ? undefined : ds.assumedLabelTable;
+    if (ds.labelTable === wanted) return;
+    ds.labelTable = wanted;
+    this.#emit('datasets', [...this.#scene.datasets.values()]);
   }
 
   reorderLayers(order: LayerId[]): void {
@@ -1900,6 +2115,27 @@ export class TetravoxEngine implements Engine, PointerHost {
     }
     this.#emit('datasets', [...this.#scene.datasets.values()]);
     // Replacing an annotation must repaint unchanged slice planes with the new region field.
+    this.requestRender();
+    return ds;
+  }
+
+  /** §4.7's `attachLabelNames`: §6.5.2's `parseLut` on the dataset's worker, then in place. */
+  async attachLabelNames(datasetId: DatasetId, src: DatasetSource): Promise<VolumeDataset> {
+    const ds = this.#scene.datasets.get(datasetId);
+    if (ds === undefined || ds.kind !== 'volume' || !ds.isLabel)
+      throw new Error(`no such label volume: ${datasetId}`);
+    const rt = this.#workers.get(datasetId);
+    if (rt === undefined) throw new Error('dataset worker is gone');
+    const name = sourceName(src);
+    const res = await this.#track(
+      rt.client.call(`names:${datasetId}:${name}`, 'parseLut', { source: toLoadSource(src) })
+    );
+    ds.labelTable = volumeLabelTable(res.entries);
+    ds.labelTableFile = name;
+    if (src.kind === 'path') {
+      this.#sidecars.set(datasetId, { ...this.#sidecars.get(datasetId), lut: src.path });
+    }
+    this.#emit('datasets', [...this.#scene.datasets.values()]);
     this.requestRender();
     return ds;
   }
@@ -3680,9 +3916,13 @@ export class TetravoxEngine implements Engine, PointerHost {
           );
           check();
           for (const field of fields ?? []) {
-            if (ds.kind !== 'mesh') break;
+            if (ds.kind === 'volume') break;
             try {
-              await this.attachSurfaceData(ds.id, { kind: 'path', path: field });
+              if (ds.kind === 'mesh') {
+                await this.attachSurfaceData(ds.id, { kind: 'path', path: field });
+              } else {
+                await this.attachTractFile(ds.id, { kind: 'path', path: field });
+              }
             } catch {
               /* Optional sidecars remain best-effort. */
             }

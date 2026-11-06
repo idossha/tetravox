@@ -289,6 +289,38 @@ describe('validateManifest', () => {
   });
 });
 
+describe('a directory writer', () => {
+  const writer = (extra: object): Record<string, unknown> => ({
+    writers: [
+      {
+        id: 'w',
+        title: 'W',
+        filters: [{ name: 'T', extensions: ['tck'] }],
+        siblings: [],
+        ...extra,
+      },
+    ],
+  });
+
+  it('is `directory: true` with no siblings, and anything else is refused', () => {
+    expect(errorsFor(writer({ directory: true }))).toEqual([]);
+    expect(errorsFor(writer({ directory: false }))).not.toEqual([]);
+    expect(errorsFor(writer({ directory: true, siblings: ['{stem}.bak'] }))).not.toEqual([]);
+  });
+
+  it('is named as a folder on the consent sheet, not a Save sheet', () => {
+    const result = validateManifest({ ...base(), ...writer({ directory: true }) });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(derivePermissions(result.manifest)).not.toContain(
+      'Write .tck files you name in a Save sheet'
+    );
+    expect(derivePermissions(result.manifest)).toContain(
+      'Write .tck files of its own naming into a folder you choose'
+    );
+  });
+});
+
 describe('derivePermissions', () => {
   it('derives the sheet from the manifest and from nothing else', () => {
     const result = validateManifest({
@@ -364,6 +396,35 @@ describe('the `ui` block (§13.10)', () => {
     expect(errorsFor({ ui: { windowWidth: 30000 } })).not.toEqual([]);
     expect(errorsFor({ ui: { windowHeight: 12.5 } })).not.toEqual([]);
     expect(errorsFor({ ui: { windowWidth: 100 } })).not.toEqual([]);
+  });
+
+  it('takes up to six panel tabs with unique ids and short labels (§13.3)', () => {
+    const tab = (i: number) => ({ id: `t${i}`, label: `Tab ${i}` });
+    expect(errorsFor({ ui: { panelTabs: [0, 1, 2, 3, 4, 5].map(tab) } })).toEqual([]);
+    expect(errorsFor({ ui: { panelTabs: [0, 1, 2, 3, 4, 5, 6].map(tab) } })).toEqual([
+      'ui.panelTabs: must have 1 to 6 entries, or be left out',
+    ]);
+    expect(errorsFor({ ui: { panelTabs: [] } })).toEqual([
+      'ui.panelTabs: must have 1 to 6 entries, or be left out',
+    ]);
+    expect(errorsFor({ ui: { panelTabs: [tab(1), tab(1)] } })).toEqual([
+      'ui.panelTabs[1].id: duplicate id "t1" within this manifest',
+    ]);
+    expect(errorsFor({ ui: { panelTabs: [{ id: 't', label: '' }] } })).toEqual([
+      'ui.panelTabs[0].label: must be a non-empty string',
+    ]);
+    expect(errorsFor({ ui: { panelTabs: [{ id: 't', label: 'x'.repeat(25) }] } })).toEqual([
+      'ui.panelTabs[0].label: must be at most 24 characters',
+    ]);
+    expect(errorsFor({ ui: { panelTabs: [{ id: 'Not An Id', label: 'x' }] } })).not.toEqual([]);
+    expect(errorsFor({ ui: { panelTabs: [{ id: 't', label: 'x', icon: 'y' }] } })).not.toEqual([]);
+    expect(errorsFor({ ui: { panelTabs: ['filter'] } })).toEqual([
+      'ui.panelTabs[0]: must be { id, label }',
+    ]);
+    // `panel-tab-inspect` is the core tab's, and a module's tab of that id would answer for it.
+    expect(errorsFor({ ui: { panelTabs: [{ id: 'inspect', label: 'Mine' }] } })).toEqual([
+      'ui.panelTabs[0].id: "inspect" is the core tab',
+    ]);
   });
 
   it('is not a permission — where a panel draws is not a capability', () => {

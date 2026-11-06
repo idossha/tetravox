@@ -6,6 +6,8 @@ mod builder;
 mod gpu;
 mod query;
 mod sample;
+mod scan;
+mod sidecar;
 mod tck;
 mod trk;
 mod trx;
@@ -17,6 +19,11 @@ pub use query::{
     probe, scalar_u16, style, write_field_chunk, GroupRow, ProbeHit, ScalarU16, Style, StyleSpec,
 };
 pub use sample::{sample_mesh, sample_volume};
+pub use scan::{ScanChunk, TractScanner};
+pub use sidecar::{
+    apply_attached, field_values, is_tract_sidecar_name, remove_field, set_streamline_field,
+    Attached, SidecarLoader,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TractFormat {
@@ -147,6 +154,16 @@ pub(crate) enum Parser {
     Trx(Box<trx::TrxParser>),
 }
 
+impl Parser {
+    pub(crate) fn builder_mut(&mut self) -> &mut builder::Builder {
+        match self {
+            Self::Tck(p) => &mut p.b,
+            Self::Trk(p) => &mut p.b,
+            Self::Trx(p) => &mut p.b,
+        }
+    }
+}
+
 /// Feeds a parser and hashes the bytes on their first pass.
 pub struct Loader {
     parser: Parser,
@@ -182,6 +199,23 @@ impl Loader {
             Parser::Trk(p) => p.push(chunk),
             Parser::Trx(p) => p.push(chunk),
         }
+    }
+
+    /// Keeps every streamline and lets [`TractScanner`] drain them as they close.
+    pub(crate) fn for_scan(format: TractFormat, total_len: u64) -> Result<Self> {
+        let options = LoadOptions {
+            max_points: None,
+            seed: 0,
+        };
+        let mut loader = Self::new(format, total_len, options)?;
+        if let Parser::Trx(p) = &mut loader.parser {
+            p.start_scan();
+        }
+        Ok(loader)
+    }
+
+    pub(crate) fn parser_mut(&mut self) -> &mut Parser {
+        &mut self.parser
     }
 
     /// `true` asks for the file from the start once more.

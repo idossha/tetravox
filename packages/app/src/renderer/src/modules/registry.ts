@@ -16,6 +16,7 @@
 
 import type { ModuleId, ModuleManifest } from '../../../modules/manifest-types';
 import { helloManifest } from '../../../modules/hello/manifest';
+import { tabsManifest } from '../../../modules/tabs/manifest';
 import type { ModuleActivate } from './host';
 
 export interface ModuleRegistration {
@@ -35,6 +36,7 @@ export interface ModuleRegistration {
 
 export const MODULES: readonly ModuleRegistration[] = [
   { manifest: helloManifest, load: () => import('./hello'), fixture: true },
+  { manifest: tabsManifest, load: () => import('./tabs'), fixture: true },
   // The sEEG editor is no longer compiled in: it is the `tetravox.seeg` extension, downloaded and
   // consented through File ▸ Extensions…, and it reaches the switcher through `installed` below
   // exactly as every extension does (§13.7, §13.8, 2026-08-31).

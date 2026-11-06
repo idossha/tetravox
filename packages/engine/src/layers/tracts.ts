@@ -32,11 +32,16 @@ export const TRACT_PROBE_RADIUS_MM = 2;
 const PICKED_RADIUS_MM = 1000;
 
 /** The worker's view of a layer's style: changing anything else must not re-run it. */
+/** `TractogramDataset.handle` between a budget change's free and its new copy: nothing to ask. */
+export const TRACT_RELOADING = -1;
+
 export function tractStyleSpec(layer: TractsLayer): TractStyleSpecT {
   const spec: TractStyleSpecT = {};
   if (layer.streamlineFilter !== undefined) spec.filter = layer.streamlineFilter;
   if (layer.groupField !== undefined) spec.groupField = layer.groupField;
   if (layer.visibleGroups !== undefined) spec.visibleGroups = layer.visibleGroups;
+  if (layer.keepField !== undefined) spec.keepField = layer.keepField;
+  if (layer.colorMode === 'ends') spec.ends = true;
   return spec;
 }
 
@@ -107,6 +112,7 @@ export class TractsLayerRuntime implements LayerRuntime {
   #sync(): void {
     const ds = this.#ds;
     if (ds === null || this.#disposed) return;
+    if (ds.handle === TRACT_RELOADING) return;
     if (this.#generation !== ds.generation) {
       if (this.#geometryPending) return;
       this.#loadGeometry(ds);
@@ -162,7 +168,7 @@ export class TractsLayerRuntime implements LayerRuntime {
 
   #syncStyle(ds: TractogramDataset): void {
     const spec = tractStyleSpec(this.#layer);
-    const key = JSON.stringify(spec);
+    const key = `${ds.fieldRevision}|${JSON.stringify(spec)}`;
     if (key === this.#styleKey) return;
     const client = this.#ctx.client(this.datasetId);
     if (client === undefined) return;
@@ -191,7 +197,7 @@ export class TractsLayerRuntime implements LayerRuntime {
       return;
     }
     // A re-sampled field keeps its name and changes its values: the statistics tell them apart.
-    const stamp = `${field.kind}|${field.info.name}|${field.info.stats.min}|${field.info.stats.max}|${field.info.stats.mean}`;
+    const stamp = `${ds.fieldRevision}|${field.kind}|${field.info.name}|${field.info.stats.min}|${field.info.stats.max}|${field.info.stats.mean}`;
     if (stamp === this.#scalarKey || stamp === this.#scalarWanted) return;
     const client = this.#ctx.client(this.datasetId);
     if (client === undefined) return;
@@ -231,6 +237,7 @@ export class TractsLayerRuntime implements LayerRuntime {
     const ds = this.#ds;
     const client = this.#ctx.client(this.datasetId);
     if (ds === null || client === undefined || this.#generation !== ds.generation) return;
+    if (ds.handle === TRACT_RELOADING) return;
     const p = this.#picked;
     const picked = p !== null && dist(p.world, world) < 1e-4 ? p.held : undefined;
     void this.#ctx

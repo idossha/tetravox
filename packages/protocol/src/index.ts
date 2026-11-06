@@ -59,8 +59,19 @@ export type OpName =
   | 'tractProbe'
   | 'tractPoints'
   | 'tractFieldChunk'
+  | 'tractAttach'
+  | 'tractStructure'
+  | 'tractFieldValues'
+  | 'tractSetField'
+  | 'tractRemoveField'
   | 'volumeSample'
-  | 'meshSample'; // 23 ops
+  | 'meshSample'
+  // Appended 2026-11-05: §6.3.1's scan of every streamline, one bounded chunk per `tractScanNext`.
+  | 'tractScanOpen'
+  | 'tractScanNext'
+  | 'tractScanClose'
+  // Appended 2026-11-06: §7.6's lookup file onto a label volume already open.
+  | 'parseLut'; // 23 ops
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -458,6 +469,8 @@ export interface TractStyleSpecT {
   filter?: { field: string; lo: number | null; hi: number | null };
   groupField?: string;
   visibleGroups?: number[];
+  keepField?: string;
+  ends?: boolean;
 }
 export interface TractGroupRowT {
   id: number;
@@ -475,6 +488,15 @@ export interface TractProbeHitT {
   vertexFields: { name: string; value: number; units?: string }[];
   streamlineFields: { name: string; value: number; units?: string }[];
   groups: string[];
+}
+
+/** §6.3.1. `offsets` start at 0; each field is one value per streamline or per point of this chunk. */
+export interface TractScanChunkT {
+  firstSource: number;
+  offsets: Uint32Array;
+  positions: Float32Array;
+  streamlineFields: Record<string, Float32Array>;
+  vertexFields: Record<string, Float32Array>;
 }
 
 export interface OpArgs {
@@ -602,6 +624,32 @@ export interface OpArgs {
     values: Float32Array;
     done: boolean;
   };
+  /** A sidecar's bytes stay in this worker (§5 rule 3). */
+  tractAttach: { handle: number; source: LoadSource };
+  tractStructure: { handle: number };
+  tractFieldValues: {
+    handle: number;
+    kind: 'vertex' | 'streamline';
+    name: string;
+    first: number;
+    count: number;
+  };
+  /** `values` is donated (§5 rule 2). */
+  tractSetField: { handle: number; name: string; units?: string; values: Float32Array };
+  tractRemoveField: { handle: number; kind: 'vertex' | 'streamline'; name: string };
+  /** `sidecars` are the attached files that supply `fields`; absent names come from the file. */
+  tractScanOpen: {
+    handle: number;
+    source: LoadSource;
+    format: TractFormatSel;
+    fields: string[];
+    sidecars: LoadSource[];
+    chunkPoints: number;
+  };
+  tractScanNext: { scan: number };
+  tractScanClose: { scan: number };
+  /** The worker fetches `source` itself, as for `attachField`. A file with no rows is `parse`. */
+  parseLut: { source: LoadSource };
   /** `points` and `tangents` are donated (§5 rule 2). */
   volumeSample: {
     handle: number;
@@ -709,8 +757,18 @@ export interface OpResult {
   tractPoints: { positions: Float32Array; tangents?: Float32Array };
   /** `field` is present on the chunk with `done: true`. */
   tractFieldChunk: { field?: TractFieldMeta };
+  tractAttach: { kind: 'vertex' | 'streamline'; fields: TractFieldMeta[]; notes: string[] };
+  tractStructure: { offsets: Uint32Array; sourceIndex: Uint32Array };
+  tractFieldValues: { values: Float32Array };
+  tractSetField: { field: TractFieldMeta };
+  tractRemoveField: Record<string, never>;
   volumeSample: { values: Float32Array; outside: number };
   meshSample: { values: Float32Array; outside: number };
+  tractScanOpen: { scan: number };
+  /** `chunk`, or `done` at the end, or neither: the worker yielded, so other ops ran, and is not done. */
+  tractScanNext: { chunk?: TractScanChunkT; done?: { streamlines: number; points: number } };
+  tractScanClose: Record<string, never>;
+  parseLut: { entries: LabelEntryT[] };
 }
 
 /**
@@ -749,8 +807,17 @@ export const OP_NAMES = [
   'tractProbe',
   'tractPoints',
   'tractFieldChunk',
+  'tractAttach',
+  'tractStructure',
+  'tractFieldValues',
+  'tractSetField',
+  'tractRemoveField',
   'volumeSample',
   'meshSample',
+  'tractScanOpen',
+  'tractScanNext',
+  'tractScanClose',
+  'parseLut',
 ] as const satisfies readonly OpName[];
 
 /**
@@ -789,8 +856,17 @@ export const OP_TO_EXPORT = {
   tractProbe: 'tract_probe',
   tractPoints: 'tract_points',
   tractFieldChunk: 'tract_field_chunk',
+  tractAttach: 'tract_attach_begin',
+  tractStructure: 'tract_structure',
+  tractFieldValues: 'tract_field_values',
+  tractSetField: 'tract_set_field',
+  tractRemoveField: 'tract_remove_field',
   volumeSample: 'volume_sample',
   meshSample: 'mesh_sample',
+  tractScanOpen: 'tract_scan_begin',
+  tractScanNext: 'tract_scan_take',
+  tractScanClose: 'tract_scan_close',
+  parseLut: 'parse_lut',
 } as const satisfies Record<OpName, string>;
 
 // ---------------------------------------------------------------------------------------------

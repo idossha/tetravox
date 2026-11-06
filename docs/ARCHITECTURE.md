@@ -45,7 +45,8 @@ virtual-dissection drawing, connectome computation), wasm64, wasm threads, two-f
 this list on 2026-08-31 — narrowed, not simply withdrawn: §12.4's updates are opt-in per click,
 and *unattended* download-and-install stays a non-goal. **Tractography was narrowed on 2026-11-05**:
 *displaying, filtering, probing and field-mapping precomputed tractograms* is in scope, §4.3, §4.4, §6.3.1 and
-§7.4.1. No layout, file name or field name of any particular toolbox may be assumed.)
+§7.4.1. No layout, file name or field name of any particular toolbox may be assumed. Selecting streamlines by
+region and browsing a connectome are extensions on `scene.tracts`, §13.1, and stay out of the application.)
 
 **Native-only integration (2026-09-13).** The browser embed and postMessage contract are retired.
 External applications open local `.tetravox.json` files through the native executable; batch rendering
@@ -269,7 +270,9 @@ export interface VolumeDataset {
   isLabel: boolean;
   labelIds?: Uint32Array;             // sorted unique ids, present iff isLabel
   denseIndexOf?: Uint32Array;         // id -> dense index, present iff isLabel
-  labelTable?: LabelTable;
+  labelTable?: LabelTable;            // §7.6's precedence: a lookup file, else assumed FreeSurfer, else absent
+  assumedLabelTable?: LabelTable;     // 2026-11-06: present iff no file named the ids and §7.6's safety test passed
+  labelTableFile?: string;            // 2026-11-06: base name of the lookup file behind `labelTable`
   stats: Stats;
   units?: string;
   gpu: GpuFormatInfo;                 // GPU *description*; the WebGLTexture lives in engine-private GpuResources
@@ -358,11 +361,17 @@ export interface TractogramDataset {
   streamlineFields: TractFieldInfo[];                  // dps: one value per streamline
   groups: TractGroupInfo[];                            // the file's own named groups (TRX `groups/`)
   samples: TractSampleSpec[];                          // every `sampleTracts` that produced a field, in order
-  generation: number;                                  // bumped when the worker's arrays are replaced
+  generation: number;                                  // bumped when the worker's arrays are replaced; only `samples` and attachments return
+  fieldRevision: number;                               // bumped when a field's values change in place
   notes: string[];                                     // non-fatal facts about placement, e.g. an assumed voxel order
   headerJson: string;
   worker: WorkerRef; handle: Handle;
 }
+
+export interface TractStructure { offsets: Uint32Array; sourceIndex: Uint32Array }  // offsets: held + 1 entries
+export interface TractScanChunk { firstSource: number; offsets: Uint32Array; positions: Float32Array;   // 2026-11-05, §6.3.1
+                                  streamlineFields: Record<string, Float32Array>; vertexFields: Record<string, Float32Array> }
+export interface TractScanOptions { signal?: AbortSignal; fields?: string[] }   // absent fields = geometry only
 
 export type Dataset = VolumeDataset | MeshDataset | TractogramDataset;
 ```
@@ -440,6 +449,7 @@ export interface VolumeLayer extends LayerBase {
   visibleLabels?: Uint32Array;                          // undefined = all
   labelOpacity?: Record<number, number>;
   labelColors?: Record<number, vec4>;                   // per-label override, beating the LabelTable
+  labelNames?: 'numbers';                               // 2026-11-06: declines §7.6's assumed names; absent = they apply when they pass
   selectedLabels?: number[];                            // the outline-emphasis set
   showIn3D: boolean;
   precision: 'auto' | 'f32';                            // 'f32' forces R32F, guarded by caps.floatLinear
@@ -592,7 +602,7 @@ export interface SurfaceLayer extends LayerBase {
 // fragments in those two modes only; `streamlineFilter` and `visibleGroups` hide whole streamlines in all.
 export interface TractsLayer extends LayerBase {
   kind: 'tracts';
-  colorMode: 'direction' | 'solid' | 'vertex' | 'streamline' | 'group';
+  colorMode: 'direction' | 'ends' | 'solid' | 'vertex' | 'streamline' | 'group';  // direction = local tangent; ends = |last − first|
   solidColor: vec4;
   field?: string;
   colormap: ColormapName | string; colormapNegative?: ColormapName | string;
@@ -600,6 +610,7 @@ export interface TractsLayer extends LayerBase {
   streamlineFilter?: { field: string; lo: number | null; hi: number | null };   // inclusive; null = open
   groupField?: string;                                  // a categorical dps; absent = the file's `groups`
   visibleGroups?: number[];                             // group ids; absent = all
+  keepField?: string;                                   // a dps: draw only where finite and > 0, on top of the filter; missing hides nothing
   lineWidthPx: number;                                  // CSS px; <= 1 is the LINE_STRIP fast path
   slabMm: number;                                       // half-thickness drawn in a 2D pane; 0 = not drawn
 }
@@ -1098,11 +1109,22 @@ export interface Engine {
                onProgress?: (done: number, total: number) => void): Promise<TractFieldInfo>;
   setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset>;
                                                 //   re-reads the file at that budget and replays `samples`
+  attachTractFile(datasetId: DatasetId, src: DatasetSource): Promise<TractFieldInfo[]>;  // §6.3.1; a sidecar in `ViewSpec`
+  tractStructure(datasetId: DatasetId): Promise<TractStructure>;
+  tractPoints(datasetId: DatasetId, first: number, count: number): Promise<Float32Array>;  // <= TRACT_READ_CHUNK
+  tractFieldValues(datasetId: DatasetId, kind: 'vertex' | 'streamline', name: string, first: number, count: number): Promise<Float32Array>;  // <= TRACT_READ_CHUNK
+  setTractStreamlineField(datasetId: DatasetId, field: { name: string; values: Float32Array; units?: string }): Promise<TractFieldInfo>;  // not saved
+  removeTractField(datasetId: DatasetId, kind: 'vertex' | 'streamline', name: string): Promise<void>;
+  tractScan(datasetId: DatasetId, onChunk: (chunk: TractScanChunk) => void | Promise<void>,   // 2026-11-05: §6.3.1
+            opts?: TractScanOptions): Promise<{ streamlines: number; points: number }>;      // every streamline; not saved, not budgeted
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null;   // visible count + group rows; null until landed
   attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;   // 2026-09-06: §6.5.2's
                                                 //   `attachField` on that dataset's worker; grows `fields` /
                                                 //   `labelTables` in place, changes no layer, remembers the path
                                                 //   as `DatasetRef.sidecars.fields`
+  attachLabelNames(datasetId: DatasetId, src: DatasetSource): Promise<VolumeDataset>;   // 2026-11-06: §6.5.2's
+                                                //   `parseLut` on that worker; replaces `labelTable` in place and
+                                                //   remembers the path as `DatasetRef.sidecars.lut`
 
   setMeasureMode(on: boolean): void;            // while on, a left-click PLACES A POINT in any pane
   measureMode(): boolean;
@@ -1333,6 +1355,8 @@ Rules:
     before there is a window and whose actions activate extensions in whatever order they are listed. This
     scopes **accidents**: a compromised renderer simply never sends it, and the durable answer is a narrower
     `allowPath` (`docs/ROADMAP.md`).
+
+    **The folder channel** (2026-11-05), for an export that is a folder of plain files and any size: `tetravox:module-{choose-folder,folder-create,folder-write,folder-close,folder-abort}`. The sheet admits one directory, canonicalised, for that module and window; every later call names a random token main issued and checks both. **Main is what keeps a file in the folder**, whatever the renderer sends: a name is one segment of `[A-Za-z0-9_.-]{1,96}`, no `..`, no leading dot, no Windows device name, ending in an extension from the manifest's writer, which never includes `.part`, a wildcard or a file a double-click runs. The folder's real path must still be what was granted at `create` and `close`, a target that is a link or a directory is refused even with `overwrite`, and a `.part` that exists is removed rather than followed, then opened exclusively. Node has no `openat`, so a swap between that check and the rename by another process with the user's rights stays possible: that process needed no help from us. A file is written to `<name>.part` and renamed on `close`, which refuses an existing file unless `overwrite` was given. At most 32 are open at once, ≤ 64 MiB per `write`, with no limit on the file. A failed write removes the `.part` rather than leave a short file. `module-clear-writes`, disable, remove, a new document, a closed window and a crashed renderer all revoke the grants and abort their files. A `--job` run is refused, having no one to answer the sheet.
 12. **Unsaved extension edits interrupt a window close.** The renderer pushes `tetravox:set-document-edited`
     (from an extension's `ui.setDirty`, never from `sceneDirty`, which any cursor click sets); main calls
     `win.setDocumentEdited` with it and keeps the flag per window. A `BrowserWindow 'close'` on a window
@@ -2014,10 +2038,26 @@ impl Loader {
     pub fn end_pass(&mut self) -> Result<bool>;   // true = feed the file from the start once more
     pub fn finish(self) -> Result<Tractogram>;
 }
+pub struct ScanChunk { pub first_source: u64, pub offsets: Vec<u32>, pub positions: Vec<f32>,   // 2026-11-05
+                       pub streamline_fields: Vec<(String, Vec<f32>)>, pub vertex_fields: Vec<(String, Vec<f32>)> }
+pub struct TractScanner;
+impl TractScanner {
+    pub fn new(t: &Tractogram, format: TractFormat, total_len: u64, fields: Vec<String>, chunk_points: u32) -> Result<Self>;
+    pub fn attach_begin(&mut self, name: &str) -> Result<u32>;
+    pub fn attach_hungry(&self, at: u32) -> bool;
+    pub fn attach_push(&mut self, at: u32, chunk: &[u8]) -> Result<()>;
+    pub fn attach_end(&mut self, at: u32) -> Result<()>;
+    pub fn push(&mut self, chunk: &[u8]) -> Result<()>;
+    pub fn end_pass(&mut self) -> Result<bool>;
+    pub fn ready(&mut self) -> Result<bool>;
+    pub fn take(&mut self) -> Result<Option<ScanChunk>>;
+    pub fn finish(self) -> Result<(u64, u64)>;      // (streamlines, points) delivered
+    pub fn retained_bytes(&mut self) -> usize;
+}
 pub fn tangents_into(positions: &[f32], offsets: &[u32], first: usize, out: &mut [f32]);   // central; one-sided at ends
 pub enum SampleOp { Value, Magnitude, Dot, AbsDot, AbsCross }
 pub fn reduce_vector(op: SampleOp, v: [f32; 3], t: [f32; 3]) -> f32;   // NaN in => NaN out
-pub fn sample_volume(v: &Volume, points: &[f32], tangents: Option<&[f32]>, frame: usize, op: SampleOp, basis: bool) -> Result<(Vec<f32>, u32)>;
+pub fn sample_volume(v: &Volume, points: &[f32], tangents: Option<&[f32]>, frame: usize, op: SampleOp, basis: TensorBasis) -> Result<(Vec<f32>, u32)>;
 pub fn sample_mesh(mesh: &Mesh, sampler: &TetSampler, points: &[f32], tangents: Option<&[f32]>, source: &str, name: &str, op: SampleOp) -> Result<(Vec<f32>, u32)>;
 pub struct GpuGeometry { pub vertices: Vec<u8>, pub streamline_ids: Vec<u32>, pub indices: Vec<u32>,
                          pub origin: [f32; 3], pub quantum: f32 }
@@ -2045,6 +2085,36 @@ pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
   dpv and dps, with nibabel's multi-value name encoding honoured. An all-zero or `[3][3] == 0` `vox_to_ras` is
   **refused**: such a file cannot be placed. An empty `voxel_order` assumes `LPS`, TrackVis's own default, and
   says so in `notes`.
+* **Sidecars** (`SidecarLoader`, 2026-11-06). Data a tractogram keeps beside itself, read forward and aligned through
+  `source_index`, so a budgeted copy takes only its own streamlines. A **`.tsf`** (`mrtrix track scalars`, the same
+  datatypes and delimiters as TCK) is one value per point; every held streamline's length is checked and the totals
+  must equal the file's, so one from another tractogram is refused, while a differing `timestamp` alone is a note. A
+  **`.txt`, `.csv` or `.tsv`** is per streamline: one row of S (`tcksift2`), S rows of one, or S rows of up to 64
+  columns (`tck2connectome -out_assignments`), with `#` comments and an optional header row. Rows of unequal length are
+  refused and pointed at `.tsf`. Names are the file's stem, `stem[c]` or the header's. Empty TCK streamlines are skipped
+  on both sides, so the two stay aligned. Only `.tsf` is routed from File ▸ Open; the others are too generic to claim,
+  and come through the panel's Attach file…. Testing them against the format's own writer: `testdata/mrtrix_small*`.
+* **Scan** (`TractScanner`, 2026-11-05). Every streamline of the file in file order, for numbers that must cover the
+  file, with memory that does not follow it. It re-reads the file through the same parsers keeping everything, and
+  drains closed streamlines into chunks, so what it retains is about one chunk (`chunk_points`, plus one push, or the
+  longest streamline if that is longer) however long the file is. A chunk stops at the first streamline that reaches
+  `chunk_points`. Concatenating them reproduces `load_bytes` with `max_points: None` byte for byte, in positions,
+  offsets and field values (`tests/scan.rs`), so empty-streamline and truncation rules are a load's: TCK drops empties,
+  TRK and TRX keep them, an unfinished streamline is not delivered. A budget cannot change it, because the scan never
+  reads the held copy. **`source_points` is the file's total at any budget**, including thinned, with one wrinkle a scan
+  does not share: a truncated TRK counts its unfinished streamline's declared points there, where `finish` counts what
+  was delivered. `fields` empty is geometry only. A file's own per-streamline fields and an attached table cover every
+  streamline, the table held whole for the session (per-streamline, so bounded by the streamline count, not points).
+  Per point: TRK scalars arrive with their points, and an attached **`.tsf` is read in step** from its own stream, each
+  length checked against the geometry, so it holds no more than a chunk either. `length_mm` is computed when the file
+  has none, as a load does. **TRX** keeps `header.json`, one `u32` length per streamline and requested `dps/` whole
+  (bounded by streamlines), then streams `positions` from its zip member with nothing buffered beyond the chunk; a
+  member order that puts positions first costs a later pass, as a load's does, and a `dps/` after the positions costs
+  one too, because a chunk must carry its fields. **TRX `dpv/` cannot be delivered and a request rejects by name**: it
+  is a separate zip member, so staying in step would need a second forward reader per field. Any requested name not in
+  the file or an attached sidecar also rejects, because a sampled or `setStreamlineField` field exists for held
+  streamlines only. The wrong length is a load's error, and a changed file fails the fingerprint at `finish`, after its
+  chunks: a consumer's numbers are only good once the promise resolves.
 * **Budget.** A streamline is kept when `fmix32(index ^ seed) < p · 2³²`, `p = min(1, max_points ÷ estimate)`, where
   `estimate` is an upper bound on the file's points (exact for TRX, derived from the length for TCK and TRK). So
   selection is **uniform and metric-neutral** (it reads no field and no length), **deterministic** for a seed, and
@@ -2067,6 +2137,10 @@ pub fn gpu_geometry(t: &Tractogram) -> GpuGeometry;   // §7.4.1
 
 **No export takes an abort argument.** Cancellation is `worker.terminate()` (§1, §5 rule 6); `on_progress`
 is present wherever an op can exceed one frame, and is called at section boundaries (every ~1 M records).
+**The one exception is a tract scan** (2026-11-05): terminating would kill the dataset the scan runs beside, which a
+load has not yet got. It needs no abort flag either, since no call is in flight between `tractScanNext`s: the
+consumer simply stops asking and `tractScanClose` frees the session. No call is long: bytes go in by 256 KiB and an op
+returns with no chunk after 64 MiB, so other ops run within a chunk's time.
 
 ```rust
 // `load_volume` and `volume_frame` take `GpuCaps` flattened into scalars: the caps come from
@@ -2142,7 +2216,26 @@ is present wherever an op can exceed one frame, and is called at section boundar
 #[wasm_bindgen] pub fn tract_style(handle: u32, spec_json: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn tract_probe(handle: u32, x: f32, y: f32, z: f32, radius_mm: f32, streamline: Option<u32>) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn tract_points(handle: u32, first: u32, count: u32, tangents: bool) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_attach_begin(handle: u32, name: &str) -> Result<u32, JsValue>;
+#[wasm_bindgen] pub fn tract_attach_push(handle: u32, stream: u32, chunk: &[u8]) -> Result<(), JsValue>;
+#[wasm_bindgen] pub fn tract_attach_finish(handle: u32, stream: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_structure(handle: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_field_values(handle: u32, kind: &str, name: &str, first: u32, count: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_set_field(handle: u32, name: &str, units: Option<String>, values: &[f32]) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_remove_field(handle: u32, kind: &str, name: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn tract_field_chunk(handle: u32, name: &str, units: Option<String>, first: u32, values: &[f32], done: bool) -> Result<JsValue, JsValue>;
+// §6.3.1's scan (2026-11-05). The worker drives all but the first, `tract_scan_take` and `tract_scan_close`, itself.
+#[wasm_bindgen] pub fn tract_scan_begin(handle: u32, format: &str, total_len: f64, fields_json: &str, chunk_points: u32) -> Result<u32, JsValue>;
+#[wasm_bindgen] pub fn tract_scan_attach_begin(scan: u32, name: &str) -> Result<u32, JsValue>;
+#[wasm_bindgen] pub fn tract_scan_attach_hungry(scan: u32, at: u32) -> Result<bool, JsValue>;
+#[wasm_bindgen] pub fn tract_scan_attach_push(scan: u32, at: u32, chunk: &[u8]) -> Result<(), JsValue>;
+#[wasm_bindgen] pub fn tract_scan_attach_end(scan: u32, at: u32) -> Result<(), JsValue>;
+#[wasm_bindgen] pub fn tract_scan_push(scan: u32, chunk: &[u8]) -> Result<(), JsValue>;
+#[wasm_bindgen] pub fn tract_scan_end_pass(scan: u32) -> Result<bool, JsValue>;
+#[wasm_bindgen] pub fn tract_scan_ready(scan: u32) -> Result<bool, JsValue>;
+#[wasm_bindgen] pub fn tract_scan_take(scan: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_scan_finish(scan: u32) -> Result<JsValue, JsValue>;
+#[wasm_bindgen] pub fn tract_scan_close(scan: u32);
 #[wasm_bindgen] pub fn volume_sample(handle: u32, points: &[f32], tangents: Option<Vec<f32>>, volume_index: u32, op: &str, basis: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn mesh_sample(handle: u32, points: &[f32], tangents: Option<Vec<f32>>, source: &str, name: &str, op: &str) -> Result<JsValue, JsValue>;
 #[wasm_bindgen] pub fn free(handle: u32);
@@ -2228,7 +2321,10 @@ export type OpName =
   | 'labelCentroids' | 'meshCentroids' | 'nearestVertex' | 'vertices' | 'sphereMap' | 'attachField'
   | 'free' | 'freeMask'                                            // 23 ops (`attachField` appended 2026-09-06)
   | 'loadTractogram' | 'tractGeometry' | 'tractScalar' | 'tractStyle' | 'tractProbe' | 'tractPoints'
-  | 'tractFieldChunk' | 'volumeSample' | 'meshSample';             // appended 2026-11-05: §6.3.1
+  | 'tractFieldChunk' | 'volumeSample' | 'meshSample'              // appended 2026-11-05: §6.3.1
+  | 'tractAttach' | 'tractStructure' | 'tractFieldValues' | 'tractSetField' | 'tractRemoveField'    // appended 2026-11-06
+  | 'tractScanOpen' | 'tractScanNext' | 'tractScanClose'    // appended 2026-11-05: §6.3.1's scan
+  | 'parseLut';                                             // appended 2026-11-06: §7.6's "Load names…"
 
 export interface Req<K extends OpName = OpName> {
   id: number;
@@ -2371,13 +2467,22 @@ Every op runs on its dataset's worker. `handle` is that worker's single dataset 
 | `vertices` | `{ handle; indices?: Uint32Array }` | `{ positions: Float32Array }` | `indices` omitted = **every** node in file order, which is how one surface's coordinates reach another dataset's worker. An index past the end is `Error::Parse`, never a zeroed coordinate |
 | `sphereMap` | `{ handle; target: Float32Array }` | `{ map: Uint32Array }` | subject `sphere.reg` vertex → nearest fsaverage `sphere` vertex. `handle` is the **subject's** sphere; `target` is the fsaverage sphere's flat xyz triples, read from its own worker with `vertices` — not two handles, because §5 rule 1 gives one worker one dataset. **Cloned, not transferred**: the caller keeps the directions for the other hemisphere |
 | `attachField` | `{ handle; source: LoadSource }` | `{ fields: MeshFieldMeta[]; labelTables? }` | (2026-09-06) per-vertex data from a **second file** onto the surface `handle` holds — a `.annot`, a morph file, a data-only GIfTI (§6.2 `read_node_data`). The worker fetches `source` itself, as for `loadMesh`; the vertex count is checked before anything is kept, a mismatch is `parse` naming both counts, and the reply is the **additions only**, keyed as §6.5.1 keys `labelTables`. `source.sidecars` is ignored |
+| `parseLut` | `{ source: LoadSource }` | `{ entries: LabelEntryT[] }` | (2026-11-06) §7.6's parsers over a file named after the load. The worker fetches `source` itself; a file with no rows is `parse` |
 | `loadTractogram` | `{ source: LoadSource; format: 'trx'\|'tck'\|'trk'; maxPoints: number \| null; seed }` | `{ meta: TractogramMeta }` | (2026-11-05) worker streams `source` through `tract_stream_*`; `.gz` and an unknown length cost one extra pass for the length. `maxPoints` null means `TRACT_FULL_MAX_POINTS`, chosen by the engine. Cancellation is `terminate()` |
 | `tractGeometry` | `{ handle }` | `{ vertices: Uint8Array; streamlineIds: Uint32Array; indices: Uint32Array; origin; quantum }` | §7.4.1's draw buffers |
 | `tractScalar` | `{ handle; kind: 'vertex' \| 'streamline'; name }` | `{ values: Uint16Array; lo; hi }` | one per **point** either way; `65535` = NaN, `lo`/`hi` the 0…65534 range |
-| `tractStyle` | `{ handle; spec: { filter?; groupField?; visibleGroups?; groupColors? } }` | `{ rgba: Uint8Array; visibleStreamlines: number; groups: { id; name; count; color }[] }` | 4/streamline: group colour plus visibility. The worker keeps the visibility for `tractProbe` |
+| `tractStyle` | `{ handle; spec: { filter?; groupField?; visibleGroups?; keepField?; ends? } }` | `{ rgba: Uint8Array; visibleStreamlines: number; groups: { id; name; count; color }[] }` | 4/streamline: group colour plus visibility. The worker keeps the visibility for `tractProbe` |
 | `tractProbe` | `{ handle; world; radiusMm; streamline? }` | `{ hit: { streamline; held; vertex; world; distanceMm; vertexFields; streamlineFields; groups } \| null }` | `streamline` restricts to the held streamline a pick named; otherwise the nearest visible point within `radiusMm`. Linear in points, latest-wins |
 | `tractPoints` | `{ handle; first; count; tangents }` | `{ positions: Float32Array; tangents?: Float32Array }` | §5 rule 2's relay, count ≤ `TRACT_SAMPLE_CHUNK` |
 | `tractFieldChunk` | `{ handle; name; units?; first; values /* donated */; done }` | `{ field?: TractFieldMeta }` | creates the field on `first: 0`, replaces one of that name; `done` computes the stats |
+| `tractAttach` | `{ handle; source }` | `{ kind: 'vertex' \| 'streamline'; fields: TractFieldMeta[]; notes: string[] }` | streams the file (`tract_attach_begin/push/finish`) |
+| `tractStructure` | `{ handle }` | `{ offsets: Uint32Array; sourceIndex: Uint32Array }` | |
+| `tractFieldValues` | `{ handle; kind; name; first; count }` | `{ values: Float32Array }` | |
+| `tractSetField` | `{ handle; name; units?; values /* donated */ }` | `{ field: TractFieldMeta }` | one value per held streamline |
+| `tractRemoveField` | `{ handle; kind; name }` | `{}` | a built-in stays |
+| `tractScanOpen` | `{ handle; source; format; fields; sidecars; chunkPoints }` | `{ scan: number }` | §6.3.1. `tract_scan_begin`. Reads attached tables to their end, and `.gz` or an unknown length costs a pass as a load does. `sidecars` are the attached files that supply `fields` |
+| `tractScanNext` | `{ scan }` | `{ chunk?: { firstSource; offsets; positions; streamlineFields; vertexFields }; done?: { streamlines; points } }` | `tract_scan_take`. Neither member means it yielded after 64 MiB with nothing to show (a TRX pass), so ask again. Arrays are fresh and transferred. A closed session is `cancelled`; a `free` of the handle closes it |
+| `tractScanClose` | `{ scan }` | `{}` | `tract_scan_close`. Idempotent |
 | `volumeSample` | `{ handle; points /* donated */; tangents? /* donated */; volumeIndex; op; basis }` | `{ values: Float32Array; outside: number }` | §6.3.1 |
 | `meshSample` | `{ handle; points /* donated */; tangents? /* donated */; source; name; op }` | `{ values: Float32Array; outside: number }` | §6.3.1. The first call builds the grid |
 | `free` | `{ handle }` | `{}` | the client then calls `worker.terminate()` |
@@ -3100,7 +3205,18 @@ Input (Freeview-like):
   dense index remap + `N×1 RGBA8` palette.
 * LUT parsers: FreeSurfer `FreeSurferColorLUT.txt`, SimNIBS `*_LUT.txt`, ITK-SNAP label description, and a
   generic `id r g b [a] [name]` fallback. Auto-associate `<volume>_LUT.txt` or `<volume>.txt` next to the
-  volume; otherwise a deterministic glasbey-like palette.
+  volume; otherwise a deterministic glasbey-like palette. A volume's table whose alpha column is mostly 0 is
+  FreeSurfer's inverted one, read as `255 - A` (`volumeLabelTable`); id 0 stays background either way.
+* **Names by default (2026-11-06).** A label volume's names come from, in order: a lookup file, then the
+  built-in FreeSurfer table (`scene/freesurfer-table.ts`, aseg and DK aparc, generated and checked by
+  `scripts/reference/fs_names.py`), then "Label N". The table is assumed only when **all** hold: every nonzero id
+  is in it; the ids hold at least two left/right pairs among (2,41) (3,42) (10,49) (11,50) (12,51) (17,53)
+  (18,54), or cortical ids in both 1000-1999 and 2000-2999; and they are not contiguous 1..N; and the volume is 3D.
+  It fills `VolumeDataset.labelTable` with FreeSurfer's colours, so the panes, Inspect, the region panel, derived
+  surfaces and extensions read it like any table; a dataset that fails stays as it was, table absent. The Regions
+  section always says where names came from, with Use numbers (`VolumeLayer.labelNames`, saved in the scene) and
+  Load names… (`Engine.attachLabelNames`, saved as `sidecars.lut`). `labelNames.test.ts` runs the real aseg's 32
+  ids, a mask, a 3-tissue dseg, SimNIBS tissues, 1..100, 1..400 and 1..116, and pins each clause alone.
 * **The default mesh tag palette must cover the electrode/gel ranges.** A SimNIBS TDCS mesh carries tri tags
   1101/1102/1501/1502/2101/2102 and tet tags 101/102/501/502 on top of the ten tissue tags, and the SEEG
   meshes add tri 1013–1016 / tet 13–16. A viewer colouring only 1–10 / 1001–1010 renders every electrode and
@@ -3126,12 +3242,15 @@ Input (Freeview-like):
 
 **Regions.** **Left**: layer panel (ordered list, per-row disclosure, eye, opacity slider, per-kind property
 editor, 1 px accent border on the active layer, per-dataset **load card** with phase + percent + elapsed +
-Cancel). **Centre**: view grid (coloured border on the active view pane). **Right**, top to bottom in this
-order: coordinate bar, the `.msh.opt` defaults chip (§7.6), measurements panel, **extension panel — one active
-extension at a time (§13)** — and the info panel. **Top**: toolbar — the `Tetravox` menu (Open…, Sample data…,
+Cancel; `oneLayerOpen`, off by default, in Settings ▸ Appearance shows only the active layer's editor). **Centre**: view grid (coloured border on the active
+view pane). **Right**: **Inspect**, top to
+bottom the coordinate bar, the `.msh.opt` defaults chip (§7.6), measurements panel, info panel and the header
+behind a disclosure (closed until opened, remembered with the panel prefs). With an extension docked the panel
+shows that extension's tabs, or Inspect while the toolbar's Inspect is on (§13.3). **Top**: toolbar — the `Tetravox` menu (Open…, Sample data…,
 New, Open scene…, Save, Save as…) and the scene's name in the left column; layout, radiological toggle,
 Reset, crosshair, colour bars, measure mode, scale bar, orientation cube and screenshot in the centre; the
-**extension switcher**, the keyboard sheet (`?`) and settings (`⚙`) in the right column. **Status bar** along
+**extension switcher**, Inspect while an extension is docked, the keyboard sheet (`?`) and settings (`⚙`) in the
+right column. **Status bar** along
 the bottom, with each active extension's cell **before** the per-dataset cells.
 
 The theme is **not** a toolbar control: `system`/`light`/`dark` live in the settings dialog's Appearance tab
@@ -3850,6 +3969,30 @@ extends is bounded.
   the picture — a capture reads whatever the user has open, including datasets this extension never loaded.
   Every §4.7 annotation is off except the convention badge, which §8 says is not optional.
 
+**`scene.tracts` — what a tract extension is built from** (appended 2026-11-06, additive at `hostApi: 1`).
+`structure`, `points` and `field` read a tractogram in chunks of at most `TRACT_READ_CHUNK`; `sample` is §6.3.1's;
+`setStreamlineField` (which takes the array, leaving the caller's empty) and `removeField` write one value per held streamline, which colours, filters and groups like a
+file's own, and `TractsLayer.keepField` hides by it without taking the user's filter away. The platform never learns
+why a streamline was selected: regions, connectomes and statistics are an extension's (`docs/DECISIONS.md`). Such a
+field is not saved, so the recipe goes in the scene block, and `TractogramDataset.generation` says when to recompute.
+An extension running on a build without this member finds it undefined, and says which Tetravox it needs.
+
+`scan(datasetId, onChunk, opts?)` (appended 2026-11-05) is what a number that must cover the file reads: every
+streamline, whatever the budget, in file order, with `onChunk`'s promise as backpressure and memory independent of the
+file (§6.3.1). The budget stays a display budget. `opts.fields` names what to deliver, and a name that cannot cover
+every streamline rejects rather than being absent: a sampled or `setStreamlineField` field, or a TRX `dpv/`. `signal`
+rejects with its reason and frees the session; removing the dataset or changing its budget rejects too. A file changed
+on disk rejects at the end, after chunks were delivered, so nothing computed is final until the promise resolves.
+
+`scene.openFile(path)` and `scene.tracts.attachFile(datasetId, path)` (appended 2026-11-05) do what File ▸ Open and the
+tract layer's Attach file… do, for a path `files.openDialog` returned or a job's `path` argument: the dataset's worker
+reads the file, so no bytes reach this thread, and a failure rejects to the extension instead of raising a toast.
+
+**`files.chooseFolder(writerId, opts?)` — many files, of any size, into a folder the user chose** (appended
+2026-11-05, §5 rule 11). `writerId` must name a manifest writer with `directory: true`, its `filters` the extensions,
+its `siblings` empty, and the consent sheet says so in its own line. The handle's `create(name, { overwrite? })` gives a
+`ModuleFileWriter` of `write` (≤ 64 MiB a call), `close` and `abort`.
+
 **`scene.activePlane()` is the one view fact an extension is given** (appended 2026-08-30). It answers
 `{ normal, point }` for the active 2-D pane — the view's normal through the cursor, which is §7.5's own
 rule for what a slice pane shows — and `null` for the 3-D pane. It is here rather than derived by an
@@ -3938,17 +4081,27 @@ scene rebuilds what it can from the layer, marks its provenance unknown, and say
 
 ### 13.3 The user interface
 
-**One docked slot in the right column, above the info panel.** Not a floating palette: the shell has no
-floating, draggable or popover primitive, pane overlays are `pointer-events: none` by contract so a palette
-over the canvas would fight the WebGL grid for pointer capture, and at 1512 px the sidebars already take
-608 px — a floating editor would cover the pane it asks the user to click in. Not a tab either: the feedback
-most extension actions are judged by is the info panel's Cursor block, and a tab hides it at the moment it
-matters.
+**One docked slot, a tab in the right panel (2026-11-05).** Not a floating palette: the shell has no floating,
+draggable or popover primitive, pane overlays are `pointer-events: none` by contract so a palette over the canvas
+would fight the WebGL grid for pointer capture, and a floating editor would cover the pane it asks the user to
+click in.
 
-The slot renders **nothing at all** while idle, so the DOM is unchanged with no extension active, and it sits
-**outside** the info panel's scrolling container, which is what makes `max-h-[55%]` plus its own scroller a
-hard cap rather than a suggestion — inside it, a tall extension would squeeze the info panel to zero. The column
-is 320 px and stays 320 px; a resizable right aside is on the ROADMAP, not in v1.
+**The row.** With no extension docked there is no row, and Inspect fills the panel. With one docked, a single row
+holds the extension's tabs (`manifest.ui.panelTabs`, at most 6; absent, one tab named by its title), then its dirty
+dot, ⧉ and ✕, and the panel's chevron. Inspect is the platform's, not the extension's (2026-11-06): it is a toggle in
+the toolbar's right cluster beside the switcher, shown only while an extension is docked. On, the panel shows Inspect
+and the row is the chevron alone; off, or choosing the extension in the switcher, brings back its last tab. The id
+`inspect` stays reserved in a manifest. The slot has the panel's whole height and one scroller.
+`host.ui.panelTab()`, `setPanelTab(id)` and `onPanelTab(cb)` publish the choice, and the extension renders the
+content that matches. It is kept per extension for the session, across a close and reopen. The panel and Inspect
+both stay **mounted** behind the row, so a switch loses no state. Opening the extension's file, choosing it in the
+switcher, and `setPanelTab` show its tab; a pane click or a crosshair move never does. Choosing it in the switcher
+closes it only when its tab is already showing. In its own window (§13.10) there is no row, so the extension draws
+its own nav, and `panelTab()` still reports the last value.
+
+**Widths.** The right panel is 320 px with Inspect alone and 400 px with an extension docked, each remembered
+separately, so a saved width is never overwritten by docking. A saved width above 400 px carries over to the docked
+one. Whatever is saved, the panel gives way so the views keep 320 px. The limits stay 256 to 640 px.
 
 **Four bounded secondary surfaces, and no fifth:**
 
@@ -4263,6 +4416,9 @@ showing is the new `UiState.modulePlacement`, which is `{}` for a window with no
 never pops anything out has the DOM it always had. `ModuleHost.ui.isActive()` likewise keeps its meaning: it
 answers "am I in the slot", which is what a panel gating its docked-width chrome wants, and an extension asks
 `placement()` for where it is showing.
+
+**The tab row is the docked panel's, not a window's** (§13.3): `panelTab()` keeps working in a window, and the
+extension draws its own nav there. Re-docking shows the extension's tab.
 
 **Main's window policy is a whitelist** (`setWindowOpenHandler`). Before pop-out there was no handler, which
 is Electron's permissive default; the feature that needs `window.open` is also the occasion to bound it. Only

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 const port = Number(process.env.TETRAVOX_WASM_TEST_PORT ?? 5299);
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const realData = process.env.TETRAVOX_TESTDATA;
+const tractData = process.env.TETRAVOX_TRACT_TESTDATA;
 
 export default {
   root,
@@ -26,6 +27,9 @@ export default {
     host: '127.0.0.1',
     port,
     strictPort: true,
-    fs: { strict: true, allow: realData ? [root, realData] : [root] },
+    fs: {
+      strict: true,
+      allow: [root, ...(realData ? [realData] : []), ...(tractData ? [tractData] : [])],
+    },
   },
 };

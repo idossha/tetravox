@@ -84,6 +84,7 @@ import {
   datasetOf,
   pruneCollapsed,
   sameSpace,
+  selectedPanelTab,
   templateSource,
   WORLD_SPACE,
 } from './store';
@@ -98,7 +99,7 @@ import * as toasts from '../lib/toasts';
 import { pushFrame } from '../lib/metrics';
 import { formatTriple, parseTriple } from '../lib/coords';
 import { readPngInfo } from '../lib/png';
-import { baseName, hemisphereOf, isSurfaceDataName } from '../lib/sidecars';
+import { baseName, hemisphereOf, isSurfaceDataName, isTractDataName } from '../lib/sidecars';
 import {
   defaultScenePath,
   dirName,
@@ -146,6 +147,7 @@ import { registrationsFor } from '../modules/installed';
 import { loadInstalledManifests } from '../modules/installedBoot';
 import type { ModuleRegistration } from '../modules/registry';
 import { createModuleHost, disposeModuleHost } from '../modules/hostImpl';
+import type { ModuleHostDeps } from '../modules/hostImpl';
 import { ModuleHostError } from '../modules/host';
 import type {
   ExtensionBlock,
@@ -153,6 +155,7 @@ import type {
   ModuleInstance,
   ModulePlacement,
   ModuleSceneEvent,
+  ModuleTracts,
 } from '../modules/host';
 import { resolveModuleKey } from '../modules/keys';
 import type { ModuleKeyEvent } from '../modules/keys';
@@ -209,6 +212,7 @@ export class ShellController {
   private queue: QueuedRequest[] = [];
   /** Per-vertex files waiting for the surfaces queued ahead of them (`open`). */
   private readonly deferredSurfaceData: OpenRequest[] = [];
+  private readonly deferredTractData: OpenRequest[] = [];
   private draining = false;
   private inflight: { ticket: number; datasetId: DatasetId | null } | null = null;
   /** Directed task 8: what main found beside each volume, so the warps can be loaded on demand. */
@@ -431,7 +435,8 @@ export class ShellController {
     // `lh.ernie_DK40.annot` both selected — or both on argv — must attach the second to the first,
     // which has not loaded yet when this runs.
     this.deferredSurfaceData.push(...requests.filter((r) => isSurfaceDataName(r.name)));
-    requests = requests.filter((r) => !isSurfaceDataName(r.name));
+    this.deferredTractData.push(...requests.filter((r) => isTractDataName(r.name)));
+    requests = requests.filter((r) => !isSurfaceDataName(r.name) && !isTractDataName(r.name));
     if (requests.length === 0) {
       void this.drain();
       return;
@@ -502,6 +507,63 @@ export class ShellController {
 
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null {
     return this.engine.tractStyleInfo(layerId);
+  }
+
+  /** The Regions section's "Load names…" (§7.6). */
+  async chooseLabelNames(layerId: LayerId): Promise<void> {
+    const layer = this.store.getState().layers.find((l) => l.id === layerId);
+    if (layer === undefined) return;
+    const [item] = await bridge().openLabelNamesDialog();
+    if (item === undefined) return;
+    const request = await requestFromPath(item.path);
+    if (request === null) return;
+    try {
+      await this.engine.attachLabelNames(layer.datasetId, request.source);
+      this.store.setState({ datasets: [...this.engine.scene.datasets.values()] });
+    } catch (error: unknown) {
+      this.toast('parse', baseName(item.path), errorMessage(error));
+    }
+  }
+
+  /** The tract panel's "Attach file…": data for **this** layer's tractogram. */
+  async chooseTractData(layerId: LayerId): Promise<void> {
+    const layer = this.store.getState().layers.find((l) => l.id === layerId);
+    if (layer === undefined) return;
+    const opened = await bridge().openTractDataDialog();
+    for (const item of opened) {
+      const request = await requestFromPath(item.path);
+      if (request !== null) await this.attachTractData(request, layer.datasetId);
+    }
+  }
+
+  /**
+   * One sidecar. With a `target`, that tractogram; without one, the active layer's first and then
+   * whichever open tractogram it fits. The worker checks every streamline's length, so a `.tsf` from
+   * another tractogram is refused rather than painted on the wrong streamlines.
+   */
+  private async attachTractData(request: OpenRequest, target: DatasetId | null): Promise<void> {
+    const state = this.store.getState();
+    const active = activeLayer(state)?.datasetId;
+    const tracts = state.datasets
+      .filter((d) => d.kind === 'tractogram' && (target === null || d.id === target))
+      .sort((a, b) => Number(b.id === active) - Number(a.id === active));
+    if (tracts.length === 0) {
+      this.toast('unsupported', request.name, 'open the tractogram it belongs to first');
+      return;
+    }
+    let lastError = '';
+    for (const ds of tracts) {
+      try {
+        const added = await this.engine.attachTractFile(ds.id, request.source);
+        this.store.setState({ datasets: [...this.engine.scene.datasets.values()] });
+        const names = added.map((f) => f.name).join(', ');
+        this.toast('info', request.name, `Attached ${names} to ${ds.name}`);
+        return;
+      } catch (error: unknown) {
+        lastError = errorMessage(error);
+      }
+    }
+    this.toast('parse', request.name, lastError);
   }
 
   private async attachSurfaceData(request: OpenRequest, target: DatasetId | null): Promise<void> {
@@ -647,6 +709,10 @@ export class ShellController {
       while (this.deferredSurfaceData.length > 0) {
         const request = this.deferredSurfaceData.shift() as OpenRequest;
         await this.attachSurfaceData(request, null);
+      }
+      while (this.deferredTractData.length > 0) {
+        const request = this.deferredTractData.shift() as OpenRequest;
+        await this.attachTractData(request, null);
       }
     } finally {
       this.draining = false;
@@ -1294,8 +1360,11 @@ export class ShellController {
       leftPanelCollapsed: s.leftPanelCollapsed,
       rightPanelCollapsed: s.rightPanelCollapsed,
       mouseBlockCollapsed: s.mouseBlockCollapsed,
+      oneLayerOpen: s.oneLayerOpen,
+      headerBlockCollapsed: s.headerBlockCollapsed,
       leftPanelWidth: s.leftPanelWidth,
       rightPanelWidth: s.rightPanelWidth,
+      rightModuleWidth: s.rightModuleWidth,
     });
   }
 
@@ -1305,8 +1374,14 @@ export class ShellController {
    */
   setPanelWidth(side: 'left' | 'right', px: number, persist = true): void {
     const width = clampPanelWidth(side, px);
-    const key = side === 'left' ? 'leftPanelWidth' : 'rightPanelWidth';
-    if (this.store.getState()[key] !== width) this.store.setState({ [key]: width });
+    const state = this.store.getState();
+    const key =
+      side === 'left'
+        ? 'leftPanelWidth'
+        : state.activeModule === null
+          ? 'rightPanelWidth'
+          : 'rightModuleWidth';
+    if (state[key] !== width) this.store.setState({ [key]: width });
     if (persist) this.savePanels();
   }
 
@@ -1324,6 +1399,11 @@ export class ShellController {
 
   toggleMouseBlock(): void {
     this.setMouseBlockCollapsed(!this.store.getState().mouseBlockCollapsed);
+  }
+
+  toggleHeaderBlock(): void {
+    this.store.setState((s) => ({ headerBlockCollapsed: !s.headerBlockCollapsed }));
+    this.savePanels();
   }
 
   toggleLeftPanel(): void {
@@ -2619,6 +2699,13 @@ export class ShellController {
     this.setAllLayersCollapsed(collapseAllAction(this.store.getState()) === 'collapse');
   }
 
+  /** Settings ▸ Appearance: the layer panel shows only the active layer's editor. */
+  setOneLayerOpen(on: boolean): void {
+    if (this.store.getState().oneLayerOpen === on) return;
+    this.store.setState({ oneLayerOpen: on });
+    this.savePanels();
+  }
+
   // ============================================================================================
   // Modules (2026-08-30; ARCHITECTURE.md §13). Appended per the shared-file rule: new members at
   // the end of the class, nothing above this line reordered or repurposed.
@@ -2754,6 +2841,7 @@ export class ShellController {
     // the re-dock, and neither disposes anything.
     if (this.moduleSessions.has(id)) {
       this.setModulePlacement(id, placement);
+      if (placement === 'docked') this.store.setState({ inspectTabSelected: false });
       return true;
     }
     const registration = registrationFor(id, this.moduleSearch);
@@ -2784,10 +2872,13 @@ export class ShellController {
           // gate below can ask "is this extension still live" (2026-09-03).
           sampleVolume: (datasetId, worldPoints, opts) =>
             this.moduleSampleVolume(datasetId, worldPoints, opts),
+          tracts: this.moduleTracts(),
+          openFile: (path) => this.moduleOpenFile(path),
           capture: {
             setView: (preset, opts) => this.moduleSetView(registration.manifest.id, preset, opts),
             screenshot: (opts) => this.moduleScreenshot(registration.manifest.id, opts),
           },
+          panels: this.modulePanels(registration.manifest),
         },
         registration.manifest
       );
@@ -2804,6 +2895,7 @@ export class ShellController {
       instance,
       placement,
     });
+    if (placement === 'docked') this.store.setState({ inspectTabSelected: false });
     this.syncModulePlacements();
     // A block this scene already carries is the module's own previous state — from the file it was
     // opened from, or from the last time it was in the slot.
@@ -2845,11 +2937,68 @@ export class ShellController {
 
   /** The switcher's toggle: the same module twice is "close it", wherever it is showing. */
   async toggleModule(id: string, placement: ModulePlacement = 'docked'): Promise<void> {
+    const state = this.store.getState();
+    if (state.activeModule === id && state.inspectTabSelected) {
+      // Its panel is out of sight behind Inspect, so selecting it means "show it", not "close it".
+      this.showDockedModule();
+      return;
+    }
     if (this.moduleSessions.has(id)) {
       this.deactivateModule(id);
       return;
     }
     await this.activateModule(id, placement);
+  }
+
+  /** The module stays mounted behind Inspect (§13.3). */
+  showInspectTab(): void {
+    this.store.setState({ inspectTabSelected: true });
+  }
+
+  /** The toolbar's Inspect button. It has to be seen to mean anything, so a folded panel opens. */
+  toggleInspect(): void {
+    const { inspectTabSelected, rightPanelCollapsed } = this.store.getState();
+    if (inspectTabSelected && !rightPanelCollapsed) return this.showDockedModule();
+    if (rightPanelCollapsed) this.toggleRightPanel();
+    this.showInspectTab();
+  }
+
+  /** Back to the docked module, whichever of its tabs was last chosen. */
+  showDockedModule(): void {
+    this.store.setState({ inspectTabSelected: false });
+  }
+
+  /** Choose one of a module's declared tabs: the row's click and `host.ui.setPanelTab` alike. */
+  setModulePanelTab(id: string, tab: string): void {
+    this.store.setState((s) => ({
+      modulePanelTabs: { ...s.modulePanelTabs, [id]: tab },
+      // A module in its own window has no row here, so it must not take the row from another one.
+      inspectTabSelected: s.activeModule === id ? false : s.inspectTabSelected,
+    }));
+  }
+
+  /** `host.ui`'s tab members, over the store, for one activation (§13.3). */
+  private modulePanels(manifest: ModuleManifest): NonNullable<ModuleHostDeps['panels']> {
+    const { id } = manifest;
+    const current = (): string | null => selectedPanelTab(this.store.getState(), manifest);
+    return {
+      panelTab: current,
+      setPanelTab: (tab) => {
+        if (!manifest.ui?.panelTabs?.some((t) => t.id === tab)) {
+          throw new ModuleHostError(`${id} declares no panel tab "${tab}"`);
+        }
+        this.setModulePanelTab(id, tab);
+      },
+      onPanelTab: (cb) => {
+        let last = current();
+        return this.store.subscribe(() => {
+          const next = current();
+          if (next === last || next === null) return;
+          last = next;
+          cb(next);
+        });
+      },
+    };
   }
 
   /**
@@ -2868,7 +3017,10 @@ export class ShellController {
     // Docking B while A is docked pops **A** out rather than closing it. The alternative — refusing,
     // or unloading A — would make "show me this one too" a destructive gesture, which is exactly the
     // thing §13.3's guard exists to prevent.
-    if (placement === 'docked') this.undockForNewDockedModule();
+    if (placement === 'docked') {
+      this.undockForNewDockedModule();
+      this.store.setState({ inspectTabSelected: false });
+    }
     session.placement = placement;
     // No call into the host: `host.ui.placement()` and `host.ui.onPlacement()` read and subscribe to
     // `UiState.modulePlacement`, which `syncModulePlacements` writes. One source of truth, and a
@@ -3103,6 +3255,39 @@ export class ShellController {
     for (const listener of [...this.pointToolListeners]) listener(event);
   }
 
+  /** `host.scene.tracts`: the engine's calls, unchanged, so a progress card or a sample behaves alike. */
+  private moduleTracts(): ModuleTracts {
+    const engine = this.engine;
+    return {
+      structure: (id) => engine.tractStructure(id),
+      points: (id, first, count) => engine.tractPoints(id, first, count),
+      field: (id, kind, name, first, count) =>
+        engine.tractFieldValues(id, kind, name, first, count),
+      setStreamlineField: async (id, field) => {
+        const info = await engine.setTractStreamlineField(id, field);
+        this.store.setState({ datasets: [...engine.scene.datasets.values()] });
+        return info;
+      },
+      scan: (id, onChunk, opts) => engine.tractScan(id, onChunk, opts),
+      attachFile: async (id, path) => {
+        const request = await requestFromPath(path);
+        if (request === null) throw new ModuleHostError(`${baseName(path)} is not readable here`);
+        const added = await engine.attachTractFile(id, request.source);
+        this.store.setState({ datasets: [...engine.scene.datasets.values()] });
+        return added;
+      },
+      removeField: async (id, kind, name) => {
+        await engine.removeTractField(id, kind, name);
+        this.store.setState({ datasets: [...engine.scene.datasets.values()] });
+      },
+      sample: async (spec) => {
+        const info = await engine.sampleTracts(spec);
+        this.store.setState({ datasets: [...engine.scene.datasets.values()] });
+        return info;
+      },
+    };
+  }
+
   /**
    * `ModuleEvents.probe` — the engine's event, subscribed to once in {@link attach}.
    *
@@ -3148,6 +3333,19 @@ export class ShellController {
     const dataset = this.engine.scene.datasets.get(datasetId);
     if (dataset === undefined || dataset.kind !== 'volume') return null;
     return peakCentroid(dataset, world, radiusMm);
+  }
+
+  /** `host.scene.openFile`: `runOne`'s dataset and layers, with the failure left to the module. */
+  private async moduleOpenFile(path: string): Promise<Dataset> {
+    const request = await requestFromPath(path);
+    if (request === null) throw new ModuleHostError(`${baseName(path)} is not readable here`);
+    const dataset = await this.engine.addDataset(request.source);
+    for (const kind of layerKindsFor(dataset)) {
+      this.engine.addLayer({ datasetId: dataset.id, kind });
+    }
+    this.engine.requestRender();
+    this.store.setState({ datasets: [...this.engine.scene.datasets.values()] });
+    return dataset;
   }
 
   /**

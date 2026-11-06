@@ -20,7 +20,8 @@
 
 import { bridge } from '../bridge';
 import type { ModuleManifest } from '../../../modules/manifest-types';
-import type { ModuleHost } from './host';
+import type { ModuleFileWriter, ModuleFolder, ModuleHost } from './host';
+import { ModuleHostError } from './host';
 import { anchorMatches, instantiateSiblings } from './siblings';
 
 /** `bridge().allowPath`, structurally: admit a path and say whether it exists. */
@@ -38,6 +39,36 @@ export interface HostFilesManifest extends Pick<
   'readers' | 'siblings' | 'writers'
 > {
   id: string;
+}
+
+function must<T extends { ok: boolean }>(result: T): Extract<T, { ok: true }> {
+  if (result.ok) return result as Extract<T, { ok: true }>;
+  throw new ModuleHostError((result as unknown as { error: string }).error);
+}
+
+function moduleFolder(id: string, token: string, path: string): ModuleFolder {
+  // `moduleChooseFolder` having answered proves the preload carries all five.
+  const b = bridge() as Required<ReturnType<typeof bridge>>;
+  return {
+    path,
+    async create(name, opts) {
+      const overwrite = opts?.overwrite === true;
+      const writer = must(await b.moduleFolderCreate(id, token, name, { overwrite })).token;
+      const handle: ModuleFileWriter = {
+        async write(bytes) {
+          must(await b.moduleFolderWrite(id, writer, bytes));
+        },
+        async close() {
+          const { path: written, bytes } = must(await b.moduleFolderClose(id, writer));
+          return { path: written, bytes };
+        },
+        async abort() {
+          must(await b.moduleFolderAbort(id, writer));
+        },
+      };
+      return handle;
+    },
+  };
 }
 
 /**
@@ -125,6 +156,18 @@ export function createHostFiles(
 
     async writeBinary(path, bytes, opts) {
       return bridge().moduleWriteBinary(id, path, bytes, { backup: opts?.backup === true });
+    },
+
+    async chooseFolder(writerId, opts) {
+      const b = bridge();
+      if (b.moduleChooseFolder === undefined) throw new ModuleHostError('no folder channel');
+      const chosen = await b.moduleChooseFolder(id, {
+        writerId,
+        ...(opts?.suggestedName === undefined ? {} : { suggestedName: opts.suggestedName }),
+      });
+      if (chosen === null) return null;
+      if (!chosen.ok) throw new ModuleHostError(chosen.error);
+      return moduleFolder(id, chosen.token, chosen.path);
     },
   };
 }

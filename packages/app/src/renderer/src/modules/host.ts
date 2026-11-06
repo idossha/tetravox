@@ -35,6 +35,10 @@ import type {
   PointToolEvent,
   PointToolSpec,
   ProbeResult,
+  TractFieldInfo,
+  TractSampleSpec,
+  TractScanChunk,
+  TractStructure,
   vec3,
 } from '@tetravox/engine';
 import type { ModuleId } from '../../../modules/manifest-types';
@@ -66,7 +70,7 @@ export interface ExtensionBlock {
 // and never from `@tetravox/engine`, which is what the ESLint wall on `modules/<id>/**` requires
 // (types from the engine are allowed there, but one import site is one place to change for §13.9).
 
-export type { PointSelection, PointToolEvent, PointToolSpec };
+export type { PointSelection, PointToolEvent, PointToolSpec, TractScanChunk };
 
 /**
  * What a module can subscribe to.
@@ -113,10 +117,10 @@ export type ModuleSceneEvent =
 /**
  * Where a module's panel is showing (§13.10, 2026-08-31).
  *
- * `'docked'` is the §13.3 slot — one section of the right column, above the Info panel. `'window'`
+ * `'docked'` is the §13.3 slot — a tab in the right panel. `'window'`
  * is the module's own OS window, which exists so that several modules can be open at once and so
  * that a module needing real estate (a time-domain view, a table of a thousand contacts) can have a
- * monitor rather than 20 rem.
+ * monitor rather than a side panel.
  *
  * **The module does not change process, thread or realm when it moves.** The popped-out window is a
  * same-origin popup the renderer portals the panel into, so `ModuleHost` stays synchronous — §12.3
@@ -135,6 +139,75 @@ export interface ModuleHistory<T> {
   clear(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+}
+
+/** See {@link ModuleHost}'s `scene.tracts`. Arrays are copies, read in chunks off the worker. */
+export interface ModuleTracts {
+  /** `offsets` has one more entry than held streamlines; `sourceIndex` is each one's index in the file. */
+  structure(datasetId: DatasetId): Promise<TractStructure>;
+  /** `xyz` triples in world mm. At most `TRACT_READ_CHUNK` points per call. */
+  points(datasetId: DatasetId, first: number, count: number): Promise<Float32Array>;
+  /** At most `TRACT_READ_CHUNK` values per call. */
+  field(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string,
+    first: number,
+    count: number
+  ): Promise<Float32Array>;
+  /**
+   * One value per held streamline, and `values` is transferred: the array is empty afterwards.
+   * It colours, filters and groups like a file's own, and sets
+   * `TractsLayer.keepField`'s selection. It is not saved: put the recipe in a scene block, and
+   * recompute when `TractogramDataset.generation` changes, because a budget change drops it.
+   */
+  setStreamlineField(
+    datasetId: DatasetId,
+    field: { name: string; values: Float32Array; units?: string }
+  ): Promise<TractFieldInfo>;
+  removeField(datasetId: DatasetId, kind: 'vertex' | 'streamline', name: string): Promise<void>;
+  /** §6.3.1's sampling: a label volume reads whole labels. The new field is one value per point. */
+  sample(spec: TractSampleSpec): Promise<TractFieldInfo>;
+  /**
+   * Every streamline in the file, whatever the display budget, in file order (appended 2026-11-05).
+   * The reads above see only held streamlines; a number computed from this one covers the file.
+   * Memory does not grow with the file: each chunk is about `TRACT_READ_CHUNK` points of whole
+   * streamlines, and the next is not read until `onChunk`'s promise settles. Other calls on the
+   * dataset run between chunks. `fields` absent is geometry only. A name that cannot cover every
+   * streamline rejects: a sampled or `setStreamlineField` field, and a TRX per-point `dpv/`. Aborting
+   * rejects with `signal.reason`; removing the dataset or changing its budget also ends the scan with
+   * a rejection. A file changed on disk since it was loaded rejects at the end.
+   */
+  scan(
+    datasetId: DatasetId,
+    onChunk: (chunk: TractScanChunk) => void | Promise<void>,
+    opts?: { signal?: AbortSignal; fields?: string[] }
+  ): Promise<{ streamlines: number; points: number }>;
+  /**
+   * Attach a `.tsf`, or a `.txt`/`.csv` with one row per streamline, as the tract layer's Attach file…
+   * does, with the same checks (appended 2026-11-05). `path` is one `files.openDialog` returned or a
+   * job's `path` argument. The worker reads it, so a weights file over `readText`'s 1 MiB is fine.
+   */
+  attachFile(datasetId: DatasetId, path: string): Promise<TractFieldInfo[]>;
+}
+
+/** A file being written into a {@link ModuleFolder}: nothing has the final name until `close`. */
+export interface ModuleFileWriter {
+  /** At most 64 MiB per call, in order. A failed write aborts the file. */
+  write(bytes: Uint8Array): Promise<void>;
+  close(): Promise<{ path: string; bytes: number }>;
+  /** Removes the partial file. Also what happens when the module deactivates or the window closes. */
+  abort(): Promise<void>;
+}
+
+/** A folder the user chose, writable by this module until it deactivates. Every call rejects with why. */
+export interface ModuleFolder {
+  path: string;
+  /**
+   * `name` is one path segment of `A-Z a-z 0-9 _ . -`, at most 96 long, ending in an extension from
+   * the writer's manifest `filters`. An existing file is refused unless `overwrite: true`.
+   */
+  create(name: string, opts?: { overwrite?: boolean }): Promise<ModuleFileWriter>;
 }
 
 export interface ModuleHost {
@@ -181,6 +254,19 @@ export interface ModuleHost {
       worldPoints: Float32Array,
       opts?: { order?: 0 | 1; volumeIndex?: number }
     ): Promise<Float32Array>;
+    /**
+     * Open a file as File ▸ Open does, as a dataset with its default layer, and answer the dataset
+     * (appended 2026-11-05, additively). `path` is one `files.openDialog` returned or a job's `path`
+     * argument. Rejects with why, and no toast: the module reports it. It reads the file in the
+     * dataset's worker, so an ROI mask needs no bytes on this thread (§5 rule 3).
+     */
+    openFile(path: string): Promise<Dataset>;
+    /**
+     * Tractograms (appended 2026-11-06, additively): what lets an extension select, group or
+     * summarise streamlines without the platform knowing why. A build without it has no such member,
+     * so an extension checks for it and says which Tetravox it needs.
+     */
+    tracts: ModuleTracts;
     /** This module's scene block (§13.2), or null. `≤ 256 KiB` of JSON. */
     block<T>(): T | null;
     setBlock<T>(data: T | null): void;
@@ -239,7 +325,7 @@ export interface ModuleHost {
     selection(): PointSelection | null;
   };
 
-  /** §5 rule 11's four channels, through `hostFiles.ts`. Paths and small text, never bytes. */
+  /** §5 rule 11's channels, through `hostFiles.ts`. No file bytes come in; only a module's own go out. */
   files: {
     readText(path: string): Promise<string | null>;
     /** Keys are the manifest's candidate templates; a value is the path that resolved, or null. */
@@ -270,6 +356,13 @@ export interface ModuleHost {
       bytes: Uint8Array,
       opts?: { backup?: boolean }
     ): Promise<{ ok: true; backupPath: string | null } | { ok: false; error: string }>;
+    /**
+     * Ask once for a folder and write many files into it, streamed, with no size limit (appended
+     * 2026-11-05, additively). `writerId` must name a manifest writer with `directory: true`, whose
+     * `filters` are the extensions it may create. Null when the user cancels. `suggestedName` is only
+     * a hint to the sheet.
+     */
+    chooseFolder(writerId: string, opts?: { suggestedName?: string }): Promise<ModuleFolder | null>;
   };
 
   /**
@@ -363,6 +456,19 @@ export interface ModuleHost {
     setPlacement(placement: ModulePlacement): void;
     /** Subscribe to moves. Returns the unsubscribe, like `scene.on`. */
     onPlacement(cb: (placement: ModulePlacement) => void): () => void;
+
+    /**
+     * The declared tab (`manifest.ui.panelTabs`) to render, or null when none are declared (appended
+     * 2026-11-05, additively, like the three below). Core draws the tab row and the panel renders
+     * whichever content matches. Selecting Inspect changes nothing here: this stays the last tab.
+     * In a window (`placement() === 'window'`) there is no row, so the panel draws its own nav and
+     * calls {@link setPanelTab}; this still reports the last value.
+     */
+    panelTab(): string | null;
+    /** Choose a tab, also leaving Inspect. For the user's own gestures. An undeclared id throws. */
+    setPanelTab(id: string): void;
+    /** A different declared tab was chosen. Returns the unsubscribe, like `scene.on`. */
+    onPanelTab(cb: (id: string) => void): () => void;
   };
 
   history<T>(limit?: number): ModuleHistory<T>;

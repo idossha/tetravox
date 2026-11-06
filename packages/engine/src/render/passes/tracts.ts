@@ -59,7 +59,7 @@ export function bindTractUniforms(
   const mode =
     layer.colorMode === 'direction'
       ? TRACT_MODE.direction
-      : layer.colorMode === 'group'
+      : layer.colorMode === 'group' || layer.colorMode === 'ends'
         ? TRACT_MODE.group
         : TRACT_MODE.solid;
   prog.int('uMode', mode);

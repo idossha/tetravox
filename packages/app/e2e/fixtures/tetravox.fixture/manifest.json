@@ -7,6 +7,15 @@
   "activation": ["onToggle"],
   "commands": [{ "id": "ping", "title": "Ping", "key": "g" }],
   "readers": [{ "id": "table", "title": "A table", "extensions": ["tsv"] }],
+  "writers": [
+    {
+      "id": "export",
+      "title": "Export a folder",
+      "directory": true,
+      "siblings": [],
+      "filters": [{ "name": "Table", "extensions": ["tsv"] }]
+    }
+  ],
   "operations": [{ "id": "ping", "args": {} }],
   "sceneBlock": { "version": 1 }
 }

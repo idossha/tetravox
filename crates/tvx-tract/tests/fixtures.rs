@@ -120,6 +120,178 @@ fn trk_without_a_usable_affine_is_refused_by_name() {
     assert!(e.contains("cannot place"), "{e}");
 }
 
+fn attach(t: &Tractogram, name: &str, bytes: &[u8]) -> tvx_core::Result<tvx_tract::Attached> {
+    let mut l = tvx_tract::SidecarLoader::new(name, t)?;
+    for c in bytes.chunks(17) {
+        l.push(t, c)?;
+    }
+    l.finish(t)
+}
+
+/// A `.tsf` written by MRtrix, against MRtrix's own per-streamline mean of the same values.
+#[test]
+fn an_mrtrix_tsf_matches_mrtrix_on_its_own_tractogram() {
+    let t = load("mrtrix_small.tck");
+    let bytes = std::fs::read(dir().join("mrtrix_small_fa.tsf")).unwrap();
+    let a = attach(&t, "mrtrix_small_fa.tsf", &bytes).unwrap();
+    assert!(a.per_point && a.notes.is_empty(), "{:?}", a.notes);
+    let f = &a.fields[0];
+    assert_eq!(f.name, "mrtrix_small_fa");
+    assert_eq!(f.values.len(), t.n_points());
+    let want: Vec<f64> = std::fs::read_to_string(dir().join("mrtrix_small_fa_mean.txt"))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .flat_map(|l| l.split_whitespace())
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(want.len(), t.n_streamlines());
+    for (i, w) in t.offsets.windows(2).enumerate() {
+        // MRtrix weights each point by half of its two adjoining segments.
+        let (a, b) = (w[0] as usize, w[1] as usize);
+        let seg = |k: usize| -> f64 {
+            (0..3)
+                .map(|c| f64::from(t.positions[k * 3 + c] - t.positions[(k + 1) * 3 + c]).powi(2))
+                .sum::<f64>()
+                .sqrt()
+        };
+        let (mut integral, mut total) = (0.0, 0.0);
+        for k in a..b {
+            let before = if k > a { seg(k - 1) } else { 0.0 };
+            let after = if k + 1 < b { seg(k) } else { 0.0 };
+            let len = (before + after) * 0.5;
+            integral += f64::from(f.values[k]) * len;
+            total += len;
+        }
+        let mean = integral / total;
+        assert!(
+            (mean - want[i]).abs() < 1e-5,
+            "streamline {i}: {mean} vs {}",
+            want[i]
+        );
+    }
+}
+
+#[test]
+fn a_tsf_follows_the_budget_and_refuses_another_tractogram() {
+    let bytes = std::fs::read(dir().join("mrtrix_small.tck")).unwrap();
+    let all = load("mrtrix_small.tck");
+    let budget = LoadOptions {
+        max_points: Some(all.n_points() as u64 / 4),
+        seed: 1,
+    };
+    let some = load_bytes(TractFormat::Tck, &bytes, budget).unwrap();
+    assert!(some.n_streamlines() < all.n_streamlines());
+    let tsf = std::fs::read(dir().join("mrtrix_small_fa.tsf")).unwrap();
+    let full = &attach(&all, "a.tsf", &tsf).unwrap().fields[0].values;
+    let part = &attach(&some, "a.tsf", &tsf).unwrap().fields[0].values;
+    for (i, source) in some.source_index.iter().enumerate() {
+        let s = *source as usize;
+        let (a, b) = (all.offsets[s] as usize, all.offsets[s + 1] as usize);
+        let (c, d) = (some.offsets[i] as usize, some.offsets[i + 1] as usize);
+        assert_eq!(&full[a..b], &part[c..d], "streamline {s}");
+    }
+    let e = attach(&load("tract_f32.tck"), "a.tsf", &tsf)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(e.contains("not made from this tractogram"), "{e}");
+    let cut = &tsf[..tsf.len() - 6];
+    assert!(
+        attach(&all, "a.tsf", cut).is_err(),
+        "a truncated tsf is refused"
+    );
+}
+
+#[test]
+fn text_tables_take_every_shape_mrtrix_writes() {
+    let t = load("tract_f32.tck"); // 4 streamlines
+                                   // tcksift2: one row, with a comment before it.
+    let a = attach(&t, "w.txt", b"# command_history: x\n0.5 1.5 2.5 3.5\n").unwrap();
+    assert!(!a.per_point);
+    assert_eq!(a.fields[0].name, "w");
+    assert_eq!(a.fields[0].values, vec![0.5, 1.5, 2.5, 3.5]);
+    // One value a row.
+    let a = attach(&t, "m.csv", b"1\n2\n3\n4\n").unwrap();
+    assert_eq!(a.fields[0].values, vec![1.0, 2.0, 3.0, 4.0]);
+    assert!(a.fields[0].categorical);
+    // tck2connectome -out_assignments: two columns of node ids, spaces or commas.
+    let a = attach(&t, "edges.txt", b"1 2\n1 3\n0 3\n2 2\n").unwrap();
+    assert_eq!(a.fields[0].name, "edges[0]");
+    assert_eq!(a.fields[1].values, vec![2.0, 3.0, 3.0, 2.0]);
+    // A header names its columns, and CRLF is not a value.
+    let a = attach(&t, "x.csv", b"age,dose\r\n1,2\r\n3,4\r\n5,6\r\n7,8\r\n").unwrap();
+    assert_eq!(a.fields[1].name, "dose");
+    assert_eq!(a.fields[1].values, vec![2.0, 4.0, 6.0, 8.0]);
+    // What cannot be placed is refused, by name.
+    let e = attach(&t, "w.txt", b"1 2 3\n").err().unwrap().to_string();
+    assert!(e.contains("4 streamlines"), "{e}");
+    let e = attach(&t, "w.txt", b"1 2\n3\n4\n5\n")
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(e.contains(".tsf"), "{e}");
+    let e = attach(&t, "w.txt", b"1\nx\n3\n4\n")
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(e.contains("not a number"), "{e}");
+}
+
+#[test]
+fn a_table_follows_the_budget() {
+    let bytes = std::fs::read(dir().join("mrtrix_small.tck")).unwrap();
+    let all = load("mrtrix_small.tck");
+    let some = load_bytes(
+        TractFormat::Tck,
+        &bytes,
+        LoadOptions {
+            max_points: Some(all.n_points() as u64 / 4),
+            seed: 1,
+        },
+    )
+    .unwrap();
+    let rows: String = (0..all.n_streamlines()).map(|i| format!("{i}\n")).collect();
+    let a = attach(&some, "id.txt", rows.as_bytes()).unwrap();
+    let want: Vec<f32> = some.source_index.iter().map(|i| *i as f32).collect();
+    assert_eq!(a.fields[0].values, want);
+}
+
+#[test]
+fn a_keep_field_hides_streamlines_on_top_of_a_filter_and_ends_colour_by_the_whole_line() {
+    let mut t = load("tract_f32_stored.trx");
+    tvx_tract::set_streamline_field(&mut t, "keep", vec![1.0, 0.0, f32::NAN, 1.0], None).unwrap();
+    let spec = tvx_tract::StyleSpec {
+        keep_field: Some("keep".into()),
+        ends: true,
+        ..Default::default()
+    };
+    let s = tvx_tract::style(&t, &spec).unwrap();
+    assert_eq!(s.visible, vec![true, false, false, true]);
+    assert_eq!(s.visible_streamlines, 2);
+    // Streamline 0 runs along +x, 1 along +y, 2 along +z.
+    assert_eq!(&s.rgba[0..3], &[255, 0, 0]);
+    assert_eq!(&s.rgba[4..7], &[0, 255, 0]);
+    assert_eq!(&s.rgba[8..11], &[0, 0, 255]);
+    // A filter still applies, and a field that is not there hides nothing.
+    let both = tvx_tract::StyleSpec {
+        keep_field: Some("keep".into()),
+        filter: Some(("weight".into(), None, Some(1.0))),
+        ..Default::default()
+    };
+    assert_eq!(tvx_tract::style(&t, &both).unwrap().visible_streamlines, 1);
+    let missing = tvx_tract::StyleSpec {
+        keep_field: Some("gone".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        tvx_tract::style(&t, &missing).unwrap().visible_streamlines,
+        4
+    );
+    // The wrong count is refused rather than padded.
+    assert!(tvx_tract::set_streamline_field(&mut t, "x", vec![1.0], None).is_err());
+}
+
 #[test]
 fn a_float64_tck_reads_like_its_float32_twin() {
     let want = load("tract_f32.tck");
@@ -501,7 +673,7 @@ fn real_tractograms_when_present() {
         return;
     };
     let root = PathBuf::from(root);
-    let tck = root.join("validation/mrtrix_ref/tracks_ifod2_200k.tck");
+    let tck = root.join("derivatives/ti-toolbox/tract_validation/mrtrix_ref/tracks_ifod2_200k.tck");
     let opts = LoadOptions {
         max_points: Some(8_000_000),
         seed: 1,
@@ -524,9 +696,8 @@ fn real_tractograms_when_present() {
     assert!((t.n_points() as u64) < 8_800_000);
     assert!(t.notes.is_empty(), "{:?}", t.notes);
 
-    let trx = root.join(
-        "project/derivatives/SimNIBS/sub-CHN/Simulations/thalamus/tract/thalamocortical_lh.trx",
-    );
+    let trx =
+        root.join("derivatives/ti-toolbox/tract_validation/thalamus_tract/thalamocortical_lh.trx");
     let t = load_bytes(TractFormat::Trx, &std::fs::read(trx).unwrap(), ALL).unwrap();
     assert_eq!((t.n_streamlines(), t.n_points()), (2624, 348_789));
     assert!(t.vertex_fields.iter().any(|f| f.name == "ti_along"));

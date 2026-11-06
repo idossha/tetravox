@@ -174,7 +174,15 @@ export interface VolumeDataset {
   labelIds?: Uint32Array;
   /** id -> dense index (0..labelIds.length-1), present iff `isLabel`. */
   denseIndexOf?: Uint32Array;
+  /**
+   * §7.6's names, in precedence order: a lookup file, the built-in FreeSurfer table when
+   * `assumedLabelTable` holds it, else absent (numbers).
+   */
   labelTable?: LabelTable;
+  /** Present iff no file named the ids and they pass §7.6's safety test. Absent: nothing assumed. */
+  assumedLabelTable?: LabelTable;
+  /** The base name of the lookup file behind `labelTable`. Absent: none, or not known to be a file. */
+  labelTableFile?: string;
   stats: Stats;
   units?: string;
   /** GPU *description*; the `WebGLTexture` lives in engine-private `GpuResources`. */
@@ -388,6 +396,31 @@ export interface TractSampleSpec {
   name?: string;
 }
 
+/** `offsets` has one more entry than held streamlines; `sourceIndex` is each one's index in the file. */
+/** §6.3.1: one piece of `Engine.tractScan`, whole streamlines in file order. */
+export interface TractScanChunk {
+  /** File index of this chunk's first streamline. Chunks arrive in file order with no gaps. */
+  firstSource: number;
+  /** count + 1 entries, starting at 0. */
+  offsets: Uint32Array;
+  /** xyz triples, world RAS mm, the same frame as `tractPoints`. */
+  positions: Float32Array;
+  /** One value per streamline in this chunk: the file's own per-streamline fields and attached tables. */
+  streamlineFields: Record<string, Float32Array>;
+  /** One value per point in this chunk: TRK scalars and an attached `.tsf`. Not TRX `dpv/`: requesting one rejects. */
+  vertexFields: Record<string, Float32Array>;
+}
+export interface TractScanOptions {
+  signal?: AbortSignal;
+  /** Names to deliver; absent or empty is geometry only. A name that cannot cover every streamline rejects. */
+  fields?: string[];
+}
+
+export interface TractStructure {
+  offsets: Uint32Array;
+  sourceIndex: Uint32Array;
+}
+
 export interface TractogramDataset {
   kind: 'tractogram';
   id: DatasetId;
@@ -410,8 +443,10 @@ export interface TractogramDataset {
   groups: TractGroupInfo[];
   /** Every `sampleTracts` that produced a field, in order. */
   samples: TractSampleSpec[];
-  /** Bumped when the worker's arrays are replaced. */
+  /** Bumped when the worker's arrays are replaced; every field not in `samples` is then gone. */
   generation: number;
+  /** Bumped when a field's values change in place. */
+  fieldRevision: number;
   /** Non-fatal facts about placement, e.g. an assumed voxel order. */
   notes: string[];
   headerJson: string;
@@ -493,6 +528,8 @@ export interface VolumeLayer extends LayerBase {
    * what makes a per-row Reset possible at all.
    */
   labelColors?: Record<number, vec4>;
+  /** `'numbers'` declines §7.6's assumed FreeSurfer names. Absent: they apply when they pass. */
+  labelNames?: 'numbers';
   /**
    * R5's selection: the labels drawn with the outline emphasis (added 2026-08-27, as above).
    *
@@ -1016,7 +1053,8 @@ export interface SurfaceLayer extends LayerBase {
  */
 export interface TractsLayer extends LayerBase {
   kind: 'tracts';
-  colorMode: 'direction' | 'solid' | 'vertex' | 'streamline' | 'group';
+  /** `direction` is the local tangent, `ends` the whole streamline's |last − first|. */
+  colorMode: 'direction' | 'ends' | 'solid' | 'vertex' | 'streamline' | 'group';
   solidColor: vec4;
   field?: string;
   colormap: ColormapName | string;
@@ -1029,6 +1067,12 @@ export interface TractsLayer extends LayerBase {
   groupField?: string;
   /** Group ids; absent = all. */
   visibleGroups?: number[];
+  /**
+   * A streamline field: only streamlines where it is finite and above 0 draw. Combines with
+   * `streamlineFilter`, so an extension's selection does not take the user's filter away. A field the
+   * dataset does not hold hides nothing.
+   */
+  keepField?: string;
   /** CSS px; at most 1 is the LINE_STRIP fast path. */
   lineWidthPx: number;
   /** Half-thickness drawn in a 2D pane; 0 = not drawn. */

@@ -6,7 +6,10 @@ use tvx_nifti::tensor::TensorBasis;
 
 use tvx_core::{Error, Result};
 use tvx_geom::TetSampler;
-use tvx_tract::{LoadOptions, Loader, SampleOp, StyleSpec, TractField, TractFormat, Tractogram};
+use tvx_tract::{
+    LoadOptions, Loader, SampleOp, SidecarLoader, StyleSpec, TractField, TractFormat, TractScanner,
+    Tractogram,
+};
 use wasm_bindgen::prelude::*;
 
 use crate::handles::{self, Dataset, TractState};
@@ -14,6 +17,8 @@ use crate::jsv;
 
 thread_local! {
     static STREAMS: RefCell<BTreeMap<u32, Loader>> = const { RefCell::new(BTreeMap::new()) };
+    static ATTACHES: RefCell<BTreeMap<u32, SidecarLoader>> = const { RefCell::new(BTreeMap::new()) };
+    static SCANS: RefCell<BTreeMap<u32, TractScanner>> = const { RefCell::new(BTreeMap::new()) };
     static NEXT: RefCell<u32> = const { RefCell::new(1) };
 }
 
@@ -30,11 +35,7 @@ pub fn stream_begin(
         seed,
     };
     let loader = Loader::new(format, total_len as u64, options)?;
-    let id = NEXT.with(|n| {
-        let mut n = n.borrow_mut();
-        *n += 1;
-        *n - 1
-    });
+    let id = next_id();
     STREAMS.with(|s| s.borrow_mut().insert(id, loader));
     Ok(id)
 }
@@ -205,6 +206,14 @@ pub fn style(handle: u32, spec_json: &str) -> Result<JsValue> {
             .get("visibleGroups")
             .and_then(|g| g.as_array())
             .map(|a| a.iter().filter_map(serde_json::Value::as_i64).collect()),
+        keep_field: v
+            .get("keepField")
+            .and_then(|g| g.as_str())
+            .map(str::to_string),
+        ends: v
+            .get("ends")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
     };
     handles::with_tract_mut(handle, |s| {
         let st = tvx_tract::style(&s.tract, &spec)?;
@@ -283,6 +292,121 @@ pub fn probe(
     })
 }
 
+fn per_streamline(kind: &str) -> Result<bool> {
+    match kind {
+        "vertex" => Ok(false),
+        "streamline" => Ok(true),
+        other => Err(Error::Parse(format!("unknown tract field kind {other}"))),
+    }
+}
+
+pub fn attach_begin(handle: u32, name: &str) -> Result<u32> {
+    let loader = handles::with_tract_mut(handle, |s| SidecarLoader::new(name, &s.tract))?;
+    let id = next_id();
+    ATTACHES.with(|a| a.borrow_mut().insert(id, loader));
+    Ok(id)
+}
+
+pub fn attach_push(handle: u32, id: u32, chunk: &[u8]) -> Result<()> {
+    handles::with_tract_mut(handle, |s| {
+        ATTACHES.with(|a| match a.borrow_mut().get_mut(&id) {
+            Some(l) => l.push(&s.tract, chunk),
+            None => Err(Error::Parse(format!("tract attachment {id} is not open"))),
+        })
+    })
+}
+
+pub fn attach_finish(handle: u32, id: u32) -> Result<JsValue> {
+    let loader = ATTACHES
+        .with(|a| a.borrow_mut().remove(&id))
+        .ok_or_else(|| Error::Parse(format!("tract attachment {id} is not open")))?;
+    handles::with_tract_mut(handle, |s| {
+        let attached = loader.finish(&s.tract)?;
+        let names: Vec<String> = attached.fields.iter().map(|f| f.name.clone()).collect();
+        let per_point = attached.per_point;
+        tvx_tract::apply_attached(&mut s.tract, attached);
+        let list = if per_point {
+            &s.tract.vertex_fields
+        } else {
+            &s.tract.streamline_fields
+        };
+        let fields = js_sys::Array::new();
+        for f in list.iter().filter(|f| names.contains(&f.name)) {
+            fields.push(&field_meta(f));
+        }
+        let notes = js_sys::Array::new();
+        for n in &s.tract.notes {
+            notes.push(&JsValue::from_str(n));
+        }
+        let o = jsv::obj();
+        jsv::set_str(&o, "kind", if per_point { "vertex" } else { "streamline" });
+        jsv::set(&o, "fields", &fields.into());
+        jsv::set(&o, "notes", &notes.into());
+        Ok(o.into())
+    })
+}
+
+pub fn structure(handle: u32) -> Result<JsValue> {
+    handles::with_tract_mut(handle, |s| {
+        let o = jsv::obj();
+        jsv::set(
+            &o,
+            "offsets",
+            &js_sys::Uint32Array::from(s.tract.offsets.as_slice()).into(),
+        );
+        jsv::set(
+            &o,
+            "sourceIndex",
+            &js_sys::Uint32Array::from(s.tract.source_index.as_slice()).into(),
+        );
+        Ok(o.into())
+    })
+}
+
+pub fn field_values(
+    handle: u32,
+    kind: &str,
+    name: &str,
+    first: u32,
+    count: u32,
+) -> Result<JsValue> {
+    let by_streamline = per_streamline(kind)?;
+    handles::with_tract_mut(handle, |s| {
+        let v = tvx_tract::field_values(
+            &s.tract,
+            by_streamline,
+            name,
+            first as usize,
+            count as usize,
+        )?;
+        let o = jsv::obj();
+        jsv::set(&o, "values", &js_sys::Float32Array::from(v).into());
+        Ok(o.into())
+    })
+}
+
+pub fn set_field(
+    handle: u32,
+    name: &str,
+    units: Option<String>,
+    values: &[f32],
+) -> Result<JsValue> {
+    handles::with_tract_mut(handle, |s| {
+        let f = tvx_tract::set_streamline_field(&mut s.tract, name, values.to_vec(), units)?;
+        let o = jsv::obj();
+        jsv::set(&o, "field", &field_meta(f).into());
+        Ok(o.into())
+    })
+}
+
+pub fn remove_field(handle: u32, kind: &str, name: &str) -> Result<JsValue> {
+    let by_streamline = per_streamline(kind)?;
+    handles::with_tract_mut(handle, |s| {
+        tvx_tract::remove_field(&mut s.tract, by_streamline, name);
+        Ok(jsv::obj().into())
+    })
+}
+
 pub fn points(handle: u32, first: u32, count: u32, tangents: bool) -> Result<JsValue> {
     handles::with_tract_mut(handle, |s| {
         let t = &s.tract;
@@ -329,6 +453,121 @@ pub fn field_chunk(
         }
         Ok(o.into())
     })
+}
+
+fn next_id() -> u32 {
+    NEXT.with(|n| {
+        let mut n = n.borrow_mut();
+        *n += 1;
+        *n - 1
+    })
+}
+
+pub fn scan_begin(
+    handle: u32,
+    format: &str,
+    total_len: f64,
+    fields_json: &str,
+    chunk_points: u32,
+) -> Result<u32> {
+    let format = TractFormat::parse(format)
+        .ok_or_else(|| Error::Parse(format!("unknown tractogram format {format}")))?;
+    let fields: Vec<String> = serde_json::from_str(fields_json)
+        .map_err(|e| Error::Parse(format!("tractScanOpen fields: {e}")))?;
+    let scanner = handles::with_tract_mut(handle, |s| {
+        TractScanner::new(&s.tract, format, total_len as u64, fields, chunk_points)
+    })?;
+    let id = next_id();
+    SCANS.with(|m| m.borrow_mut().insert(id, scanner));
+    Ok(id)
+}
+
+fn with_scan<R>(id: u32, f: impl FnOnce(&mut TractScanner) -> Result<R>) -> Result<R> {
+    SCANS.with(|m| match m.borrow_mut().get_mut(&id) {
+        Some(s) => f(s),
+        None => Err(Error::Parse(format!("tract scan {id} is not open"))),
+    })
+}
+
+pub fn scan_attach_begin(id: u32, name: &str) -> Result<u32> {
+    with_scan(id, |s| s.attach_begin(name))
+}
+
+pub fn scan_attach_hungry(id: u32, at: u32) -> Result<bool> {
+    with_scan(id, |s| Ok(s.attach_hungry(at)))
+}
+
+pub fn scan_attach_push(id: u32, at: u32, chunk: &[u8]) -> Result<()> {
+    with_scan(id, |s| s.attach_push(at, chunk))
+}
+
+pub fn scan_attach_end(id: u32, at: u32) -> Result<()> {
+    with_scan(id, |s| s.attach_end(at))
+}
+
+pub fn scan_push(id: u32, chunk: &[u8]) -> Result<()> {
+    with_scan(id, |s| s.push(chunk))
+}
+
+pub fn scan_end_pass(id: u32) -> Result<bool> {
+    with_scan(id, TractScanner::end_pass)
+}
+
+pub fn scan_ready(id: u32) -> Result<bool> {
+    with_scan(id, TractScanner::ready)
+}
+
+fn field_record(list: &[(String, Vec<f32>)]) -> js_sys::Object {
+    let o = jsv::obj();
+    for (name, values) in list {
+        jsv::set(
+            &o,
+            name,
+            &js_sys::Float32Array::from(values.as_slice()).into(),
+        );
+    }
+    o
+}
+
+/// Fresh JS arrays, so the worker transfers them and nothing of the chunk stays on the wasm heap.
+pub fn scan_take(id: u32) -> Result<JsValue> {
+    let Some(c) = with_scan(id, TractScanner::take)? else {
+        return Ok(JsValue::NULL);
+    };
+    let o = jsv::obj();
+    jsv::set_f64(&o, "firstSource", c.first_source as f64);
+    jsv::set(
+        &o,
+        "offsets",
+        &js_sys::Uint32Array::from(c.offsets.as_slice()).into(),
+    );
+    jsv::set(
+        &o,
+        "positions",
+        &js_sys::Float32Array::from(c.positions.as_slice()).into(),
+    );
+    jsv::set(
+        &o,
+        "streamlineFields",
+        &field_record(&c.streamline_fields).into(),
+    );
+    jsv::set(&o, "vertexFields", &field_record(&c.vertex_fields).into());
+    Ok(o.into())
+}
+
+pub fn scan_finish(id: u32) -> Result<JsValue> {
+    let scanner = SCANS
+        .with(|m| m.borrow_mut().remove(&id))
+        .ok_or_else(|| Error::Parse(format!("tract scan {id} is not open")))?;
+    let (streamlines, points) = scanner.finish()?;
+    let o = jsv::obj();
+    jsv::set_f64(&o, "streamlines", streamlines as f64);
+    jsv::set_f64(&o, "points", points as f64);
+    Ok(o.into())
+}
+
+pub fn scan_close(id: u32) {
+    SCANS.with(|m| m.borrow_mut().remove(&id));
 }
 
 fn op_of(op: &str) -> Result<SampleOp> {

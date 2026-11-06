@@ -55,6 +55,10 @@ pub struct StyleSpec {
     pub filter: Option<(String, Option<f32>, Option<f32>)>,
     pub group_field: Option<String>,
     pub visible_groups: Option<Vec<i64>>,
+    /// A streamline stays only where this field is finite and above 0. A missing field hides nothing.
+    pub keep_field: Option<String>,
+    /// Style RGB is |last − first| instead of the group colour.
+    pub ends: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +93,21 @@ fn palette(i: u64) -> [u8; 3] {
     };
     let m = v - c;
     [r + m, g + m, b + m].map(|u| (u * 255.0).round() as u8)
+}
+
+/// |last − first|, normalised; a closed loop has no direction, so it is neutral.
+fn end_to_end_rgb(t: &Tractogram, i: usize) -> [u8; 3] {
+    let (a, b) = (t.offsets[i] as usize, t.offsets[i + 1] as usize);
+    if b <= a + 1 {
+        return NEUTRAL;
+    }
+    let d: [f32; 3] =
+        std::array::from_fn(|c| t.positions[(b - 1) * 3 + c] - t.positions[a * 3 + c]);
+    let n = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if n < 1e-6 {
+        return NEUTRAL;
+    }
+    d.map(|v| ((v / n).abs() * 255.0).round() as u8)
 }
 
 pub fn style(t: &Tractogram, spec: &StyleSpec) -> Result<Style> {
@@ -164,12 +183,26 @@ pub fn style(t: &Tractogram, spec: &StyleSpec) -> Result<Style> {
         }
     }
 
+    if let Some(f) = spec
+        .keep_field
+        .as_ref()
+        .and_then(|name| t.streamline_fields.iter().find(|f| &f.name == name))
+    {
+        for (i, v) in f.values.iter().enumerate() {
+            visible[i] = visible[i] && v.is_finite() && *v > 0.0;
+        }
+    }
+
     let by_id: BTreeMap<i64, [u8; 3]> = groups.iter().map(|g| (g.id, g.color)).collect();
     let mut visible_streamlines = 0;
     for i in 0..s {
-        let c = member[i]
-            .and_then(|id| by_id.get(&id).copied())
-            .unwrap_or(NEUTRAL);
+        let c = if spec.ends {
+            end_to_end_rgb(t, i)
+        } else {
+            member[i]
+                .and_then(|id| by_id.get(&id).copied())
+                .unwrap_or(NEUTRAL)
+        };
         rgba[i * 4..i * 4 + 3].copy_from_slice(&c);
         rgba[i * 4 + 3] = if visible[i] { 255 } else { 0 };
         visible_streamlines += u32::from(visible[i]);

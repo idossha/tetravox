@@ -115,6 +115,29 @@ function meshRows(dataset: Extract<Dataset, { kind: 'mesh' }>): HeaderRow[] {
 
 export function HeaderPanel(): React.JSX.Element {
   const controller = useController();
+  const collapsed = useUi((s) => s.headerBlockCollapsed);
+  return (
+    <section data-testid="header-panel" className="px-3 py-2">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          data-testid="header-toggle"
+          aria-expanded={!collapsed}
+          className="tvx-btn tvx-btn-sm w-5 shrink-0"
+          title={collapsed ? 'Show the file header' : 'Hide the file header'}
+          onClick={() => controller.toggleHeaderBlock()}
+        >
+          {collapsed ? '▸' : '▾'}
+        </button>
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">Header</h3>
+      </div>
+      {collapsed ? null : <HeaderBody />}
+    </section>
+  );
+}
+
+function HeaderBody(): React.JSX.Element {
+  const controller = useController();
   const datasets = useUi((s) => s.datasets);
   const dataset = useUi(headerDataset);
   const [query, setQuery] = useState('');
@@ -136,26 +159,23 @@ export function HeaderPanel(): React.JSX.Element {
         );
 
   return (
-    <section data-testid="header-panel" className="px-3 py-2">
-      <div className="flex items-baseline gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-tvx-dim">Header</h3>
-        <select
-          data-testid="header-dataset"
-          aria-label="Header dataset"
-          className="tvx-input ml-auto max-w-[10rem] text-[10px]"
-          value={dataset?.id ?? ''}
-          onChange={(e) =>
-            controller.setHeaderDataset(e.currentTarget.value === '' ? null : e.currentTarget.value)
-          }
-        >
-          {datasets.length === 0 && <option value="">no dataset</option>}
-          {datasets.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-      </div>
+    <>
+      <select
+        data-testid="header-dataset"
+        aria-label="Header dataset"
+        className="tvx-input mt-1 w-full text-[10px]"
+        value={dataset?.id ?? ''}
+        onChange={(e) =>
+          controller.setHeaderDataset(e.currentTarget.value === '' ? null : e.currentTarget.value)
+        }
+      >
+        {datasets.length === 0 && <option value="">no dataset</option>}
+        {datasets.map((d) => (
+          <option key={d.id} value={d.id}>
+            {d.name}
+          </option>
+        ))}
+      </select>
 
       {dataset === null ? (
         <p data-testid="header-panel-empty" className="mt-1 text-[10px] text-tvx-dim">
@@ -218,6 +238,6 @@ export function HeaderPanel(): React.JSX.Element {
           )}
         </>
       )}
-    </section>
+    </>
   );
 }

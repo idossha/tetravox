@@ -86,7 +86,7 @@ function Row({ row }: { row: ProbeRow }): React.JSX.Element {
         )}
         {row.labelId !== undefined && (
           <Line label="label" testId="probe-label">
-            {row.labelId} · {row.labelName ?? PENDING}
+            {row.labelId} · {row.labelName ?? (row.labelId === 0 ? 'Background' : PENDING)}
           </Line>
         )}
         {(isMesh || row.elementId !== undefined) && (

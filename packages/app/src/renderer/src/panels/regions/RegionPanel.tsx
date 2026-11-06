@@ -23,7 +23,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import type { LayerId } from '@tetravox/engine';
+import type { LayerId, VolumeLayer } from '@tetravox/engine';
 import { useController, useUi } from '../../ui/context';
 import {
   EMPTY_SELECTION,
@@ -43,6 +43,7 @@ import {
   toHex,
   toggledVisible,
   visibilityPatch,
+  namesProvenance,
 } from './regions';
 import type { BulkOp, RegionRow, RegionSource, TissuePart } from './regions';
 
@@ -72,6 +73,11 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
 
   const layer = useUi((s) => s.layers.find((l) => l.id === layerId));
   const dataset = useUi((s) => s.datasets.find((d) => d.id === layer?.datasetId));
+  // Read apart from `dataset`: a table attached later arrives on the same object.
+  const labelTable = useUi((s) => {
+    const d = s.datasets.find((x) => x.id === layer?.datasetId);
+    return d?.kind === 'volume' ? d.labelTable : undefined;
+  });
   const stats = useUi((s) => s.regionStats[layerId]);
   const selection = useUi((s) => s.regionSelection[layerId]) ?? EMPTY_SELECTION;
   const cursorProbe = useUi((s) => s.cursorProbe);
@@ -79,7 +85,7 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
   const source: RegionSource | null = useMemo(
     () =>
       layer === undefined || dataset === undefined ? null : regionSourceFor(layer, dataset, stats),
-    [layer, dataset, stats]
+    [layer, dataset, stats, labelTable]
   );
 
   // R5's Freeview behaviour: a click in a pane selects the row under the cursor. The engine already
@@ -148,6 +154,8 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
   const paintable = source.kind === 'meshTag' && layer.kind === 'mesh' && canPaintPerTag(layer);
   const inheritedPaint = layer.kind === 'mesh' ? layerPaint(layer) : 'color';
 
+  const names = dataset?.kind === 'volume' ? namesProvenance(dataset) : null;
+
   return (
     <section data-testid={`region-panel-${layerId}`} data-kind={source.kind} className="mt-2">
       <div className="flex items-center gap-1">
@@ -159,6 +167,35 @@ export function RegionPanel({ layerId }: RegionPanelProps): React.JSX.Element | 
           {visibleCount}/{source.rows.length}
         </span>
       </div>
+
+      {names !== null && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10px] text-tvx-dim">
+          <span data-testid={`region-names-${layerId}`}>{names.text}</span>
+          {names.offer !== null && (
+            <button
+              type="button"
+              data-testid={`region-names-toggle-${layerId}`}
+              className="underline hover:text-tvx-text"
+              onClick={() =>
+                controller.patchLayer<VolumeLayer>(layerId, {
+                  labelNames: names.offer === 'numbers' ? 'numbers' : undefined,
+                })
+              }
+            >
+              {names.offer === 'numbers' ? 'Use numbers' : 'Use FreeSurfer names'}
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid={`region-names-load-${layerId}`}
+            title="A lookup table: FreeSurfer, SimNIBS, ITK-SNAP or id r g b [a] [name]. It wins over anything else."
+            className="underline hover:text-tvx-text"
+            onClick={() => void controller.chooseLabelNames(layerId)}
+          >
+            Load names…
+          </button>
+        </div>
+      )}
 
       {!singleTissue && (
         <>

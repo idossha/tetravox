@@ -30,8 +30,12 @@ import type {
   Measurement,
   MeasurementId,
   MeshDataset,
+  VolumeDataset,
   TractFieldInfo,
   TractogramDataset,
+  TractScanChunk,
+  TractScanOptions,
+  TractStructure,
   TractSampleSpec,
   QualityLevel,
   Scene,
@@ -664,6 +668,11 @@ export interface Engine {
    * as a `DatasetRef.sidecars.fields` entry, so `serialize()` / `load()` bring it back.
    */
   attachSurfaceData(datasetId: DatasetId, src: DatasetSource): Promise<MeshDataset>;
+  /**
+   * §7.6: a lookup file onto a label volume already open, read in its worker. It wins over anything
+   * assumed and is remembered as `DatasetRef.sidecars.lut`, so a saved scene reads it again.
+   */
+  attachLabelNames(datasetId: DatasetId, src: DatasetSource): Promise<VolumeDataset>;
   /** §6.3.1: a new per-vertex field on a tractogram, sampled from any loaded dataset. */
   sampleTracts(
     spec: TractSampleSpec,
@@ -671,6 +680,42 @@ export interface Engine {
   ): Promise<TractFieldInfo>;
   /** Re-reads the file at that budget and replays `samples`. `null` = `TRACT_FULL_MAX_POINTS`. */
   setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset>;
+  /**
+   * §6.3.1: fields from a file beside the tractogram: `.tsf` per point, or a `.txt`/`.csv`/`.tsv` with
+   * one value or row per streamline. A file that does not fit is refused. Recorded as a sidecar, so a
+   * saved scene and a budget change read it again.
+   */
+  attachTractFile(datasetId: DatasetId, src: DatasetSource): Promise<TractFieldInfo[]>;
+  /** §6.3.1's reads and writes for an extension. Each read is at most `TRACT_READ_CHUNK` values. */
+  tractStructure(datasetId: DatasetId): Promise<TractStructure>;
+  tractPoints(datasetId: DatasetId, first: number, count: number): Promise<Float32Array>;
+  tractFieldValues(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string,
+    first: number,
+    count: number
+  ): Promise<Float32Array>;
+  /**
+   * §6.3.1: every streamline in the file, whatever the budget, one bounded chunk at a time. A chunk
+   * waits for `onChunk`'s promise, and other calls on this dataset run between chunks. Aborting
+   * rejects with `signal.reason` and frees the session, as does removing or re-reading the dataset.
+   */
+  tractScan(
+    datasetId: DatasetId,
+    onChunk: (chunk: TractScanChunk) => void | Promise<void>,
+    opts?: TractScanOptions
+  ): Promise<{ streamlines: number; points: number }>;
+  /** One value per held streamline. Lives in the worker only: a scene or budget change drops it. */
+  setTractStreamlineField(
+    datasetId: DatasetId,
+    field: { name: string; values: Float32Array; units?: string }
+  ): Promise<TractFieldInfo>;
+  removeTractField(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string
+  ): Promise<void>;
   /** What a tracts layer's last style left: visible count and group rows. `null` before it lands. */
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null;
 
@@ -936,6 +981,11 @@ export class MockEngine implements Engine {
     void src;
     throw new Error('phase 1');
   }
+  attachLabelNames(datasetId: DatasetId, src: DatasetSource): Promise<VolumeDataset> {
+    void datasetId;
+    void src;
+    throw new Error('phase 1');
+  }
   sampleTracts(
     spec: TractSampleSpec,
     onProgress?: (done: number, total: number) => void
@@ -947,6 +997,63 @@ export class MockEngine implements Engine {
   setTractBudget(datasetId: DatasetId, maxPoints: number | null): Promise<TractogramDataset> {
     void datasetId;
     void maxPoints;
+    throw new Error('phase 1');
+  }
+  attachTractFile(datasetId: DatasetId, src: DatasetSource): Promise<TractFieldInfo[]> {
+    void datasetId;
+    void src;
+    throw new Error('phase 1');
+  }
+  tractScan(
+    datasetId: DatasetId,
+    onChunk: (chunk: TractScanChunk) => void | Promise<void>,
+    opts?: TractScanOptions
+  ): Promise<{ streamlines: number; points: number }> {
+    void datasetId;
+    void onChunk;
+    void opts;
+    throw new Error('phase 1');
+  }
+  tractStructure(datasetId: DatasetId): Promise<TractStructure> {
+    void datasetId;
+    throw new Error('phase 1');
+  }
+  tractPoints(datasetId: DatasetId, first: number, count: number): Promise<Float32Array> {
+    void datasetId;
+    void first;
+    void count;
+    throw new Error('phase 1');
+  }
+  tractFieldValues(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string,
+    first: number,
+    count: number
+  ): Promise<Float32Array> {
+    void datasetId;
+    void kind;
+    void name;
+    void first;
+    void count;
+    throw new Error('phase 1');
+  }
+  setTractStreamlineField(
+    datasetId: DatasetId,
+    field: { name: string; values: Float32Array; units?: string }
+  ): Promise<TractFieldInfo> {
+    void datasetId;
+    void field;
+    throw new Error('phase 1');
+  }
+  removeTractField(
+    datasetId: DatasetId,
+    kind: 'vertex' | 'streamline',
+    name: string
+  ): Promise<void> {
+    void datasetId;
+    void kind;
+    void name;
     throw new Error('phase 1');
   }
   tractStyleInfo(layerId: LayerId): TractStyleInfo | null {

@@ -272,4 +272,46 @@ describe('the four bridge calls', () => {
       error: 'no preload bridge',
     });
   });
+
+  it("wraps the folder channel, and a refusal rejects with main's reason", async () => {
+    const log: unknown[][] = [];
+    const answer =
+      <T>(name: string, value: T) =>
+      async (...args: unknown[]): Promise<T> => {
+        log.push([name, ...args]);
+        return value;
+      };
+    (globalThis as { tetravox?: unknown }).tetravox = {
+      moduleChooseFolder: answer('choose', { ok: true, token: 'f', path: '/out' }),
+      moduleFolderCreate: answer('create', { ok: true, token: 'w' }),
+      moduleFolderWrite: answer('write', { ok: true }),
+      moduleFolderClose: answer('close', { ok: true, path: '/out/a.tck', bytes: 3 }),
+      moduleFolderAbort: answer('abort', { ok: false, error: 'not open' }),
+    };
+    const files = createHostFiles(MANIFEST, async () => null);
+    const folder = await files.chooseFolder('out', { suggestedName: 'run1' });
+    expect(folder?.path).toBe('/out');
+    const writer = await folder!.create('a.tck');
+    const bytes = new Uint8Array([1, 2, 3]);
+    await writer.write(bytes);
+    expect(await writer.close()).toEqual({ path: '/out/a.tck', bytes: 3 });
+    await expect(writer.abort()).rejects.toThrow('not open');
+    expect(log.slice(0, 4)).toEqual([
+      ['choose', 'tetravox.seeg', { writerId: 'out', suggestedName: 'run1' }],
+      ['create', 'tetravox.seeg', 'f', 'a.tck', { overwrite: false }],
+      ['write', 'tetravox.seeg', 'w', bytes],
+      ['close', 'tetravox.seeg', 'w'],
+    ]);
+  });
+
+  it('answers null when the sheet is cancelled, and rejects when main refuses or has no channel', async () => {
+    const stub = { moduleChooseFolder: async (): Promise<unknown> => null };
+    (globalThis as { tetravox?: unknown }).tetravox = stub;
+    const files = createHostFiles(MANIFEST, async () => null);
+    expect(await files.chooseFolder('out')).toBeNull();
+    stub.moduleChooseFolder = async () => ({ ok: false, error: 'not a directory writer' });
+    await expect(files.chooseFolder('out')).rejects.toThrow('not a directory writer');
+    delete (globalThis as { tetravox?: unknown }).tetravox;
+    await expect(files.chooseFolder('out')).rejects.toThrow('no folder channel');
+  });
 });

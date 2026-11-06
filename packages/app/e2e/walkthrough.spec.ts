@@ -203,6 +203,7 @@ test.describe('UX walk-through (ROADMAP Phase-2 gate)', () => {
       );
 
       // 4 — The raw header, verbatim.
+      await page.click('[data-testid="header-toggle"]');
       await page.fill('[data-testid="header-search"]', 'scl');
       await shoot('header', 'The header panel is the file’s own header, not a summary of it.', 2);
       await page.fill('[data-testid="header-search"]', '');

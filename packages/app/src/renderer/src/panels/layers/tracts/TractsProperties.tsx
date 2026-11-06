@@ -26,6 +26,7 @@ export { tractsSummary };
 
 const MODES: { value: TractsLayer['colorMode']; label: string }[] = [
   { value: 'direction', label: 'direction' },
+  { value: 'ends', label: 'end to end' },
   { value: 'solid', label: 'solid' },
   { value: 'vertex', label: 'per vertex' },
   { value: 'streamline', label: 'per streamline' },
@@ -144,6 +145,18 @@ function TractsEditor({
           />
         </Section>
       )}
+
+      <Row label="Data file">
+        <button
+          type="button"
+          data-testid={`tracts-attach-${id}`}
+          className="tvx-btn tvx-btn-sm ml-auto shrink-0"
+          title="Attach per-point values (.tsf) or per-streamline values (.txt, .csv), such as tcksift2 weights"
+          onClick={() => void controller.chooseTractData(id)}
+        >
+          Attach file…
+        </button>
+      </Row>
 
       <FilterSection layer={layer} dataset={dataset} patch={patch} />
       <GroupSection layer={layer} dataset={dataset} patch={patch} />
