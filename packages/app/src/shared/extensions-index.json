@@ -370,9 +370,7 @@
       "author": "idossha",
       "licence": "MIT",
       "docs": "https://github.com/idossha/tetravox-tract-tools#readme",
-      "screenshots": [
-        "tract-tools-network.png"
-      ],
+      "screenshots": ["tract-tools-network.png"],
       "versions": [
         {
           "version": "0.1.0",
