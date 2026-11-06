@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.8.1] - 2026-11-06
+
 ### Added
 
 - **FreeSurfer atlases show names by default.** An aseg or aparc with no lookup file now has real region names and
