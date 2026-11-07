@@ -8,6 +8,10 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.8.2] - 2026-11-07
+
 ### Fixed
 
 - **In-app updates work on Windows.** Every earlier Windows build refused updates with "not signed by the application
