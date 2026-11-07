@@ -452,6 +452,11 @@ jobs:
       - name: Self-test the extension loader guard
         run: node --test scripts/check-module-loader.test.mjs
 
+      # A Windows build given a certificate can never update itself (docs/RELEASING.md §5). ci.yml's
+      # package legs hold no secrets, so only this can catch it before a release does.
+      - name: Self-test the packaging script
+        run: node --test scripts/electron-builder.test.mjs
+
   # The Python client's document tests (`docs/AUTOMATION.md` §3) — **the first Python step in this
   # workflow**, and its own job for the docs guard's reasons rather than a step of `test`: it needs
   # no pnpm install, no toolchain and no build, it is ~20 seconds, and putting it in `test` would run

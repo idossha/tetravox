@@ -28,6 +28,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT/packages/app"
 
+# CSC_LINK is Apple's certificate and only a mac build may see it. electron-builder signs a Windows
+# build with it too and writes its name to `publisherName` in app-update.yml, and electron-updater
+# then rejects every update: Windows does not trust Apple's root, so the signature never validates.
+windows=0
+[ "$(uname -s)" = "Darwin" ] || [ "$(uname -s)" = "Linux" ] || windows=1
+for arg in "$@"; do
+  case "$arg" in --win | --windows | -w) windows=1 ;; esac
+done
+if [ "$windows" = "1" ]; then
+  unset CSC_LINK CSC_KEY_PASSWORD WIN_CSC_LINK WIN_CSC_KEY_PASSWORD
+  export CSC_IDENTITY_AUTO_DISCOVERY=false
+fi
+
 extra=()
 if [ "$(uname -s)" = "Darwin" ] && [ -z "${CSC_LINK:-}" ]; then
   echo "==> no CSC_LINK: building UNSIGNED (no hardened runtime, no notarisation)"

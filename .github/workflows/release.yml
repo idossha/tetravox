@@ -549,6 +549,29 @@ jobs:
           echo
           echo "All required assets are attached."
 
+      # A fatal check on an optional leg: a Windows build that names a publisher strands every copy
+      # that installs it, because electron-updater then refuses all later updates (docs/RELEASING.md §5).
+      - name: The Windows build must not name a publisher
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip="Tetravox-$VERSION-win-x64.zip"
+          if ! gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qxF "$zip"; then
+            echo "absent   $zip (optional — nothing to check)"
+            exit 0
+          fi
+          gh release download "$TAG" --pattern "$zip" --dir /tmp/win-check --clobber
+          config="$(unzip -p "/tmp/win-check/$zip" resources/app-update.yml)"
+          echo "$config"
+          if echo "$config" | grep -q '^publisherName:'; then
+            echo "app-update.yml names a publisher, so this build could never update itself." >&2
+            exit 1
+          fi
+
       # The end of the draft window. Only reached when every required asset above is present, which
       # is exactly the check a maintainer used to perform by eye. `--latest` is explicit rather than
       # inherited: GitHub picks "Latest" by semver among *published* releases, and saying so here
