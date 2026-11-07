@@ -8,7 +8,13 @@ and the versions are [semantic](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **In-app updates work on Windows.** Every earlier Windows build refused updates with "not signed by the application
+  owner". **Copies already installed cannot get past this on their own, so download
+  `Tetravox-0.8.2-win-x64.exe` from the Releases page and install it once, over the old copy.** Your settings and
+  extensions stay. Updates should work from the app after that. macOS and Linux are unchanged.
+- The Software Update dialog says "Update failed" when an update fails, rather than always "Could not check".
 
 ## [0.8.1] - 2026-11-06
 

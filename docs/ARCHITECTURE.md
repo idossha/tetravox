@@ -3846,6 +3846,12 @@ status-bar pill for as long as it stays true — and does nothing further until 
   lands on the next ordinary quit (`autoInstallOnAppQuit: true`), so "Later" is a real answer. A manual
   check (File ▸ Check for Updates…) ignores and clears the skip: asking again is un-skipping. Artefact
   integrity is the feed's sha512 per file, verified by electron-updater before install.
+* **A Windows build carries no `publisherName`** (2026-11-06). With one, electron-updater demands a
+  signature that validates on Windows from that publisher, and the only certificate here is Apple's, so
+  every update is refused. The value is fixed in the installed copy, so a mistake strands that copy
+  until a manual install. `scripts/electron-builder.sh` withholds the certificate,
+  `scripts/electron-builder.test.mjs` proves it in `docs-guard`, and `verify` will not publish a zip that
+  names a publisher (`docs/RELEASING.md` §5).
 * **IPC** is §5 rule 14. **Settings** are two ordinary `settings.json` keys (`checkForUpdates`,
   `skippedUpdateVersion`), both renderer-writable — a skip is a preference, not a capability.
 * **Tests.** `updater.test.ts` injects the `UpdaterImpl`/`fetchImpl` seams and asserts the refusals

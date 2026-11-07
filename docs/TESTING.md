@@ -182,6 +182,7 @@ node scripts/check-frozen-docs.mjs --base origin/main
 node --test scripts/sync-module-docs.test.mjs    # the generator's own fixtures, same idiom
 node scripts/sync-module-docs.mjs --check        # §2.7 still says what the manifests say
 node --test scripts/check-module-loader.test.mjs # §13.8's loader guard, driven red
+node --test scripts/electron-builder.test.mjs    # no certificate reaches a Windows build (RELEASING §5)
 ```
 
 CI runs all of these in the `docs-guard` job — the *self-tests* of the loader guard included, because they

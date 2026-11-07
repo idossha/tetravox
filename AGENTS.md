@@ -100,6 +100,10 @@ is wrong (it hard-codes 2 tags into a 3); §6.2 has the correct layout.
   for `--version` — the npm tarball's `chrome-sandbox` is not root-owned setuid and Chromium aborts.
 - **`pnpm package` builds this platform's artefacts only.** Linux artefacts come from CI or
   `docker run electronuserland/builder`.
+- **A Windows build must never see a signing certificate.** It would name a publisher in `app-update.yml`, and
+  every copy installed from it refuses all updates until someone reinstalls by hand (`docs/RELEASING.md` §5). Build
+  through `scripts/electron-builder.sh`, and never add `publisherName` or a Windows certificate without a tested way
+  to move installed copies across.
 - **The golden authority (SwiftShader) has no `EXT_texture_norm16`**, so goldens pin the R32F branch of §6.1's
   ladder while the shipping renderer uses R16. Format-path coverage comes from `forceCaps` on the
   `chromium-angle` leg, not from a picture.

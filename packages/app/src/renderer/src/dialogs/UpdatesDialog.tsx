@@ -127,7 +127,7 @@ export function UpdatesDialog({
 
         {phase === 'error' && (
           <p className="break-words text-[11px] text-tvx-danger" role="alert">
-            Could not check for updates: {status?.error ?? 'unknown error'}
+            Update failed: {status?.error ?? 'unknown error'}
           </p>
         )}
 

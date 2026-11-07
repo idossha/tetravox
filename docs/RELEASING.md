@@ -249,8 +249,9 @@ stapled ticket once the image is mounted) but `stapler validate` on them reports
 
 ### The four secrets
 
-`release.yml`'s build step passes these on every leg and tolerates all of them being empty. Only the
-first four are secrets; `APPLE_TEAM_ID` is public and is written in the workflow (`3BMY24SA43`).
+`release.yml`'s build step passes these on every leg and tolerates all of them being empty, and
+`scripts/electron-builder.sh` withholds the certificate from a Windows build (§5). Only the first four
+are secrets; `APPLE_TEAM_ID` is public and is written in the workflow (`3BMY24SA43`).
 
 | Secret | What it is | Where it comes from |
 |---|---|---|
@@ -309,6 +310,19 @@ over downloads, which an unpopular installer never accumulates, so the warning w
 tested, not assumed: `electron-builder --win --x64` on macOS arm64 downloads `nsis-3.0.4.1.7z` and a
 darwin-arm64 7-zip, runs a native `makensis`, and writes a 107 MB `Tetravox-0.1.0-win-x64.exe`. Wine
 is needed for *signing* a Windows binary from a non-Windows host, and this project signs nothing.
+
+**A Windows build must stay unsigned, or it can never update.** If it sees `CSC_LINK`, electron-builder
+signs it with Apple's certificate and writes that name to `publisherName` in `resources/app-update.yml`.
+electron-updater then requires a valid signature from that publisher on every update, and Windows does
+not trust Apple's root, so each one fails with "not signed by the application owner". Every Windows
+release through 0.8.1 has this, and the setting lives in the installed copy, so those copies need one
+manual install. With no `publisherName`, an update is checked against the sha512 in `latest.yml` only.
+
+Three things hold this: `scripts/electron-builder.sh` withholds the certificate,
+`scripts/electron-builder.test.mjs` proves that on every pull request, and `release.yml`'s verify job
+refuses to publish a Windows zip whose config names a publisher. If that job fails, the Release stays a
+draft: fix the cause and cut a new version. **Any future move to Windows signing must first show that an
+installed copy can update onto the signed build.**
 
 The matrix builds it on `windows-latest` anyway, for one reason: that is the only runner where the
 result can be launched. An installer nobody has ever run is not evidence.
